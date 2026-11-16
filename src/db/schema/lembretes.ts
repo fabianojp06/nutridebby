@@ -20,6 +20,11 @@ export const lembretesRotina = pgTable(
     config: jsonb('config').notNull(),
     texto: text('texto'),
     ligado: boolean('ligado').notNull().default(true),
+    /**
+     * Marca do paciente (gatilho lembretes_rotina_regras, 0119; lembretes_rotina_sem_apagar, 0120). A equipe NUNCA inclui
+     * esta coluna no `set()` de um UPDATE: reenviar o valor lido perde os microssegundos do clock_timestamp() e o gatilho
+     * recusa com 42501.
+     */
     desligadoPeloPacienteEm: timestamp('desligado_pelo_paciente_em', { withTimezone: true }),
     /** Quem criou (a usuária da sessão). Sem FK, como audit_log.actor_user_id. */
     criadoPor: uuid('criado_por').notNull(),

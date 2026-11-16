@@ -53,7 +53,8 @@ export const patients = pgTable(
     /**
      * Plano 17 (§5.3): "Pausar todos os lembretes" — só a sessão de paciente pausa e retoma (relógio do banco); o worker
      * (anonimização) e a ida a `bloqueado` (exclusão atendida) limpam. Gatilho patients_lembretes_do_paciente (0119) e
-     * `livres` do paciente_colunas.
+     * `livres` do paciente_colunas. A equipe NUNCA inclui esta coluna no `set()` de um UPDATE (salvo a limpeza na ida a
+     * `bloqueado`): reenviar o valor lido perde os microssegundos do clock_timestamp() e o gatilho recusa com 42501.
      */
     lembretesPausadosEm: timestamp('lembretes_pausados_em', { withTimezone: true }),
     status: text('status').notNull().default('ativo'),

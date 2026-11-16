@@ -150,6 +150,41 @@ describe('lembretes_rotina: quem muda o quê (Plano 17, §5.3)', () => {
   });
 });
 
+describe('lembretes_rotina: a equipe não apaga o que o paciente desligou (Plano 17, §5.3; 0120)', () => {
+  const apagar = (ctx: TenantContext, id: string) =>
+    withTenant(ctx, (tx) => tx.delete(lembretesRotina).where(eq(lembretesRotina.id, id)).returning({ id: lembretesRotina.id }), app.db);
+
+  it('nutri não apaga o lembrete desligado pelo paciente', async () => {
+    const { T, comoPaciente, criar, lembrete } = await cenario();
+    const agua = await criar();
+    await lembrete(comoPaciente, agua.id, { desligadoPeloPacienteEm: new Date() });
+    expect(await falhaCom(apagar(T.ctx, agua.id))).toBe('42501');
+    // continua lá, e a equipe ainda o desliga do lado dela
+    expect((await lembrete(T.ctx, agua.id, { ligado: false }))[0]).toMatchObject({ ligado: false });
+  });
+
+  it('nutri apaga lembrete não desligado', async () => {
+    const { T, criar } = await cenario();
+    const agua = await criar();
+    expect(await apagar(T.ctx, agua.id)).toEqual([{ id: agua.id }]);
+  });
+
+  it('com o paciente bloqueado, a nutri apaga o desligado', async () => {
+    const { T, comoPaciente, criar, lembrete, paciente } = await cenario();
+    const agua = await criar();
+    await lembrete(comoPaciente, agua.id, { desligadoPeloPacienteEm: new Date() });
+    await paciente(T.ctx, { status: 'bloqueado', bloqueadoEm: new Date() });
+    expect(await apagar(T.ctx, agua.id)).toEqual([{ id: agua.id }]);
+  });
+
+  it('o worker apaga o desligado', async () => {
+    const { comoPaciente, worker, criar, lembrete } = await cenario();
+    const agua = await criar();
+    await lembrete(comoPaciente, agua.id, { desligadoPeloPacienteEm: new Date() });
+    expect(await apagar(worker, agua.id)).toEqual([{ id: agua.id }]);
+  });
+});
+
 describe('lembretes_rotina_envios: a marca do último envio (Plano 17, §5.5)', () => {
   it('marca de envio só pelo worker', async () => {
     const { T, worker, em, criar } = await cenario();
