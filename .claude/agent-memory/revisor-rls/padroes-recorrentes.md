@@ -435,3 +435,7 @@ Plano 27, T1a (tabelas e RLS sem gatilhos, 23/11/2026): limpa na lente banco. A 
 - Commit intermediário com `app_allow_paciente_escrita` e SEM o gatilho de colunas/transições (fica para a fatia seguinte):
   o paciente reescreve qualquer coluna da própria linha. Só aceitável se o PR sai inteiro; conferir antes do PR.
 - FK de UNIQUE novo em tabela existente: o drizzle-kit cria o UNIQUE depois das FKs (42830) → FK só na custom (molde 0112).
+Plano 23, T1a (Agenda 2, banco, 17/11/2026):
+- Política RESTRICTIVE `FOR SELECT` usada para "o papel não grava o estado X" (aguardando_fora_do_publico): barra o UPDATE
+  (linha nova conferida pelo SELECT) e o FOR UPDATE, mas NÃO o INSERT sem RETURNING — o `publico` insere a linha já no estado
+  X (provado no dev com rollback). Conferir os três comandos; pedir FOR ALL (USING + WITH CHECK) ou política de INSERT própria.
