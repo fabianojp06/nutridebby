@@ -182,11 +182,18 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
         select ${t}, 'entrada', c.id, 100, '2026-11-10', ${p}, coalesce(app_current_user(), gen_random_uuid()) from c`,
   // Plano 18: cpf nulo (com CPF fixo, a fábrica de P1 e P2 cairia em patient_cadastro_cpf_unico)
   patient_cadastro: (t, p) => sql`insert into patient_cadastro (tenant_id, patient_id, estado_civil) values (${t}, ${p}, 'casado')`,
+  // Plano 23: a fábrica roda duas vezes por tenant — nome pelo paciente e principal = false (índices únicos de nome e de
+  // principal); as filhas (consultas, regras, pedidos) deixam local_id nulo (FK anulável, regra 9)
+  locais_atendimento: (t, p) => sql`insert into locais_atendimento (tenant_id, nome, tipo, principal) values (${t}, ${`Local ${p}`}, 'presencial', false)`,
+  // Plano 23 (RN-433), molde de ia_autorizacoes: `retirou`: o gatilho nunca procura o titular, que B e P2 não enxergam;
+  // `coalesce`: nos contextos sem usuário (publico, conta) o gatilho deixa passar e a RLS recusa
+  aniversario_autorizacoes: (t, p) =>
+    sql`insert into aniversario_autorizacoes (tenant_id, patient_id, evento, origem, forma, registrado_por) values (${t}, ${p}, 'retirou', 'nutri', 'escrito', coalesce(app_current_user(), gen_random_uuid()))`,
 };
 /** Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). */
 const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker' };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
-const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes', 'ia_nutri_consentimentos']);
+const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes', 'ia_nutri_consentimentos', 'aniversario_autorizacoes']);
 /**
  * D9 (Plano 11): UPDATE permitido, DELETE negado à equipe — ia_tarefas pelo gatilho ia_tarefas_sem_apagar (só o worker
  * apaga, na anonimização) e ia_uso por REVOKE. O teste de DELETE do tenant B pula o DELETE e confere que nada sumiu.
@@ -249,7 +256,8 @@ const SO_APAGA: Record<string, SQL> = {
                 and not exists (select 1 from ia_nutri_mensagens x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
                 and not exists (select 1 from ia_nutri_consentimentos x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
                 and not exists (select 1 from fin_lancamentos f where f.tenant_id = patients.tenant_id and f.patient_id = patients.id)
-                and not exists (select 1 from patient_cadastro c where c.tenant_id = patients.tenant_id and c.patient_id = patients.id)`,
+                and not exists (select 1 from patient_cadastro c where c.tenant_id = patients.tenant_id and c.patient_id = patients.id)
+                and not exists (select 1 from aniversario_autorizacoes a where a.tenant_id = patients.tenant_id and a.patient_id = patients.id)`,
   // Plano 20: a categoria com lançamento não se apaga (FK NO ACTION de fin_lancamentos, que está em SEM_DELETE) e "Consultas"
   // (chave preenchida) nunca (gatilho fin_categorias_fixas)
   fin_categorias: sql`chave is null and not exists (select 1 from fin_lancamentos f where f.tenant_id = fin_categorias.tenant_id and f.categoria_id = fin_categorias.id)`,
@@ -258,9 +266,10 @@ const SO_APAGA: Record<string, SQL> = {
  * Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`;
  * as filhas de conteúdo, Plano 07, apontam para `contents`/`recipes` com cascata: apagar a mãe antes zeraria as linhas de B que o teste ainda conta;
  * Plano 10A: notas, recibos e códigos apontam para `signed_documents`, que aponta para `stored_files` e `patients`;
- * Plano 17: `lembretes_rotina_envios` aponta para `lembretes_rotina` com cascata — apagar o lembrete antes zeraria as marcas de B).
+ * Plano 17: `lembretes_rotina_envios` aponta para `lembretes_rotina` com cascata — apagar o lembrete antes zeraria as marcas de B;
+ * Plano 23: `appointments`, `availability_rules` e `public_booking_requests` apontam para `locais_atendimento` com FK NO ACTION).
  */
-const ULTIMAS = ['meals', 'meal_plans', 'recipes', 'contents', 'anamnesis_templates', 'foods', 'appointments', 'signed_documents', 'stored_files', 'lembretes_rotina', 'patients'];
+const ULTIMAS = ['meals', 'meal_plans', 'recipes', 'contents', 'anamnesis_templates', 'foods', 'appointments', 'locais_atendimento', 'signed_documents', 'stored_files', 'lembretes_rotina', 'patients'];
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
