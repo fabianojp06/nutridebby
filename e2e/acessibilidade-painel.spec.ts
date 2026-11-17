@@ -33,12 +33,25 @@ test.afterAll(async () => {
   await nutri?.context().close();
 });
 
-async function violacoes(page: Page, incluir?: string): Promise<string[]> {
+async function violacoes(page: Page, incluir?: string, opcoes: { ignorarForaDaTela?: boolean } = {}): Promise<string[]> {
   const axe = new AxeBuilder({ page }).withTags(TAGS);
   const r = await (incluir ? axe.include(incluir) : axe).analyze();
   expect(r.passes.length, 'o axe rodou regras na página').toBeGreaterThan(0);
   // fundos com transparência caem em "incomplete" no color-contrast: não podem passar calados
-  const contrasteIncerto = r.incomplete.filter((i) => i.id === 'color-contrast').flatMap((i) => i.nodes.map((n) => `incompleto color-contrast: ${n.target.join(' ')}`));
+  let incertos = r.incomplete.filter((i) => i.id === 'color-contrast').flatMap((i) => i.nodes.map((n) => n.target.join(' ')));
+  if (opcoes.ignorarForaDaTela) {
+    // Plano 18: a 360 px a faixa de abas da ficha e a tabela da lista rolam na horizontal; o axe não calcula o contraste do
+    // que não cabe inteiro na largura da tela (fora dela ou cortado na borda do contêiner que rola: "incomplete"). Só esses
+    // saem; o que aparece inteiro na tela continua conferido, e a 1280 px (tudo cabe) nada sai.
+    const fora = await page.evaluate((alvos) => alvos.map((a) => {
+      const el = document.querySelector(a);
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.left < 0 || r.right > window.innerWidth;
+    }), incertos);
+    incertos = incertos.filter((_, i) => !fora[i]);
+  }
+  const contrasteIncerto = incertos.map((alvo) => `incompleto color-contrast: ${alvo}`);
   return [...r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`), ...contrasteIncerto];
 }
 
@@ -136,7 +149,7 @@ test('Plano 18: Início, Perfil, lista e "No app do paciente" a 1280 e 360 px, c
           await nutri.goto(t.url);
           await t.pronta();
           await nutri.waitForLoadState('networkidle');
-          for (const v of await violacoes(nutri)) falhas.push(`${largura} px ${tema} ${t.url} — ${v}`);
+          for (const v of await violacoes(nutri, undefined, { ignorarForaDaTela: largura < 1280 })) falhas.push(`${largura} px ${tema} ${t.url} — ${v}`);
         }
       }
     }
