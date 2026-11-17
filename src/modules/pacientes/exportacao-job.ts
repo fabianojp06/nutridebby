@@ -24,6 +24,7 @@ import {
   mealPlans,
   meals,
   notifications,
+  patientCadastro,
   patients,
   privacyRequests,
   pushSubscriptions,
@@ -53,6 +54,8 @@ import { iaNutriParaExportacao, type IaNutriExportado } from '@/modules/ia/nutri
 import { documentosParaExportacao, type DocumentoExportado } from '@/modules/documentos/lgpd-documentos';
 import { ROTULO_RESPOSTA, type RespostaDoDiario } from '@/modules/portal/diario-constantes';
 import { respostaParaCampo } from './anamnese-tipos';
+import { ESCOLARIDADES, ESTADOS_CIVIS, IDENTIDADES_DE_GENERO, type Opcao } from './cadastro-textos';
+import { formatarCpf } from './cpf';
 import { ROTULO_MOTIVO_RECUSA, type MotivoRecusa } from './exames-enviados-constantes';
 import { hojeNoFuso } from './datas';
 import { EXPORTACAO_VALIDADE_MS, linkDaExportacao } from './exportacao';
@@ -61,6 +64,85 @@ import { formatarTelefone } from './telefone';
 import { renderizarProntuario } from './prontuario-pdf';
 
 // Só o worker importa este arquivo (e o PDF): @react-pdf/renderer fica fora do grafo do Next.
+
+/** Plano 18 (§10): o cadastro complementar no `dados.json`. */
+export type CadastroExportado = {
+  cpf: string | null;
+  nomeSocial: string | null;
+  identidadeDeGenero: string | null;
+  estadoCivil: string | null;
+  escolaridade: string | null;
+  ocupacao: string | null;
+  nacionalidade: string | null;
+  naturalidade: string | null;
+  telefoneFixo: string | null;
+  endereco: {
+    cep: string | null;
+    rua: string | null;
+    numero: string | null;
+    complemento: string | null;
+    bairro: string | null;
+    cidade: string | null;
+    uf: string | null;
+  };
+  observacao: string | null;
+};
+
+/** O rótulo da tela de um valor de lista fechada (um valor fora da lista, que o CHECK não deixa gravar, sai como está). */
+const rotuloDe = (opcoes: readonly Opcao<string>[], valor: string | null) =>
+  valor === null ? null : (opcoes.find((o) => o.valor === valor)?.rotulo ?? valor);
+const CEP = /^(\d{5})(\d{3})$/;
+
+/**
+ * Plano 18 (§10, D18): o cadastro complementar por inclusão explícita — cada coluna nomeada aqui (as decisões de cada
+ * coluna em `colunas-decididas.test.ts`); uma coluna nova da tabela não entra sem passar por lá.
+ */
+async function cadastroParaExportacao(tx: Tx, patientId: string): Promise<CadastroExportado | null> {
+  const [c] = await tx
+    .select({
+      cpf: patientCadastro.cpf,
+      nomeSocial: patientCadastro.nomeSocial,
+      identidadeGenero: patientCadastro.identidadeGenero,
+      estadoCivil: patientCadastro.estadoCivil,
+      escolaridade: patientCadastro.escolaridade,
+      ocupacao: patientCadastro.ocupacao,
+      nacionalidade: patientCadastro.nacionalidade,
+      naturalidade: patientCadastro.naturalidade,
+      telefoneFixoE164: patientCadastro.telefoneFixoE164,
+      cep: patientCadastro.cep,
+      logradouro: patientCadastro.logradouro,
+      numero: patientCadastro.numero,
+      complemento: patientCadastro.complemento,
+      bairro: patientCadastro.bairro,
+      cidade: patientCadastro.cidade,
+      uf: patientCadastro.uf,
+      observacao: patientCadastro.observacao,
+    })
+    .from(patientCadastro)
+    .where(eq(patientCadastro.patientId, patientId));
+  if (!c) return null;
+  return {
+    cpf: c.cpf ? formatarCpf(c.cpf) : null,
+    nomeSocial: c.nomeSocial,
+    identidadeDeGenero: rotuloDe(IDENTIDADES_DE_GENERO, c.identidadeGenero),
+    estadoCivil: rotuloDe(ESTADOS_CIVIS, c.estadoCivil),
+    escolaridade: rotuloDe(ESCOLARIDADES, c.escolaridade),
+    ocupacao: c.ocupacao,
+    nacionalidade: c.nacionalidade,
+    naturalidade: c.naturalidade,
+    telefoneFixo: c.telefoneFixoE164 ? formatarTelefone(c.telefoneFixoE164) : null,
+    endereco: {
+      cep: c.cep ? c.cep.replace(CEP, '$1-$2') : null,
+      rua: c.logradouro,
+      numero: c.numero,
+      complemento: c.complemento,
+      bairro: c.bairro,
+      cidade: c.cidade,
+      uf: c.uf,
+    },
+    observacao: c.observacao,
+  };
+}
 
 /** US-046 (Plano 06): `equipe` = pedida pela nutricionista; `titular` = pelo paciente no portal (sem rascunho). */
 export type EscopoExportacao = 'equipe' | 'titular';
@@ -111,6 +193,12 @@ export type DadosExportacao = {
     pesoOcultoNoAppEm: string | null;
     /** Plano 17 (§5.5): "Pausar todos os lembretes" (desde quando), escolha do próprio titular — nos dois escopos. */
     lembretesPausadosEm: string | null;
+    /**
+     * Plano 18 (§10, D18, RN-262): o cadastro complementar (`patient_cadastro`) — nos dois escopos. CPF e telefone fixo
+     * formatados como a tela; identidade de gênero, estado civil e escolaridade pelo rótulo que a tela mostra (LGPD, art.
+     * 19, II); CEP como a tela. O único lugar fora do formulário com o CPF (RN-262). Sem linha (nunca preenchido): `null`.
+     */
+    cadastro: CadastroExportado | null;
   };
   anamneses: {
     data: string;
@@ -324,7 +412,8 @@ async function planosParaExportacao(tx: Tx, ids: string[], escopo: EscopoExporta
 }
 
 /**
- * Todas as tabelas do paciente, menos as staff_only (notas privadas, etiquetas). Consultas em sequência:
+ * Todas as tabelas do paciente, menos as staff_only (notas privadas, etiquetas) — inclusive o cadastro complementar
+ * (`patient_cadastro`, Plano 18, por inclusão explícita: `cadastroParaExportacao`). Consultas em sequência:
  * uma transação é uma conexão só, e consultas paralelas nela geram o aviso de descontinuação do pg 8.23
  * (erro no pg 9).
  */
@@ -336,6 +425,7 @@ export async function montarDados(
   escopo: EscopoExportacao = 'equipe',
 ): Promise<{ dados: DadosExportacao; laudos: AnexoParaZip[] }> {
   const [p] = await tx.select().from(patients).where(eq(patients.id, patientId));
+  const cadastro = await cadastroParaExportacao(tx, patientId); // Plano 18 (§10): os dois escopos
   const as = await tx
     .select()
     .from(anamneses)
@@ -484,6 +574,7 @@ export async function montarDados(
       })),
       pesoOcultoNoAppEm: p.pesoOcultoNoAppEm?.toISOString() ?? null, // D6 ★ revista: nos dois escopos
       lembretesPausadosEm: p.lembretesPausadosEm?.toISOString() ?? null,
+      cadastro,
     },
     anamneses: as.map((a) => ({
       data: a.data,
