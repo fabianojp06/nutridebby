@@ -52,9 +52,11 @@ preferência no primeiro dia útil do mês (a data da virada vira o começo do f
    entrada"**, "Paciente (opcional)" = o paciente, "Categoria" = "Consultas" (ou outra), "Valor", "Vencimento" = a data
    original da cobrança, **sem** marcar "Já foi recebido". Vale também para pacientes **arquivados** (aparecem no
    seletor com "(arquivado)"); paciente **bloqueado** por pedido de exclusão não aparece, e não é possível criar
-   lançamento novo para ele — anotar à parte e falar com o dono. A pendência com vencimento antes da virada fica "Em atraso" e,
-   ao salvar, a tela mostra "Este lançamento é anterior ao saldo do caixa ({data}) e não altera o saldo atual." — é o
-   esperado: ela entra no saldo quando for recebida (a data do recebimento é depois da virada).
+   lançamento novo para ele — anotar à parte e falar com o dono. A pendência com vencimento antes da virada fica "Em atraso"
+   e salva sem aviso: em aberto, ela não mexe no saldo; entra nele quando for recebida (a data do recebimento é depois
+   da virada). O aviso "Este lançamento é anterior ao saldo do caixa ({data}) e não altera o saldo atual." só aparece
+   num lançamento **já recebido ou pago** com a data do recebimento ou do pagamento antes da data do saldo — se ele
+   aparecer aqui, a pendência foi marcada como recebida por engano (ou é histórico já pago, que não se lança: passo 4).
 4. **Não lançar o histórico já pago.** O que já foi recebido ou pago antes da virada fica no Dietbox (está dentro do
    saldo informado no passo 2). Lançá-lo de novo contaria em dobro nos relatórios do ano.
 5. **Conferir na hora:** Resumo → "Saldo atual" igual ao saldo do passo 2 ("Desde o saldo de {data}");
