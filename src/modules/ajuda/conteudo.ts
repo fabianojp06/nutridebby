@@ -462,6 +462,9 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'financeiro-novo', titulo: 'Lançamento', texto: 'Valor, categoria e vencimento. Marque "Já foi recebido" (ou "Já foi pago") quando o dinheiro já entrou ou saiu. O paciente é opcional e só aparece na entrada.' },
       { alvo: 'financeiro-receber', titulo: 'Receber', texto: 'Use "Marcar como recebido" com a data e a forma de pagamento. Lançou por engano? "Desfazer recebimento" volta o lançamento para em aberto.' },
       { alvo: 'financeiro-cancelar', titulo: 'Cancelar', texto: 'Lançamento não se apaga: "Cancelar lançamento" pede o motivo e não tem volta. Ele continua na lista, como Cancelado, fora dos totais e do saldo.' },
+      { alvo: 'financeiro-pendentes', titulo: 'Pagamentos pendentes', texto: 'As cobranças dos pacientes ainda não recebidas, por paciente, da mais antiga para a mais nova. Toque em "Ver" para receber cada uma. Nada é enviado ao paciente.' },
+      { alvo: 'financeiro-relatorios', titulo: 'Relatórios', texto: 'O fluxo de caixa do ano, mês a mês, e as entradas e saídas dos últimos 12 meses. Só entram os lançamentos recebidos ou pagos. Escolha o ano em "Ano".' },
+      { alvo: 'financeiro-csv', titulo: 'CSV para o contador', texto: 'Escolha o período, de até 12 meses, e toque em "Baixar CSV". Sem "Incluir o nome dos pacientes", o arquivo sai sem os nomes e sem a descrição das entradas de pacientes.' },
     ],
   },
 ];

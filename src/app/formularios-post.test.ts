@@ -21,6 +21,9 @@ const GET_PERMITIDOS: Record<string, string> = {
   'src/app/admin/page.tsx': 'P09-07: busca da lista de consultórios do admin (nome, endereço, e-mail da nutricionista — sem dado de saúde)',
   'src/app/painel/financeiro/lancamentos/filtros.tsx':
     'Plano 20 (§4.1, RN-306): filtros da lista de lançamentos — mês, tipo, categoria, situação, forma e o id do paciente, só opções de <select> (nada digitado)',
+  'src/app/painel/financeiro/relatorios/page.tsx': 'Plano 20 (US-306): o "Ano" dos relatórios, só opção de <select> (nada digitado)',
+  'src/app/painel/financeiro/relatorios/baixar-csv.tsx':
+    'Plano 20 (§4.1, RN-321): o download do CSV é navegação GET para a rota do arquivo — só as datas "De"/"Até" e a caixa "Incluir o nome dos pacientes", sem dado de saúde nem texto livre',
 };
 
 type Achado = { arquivo: string; linha: number; motivo: string };

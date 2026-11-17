@@ -44,6 +44,9 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/financeiro/lancamentos': () => '/painel/financeiro/lancamentos',
   '/painel/financeiro/lancamentos/novo': () => '/painel/financeiro/lancamentos/novo?tipo=entrada',
   '/painel/financeiro/lancamentos/[id]': (i) => `/painel/financeiro/lancamentos/${i.lancamento}`,
+  '/painel/financeiro/pendencias': () => '/painel/financeiro/pendencias',
+  '/painel/financeiro/pendencias/[patientId]': (i) => `/painel/financeiro/pendencias/${i.paciente}`, // o paciente do lançamento
+  '/painel/financeiro/relatorios': () => '/painel/financeiro/relatorios',
   '/painel/pacientes': () => '/painel/pacientes',
   '/painel/pacientes/novo': () => '/painel/pacientes/novo',
   '/painel/pacientes/[id]': (i) => `/painel/pacientes/${i.paciente}`, // a aba Início (Plano 18; era o Resumo)

@@ -391,3 +391,8 @@ Plano 20, T7 (cobrança da consulta, 17/11/2026) — revisão limpa na lente ban
   não espera UPDATE simples); (b) nenhum throw residual (ex.: categoria ausente) no caminho chamado.
 - Action de seção que recebe o id do registro pelo formulário (não por bind) ao lado do id da página: só RLS do tenant
   limita; costuma ser Minor (a usuária já pode agir no registro pela tela própria).
+
+Plano 20, re-revisão do /code-review do PR 1 (17/11/2026):
+- Ramo `worker` de gatilho de anonimização guardado só por marcador local (`app.<x>_anonimizando`): o marcador pode ser
+  ligado à mão; o gatilho tem de reconferir o prazo/estado da função e fixar datas pelo relógio do banco. Depois de barrar
+  o pago, conferir o inverso: o em aberto anonimizado SEM cancelamento ainda passa (fica pendente para sempre).

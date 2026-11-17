@@ -1,5 +1,6 @@
+import { eq, sql } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
-import type { FinCategoriaRow, TipoLancamento } from '@/db/schema';
+import { finLancamentos, type FinCategoriaRow, type TipoLancamento } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { idValido } from '@/modules/pacientes/base';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
@@ -14,12 +15,20 @@ import {
   type PacienteDoFinanceiro,
   type PacienteParaLancamento,
 } from './lancamentos';
-import type { FiltrosLista, LancamentoNaTela } from './tipos';
+import {
+  dozeMesesNaTransacao,
+  fluxoNaTransacao,
+  pendentesNaTransacao,
+  type EntradasESaidasDoMes,
+  type PagamentoPendente,
+} from './resumo';
+import type { FiltrosLista, FluxoDoAno, LancamentoNaTela } from './tipos';
 
 /**
- * RNF-301: "cada tela em uma transação". As telas dos lançamentos (Plano 20, T6) leem tudo o que mostram num `withTenant`
- * só — uma conexão do pool por requisição, uma fotografia consistente do banco —, com as mesmas consultas e a mesma
- * auditoria (RN-318) das funções avulsas de `lancamentos.ts` e `configuracoes.ts`, que continuam para quem só precisa de uma.
+ * RNF-301: "cada tela em uma transação". As telas dos lançamentos (Plano 20, T6), de Pagamentos pendentes e de Relatórios
+ * (T8) leem tudo o que mostram num `withTenant` só — uma conexão do pool por requisição, uma fotografia consistente do
+ * banco —, com as mesmas consultas e a mesma auditoria (RN-318) das funções avulsas de `lancamentos.ts`,
+ * `configuracoes.ts` e `resumo.ts`, que continuam para quem só precisa de uma.
  */
 type Deps = { db?: Db; agora?: Date };
 type Tenant = { fuso: string };
@@ -112,6 +121,64 @@ export async function telaDeEdicao(ctx: TenantContext, tenant: Tenant, id: strin
         .filter((c) => c.tipo === l.tipo && (c.arquivadaEm === null || c.id === l.categoria.id))
         .map((c) => ({ id: c.id, nome: c.nome }));
       return { lancamento: l, categorias };
+    },
+    deps.db ?? getDb(),
+  );
+}
+
+export type TelaDePendencias = { config: null } | { config: Configuracao; pendentes: PagamentoPendente[] };
+
+/** "Pagamentos pendentes" (US-304). Sem configuração (RN-301), só a configuração nula. Sem `auditRead` (RN-318). */
+export async function telaDePendencias(ctx: TenantContext, tenant: Tenant, deps: Deps = {}): Promise<TelaDePendencias> {
+  exigirNutri(ctx);
+  const hoje = hojeNoFuso(tenant.fuso, deps.agora ?? new Date());
+  return withTenant(
+    ctx,
+    async (tx) => {
+      const config = await configuracaoNaTransacao(tx);
+      if (!config) return { config: null };
+      return { config, pendentes: await pendentesNaTransacao(tx, ctx.tenantId, hoje) };
+    },
+    deps.db ?? getDb(),
+  );
+}
+
+export type TelaDeRelatorios =
+  | { config: null }
+  | {
+      config: Configuracao;
+      /** O ano mostrado: o pedido, se estiver em `anos`; senão o atual. */
+      ano: number;
+      /** As opções de "Ano", do mais recente ao mais antigo: do ano atual até o do saldo ou do lançamento mais antigo. */
+      anos: number[];
+      fluxo: FluxoDoAno;
+      dozeMeses: EntradasESaidasDoMes[];
+    };
+
+/**
+ * "Relatórios" (US-306): o fluxo de caixa do ano e as entradas e saídas dos últimos 12 meses, na mesma transação (RNF-301).
+ * `anoPedido` vem da URL (`?ano=`): fora da lista, o ano atual no fuso. Sem `auditRead` (RN-318).
+ */
+export async function telaDeRelatorios(ctx: TenantContext, tenant: Tenant, anoPedido: string | undefined, deps: Deps = {}): Promise<TelaDeRelatorios> {
+  exigirNutri(ctx);
+  const hoje = hojeNoFuso(tenant.fuso, deps.agora ?? new Date());
+  const atual = Number(hoje.slice(0, 4));
+  return withTenant(
+    ctx,
+    async (tx) => {
+      const config = await configuracaoNaTransacao(tx);
+      if (!config) return { config: null };
+      const [antigo] = await tx
+        .select({ dia: sql<string | null>`min(coalesce(${finLancamentos.pagoEm}, ${finLancamentos.vencimento}))::text` })
+        .from(finLancamentos)
+        .where(eq(finLancamentos.tenantId, ctx.tenantId));
+      const primeiro = Math.min(atual, Number(config.saldoInicialEm.slice(0, 4)), antigo?.dia ? Number(antigo.dia.slice(0, 4)) : atual);
+      const anos = Array.from({ length: atual - primeiro + 1 }, (_, i) => atual - i);
+      const pedido = Number(anoPedido);
+      const ano = anoPedido && /^\d{4}$/.test(anoPedido) && anos.includes(pedido) ? pedido : atual;
+      const fluxo = await fluxoNaTransacao(tx, ctx.tenantId, ano, config);
+      const dozeMeses = await dozeMesesNaTransacao(tx, ctx.tenantId, hoje);
+      return { config, ano, anos, fluxo, dozeMeses };
     },
     deps.db ?? getDb(),
   );
