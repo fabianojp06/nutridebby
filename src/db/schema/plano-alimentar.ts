@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, foreignKey, index, integer, jsonb, numeric, pgTable, smallint, text, time, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { foods } from './alimentos';
+import type { ValoresDaReferencia } from './biblioteca-plano';
 import { iaGeracoesModelos } from './ia';
 import { patients } from './pacientes';
 import { storedFiles, tenants } from './platform';
@@ -16,6 +17,11 @@ export type NutrientesCongelados = {
   lipidioG: number | null;
   fibraG: number | null;
 };
+
+/** Plano 19 (RN-238): cópia do perfil de referência gravada na publicação (o id é o do perfil no momento). */
+export type ReferenciaCongelada = { id: string; nome: string; fonte: string; valores: ValoresDaReferencia };
+/** Plano 19 (RN-244): distribuição de macros do plano em texto livre, em % do VET (formato conferido no código). */
+export type MacrosPrescritos = { proteina: number; carboidrato: number; lipidio: number };
 
 /** US-022–026, RN-01. `patient_id` nulo = modelo (US-024). */
 export const mealPlans = pgTable(
@@ -50,6 +56,20 @@ export const mealPlans = pgTable(
     aprovadoPor: uuid('aprovado_por'),
     /** Plano 14B (RN-117, A-D13): o plano do paciente veio do rascunho da IA — o selo do art. 37 no PDF e no app. "Editar" copia. */
     iaOrigemEm: timestamp('ia_origem_em', { withTimezone: true }),
+    /** Plano 19 (RN-243, D15): `calculado` (alimentos e quantidades) ou `livre` (texto por refeição). */
+    modo: text('modo').notNull().default('calculado'),
+    /**
+     * Plano 19 (RN-238, D30): perfil de referência do rascunho ou modelo. A FK composta `(tenant_id, referencia_id)` com
+     * `ON DELETE SET NULL (referencia_id)` fica na migration custom `plano19_fks_dias_conteudos` (o Drizzle não gera a lista
+     * de colunas). A publicação zera e guarda a cópia em `referenciaCongelada`.
+     */
+    referenciaId: uuid('referencia_id'),
+    /** Plano 19 (RN-239): até 12 chaves do catálogo de nutrientes (conferidas no código). */
+    nutrientesExibidos: text('nutrientes_exibidos').array().notNull().default(sql`'{}'::text[]`),
+    referenciaCongelada: jsonb('referencia_congelada').$type<ReferenciaCongelada>(),
+    macrosPrescritos: jsonb('macros_prescritos').$type<MacrosPrescritos>(),
+    /** Plano 19 (RN-239, D12): o PDF mostra os nutrientes escolhidos (só com `mostrar_calorias` também ligado). */
+    mostrarMicrosPdf: boolean('mostrar_micros_pdf').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -73,6 +93,12 @@ export const mealPlans = pgTable(
     check('meal_plans_aprovacao_coerente', sql`(${t.aprovadoEm} is null) = (${t.aprovadoPor} is null) and (${t.aprovadoEm} is null or ${t.iaGeracaoId} is not null)`),
     foreignKey({ columns: [t.tenantId, t.iaGeracaoId], foreignColumns: [iaGeracoesModelos.tenantId, iaGeracoesModelos.id], name: 'meal_plans_ia_geracao_fk' }),
     check('meal_plans_ia_origem_so_paciente', sql`${t.iaOrigemEm} is null or not ${t.isTemplate}`),
+    check('meal_plans_modo_valido', sql`${t.modo} in ('calculado', 'livre')`),
+    check('meal_plans_nutrientes_exibidos_limite', sql`cardinality(${t.nutrientesExibidos}) <= 12`),
+    // RN-238 / D30: só o rascunho (e o modelo, sempre rascunho) aponta para o perfil; o publicado guarda só a cópia
+    check('meal_plans_referencia_so_rascunho', sql`${t.referenciaId} is null or ${t.status} = 'rascunho'`),
+    check('meal_plans_referencia_congelada_publicada', sql`${t.referenciaCongelada} is null or ${t.status} <> 'rascunho'`),
+    check('meal_plans_macros_so_livre', sql`${t.macrosPrescritos} is null or ${t.modo} = 'livre'`),
   ],
 );
 
@@ -94,6 +120,13 @@ export const meals = pgTable(
      * `ON DELETE SET NULL (recipe_content_id)` fica na migration 0082 (o Drizzle não gera a lista de colunas).
      */
     recipeContentId: uuid('recipe_content_id'),
+    /**
+     * Plano 19 (RN-246, D17): dias em que a refeição vale, 0 = domingo … 6 = sábado (convenção do Plano 17). O CHECK
+     * `meals_dias_validos` (função `app_dias_semana_validos`) fica na migration custom `plano19_fks_dias_conteudos`.
+     */
+    diasSemana: smallint('dias_semana').array().notNull().default(sql`'{0,1,2,3,4,5,6}'::smallint[]`),
+    /** Plano 19 (RN-243): o texto da refeição no plano em texto livre (nulo no calculado). */
+    descricaoLivre: text('descricao_livre'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -105,6 +138,7 @@ export const meals = pgTable(
     index('meals_plano_idx').on(t.tenantId, t.planId, t.ordem),
     // a exceção da RN-12 (política paciente_conteudo_visivel) e o SET NULL procuram a refeição pela receita
     index('meals_receita_idx').on(t.tenantId, t.recipeContentId).where(sql`${t.recipeContentId} is not null`),
+    check('meals_descricao_livre_tamanho', sql`${t.descricaoLivre} is null or char_length(${t.descricaoLivre}) <= 2000`),
   ],
 );
 
@@ -138,3 +172,76 @@ export const mealItems = pgTable(
     index('meal_items_alimento_idx').on(t.foodId),
   ],
 );
+
+/**
+ * Plano 19 (RN-252, D23): lista de substituição ligada ao plano — CÓPIA congelada da lista da biblioteca (grupos e itens
+ * com nome, gramas, medida, fonte e valores por 100 g; formato conferido no código). `patient_id` nulo = modelo. O
+ * paciente vê só a do plano publicado (`paciente_sem_rascunho`); escritas auditadas (entidade `plano_alimentar`).
+ * O teto de 512 KB cobre o pior caso dos limites da lista (20 grupos × 30 itens, spec §9.2 v0.3).
+ */
+export const planoListasSubstituicao = pgTable(
+  'plano_listas_substituicao',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull(),
+    patientId: uuid('patient_id'),
+    planId: uuid('plan_id').notNull(),
+    /** De qual lista da biblioteca veio a cópia ("Atualizar da biblioteca"). Sem FK: só informativo. */
+    listaOrigemId: uuid('lista_origem_id'),
+    nome: text('nome').notNull(),
+    orientacao: text('orientacao').notNull().default(''),
+    conteudo: jsonb('conteudo').$type<Record<string, unknown>>().notNull(),
+    copiadaEm: timestamp('copiada_em', { withTimezone: true }).notNull().defaultNow(),
+    ordem: smallint('ordem').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('plano_listas_substituicao_textos_tamanho', sql`char_length(${t.nome}) between 1 and 80 and char_length(${t.orientacao}) <= 1000`),
+    check('plano_listas_substituicao_conteudo_valido', sql`jsonb_typeof(${t.conteudo}) = 'object' and octet_length(${t.conteudo}::text) <= 524288`),
+    foreignKey({ columns: [t.tenantId, t.planId], foreignColumns: [mealPlans.tenantId, mealPlans.id], name: 'plano_listas_substituicao_plano_fk' }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.tenantId, t.planId, t.patientId],
+      foreignColumns: [mealPlans.tenantId, mealPlans.id, mealPlans.patientId],
+      name: 'plano_listas_substituicao_plano_paciente_fk',
+    }).onDelete('cascade'),
+    index('plano_listas_substituicao_plano_idx').on(t.tenantId, t.planId, t.ordem),
+  ],
+);
+
+export type PlanoListaSubstituicaoRow = typeof planoListasSubstituicao.$inferSelect;
+
+/**
+ * Plano 19 (RN-253, D24): receita, orientação ou vídeo ligado ao plano (RN-12, exceção ampliada). A FK composta
+ * `(tenant_id, content_id)` → `contents` com `ON DELETE SET NULL (content_id)` fica na migration custom
+ * `plano19_fks_dias_conteudos`: excluído o conteúdo, a ligação fica com o título copiado. Escritas auditadas.
+ */
+export const planoConteudos = pgTable(
+  'plano_conteudos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull(),
+    patientId: uuid('patient_id'),
+    planId: uuid('plan_id').notNull(),
+    contentId: uuid('content_id'),
+    /** Cópia do título na ligação: o que o editor mostra se o conteúdo for excluído ("{título} (excluído)"). */
+    titulo: text('titulo').notNull(),
+    ordem: smallint('ordem').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('plano_conteudos_titulo_tamanho', sql`char_length(${t.titulo}) between 1 and 120`),
+    unique('plano_conteudos_unique').on(t.planId, t.contentId),
+    foreignKey({ columns: [t.tenantId, t.planId], foreignColumns: [mealPlans.tenantId, mealPlans.id], name: 'plano_conteudos_plano_fk' }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.tenantId, t.planId, t.patientId],
+      foreignColumns: [mealPlans.tenantId, mealPlans.id, mealPlans.patientId],
+      name: 'plano_conteudos_plano_paciente_fk',
+    }).onDelete('cascade'),
+    index('plano_conteudos_plano_idx').on(t.tenantId, t.planId, t.ordem),
+    // a exceção da RN-12 (política paciente_conteudo_visivel) e o SET NULL procuram a ligação pelo conteúdo
+    index('plano_conteudos_conteudo_idx').on(t.tenantId, t.contentId).where(sql`${t.contentId} is not null`),
+  ],
+);
+
+export type PlanoConteudoRow = typeof planoConteudos.$inferSelect;

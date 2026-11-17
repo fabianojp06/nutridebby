@@ -584,4 +584,18 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
       c.release();
     }
   });
+
+  // Plano 19 (P19-01, spec §4.1): foods tem FORCE RLS desde a 0040 e o migrator de produção é NOBYPASSRLS. O preenchimento
+  // de fonte/fonte_ref fica entre NO FORCE e FORCE na própria migration (molde da 0042); sem isso o UPDATE não veria linha
+  // nenhuma e o CHECK novo recusaria a TACO. O global-setup migra como superusuário e não pegaria o erro.
+  it('Plano 19: o migrator sem superusuário rotula a TACO (fonte "taco"), nenhuma USDA/TBCA, e foods continua com FORCE RLS', async () => {
+    const { rows } = await owner.query(
+      `select fonte, count(*)::int as n, count(*) filter (where fonte_ref = taco_id::text)::int as ref_ok from foods group by fonte order by fonte`,
+    );
+    const { rows: taco } = await owner.query(`select count(*)::int as n from foods where taco_id is not null`);
+    expect(taco[0].n).toBeGreaterThan(0);
+    expect(rows).toEqual([{ fonte: 'taco', n: taco[0].n, ref_ok: taco[0].n }]);
+    const { rows: rls } = await owner.query(`select relrowsecurity, relforcerowsecurity from pg_class where oid = 'foods'::regclass`);
+    expect(rls).toEqual([{ relrowsecurity: true, relforcerowsecurity: true }]);
+  });
 });

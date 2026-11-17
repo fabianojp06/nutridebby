@@ -180,6 +180,33 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
     sql`with c as (insert into fin_categorias (tenant_id, tipo, nome) values (${t}, 'entrada', 'Iso ' || gen_random_uuid()::text) returning id)
         insert into fin_lancamentos (tenant_id, tipo, categoria_id, valor_centavos, vencimento, patient_id, criado_por)
         select ${t}, 'entrada', c.id, 100, '2026-11-10', ${p}, coalesce(app_current_user(), gen_random_uuid()) from c`,
+  // Plano 19: biblioteca do consultório (staff_only). Nome único por tenant e a fábrica roda duas vezes por tenant: nome aleatório.
+  // As filhas criam a mãe no mesmo comando (COM_MAE); os itens usam o alimento 3 da TACO (FK RESTRICT para foods).
+  referencias_nutrientes: (t) =>
+    sql`insert into referencias_nutrientes (tenant_id, nome, fonte, valores) values (${t}, ${`Iso ${randomUUID().slice(0, 8)}`}, 'Iso', '{}')`,
+  refeicoes_modelo: (t) => sql`insert into refeicoes_modelo (tenant_id, nome, tipo) values (${t}, 'Iso', 'Almoço')`,
+  refeicoes_modelo_itens: (t) =>
+    sql`with r as (insert into refeicoes_modelo (tenant_id, nome, tipo) values (${t}, 'Iso', 'Almoço') returning id)
+        insert into refeicoes_modelo_itens (tenant_id, refeicao_id, food_id, quantidade_g, ordem)
+        select ${t}, r.id, '00000000-0000-4000-8000-000000000003', 100, 0 from r`,
+  listas_substituicao: (t) => sql`insert into listas_substituicao (tenant_id, nome) values (${t}, ${`Iso ${randomUUID().slice(0, 8)}`})`,
+  listas_substituicao_grupos: (t) =>
+    sql`with l as (insert into listas_substituicao (tenant_id, nome) values (${t}, ${`Iso ${randomUUID().slice(0, 8)}`}) returning id)
+        insert into listas_substituicao_grupos (tenant_id, lista_id, nome, ordem) select ${t}, l.id, 'Iso', 0 from l`,
+  listas_substituicao_itens: (t) =>
+    sql`with l as (insert into listas_substituicao (tenant_id, nome) values (${t}, ${`Iso ${randomUUID().slice(0, 8)}`}) returning id),
+             g as (insert into listas_substituicao_grupos (tenant_id, lista_id, nome, ordem) select ${t}, l.id, 'Iso', 0 from l returning lista_id, id)
+        insert into listas_substituicao_itens (tenant_id, lista_id, grupo_id, food_id, quantidade_g, ordem)
+        select ${t}, g.lista_id, g.id, '00000000-0000-4000-8000-000000000003', 100, 0 from g`,
+  // Plano 19: ligações ao plano, com a mãe no mesmo comando (COM_MAE) e ARQUIVADA, como em meals: rascunho deixaria a paciente
+  // sem linhas (paciente_sem_rascunho) e publicado bateria em meal_plans_um_publicado_idx. content_id nulo (regra 9: FK anulável
+  // fica de fora).
+  plano_listas_substituicao: (t, p) =>
+    sql`with pl as (insert into meal_plans (tenant_id, patient_id, titulo, status) values (${t}, ${p}, 'Iso', 'arquivado') returning id)
+        insert into plano_listas_substituicao (tenant_id, patient_id, plan_id, nome, conteudo, ordem) select ${t}, ${p}, pl.id, 'Iso', '{}', 0 from pl`,
+  plano_conteudos: (t, p) =>
+    sql`with pl as (insert into meal_plans (tenant_id, patient_id, titulo, status) values (${t}, ${p}, 'Iso', 'arquivado') returning id)
+        insert into plano_conteudos (tenant_id, patient_id, plan_id, content_id, titulo, ordem) select ${t}, ${p}, pl.id, null, 'Iso', 0 from pl`,
 };
 /** Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). */
 const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker' };
@@ -250,9 +277,10 @@ const SO_APAGA: Record<string, SQL> = {
  * Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`;
  * as filhas de conteúdo, Plano 07, apontam para `contents`/`recipes` com cascata: apagar a mãe antes zeraria as linhas de B que o teste ainda conta;
  * Plano 10A: notas, recibos e códigos apontam para `signed_documents`, que aponta para `stored_files` e `patients`;
- * Plano 17: `lembretes_rotina_envios` aponta para `lembretes_rotina` com cascata — apagar o lembrete antes zeraria as marcas de B).
+ * Plano 17: `lembretes_rotina_envios` aponta para `lembretes_rotina` com cascata — apagar o lembrete antes zeraria as marcas de B;
+ * Plano 19: grupos e itens das listas e itens de "Minhas refeições" apontam para a mãe com cascata, como as de conteúdo).
  */
-const ULTIMAS = ['meals', 'meal_plans', 'recipes', 'contents', 'anamnesis_templates', 'foods', 'appointments', 'signed_documents', 'stored_files', 'lembretes_rotina', 'patients'];
+const ULTIMAS = ['meals', 'meal_plans', 'recipes', 'contents', 'anamnesis_templates', 'foods', 'appointments', 'signed_documents', 'stored_files', 'lembretes_rotina', 'patients', 'listas_substituicao_grupos', 'listas_substituicao', 'refeicoes_modelo'];
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -366,6 +394,11 @@ const COM_MAE = new Set([
   // Plano 20: escolha registrada na spec §9.5 — a recusa dos negativos de INSERT vem da política de fin_categorias; a prova
   // da política da própria fin_lancamentos está em src/modules/financeiro/banco.test.ts
   'fin_lancamentos',
+  'refeicoes_modelo_itens',
+  'listas_substituicao_grupos',
+  'listas_substituicao_itens',
+  'plano_listas_substituicao',
+  'plano_conteudos',
 ]);
 /** violaRls, e a recusa veio da política da própria tabela `t` (não da mãe criada no CTE da fábrica). */
 const violaRlsDe = (t: string) => (e: unknown) => {
