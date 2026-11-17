@@ -1,5 +1,5 @@
 {
-  "id": "e08745b8-4096-471a-862e-47dee5945087",
+  "id": "406d82e9-fcc3-4f18-8057-6d7ec9d35d4c",
   "prevId": "1933bca0-9683-4cae-913c-3e08e20241f8",
   "version": "7",
   "dialect": "postgresql",
@@ -5229,6 +5229,33 @@
             },
             {
               "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "fin_lancamentos_categoria_idx": {
+          "name": "fin_lancamentos_categoria_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "categoria_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "tipo",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

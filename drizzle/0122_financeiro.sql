@@ -71,4 +71,5 @@ CREATE UNIQUE INDEX "fin_lancamentos_consulta_ativa_unique" ON "fin_lancamentos"
 CREATE INDEX "fin_lancamentos_pago_idx" ON "fin_lancamentos" USING btree ("tenant_id","pago_em") WHERE "fin_lancamentos"."cancelado_em" is null and "fin_lancamentos"."pago_em" is not null;--> statement-breakpoint
 CREATE INDEX "fin_lancamentos_aberto_idx" ON "fin_lancamentos" USING btree ("tenant_id","vencimento") WHERE "fin_lancamentos"."cancelado_em" is null and "fin_lancamentos"."pago_em" is null;--> statement-breakpoint
 CREATE INDEX "fin_lancamentos_paciente_idx" ON "fin_lancamentos" USING btree ("tenant_id","patient_id","vencimento") WHERE "fin_lancamentos"."patient_id" is not null;--> statement-breakpoint
-CREATE INDEX "fin_lancamentos_criado_idx" ON "fin_lancamentos" USING btree ("tenant_id","created_at","id");
+CREATE INDEX "fin_lancamentos_criado_idx" ON "fin_lancamentos" USING btree ("tenant_id","created_at","id");--> statement-breakpoint
+CREATE INDEX "fin_lancamentos_categoria_idx" ON "fin_lancamentos" USING btree ("tenant_id","categoria_id","tipo");

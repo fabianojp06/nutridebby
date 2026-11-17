@@ -130,6 +130,8 @@ export const finLancamentos = pgTable(
     index('fin_lancamentos_paciente_idx').on(t.tenantId, t.patientId, t.vencimento).where(sql`${t.patientId} is not null`),
     // "Últimos lançamentos" do Resumo (order by created_at desc, id desc limit 10): sem ele, top-N da tabela de todos os consultórios
     index('fin_lancamentos_criado_idx').on(t.tenantId, t.createdAt, t.id),
+    // a FK composta da categoria é conferida em cada DELETE de fin_categorias: sem ele, varredura dos lançamentos
+    index('fin_lancamentos_categoria_idx').on(t.tenantId, t.categoriaId, t.tipo),
   ],
 );
 export type FinLancamentoRow = typeof finLancamentos.$inferSelect;

@@ -843,6 +843,7 @@ CHECKs de coerência (F-D24):
 - `fin_lancamentos_aberto_idx`: `(tenant_id, vencimento) where cancelado_em is null and pago_em is null` (previstos, pendentes).
 - `fin_lancamentos_paciente_idx`: `(tenant_id, patient_id, vencimento) where patient_id is not null` (detalhe, aba, exportação, anonimização).
 - `fin_lancamentos_criado_idx`: `(tenant_id, created_at, id)` ("Últimos lançamentos" do Resumo, `order by created_at desc, id desc limit 10`; acrescentado na correção da T4 — sem ele, top-N sobre a tabela de todos os consultórios).
+- `fin_lancamentos_categoria_idx`: `(tenant_id, categoria_id, tipo)` (a FK composta da categoria, conferida em cada DELETE de `fin_categorias`; acrescentado na correção do `/code-review high` do PR 1).
 
 ### 9.4 Migration custom `rls_financeiro`
 
@@ -873,8 +874,12 @@ REVOKE DELETE, TRUNCATE ON fin_configuracoes FROM nutri_app_role;
   `pago_em`, `forma_pagamento`, `valor_centavos` **para menor ou igual**, o cancelamento e `updated_at` mudam (RN-315);
   a passagem de `anonimizado_em` de nulo a preenchido só com o papel `worker` **e** o marcador local
   `app.fin_anonimizando = '1'` (ligado só por `app_anonimizar_financeiro`, como o `app.ia_nutri_revogando` do Plano
-  15) **e** o paciente `bloqueado` com `anonimizado_em` nulo, mexendo só em `anonimizado_em`, `descricao`,
-  `motivo_cancelamento`, `cancelado_em`, `cancelado_por` e `updated_at`; fora disso, só a sessão `nutri` altera.
+  15) **e** o paciente `bloqueado` com `anonimizado_em` nulo e `anonimizar_apos` vencido (antes de hoje no fuso do
+  tenant, a mesma conferência da função, lida no gatilho com `public.tenants`: o marcador ligado à mão não basta),
+  mexendo só em `anonimizado_em`, `descricao`, `motivo_cancelamento`, `cancelado_em`, `cancelado_por` e `updated_at`;
+  lançamento pago não ganha cancelamento na anonimização (só os em aberto viram cancelados) e o em aberto cancelado
+  por ela leva `cancelado_em := clock_timestamp()` e `cancelado_por` nulo, do gatilho (correção do `/code-review
+  high` do PR 1); fora disso, só a sessão `nutri` altera.
   Comparações com `IS DISTINCT FROM`, para o UPDATE sem mudança passar.
 
 **Função `app_anonimizar_financeiro(p_patient uuid)`** (molde da `app_anonimizar_aceites`, 0065):
