@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Rea
 import { BuscaAlimento, Selo } from '@/app/painel/alimentos/busca-alimento';
 import { textoMedida } from '@/modules/alimentos/medidas-constantes';
 import type { ReferenciaParaPlano } from '@/modules/alimentos/referencias-constantes';
+import { MSG_BUSCA } from '@/modules/alimentos/busca-avancada-constantes';
 import { MSG_RECEITA } from '@/modules/conteudo/constantes';
 import type { ReceitaParaPlano } from '@/modules/conteudo/receitas';
 import { diferencaKcalDoItem, kcalTexto, nutrientesDoItem, totalDosItens } from '@/modules/plano-alimentar/calculo';
@@ -16,8 +17,9 @@ import type { ModoPlano, PlanoDoCliente } from '@/modules/plano-alimentar/tipos'
 import { casasDecimais, formatarDecimal, lerDecimal } from '@/lib/numero';
 import {
   errosSemCampo, estadoInicial, gramasDoItem, legendaDosDias, medidaDaOpcao, nomesAcessiveis, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir,
-  refeicoesDoFiltro, totaisDoFiltro, trocaPerdeAlgo, type Acao, type EstadoEditor, type FiltroDia, type ItemEstado, type MacrosTexto, type RefeicaoEstado,
+  referenciaDosEquivalentes, refeicoesDoFiltro, totaisDoFiltro, trocaPerdeAlgo, type Acao, type EstadoEditor, type FiltroDia, type ItemEstado, type MacrosTexto, type RefeicaoEstado,
 } from './estado';
+import { DialogoBuscaAlimento, type DestinoDaBusca } from './dialogo-busca';
 import { FiltroDias } from './filtro-dias';
 import { filtroQueMostra } from './navegacao';
 import { NutrientesDoPaciente } from './nutrientes-do-paciente';
@@ -44,6 +46,9 @@ const ROTULO_MACRO: Record<keyof MacrosTexto, string> = { proteina: 'Proteína (
 /** `aria-describedby` com os ids que existem (dica fixa e erro do campo). */
 const descritoPor = (...ids: (string | false | undefined)[]) => ids.filter(Boolean).join(' ') || undefined;
 const SEM_FIXADAS: ReadonlySet<string> = new Set();
+/** Abre o diálogo "Buscar alimento" (US-234) e guarda o botão que abriu, para o foco voltar a ele ao fechar. */
+type AbrirBusca = (destino: DestinoDaBusca, abridor: HTMLElement) => void;
+const LINK_PEQUENO = 'inline-flex min-h-11 items-center text-sm underline disabled:opacity-50';
 
 /**
  * Remonta o editor (geração nova na `key`) só quando a conferência ao abrir achou o servidor adiante da página e os
@@ -109,6 +114,15 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
   const podeRefeicao = podeAdicionarRefeicao(estado);
   const podeItem = podeAdicionarItem(estado);
   const visiveis = refeicoesDoFiltro(estado, filtro, fixadas);
+
+  // US-234 (§4.3): o diálogo "Buscar alimento", com a refeição (e, pelos equivalentes, o item) como destino. Montado a
+  // cada abertura (`n` na key); ao fechar, o foco volta ao botão que abriu (RNF-232).
+  const [busca, setBusca] = useState<{ destino: DestinoDaBusca; n: number } | null>(null);
+  const abridor = useRef<HTMLElement | null>(null);
+  const abrirBusca: AbrirBusca = (destino, el) => {
+    abridor.current = el;
+    setBusca((b) => ({ destino, n: (b?.n ?? 0) + 1 }));
+  };
 
   // O link de um erro de campo ("A refeição "Almoço" está sem texto.", BotaoPublicar) não acha o campo escondido pelo
   // filtro de dias e vira âncora (#<id>): o filtro volta para "Todos" e, depois do render, o foco vai ao campo.
@@ -249,8 +263,20 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
 
       {filtro !== 'todos' && visiveis.length === 0 && <p className="text-suave">{MSG_DIAS.semRefeicoes(DIA_CURTO[filtro])}</p>}
       {visiveis.map((r) => (
-        <Refeicao key={r.id} r={r} nome={nomes.get(r.id) ?? r.nome} livre={livre} filtroDia={filtro === 'todos' ? null : filtro} despachar={despacharNaTela} somenteLeitura={somenteLeitura} erro={erro} podeAdicionarItem={podeItem} receitas={receitas} />
+        <Refeicao key={r.id} r={r} nome={nomes.get(r.id) ?? r.nome} livre={livre} filtroDia={filtro === 'todos' ? null : filtro} despachar={despacharNaTela} somenteLeitura={somenteLeitura} erro={erro} podeAdicionarItem={podeItem} receitas={receitas} abrirBusca={abrirBusca} />
       ))}
+      {busca && !somenteLeitura && !livre && (
+        <DialogoBuscaAlimento
+          key={busca.n}
+          destino={busca.destino}
+          podeAdicionar={podeItem}
+          aoAdicionar={(a, o) => despacharNaTela({ tipo: 'adicionarItem', refeicaoId: busca.destino.refeicaoId, id: novoId(), alimento: a, ...(o ?? {}) })}
+          aoFechar={() => {
+            setBusca(null);
+            abridor.current?.focus();
+          }}
+        />
+      )}
 
       {!somenteLeitura && (
         <div className="space-y-1">
@@ -268,7 +294,7 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
   );
 }
 
-function Refeicao({ r, nome, livre, filtroDia, despachar, somenteLeitura, erro, podeAdicionarItem, receitas }: {
+function Refeicao({ r, nome, livre, filtroDia, despachar, somenteLeitura, erro, podeAdicionarItem, receitas, abrirBusca }: {
   r: RefeicaoEstado;
   /** O nome único na tela (`nomesAcessiveis`): "Almoço (seg a sex)" quando o nome se repete. */
   nome: string;
@@ -280,6 +306,7 @@ function Refeicao({ r, nome, livre, filtroDia, despachar, somenteLeitura, erro, 
   erro: (c: string) => string | undefined;
   podeAdicionarItem: boolean;
   receitas: ReceitaParaPlano[];
+  abrirBusca: AbrirBusca;
 }) {
   const totalRefeicao = totalDosItens(r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, substituiItemId: i.substituiItemId })));
   const chave = `refeicao:${r.id}`;
@@ -364,13 +391,19 @@ function Refeicao({ r, nome, livre, filtroDia, despachar, somenteLeitura, erro, 
         <>
           <ul className="space-y-2">
             {r.itens.map((i) => (
-              <ItemLinha key={i.id} i={i} refeicaoId={r.id} principal={r.itens.find((x) => x.id === i.substituiItemId) ?? null} despachar={despachar} somenteLeitura={somenteLeitura} erro={erro} podeAdicionarItem={podeAdicionarItem} limiteId={`${r.id}-limite`} />
+              <ItemLinha key={i.id} i={i} refeicaoId={r.id} refeicao={nome} principal={r.itens.find((x) => x.id === i.substituiItemId) ?? null} despachar={despachar} somenteLeitura={somenteLeitura} erro={erro} podeAdicionarItem={podeAdicionarItem} limiteId={`${r.id}-limite`} abrirBusca={abrirBusca} />
             ))}
           </ul>
 
           {!somenteLeitura &&
             (podeAdicionarItem ? (
-              <BuscaAlimento rotulo={`Adicionar alimento em ${nome}`} aoEscolher={(a) => despachar({ tipo: 'adicionarItem', refeicaoId: r.id, id: novoId(), alimento: a })} />
+              <>
+                <BuscaAlimento rotulo={`Adicionar alimento em ${nome}`} aoEscolher={(a) => despachar({ tipo: 'adicionarItem', refeicaoId: r.id, id: novoId(), alimento: a })} />
+                {/* §4.3: o diálogo com esta refeição como destino; o nome acessível leva a refeição (RNF-232) */}
+                <button type="button" onClick={(e) => abrirBusca({ refeicaoId: r.id, refeicao: nome, referencia: null, aba: 'lista' }, e.currentTarget)} className={LINK_PEQUENO}>
+                  {MSG_BUSCA.maisOpcoes}<span className="sr-only"> em {nome}</span>
+                </button>
+              </>
             ) : (
               <p id={`${r.id}-limite`} className="text-sm text-suave">{MSG_PLANO.limite}</p>
             ))}
@@ -406,6 +439,8 @@ function Refeicao({ r, nome, livre, filtroDia, despachar, somenteLeitura, erro, 
 type ItemLinhaProps = {
   i: ItemEstado;
   refeicaoId: string;
+  /** O nome único da refeição na tela (destino do diálogo de busca). */
+  refeicao: string;
   principal: ItemEstado | null;
   despachar: (a: Acao) => void;
   somenteLeitura: boolean;
@@ -413,9 +448,10 @@ type ItemLinhaProps = {
   podeAdicionarItem: boolean;
   /** Id do aviso de limite da refeição: o botão de substituição desabilitado aponta para ele. */
   limiteId: string;
+  abrirBusca: AbrirBusca;
 };
 
-function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, podeAdicionarItem, limiteId }: ItemLinhaProps) {
+function ItemLinha({ i, refeicaoId, refeicao, principal, despachar, somenteLeitura, erro, podeAdicionarItem, limiteId, abrirBusca }: ItemLinhaProps) {
   const [substituindo, setSubstituindo] = useState(false);
   const g = gramasDoItem(i);
   const n = g === null ? null : nutrientesDoItem(i.porCem, g);
@@ -424,6 +460,7 @@ function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, 
   const dif = n && np ? diferencaKcalDoItem(n, np) : null; // sem kcal na TACO de um dos lados: nenhuma, como no PDF
   const errQ = erro(`item:${i.id}:quantidadeG`) ?? erro(`item:${i.id}:medida`) ?? (g === null ? MSG_PLANO.quantidade : undefined);
   const q = lerDecimal(i.qtdTexto);
+  const referencia = referenciaDosEquivalentes(i); // nula com a quantidade em erro: "Equivalentes" fica desabilitado
   return (
     <li className={`flex flex-wrap items-end gap-3 ${principal ? 'ml-6 border-l-2 border-borda pl-3' : ''}`}>
       <div className="min-w-48 flex-1">
@@ -485,6 +522,16 @@ function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, 
             onClick={() => setSubstituindo((v) => !v)}
           >
             Adicionar substituição para {i.nome}
+          </button>
+          {/* US-234: o diálogo já na aba Equivalentes, com o item como referência; o escolhido entra como substituição */}
+          <button
+            type="button"
+            className={`ml-4 ${LINK_PEQUENO}`}
+            disabled={!referencia}
+            aria-describedby={referencia ? undefined : errQ ? `${i.id}-erro` : undefined}
+            onClick={(e) => referencia && abrirBusca({ refeicaoId, refeicao, aba: 'equivalentes', referencia: { itemId: i.id, nomeItem: i.nome, ...referencia } }, e.currentTarget)}
+          >
+            {MSG_BUSCA.abas.equivalentes}<span className="sr-only"> de {i.nome}</span>
           </button>
           {substituindo && podeAdicionarItem && (
             <BuscaAlimento

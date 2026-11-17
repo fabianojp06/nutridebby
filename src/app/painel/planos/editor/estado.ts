@@ -1,9 +1,10 @@
 import { formatarDecimal, casasDecimais, lerDecimal } from '@/lib/numero';
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
+import { MSG_BUSCA } from '@/modules/alimentos/busca-avancada-constantes';
 import { gramasDaMedida, gramasDaMedidaTexto, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { formatarNutriente, formatarReferencia, NUTRIENTES, type ChaveNutriente } from '@/modules/alimentos/nutrientes';
 import { MAX_NUTRIENTES_EXIBIDOS, type ReferenciaParaPlano } from '@/modules/alimentos/referencias-constantes';
-import { itensComoTexto, lerQuantidade, totalDoDia, totaisDoDia, totalMicros, ZERO, type ItemComMicros, type Nutrientes } from '@/modules/plano-alimentar/calculo';
+import { itensComoTexto, kcalTexto, lerQuantidade, totalDoDia, totaisDoDia, totalMicros, ZERO, type ItemComMicros, type Nutrientes } from '@/modules/plano-alimentar/calculo';
 import { MAX_ITENS, MAX_REFEICOES, MSG_DIAS } from '@/modules/plano-alimentar/constantes';
 import { diasSemRefeicao, ORDEM_DIAS, perfisDeDia, refeicoesDoDia, rotuloDosDias, TODOS_OS_DIAS, valeNoDia, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
 import type { ItemPlano, ModoPlano, PlanoDoCliente, RascunhoEnviado, ReceitaDaRefeicao } from '@/modules/plano-alimentar/tipos';
@@ -53,7 +54,8 @@ export type Acao =
   | { tipo: 'dia'; id: string; dia: DiaDaSemana; marcado: boolean }
   | { tipo: 'removerRefeicao'; id: string }
   | { tipo: 'receita'; id: string; receita: { id: string; titulo: string } | null }
-  | { tipo: 'adicionarItem'; refeicaoId: string; id: string; alimento: AlimentoEncontrado; substituiItemId?: string | null }
+  /** `quantidadeG`: a sugerida pelos equivalentes (US-234), em gramas; sem ela, 1 medida caseira ou 100 g. */
+  | { tipo: 'adicionarItem'; refeicaoId: string; id: string; alimento: AlimentoEncontrado; substituiItemId?: string | null; quantidadeG?: number }
   | { tipo: 'quantidade'; itemId: string; valor: string }
   | { tipo: 'medida'; itemId: string; medida: { nome: string; plural: string; gramas: number } | null }
   | { tipo: 'qtdMedida'; itemId: string; valor: string }
@@ -200,7 +202,7 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
       return { ...e, refeicoes: e.refeicoes.map((r) => (r.id === a.id ? { ...r, receita: a.receita ? { ...a.receita, disponivel: true } : null } : r)) };
     case 'adicionarItem': {
       if (e.modo === 'livre' || !podeAdicionarItem(e)) return e; // RN-243: no modo livre a refeição não tem alimentos
-      const m = a.alimento.medidas[0];
+      const m = a.quantidadeG === undefined ? a.alimento.medidas[0] : undefined;
       const novo: ItemEstado = {
         id: a.id,
         foodId: a.alimento.id,
@@ -213,7 +215,7 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
         substituiItemId: a.substituiItemId ?? null,
         medida: m ? { nome: m.nome, plural: m.plural, gramas: m.gramas } : null,
         qtdTexto: m ? '1' : '',
-        quantidadeTexto: m ? numTexto(m.gramas) : '100',
+        quantidadeTexto: a.quantidadeG !== undefined ? numTexto(a.quantidadeG) : m ? numTexto(m.gramas) : '100',
       };
       const destino = e.refeicoes.find((r) => r.id === a.refeicaoId);
       if (!destino) return e;
@@ -243,6 +245,17 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
       return itens === r.itens ? e : { ...e, refeicoes: e.refeicoes.map((x) => (x === r ? { ...x, itens } : x)) };
     }
   }
+}
+
+/**
+ * US-234: a referência dos equivalentes do item ("Arroz, tipo 1, cozido — 120 g (154 kcal)"; sem kcal na fonte, sem o
+ * parêntese). Quantidade inválida: nula (a ação "Equivalentes" fica desabilitada, com o erro do campo).
+ */
+export function referenciaDosEquivalentes(i: ItemEstado): { foodId: string; quantidadeG: number; texto: string } | null {
+  const g = gramasDoItem(i);
+  if (g === null) return null;
+  const kcal = i.porCem.kcal === null ? null : kcalTexto((i.porCem.kcal * g) / 100);
+  return { foodId: i.foodId, quantidadeG: g, texto: MSG_BUSCA.referencia(i.nome, numTexto(g), kcal) };
 }
 
 /**

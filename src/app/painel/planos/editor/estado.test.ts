@@ -7,7 +7,7 @@ import type { PlanoDoCliente } from '@/modules/plano-alimentar/tipos';
 import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
 import {
   errosSemCampo, estadoInicial, gramasDoItem, legendaDosDias, medidaDaOpcao, nomesAcessiveis, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, podeEscolherNutriente, reduzir,
-  refeicoesDoFiltro, refeicoesParaCalculo, resumoDeNutrientes, textoDaLinha, totaisDoFiltro, type EstadoEditor,
+  referenciaDosEquivalentes, refeicoesDoFiltro, refeicoesParaCalculo, resumoDeNutrientes, textoDaLinha, totaisDoFiltro, type EstadoEditor,
 } from './estado';
 
 const plano: PlanoDoCliente = {
@@ -159,6 +159,36 @@ describe('estado do editor (US-022)', () => {
     expect(reduzir(e, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'x', alimento: proprio, substituiItemId: 'nao-existe' })).toBe(e);
     expect(reduzir(e, { tipo: 'adicionarItem', refeicaoId: 'r2', id: 'x', alimento: proprio, substituiItemId: 'a' })).toBe(e); // principal de outra refeição
     expect(reduzir(e, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'x', alimento: proprio, substituiItemId: 's' })).toBe(e); // substituição de substituição
+  });
+
+  it('US-234 "Adicionar como substituição": o equivalente entra como substituição do item de referência, com a quantidade sugerida em gramas', () => {
+    const macarrao: AlimentoEncontrado = { ...proprio, id: 'f-mac', nome: 'Macarrão, cozido', grupo: 'Cereais e derivados', porCem: { kcal: 148, proteinaG: 2.9, carboidratoG: 32.5, lipidioG: 0.2, fibraG: 0 }, medidas: arroz.medidas };
+    const e = aplicar(
+      estadoInicial(plano),
+      { tipo: 'novaRefeicao', id: 'r1' },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'a', alimento: arroz },
+      { tipo: 'medida', itemId: 'a', medida: null },
+      { tipo: 'quantidade', itemId: 'a', valor: '120' },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'b', alimento: proprio },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'm', alimento: macarrao, substituiItemId: 'a', quantidadeG: 104 },
+    );
+    expect(e.refeicoes[0].itens.map((i) => i.id)).toEqual(['a', 'm', 'b']);
+    // a quantidade sugerida vem em gramas, mesmo com medida caseira no alimento
+    expect(e.refeicoes[0].itens[1]).toMatchObject({ substituiItemId: 'a', foodId: 'f-mac', medida: null, quantidadeTexto: '104' });
+    expect(paraEnvio(e, 0).refeicoes[0].itens[1]).toEqual({ id: 'm', foodId: 'f-mac', quantidadeG: '104', medida: null, substituiItemId: 'a' });
+    // sem a quantidade sugerida, entra como antes (1 medida)
+    const sem = reduzir(e, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'x', alimento: macarrao, substituiItemId: 'a' });
+    expect(gramasDoItem(sem.refeicoes[0].itens.find((i) => i.id === 'x')!)).toBe(25);
+  });
+
+  it('US-234: a referência dos equivalentes ("Arroz, tipo 1, cozido — 120 g (154 kcal)"); quantidade inválida = sem referência', () => {
+    let e = aplicar(estadoInicial(plano), { tipo: 'novaRefeicao', id: 'r1' }, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'a', alimento: arroz }, { tipo: 'medida', itemId: 'a', medida: null }, { tipo: 'quantidade', itemId: 'a', valor: '120' });
+    expect(referenciaDosEquivalentes(e.refeicoes[0].itens[0])).toEqual({ foodId: 'f-arroz', quantidadeG: 120, texto: 'Arroz, tipo 1, cozido — 120 g (154 kcal)' });
+    e = reduzir(e, { tipo: 'quantidade', itemId: 'a', valor: '12,5' });
+    expect(referenciaDosEquivalentes(e.refeicoes[0].itens[0])?.texto).toBe('Arroz, tipo 1, cozido — 12,5 g (16 kcal)');
+    expect(referenciaDosEquivalentes({ ...e.refeicoes[0].itens[0], porCem: { ...arroz.porCem, kcal: null } })?.texto).toBe('Arroz, tipo 1, cozido — 12,5 g');
+    e = reduzir(e, { tipo: 'quantidade', itemId: 'a', valor: 'abc' });
+    expect(referenciaDosEquivalentes(e.refeicoes[0].itens[0])).toBeNull();
   });
 
   describe('mover itens com substituições (US-023)', () => {

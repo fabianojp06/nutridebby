@@ -47,7 +47,38 @@ export function palavrasDaBusca(termo: unknown): string[] {
 const literal = (w: string) => w.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /** RN-232: a TBCA fica fora de toda busca enquanto a carga não for autorizada (mesmo pedida no filtro). */
-const fontesPermitidas = (pedidas: readonly Fonte[] = FONTES_DE_ALIMENTO): Fonte[] => FONTES_DE_ALIMENTO.filter((f) => pedidas.includes(f) && (f !== 'tbca' || TBCA_AUTORIZADA));
+export const fontesPermitidas = (pedidas: readonly Fonte[] = FONTES_DE_ALIMENTO): Fonte[] => FONTES_DE_ALIMENTO.filter((f) => pedidas.includes(f) && (f !== 'tbca' || TBCA_AUTORIZADA));
+
+/** As colunas que a busca lê de `foods` (a busca por nome, por nutriente e os equivalentes). */
+export const COLUNAS_DO_ALIMENTO = {
+  id: foods.id,
+  nome: foods.nome,
+  nomeOriginal: foods.nomeOriginal,
+  grupo: foods.grupo,
+  fonte: foods.fonte,
+  kcal: foods.kcal,
+  proteinaG: foods.proteinaG,
+  carboidratoG: foods.carboidratoG,
+  lipidioG: foods.lipidioG,
+  fibraG: foods.fibraG,
+  micros: foods.micros,
+};
+type LinhaDoAlimento = { id: string; nome: string; nomeOriginal: string | null; grupo: string; fonte: Fonte; micros: unknown } & Nutrientes100;
+
+/** A linha de `COLUNAS_DO_ALIMENTO` com as medidas (`medidasDeVarios`) como a busca devolve. */
+export function comoEncontrado(r: LinhaDoAlimento, medidas: Map<string, MedidaDisponivel[]>): AlimentoEncontrado {
+  return {
+    id: r.id,
+    nome: r.nome,
+    nomeOriginal: r.nomeOriginal,
+    grupo: r.grupo,
+    fonte: r.fonte,
+    origem: seloDaFonte(r.fonte),
+    porCem: { kcal: r.kcal, proteinaG: r.proteinaG, carboidratoG: r.carboidratoG, lipidioG: r.lipidioG, fibraG: r.fibraG },
+    micros: microsDoCatalogo(r.micros),
+    medidas: medidas.get(r.id) ?? [],
+  };
+}
 
 /**
  * US-020 (D6), RN-230: cada palavra precisa aparecer no nome — ou, na USDA, cada uma no nome original em inglês (sem
@@ -69,19 +100,7 @@ export async function buscarAlimentos(ctx: TenantContext, termo: unknown, db: Db
       const comeca = (coluna: SQL) => sql`${coluna} like app_unaccent(${literal(palavras[0])}) || '%'`;
       const termoTodo = sql`app_unaccent(${palavras.join(' ')})`;
       const rows = await tx
-        .select({
-          id: foods.id,
-          nome: foods.nome,
-          nomeOriginal: foods.nomeOriginal,
-          grupo: foods.grupo,
-          fonte: foods.fonte,
-          kcal: foods.kcal,
-          proteinaG: foods.proteinaG,
-          carboidratoG: foods.carboidratoG,
-          lipidioG: foods.lipidioG,
-          fibraG: foods.fibraG,
-          micros: foods.micros,
-        })
+        .select(COLUNAS_DO_ALIMENTO)
         .from(foods)
         // nome_original nulo (fora da USDA): o `like` dá nulo e o `or` fica só com o nome
         .where(and(sql`(${todas(nome)} or ${todas(original)})`, inArray(foods.fonte, fontes), o.grupo === undefined ? undefined : eq(foods.grupo, o.grupo)))
@@ -94,17 +113,7 @@ export async function buscarAlimentos(ctx: TenantContext, termo: unknown, db: Db
         )
         .limit(BUSCA_LIMITE);
       const medidas = await medidasDeVarios(tx, rows.map((r) => r.id));
-      return rows.map((r) => ({
-        id: r.id,
-        nome: r.nome,
-        nomeOriginal: r.nomeOriginal,
-        grupo: r.grupo,
-        fonte: r.fonte,
-        origem: seloDaFonte(r.fonte),
-        porCem: { kcal: r.kcal, proteinaG: r.proteinaG, carboidratoG: r.carboidratoG, lipidioG: r.lipidioG, fibraG: r.fibraG },
-        micros: microsDoCatalogo(r.micros),
-        medidas: medidas.get(r.id) ?? [],
-      }));
+      return rows.map((r) => comoEncontrado(r, medidas));
     },
     db,
   );

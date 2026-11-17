@@ -9,7 +9,7 @@ import { MSG_FONTES, seloDaFonte, semValorNa, type Fonte } from '@/modules/alime
 
 const hrefDe = (a: AlimentoEncontrado) => `/painel/alimentos/${a.id}`;
 /** RN-230: "Sem valor na {sigla}" pela fonte do alimento. */
-const kcalTexto = (a: AlimentoEncontrado) => (a.porCem.kcal === null ? semValorNa(a.fonte) : `${formatarDecimal(a.porCem.kcal, 0)} kcal/100 g`);
+export const kcalPorCemTexto = (a: AlimentoEncontrado) => (a.porCem.kcal === null ? semValorNa(a.fonte) : `${formatarDecimal(a.porCem.kcal, 0)} kcal/100 g`);
 
 /**
  * US-020: campo de busca com lista de resultados (setas, Enter e Esc). Sem `aoEscolher`, cada resultado é link
@@ -99,12 +99,12 @@ export function BuscaAlimento({ aoEscolher, rotulo = 'Buscar alimento' }: { aoEs
             {aoEscolher ? (
               <button type="button" onClick={() => escolher(a)} className="flex w-full items-center justify-between gap-2 p-2 text-left">
                 <NomeDoAlimento a={a} />
-                <span className="text-sm text-suave">{kcalTexto(a)} · <Selo fonte={a.fonte} /></span>
+                <span className="text-sm text-suave">{kcalPorCemTexto(a)} · <Selo fonte={a.fonte} /></span>
               </button>
             ) : (
               <Link href={hrefDe(a)} className="flex items-center justify-between gap-2 p-2">
                 <NomeDoAlimento a={a} />
-                <span className="text-sm text-suave">{kcalTexto(a)} · <Selo fonte={a.fonte} /></span>
+                <span className="text-sm text-suave">{kcalPorCemTexto(a)} · <Selo fonte={a.fonte} /></span>
               </Link>
             )}
           </li>
@@ -115,7 +115,7 @@ export function BuscaAlimento({ aoEscolher, rotulo = 'Buscar alimento' }: { aoEs
 }
 
 /** US-230: o nome traduzido, o original em inglês em texto menor e o aviso da tradução, visível (só na USDA). */
-function NomeDoAlimento({ a }: { a: Pick<AlimentoEncontrado, 'nome' | 'nomeOriginal' | 'fonte'> }) {
+export function NomeDoAlimento({ a }: { a: Pick<AlimentoEncontrado, 'nome' | 'nomeOriginal' | 'fonte'> }) {
   return (
     <span>
       {a.nome}
