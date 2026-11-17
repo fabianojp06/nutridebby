@@ -760,20 +760,23 @@ describe('Plano 23 — Agenda 2 no banco (T1b: gatilhos)', () => {
     ).toBe('solicitada');
   });
 
-  it('tenants_agenda_da_equipe (RN-420): paciente, publico e conta não mudam a chave dos pedidos; a equipe muda; outra coluna não é barrada por este gatilho', async () => {
+  it('tenants_agenda_da_equipe (RN-420): paciente, publico, conta e worker não mudam a chave dos pedidos; só a nutricionista muda; outra coluna não é barrada por este gatilho', async () => {
     const T = await novoTenant(app.db);
     const p = (await novoPaciente(app.db, T.ctx)).id;
     const comoP = ctxPaciente(T.tenantId, p);
     const mudar = (v: boolean) => sql`update tenants set agenda_confirmar_pedidos = ${v} where id = ${T.tenantId} returning id`;
-    const negado = negadoPor('só a equipe muda a confirmação dos pedidos');
-    for (const ctx of [comoP, linkSemConta(T, p), publico(T)]) await expect(em(ctx, mudar(true)), ctx.role).rejects.toSatisfy(negado);
+    const negado = negadoPor('só a nutricionista muda a confirmação dos pedidos');
+    // o worker também não (revisão da T1b): o processo web usa o papel worker (página pública, limpeza)
+    for (const ctx of [comoP, linkSemConta(T, p), publico(T), worker(T)]) await expect(em(ctx, mudar(true)), ctx.role).rejects.toSatisfy(negado);
     await expect(naConta(mudar(true))).rejects.toSatisfy(negado);
     expect(await em(T.ctx, mudar(true))).toHaveLength(1);
-    expect(await em(worker(T), mudar(false))).toHaveLength(1);
+    expect(await em(T.ctx, mudar(false))).toHaveLength(1);
     expect(await em(T.ctx, mudar(true))).toHaveLength(1);
     // o mesmo valor, ou outra coluna, passa por este gatilho
     expect(await em(comoP, mudar(true))).toHaveLength(1);
+    expect(await em(worker(T), mudar(true))).toHaveLength(1);
     expect(await em(comoP, sql`update tenants set updated_at = now() where id = ${T.tenantId} returning id`)).toHaveLength(1);
+    expect(await em(worker(T), sql`update tenants set updated_at = now() where id = ${T.tenantId} returning id`)).toHaveLength(1);
     expect(await em(T.ctx, sql`select agenda_confirmar_pedidos from tenants where id = ${T.tenantId}`)).toEqual([{ agenda_confirmar_pedidos: true }]);
   });
 

@@ -53,7 +53,7 @@ CREATE OR REPLACE FUNCTION app_appointments_regras_pedido() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp AS $$
 DECLARE
-  r text := coalesce(app_current_role(), '');
+  r text := coalesce(public.app_current_role(), '');
   marcador text := coalesce(current_setting('app.agenda_remarcavel', true), '');
   chave boolean;
   antecedencia integer;
@@ -68,13 +68,13 @@ BEGIN
     END IF;
     IF r IN ('paciente', 'publico') THEN
       IF NEW.remarcada_de IS NOT NULL AND NEW.remarcada_de::text IS NOT DISTINCT FROM marcador AND EXISTS (
-           SELECT 1 FROM appointments o
+           SELECT 1 FROM public.appointments o
             WHERE o.id = NEW.remarcada_de AND o.tenant_id = NEW.tenant_id AND o.patient_id = NEW.patient_id) THEN
         PERFORM set_config('app.agenda_remarcavel', '', true);
         NEW.status := 'agendada';
         RETURN NEW;
       END IF;
-      SELECT t.agenda_confirmar_pedidos INTO chave FROM tenants t WHERE t.id = NEW.tenant_id;
+      SELECT t.agenda_confirmar_pedidos INTO chave FROM public.tenants t WHERE t.id = NEW.tenant_id;
       NEW.status := CASE WHEN coalesce(chave, false) THEN 'solicitada' ELSE 'agendada' END;
       RETURN NEW;
     END IF;
@@ -107,12 +107,12 @@ BEGIN
          OR (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('nutri'::text, 'pedido_recusado'::text) THEN
         NULL;
       ELSIF (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('worker'::text, 'pedido_vencido'::text) THEN
-        SELECT t.antecedencia_min_h INTO antecedencia FROM tenants t WHERE t.id = OLD.tenant_id;
+        SELECT t.antecedencia_min_h INTO antecedencia FROM public.tenants t WHERE t.id = OLD.tenant_id;
         IF antecedencia IS NULL OR OLD.inicio - make_interval(hours => antecedencia) > now() THEN
           RAISE EXCEPTION 'o pedido ainda está no prazo de resposta' USING ERRCODE = '42501';
         END IF;
       ELSIF (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('nutri'::text, 'sistema'::text) THEN
-        SELECT pt.status INTO titular FROM patients pt WHERE pt.tenant_id = OLD.tenant_id AND pt.id = OLD.patient_id;
+        SELECT pt.status INTO titular FROM public.patients pt WHERE pt.tenant_id = OLD.tenant_id AND pt.id = OLD.patient_id;
         IF titular IS DISTINCT FROM 'bloqueado' THEN
           RAISE EXCEPTION 'quem cancela o pedido e o motivo não combinam (sistema só com o titular bloqueado)' USING ERRCODE = '42501';
         END IF;
@@ -158,14 +158,16 @@ END $$;
 --> statement-breakpoint
 CREATE TRIGGER appointments_regras_pedido BEFORE INSERT OR UPDATE ON appointments FOR EACH ROW EXECUTE FUNCTION app_appointments_regras_pedido();
 --> statement-breakpoint
--- RN-420: a chave dos pedidos não muda nas sessões de paciente, público e conta (molde tenants_ia_nutri_da_equipe, 0116).
+-- RN-420: a chave dos pedidos só muda na sessão `nutri` (molde tenants_ia_nutri_da_equipe, 0116): paciente, público, conta e
+-- worker (o processo web também usa o papel worker: página pública, limpeza) recebem 42501. O contexto vazio (migration, semente,
+-- admin fora de withTenant) passa.
 CREATE OR REPLACE FUNCTION app_tenants_agenda_da_equipe() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp AS $$
 BEGIN
-  IF app_current_role() IN ('paciente', 'publico', 'conta')
+  IF coalesce(public.app_current_role(), '') NOT IN ('', 'nutri')
      AND NEW.agenda_confirmar_pedidos IS DISTINCT FROM OLD.agenda_confirmar_pedidos THEN
-    RAISE EXCEPTION 'só a equipe muda a confirmação dos pedidos' USING ERRCODE = '42501';
+    RAISE EXCEPTION 'só a nutricionista muda a confirmação dos pedidos' USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
 END $$;
@@ -182,7 +184,7 @@ CREATE OR REPLACE FUNCTION app_aniversario_autorizacoes_regras() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp AS $$
 DECLARE
-  r text := coalesce(app_current_role(), '');
+  r text := coalesce(public.app_current_role(), '');
   pt record;
 BEGIN
   NEW.registrado_em := clock_timestamp();
@@ -193,12 +195,12 @@ BEGIN
     IF NEW.origem IS DISTINCT FROM 'nutri' THEN
       RAISE EXCEPTION 'a equipe registra só pela origem nutri' USING ERRCODE = '42501';
     END IF;
-    IF NEW.registrado_por IS NULL OR NEW.registrado_por IS DISTINCT FROM app_current_user() THEN
+    IF NEW.registrado_por IS NULL OR NEW.registrado_por IS DISTINCT FROM public.app_current_user() THEN
       RAISE EXCEPTION 'a equipe registra só em nome da própria usuária' USING ERRCODE = '42501';
     END IF;
   END IF;
   IF NEW.evento IS NOT DISTINCT FROM 'autorizou' THEN
-    SELECT p.status, p.anonimizado_em INTO pt FROM patients p WHERE p.tenant_id = NEW.tenant_id AND p.id = NEW.patient_id;
+    SELECT p.status, p.anonimizado_em INTO pt FROM public.patients p WHERE p.tenant_id = NEW.tenant_id AND p.id = NEW.patient_id;
     IF FOUND AND (pt.status IS DISTINCT FROM 'ativo' OR pt.anonimizado_em IS NOT NULL) THEN
       RAISE EXCEPTION 'só o titular ativo autoriza a mensagem de aniversário' USING ERRCODE = '42501';
     END IF;
