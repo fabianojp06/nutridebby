@@ -1,0 +1,438 @@
+import { randomUUID } from 'node:crypto';
+import { setTimeout as esperar } from 'node:timers/promises';
+import { afterAll, describe, expect, inject, it } from 'vitest';
+import { sql } from 'drizzle-orm';
+import { makeDb } from '../../../test/db';
+import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { withTenant, type TenantContext } from '@/db/tenant';
+import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
+import { listarCategorias, salvarConfiguracoes } from './configuracoes';
+import { MSG_FINANCEIRO } from './constantes';
+import { FinanceiroError, FinanceiroNaoConfiguradoError, LancamentoNaoEncontradoError } from './erros';
+import {
+  abrirLancamento,
+  cancelarLancamento,
+  criarLancamento,
+  desfazerRecebimento,
+  editarLancamento,
+  listarLancamentos,
+  marcarRecebido,
+  pacientesParaLancamento,
+} from './lancamentos';
+
+const app = makeDb(inject('appDatabaseUrl'));
+const owner = makeDb(inject('ownerDatabaseUrl'));
+afterAll(async () => {
+  await app.pool.end();
+  await owner.pool.end();
+});
+
+const M = MSG_FINANCEIRO.erros;
+/** 17/11/2026 22:30 em São Paulo; o servidor (UTC) já está no dia 18 às 01:30. */
+const agora = new Date('2026-11-18T01:30:00Z');
+const deps = { db: app.db, agora };
+const worker = (T: TenantDeTeste): TenantContext => ({ tenantId: T.tenantId, role: 'worker' });
+
+async function errosDe(p: Promise<unknown>): Promise<Record<string, string>> {
+  const e = await p.then(
+    () => null,
+    (x: unknown) => x,
+  );
+  expect(e).toBeInstanceOf(FinanceiroError);
+  return (e as FinanceiroError).erros;
+}
+
+type Cenario = TenantDeTeste & { p: string; consultas: string; outrasEntradas: string; aluguel: string; material: string };
+async function cenario(): Promise<Cenario> {
+  const T = await novoTenant(app.db);
+  await salvarConfiguracoes(T.ctx, T.tenant, { saldoInicialEm: '2026-11-01', saldoInicial: '1.500,00', valorConsulta: '250,00' }, deps);
+  const cats = await listarCategorias(T.ctx, deps);
+  const id = (nome: string) => cats.find((c) => c.nome === nome)!.id;
+  const p = (await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' })).id;
+  return { ...T, p, consultas: id('Consultas'), outrasEntradas: id('Outras entradas'), aluguel: id('Aluguel e condomínio'), material: id('Material e insumos') };
+}
+const entrada = (C: Cenario, extra: Record<string, unknown> = {}) =>
+  criarLancamento(C.ctx, C.tenant, { tipo: 'entrada', valor: '250,00', categoriaId: C.consultas, vencimento: '2026-11-20', pacienteId: C.p, descricao: 'Retorno', ...extra }, deps);
+const saida = (C: Cenario, extra: Record<string, unknown> = {}) =>
+  criarLancamento(C.ctx, C.tenant, { tipo: 'saida', valor: '1.200,00', categoriaId: C.aluguel, vencimento: '2026-11-05', ...extra }, deps);
+/** A linha como JSON: datas 'AAAA-MM-DD' (o driver pg converteria `date` em Date à meia-noite UTC). */
+const ler = async (id: string) => (await owner.pool.query('select to_jsonb(l) as r from fin_lancamentos l where id = $1', [id])).rows[0]?.r;
+const contar = async (q: string, ...params: unknown[]) => (await owner.pool.query(q, params)).rows[0].n as number;
+const leituras = (tenantId: string) =>
+  owner.pool
+    .query(`select acao, entidade, entidade_id, patient_id, actor_user_id from audit_log where tenant_id = $1 and acao = 'ler' order by criado_em`, [tenantId])
+    .then((r) => r.rows);
+
+const bloquear = (C: Cenario, paciente = C.p, anonimizarApos = '2046-01-01') =>
+  withTenant(worker(C), (tx) => tx.execute(sql`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = ${anonimizarApos} where id = ${paciente}`), app.db);
+async function anonimizar(C: Cenario, paciente = C.p) {
+  await bloquear(C, paciente, '2020-01-01');
+  await withTenant(worker(C), (tx) => tx.execute(sql`select app_anonimizar_financeiro(${paciente})`), app.db);
+}
+
+describe('criarLancamento (US-301, RN-304, RN-317)', () => {
+  it('entrada com paciente e saída sem: gravadas com a autora da sessão; mês de referência e antesDoSaldo', async () => {
+    const C = await cenario();
+    const e = await entrada(C);
+    expect(e).toEqual({ id: expect.any(String), antesDoSaldo: false, mes: '2026-11' });
+    expect(await ler(e.id)).toMatchObject({
+      tipo: 'entrada', valor_centavos: 25000, categoria_id: C.consultas, vencimento: '2026-11-20', pago_em: null, forma_pagamento: null,
+      patient_id: C.p, descricao: 'Retorno', criado_por: C.nutriId,
+    });
+    const s = await saida(C, { pagoEm: '2026-11-05', forma: 'pix', descricao: '' });
+    expect(s).toMatchObject({ antesDoSaldo: false, mes: '2026-11' });
+    expect(await ler(s.id)).toMatchObject({ tipo: 'saida', valor_centavos: 120000, patient_id: null, pago_em: '2026-11-05', forma_pagamento: 'pix', descricao: null });
+  });
+
+  it('antesDoSaldo: recebido antes da data do saldo; o mês é o do recebimento', async () => {
+    const C = await cenario();
+    expect(await entrada(C, { vencimento: '2026-10-20', pagoEm: '2026-10-28', forma: 'dinheiro' })).toMatchObject({ antesDoSaldo: true, mes: '2026-10' });
+    expect(await entrada(C, { vencimento: '2026-10-20', pagoEm: '2026-11-01', forma: 'dinheiro' })).toMatchObject({ antesDoSaldo: false, mes: '2026-11' });
+    // em aberto não altera o saldo nunca: sem aviso, mês do vencimento
+    expect(await entrada(C, { vencimento: '2026-10-20' })).toMatchObject({ antesDoSaldo: false, mes: '2026-10' });
+  });
+
+  it('vencimento de 01/01/2000 até 31/12 do ano de hoje + 5 (no fuso)', async () => {
+    const C = await cenario();
+    await saida(C, { vencimento: '2031-12-31' });
+    await saida(C, { vencimento: '2000-01-01' });
+    expect(await errosDe(saida(C, { vencimento: '2032-01-01' }))).toEqual({ vencimento: M.dataInvalida });
+    expect(await errosDe(saida(C, { vencimento: '1999-12-31' }))).toEqual({ vencimento: M.dataInvalida });
+    expect(await errosDe(saida(C, { vencimento: '2026-02-29' }))).toEqual({ vencimento: M.dataInvalida });
+    expect(await errosDe(saida(C, { vencimento: ' ' }))).toEqual({ vencimento: M.informeVencimento });
+  });
+
+  it('recebimento de 01/01/2000 até hoje no fuso: às 01:30 UTC do dia 18, o dia 18 ainda é amanhã', async () => {
+    const C = await cenario();
+    expect(await errosDe(entrada(C, { pagoEm: '2026-11-18', forma: 'pix' }))).toEqual({ pagoEm: M.recebimentoFuturo });
+    expect(await errosDe(saida(C, { pagoEm: '2026-11-18', forma: 'pix' }))).toEqual({ pagoEm: M.pagamentoFuturo });
+    expect(await errosDe(saida(C, { pagoEm: '1999-12-31', forma: 'pix' }))).toEqual({ pagoEm: M.dataInvalida });
+    expect(await entrada(C, { pagoEm: '2026-11-17', forma: 'pix' })).toMatchObject({ mes: '2026-11' });
+  });
+
+  it('forma obrigatória com a data do recebimento; valor, categoria e descrição com os textos exatos', async () => {
+    const C = await cenario();
+    expect(await errosDe(entrada(C, { pagoEm: '2026-11-17', forma: '' }))).toEqual({ forma: M.escolhaForma });
+    expect(await errosDe(entrada(C, { pagoEm: '2026-11-17', forma: 'cheque' }))).toEqual({ forma: M.escolhaForma });
+    expect(await errosDe(entrada(C, { valor: '', categoriaId: '', descricao: 'x'.repeat(201) }))).toEqual({
+      valor: M.informeValor,
+      categoriaId: M.escolhaCategoria,
+      descricao: M.descricaoLonga,
+    });
+    expect(await errosDe(entrada(C, { valor: 'abc' }))).toEqual({ valor: M.valorInvalido });
+    expect(await errosDe(entrada(C, { valor: '0,00' }))).toEqual({ valor: M.valorFaixa });
+    expect(await errosDe(entrada(C, { valor: '-10,00' }))).toEqual({ valor: M.valorFaixa });
+    expect(await errosDe(entrada(C, { valor: '1.000.000,01' }))).toEqual({ valor: M.valorFaixa });
+    await entrada(C, { valor: '1.000.000,00', descricao: 'é'.repeat(200) });
+  });
+
+  it('categoria: do mesmo tipo e não arquivada', async () => {
+    const C = await cenario();
+    expect(await errosDe(entrada(C, { categoriaId: C.aluguel }))).toEqual({ categoriaId: M.escolhaCategoria });
+    await owner.pool.query('update fin_categorias set arquivada_em = now() where id = $1', [C.outrasEntradas]);
+    expect(await errosDe(entrada(C, { categoriaId: C.outrasEntradas }))).toEqual({ categoriaId: M.escolhaCategoria });
+    expect(await errosDe(entrada(C, { categoriaId: randomUUID() }))).toEqual({ categoriaId: M.escolhaCategoria });
+  });
+
+  it('saída com paciente é recusada e nada é gravado', async () => {
+    const C = await cenario();
+    await expect(saida(C, { pacienteId: C.p })).rejects.toThrow();
+    expect(await contar('select count(*)::int as n from fin_lancamentos where tenant_id = $1', C.tenantId)).toBe(0);
+  });
+
+  it('sem configuração: FinanceiroNaoConfiguradoError (RN-301)', async () => {
+    const T = await novoTenant(app.db);
+    await expect(criarLancamento(T.ctx, T.tenant, { tipo: 'saida', valor: '10', categoriaId: randomUUID(), vencimento: '2026-11-05' }, deps)).rejects.toBeInstanceOf(
+      FinanceiroNaoConfiguradoError,
+    );
+  });
+
+  it('paciente bloqueado recusa a criação com a mensagem exata; arquivado pode; de outro consultório não é encontrado', async () => {
+    const C = await cenario();
+    const arquivado = (await novoPaciente(app.db, C.ctx, { nome: 'Carla Dias', status: 'arquivado' })).id;
+    await entrada(C, { pacienteId: arquivado });
+    await bloquear(C);
+    expect(await errosDe(entrada(C))).toEqual({ pacienteId: M.bloqueadoNovo });
+    const B = await cenario();
+    await expect(entrada(C, { pacienteId: B.p })).rejects.toBeInstanceOf(PacienteNaoEncontradoError);
+    await expect(entrada(C, { pacienteId: 'nao-e-uuid' })).rejects.toBeInstanceOf(PacienteNaoEncontradoError);
+  });
+
+  it('Review Focus 3: bloqueio confirmado no meio da criação → FinanceiroError do bloqueado (trava FOR KEY SHARE + conferência sob a trava)', async () => {
+    const C = await cenario();
+    const cliente = await app.pool.connect();
+    try {
+      await cliente.query('begin');
+      await cliente.query(
+        `select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true), set_config('app.patient_id', '', true),
+                set_config('app.user_id', $2, true), set_config('app.ip', '', true)`,
+        [C.tenantId, C.nutriId],
+      );
+      await cliente.query('select id from patients where id = $1 for update', [C.p]);
+      await cliente.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01' where id = $1`, [C.p]);
+      const criando = entrada(C).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      let esperando = false;
+      for (let i = 0; i < 200 && !esperando; i++) {
+        await esperar(25);
+        esperando =
+          (await contar(`select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock' and query ilike '%from "patients"%for key share%'`)) > 0;
+      }
+      expect(esperando, 'a criação esperou a trava do bloqueio').toBe(true);
+      await cliente.query('commit');
+      const e = await criando;
+      expect(e).toBeInstanceOf(FinanceiroError);
+      expect((e as FinanceiroError).erros).toEqual({ pacienteId: M.bloqueadoNovo });
+    } finally {
+      cliente.release();
+    }
+    expect(await contar('select count(*)::int as n from fin_lancamentos where tenant_id = $1', C.tenantId)).toBe(0);
+  });
+});
+
+describe('editar, receber, desfazer e cancelar (US-302, RN-308, RN-309, RN-315, RN-316)', () => {
+  it('editar muda valor, categoria, vencimento, recebimento e descrição; devolve o mês de referência', async () => {
+    const C = await cenario();
+    const { id } = await entrada(C, { pacienteId: '' });
+    expect(
+      await editarLancamento(C.ctx, C.tenant, id, { valor: '200', categoriaId: C.outrasEntradas, vencimento: '2026-10-10', pagoEm: '2026-10-30', forma: 'boleto', descricao: '' }, deps),
+    ).toEqual({ antesDoSaldo: true, mes: '2026-10' });
+    expect(await ler(id)).toMatchObject({ valor_centavos: 20000, categoria_id: C.outrasEntradas, vencimento: '2026-10-10', pago_em: '2026-10-30', forma_pagamento: 'boleto', descricao: null });
+    // tipo e paciente do formulário são ignorados (fixos)
+    await editarLancamento(C.ctx, C.tenant, id, { tipo: 'saida', pacienteId: C.p, valor: '200', categoriaId: C.outrasEntradas, vencimento: '2026-10-10' }, deps);
+    expect(await ler(id)).toMatchObject({ tipo: 'entrada', patient_id: null, pago_em: null, forma_pagamento: null });
+  });
+
+  it('editar com a categoria atual arquivada mantém a categoria; trocar para uma arquivada ou do outro tipo é recusado', async () => {
+    const C = await cenario();
+    const { id } = await saida(C);
+    await owner.pool.query('update fin_categorias set arquivada_em = now() where id = $1', [C.aluguel]);
+    await editarLancamento(C.ctx, C.tenant, id, { valor: '1.100,00', categoriaId: C.aluguel, vencimento: '2026-11-05' }, deps);
+    expect(await errosDe(editarLancamento(C.ctx, C.tenant, id, { valor: '1.100,00', categoriaId: C.consultas, vencimento: '2026-11-05' }, deps))).toEqual({
+      categoriaId: M.escolhaCategoria,
+    });
+    const outra = await saida(C, { categoriaId: C.material });
+    expect(await errosDe(editarLancamento(C.ctx, C.tenant, outra.id, { valor: '1', categoriaId: C.aluguel, vencimento: '2026-11-05' }, deps))).toEqual({
+      categoriaId: M.escolhaCategoria,
+    });
+  });
+
+  it('marcar como recebido e desfazer', async () => {
+    const C = await cenario();
+    const { id } = await entrada(C, { vencimento: '2026-11-10' });
+    expect(await errosDe(marcarRecebido(C.ctx, C.tenant, id, { pagoEm: '2026-11-18', forma: 'pix' }, deps))).toEqual({ pagoEm: M.recebimentoFuturo });
+    expect(await errosDe(marcarRecebido(C.ctx, C.tenant, id, { pagoEm: '2026-11-17', forma: '' }, deps))).toEqual({ forma: M.escolhaForma });
+    expect(await marcarRecebido(C.ctx, C.tenant, id, { pagoEm: '2026-11-17', forma: 'dinheiro' }, deps)).toEqual({ mes: '2026-11' });
+    expect(await ler(id)).toMatchObject({ pago_em: '2026-11-17', forma_pagamento: 'dinheiro' });
+    await desfazerRecebimento(C.ctx, id, deps);
+    expect(await ler(id)).toMatchObject({ pago_em: null, forma_pagamento: null });
+  });
+
+  it('cancelar pede motivo de 1 a 200 caracteres; grava quem e quando (gatilho)', async () => {
+    const C = await cenario();
+    const { id } = await entrada(C);
+    expect(await errosDe(cancelarLancamento(C.ctx, id, '  ', deps))).toEqual({ motivo: M.informeMotivo });
+    expect(await errosDe(cancelarLancamento(C.ctx, id, 'x'.repeat(201), deps))).toEqual({ motivo: M.motivoLongo });
+    await cancelarLancamento(C.ctx, id, ' Lançado em duplicidade ', deps);
+    const l = await ler(id);
+    expect(l).toMatchObject({ motivo_cancelamento: 'Lançado em duplicidade', cancelado_por: C.nutriId });
+    expect(l.cancelado_em).not.toBeNull();
+  });
+
+  it('cancelado não muda mais (mensagem exata)', async () => {
+    const C = await cenario();
+    const { id } = await entrada(C);
+    await cancelarLancamento(C.ctx, id, 'Duplicado', deps);
+    const cancelado = { geral: M.cancelado };
+    expect(await errosDe(editarLancamento(C.ctx, C.tenant, id, { valor: '1', categoriaId: C.consultas, vencimento: '2026-11-20' }, deps))).toEqual(cancelado);
+    expect(await errosDe(marcarRecebido(C.ctx, C.tenant, id, { pagoEm: '2026-11-17', forma: 'pix' }, deps))).toEqual(cancelado);
+    expect(await errosDe(desfazerRecebimento(C.ctx, id, deps))).toEqual(cancelado);
+    expect(await errosDe(cancelarLancamento(C.ctx, id, 'De novo', deps))).toEqual(cancelado);
+  });
+
+  it('anonimizado não muda mais (mensagem exata)', async () => {
+    const C = await cenario();
+    const { id } = await entrada(C, { pagoEm: '2026-11-10', forma: 'pix' });
+    await anonimizar(C);
+    const anonimizado = { geral: M.anonimizado };
+    expect(await errosDe(editarLancamento(C.ctx, C.tenant, id, { valor: '1', categoriaId: C.consultas, vencimento: '2026-11-20' }, deps))).toEqual(anonimizado);
+    expect(await errosDe(marcarRecebido(C.ctx, C.tenant, id, { pagoEm: '2026-11-17', forma: 'pix' }, deps))).toEqual(anonimizado);
+    expect(await errosDe(desfazerRecebimento(C.ctx, id, deps))).toEqual(anonimizado);
+    expect(await errosDe(cancelarLancamento(C.ctx, id, 'Devolução', deps))).toEqual(anonimizado);
+  });
+
+  it('paciente bloqueado: recebe, desfaz, reduz e cancela; aumentar o valor ou mudar categoria, vencimento ou descrição → mensagem exata', async () => {
+    const C = await cenario();
+    const { id } = await entrada(C, { valor: '250,00', descricao: 'Retorno' });
+    const outro = await entrada(C);
+    await bloquear(C);
+    const base = { valor: '250,00', categoriaId: C.consultas, vencimento: '2026-11-20', descricao: 'Retorno' };
+    await marcarRecebido(C.ctx, C.tenant, id, { pagoEm: '2026-11-17', forma: 'pix' }, deps);
+    await desfazerRecebimento(C.ctx, id, deps);
+    expect(await editarLancamento(C.ctx, C.tenant, id, { ...base, valor: '200,00' }, deps)).toEqual({ antesDoSaldo: false, mes: '2026-11' });
+    // pela edição também pode receber (data e forma)
+    await editarLancamento(C.ctx, C.tenant, id, { ...base, valor: '200,00', pagoEm: '2026-11-16', forma: 'pix' }, deps);
+    expect(await ler(id)).toMatchObject({ valor_centavos: 20000, pago_em: '2026-11-16', forma_pagamento: 'pix' });
+    const bloqueado = { geral: M.bloqueadoAlterar };
+    expect(await errosDe(editarLancamento(C.ctx, C.tenant, id, { ...base, valor: '300,00' }, deps))).toEqual(bloqueado);
+    expect(await errosDe(editarLancamento(C.ctx, C.tenant, id, { ...base, valor: '200,00', vencimento: '2026-11-21' }, deps))).toEqual(bloqueado);
+    expect(await errosDe(editarLancamento(C.ctx, C.tenant, id, { ...base, valor: '200,00', descricao: 'Outra' }, deps))).toEqual(bloqueado);
+    expect(await errosDe(editarLancamento(C.ctx, C.tenant, id, { ...base, valor: '200,00', categoriaId: C.outrasEntradas }, deps))).toEqual(bloqueado);
+    expect(await ler(id)).toMatchObject({ valor_centavos: 20000, vencimento: '2026-11-20', descricao: 'Retorno', categoria_id: C.consultas });
+    await cancelarLancamento(C.ctx, outro.id, 'Devolução', deps);
+    expect((await ler(outro.id)).cancelado_em).not.toBeNull();
+  });
+
+  it('lançamento de outro consultório ou id inválido: não encontrado', async () => {
+    const A = await cenario();
+    const B = await cenario();
+    const { id } = await entrada(A);
+    await expect(editarLancamento(B.ctx, B.tenant, id, { valor: '1', categoriaId: B.consultas, vencimento: '2026-11-20' }, deps)).rejects.toBeInstanceOf(LancamentoNaoEncontradoError);
+    await expect(marcarRecebido(B.ctx, B.tenant, id, { pagoEm: '2026-11-17', forma: 'pix' }, deps)).rejects.toBeInstanceOf(LancamentoNaoEncontradoError);
+    await expect(cancelarLancamento(B.ctx, id, 'x', deps)).rejects.toBeInstanceOf(LancamentoNaoEncontradoError);
+    await expect(desfazerRecebimento(B.ctx, 'nao-e-uuid', deps)).rejects.toBeInstanceOf(LancamentoNaoEncontradoError);
+    expect(await abrirLancamento(B.ctx, B.tenant, id, deps)).toBeNull();
+    expect(await ler(id)).toMatchObject({ valor_centavos: 25000, cancelado_em: null });
+  });
+});
+
+describe('listarLancamentos e abrirLancamento (RN-305, RN-306, RN-318)', () => {
+  it('sem mês: o mês atual no fuso, pela data de referência, mais recentes primeiro, com situação e totais sem os cancelados', async () => {
+    const C = await cenario();
+    const previsto = (await entrada(C, { vencimento: '2026-11-25' })).id;
+    const atraso = (await entrada(C, { vencimento: '2026-11-03', pacienteId: '' })).id;
+    const recebidoEmNov = (await entrada(C, { vencimento: '2026-10-15', pagoEm: '2026-11-02', forma: 'pix' })).id;
+    const pago = (await saida(C, { pagoEm: '2026-11-05', forma: 'boleto' })).id;
+    const aPagar = (await saida(C, { valor: '80,00', vencimento: '2026-11-30', categoriaId: C.material })).id;
+    const cancelado = (await saida(C, { valor: '99,00', vencimento: '2026-11-12' })).id;
+    await cancelarLancamento(C.ctx, cancelado, 'Erro', deps);
+    await entrada(C, { vencimento: '2026-10-31' }); // outubro
+    await entrada(C, { vencimento: '2026-11-01', pagoEm: '2026-10-31', forma: 'pix' }); // recebido em outubro
+
+    const r = await listarLancamentos(C.ctx, C.tenant, {}, deps);
+    expect(r.linhas.map((l) => l.id)).toEqual([aPagar, previsto, cancelado, pago, atraso, recebidoEmNov]);
+    expect(Object.fromEntries(r.linhas.map((l) => [l.id, l.situacao]))).toEqual({
+      [aPagar]: 'previsto', [previsto]: 'previsto', [cancelado]: 'cancelado', [pago]: 'pago', [atraso]: 'em_atraso', [recebidoEmNov]: 'recebido',
+    });
+    expect(r.totais).toEqual({ entradas: { recebido: 25000, aReceber: 50000 }, saidas: { pago: 120000, aPagar: 8000 } });
+    expect(r.maisDe200).toBe(false);
+    const linha = r.linhas.find((l) => l.id === previsto)!;
+    expect(linha).toMatchObject({
+      tipo: 'entrada', categoria: { id: C.consultas, nome: 'Consultas' }, valorCentavos: 25000, vencimento: '2026-11-25', pagoEm: null, forma: null,
+      descricao: 'Retorno', paciente: { id: C.p, nome: 'Ana Souza', bloqueado: false }, consulta: null, canceladoEm: null, motivoCancelamento: null, anonimizado: false,
+    });
+    expect(r.linhas.find((l) => l.id === cancelado)).toMatchObject({ situacao: 'cancelado', motivoCancelamento: 'Erro' });
+    expect(await leituras(C.tenantId)).toEqual([]); // sem filtro de paciente: sem auditRead
+  });
+
+  it('filtros: mês, tipo, categoria, situação e forma', async () => {
+    const C = await cenario();
+    const out = (await entrada(C, { vencimento: '2026-10-10' })).id;
+    const pix = (await saida(C, { pagoEm: '2026-11-05', forma: 'pix' })).id;
+    const boleto = (await saida(C, { pagoEm: '2026-11-06', forma: 'boleto', categoriaId: C.material })).id;
+    const aberta = (await entrada(C)).id;
+    const ids = async (f: Parameters<typeof listarLancamentos>[2]) => (await listarLancamentos(C.ctx, C.tenant, f, deps)).linhas.map((l) => l.id);
+    expect(await ids({ mes: '2026-10' })).toEqual([out]);
+    expect(await ids({ mes: '2026-10', situacao: 'em_atraso' })).toEqual([out]);
+    expect(await ids({ tipo: 'saida' })).toEqual([boleto, pix]);
+    expect(await ids({ categoriaId: C.material })).toEqual([boleto]);
+    expect(await ids({ forma: 'pix' })).toEqual([pix]);
+    expect(await ids({ situacao: 'recebido_ou_pago' })).toEqual([boleto, pix]);
+    expect(await ids({ situacao: 'previsto' })).toEqual([aberta]);
+    expect(await ids({ situacao: 'cancelado' })).toEqual([]);
+  });
+
+  it('meses: do mês atual até o do lançamento mais antigo (data de referência), mais recentes primeiro', async () => {
+    const C = await cenario();
+    expect((await listarLancamentos(C.ctx, C.tenant, {}, deps)).meses).toEqual(['2026-11']);
+    await entrada(C, { vencimento: '2026-12-20' });
+    await entrada(C, { vencimento: '2026-09-30', pagoEm: '2026-08-31', forma: 'pix' });
+    expect((await listarLancamentos(C.ctx, C.tenant, {}, deps)).meses).toEqual(['2026-11', '2026-10', '2026-09', '2026-08']);
+  });
+
+  it('com paciente e sem mês: todos os meses do paciente e UM "ler" no audit_log (entidade financeiro, sem entidade_id)', async () => {
+    const C = await cenario();
+    const outro = (await novoPaciente(app.db, C.ctx, { nome: 'Bruno Lima' })).id;
+    const a = (await entrada(C, { vencimento: '2026-01-10' })).id;
+    const b = (await entrada(C, { vencimento: '2026-11-20' })).id;
+    const c = (await entrada(C, { vencimento: '2027-03-01' })).id;
+    await entrada(C, { pacienteId: outro });
+    const r = await listarLancamentos(C.ctx, C.tenant, { pacienteId: C.p }, deps);
+    expect(r.linhas.map((l) => l.id)).toEqual([c, b, a]);
+    expect(r.totais.entradas.aReceber).toBe(75000);
+    expect(await leituras(C.tenantId)).toEqual([{ acao: 'ler', entidade: 'financeiro', entidade_id: null, patient_id: C.p, actor_user_id: C.nutriId }]);
+    // com paciente e mês: só o mês; e um paciente sem lançamento no filtro não grava leitura
+    expect((await listarLancamentos(C.ctx, C.tenant, { pacienteId: C.p, mes: '2026-11' }, deps)).linhas.map((l) => l.id)).toEqual([b]);
+    expect((await listarLancamentos(C.ctx, C.tenant, { pacienteId: C.p, mes: '2025-01' }, deps)).linhas).toEqual([]);
+    expect(await leituras(C.tenantId)).toHaveLength(2);
+  });
+
+  it('com paciente e sem mês: até 200, mais recentes primeiro, com maisDe200', async () => {
+    const C = await cenario();
+    await withTenant(
+      C.ctx,
+      (tx) =>
+        tx.execute(sql`insert into fin_lancamentos (tenant_id, tipo, categoria_id, valor_centavos, vencimento, patient_id, criado_por)
+          select ${C.tenantId}, 'entrada', ${C.consultas}, 100, date '2026-01-01' + g, ${C.p}, ${C.nutriId} from generate_series(1, 201) g`),
+      app.db,
+    );
+    const r = await listarLancamentos(C.ctx, C.tenant, { pacienteId: C.p }, deps);
+    expect(r.linhas).toHaveLength(200);
+    expect(r.maisDe200).toBe(true);
+    expect(r.linhas[0].vencimento).toBe('2026-07-21');
+    expect(r.totais.entradas.aReceber).toBe(20100); // os totais são do filtro inteiro
+    expect(await leituras(C.tenantId)).toHaveLength(1);
+  });
+
+  it('abrirLancamento: com paciente grava "ler" com o id do lançamento; sem paciente não grava', async () => {
+    const C = await cenario();
+    const com = (await entrada(C)).id;
+    const sem = (await saida(C)).id;
+    expect(await abrirLancamento(C.ctx, C.tenant, sem, deps)).toMatchObject({ id: sem, paciente: null, situacao: 'em_atraso' });
+    expect(await leituras(C.tenantId)).toEqual([]);
+    expect(await abrirLancamento(C.ctx, C.tenant, com, deps)).toMatchObject({ id: com, paciente: { id: C.p, nome: 'Ana Souza', bloqueado: false } });
+    expect(await leituras(C.tenantId)).toEqual([{ acao: 'ler', entidade: 'financeiro', entidade_id: com, patient_id: C.p, actor_user_id: C.nutriId }]);
+    expect(await abrirLancamento(C.ctx, C.tenant, 'nao-e-uuid', deps)).toBeNull();
+  });
+
+  it('só a sessão nutri: a de paciente recebe o erro do assert (não uma lista vazia)', async () => {
+    const C = await cenario();
+    const { id } = await entrada(C);
+    const pac = ctxPaciente(C.tenantId, C.p);
+    const assert = 'financeiro: só a sessão nutri';
+    await expect(listarLancamentos(pac, C.tenant, {}, deps)).rejects.toThrow(assert);
+    await expect(abrirLancamento(pac, C.tenant, id, deps)).rejects.toThrow(assert);
+    await expect(criarLancamento(pac, C.tenant, {}, deps)).rejects.toThrow(assert);
+    await expect(editarLancamento(pac, C.tenant, id, {}, deps)).rejects.toThrow(assert);
+    await expect(marcarRecebido(pac, C.tenant, id, { pagoEm: '2026-11-17', forma: 'pix' }, deps)).rejects.toThrow(assert);
+    await expect(desfazerRecebimento(pac, id, deps)).rejects.toThrow(assert);
+    await expect(cancelarLancamento(pac, id, 'x', deps)).rejects.toThrow(assert);
+    await expect(pacientesParaLancamento(pac, deps)).rejects.toThrow(assert);
+    await expect(listarLancamentos(worker(C), C.tenant, {}, deps)).rejects.toThrow(assert);
+  });
+
+  it('outro consultório não vê a lista', async () => {
+    const A = await cenario();
+    await entrada(A);
+    const B = await cenario();
+    const r = await listarLancamentos(B.ctx, B.tenant, { pacienteId: A.p }, deps);
+    expect(r.linhas).toEqual([]);
+    expect(r.totais).toEqual({ entradas: { recebido: 0, aReceber: 0 }, saidas: { pago: 0, aPagar: 0 } });
+    expect(await leituras(B.tenantId)).toEqual([]);
+  });
+});
+
+describe('pacientesParaLancamento (F-D28)', () => {
+  it('ativos e arquivados, sem bloqueados nem anonimizados, por nome', async () => {
+    const C = await cenario();
+    const carla = (await novoPaciente(app.db, C.ctx, { nome: 'Carla Dias', status: 'arquivado' })).id;
+    const bruno = (await novoPaciente(app.db, C.ctx, { nome: 'Bruno Lima' })).id;
+    await bloquear(C, bruno);
+    expect(await pacientesParaLancamento(C.ctx, deps)).toEqual([
+      { id: C.p, nome: 'Ana Souza', arquivado: false },
+      { id: carla, nome: 'Carla Dias', arquivado: true },
+    ]);
+  });
+});

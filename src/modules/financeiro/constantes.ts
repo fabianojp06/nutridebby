@@ -1,7 +1,8 @@
-import type { FormaPagamento, TipoLancamento } from '@/db/schema/financeiro';
+import type { TipoLancamento } from '@/db/schema/financeiro';
+import type { FormaPagamento } from '@/db/schema/financeiro-formas';
 import type { Situacao } from './situacao';
 
-export { FORMAS_DE_PAGAMENTO, type FormaPagamento } from '@/db/schema/financeiro';
+export { FORMAS_DE_PAGAMENTO, type FormaPagamento } from '@/db/schema/financeiro-formas';
 
 /** RN-304: R$ 0,01 a R$ 1.000.000,00 (também o valor da consulta, RN-324). */
 export const VALOR_MAX_CENTAVOS = 100_000_000;
