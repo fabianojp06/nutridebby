@@ -95,6 +95,11 @@ export type AccessHistoryItem = {
    * `rascunho_plano`), ou null se a tarefa já não existe (apagada na anonimização). Ausente = item de outra entidade.
    */
   tipoIa?: string | null;
+  /**
+   * Plano 18 (Tarefa 5): o titular do Histórico (o `patientId` de listAccessHistory). A linha de `patient_cadastro` grava
+   * entidade `patients` com `entidade_id` = id do cadastro (≠ titular): o `criar` dela aparece como "Alterou".
+   */
+  patientId?: string;
 };
 /**
  * RN-101: o PEDIDO é o `criar` do gatilho de ia_tarefas (com o ator da sessão); a SAÍDA ao provedor é o `exportar` que o
@@ -104,7 +109,7 @@ export type AccessHistoryItem = {
  * `null` (tarefa apagada na anonimização) = "Pediu uso da IA"/"Dados enviados à IA"; sem o campo = os rótulos da leitura.
  */
 const PEDIU_IA: Record<string, string> = { leitura_exame: 'Pediu leitura à IA', resumo_historico: 'Pediu resumo à IA', rascunho_plano: 'Pediu rascunho à IA' };
-export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade' | 'tipoIa'>): string {
+export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade' | 'tipoIa'> & Partial<Pick<AccessHistoryItem, 'entidadeId' | 'patientId'>>): string {
   if (i.entidade === 'ia' && i.acao === 'criar') return i.tipoIa === undefined ? PEDIU_IA.leitura_exame : (PEDIU_IA[i.tipoIa ?? ''] ?? 'Pediu uso da IA');
   if (i.entidade === 'ia' && i.acao === 'exportar') return i.tipoIa === undefined || i.tipoIa === 'leitura_exame' ? 'Laudo enviado à IA' : 'Dados enviados à IA';
   // Plano 16 (Desvio 5): a decisão "Não mostrar peso no app" (`criar` = ligou, `excluir` = desligou, peso-oculto.ts)
@@ -118,6 +123,10 @@ export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade' | 't
   // P15-02a: a desativação (recordAudit do módulo, na transação de app_ia_nutri_revogar) — não "apagou as conversas": a
   // pergunta com risco não aberta fica guardada até 30 dias (D22/D32)
   if (i.entidade === 'ia_nutri_revogacao' && i.acao === 'criar') return 'Desativou a IA Nutri';
+  // Plano 18 (Tarefa 5): o `criar` do cadastro complementar (patient_cadastro, entidade_id ≠ titular) é, para quem lê,
+  // alterar o cadastro — evita dois "Criou" ao criar o paciente e o "Criou" no primeiro preenchimento de um paciente antigo.
+  // O `excluir` da anonimização continua "Excluiu".
+  if (i.entidade === 'patients' && i.acao === 'criar' && i.patientId !== undefined && i.entidadeId !== i.patientId) return ACAO_ROTULO.alterar;
   return ACAO_ROTULO[i.acao];
 }
 
@@ -200,6 +209,7 @@ export async function listAccessHistory(
       ip: l.ip,
       ator: l.actorUserId ? (porId.get(l.actorUserId) ?? { nome: 'Usuário removido', papel: '' }) : null,
       ...(l.entidade === 'ia' ? { tipoIa: (l.entidadeId && r.tipos.get(l.entidadeId)) || null } : {}),
+      patientId,
     })),
   };
 }

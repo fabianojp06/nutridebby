@@ -376,3 +376,82 @@ export const dataExports = pgTable(
     index('data_exports_paciente_idx').on(t.tenantId, t.patientId, t.createdAt),
   ],
 );
+
+/** Listas fechadas do cadastro complementar (US-260); os rótulos ficam em `src/modules/pacientes/cadastro.ts`. */
+export const IDENTIDADES_DE_GENERO = ['mulher', 'homem', 'nao_binario', 'outra', 'prefere_nao_informar'] as const;
+export const ESTADOS_CIVIS = ['solteiro', 'casado', 'uniao_estavel', 'separado', 'divorciado', 'viuvo'] as const;
+export const ESCOLARIDADES = [
+  'sem_escolaridade',
+  'fundamental_incompleto',
+  'fundamental_completo',
+  'medio_incompleto',
+  'medio_completo',
+  'superior_incompleto',
+  'superior_completo',
+  'pos_graduacao',
+] as const;
+export const UFS = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'] as const;
+
+const naLista = (lista: readonly string[]) => sql.raw(lista.map((v) => `'${v}'`).join(', '));
+
+/**
+ * Plano 18 (spec D1, §9.1, US-260): cadastro complementar do paciente (Res. CFN 594/2017), 1:1 com `patients`, só com o
+ * que a ficha precisa além do cadastro de sempre. Tabela filha para que o contexto de paciente sem login (convite, links,
+ * webhook, contexto da IA Nutri, "No app") nunca leia CPF, endereço nem observação: política RESTRICTIVE
+ * `patient_cadastro_paciente_com_conta`. Auditada como `patients` ("Cadastro do paciente"; o `criar` aparece como "Alterou").
+ * Gatilhos: `patient_cadastro_colunas_fixas` (id, tenant e paciente não mudam) e `patient_cadastro_sem_apagar` (só o worker
+ * apaga, com o titular anonimizado). Toda regra dos CHECKs é conferida no servidor antes de gravar (D23: o 23514 leva a
+ * linha inteira ao log do Postgres).
+ */
+export const patientCadastro = pgTable(
+  'patient_cadastro',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull(),
+    patientId: uuid('patient_id').notNull(),
+    /** Só dígitos; o dígito verificador é conferido no servidor (RN-261). Nunca na lista, no cabeçalho, em URL nem em log. */
+    cpf: text('cpf'),
+    nomeSocial: text('nome_social'),
+    identidadeGenero: text('identidade_genero'),
+    estadoCivil: text('estado_civil'),
+    escolaridade: text('escolaridade'),
+    ocupacao: text('ocupacao'),
+    nacionalidade: text('nacionalidade'),
+    naturalidade: text('naturalidade'),
+    telefoneFixoE164: text('telefone_fixo_e164'),
+    cep: text('cep'),
+    logradouro: text('logradouro'),
+    numero: text('numero'),
+    complemento: text('complemento'),
+    bairro: text('bairro'),
+    cidade: text('cidade'),
+    uf: text('uf'),
+    observacao: text('observacao'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('patient_cadastro_paciente_unique').on(t.tenantId, t.patientId),
+    foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'patient_cadastro_paciente_fk' }),
+    uniqueIndex('patient_cadastro_cpf_unico').on(t.tenantId, t.cpf).where(sql`${t.cpf} is not null`),
+    check('patient_cadastro_cpf_check', sql`${t.cpf} ~ '^[0-9]{11}$'`),
+    check('patient_cadastro_nome_social_check', sql`char_length(${t.nomeSocial}) between 2 and 120`),
+    check('patient_cadastro_identidade_genero_check', sql`${t.identidadeGenero} in (${naLista(IDENTIDADES_DE_GENERO)})`),
+    check('patient_cadastro_estado_civil_check', sql`${t.estadoCivil} in (${naLista(ESTADOS_CIVIS)})`),
+    check('patient_cadastro_escolaridade_check', sql`${t.escolaridade} in (${naLista(ESCOLARIDADES)})`),
+    check('patient_cadastro_ocupacao_check', sql`char_length(${t.ocupacao}) between 2 and 80`),
+    check('patient_cadastro_nacionalidade_check', sql`char_length(${t.nacionalidade}) between 2 and 60`),
+    check('patient_cadastro_naturalidade_check', sql`char_length(${t.naturalidade}) between 2 and 80`),
+    check('patient_cadastro_telefone_fixo_e164_check', sql`${t.telefoneFixoE164} ~ '^\\+[1-9][0-9]{7,14}$'`),
+    check('patient_cadastro_cep_check', sql`${t.cep} ~ '^[0-9]{8}$'`),
+    check('patient_cadastro_logradouro_check', sql`char_length(${t.logradouro}) between 2 and 120`),
+    check('patient_cadastro_numero_check', sql`char_length(${t.numero}) between 1 and 10`),
+    check('patient_cadastro_complemento_check', sql`char_length(${t.complemento}) between 1 and 60`),
+    check('patient_cadastro_bairro_check', sql`char_length(${t.bairro}) between 2 and 60`),
+    check('patient_cadastro_cidade_check', sql`char_length(${t.cidade}) between 2 and 60`),
+    check('patient_cadastro_uf_check', sql`${t.uf} in (${naLista(UFS)})`),
+    check('patient_cadastro_observacao_check', sql`char_length(${t.observacao}) between 1 and 1000`),
+  ],
+);
+
+export type PatientCadastroRow = typeof patientCadastro.$inferSelect;

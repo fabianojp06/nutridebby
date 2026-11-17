@@ -201,6 +201,21 @@ describe('Plano 11 (RN-101) — a IA no Histórico de acessos', () => {
   it('Plano 17: a configuração dos lembretes de rotina aparece como "Lembretes no app"', () => {
     expect(ENTIDADE_ROTULO.lembretes).toBe('Lembretes no app');
   });
+
+  it('Plano 18: o "criar" do cadastro complementar (entidade_id ≠ titular) aparece como "Alterou — Cadastro do paciente"', () => {
+    const titular = randomUUID();
+    const cadastro = randomUUID();
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'patients', entidadeId: cadastro, patientId: titular })).toBe('Alterou');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'patients', entidadeId: titular, patientId: titular })).toBe('Criou');
+    expect(rotuloDaAcao({ acao: 'alterar', entidade: 'patients', entidadeId: cadastro, patientId: titular })).toBe('Alterou');
+    // a anonimização (worker) apaga o cadastro complementar: continua "Excluiu"
+    expect(rotuloDaAcao({ acao: 'excluir', entidade: 'patients', entidadeId: cadastro, patientId: titular })).toBe('Excluiu');
+    // sem o titular (item montado fora de listAccessHistory), o rótulo de sempre
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'patients', entidadeId: cadastro })).toBe('Criou');
+    // outra entidade com entidade_id ≠ titular não muda
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'antropometria', entidadeId: cadastro, patientId: titular })).toBe('Criou');
+    expect(ENTIDADE_ROTULO.patients).toBe('Cadastro do paciente');
+  });
 });
 
 describe('Plano 20 (RN-319) — o Financeiro no Histórico de acessos', () => {
