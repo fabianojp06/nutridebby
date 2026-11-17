@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rotuloDaAntecedencia, rotuloDoDiario, rotuloDoIntervalo, rotuloDosDias, rotuloDosHorarios, TEXTOS_PUSH, TITULO_PUSH } from './constantes';
+import { rotuloDaAntecedencia, rotuloDoDiario, rotuloDoDiarioNoPortal, rotuloDoIntervalo, rotuloDosDias, rotuloDosHorarios, TEXTOS_PUSH, TITULO_PUSH } from './constantes';
 
 describe('formatadores dos lembretes (painel e portal)', () => {
   it('rotuloDoIntervalo', () => {
@@ -37,6 +37,12 @@ describe('formatadores dos lembretes (painel e portal)', () => {
     expect(rotuloDoDiario(null)).toBe('sem pedido de registro');
     expect(rotuloDoDiario(30)).toBe('pedir registro no diário 30 min depois');
     expect(rotuloDoDiario(60)).toBe('pedir registro no diário 60 min depois');
+  });
+
+  it('rotuloDoDiarioNoPortal', () => {
+    expect(rotuloDoDiarioNoPortal(null)).toBeNull();
+    expect(rotuloDoDiarioNoPortal(30)).toBe('pedido de registro no diário 30 min depois');
+    expect(rotuloDoDiarioNoPortal(60)).toBe('pedido de registro no diário 60 min depois');
   });
 });
 

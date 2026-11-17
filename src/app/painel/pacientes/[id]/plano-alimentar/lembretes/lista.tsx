@@ -111,6 +111,9 @@ export function ListaDeLembretes({
 }) {
   const [aberto, setAberto] = useState<Aberto>(null);
   const [aviso, setAviso] = useState({ texto: '', n: 0 });
+  // a sugestão da primeira visão fica no cliente: o servidor manda `sugestao: null` assim que existe um lembrete, e o
+  // cartão que ainda não foi salvo (com o que foi editado nele) não pode sumir junto quando o outro é salvo
+  const [sugestaoGuardada, setSugestaoGuardada] = useState(sugestao);
   const focar = useRef<Foco | null>(null);
 
   // o alvo pode ainda não existir (lembrete novo antes da página revalidada chegar): tenta de novo no próximo render
@@ -137,6 +140,15 @@ export function ListaDeLembretes({
   const quantos = (tipo: Tipo) => lembretes.filter((l) => l.tipo === tipo).length;
   const novo = aberto && !aberto.id ? aberto.tipo : null;
   const inicialDoNovo = (tipo: Tipo): LembreteDoFormulario => (tipo === 'agua' ? modelos.agua : tipo === 'refeicoes' ? modelos.refeicoes : NOVO[tipo]);
+  /** Os cartões da sugestão ainda não salvos (a do servidor, se veio — página sem lembretes —, senão a guardada). */
+  const cartoes = (sugestao ?? sugestaoGuardada ?? []).filter((s) => !tem(s.tipo));
+  /** Cada cartão sai quando é salvo (e não volta se o lembrete for apagado depois: aí vale o "Adicionar …"). */
+  const salvoDaSugestao = (tipo: Tipo) => (id: string) => {
+    setSugestaoGuardada(cartoes.filter((s) => s.tipo !== tipo));
+    salvo(id);
+  };
+  /** "Adicionar água"/"Adicionar refeições": só sem o lembrete salvo e sem o cartão do mesmo tipo na sugestão. */
+  const podeAdicionar = (tipo: 'agua' | 'refeicoes') => !tem(tipo) && !cartoes.some((s) => s.tipo === tipo);
 
   return (
     <div className="space-y-4">
@@ -203,14 +215,14 @@ export function ListaDeLembretes({
         </ul>
       )}
 
-      {sugestao && !somenteLeitura && (
+      {cartoes.length > 0 && !somenteLeitura && (
         <div className="space-y-3">
           <h3 className="font-semibold">Sugestão — confira e salve</h3>
           <div className="grid gap-3 lg:grid-cols-2">
-            {sugestao.map((s) => (
+            {cartoes.map((s) => (
               <div key={s.tipo} className="space-y-3 rounded-2xl border border-borda p-4">
                 <h4 className="font-semibold">{NOME[s.tipo]}</h4>
-                <FormLembrete patientId={patientId} inicial={s} nome={nomeDe(s)} aoSalvar={salvo} />
+                <FormLembrete patientId={patientId} inicial={s} nome={nomeDe(s)} aoSalvar={salvoDaSugestao(s.tipo)} />
               </div>
             ))}
           </div>
@@ -220,10 +232,10 @@ export function ListaDeLembretes({
       {!somenteLeitura && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
-            {!sugestao && !tem('agua') && (
+            {podeAdicionar('agua') && (
               <Botao id={idAdicionar('agua')} type="button" variante="secundario" onClick={() => setAberto({ tipo: 'agua' })}>Adicionar água</Botao>
             )}
-            {!sugestao && !tem('refeicoes') && (
+            {podeAdicionar('refeicoes') && (
               <Botao id={idAdicionar('refeicoes')} type="button" variante="secundario" onClick={() => setAberto({ tipo: 'refeicoes' })}>Adicionar refeições</Botao>
             )}
             {quantos('suplemento') < MAX_SUPLEMENTOS ? (

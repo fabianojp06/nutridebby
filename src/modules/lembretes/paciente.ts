@@ -15,7 +15,7 @@ import { idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
 import { pacienteDaSessao } from '@/modules/portal/sessao';
 import { validarConfig, type LembreteNovo } from './config';
-import { rotuloDaAntecedencia, rotuloDoIntervalo, rotuloDosDias, rotuloDosHorarios } from './constantes';
+import { rotuloDaAntecedencia, rotuloDoDiarioNoPortal, rotuloDoIntervalo, rotuloDosDias, rotuloDosHorarios } from './constantes';
 
 export type LembreteDoPaciente = { id: string; tipo: LembreteNovo['tipo']; resumo: string; textoDaNutri: string | null; desligado: boolean };
 
@@ -39,8 +39,11 @@ function resumo(l: ReturnType<typeof validarConfig> & { ok: true }): string {
   switch (v.tipo) {
     case 'agua':
       return `Água: das ${v.config.inicio} às ${v.config.fim}, a cada ${rotuloDoIntervalo(v.config.intervaloMin)} · ${rotuloDosDias(v.config.dias)}`;
-    case 'refeicoes':
-      return `Refeições: aviso ${rotuloDaAntecedencia(v.config.antecedenciaMin)}, nas refeições do seu plano`;
+    case 'refeicoes': {
+      // o pedido de registro no diário vem no mesmo interruptor das Refeições: o resumo diz que ele está ligado
+      const diario = rotuloDoDiarioNoPortal(v.config.diarioDepoisMin);
+      return `Refeições: aviso ${rotuloDaAntecedencia(v.config.antecedenciaMin)}${diario ? ` e ${diario}` : ''}, nas refeições do seu plano`;
+    }
     case 'suplemento':
       return `Suplemento: ${rotuloDosHorarios(v.config.horarios)} · ${rotuloDosDias(v.config.dias)}`;
     case 'livre':

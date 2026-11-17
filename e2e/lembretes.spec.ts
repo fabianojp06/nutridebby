@@ -55,12 +55,14 @@ test('a nutricionista salva a sugestão; o paciente desliga a água em Eu › Le
   await s.getByRole('button', { name: 'Salvar lembrete de água' }).click();
   await expect(s.getByRole('status')).toHaveText('Lembrete salvo.');
   await expect(s.getByRole('button', { name: 'Editar lembrete de água' })).toBeFocused();
-  // com um lembrete salvo a sugestão sai da tela (só a primeira visão); as refeições entram pelo "Adicionar refeições",
-  // que abre com o item da sugestão (na hora, sem pedido de registro no diário)
+  // o cartão de Refeições da sugestão continua na tela (a sugestão fica guardada no cliente; revisão final, F-01) e não há
+  // "Adicionar refeições" ao lado dele; salvo também, a sugestão sai da tela
   const salvarRefeicoes = s.getByRole('button', { name: 'Salvar lembrete de refeições' });
-  if (!(await salvarRefeicoes.isVisible())) await s.getByRole('button', { name: 'Adicionar refeições' }).click();
+  await expect(salvarRefeicoes).toBeVisible();
+  await expect(s.getByRole('button', { name: 'Adicionar refeições' })).toHaveCount(0);
   await salvarRefeicoes.click();
   await expect(s.getByRole('button', { name: 'Editar lembrete de refeições' })).toBeFocused();
+  await expect(s.getByRole('heading', { name: 'Sugestão — confira e salve' })).toHaveCount(0);
   await expect(s.getByRole('switch', { name: 'Água' })).toHaveAttribute('aria-checked', 'true');
   await expect(s.getByRole('switch', { name: 'Refeições' })).toHaveAttribute('aria-checked', 'true');
   await expect(s.getByText(/^Previsto para hoje: \d+ lembretes?$/)).toBeVisible();

@@ -59,6 +59,14 @@ describe('meusLembretes (Eu › Lembretes, §5.3)', () => {
     });
   });
 
+  it('Refeições com o pedido de registro no diário: o resumo diz que ele está ligado (mesmo interruptor)', async () => {
+    const { ctx, salvar } = await cenario();
+    await salvar({ tipo: 'refeicoes', config: { antecedenciaMin: 15, diarioDepoisMin: 30 } });
+    expect((await meusLembretes(ctx, db)).lembretes.map((l) => l.resumo)).toEqual([
+      'Refeições: aviso 15 min antes e pedido de registro no diário 30 min depois, nas refeições do seu plano',
+    ]);
+  });
+
   it('RLS: só os do próprio paciente — o lembrete de outro paciente do mesmo consultório não aparece', async () => {
     const { ctx, outro, salvar } = await cenario();
     const meu = await salvar(AGUA);

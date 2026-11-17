@@ -88,6 +88,14 @@ export function rotuloDaAntecedencia(min: ConfigRefeicoes['antecedenciaMin']): s
   return min === 0 ? 'na hora' : `${min} min antes`;
 }
 
+const registroNoDiario = (min: number): string => `registro no diário ${min} min depois`;
+
+/** Painel: "pedir registro no diário 30 min depois" / "sem pedido de registro". */
 export function rotuloDoDiario(min: ConfigRefeicoes['diarioDepoisMin']): string {
-  return min === null ? 'sem pedido de registro' : `pedir registro no diário ${min} min depois`;
+  return min === null ? 'sem pedido de registro' : `pedir ${registroNoDiario(min)}`;
+}
+
+/** Portal (resumo das Refeições em Eu › Lembretes): "pedido de registro no diário 30 min depois"; sem pedido, null. */
+export function rotuloDoDiarioNoPortal(min: ConfigRefeicoes['diarioDepoisMin']): string | null {
+  return min === null ? null : `pedido de ${registroNoDiario(min)}`;
 }
