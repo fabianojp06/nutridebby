@@ -361,8 +361,9 @@ function Resultado({ id, a, rotulo, detalhe, acao }: { id: string; a: AlimentoEn
     <li className="space-y-2 p-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-48 flex-1">
-          {rotulo}
-          <span className="text-sm text-suave">{detalhe} · <Selo fonte={a.fonte} /></span>
+          {/* rótulo e detalhe em linhas próprias: dois spans seguidos saíam colados ("cozido128 kcal…") */}
+          <div>{rotulo}</div>
+          <div className="text-sm text-suave">{detalhe} · <Selo fonte={a.fonte} /></div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" aria-expanded={aberto} aria-controls={`${id}-nutrientes`} aria-label={`${MSG_BUSCA.verNutrientes} de ${a.nome}`} onClick={() => setAberto((v) => !v)} className={BOTAO}>
