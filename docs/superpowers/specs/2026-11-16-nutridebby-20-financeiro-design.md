@@ -2,13 +2,13 @@
 
 | Item | Valor |
 |---|---|
-| Versão | 0.2 (revisão de 16/11/2026: lentes banco/RLS, normas, interface e completude; registro na §17) |
+| Versão | 0.2 (revisão de 16/11/2026: lentes banco/RLS, normas, interface e completude; registro na §17), com os ajustes técnicos da revisão do plano em 17/11/2026 (§18; nenhuma regra aprovada mudou) |
 | Data | 2026-11-16 |
 | Status | **Aprovada para virar plano.** O dono aprovou em 16/11/2026 todas as recomendações da proposta ("aprovo todas as recomendações, pode seguir"): as decisões F-D1 a F-D12 e as respostas F-D13 a F-D18. As F-D19 a F-D30 são decisões minhas, tiradas da crítica de completude e conferidas no código; o dono pode corrigir qualquer uma. Na v0.1, a F-D19 **contrariava** a recomendação aprovada da F-D7 ("avisa na tela, mas não cancela a cobrança sozinho"); a v0.2 volta ao que o dono aprovou e deixa a alternativa como pergunta (F-P5). A F-D18 foi acertada (seção no Início em vez de aba, R-266 do Plano 18). Conferida contra a `main` 5482450 (Planos 01–16 em produção, PR #45). Pareceres externos pendentes (advogado, CRN-3, contador) estão na §14 e não travam a v1 |
 | Itens do backlog | Backlog "Paridade Dietbox", onda 1: **PD-30** (lançamentos, categorias, saldo inicial), **PD-31** (cobrança por consulta e pendências por paciente), **PD-32** (fluxo de caixa e entradas × saídas), **PD-33** (financeiro na ficha do paciente — última tarefa, depende do Plano 18) |
 | Insumos | Proposta aprovada (`.sessoes/proposta-plano-20.json`: brief, crítica de completude, normas conferidas em 16/11/2026 e levantamento do código); referência funcional: o controle financeiro do Dietbox. **Copiamos a função, nunca a marca, os textos ou o layout** |
 | Documentos de base | [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md) (D-02: financeiro do consultório na Fase 2; RN-06 fuso; RNF-08 LGPD; RNF-11 log; RNF-12 formatos), [`2026-10-08-nutridebby-app-paciente-g-design.md`](2026-10-08-nutridebby-app-paciente-g-design.md) (formato desta spec) e o manual técnico, caps. [02](../../manual-tecnico/02-banco-de-dados.md) (RLS, auditoria, guardas) e [05](../../manual-tecnico/05-agenda-portal-conteudo.md) (agenda, presença, manual guiado) |
-| Numeração nova | US-300 a US-309 · RN-300 a RN-329 · RNF-300 a RNF-307 · CS-300 a CS-303 · R-300 a R-313 · DEP-F1 a DEP-F8 · PM-F1 a PM-F14 · **F-D1 a F-D30** (decisões deste documento; o prefixo "F-" evita colisão com as D dos planos e das outras specs, como "G-D" e "A-D"). O bloco **300** fica para o Plano 20 porque as specs dos Planos 18 e 19 foram escritas em paralelo: a do Plano 19 usa o bloco 230–259 e a do Plano 18 o bloco 260–284 (conferido nos worktrees em 16/11/2026); não há colisão |
+| Numeração nova | US-300 a US-309 · RN-300 a RN-329 · RNF-300 a RNF-307 · CS-300 a CS-303 · R-300 a R-314 · DEP-F1 a DEP-F8 · PM-F1 a PM-F14 · **F-D1 a F-D30** (decisões deste documento; o prefixo "F-" evita colisão com as D dos planos e das outras specs, como "G-D" e "A-D"). O bloco **300** fica para o Plano 20 porque as specs dos Planos 18 e 19 foram escritas em paralelo: a do Plano 19 usa o bloco 230–259 e a do Plano 18 o bloco 260–284 (conferido nos worktrees em 16/11/2026); não há colisão |
 
 ---
 
@@ -69,7 +69,7 @@ continua igual, salvo a seção "Cobrança" na tela da consulta e o efeito de "R
 | DEP-F5 | **RLS e guardas** | Tabelas novas | ✅ `app_enable_tenant_rls`, `app_enable_patient_rls` (0000: com `patient_id` nulo, `NULL = app_current_patient()` não passa, então a sessão de paciente não vê a linha), `app_enable_staff_only` (0020), `app_enable_audit` (0007: `nullif` no `patient_id`, linha sem paciente é auditada sem paciente). Guardas `src/db/rls-guard.ts` (`STAFF_ONLY`), `src/db/audit-guard.ts`, `test/isolamento.test.ts` (`FABRICAS`, `COM_MAE`, `SEM_DELETE`, `DELETE_REVOGADO`, `IMUTAVEIS`, `SO_APAGA`, `ULTIMAS`) |
 | DEP-F6 | **LGPD (US-018, US-046)** | Exportação e anonimização | ✅ `montarDados` (`src/modules/pacientes/exportacao-job.ts:318`: "todas as tabelas do paciente, menos as staff_only" — `ia_tarefas` entra por **inclusão explícita**, seção `ia`, linhas 198-203); motivo de cancelamento da nutricionista fora da exportação ("Só você vê", linhas 167-168). `anonimizarVencidos` (`src/modules/pacientes/lgpd.ts:481`) chama `app_anonimizar_aceites` e afins antes do UPDATE de `patients`; `anonimizarAgenda` (linha 457) limpa o texto livre e mantém a consulta |
 | DEP-F7 | **DPA (US-002)** | Versão 1.1 com novo aceite | ✅ `DPA_VERSAO = '1.0'` (`src/modules/plataforma/dpa.ts:15`); mudar a versão leva a nutricionista a `/painel/dpa` (`requireNutri`) e as APIs do painel dão 403 até o aceite (`requireApiNutri`); `DPA_MUDOU` já existe. O aditivo de IA remete às cláusulas e à cláusula 8 do DPA: **a numeração das cláusulas não pode mudar** |
-| DEP-F8 | **Ficha do paciente (Plano 18)** | Seção "Financeiro" no Início (PD-33) | ⬜ A ficha atual (`src/app/painel/pacientes/[id]/abas.tsx`) tem 12 abas no limite de 1280 px (comentário das linhas 31-32). A spec do Plano 18 (`nutridebby-18`) acrescenta a aba "Perfil" (13 abas, D12) e registra na **R-266** que uma 14ª aba "Financeiro" não cabe a 1280 px; o mesmo documento cria o **registro de seções** do Início (PD-12, D14, RN-277, §11: "Plano 20 — seção 'Financeiro' (com `auditRead` próprio)"). O Plano 18 ainda não está na `main`. A US-308 só começa depois do merge dele (F-D18) |
+| DEP-F8 | **Ficha do paciente (Plano 18)** | Seção "Financeiro" no Início (PD-33) | ⬜ A ficha atual (`src/app/painel/pacientes/[id]/abas.tsx`) tem 12 abas no limite de 1280 px (comentário das linhas 31-32). A spec do Plano 18 (`nutridebby-18`) acrescenta a aba "Perfil" (13 abas, D12) e registra na **R-266** que uma 14ª aba "Financeiro" não cabe a 1280 px; o mesmo documento cria o **registro de seções** do Início (PD-12, D14, RN-277). **Corrigido em 17/11 (§18):** a spec do Plano 18 revista **não** prevê mais a seção do Financeiro com `auditRead` próprio — a RN-277 de lá diz que o `resumo` de uma seção nunca chama `auditRead`, e a P-6, a §11, a R-266 e a §13 de lá ainda falam em **aba**. O contrato da seção (US-308, RN-329) depende de decisão do dono com a orquestradora (§18, pergunta 1). O Plano 18 ainda não está na `main`. A US-308 só começa depois do merge do PR 1 dele (registro) e dessa decisão (F-D18) |
 
 ---
 
@@ -858,6 +858,7 @@ REVOKE DELETE, TRUNCATE ON fin_configuracoes FROM nutri_app_role;
 
 **Gatilho `fin_lancamentos_regras`** (mensagens com `ERRCODE = '42501'`, como os de documentos e exames):
 
+- **Ordem** (o `BEFORE INSERT` roda antes do `WITH CHECK` da RLS): (1) contexto vazio ou `worker` → 42501 (no UPDATE, o `worker` só passa no ramo da anonimização); (2) papel diferente de `nutri` → `RETURN NEW` sem ler `patients` (a RLS recusa); (3) só na sessão `nutri` lê o paciente com `FOR KEY SHARE`, no INSERT e no UPDATE. As funções dos gatilhos levam `SET search_path = public, pg_temp` e nomes com `public.`, como a função de anonimização.
 - INSERT: `cancelado_em`, `cancelado_por`, `motivo_cancelamento` e `anonimizado_em` nulos; `criado_por := app_current_user()`
   (autoria pelo banco, como `exam_submissions` e `ia_autorizacoes`); com `patient_id`, o gatilho lê o paciente com
   `SELECT status, anonimizado_em … FOR KEY SHARE` (espera o `FOR UPDATE` do bloqueio e lê a versão nova) e recusa
@@ -880,7 +881,7 @@ REVOKE DELETE, TRUNCATE ON fin_configuracoes FROM nutri_app_role;
 `staff_only` e `paciente_sem_*` deixam passar, e o UPDATE não está revogado), com `SET search_path = public, pg_temp` e
 nomes qualificados com `public.` (a defesa da tabela temporária da 0007, T4-R2a). Recusa fora do contexto `worker` de
 um tenant; trava o paciente `FOR UPDATE` dentro da função (como a 0065) e recusa paciente que não esteja `bloqueado`
-com `anonimizado_em` nulo; liga o marcador local (`set_config('app.fin_anonimizando', '1', true)`); faz o UPDATE da
+com `anonimizado_em` nulo **e** `anonimizar_apos` já vencido (antes de hoje no fuso do tenant, como o filtro de `anonimizarVencidos`; defesa a mais da revisão do plano, §18); liga o marcador local (`set_config('app.fin_anonimizando', '1', true)`); faz o UPDATE da
 RN-316; **desliga** o marcador no fim (`set_config('app.fin_anonimizando', '', true)`, como a 0117:308), para ele não
 valer até o fim da transação de `anonimizarVencidos`. `REVOKE ALL … FROM PUBLIC; GRANT EXECUTE … TO nutri_app_role`.
 
@@ -892,7 +893,7 @@ valer até o fim da transação de `anonimizarVencidos`. `REVOKE ALL … FROM PU
 | `AUDIT_EXCEPTIONS` | nenhuma (só `fin_lancamentos` tem `patient_id`, e tem o gatilho) |
 | `FABRICAS` (`test/isolamento.test.ts`) | as três; `fin_configuracoes` com `ON CONFLICT DO NOTHING` (a fábrica roda uma vez por paciente, duas por tenant); `fin_lancamentos` como entrada com paciente e sem consulta (FK anulável: a consulta fica de fora) |
 | `COM_MAE` | `fin_lancamentos` (a categoria, FK NOT NULL, é criada no mesmo comando — regra 9 do CLAUDE.md). **Escolha registrada:** com `COM_MAE`, a recusa dos negativos de INSERT vem da política de `fin_categorias`, e o teste de isolamento não prova as políticas da própria `fin_lancamentos` no INSERT. Por isso `src/modules/financeiro/banco.test.ts` tem o caso próprio: com uma categoria já criada pela sessão `nutri` (a checagem da FK não passa pela RLS), INSERT em `fin_lancamentos` pela sessão de paciente, `publico` e `conta` → erro de RLS da própria tabela; pela `worker` → 42501 do gatilho |
-| `ULTIMAS` | `fin_categorias` (mãe com FK `NO ACTION`) |
+| `ULTIMAS` | nenhuma (revisto em 17/11, §18): a única filha de `fin_categorias` é `fin_lancamentos`, que está em `SEM_DELETE` e nunca é apagada no teste, e o `SO_APAGA.fin_categorias` já deixa de fora as categorias com lançamento |
 | `SEM_DELETE` e `DELETE_REVOGADO` | `fin_lancamentos` e `fin_configuracoes` |
 | `IMUTAVEIS` | `fin_lancamentos` (o gatilho recusa mudar `tenant_id`/`patient_id` com 42501 antes da RLS) |
 | `SO_APAGA` | `patients`: `and not exists (select 1 from fin_lancamentos f where f.tenant_id = patients.tenant_id and f.patient_id = patients.id)`; `fin_categorias`: só as sem lançamento e sem `chave` |
@@ -906,7 +907,7 @@ novo, `ci.yml:131`). Decisão: a semente apaga só as consultas **sem** lançame
 e leva as que sobram a `cancelada` com `cancelado_por = 'sistema'` e `cancelada_em = now()` (CHECK
 `appointments_cancelamento_completo`), o que libera o horário no `EXCLUDE` da 0051, que ignora as canceladas
 (`appointments` não tem gatilho de transição). Os lançamentos das execuções anteriores ficam no consultório do E2E: o E2E do Financeiro
-cria um paciente novo por execução e confere valores desse paciente, nunca os totais do consultório.
+cria um paciente novo por execução e confere valores desse paciente, nunca os totais do consultório. Primeiro acesso repetível (revisão do plano, §18): a cada execução a semente cria dois consultórios novos sem Financeiro (slug com sufixo único, DPA aceito), com as contas de e-mail fixo `E2E_FIN_NOVO` (o E2E configura) e `E2E_FIN_AXE` (o axe do estado "não configurado"), recriadas apontando para eles; a linha de `fin_configuracoes` nunca precisa ser apagada.
 
 ### 9.6 O que não muda
 
@@ -984,6 +985,7 @@ a ela; a 1.0 fica em `DPA_TEXTOS` para quem aceitou nela, fora do objeto literal
 | R-311 | Edição de lançamento recebido muda o valor sem guardar o antes (o `audit_log` não guarda antes/depois) | Aceito na v1: o "Alterou — Financeiro" mostra quem e quando; o CSV mensal guardado pela nutricionista é o comprovante (CTN, art. 195); "antes/depois" fica no backlog se o contador pedir |
 | R-312 | Semente do E2E quebra no banco de dev reaproveitado (FK `NO ACTION` da cobrança para a consulta, DELETE revogado) | Semente apaga só as consultas sem lançamento e cancela as outras (§9.5), na mesma tarefa que cria a FK (T1) |
 | R-313 | Janela em que o Financeiro grava lançamentos com paciente e a exportação ainda não tem a seção `financeiro` | A tarefa de LGPD (T9) vai no **mesmo deploy** da primeira escrita de lançamento com paciente: o PR 2 (T2–T11) não vai a merge sem ela |
+| R-314 | Volta atrás da imagem do PR 2 para a do PR 1 (ou anterior): a imagem antiga não chama `app_anonimizar_financeiro` em `anonimizarVencidos`; o paciente ganha `anonimizado_em`, e a função, que exige `anonimizado_em` nulo, nunca mais anonimiza os lançamentos dele | Risco prático nulo hoje (o primeiro vencimento é bloqueio + 20 anos). Se houver volta atrás com paciente vencido no meio, anonimizar à mão com o dono; item no backlog (T11) |
 
 Também: CI em fila no runner único (cerca de 30 min por PR) com três sessões disputando CPU com a produção — a revisão
 pesada é escalonada; e **não exigir snapshot** antes da migration em produção (o snapshot da Hostinger congela a VPS,
@@ -1142,3 +1144,17 @@ worktrees dos Planos 17, 18 e 19 antes de entrar.
 | Completude M-6 — numeração dos Planos 18 e 19 | Aplicado: cabeçalho |
 
 Descartado: nada. Um achado foi aplicado só em parte (RLS M-6, acima), com o motivo registrado.
+
+## 18. Ajustes da revisão do plano (17/11/2026)
+
+A revisão do plano (executabilidade, banco e guardas, conflitos com os Planos 17, 18 e 19) trouxe à spec só ajustes técnicos; nenhuma regra aprovada mudou. Registro completo em "Revisão do plano", no fim do plano.
+
+| Achado | Destino |
+|---|---|
+| DEP-F8 cita um texto da spec do Plano 18 que não existe mais (a RN-277 de lá proíbe `auditRead` nas seções) | DEP-F8 corrigida; US-308/RN-329 ficam como estão até a decisão abaixo |
+| Ordem gatilho × RLS e `search_path` dos gatilhos (`revisor-rls`) | §9.4 |
+| Anonimização antes do prazo (`revisor-rls`) | §9.4: a função exige também `anonimizar_apos` vencido |
+| `fin_categorias` em `ULTIMAS` | §9.5: não entra (a filha está em `SEM_DELETE`) |
+| Volta atrás com a imagem do PR 1 (`revisor-rls`) | R-314 |
+
+**Pergunta 1 ao dono (bloqueia só a US-308):** a seção "Financeiro" no Início com `auditRead` (RN-318/RN-329) não cabe no contrato do registro do Plano 18. As saídas são: (a) o PR 1 do Plano 18 estende o contrato; ou (b) a seção fica sem `auditRead`, pelo precedente D17 do Plano 10A (só rótulo, data e situação), com "Ver todos" e "Nova entrada" por rotas da ficha que redirecionam. A (b) muda a RN-318/RN-329 e pede o OK do `normas-cfn-lgpd`. Recomendação: (b). Detalhes na T12 do plano.
