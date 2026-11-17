@@ -160,6 +160,14 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(g.versao).toBe(4);
     expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('Financeiro');
   });
+  it('Plano 20 (T7): o guia da Agenda cita a cobrança criada ao marcar "Realizada" e a versão sobe para 2', () => {
+    const g = GUIAS.find((x) => x.id === 'agenda')!;
+    expect(g.versao).toBe(2);
+    const passos = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens.join(' ');
+    expect(passos).toContain('Realizada');
+    expect(passos).toContain('cobrança');
+    expect(passos).toContain('Financeiro');
+  });
   it('Plano 20: o Financeiro tem guia próprio (versão 1, último da lista), com os alvos do Resumo, das Configurações e dos Lançamentos', () => {
     const g = GUIAS.find((x) => x.id === 'financeiro')!;
     expect(g.versao).toBe(1);

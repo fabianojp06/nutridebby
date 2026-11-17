@@ -10,6 +10,7 @@ import { withTenant } from '@/db/tenant';
 import { buscarConsulta } from '@/modules/agenda/consultas';
 import { AtendimentoError, atualizarAtendimento, buscarAtendimento, listarAtendimentos, MSG_ATENDIMENTO, orientacoesDoPaciente, registrarAtendimento } from './atendimentos';
 import { PacienteNaoEncontradoError } from './base';
+import { salvarConfiguracoes } from '@/modules/financeiro/configuracoes';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const now = new Date('2026-10-01T15:00:00Z');
@@ -23,7 +24,7 @@ describe('atendimentos (US-016)', () => {
   it('registra notas privadas e orientações; a auditoria vê as duas entidades, com a nutricionista', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
-    const id = await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-10-01', notasPrivadas: NOTA, orientacoes: ORIENTACAO }, deps);
+    const { id } = await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-10-01', notasPrivadas: NOTA, orientacoes: ORIENTACAO }, deps);
     expect(await buscarAtendimento(T.ctx, p.id, id, app.db)).toMatchObject({ id, data: '2026-10-01', notasPrivadas: NOTA, orientacoesPaciente: ORIENTACAO });
     // filtra as duas entidades: o novoPaciente também grava "criar" em patients com o mesmo patient_id
     const log = await withTenant(
@@ -56,7 +57,7 @@ describe('atendimentos (US-016)', () => {
     const A = await novoTenant(app.db);
     const B = await novoTenant(app.db);
     const pA = await novoPaciente(app.db, A.ctx);
-    const idA = await registrarAtendimento(A.ctx, A.tenant, pA.id, { data: '2026-10-01', notasPrivadas: '', orientacoes: ORIENTACAO }, deps);
+    const { id: idA } = await registrarAtendimento(A.ctx, A.tenant, pA.id, { data: '2026-10-01', notasPrivadas: '', orientacoes: ORIENTACAO }, deps);
     // a matriz de isolamento cria o atendimento na mesma CTE, então lá quem recusa é a RLS de consultations;
     // aqui o atendimento já existe e só a política da própria consultation_notes pode barrar
     const tentativa = withTenant(
@@ -71,7 +72,7 @@ describe('atendimentos (US-016)', () => {
   it('editar troca as orientações e, com as notas vazias, apaga a nota', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
-    const id = await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-10-01', notasPrivadas: NOTA, orientacoes: '' }, deps);
+    const { id } = await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-10-01', notasPrivadas: NOTA, orientacoes: '' }, deps);
     await atualizarAtendimento(T.ctx, T.tenant, p.id, id, { data: '2026-10-01', notasPrivadas: '  ', orientacoes: ORIENTACAO }, deps);
     expect(await buscarAtendimento(T.ctx, p.id, id, app.db)).toMatchObject({ notasPrivadas: null, orientacoesPaciente: ORIENTACAO });
     await atualizarAtendimento(T.ctx, T.tenant, p.id, id, { data: '2026-09-30', notasPrivadas: 'nova nota', orientacoes: ORIENTACAO }, deps);
@@ -94,7 +95,7 @@ describe('atendimentos (US-016)', () => {
     await expect(registrarAtendimento(A.ctx, A.tenant, pB.id, { data: '2026-10-01', notasPrivadas: '', orientacoes: '' }, deps)).rejects.toBeInstanceOf(PacienteNaoEncontradoError);
     const p1 = await novoPaciente(app.db, A.ctx);
     const p2 = await novoPaciente(app.db, A.ctx);
-    const de1 = await registrarAtendimento(A.ctx, A.tenant, p1.id, { data: '2026-10-01', notasPrivadas: '', orientacoes: '' }, deps);
+    const { id: de1 } = await registrarAtendimento(A.ctx, A.tenant, p1.id, { data: '2026-10-01', notasPrivadas: '', orientacoes: '' }, deps);
     await expect(atualizarAtendimento(A.ctx, A.tenant, p2.id, de1, { data: '2026-10-01', notasPrivadas: 'x', orientacoes: '' }, deps)).rejects.toMatchObject({
       erros: { geral: MSG_ATENDIMENTO.naoEncontrado },
     });
@@ -109,7 +110,7 @@ describe('atendimentos (US-016)', () => {
     const p = await novoPaciente(app.db, T.ctx);
     const c = await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-30T12:00:00Z'));
     const entrada = (appointmentId: string) => ({ data: '2026-09-30', notasPrivadas: '', orientacoes: '', appointmentId });
-    const id = await registrarAtendimento(T.ctx, T.tenant, p.id, entrada(c), deps);
+    const { id } = await registrarAtendimento(T.ctx, T.tenant, p.id, entrada(c), deps);
     const [linha] = await withTenant(T.ctx, (tx) => tx.select().from(consultations).where(eq(consultations.id, id)), app.db);
     expect(linha.appointmentId).toBe(c);
     expect((await buscarConsulta(T.ctx, c, app.db))?.status).toBe('realizada');
@@ -125,7 +126,7 @@ describe('atendimentos (US-016)', () => {
     }
     expect(await withTenant(T.ctx, (tx) => tx.select().from(consultations).where(eq(consultations.patientId, p.id)), app.db)).toHaveLength(1);
     // sem consulta (aba Atendimentos): como antes
-    const solto = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...entrada(''), data: '2026-10-01' }, deps);
+    const { id: solto } = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...entrada(''), data: '2026-10-01' }, deps);
     expect((await withTenant(T.ctx, (tx) => tx.select().from(consultations).where(eq(consultations.id, solto)), app.db))[0].appointmentId).toBeNull();
   });
 
@@ -149,5 +150,51 @@ describe('atendimentos (US-016)', () => {
     const c = await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-30T12:00:00Z'), 60, { status: 'faltou' });
     await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-09-30', notasPrivadas: '', orientacoes: '', appointmentId: c }, deps);
     expect((await buscarConsulta(T.ctx, c, app.db))?.status).toBe('realizada');
+  });
+});
+
+describe('Plano 20 (US-303, F-D13): o atendimento ligado a uma consulta que não era "Realizada" gera a cobrança', () => {
+  const owner = makeDb(inject('ownerDatabaseUrl'));
+  afterAll(() => owner.pool.end());
+  const linhas = async (tenantId: string) =>
+    (await owner.pool.query('select to_jsonb(l) as r from fin_lancamentos l where tenant_id = $1', [tenantId])).rows.map((x) => x.r);
+  const entrada = (appointmentId: string) => ({ data: '2026-09-30', notasPrivadas: '', orientacoes: '', appointmentId });
+
+  it('consulta "faltou" por engano → "realizada" e a cobrança na mesma transação ({ id, cobranca: criada }); já "realizada" → cobranca null', async () => {
+    const T = await novoTenant(app.db);
+    await salvarConfiguracoes(T.ctx, T.tenant, { saldoInicialEm: '2026-09-01', saldoInicial: '0', valorConsulta: '250,00' }, { db: app.db, agora: now });
+    const p = await novoPaciente(app.db, T.ctx);
+    const faltou = await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-30T12:00:00Z'), 60, { status: 'faltou' });
+    const r = await registrarAtendimento(T.ctx, T.tenant, p.id, entrada(faltou), deps);
+    expect(r).toEqual({ id: expect.any(String), cobranca: { tipo: 'criada', valorCentavos: 25000 } });
+    expect((await buscarConsulta(T.ctx, faltou, app.db))?.status).toBe('realizada');
+    expect(await linhas(T.tenantId)).toEqual([expect.objectContaining({ appointment_id: faltou, patient_id: p.id, valor_centavos: 25000, vencimento: '2026-09-30' })]);
+
+    const realizada = await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-29T12:00:00Z'), 60, { status: 'realizada' });
+    expect(await registrarAtendimento(T.ctx, T.tenant, p.id, entrada(realizada), deps)).toEqual({ id: expect.any(String), cobranca: null });
+    // sem consulta: nada do Financeiro
+    expect(await registrarAtendimento(T.ctx, T.tenant, p.id, entrada(''), deps)).toEqual({ id: expect.any(String), cobranca: null });
+    expect(await linhas(T.tenantId)).toHaveLength(1);
+  });
+
+  it('sem o valor da consulta → sem_valor, e o atendimento é gravado', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const c = await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-30T12:00:00Z'));
+    const r = await registrarAtendimento(T.ctx, T.tenant, p.id, entrada(c), deps);
+    expect(r.cobranca).toEqual({ tipo: 'sem_valor' });
+    expect(await buscarAtendimento(T.ctx, p.id, r.id, app.db)).not.toBeNull();
+  });
+
+  it('a recusa do atendimento (consulta já atendida) desfaz a cobrança junto', async () => {
+    const T = await novoTenant(app.db);
+    await salvarConfiguracoes(T.ctx, T.tenant, { saldoInicialEm: '2026-09-01', saldoInicial: '0', valorConsulta: '250,00' }, { db: app.db, agora: now });
+    const p = await novoPaciente(app.db, T.ctx);
+    const c = await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-30T12:00:00Z'));
+    // um atendimento já ligado à consulta, gravado direto, com a consulta ainda "agendada"
+    await withTenant(T.ctx, (tx) => tx.insert(consultations).values({ tenantId: T.tenantId, patientId: p.id, data: '2026-09-30', appointmentId: c }), app.db);
+    await expect(registrarAtendimento(T.ctx, T.tenant, p.id, entrada(c), deps)).rejects.toMatchObject({ erros: { geral: MSG_ATENDIMENTO.consultaJaAtendida } });
+    expect((await buscarConsulta(T.ctx, c, app.db))?.status).toBe('agendada');
+    expect(await linhas(T.tenantId)).toEqual([]);
   });
 });

@@ -108,7 +108,7 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   // atendimento (a data inicial é hoje)
   await nutri.goto(`${p}/atendimentos`);
   await nutri.getByRole('button', { name: 'Registrar atendimento' }).click();
-  await expect(nutri).toHaveURL(/\/atendimentos\/[0-9a-f-]{36}$/);
+  await expect(nutri).toHaveURL(/\/atendimentos\/[0-9a-f-]{36}(\?.*)?$/);
 
   // alimento próprio
   await nutri.goto('/painel/alimentos/novo');

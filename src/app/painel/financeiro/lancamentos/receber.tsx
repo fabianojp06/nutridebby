@@ -29,7 +29,10 @@ type Props = {
   volta: string;
   /** Na lista: o que identifica a linha no nome acessível do botão (WCAG 2.5.3: começa pelo texto visível). */
   contexto?: string;
+  /** Outra action no lugar de `receberLancamentoAction` (a seção "Cobrança" da consulta volta para a consulta). */
+  acao?: AcaoDoLancamento;
 };
+export type AcaoDoLancamento = (prev: LancamentoState, fd: FormData) => Promise<LancamentoState>;
 
 /** Foco no primeiro campo com erro, ou no erro geral (o botão fica desabilitado durante o envio e perderia o foco). */
 export function useFocoNoErro(state: LancamentoState) {
@@ -52,10 +55,10 @@ export function Receber(props: Props) {
   return props.recebido ? <Desfazer {...props} /> : <MarcarComoRecebido {...props} />;
 }
 
-function MarcarComoRecebido({ id, tipo, hoje, volta, contexto = '' }: Props) {
+function MarcarComoRecebido({ id, tipo, hoje, volta, contexto = '', acao }: Props) {
   const [aberto, setAberto] = useState(false);
   const [state, action, pendente] = useActionState<LancamentoState, FormData>(
-    receberLancamentoAction,
+    acao ?? receberLancamentoAction,
     {},
   );
   const form = useFocoNoErro(state);

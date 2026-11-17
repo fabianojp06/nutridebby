@@ -228,13 +228,13 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'agenda',
-    versao: 1,
+    versao: 2, // Plano 20: Realizada gera a cobrança (sobe +1 sobre a da main no rebase)
     padrao: /^\/painel\/agenda(\/(nova|pendencias|consultas\/.+))?$/,
     titulo: 'Agenda',
     ajuda: {
       resumo: 'As consultas do dia e da semana, marcadas por você, pelo paciente no app ou pela sua página pública.',
       secoes: [
-        { titulo: 'Passo a passo', itens: ['Use "Nova consulta" para marcar; o paciente recebe a confirmação e os lembretes.', 'Abra a consulta para remarcar, cancelar, registrar a presença ou iniciar o atendimento.', 'Consultas sem registro de presença aparecem em "Pendências".'] },
+        { titulo: 'Passo a passo', itens: ['Use "Nova consulta" para marcar; o paciente recebe a confirmação e os lembretes.', 'Abra a consulta para remarcar, cancelar, registrar a presença ou iniciar o atendimento.', 'Ao marcar "Realizada" (ou registrar o atendimento da consulta), a cobrança é criada no Financeiro com o valor da consulta; a seção "Cobrança" da consulta mostra o valor e o recebimento.', 'Consultas sem registro de presença aparecem em "Pendências".'] },
         { titulo: 'Perguntas comuns', itens: ['Os lembretes saem 24 h e 2 h antes, por e-mail, notificação no app e WhatsApp (se conectado e autorizado).'] },
       ],
     },

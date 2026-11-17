@@ -6,7 +6,7 @@ import { Botao } from '@/components/ui/botao';
 import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 import { cancelarLancamentoAction, type LancamentoState } from './actions';
 import { ACAO_DA_LINHA, ErroGeral, PAINEL_DA_LINHA } from './comum';
-import { useFocoNoErro } from './receber';
+import { useFocoNoErro, type AcaoDoLancamento } from './receber';
 
 /**
  * US-302 / RN-309: "Cancelar lançamento" abre, abaixo da linha, o aviso de que não tem volta, o "Motivo do cancelamento"
@@ -17,14 +17,17 @@ export function Cancelar({
   id,
   volta,
   contexto = '',
+  acao,
 }: {
   id: string;
   volta: string;
   contexto?: string;
+  /** Outra action no lugar de `cancelarLancamentoAction` (a seção "Cobrança" da consulta volta para a consulta). */
+  acao?: AcaoDoLancamento;
 }) {
   const [aberto, setAberto] = useState(false);
   const [state, action, pendente] = useActionState<LancamentoState, FormData>(
-    cancelarLancamentoAction,
+    acao ?? cancelarLancamentoAction,
     {},
   );
   const form = useFocoNoErro(state);

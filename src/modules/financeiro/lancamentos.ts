@@ -50,9 +50,7 @@ function validarPagoEm(tipo: TipoLancamento, texto: string, hoje: string, erros:
  */
 function validarCampos(tipo: TipoLancamento, input: Record<string, unknown>, hoje: string): Campos {
   const erros: Record<string, string> = {};
-  const valor = paraCentavos(textoDoCampo(input.valor));
-  if (!valor.ok) erros.valor = valor.erro === 'vazio' ? M.informeValor : M.valorInvalido;
-  else if (valor.centavos < 1 || valor.centavos > VALOR_MAX_CENTAVOS) erros.valor = M.valorFaixa;
+  const valorCentavos = validarValor(input.valor, erros);
 
   const categoriaId = textoDoCampo(input.categoriaId);
   if (!idValido(categoriaId)) erros.categoriaId = M.escolhaCategoria;
@@ -69,8 +67,16 @@ function validarCampos(tipo: TipoLancamento, input: Record<string, unknown>, hoj
   const descricao = textoDoCampo(input.descricao) || null;
   if (descricao && caracteres(descricao) > DESCRICAO_MAX) erros.descricao = M.descricaoLonga;
 
-  if (Object.keys(erros).length || !valor.ok) throw new FinanceiroError(erros);
-  return { valorCentavos: valor.centavos, categoriaId, vencimento, pagoEm, formaPagamento: forma, descricao };
+  if (Object.keys(erros).length || valorCentavos === null) throw new FinanceiroError(erros);
+  return { valorCentavos, categoriaId, vencimento, pagoEm, formaPagamento: forma, descricao };
+}
+
+/** RN-304: o valor de R$ 0,01 a R$ 1.000.000,00, em centavos; o erro em `erros.valor` (e null). */
+export function validarValor(texto: unknown, erros: Record<string, string>): number | null {
+  const valor = paraCentavos(textoDoCampo(texto));
+  if (!valor.ok) erros.valor = valor.erro === 'vazio' ? M.informeValor : M.valorInvalido;
+  else if (valor.centavos < 1 || valor.centavos > VALOR_MAX_CENTAVOS) erros.valor = M.valorFaixa;
+  return valor.ok && !erros.valor ? valor.centavos : null;
 }
 
 /** Categoria ativa do tipo do lançamento (as arquivadas somem dos formulários, RN-303); a atual vale mesmo arquivada. */
@@ -221,6 +227,21 @@ export async function editarLancamento(
     const config = await configuracaoNaTransacao(tx);
     await tx.update(finLancamentos).set({ ...c, updatedAt: agora }).where(eq(finLancamentos.id, l.id));
     return { antesDoSaldo: !!config && antesDoSaldo(c.pagoEm, config.saldoInicialEm), mes: mesDe(dataDeReferencia(c)) };
+  });
+}
+
+/**
+ * "Salvar valor" da seção "Cobrança" da consulta (US-303): só o valor (RN-304), com as travas e as recusas de
+ * `editarLancamento`. Paciente bloqueado (RN-315): só para menor ou igual.
+ */
+export async function ajustarValor(ctx: TenantContext, id: string, valor: unknown, deps: Deps = {}): Promise<void> {
+  const erros: Record<string, string> = {};
+  const valorCentavos = validarValor(valor, erros);
+  if (valorCentavos === null) throw new FinanceiroError(erros);
+  const agora = deps.agora ?? new Date();
+  await alterarLancamento(ctx, id, deps, async (tx, { l, bloqueado }) => {
+    if (bloqueado && valorCentavos > l.valorCentavos) throw new FinanceiroError({ geral: M.bloqueadoAlterar });
+    await tx.update(finLancamentos).set({ valorCentavos, updatedAt: agora }).where(eq(finLancamentos.id, l.id));
   });
 }
 

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { notFound } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { MSG_AGENDA, ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
@@ -7,16 +8,48 @@ import { listarBloqueios } from '@/modules/agenda/disponibilidade';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
 import { sobrepoe } from '@/modules/agenda/horarios';
 import { consultaParaIniciarAtendimento, MSG_PRESENCA } from '@/modules/agenda/presenca';
+import { cobrancaDaConsulta, type TipoDeResultado } from '@/modules/financeiro/cobranca';
+import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
+import { formatarReais } from '@/modules/financeiro/dinheiro';
+import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { listarNotificacoesDaConsulta } from '@/modules/notificacoes/agendar';
 import { ROTULO_CANAL, ROTULO_TIPO, situacaoDaNotificacao, type Canal, type TipoNotificacao } from '@/modules/notificacoes/tipos';
 import { cancelarAction, moverAction, presencaAction } from '../../actions';
 import { ConsultaForm } from '../../consulta-form';
 import { AVISO_ROTULO, lerAvisos, selosDaConsulta } from '../../periodo';
 import { CancelarForm } from './cancelar-form';
+import { SecaoCobranca } from './cobranca';
 import { PresencaForm } from './presenca';
 import { Aviso } from '@/components/ui/aviso';
 
 export const dynamic = 'force-dynamic';
+
+const F = MSG_FINANCEIRO;
+const CONFIGURACOES = '/painel/financeiro/configuracoes';
+/** `?ok=` das ações da seção "Cobrança" (cobranca-actions.ts) → os textos de sucesso do Financeiro (§6.2). */
+const OK_DA_COBRANCA: Record<string, string> = {
+  cobranca_registrada: F.ok.salvo,
+  cobranca_salva: F.ok.salvo,
+  cobranca_recebida: F.ok.recebido,
+  cobranca_cancelada: F.ok.cancelado,
+};
+
+/**
+ * Plano 20 (US-303, RN-310, RN-312): a mensagem depois de "Realizada"/"Faltou" pelo `&cobranca=` da URL — só as chaves
+ * conhecidas; o valor da cobrança criada vem da própria cobrança (nunca da URL). Bloqueado, já existia ou nenhuma: só
+ * "Presença registrada.".
+ */
+function mensagemDaPresenca(cobranca: unknown, valorCentavos: number | null): { tipo: 'ok' | 'aviso'; texto: ReactNode } {
+  const r = typeof cobranca === 'string' ? (cobranca as TipoDeResultado) : null;
+  if (r === 'criada' && valorCentavos !== null) return { tipo: 'ok', texto: F.presenca.criada(formatarReais(valorCentavos)) };
+  if (r === 'sem_valor') {
+    const t = F.presenca.semValor;
+    return { tipo: 'aviso', texto: <>{t.antes}<Link href={CONFIGURACOES} className="underline">{t.link}</Link>{t.depois}</> };
+  }
+  if (r === 'aberta') return { tipo: 'aviso', texto: F.presenca.aberta };
+  if (r === 'recebida') return { tipo: 'aviso', texto: F.presenca.recebida };
+  return { tipo: 'ok', texto: MSG_PRESENCA.registrada };
+}
 
 export default async function ConsultaPage({ params, searchParams }: PageProps<'/painel/agenda/consultas/[id]'>) {
   const { id } = await params;
@@ -27,7 +60,11 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
   const emBloqueio = (await listarBloqueios(ctx, c.inicio, c.fim)).some((b) => sobrepoe(b, c));
   const lembretes = await listarNotificacoesDaConsulta(ctx, c.id);
   const p = partesNoFuso(c.inicio, tenant.fuso);
-  const ok = sp.ok === 'marcada' ? MSG_AGENDA.marcada : sp.ok === 'alterada' ? MSG_AGENDA.alterada : sp.ok === 'cancelada' ? MSG_AGENDA.cancelada : sp.ok === 'presenca' ? MSG_PRESENCA.registrada : null;
+  // Plano 20: a seção "Cobrança" (com o `ler` da RN-318 só quando há cobrança)
+  const secao = await cobrancaDaConsulta(ctx, tenant, c.id);
+  const presenca = sp.ok === 'presenca' ? mensagemDaPresenca(sp.cobranca, secao.cobranca?.valorCentavos ?? null) : null;
+  const okDaCobranca = typeof sp.ok === 'string' && Object.hasOwn(OK_DA_COBRANCA, sp.ok) ? OK_DA_COBRANCA[sp.ok] : null;
+  const ok = sp.ok === 'marcada' ? MSG_AGENDA.marcada : sp.ok === 'alterada' ? MSG_AGENDA.alterada : sp.ok === 'cancelada' ? MSG_AGENDA.cancelada : okDaCobranca;
   const ativa = STATUS_ATIVOS.includes(c.status);
   const agora = new Date();
   const comecou = c.status !== 'cancelada' && c.inicio.getTime() <= agora.getTime();
@@ -50,12 +87,16 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
           <p className="text-sm"><Link href={`/painel/pacientes/${c.patientId}`} className="text-link underline">Abrir prontuário</Link></p>
         </header>
         {ok && <Aviso tipo="ok">{ok}</Aviso>}
+        {presenca && <Aviso tipo={presenca.tipo}>{presenca.texto}</Aviso>}
         {lerAvisos(sp.avisos).map((a) => <Aviso key={a} tipo="aviso">{AVISO_ROTULO[a]}</Aviso>)}
         {comecou && (
           <section aria-labelledby="presenca" className="space-y-2">
             <h2 id="presenca" className="text-lg font-semibold">Registrar presença</h2>
             <PresencaForm realizada={presencaAction.bind(null, c.id, 'realizada')} faltou={presencaAction.bind(null, c.id, 'faltou')} />
           </section>
+        )}
+        {(c.status === 'realizada' || secao.cobranca) && (
+          <SecaoCobranca key={[sp.envio, secao.cobranca?.valorCentavos, secao.cobranca?.pagoEm].join('|')} consultaId={c.id} cobranca={secao.cobranca} motivo={secao.motivo} valorSugerido={secao.valorSugerido} hoje={hojeNoFuso(tenant.fuso, agora)} />
         )}
         {podeAtender && (
           <p><Link href={`/painel/pacientes/${c.patientId}/atendimentos?consulta=${c.id}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Iniciar atendimento</Link></p>
