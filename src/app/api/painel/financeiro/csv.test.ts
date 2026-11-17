@@ -29,8 +29,8 @@ vi.mock('@/modules/financeiro/csv', async (orig) => {
   };
 });
 
-const { GET: lancamentosCsv } = await import('./lancamentos.csv/route');
-const { GET: fluxoCsv } = await import('./fluxo-de-caixa.csv/route');
+const { GET: lancamentosCsv, HEAD: lancamentosHead } = await import('./lancamentos.csv/route');
+const { GET: fluxoCsv, HEAD: fluxoHead } = await import('./fluxo-de-caixa.csv/route');
 const { listarCategorias, salvarConfiguracoes } = await import('@/modules/financeiro/configuracoes');
 const { cancelarLancamento, criarLancamento } = await import('@/modules/financeiro/lancamentos');
 
@@ -47,8 +47,13 @@ beforeEach(() => {
 const BOM = [0xef, 0xbb, 0xbf];
 const LOGIN = `/entrar?volta=${encodeURIComponent('/painel/financeiro/relatorios')}`;
 
-const pedir = (rota: typeof lancamentosCsv, caminho: string, cookie?: string) =>
-  rota(new Request(`http://localhost:3000/api/painel/financeiro/${caminho}`, { headers: cookie ? { cookie } : {} }));
+/** O link e o formulário de Relatórios: navegação da própria origem (`Sec-Fetch-Site: same-origin`), salvo `site`. */
+const pedir = (rota: typeof lancamentosCsv, caminho: string, cookie?: string, site: string | null = 'same-origin') =>
+  rota(
+    new Request(`http://localhost:3000/api/painel/financeiro/${caminho}`, {
+      headers: { ...(cookie ? { cookie } : {}), ...(site ? { 'sec-fetch-site': site } : {}) },
+    }),
+  );
 
 /** Os bytes (para ver o BOM, que o `text()` tira) e o texto sem o BOM. */
 async function corpo(r: Response) {
@@ -205,5 +210,46 @@ describe('as duas rotas fora da sessão da nutricionista com DPA', () => {
         expect(r.status, caminho).toBe(403);
         expect(await r.json(), caminho).toEqual({ erro: 'Acesso negado' });
       }
+  });
+});
+
+describe('pedido vindo de outro site e HEAD (RN-321: o exportar só vale do clique da nutricionista)', () => {
+  const CAMINHOS = [
+    [lancamentosCsv, 'lancamentos.csv?de=2026-10-01&ate=2026-10-31&pacientes=1'],
+    [fluxoCsv, 'fluxo-de-caixa.csv?ano=2026'],
+  ] as const;
+
+  it('Sec-Fetch-Site cross-site, same-site ou ausente → 303 para Relatórios, sem arquivo e sem exportar', async () => {
+    const C = await cenario();
+    for (const site of ['cross-site', 'same-site', null])
+      for (const [rota, caminho] of CAMINHOS) {
+        const r = await pedir(rota, caminho, C.cookie, site);
+        expect([r.status, r.headers.get('location')], `${site} ${caminho}`).toEqual([303, '/painel/financeiro/relatorios']);
+        expect(r.headers.get('content-disposition'), `${site} ${caminho}`).toBeNull();
+      }
+    expect(await exportacoes(C.tenantId)).toEqual([]);
+  });
+
+  it('HEAD → 405 sem tocar o banco (o HEAD automático do Next chamaria o GET)', async () => {
+    const C = await cenario();
+    for (const head of [lancamentosHead, fluxoHead]) {
+      const r = await head();
+      expect(r.status).toBe(405);
+      expect(r.headers.get('allow')).toBe('GET');
+    }
+    expect(await exportacoes(C.tenantId)).toEqual([]);
+  });
+
+  it('controle: same-origin e none (endereço digitado) baixam e gravam o exportar', async () => {
+    const C = await cenario();
+    for (const site of ['same-origin', 'none']) {
+      const r = await pedir(fluxoCsv, 'fluxo-de-caixa.csv?ano=2026', C.cookie, site);
+      expect(r.status, site).toBe(200);
+      expect(r.headers.get('content-disposition'), site).toBe('attachment; filename="fluxo-de-caixa-2026.csv"');
+    }
+    expect(await exportacoes(C.tenantId)).toHaveLength(2);
+    const r = await pedir(lancamentosCsv, 'lancamentos.csv?de=2026-10-01&ate=2026-10-31&pacientes=1', C.cookie);
+    expect(r.status).toBe(200);
+    expect((await exportacoes(C.tenantId)).filter((e) => e.patient_id !== null).map((e) => e.patient_id).sort()).toEqual([C.ana, C.bia].sort());
   });
 });
