@@ -181,7 +181,9 @@ describe('conteúdo do manual (P08-10)', () => {
     const prontuario = GUIAS.find((x) => x.id === 'prontuario')!;
     for (const alvo of ['cabecalho-paciente', 'abas-prontuario']) expect(g.passos.find((p) => p.alvo === alvo)?.texto).toBe(prontuario.passos.find((p) => p.alvo === alvo)?.texto);
     expect(g.passos.find((p) => p.alvo === 'adicionar-prontuario')?.texto).toBe('Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.');
-    expect(g.passos.find((p) => p.alvo === 'secoes-inicio')?.texto).toBe('Cada seção mostra quantos registros há e os três mais recentes. O selo No app marca o que o paciente vê no app.');
+    expect(g.passos.find((p) => p.alvo === 'secoes-inicio')?.texto).toBe('Cada seção mostra quantos registros há e os três mais recentes.');
+    // O selo "No app" só existe a partir da Tarefa 9 (PR 2): na versao 1 nenhum texto do guia fala dele.
+    expect(JSON.stringify({ ajuda: g.ajuda, passos: g.passos })).not.toMatch(/No app/);
   });
   it('nenhum título de guia repetido (o manual completo lista um h2 por guia; "Início" é o de boas-vindas)', () => {
     expect(new Set(GUIAS.map((g) => g.titulo)).size).toBe(GUIAS.length);

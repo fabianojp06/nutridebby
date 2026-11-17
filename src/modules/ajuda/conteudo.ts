@@ -166,7 +166,8 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'cabecalho-paciente', titulo: 'O paciente', texto: 'Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o paciente está arquivado ou bloqueado.' },
       { alvo: 'abas-prontuario', titulo: 'Abas do prontuário', texto: 'Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento tem a sua aba.' },
       { alvo: 'adicionar-prontuario', titulo: 'Adicionar', texto: 'Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.' },
-      { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes. O selo No app marca o que o paciente vê no app.' },
+      // PR 1 sem o selo: a frase "O selo No app marca o que o paciente vê no app." (spec §8.3) entra na Tarefa 9, com a versao 2.
+      { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes.' },
     ],
   },
   {
