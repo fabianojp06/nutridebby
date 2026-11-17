@@ -169,11 +169,20 @@ describe('conteúdo do manual (P08-10)', () => {
     const passoAPasso = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens;
     expect(passoAPasso[0]).toMatch(/Início.*Perfil.*anamnese/);
   });
-  it('Plano 18: o guia de Pacientes manda ao "Reenviar convite" da aba Perfil, só na gaveta (o tour não muda, versão 1)', () => {
+  it('Plano 18 (§8.1): o guia de Pacientes na versão 2 — busca com as abas, o passo novo "Ações" e as ajudas que ficariam falsas', () => {
     const g = GUIAS.find((x) => x.id === 'pacientes')!;
-    expect(g.versao).toBe(1);
+    expect(g.versao).toBe(2);
+    expect(g.passos.map((p) => p.alvo)).toEqual(['novo-paciente', 'busca-pacientes', 'acoes-paciente', 'cadastro-paciente']);
+    expect(g.passos.find((p) => p.alvo === 'busca-pacientes')?.texto).toBe(
+      'Ache um paciente pelo nome ou pelo e-mail. As abas separam ativos e arquivados; os bloqueados ficam em Ver bloqueados.',
+    );
+    expect(g.passos.find((p) => p.alvo === 'acoes-paciente')?.texto).toBe('Em Ações você abre a ficha, edita o cadastro, arquiva ou reativa o paciente sem sair da lista.');
     const itens = g.ajuda.secoes.flatMap((s) => s.itens);
-    expect(itens).toContainEqual(expect.stringContaining('use "Reenviar convite" em "Acesso ao app", na aba Perfil do prontuário.'));
+    const texto = itens.join(' ');
+    expect(texto).not.toContain('filtro de situação');
+    expect(texto).toContain('ficam na aba Inativos');
+    expect(itens).toContainEqual(expect.stringContaining('use "Reenviar convite" em "Acesso ao app", na aba Perfil da ficha.'));
+    expect(texto).not.toContain('no prontuário');
     expect(g.passos.map((p) => p.texto).join(' ')).not.toContain('Reenviar convite');
   });
   it('Plano 18 (§8.3): o guia "Início do paciente" casa só o Início da ficha, vem antes do prontuário e traz os passos da spec', () => {

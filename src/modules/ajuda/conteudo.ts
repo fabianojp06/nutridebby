@@ -39,17 +39,19 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'pacientes',
-    versao: 1, // Plano 18: "Reenviar convite" na aba Perfil, só na gaveta (o tour não muda, a versão fica)
+    versao: 2, // Plano 18: abas da lista, Ações e o cadastro em seções
     padrao: /^\/painel\/pacientes(\/novo)?$/,
     titulo: 'Pacientes',
     ajuda: {
       resumo: 'A lista dos seus pacientes. Tudo começa aqui: cadastrar, convidar para o app e abrir o prontuário.',
-      secoes: [{ titulo: 'Passo a passo', itens: ['Clique em "Novo paciente" e preencha nome, data de nascimento, sexo e e-mail.', 'Ao salvar, o paciente recebe o convite para o app por e-mail (e por WhatsApp, se você marcar "Enviar convite por WhatsApp" com a autorização). Se o convite vencer, use "Reenviar convite" em "Acesso ao app", na aba Perfil do prontuário.', 'Use a busca para achar pelo nome; arquivados aparecem no filtro de situação.'] }],
+      secoes: [{ titulo: 'Passo a passo', itens: ['Clique em "Novo paciente" e preencha nome, data de nascimento, sexo e e-mail.', 'Ao salvar, o paciente recebe o convite para o app por e-mail (e por WhatsApp, se você marcar "Enviar convite por WhatsApp" com a autorização). Se o convite vencer, use "Reenviar convite" em "Acesso ao app", na aba Perfil da ficha.', 'Use a busca para achar pelo nome ou pelo e-mail; os arquivados ficam na aba Inativos.'] }],
     },
     passos: [
       { alvo: 'novo-paciente', titulo: 'Novo paciente', texto: 'Comece cadastrando o paciente. O convite para o app sai por e-mail ao salvar.' },
-      { alvo: 'busca-pacientes', titulo: 'Busca', texto: 'Ache um paciente pelo nome ou filtre pela situação (ativo, arquivado).' },
-      // Plano 18 (§8.4): o alvo está em "Novo paciente" (na lista, o passo aparece centralizado); a versão sobe na Tarefa 8
+      { alvo: 'busca-pacientes', titulo: 'Busca', texto: 'Ache um paciente pelo nome ou pelo e-mail. As abas separam ativos e arquivados; os bloqueados ficam em Ver bloqueados.' },
+      // Plano 18 (§8.1): o alvo é a coluna "Ações" da tabela (sem paciente na lista, o passo aparece centralizado)
+      { alvo: 'acoes-paciente', titulo: 'Ações', texto: 'Em Ações você abre a ficha, edita o cadastro, arquiva ou reativa o paciente sem sair da lista.' },
+      // Plano 18 (§8.4): o alvo está em "Novo paciente" (na lista, o passo aparece centralizado)
       { alvo: 'cadastro-paciente', titulo: 'Cadastro do paciente', texto: 'O cadastro fica em seções. Só nome, nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta.' },
     ],
   },

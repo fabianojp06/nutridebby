@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PatientRow } from '@/db/schema';
 import { CADASTRO_VAZIO, CAMPOS_DO_CADASTRO } from '@/modules/pacientes/cadastro';
-import { avisoDoConviteWhatsapp, entradaDoFormulario, seloDoPaciente, textoDoAcesso, textoDoConviteWhatsapp, valoresDoFormulario, valoresDoPaciente } from './valores';
+import { avisoDoConviteWhatsapp, entradaDoFormulario, rotuloDoAcessoNaLista, seloDoPaciente, textoDoAcesso, textoDoConviteWhatsapp, urlDaLista, valoresDoFormulario, valoresDoPaciente } from './valores';
 
 const base = {
   id: 'p', tenantId: 't', userId: null, nome: 'Ana Souza', dataNascimento: '1991-03-10', sexo: 'F', telefoneE164: '+5511912345678',
@@ -104,5 +104,43 @@ describe('textoDoConviteWhatsapp (US-010)', () => {
     expect(avisoDoConviteWhatsapp({ ligado: true, estado: 'desconectada' })).toBe('O WhatsApp do consultório não está conectado; o convite vai só por e-mail.');
     expect(avisoDoConviteWhatsapp({ ligado: true, estado: 'conectando' })).toBe('O WhatsApp do consultório não está conectado; o convite vai só por e-mail.');
     expect(avisoDoConviteWhatsapp({ ligado: true, estado: 'conectada' })).toBeNull();
+  });
+});
+
+describe('rotuloDoAcessoNaLista (Plano 18, §8.1)', () => {
+  const pendente = { estado: 'pendente', expiraEm: new Date('2026-11-20T15:00:00Z') } as const;
+  it('rótulo curto de cada situação do convite', () => {
+    expect(rotuloDoAcessoNaLista({ status: 'ativo', userId: 'u1', convite: { estado: 'ativo' } })).toBe('Ativo');
+    expect(rotuloDoAcessoNaLista({ status: 'ativo', userId: null, convite: pendente })).toBe('Pendente');
+    expect(rotuloDoAcessoNaLista({ status: 'ativo', userId: null, convite: { estado: 'expirado' } })).toBe('Expirado');
+    expect(rotuloDoAcessoNaLista({ status: 'ativo', userId: null, convite: { estado: 'sem_convite' } })).toBe('Sem convite');
+  });
+  it('arquivado e bloqueado vencem o userId (já criou a senha) e o convite', () => {
+    expect(rotuloDoAcessoNaLista({ status: 'arquivado', userId: 'u1', convite: { estado: 'ativo' } })).toBe('Sem acesso (arquivado)');
+    expect(rotuloDoAcessoNaLista({ status: 'arquivado', userId: null, convite: pendente })).toBe('Sem acesso (arquivado)');
+    expect(rotuloDoAcessoNaLista({ status: 'bloqueado', userId: 'u1', convite: { estado: 'ativo' } })).toBe('Sem acesso (bloqueado)');
+    expect(rotuloDoAcessoNaLista({ status: 'bloqueado', userId: null, convite: { estado: 'sem_convite' } })).toBe('Sem acesso (bloqueado)');
+  });
+  it('com a senha criada, "Ativo" mesmo sem a situação do convite dizer', () => {
+    expect(rotuloDoAcessoNaLista({ status: 'ativo', userId: 'u1', convite: { estado: 'sem_convite' } })).toBe('Ativo');
+  });
+});
+
+describe('urlDaLista (RN-270)', () => {
+  const params = (u: string) => Object.fromEntries(new URL(u, 'http://x').searchParams);
+  it('sempre /painel/pacientes; aba, busca, etiqueta e ordem (a padrão "nome" fica de fora); ok por último', () => {
+    expect(urlDaLista({ aba: 'ativos', ordem: 'nome' })).toBe('/painel/pacientes?aba=ativos');
+    const u = urlDaLista({ aba: 'todos', busca: 'ana & bia', etiquetaId: 'e1', ordem: 'recentes' }, { ok: 'arquivado' });
+    expect(u.startsWith('/painel/pacientes?')).toBe(true);
+    expect(params(u)).toEqual({ aba: 'todos', busca: 'ana & bia', etiqueta: 'e1', ordem: 'recentes', ok: 'arquivado' });
+    expect(u.endsWith('&ok=arquivado')).toBe(true);
+  });
+  it('bloqueados vai em situacao=bloqueados (sem aba); "registro" nunca vai para a URL', () => {
+    expect(params(urlDaLista({ aba: 'bloqueados', busca: 'x', ordem: 'antigos' }))).toEqual({ situacao: 'bloqueados', busca: 'x', ordem: 'antigos' });
+    expect(params(urlDaLista({ aba: 'inativos', ordem: 'registro' }))).toEqual({ aba: 'inativos' });
+    expect(urlDaLista({})).toBe('/painel/pacientes?aba=ativos');
+  });
+  it('busca com espaços nas pontas some quando vazia', () => {
+    expect(params(urlDaLista({ aba: 'ativos', busca: '   ' }))).toEqual({ aba: 'ativos' });
   });
 });

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gt, isNull } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
 import { account, consents, invites, notifications, patients, user, type NotificationRow, type PatientRow } from '@/db/schema';
@@ -96,6 +96,33 @@ export async function situacaoDoAcesso(
     .limit(1);
   if (!c) return { estado: 'sem_convite' };
   return c.expiraEm.getTime() <= now.getTime() ? { estado: 'expirado' } : { estado: 'pendente', expiraEm: c.expiraEm };
+}
+
+/**
+ * Plano 18 (§8.1): a situação do acesso de cada paciente da lista, numa consulta só (até `LIMITE_LISTA`), com as regras de
+ * `situacaoDoAcesso`. Só lê `invites` (sem RLS: o filtro por tenant é explícito); nada do cadastro.
+ */
+export async function situacoesDoAcesso(
+  ctx: TenantContext,
+  ps: readonly Pick<PatientRow, 'id' | 'userId'>[],
+  db: Db = getDb(),
+  now: Date = new Date(),
+): Promise<Map<string, SituacaoAcesso>> {
+  const r = new Map<string, SituacaoAcesso>(ps.map((p) => [p.id, p.userId ? { estado: 'ativo' } : { estado: 'sem_convite' }]));
+  const semSenha = ps.filter((p) => !p.userId).map((p) => p.id);
+  if (!semSenha.length) return r;
+  const convites = await db
+    .select({ patientId: invites.patientId, expiraEm: invites.expiraEm })
+    .from(invites)
+    .where(and(eq(invites.tenantId, ctx.tenantId), inArray(invites.patientId, semSenha), eq(invites.tipo, 'paciente'), isNull(invites.usadoEm)))
+    .orderBy(desc(invites.createdAt));
+  const vistos = new Set<string>();
+  for (const c of convites) {
+    if (!c.patientId || vistos.has(c.patientId)) continue; // o mais recente de cada paciente, como em situacaoDoAcesso
+    vistos.add(c.patientId);
+    r.set(c.patientId, c.expiraEm.getTime() <= now.getTime() ? { estado: 'expirado' } : { estado: 'pendente', expiraEm: c.expiraEm });
+  }
+  return r;
 }
 
 /** "Reenviar convite": o paciente fica travado (FOR UPDATE), então dois cliques seguidos não deixam dois convites. */

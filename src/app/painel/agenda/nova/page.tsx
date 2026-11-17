@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
 export default async function NovaConsultaPage({ searchParams }: PageProps<'/painel/agenda/nova'>) {
   const { ctx, tenant } = await requireNutri('/painel/agenda/nova');
   const sp = await searchParams;
-  const pacientes = await listarPacientes(ctx, { status: 'ativo' });
+  // Plano 18 (D7): a agenda mostra o nome de registro (`p.nome`), então ordena por ele
+  const pacientes = await listarPacientes(ctx, { aba: 'ativos', ordem: 'registro' });
   const data = dataDaAgendaOuHoje(sp.data, hojeNoFuso(tenant.fuso));
   // `?paciente=` que não é de um paciente ativo da lista fica sem seleção (o <select> sem opção igual escolheria o primeiro paciente)
   const patientId = typeof sp.paciente === 'string' && pacientes.some((p) => p.id === sp.paciente) ? sp.paciente : '';

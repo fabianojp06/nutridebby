@@ -1,4 +1,4 @@
-import { and, asc, eq, getTableColumns, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, inArray, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
@@ -233,28 +233,82 @@ export async function buscarPaciente(ctx: TenantContext, patientId: string, db: 
 }
 
 export const LIMITE_LISTA = 500;
-export type PacienteNaLista = Pick<PatientRow, 'id' | 'nome' | 'email' | 'status' | 'dataNascimento' | 'userId' | 'origem'>;
+
+/** Plano 18 (RN-270): as abas da lista; `bloqueados` é o "Ver bloqueados" (`?situacao=bloqueados`), fora das abas. */
+export type AbaDaLista = 'ativos' | 'inativos' | 'todos' | 'bloqueados';
+/** Plano 18 (RN-271): a ordem é a do nome exibido (o social, quando há). */
+export type OrdemDaLista = 'nome' | 'nome_desc' | 'recentes' | 'antigos';
+/** `registro`: só para quem mostra o nome de registro (a agenda, D7); `filtroDaUrl` nunca devolve. */
+export type OrdemInterna = OrdemDaLista | 'registro';
+export type FiltroDaLista = {
+  /** Padrão: `ativos`. */
+  aba?: AbaDaLista;
+  busca?: string;
+  etiquetaId?: string;
+  /** Padrão: `nome`. */
+  ordem?: OrdemInterna;
+  // Ponto de extensão (Plano 18, D11): outros planos acrescentam aqui campos opcionais (o local de atendimento, Plano 23).
+};
+export type PacienteNaLista = Pick<PatientRow, 'id' | 'nome' | 'email' | 'status' | 'dataNascimento' | 'userId' | 'origem' | 'createdAt'> & {
+  nomeSocial: string | null;
+};
+
+const ABAS_DA_URL: readonly AbaDaLista[] = ['ativos', 'inativos', 'todos'];
+const ORDENS_DA_URL: readonly OrdemDaLista[] = ['nome', 'nome_desc', 'recentes', 'antigos'];
+const STATUS_DA_ABA: Record<AbaDaLista, StatusPaciente[]> = {
+  ativos: ['ativo'],
+  inativos: ['arquivado'],
+  todos: ['ativo', 'arquivado'],
+  bloqueados: ['bloqueado'],
+};
 
 /**
- * Lista do painel (nome e contato; abrir o prontuário audita). Busca sem acento por nome ou e-mail;
- * `%`, `_` e `\` digitados são literais. Com `etiquetaId`, a lista diz quem tem "diabetes", "gestante":
- * é dado de saúde (regra 8), então cada paciente devolvido gera uma leitura auditada de "Etiquetas".
+ * Plano 18 (RN-270, RN-271): o filtro da lista a partir da URL (ou dos campos ocultos do menu da linha). `?aba=` só aceita
+ * as três abas; `?situacao=bloqueados` vale como `bloqueados`; o link antigo `?status=arquivado` vale como `inativos` e
+ * `?status=bloqueado` como `bloqueados`; valor desconhecido (ou repetido) cai no padrão. `registro` nunca sai daqui.
  */
-export async function listarPacientes(
-  ctx: TenantContext,
-  filtro: { busca?: string; status?: StatusPaciente; etiquetaId?: string },
-  db: Db = getDb(),
-): Promise<PacienteNaLista[]> {
+export function filtroDaUrl(sp: Record<string, string | string[] | undefined>): FiltroDaLista {
+  const v = (k: string) => (typeof sp[k] === 'string' ? (sp[k] as string) : '');
+  const aba: AbaDaLista =
+    v('situacao') === 'bloqueados' || v('status') === 'bloqueado'
+      ? 'bloqueados'
+      : (ABAS_DA_URL as readonly string[]).includes(v('aba'))
+        ? (v('aba') as AbaDaLista)
+        : v('status') === 'arquivado'
+          ? 'inativos'
+          : 'ativos';
+  const ordem: OrdemDaLista = (ORDENS_DA_URL as readonly string[]).includes(v('ordem')) ? (v('ordem') as OrdemDaLista) : 'nome';
+  return { aba, ...(v('busca') ? { busca: v('busca') } : {}), ...(v('etiqueta') ? { etiquetaId: v('etiqueta') } : {}), ordem };
+}
+
+/**
+ * Lista do painel (nome e contato; abrir o prontuário audita). Busca sem acento pelo nome, pelo nome social ou pelo
+ * e-mail; `%`, `_` e `\` digitados são literais. Com `etiquetaId`, a lista diz quem tem "diabetes", "gestante": é dado de
+ * saúde (regra 8), então cada paciente devolvido gera uma leitura auditada de "Etiquetas". Plano 18 (RN-272, D20): do
+ * cadastro complementar, só o nome social (por projeção, `left join`); a ordem é pelo nome exibido
+ * (`coalesce(nome_social, nome)`), sem acento e sem diferença de maiúsculas, com empate pelo id.
+ */
+export async function listarPacientes(ctx: TenantContext, filtro: FiltroDaLista, db: Db = getDb()): Promise<PacienteNaLista[]> {
   if (filtro.etiquetaId !== undefined && !idValido(filtro.etiquetaId)) return [];
-  const conds: SQL[] = [eq(patients.status, filtro.status ?? 'ativo')];
+  const conds: SQL[] = [inArray(patients.status, STATUS_DA_ABA[filtro.aba ?? 'ativos'])];
   if (filtro.etiquetaId) {
     conds.push(sql`exists (select 1 from patient_tag_links l where l.patient_id = ${patients.id} and l.tag_id = ${filtro.etiquetaId})`);
   }
   const busca = filtro.busca?.trim();
   if (busca) {
     const termo = `%${busca.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-    conds.push(sql`(unaccent(${patients.nome}) ilike unaccent(${termo}) or ${patients.email}::text ilike ${termo})`);
+    conds.push(
+      sql`(unaccent(${patients.nome}) ilike unaccent(${termo}) or unaccent(${patientCadastro.nomeSocial}) ilike unaccent(${termo}) or ${patients.email}::text ilike ${termo})`,
+    );
   }
+  const exibido = sql`unaccent(lower(coalesce(${patientCadastro.nomeSocial}, ${patients.nome})))`;
+  const ordem: Record<OrdemInterna, SQL[]> = {
+    nome: [asc(exibido), asc(patients.id)],
+    nome_desc: [desc(exibido), asc(patients.id)],
+    recentes: [desc(patients.createdAt), asc(patients.id)],
+    antigos: [asc(patients.createdAt), asc(patients.id)],
+    registro: [asc(sql`unaccent(lower(${patients.nome}))`), asc(patients.id)],
+  };
   return withTenant(
     ctx,
     async (tx) => {
@@ -262,15 +316,18 @@ export async function listarPacientes(
         .select({
           id: patients.id,
           nome: patients.nome,
+          nomeSocial: patientCadastro.nomeSocial,
           email: patients.email,
           status: patients.status,
           dataNascimento: patients.dataNascimento,
           userId: patients.userId,
           origem: patients.origem,
+          createdAt: patients.createdAt,
         })
         .from(patients)
+        .leftJoin(patientCadastro, and(eq(patientCadastro.tenantId, patients.tenantId), eq(patientCadastro.patientId, patients.id)))
         .where(and(...conds))
-        .orderBy(asc(patients.nome))
+        .orderBy(...ordem[filtro.ordem ?? 'nome'])
         .limit(LIMITE_LISTA);
       // Um INSERT só para a lista toda (até LIMITE_LISTA linhas)
       if (filtro.etiquetaId && r.length) await auditRead(tx, r.map((p) => ({ entidade: 'etiquetas', entidadeId: null, patientId: p.id })));

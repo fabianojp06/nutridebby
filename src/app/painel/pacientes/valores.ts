@@ -4,6 +4,7 @@ import type { SituacaoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
 import { CAMPOS_DO_CADASTRO, type CadastroComplementar, type CampoDoCadastro } from '@/modules/pacientes/cadastro';
 import type { SituacaoAcesso, SituacaoConviteWhatsapp } from '@/modules/pacientes/convite-paciente';
 import { formatarCpf } from '@/modules/pacientes/cpf';
+import type { FiltroDaLista, PacienteNaLista } from '@/modules/pacientes/pacientes';
 import { formatarTelefone } from '@/modules/pacientes/telefone';
 import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
 
@@ -108,6 +109,44 @@ export function textoDoAcesso(s: SituacaoAcesso, fuso: string, status: PatientRo
     case 'sem_convite':
       return 'Nenhum convite pendente.';
   }
+}
+
+/**
+ * Plano 18 (§8.1): o rótulo curto da coluna "Acesso ao app" da lista. A situação do paciente vence o `user_id` (arquivado e
+ * bloqueado não entram no app); a frase longa (`textoDoAcesso`) fica no Perfil e no "No app".
+ */
+export function rotuloDoAcessoNaLista(p: Pick<PacienteNaLista, 'status' | 'userId'> & { convite: SituacaoAcesso }): string {
+  if (p.status === 'arquivado') return 'Sem acesso (arquivado)';
+  if (p.status === 'bloqueado') return 'Sem acesso (bloqueado)';
+  if (p.userId) return 'Ativo';
+  switch (p.convite.estado) {
+    case 'ativo':
+      return 'Ativo';
+    case 'pendente':
+      return 'Pendente';
+    case 'expirado':
+      return 'Expirado';
+    case 'sem_convite':
+      return 'Sem convite';
+  }
+}
+
+/**
+ * Plano 18 (RN-270, D26): a URL da lista para um filtro — os links das abas e o "Ver bloqueados" (a busca, a etiqueta e a
+ * ordem continuam) e a volta das ações da lista (com `ok`). Sempre `/painel/pacientes`, montada aqui: nada vem pronto de
+ * um campo do formulário (sem redirect aberto). A ordem padrão (`nome`) e a `registro` (só da agenda) ficam de fora.
+ */
+export function urlDaLista(filtro: FiltroDaLista, extra: { ok?: 'arquivado' | 'reativado' } = {}): string {
+  const q = new URLSearchParams();
+  const aba = filtro.aba ?? 'ativos';
+  if (aba === 'bloqueados') q.set('situacao', 'bloqueados');
+  else q.set('aba', aba);
+  const busca = filtro.busca?.trim();
+  if (busca) q.set('busca', busca);
+  if (filtro.etiquetaId) q.set('etiqueta', filtro.etiquetaId);
+  if (filtro.ordem && filtro.ordem !== 'nome' && filtro.ordem !== 'registro') q.set('ordem', filtro.ordem);
+  if (extra.ok) q.set('ok', extra.ok);
+  return `/painel/pacientes?${q.toString()}`;
 }
 
 /**

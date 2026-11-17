@@ -8,6 +8,7 @@ import { patientCadastro, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { CAMPOS_DO_CADASTRO, MSG_CADASTRO } from '@/modules/pacientes/cadastro';
+import { reenviarConvitePaciente, situacaoDoAcesso } from '@/modules/pacientes/convite-paciente';
 
 // Plano 18 (US-260, RN-261): as ações do formulário de cadastro pelo caminho real (criarPaciente/atualizarPaciente →
 // Postgres via Testcontainers); só a sessão (requireNutri) e o runtime do Next são simulados.
@@ -24,7 +25,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { atualizarPacienteAction, criarPacienteAction } = await import('./actions');
+const { arquivarDaListaAction, atualizarPacienteAction, criarPacienteAction, reativarDaListaAction } = await import('./actions');
 const db = getDb();
 afterAll(async () => {
   await stopBoss();
@@ -104,5 +105,66 @@ describe('atualizarPacienteAction (Plano 18)', () => {
     const [c] = await withTenant(T.ctx, (tx) => tx.select().from(patientCadastro).where(eq(patientCadastro.patientId, bia.id)), db);
     expect(c).toMatchObject({ uf: 'RJ', ocupacao: 'Engenheira', cpf: null });
     expect(revalidatePath).toHaveBeenCalledWith(`/painel/pacientes/${bia.id}`, 'layout');
+  });
+});
+
+describe('arquivar e reativar pela lista (Plano 18, RN-273, D26)', () => {
+  const daLista = (id: string, extra: Record<string, string> = {}) => {
+    const f = new FormData();
+    for (const [k, v] of Object.entries({ id, aba: 'todos', busca: 'Ana', etiqueta: '', ordem: 'recentes', ...extra })) f.set(k, v);
+    return f;
+  };
+  const statusDe = async (T: TenantDeTeste, id: string) =>
+    (await withTenant(T.ctx, (tx) => tx.select({ status: patients.status }).from(patients).where(eq(patients.id, id)), db))[0]?.status;
+  const params = (msg: string | null) => {
+    const u = new URL(msg!.replace(/^redirect /, ''), 'http://x');
+    return { caminho: u.pathname, ...Object.fromEntries(u.searchParams) };
+  };
+
+  it('arquivar apaga o convite pendente e volta para a lista com a aba, a busca e a ordem do formulário, mais ok=arquivado', async () => {
+    const T = await consultorio();
+    const p = await novoPaciente(db, T.ctx);
+    await reenviarConvitePaciente(T.ctx, T.tenant, p.id, { db, appUrl: 'http://localhost:3000' });
+    expect((await situacaoDoAcesso(T.ctx, p, db)).estado).toBe('pendente');
+    const msg = await destino(arquivarDaListaAction(daLista(p.id)));
+    expect(msg).toBe('redirect /painel/pacientes?aba=todos&busca=Ana&ordem=recentes&ok=arquivado');
+    expect(await statusDe(T, p.id)).toBe('arquivado');
+    expect(await situacaoDoAcesso(T.ctx, p, db)).toEqual({ estado: 'sem_convite' });
+    expect(revalidatePath).toHaveBeenCalledWith(`/painel/pacientes/${p.id}`, 'layout');
+  });
+
+  it('reativar volta para a lista com ok=reativado; aba e ordem desconhecidas caem no padrão', async () => {
+    const T = await consultorio();
+    const p = await novoPaciente(db, T.ctx, { status: 'arquivado' });
+    const msg = await destino(reativarDaListaAction(daLista(p.id, { aba: 'inativos', busca: '', ordem: 'idade' })));
+    expect(params(msg)).toEqual({ caminho: '/painel/pacientes', aba: 'inativos', ok: 'reativado' });
+    expect(await statusDe(T, p.id)).toBe('ativo');
+  });
+
+  it('a URL do redirect é montada no servidor: um campo com URL externa é ignorado', async () => {
+    const T = await consultorio();
+    const p = await novoPaciente(db, T.ctx);
+    const f = daLista(p.id, { busca: '' });
+    for (const k of ['url', 'redirect', 'voltar', 'next', 'situacao']) f.set(k, 'https://malicioso.example/x');
+    const msg = await destino(arquivarDaListaAction(f));
+    expect(msg).toBe('redirect /painel/pacientes?aba=todos&ordem=recentes&ok=arquivado');
+    expect(msg).not.toContain('malicioso');
+  });
+
+  it('bloqueado: recusa — nada muda e a volta é sem o ok', async () => {
+    const T = await consultorio();
+    const p = await novoPaciente(db, T.ctx, { status: 'bloqueado', bloqueadoEm: new Date() });
+    expect(await destino(reativarDaListaAction(daLista(p.id)))).toBe('redirect /painel/pacientes?aba=todos&busca=Ana&ordem=recentes');
+    expect(await destino(arquivarDaListaAction(daLista(p.id)))).toBe('redirect /painel/pacientes?aba=todos&busca=Ana&ordem=recentes');
+    expect(await statusDe(T, p.id)).toBe('bloqueado');
+  });
+
+  it('paciente de outro consultório ou id malformado: notFound, sem mexer em nada', async () => {
+    const A = await novoTenant(db);
+    const doA = await novoPaciente(db, A.ctx);
+    await consultorio();
+    expect(await destino(arquivarDaListaAction(daLista(doA.id)))).toBe('notFound');
+    expect(await destino(arquivarDaListaAction(daLista('nao-e-uuid')))).toBe('notFound');
+    expect(await statusDe(A, doA.id)).toBe('ativo');
   });
 });

@@ -5,13 +5,13 @@ import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { auditLog, patientCadastro, patients, user } from '@/db/schema';
+import { auditLog, patientCadastro, patients, patientTagLinks, patientTags, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { metricasPorTenant } from '@/modules/plataforma/metricas';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from './base';
 import { CAMPOS_DO_CADASTRO } from './cadastro';
-import { atualizarPaciente, buscarPaciente, criarPaciente, listarPacientes, MSG_PACIENTE, PacienteError } from './pacientes';
+import { atualizarPaciente, buscarPaciente, criarPaciente, filtroDaUrl, listarPacientes, MSG_PACIENTE, PacienteError } from './pacientes';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const now = new Date('2026-10-01T15:00:00Z');
@@ -210,7 +210,7 @@ describe('buscarPaciente e listarPacientes', () => {
     expect((await listarPacientes(T.ctx, { busca: 'MARIA-' }, app.db)).map((x) => x.nome)).toEqual(['Maria Lima']);
     expect(await listarPacientes(T.ctx, { busca: '%' }, app.db)).toEqual([]);
     expect((await listarPacientes(T.ctx, {}, app.db)).map((x) => x.nome)).toEqual(['José Araújo', 'Maria Lima']);
-    expect((await listarPacientes(T.ctx, { status: 'arquivado' }, app.db)).map((x) => x.nome)).toEqual(['João Arquivado']);
+    expect((await listarPacientes(T.ctx, { aba: 'inativos' }, app.db)).map((x) => x.nome)).toEqual(['João Arquivado']);
   });
 
   it('sessão de paciente só enxerga a própria linha de patients (RLS por paciente)', async () => {
@@ -237,4 +237,104 @@ it('a linha criada por paciente de outro tenant nunca aparece na busca do tenant
   expect(await listarPacientes(A.ctx, { busca: 'Somente' }, app.db)).toEqual([]);
   const [linha] = await withTenant(B.ctx, (tx) => tx.select().from(patients).where(and(eq(patients.tenantId, B.tenantId), eq(patients.nome, 'Somente B'))), app.db);
   expect(linha).toBeDefined();
+});
+
+describe('listarPacientes (Plano 18, US-261, RN-270 a RN-272)', () => {
+  const nomes = (r: { nome: string; nomeSocial: string | null }[]) => r.map((x) => x.nomeSocial ?? x.nome);
+  const comNomeSocial = async (T: Awaited<ReturnType<typeof novoTenant>>, patientId: string, nomeSocial: string) =>
+    withTenant(T.ctx, (tx) => tx.insert(patientCadastro).values({ tenantId: T.tenantId, patientId, nomeSocial, cpf: null }), app.db);
+
+  it('abas: Ativos (padrão), Inativos, Todos (sem bloqueado) e Bloqueados', async () => {
+    const T = await novoTenant(app.db);
+    await novoPaciente(app.db, T.ctx, { nome: 'Ana Ativa' });
+    await novoPaciente(app.db, T.ctx, { nome: 'Bia Arquivada', status: 'arquivado' });
+    await novoPaciente(app.db, T.ctx, { nome: 'Cris Bloqueada', status: 'bloqueado', bloqueadoEm: new Date() });
+    expect(nomes(await listarPacientes(T.ctx, {}, app.db))).toEqual(['Ana Ativa']);
+    expect(nomes(await listarPacientes(T.ctx, { aba: 'ativos' }, app.db))).toEqual(['Ana Ativa']);
+    expect(nomes(await listarPacientes(T.ctx, { aba: 'inativos' }, app.db))).toEqual(['Bia Arquivada']);
+    expect(nomes(await listarPacientes(T.ctx, { aba: 'todos' }, app.db))).toEqual(['Ana Ativa', 'Bia Arquivada']);
+    expect(nomes(await listarPacientes(T.ctx, { aba: 'bloqueados' }, app.db))).toEqual(['Cris Bloqueada']);
+  });
+
+  it('ordens: nome (A–Z, sem acento nem maiúscula), nome_desc, recentes e antigos; empate pelo id', async () => {
+    const T = await novoTenant(app.db);
+    const b = await novoPaciente(app.db, T.ctx, { nome: 'bruno', createdAt: new Date('2026-01-02T12:00:00Z') });
+    const a = await novoPaciente(app.db, T.ctx, { nome: 'Álvaro', createdAt: new Date('2026-01-03T12:00:00Z') });
+    const c = await novoPaciente(app.db, T.ctx, { nome: 'Carla', createdAt: new Date('2026-01-01T12:00:00Z') });
+    expect(nomes(await listarPacientes(T.ctx, { ordem: 'nome' }, app.db))).toEqual(['Álvaro', 'bruno', 'Carla']);
+    expect(nomes(await listarPacientes(T.ctx, { ordem: 'nome_desc' }, app.db))).toEqual(['Carla', 'bruno', 'Álvaro']);
+    expect((await listarPacientes(T.ctx, { ordem: 'recentes' }, app.db)).map((x) => x.id)).toEqual([a.id, b.id, c.id]);
+    expect((await listarPacientes(T.ctx, { ordem: 'antigos' }, app.db)).map((x) => x.id)).toEqual([c.id, b.id, a.id]);
+    // empate: mesmo nome exibido e mesma data → pelo id, nas duas direções do nome
+    const T2 = await novoTenant(app.db);
+    const quando = new Date('2026-02-01T12:00:00Z');
+    const iguais = await Promise.all([1, 2, 3].map(() => novoPaciente(app.db, T2.ctx, { nome: 'Dora Lima', createdAt: quando })));
+    const ids = iguais.map((p) => p.id).sort();
+    for (const ordem of ['nome', 'nome_desc', 'recentes', 'antigos'] as const) {
+      expect((await listarPacientes(T2.ctx, { ordem }, app.db)).map((x) => x.id), ordem).toEqual(ids);
+    }
+  });
+
+  it('nome social: a busca acha pelos dois nomes; a ordem é pelo nome exibido; "registro" ordena pelo nome de registro', async () => {
+    const T = await novoTenant(app.db);
+    const joao = await novoPaciente(app.db, T.ctx, { nome: 'João Silva' });
+    await comNomeSocial(T, joao.id, 'Zélia Silva');
+    await novoPaciente(app.db, T.ctx, { nome: 'Marta Reis' });
+    expect((await listarPacientes(T.ctx, { busca: 'zelia' }, app.db)).map((x) => x.id)).toEqual([joao.id]);
+    expect((await listarPacientes(T.ctx, { busca: 'Joao' }, app.db)).map((x) => x.id)).toEqual([joao.id]);
+    const [item] = await listarPacientes(T.ctx, { busca: 'Silva' }, app.db);
+    expect(item).toMatchObject({ nome: 'João Silva', nomeSocial: 'Zélia Silva' });
+    // exibido: "Zélia Silva" depois de "Marta Reis"; de registro: "João Silva" antes
+    expect(nomes(await listarPacientes(T.ctx, {}, app.db))).toEqual(['Marta Reis', 'Zélia Silva']);
+    expect((await listarPacientes(T.ctx, { ordem: 'registro' }, app.db)).map((x) => x.nome)).toEqual(['João Silva', 'Marta Reis']);
+    expect((await listarPacientes(T.ctx, { aba: 'ativos', ordem: 'registro' }, app.db)).map((x) => x.nome)).toEqual(['João Silva', 'Marta Reis']);
+  });
+
+  it('chaves exatas do item (RN-272): nada do cadastro além do nome social', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await withTenant(
+      T.ctx,
+      (tx) => tx.insert(patientCadastro).values({ tenantId: T.tenantId, patientId: p.id, cpf: '52998224725', nomeSocial: 'Ana S.', ocupacao: 'Professora', observacao: 'nota' }),
+      app.db,
+    );
+    const [item] = await listarPacientes(T.ctx, {}, app.db);
+    expect(Object.keys(item).sort()).toEqual(['createdAt', 'dataNascimento', 'email', 'id', 'nome', 'nomeSocial', 'origem', 'status', 'userId']);
+    expect(JSON.stringify(item)).not.toMatch(/52998224725|Professora|nota/);
+  });
+
+  it('filtro de etiqueta grava uma leitura de "Etiquetas" por paciente devolvido; sem etiqueta, nenhuma', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const [tag] = await withTenant(T.ctx, (tx) => tx.insert(patientTags).values({ tenantId: T.tenantId, nome: `gestante-${s()}` }).returning(), app.db);
+    await withTenant(T.ctx, (tx) => tx.insert(patientTagLinks).values({ tenantId: T.tenantId, patientId: p.id, tagId: tag.id }), app.db);
+    const leituras = () =>
+      withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, p.id), eq(auditLog.entidade, 'etiquetas'), eq(auditLog.acao, 'ler'))), app.db);
+    for (const aba of ['ativos', 'todos'] as const) expect(await listarPacientes(T.ctx, { aba, ordem: 'recentes' }, app.db)).toHaveLength(1);
+    expect(await leituras()).toEqual([]);
+    // controle positivo: com a etiqueta, a leitura aparece (na mesma visão do nutri_app, dentro do withTenant)
+    expect(await listarPacientes(T.ctx, { aba: 'todos', etiquetaId: tag.id }, app.db)).toHaveLength(1);
+    expect(await leituras()).toEqual([expect.objectContaining({ actorUserId: T.nutriId, entidadeId: null })]);
+  });
+});
+
+describe('filtroDaUrl (RN-270, RN-271)', () => {
+  it('sem aba nem ordem: ativos por nome; aba, busca, etiqueta e ordem conhecidas passam', () => {
+    expect(filtroDaUrl({})).toEqual({ aba: 'ativos', ordem: 'nome' });
+    expect(filtroDaUrl({ aba: 'todos', busca: ' ana ', etiqueta: 'e1', ordem: 'recentes' })).toEqual({ aba: 'todos', busca: ' ana ', etiquetaId: 'e1', ordem: 'recentes' });
+    expect(filtroDaUrl({ aba: 'inativos', ordem: 'antigos' })).toEqual({ aba: 'inativos', ordem: 'antigos' });
+    expect(filtroDaUrl({ ordem: 'nome_desc', busca: '', etiqueta: '' })).toEqual({ aba: 'ativos', ordem: 'nome_desc' });
+  });
+  it('link antigo: status=arquivado → inativos, status=bloqueado → bloqueados; situacao=bloqueados → bloqueados', () => {
+    expect(filtroDaUrl({ status: 'arquivado' }).aba).toBe('inativos');
+    expect(filtroDaUrl({ status: 'bloqueado' }).aba).toBe('bloqueados');
+    expect(filtroDaUrl({ situacao: 'bloqueados', aba: 'todos' }).aba).toBe('bloqueados');
+    expect(filtroDaUrl({ status: 'ativo' }).aba).toBe('ativos');
+  });
+  it('valor desconhecido cai no padrão; ordem=registro na URL também (é só da agenda); listas repetidas ficam de fora', () => {
+    expect(filtroDaUrl({ aba: 'lixeira', status: 'xyz', ordem: 'idade' })).toEqual({ aba: 'ativos', ordem: 'nome' });
+    expect(filtroDaUrl({ aba: 'bloqueados' }).aba).toBe('ativos');
+    expect(filtroDaUrl({ ordem: 'registro' }).ordem).toBe('nome');
+    expect(filtroDaUrl({ aba: ['todos', 'inativos'], busca: ['a', 'b'] })).toEqual({ aba: 'ativos', ordem: 'nome' });
+  });
 });

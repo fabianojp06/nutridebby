@@ -7,8 +7,9 @@ import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pa
 import { CpfRepetidoError } from '@/modules/pacientes/cadastro';
 import { ConvitePacienteError, reenviarConvitePaciente } from '@/modules/pacientes/convite-paciente';
 import { EtiquetaError, salvarEtiquetasDoPaciente } from '@/modules/pacientes/etiquetas';
-import { atualizarPaciente, criarPaciente, PacienteError, type ErrosPaciente } from '@/modules/pacientes/pacientes';
-import { entradaDoFormulario, valoresDoFormulario, type ValoresPaciente } from './valores';
+import { arquivarPaciente, desarquivarPaciente } from '@/modules/pacientes/lgpd';
+import { atualizarPaciente, criarPaciente, filtroDaUrl, PacienteError, type ErrosPaciente } from '@/modules/pacientes/pacientes';
+import { entradaDoFormulario, urlDaLista, valoresDoFormulario, type ValoresPaciente } from './valores';
 
 /**
  * Plano 18 (RN-261): `cpfExistenteId` = o outro paciente do consultório com o mesmo CPF, para o link "Abrir o cadastro
@@ -78,4 +79,33 @@ export async function salvarEtiquetasAction(patientId: string, _prev: EtiquetasS
   }
   revalidatePath(`/painel/pacientes/${patientId}/perfil`);
   return { ok: true };
+}
+
+/**
+ * Plano 18 (RN-273, D26): arquivar ou reativar pela lista, com as mesmas funções da aba Privacidade. A volta é para a mesma
+ * lista (aba, busca, etiqueta e ordem dos campos ocultos, passados por `filtroDaUrl`; a URL é montada no servidor, nunca
+ * lida de um campo) com `ok`, que a região de status fixa anuncia. Paciente bloqueado: recusa (nada muda, volta sem `ok`).
+ */
+async function situacaoPelaLista(formData: FormData, ok: 'arquivado' | 'reativado', fn: typeof arquivarPaciente): Promise<never> {
+  const { ctx } = await requireNutri('/painel/pacientes');
+  const patientId = String(formData.get('id') ?? '');
+  const filtro = filtroDaUrl(Object.fromEntries(['aba', 'busca', 'etiqueta', 'ordem'].map((k) => [k, String(formData.get(k) ?? '')])));
+  let feito = true;
+  try {
+    await fn(ctx, patientId);
+  } catch (e) {
+    if (e instanceof PacienteNaoEncontradoError) notFound();
+    if (!(e instanceof PacienteBloqueadoError)) throw e;
+    feito = false;
+  }
+  revalidatePath(`/painel/pacientes/${patientId}`, 'layout');
+  redirect(urlDaLista(filtro, feito ? { ok } : {}));
+}
+
+export async function arquivarDaListaAction(formData: FormData): Promise<void> {
+  await situacaoPelaLista(formData, 'arquivado', arquivarPaciente);
+}
+
+export async function reativarDaListaAction(formData: FormData): Promise<void> {
+  await situacaoPelaLista(formData, 'reativado', desarquivarPaciente);
 }
