@@ -8,6 +8,7 @@ import { telaDeRelatorios } from '@/modules/financeiro/telas';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { Selecao } from '../lancamentos/comum';
 import { TopoDoFinanceiro } from '../topo';
+import { AlertaDoCsv } from './alerta-do-csv';
 import { BaixarCsv } from './baixar-csv';
 import { Barras } from './barras';
 import { FluxoDeCaixa } from './fluxo';
@@ -22,11 +23,14 @@ const TITULO = M.secoes.relatorios;
  */
 const TITULO_CSV = 'CSV dos lançamentos';
 const LINK = 'inline-flex min-h-11 items-center text-link underline';
+const ID_LINK_FLUXO = 'fluxo-csv';
+const ID_ERRO_FLUXO = 'fluxo-csv-erro-origem';
 
 /**
  * US-306: "Relatórios" — o fluxo de caixa do ano escolhido em "Ano" (`?ano=`), as entradas e saídas dos últimos 12 meses
  * (barras só de desenho e a tabela como alternativa) e o CSV dos lançamentos (`?erro=periodo`: a rota recusou o período;
- * `?erro=origem`: a rota não confirmou a origem do pedido).
+ * `?erro=origem`: a rota não confirmou a origem do pedido — com `csv=fluxo`, o do fluxo de caixa: o alerta fica no cartão do
+ * fluxo e o foco vai para o link dele; sem, no cartão do CSV dos lançamentos, com o foco no "Baixar CSV").
  * Uma transação (RNF-301); sem `auditRead` (RN-318) — o download grava o `exportar` na rota. Sem configuração (RN-301): o
  * primeiro acesso.
  */
@@ -52,6 +56,8 @@ export default async function Relatorios({ searchParams }: PageProps<'/painel/fi
   const mesAtual = intervaloDoMes(mesDe(hojeNoFuso(tenant.fuso)));
   // o saldo começa no ano mostrado ou depois: os meses antes dele mostram "—" nas linhas de saldo (US-306)
   const notaDoSaldo = config.saldoInicialEm >= `${ano}-01-01`;
+  const erroDeOrigem = parametros.erro === 'origem';
+  const erroNoFluxo = erroDeOrigem && parametros.csv === 'fluxo';
   return (
     <>
       <TopoDoFinanceiro titulo={TITULO} parametros={parametros} />
@@ -75,12 +81,24 @@ export default async function Relatorios({ searchParams }: PageProps<'/painel/fi
         titulo={R.fluxo(ano)}
         data-guia="financeiro-relatorios"
         acao={
-          <a href={`/api/painel/financeiro/fluxo-de-caixa.csv?ano=${ano}`} className={LINK}>
+          <a
+            id={ID_LINK_FLUXO}
+            href={`/api/painel/financeiro/fluxo-de-caixa.csv?ano=${ano}`}
+            aria-describedby={erroNoFluxo ? ID_ERRO_FLUXO : undefined}
+            className={LINK}
+          >
             {M.csv.baixar}
             <span className="sr-only">{` do ${R.fluxo(ano).toLowerCase()}`}</span>
           </a>
         }
       >
+        {erroNoFluxo && (
+          <div className="mb-3">
+            <AlertaDoCsv id={ID_ERRO_FLUXO} controle={ID_LINK_FLUXO}>
+              {M.csv.erroOrigem}
+            </AlertaDoCsv>
+          </div>
+        )}
         <FluxoDeCaixa fluxo={fluxo} captionId="fluxo-caption" />
         <div className="mt-2 space-y-1 text-sm text-suave">
           <p>{R.soPagos}</p>
@@ -129,7 +147,7 @@ export default async function Relatorios({ searchParams }: PageProps<'/painel/fi
           de={mesAtual.de}
           ate={mesAtual.ate}
           erroDoServidor={parametros.erro === 'periodo'}
-          erroDeOrigem={parametros.erro === 'origem'}
+          erroDeOrigem={erroDeOrigem && !erroNoFluxo}
         />
       </Cartao>
     </>

@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   const acesso = await requireApiNutri(req);
   if (!acesso.ok) return recusaNaNavegacao(acesso);
-  const origem = recusaDeOrigem(req);
+  const origem = recusaDeOrigem(req, 'lancamentos');
   if (origem) return origem;
   const q = new URL(req.url).searchParams;
   const de = q.get('de') ?? '';

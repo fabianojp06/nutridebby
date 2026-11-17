@@ -221,6 +221,11 @@ describe('pedido vindo de outro site e HEAD (RN-321: o exportar só vale do cliq
     [lancamentosCsv, 'lancamentos.csv?de=2026-10-01&ate=2026-10-31&pacientes=1'],
     [fluxoCsv, 'fluxo-de-caixa.csv?ano=2026'],
   ] as const;
+  /** A volta do `?erro=origem`: o do link do fluxo leva `csv=fluxo` (o alerta e o foco no cartão do fluxo, não no do formulário). */
+  const VOLTA_DA_ORIGEM: Record<string, string> = {
+    [CAMINHOS[0][1]]: '/painel/financeiro/relatorios?erro=origem',
+    [CAMINHOS[1][1]]: '/painel/financeiro/relatorios?erro=origem&csv=fluxo',
+  };
 
   it('Sec-Fetch-Site cross-site ou same-site → 303 para Relatórios, sem arquivo e sem exportar (mesmo com Referer da própria origem)', async () => {
     const C = await cenario();
@@ -234,11 +239,11 @@ describe('pedido vindo de outro site e HEAD (RN-321: o exportar só vale do cliq
     expect(await exportacoes(C.tenantId)).toEqual([]);
   });
 
-  it('sem Sec-Fetch-Site e sem Origin nem Referer → 303 para Relatórios com ?erro=origem, sem arquivo e sem exportar', async () => {
+  it('sem Sec-Fetch-Site e sem Origin nem Referer → 303 para Relatórios com ?erro=origem (o do fluxo com &csv=fluxo), sem arquivo e sem exportar', async () => {
     const C = await cenario();
     for (const [rota, caminho] of CAMINHOS) {
       const r = await pedir(rota, caminho, C.cookie, null);
-      expect([r.status, r.headers.get('location')], caminho).toEqual([303, '/painel/financeiro/relatorios?erro=origem']);
+      expect([r.status, r.headers.get('location')], caminho).toEqual([303, VOLTA_DA_ORIGEM[caminho]]);
       expect(r.headers.get('content-disposition'), caminho).toBeNull();
     }
     expect(await exportacoes(C.tenantId)).toEqual([]);
@@ -257,7 +262,7 @@ describe('pedido vindo de outro site e HEAD (RN-321: o exportar só vale do cliq
     for (const extra of casos)
       for (const [rota, caminho] of CAMINHOS) {
         const r = await pedir(rota, caminho, C.cookie, null, extra);
-        expect([r.status, r.headers.get('location')], `${JSON.stringify(extra)} ${caminho}`).toEqual([303, '/painel/financeiro/relatorios?erro=origem']);
+        expect([r.status, r.headers.get('location')], `${JSON.stringify(extra)} ${caminho}`).toEqual([303, VOLTA_DA_ORIGEM[caminho]]);
         expect(r.headers.get('content-disposition')).toBeNull();
       }
     expect(await exportacoes(C.tenantId)).toEqual([]);
