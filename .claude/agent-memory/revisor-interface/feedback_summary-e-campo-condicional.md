@@ -14,3 +14,5 @@ metadata:
 Repetiu no plano do Plano 16 (08/10/2026): a sanfona do `/p/plano` com `<summary className="flex …">` e um `h3` dentro. O próprio plano trouxe o código.
 
 3ª vez no Plano 14A, T7 (09/10/2026): o implementador acrescentou `flex min-h-11 items-center` ao `summary` de "Ver o texto da autorização" (`uso-ia.tsx`) para chegar aos 44 px, coisa que o brief não tinha. Para 44 px sem perder o marcador, use `block`/`list-item` com `min-h-11 py-2`. Rode `git grep -n "<summary className=\"[^\"]*flex"` em toda revisão.
+
+4ª-5ª vez no Plano 19 (revisão final, 17/11/2026): `nutrientes-do-paciente.tsx` ("Escolher nutrientes", "Ver todos os nutrientes") e `alimento-form.tsx` ("Micronutrientes (opcional)") com `<summary className="flex min-h-11 … items-center">`. O molde já estava corrigido em `ligado-ao-plano.tsx` (`min-h-11 cursor-pointer py-2`), mas o autor da T3/T5 não leu. Rodar o grep em toda revisão final.

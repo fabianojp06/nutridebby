@@ -1,3 +1,3 @@
-- [Estado dos manuais](estado-dos-manuais.md) — técnico: Plano 18 PR 1 em 17/11 (conferido d9066f9, base 667c952); pendências do PR 2; P17 antes
+- [Estado dos manuais](estado-dos-manuais.md) — técnico: Plano 19 PR do código em 17/11 (`f7aeae8`, conferido a7978a6); próximo: seed USDA (T12)
 - [Onde os manuais envelhecem](onde-os-manuais-envelhecem.md) — checklist de contagens, linhas e status que ficam velhos a cada fechamento
 - [Sem push nem PR](sem-push-sem-pr.md) — commit só se pedido; push/PR/merge ficam com quem orquestra

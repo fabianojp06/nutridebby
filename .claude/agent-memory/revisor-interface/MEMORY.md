@@ -26,3 +26,4 @@
 - [Filtro esconde o que edita](feedback_filtro-esconde-o-que-edita.md) — filtro de dia some o cartão ao desmarcar o dia; link de erro por hash não repete; vazio sem role=status
 - [Painel que fecha e sucesso mudo](feedback_painel-que-fecha-e-sucesso-mudo.md) — ação imediata: foco cai no body ao fechar o painel; sem role=status no sucesso
 - [Lista derivada vazia sem texto](feedback_lista-derivada-vazia-sem-texto.md) — filtro/janela válido com resultado vazio: só a dica de rodapé aparece (compras do 19)
+- [Axe não prova foco do diálogo](feedback_axe-nao-prova-foco-do-dialogo.md) — diálogo/abas só com axe; sem toBeFocused/setas; teto rígido de INP no E2E

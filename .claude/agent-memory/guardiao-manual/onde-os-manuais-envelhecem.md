@@ -72,3 +72,14 @@ isolamento, divergência #3).
   retirar no fechamento seguinte. No PR 1 a orquestradora pediu para não mexer no Docs: a proposta do manual do usuário
   ficou para o fechamento do plano (T12c).
 
+
+- Plano 19 (17/11/2026): no worktree, `grep` é o ugrep (sintaxe diferente; `--include` falha em silêncio): usar
+  `/usr/bin/grep`. Remapeador útil: para cada `src/...:N` citado em arquivo do diff, comparar a linha N em
+  `origin/main` × HEAD e procurar a linha antiga no HEAD (pegou ~40 citações velhas, inclusive sem prefixo de pasta nas
+  tabelas de lembretes e do isolamento, que precisam de `grep -n "^const …"` à mão).
+- Plano que entra em sessões paralelas: a `main` pode ter planos mesclados sem fechamento no manual (Plano 20 PR 1): a
+  contagem de tabelas e as listas do §2.7 mudam mesmo assim; registrar como pendência do plano dono.
+- Spec do MVP: vários planos podem abrir a mesma versão (v1.15) em paralelo; a linha do Apêndice C diz "quem mescla
+  depois renumera".
+- Textos "fora da spec": juntar a lista do ledger com os comentários `Sem texto na spec`/`fora da spec` do diff
+  (`git diff | grep -i "sem texto na spec"`); o ledger não traz todos.
