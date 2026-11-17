@@ -3,7 +3,7 @@ import { cobrancasDoPaciente } from '../../../test/financeiro';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { financeiroParaExportacao } from './titular';
+import { financeiroParaExportacao, temLancamentos } from './titular';
 
 /**
  * US-307 (Plano 20, T9; spec §10, F-D22): a seção `financeiro` do `dados.json` — os campos da spec, a situação no dia da
@@ -98,5 +98,16 @@ describe('financeiroParaExportacao (US-307, spec §10)', () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
     expect(await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => financeiroParaExportacao(tx, p.id, '2026-10-01'), app.db)).toEqual([]);
+  });
+});
+
+describe('temLancamentos (RN-316, a conferência de lgpd.ts antes de app_anonimizar_financeiro)', () => {
+  it('no contexto worker: true para o titular com lançamento, false para o paciente sem', async () => {
+    const { T, p } = await cenario();
+    const sem = await novoPaciente(app.db, T.ctx, { nome: 'Caio Reis' });
+    const worker: TenantContext = { tenantId: T.tenantId, role: 'worker' };
+    const tem = (paciente: string) => withTenant(worker, (tx) => temLancamentos(tx, paciente), app.db);
+    expect(await tem(p.id)).toBe(true);
+    expect(await tem(sem.id)).toBe(false);
   });
 });

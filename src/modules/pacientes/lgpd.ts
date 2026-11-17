@@ -8,7 +8,6 @@ import {
   examSubmissionFiles,
   examSubmissions,
   exams,
-  finLancamentos,
   iaAutorizacoes,
   iaTarefas,
   lembretesRotina,
@@ -31,6 +30,7 @@ import { cancelarTarefas } from '@/modules/ia/cancelar';
 import { apagarIaNutriDoTitular, limparIaNutriNaAnonimizacao } from '@/modules/ia/nutri-paciente/lgpd';
 import { anonimizarDocumentosDoPaciente, pdfsDeDocumentosRestantes } from '@/modules/documentos/lgpd-documentos';
 import { apagarUsoDeConteudo } from '@/modules/conteudo/titular';
+import { temLancamentos } from '@/modules/financeiro/titular';
 import { apagarAcessosDoTitular } from '@/modules/portal/acesso';
 import { carregarPacienteParaEscrita } from './base';
 import { anonimizarContaSemVinculo, contaSemOutroVinculo } from './conta-titular';
@@ -562,8 +562,7 @@ export async function anonimizarVencidos(
             // Plano 20 (RN-316, F-D23): os lançamentos do Financeiro perdem os textos e os em aberto viram cancelados; valor,
             // datas, categoria e forma ficam. Antes do UPDATE (a função exige o paciente ainda não anonimizado) e só com
             // lançamento: a função confere o prazo pelo relógio do banco, e o `now` daqui pode ser outro (testes)
-            const [comLancamento] = await tx.select({ id: finLancamentos.id }).from(finLancamentos).where(eq(finLancamentos.patientId, id)).limit(1);
-            if (comLancamento) await tx.execute(sql`select app_anonimizar_financeiro(${id})`);
+            if (await temLancamentos(tx, id)) await tx.execute(sql`select app_anonimizar_financeiro(${id})`);
             // Plano 14A (US-113): as autorizações de IA ficam (prova), sem IP, user-agent, HMAC e, no canal app, sem a conta
             await tx.execute(sql`select app_anonimizar_autorizacoes_ia(${id})`);
             // Plano 15: os consentimentos da IA Nutri ficam (prova), sem IP, user-agent e conta
