@@ -7,7 +7,7 @@ import { MSG_FALHA, MSG_IA, MSG_RESUMO } from '@/modules/ia/constantes';
 import { configIA } from '@/modules/ia/modo';
 import { abrirResumo, ultimaTarefaDoTipo, type ResumoAberto } from '@/modules/ia/resumo';
 import { SECOES_RESUMO } from '@/modules/ia/tipos';
-import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
+import { formatarDataHora } from '@/modules/pacientes/datas';
 import { iaDoAssistente, textoDaFalha } from '../ia-assistente';
 import { carregarProntuario } from '../prontuario';
 import { descartarResumoAction, pedirResumoAction } from './actions';

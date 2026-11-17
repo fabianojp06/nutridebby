@@ -3,10 +3,11 @@ import { rotuloDoMotivo, situacaoDaNotificacao } from '@/modules/notificacoes/ti
 import type { SituacaoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
 import { CAMPOS_DO_CADASTRO, type CadastroComplementar, type CampoDoCadastro } from '@/modules/pacientes/cadastro';
 import type { SituacaoAcesso, SituacaoConviteWhatsapp } from '@/modules/pacientes/convite-paciente';
+import { formatarCep } from '@/modules/pacientes/cep';
 import { formatarCpf } from '@/modules/pacientes/cpf';
 import type { FiltroDaLista, PacienteNaLista } from '@/modules/pacientes/pacientes';
+import { formatarDataHora } from '@/modules/pacientes/datas';
 import { formatarTelefone } from '@/modules/pacientes/telefone';
-import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
 
 /**
  * O que o formulário de cadastro manda e recebe de volta num erro (PF-N9: nada do que foi digitado se perde). Plano 18
@@ -49,12 +50,11 @@ export function entradaDoFormulario(f: FormData): Record<string, unknown> {
   return v;
 }
 
-const CEP = /^(\d{5})(\d{3})$/;
 /** O cadastro complementar como o formulário mostra: CPF, CEP e telefone fixo formatados; sem linha, tudo ''. */
 function valoresDoCadastro(c: CadastroComplementar | null): Record<CampoDoCadastro, string> {
   const v = Object.fromEntries(CAMPOS_DO_CADASTRO.map((k) => [k, c?.[k] ?? ''])) as Record<CampoDoCadastro, string>;
   if (v.cpf) v.cpf = formatarCpf(v.cpf);
-  if (v.cep) v.cep = v.cep.replace(CEP, '$1-$2');
+  if (v.cep) v.cep = formatarCep(v.cep);
   if (v.telefoneFixo) v.telefoneFixo = formatarTelefone(v.telefoneFixo);
   return v;
 }

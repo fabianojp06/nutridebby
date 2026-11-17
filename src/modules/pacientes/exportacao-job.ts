@@ -55,6 +55,7 @@ import { documentosParaExportacao, type DocumentoExportado } from '@/modules/doc
 import { ROTULO_RESPOSTA, type RespostaDoDiario } from '@/modules/portal/diario-constantes';
 import { respostaParaCampo } from './anamnese-tipos';
 import { ESCOLARIDADES, ESTADOS_CIVIS, IDENTIDADES_DE_GENERO, type Opcao } from './cadastro-textos';
+import { formatarCep } from './cep';
 import { formatarCpf } from './cpf';
 import { ROTULO_MOTIVO_RECUSA, type MotivoRecusa } from './exames-enviados-constantes';
 import { hojeNoFuso } from './datas';
@@ -91,7 +92,6 @@ export type CadastroExportado = {
 /** O rótulo da tela de um valor de lista fechada (um valor fora da lista, que o CHECK não deixa gravar, sai como está). */
 const rotuloDe = (opcoes: readonly Opcao<string>[], valor: string | null) =>
   valor === null ? null : (opcoes.find((o) => o.valor === valor)?.rotulo ?? valor);
-const CEP = /^(\d{5})(\d{3})$/;
 
 /**
  * Plano 18 (§10, D18): o cadastro complementar por inclusão explícita — cada coluna nomeada aqui (as decisões de cada
@@ -132,7 +132,7 @@ async function cadastroParaExportacao(tx: Tx, patientId: string): Promise<Cadast
     naturalidade: c.naturalidade,
     telefoneFixo: c.telefoneFixoE164 ? formatarTelefone(c.telefoneFixoE164) : null,
     endereco: {
-      cep: c.cep ? c.cep.replace(CEP, '$1-$2') : null,
+      cep: c.cep ? formatarCep(c.cep) : null,
       rua: c.logradouro,
       numero: c.numero,
       complemento: c.complemento,

@@ -8,7 +8,7 @@ import { envioNoBanco } from '../../../test/exames-enviados';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
-import { accessEvents, anthropometry, auditLog, consultations, diaryEntries, iaNutriParticipacoes, invites, lembretesRotina, patients, pushSubscriptions, tenants, type TenantRow } from '@/db/schema';
+import { accessEvents, anthropometry, auditLog, consultations, diaryEntries, examSubmissions, iaNutriParticipacoes, invites, lembretesRotina, patients, pushSubscriptions, tenants, type TenantRow } from '@/db/schema';
 import { TenantContextError, withTenant, type TenantContext } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { sha256 } from '@/lib/crypto';
@@ -288,6 +288,36 @@ describe('noAppDoPaciente (Plano 18, D16, RN-281)', () => {
     const diario = (await diarioDoPaciente(c.ctxAna, { db: app.db })).filter((d) => d.dataHora.getTime() >= desde);
     expect(r.contagens!.diario30d).toBe(diario.length);
     expect(diario).toHaveLength(1);
+  });
+
+  it('exames enviados acima do teto da lista do portal: a contagem e o selo param nos mesmos 50 mais recentes de `meusEnvios`', async () => {
+    const c = await oCenario();
+    const { paciente: eva, userId } = await pacienteComConta(app.db, c.T);
+    const ctxEva = ctxPaciente(c.T.tenantId, eva.id, userId);
+    // 51 envios (nascem "processando", que o portal lista), um por minuto: o mais antigo fica fora da lista do portal
+    const ids = await inserir(c.T.ctx, (tx) =>
+      tx
+        .insert(examSubmissions)
+        .values(
+          Array.from({ length: 51 }, (_, i) => ({
+            tenantId: c.T.tenantId,
+            patientId: eva.id,
+            enviadoPor: userId,
+            dataColeta: '2026-09-28',
+            nome: 'Hemograma',
+            createdAt: new Date(AGORA.getTime() - (i + 1) * 60_000),
+          })),
+        )
+        .returning({ id: examSubmissions.id }),
+    );
+    const maisRecente = ids[0].id;
+    const maisAntigo = ids[50].id;
+    const portal = await meusEnvios(ctxEva, { db: app.db });
+    expect(portal).toHaveLength(50);
+    expect(portal.map((e) => e.id)).not.toContain(maisAntigo);
+    const r = await noAppDoPaciente(c.T.ctx, eva.id, { 'exames-enviados': [maisRecente, maisAntigo] }, { db: app.db, agora: AGORA });
+    expect(r.contagens!['exames-enviados']).toBe(portal.length);
+    expect(r.visiveis['exames-enviados']).toEqual([maisRecente]);
   });
 
   it('D24: receitas sugeridas no contexto `nutri` = as do cartão do plano no app (com a de fora da audiência; sem a despublicada)', async () => {

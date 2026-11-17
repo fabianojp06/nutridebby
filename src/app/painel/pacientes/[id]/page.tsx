@@ -70,6 +70,7 @@ export default async function InicioPage({ params }: PageProps<'/painel/paciente
     completavel ? notaDoCadastro(ctx, paciente.id) : null,
   ]);
   const podeAdicionar = completavel;
+  const pesoOculto = Boolean(paciente.pesoOcultoNoAppEm);
   const grupos = podeAdicionar ? montarAdicionar(paciente.id, secoes) : [];
   const chaves = grupos.flatMap((g) => g.itens.flatMap((i) => ('acao' in i ? [i.acao] : [])));
   return (
@@ -107,8 +108,9 @@ export default async function InicioPage({ params }: PageProps<'/painel/paciente
       )}
       <section aria-labelledby="secoes-titulo" data-guia="secoes-inicio" className="rounded-3xl border border-borda bg-cartao px-5 py-2">
         <h2 id="secoes-titulo" className="sr-only">{MSG_FICHA.secoesTitulo}</h2>
-        {/* RN-279, §8.3: com o peso oculto, a seção Antropometria avisa que peso e IMC não aparecem no app */}
-        {secoes.map((s) => <Secao key={s.id} secao={s} patientId={paciente.id} nota={s.id === 'antropometria' && noApp?.pesoOculto ? MSG_FICHA.pesoOcultoNaSecao : undefined} />)}
+        {/* RN-279, §8.3: com o peso oculto, a seção Antropometria avisa que peso e IMC não aparecem no app — pela marca do
+            próprio paciente (não pelo No app, que vai neutro para arquivado e bloqueado e some se a contagem falhar) */}
+        {secoes.map((s) => <Secao key={s.id} secao={s} patientId={paciente.id} nota={s.id === 'antropometria' && pesoOculto ? MSG_FICHA.pesoOcultoNaSecao : undefined} />)}
       </section>
     </div>
   );

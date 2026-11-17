@@ -348,6 +348,9 @@ describe('regras dos CHECKs conferidas antes do banco (D23)', () => {
     for (const [entrada, gravado] of [
       ['13015-904', '13015904'],
       [' 13015904 ', '13015904'],
+      // pontos e espaço, como o CPF (code review do PR 2)
+      ['01.310-100', '01310100'],
+      ['01310 100', '01310100'],
     ]) {
       await gravar({ cep: entrada });
       expect(await lido()).toMatchObject({ cep: gravado });
@@ -361,6 +364,11 @@ describe('regras dos CHECKs conferidas antes do banco (D23)', () => {
       expect(await lido()).toMatchObject({ telefoneFixoE164: gravado });
     }
     for (const v of ['123', '(11) 1123-4567', '+0 11 3123 4567']) expect(validarCadastro({ telefoneFixo: v })).toEqual({ ok: false, erros: { telefoneFixo: 'Telefone fixo inválido' } });
+    // celular brasileiro (9 dígitos começando por 9, com ou sem +55) não é telefone fixo (code review do PR 2)
+    for (const v of ['(11) 91234-5678', '+55 11 91234-5678', '5511912345678', '011912345678'])
+      expect(validarCadastro({ telefoneFixo: v }), v).toEqual({ ok: false, erros: { telefoneFixo: 'Telefone fixo inválido' } });
+    // o internacional segue só o E.164 (um número que começa com 9 em outro país passa)
+    expect(validarCadastro({ telefoneFixo: '+351 912 345 678' })).toMatchObject({ ok: true, valor: { telefoneFixo: '+351912345678' } });
     await gravar({ cpf: ' 529.982.247-25 ' });
     expect(await lido()).toMatchObject({ cpf: CPF_DIGITOS });
     // texto que não é texto (formulário adulterado): recusado com a mensagem do campo

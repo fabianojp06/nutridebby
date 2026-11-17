@@ -80,27 +80,23 @@ export async function apagarConvitesPendentes(tx: Tx, tenantId: string, patientI
 
 export type SituacaoAcesso = { estado: 'ativo' } | { estado: 'pendente'; expiraEm: Date } | { estado: 'expirado' } | { estado: 'sem_convite' };
 
-/** Situação do acesso ao portal para o prontuário. `invites` não tem RLS: o filtro por tenant é explícito. */
+/**
+ * Situação do acesso ao portal para o prontuário: a de `situacoesDoAcesso` para um paciente só (as regras ficam num lugar).
+ * `invites` não tem RLS: o filtro por tenant é explícito.
+ */
 export async function situacaoDoAcesso(
   ctx: TenantContext,
   p: Pick<PatientRow, 'id' | 'userId'>,
   db: Db = getDb(),
   now: Date = new Date(),
 ): Promise<SituacaoAcesso> {
-  if (p.userId) return { estado: 'ativo' };
-  const [c] = await db
-    .select({ expiraEm: invites.expiraEm })
-    .from(invites)
-    .where(and(eq(invites.tenantId, ctx.tenantId), eq(invites.patientId, p.id), eq(invites.tipo, 'paciente'), isNull(invites.usadoEm)))
-    .orderBy(desc(invites.createdAt))
-    .limit(1);
-  if (!c) return { estado: 'sem_convite' };
-  return c.expiraEm.getTime() <= now.getTime() ? { estado: 'expirado' } : { estado: 'pendente', expiraEm: c.expiraEm };
+  return (await situacoesDoAcesso(ctx, [p], db, now)).get(p.id) ?? { estado: 'sem_convite' };
 }
 
 /**
- * Plano 18 (§8.1): a situação do acesso de cada paciente da lista, numa consulta só (até `LIMITE_LISTA`), com as regras de
- * `situacaoDoAcesso`. Só lê `invites` (sem RLS: o filtro por tenant é explícito); nada do cadastro.
+ * Plano 18 (§8.1): a situação do acesso de cada paciente (até `LIMITE_LISTA`, na lista), numa consulta só: com senha →
+ * ativo; senão, o convite não usado mais recente de cada um (`DISTINCT ON`) dá pendente ou expirado; sem convite →
+ * sem_convite. Só lê `invites` (sem RLS: o filtro por tenant é explícito); nada do cadastro.
  */
 export async function situacoesDoAcesso(
   ctx: TenantContext,
@@ -112,14 +108,12 @@ export async function situacoesDoAcesso(
   const semSenha = ps.filter((p) => !p.userId).map((p) => p.id);
   if (!semSenha.length) return r;
   const convites = await db
-    .select({ patientId: invites.patientId, expiraEm: invites.expiraEm })
+    .selectDistinctOn([invites.patientId], { patientId: invites.patientId, expiraEm: invites.expiraEm })
     .from(invites)
     .where(and(eq(invites.tenantId, ctx.tenantId), inArray(invites.patientId, semSenha), eq(invites.tipo, 'paciente'), isNull(invites.usadoEm)))
-    .orderBy(desc(invites.createdAt));
-  const vistos = new Set<string>();
+    .orderBy(invites.patientId, desc(invites.createdAt));
   for (const c of convites) {
-    if (!c.patientId || vistos.has(c.patientId)) continue; // o mais recente de cada paciente, como em situacaoDoAcesso
-    vistos.add(c.patientId);
+    if (!c.patientId) continue;
     r.set(c.patientId, c.expiraEm.getTime() <= now.getTime() ? { estado: 'expirado' } : { estado: 'pendente', expiraEm: c.expiraEm });
   }
   return r;

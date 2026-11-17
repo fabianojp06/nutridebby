@@ -13,7 +13,7 @@ import { situacaoNaFicha, type SituacaoNaFicha } from '@/modules/ia/nutri-pacien
 import { TEXTOS_FIXOS } from '@/modules/ia/nutri-paciente/textos';
 import { responsavelDoTenant } from '@/modules/ia/textos-legais';
 import { MSG_BLOQUEADO, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
-import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
+import { formatarDataHora } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../prontuario';
 import { desativarPelaNutriAction, salvarLiberacaoIaNutriAction } from './actions';
 import { LiberacaoForm } from './liberacao-form';

@@ -60,7 +60,9 @@ describe('no-app.ts (guardas de fonte)', () => {
     const corpo = codigo.slice(codigo.indexOf('export async function noAppDoPaciente'));
     const saida = corpo.indexOf("p.status === 'arquivado' || p.status === 'bloqueado' || p.anonimizadoEm");
     expect(saida).toBeGreaterThan(0);
-    for (const leitura of ['pesoOcultoNoAppEm', '.from(tenants)', '.from(accessEvents)', '.from(pushSubscriptions)', '.from(mealPlans)', '.from(lembretesRotina)', 'situacaoDoAcesso(', 'comoPaciente('])
+    // a linha do paciente é lida uma vez só (com as marcas); as marcas só saem no retorno, depois da saída
+    expect(corpo.slice(0, saida).match(/\.from\(patients\)/g)).toHaveLength(1);
+    for (const leitura of ['pesoOculto: p.pesoOcultoNoAppEm', '.from(tenants)', '.from(accessEvents)', '.from(pushSubscriptions)', '.from(mealPlans)', '.from(lembretesRotina)', 'situacaoDoAcesso(', 'comoPaciente('])
       expect(corpo.indexOf(leitura), leitura).toBeGreaterThan(saida);
     expect(corpo).toMatch(/if \(doPainel\.fechado\) return semAcesso\(doPainel\.fechado\);/);
   });

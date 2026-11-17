@@ -21,18 +21,27 @@ export function resumoDasLinhas<L extends { total: number }>(linhas: L[], item: 
 /**
  * Plano 18 (RN-279, RN-281): o `noApp` de uma seção — a contagem e os ids visíveis, com a MESMA condição, na transação do
  * contexto de paciente que `no-app.ts` abre (a RLS do paciente aplica as políticas; `onde` repete só o filtro em TypeScript
- * da função do portal). Só `count(*)` e o id: nenhuma coluna de conteúdo, sem limite de lista (a página diz o total).
+ * da função do portal). Só `count(*)` e o id: nenhuma coluna de conteúdo. Sem `teto`, sem limite de lista (a página diz o
+ * total); com ele, o mesmo teto e a mesma ordem da lista do portal (o portal só mostra os `limite` primeiros nessa ordem).
  */
-export function noAppPor(tabela: PgTable, id: PgColumn, onde: (patientId: string) => SQL | undefined): NonNullable<SecaoDaFicha['noApp']> {
+export function noAppPor(
+  tabela: PgTable,
+  id: PgColumn,
+  onde: (patientId: string) => SQL | undefined,
+  teto?: { limite: number; ordem: SQL | PgColumn },
+): NonNullable<SecaoDaFicha['noApp']> {
   return {
     async contar(tx, patientId) {
       const [r] = await tx.select({ n: count() }).from(tabela).where(onde(patientId));
-      return r?.n ?? 0;
+      const n = r?.n ?? 0;
+      return teto ? Math.min(n, teto.limite) : n;
     },
     async visiveis(tx, patientId, ids) {
       const pedidos = [...new Set(ids.filter(idValido))];
       if (!pedidos.length) return [];
-      const achados = await tx.select({ id }).from(tabela).where(and(onde(patientId), inArray(id, pedidos)));
+      // com teto: só os ids que entram na lista do portal (os `limite` primeiros na ordem dela)
+      const naLista = teto ? inArray(id, tx.select({ id }).from(tabela).where(onde(patientId)).orderBy(teto.ordem).limit(teto.limite)) : undefined;
+      const achados = await tx.select({ id }).from(tabela).where(and(onde(patientId), inArray(id, pedidos), naLista));
       const vistos = new Set(achados.map((a) => String(a.id)));
       return pedidos.filter((i) => vistos.has(i));
     },

@@ -53,7 +53,7 @@ async function comoPaciente<T>(db: Db, tenantId: string, patientId: string, fn: 
 
 /**
  * Arquivado, bloqueado ou anonimizado: o paciente não vê nada no app e a página só mostra a linha do acesso — o resto vai
- * neutro, sem ter sido lido (minimização, LGPD art. 6º, III).
+ * neutro, sem ter sido lido além da própria linha do paciente, e nada dela sai além da situação (minimização, LGPD art. 6º, III).
  */
 function semAcesso(estado: 'arquivado' | 'bloqueado'): NoApp {
   return {
@@ -72,7 +72,7 @@ function semAcesso(estado: 'arquivado' | 'bloqueado'): NoApp {
 
 /**
  * Plano 18 (D16, D24, RN-279, RN-281): "No app do paciente" — o que o paciente vê hoje no app, pela nutricionista.
- * (0) Arquivado, bloqueado ou anonimizado: só a situação (`semAcesso`), sem ler mais nada. (1) Na sessão `nutri` (depois de
+ * (0) Arquivado, bloqueado ou anonimizado: só a situação (`semAcesso`), sem ler mais nada além da linha do paciente. (1) Na sessão `nutri` (depois de
  * conferir que o paciente é deste consultório): situação e acesso, último dia de acesso,
  * aparelhos com notificação (a regra de `aparelhosComNotificacao` do Plano 17), WhatsApp, peso oculto, % de gordura, IA
  * Nutri, a data do plano publicado e a lista de compras (a regra de `listaDoPlano`), os lembretes (sem texto nem config)
@@ -96,22 +96,23 @@ export async function noAppDoPaciente(
   const doPainel = await withTenant(
     ctx,
     async (tx) => {
+      // uma leitura só: as marcas de fora (peso oculto, WhatsApp, pausa) ficam na linha, mas só saem daqui com o paciente aberto
       const [p] = await tx
-        .select({ id: patients.id, userId: patients.userId, status: patients.status, anonimizadoEm: patients.anonimizadoEm })
-        .from(patients)
-        .where(eq(patients.id, patientId));
-      if (!p) throw new PacienteNaoEncontradoError();
-      // minimização: arquivado, bloqueado e anonimizado só mostram a linha do acesso — nada mais é lido nem calculado
-      if (p.status === 'arquivado' || p.status === 'bloqueado' || p.anonimizadoEm) return { fechado: p.status === 'arquivado' ? ('arquivado' as const) : ('bloqueado' as const) };
-      const [m] = await tx
         .select({
+          id: patients.id,
+          userId: patients.userId,
+          status: patients.status,
+          anonimizadoEm: patients.anonimizadoEm,
           pesoOcultoNoAppEm: patients.pesoOcultoNoAppEm,
           whatsappOptinEm: patients.whatsappOptinEm,
           whatsappOptoutEm: patients.whatsappOptoutEm,
           lembretesPausadosEm: patients.lembretesPausadosEm,
         })
         .from(patients)
-        .where(eq(patients.id, p.id));
+        .where(eq(patients.id, patientId));
+      if (!p) throw new PacienteNaoEncontradoError();
+      // minimização: arquivado, bloqueado e anonimizado só mostram a linha do acesso — nada mais é lido nem calculado
+      if (p.status === 'arquivado' || p.status === 'bloqueado' || p.anonimizadoEm) return { fechado: p.status === 'arquivado' ? ('arquivado' as const) : ('bloqueado' as const) };
       const [t] = await tx
         .select({ fuso: tenants.fuso, gordura: tenants.mostrarPercGorduraPaciente, iaNutriAtivadaEm: tenants.iaNutriAtivadaEm })
         .from(tenants)
@@ -153,7 +154,7 @@ export async function noAppDoPaciente(
         .select({ ligado: lembretesRotina.ligado, desligadoPeloPacienteEm: lembretesRotina.desligadoPeloPacienteEm })
         .from(lembretesRotina)
         .where(eq(lembretesRotina.patientId, p.id));
-      return { fechado: null, p: { ...p, ...m }, t, ultimo: ultimo?.dia ?? null, aparelhos: push?.n ?? 0, ia, plano, listaDeCompras, receitas, lembretes };
+      return { fechado: null, p, t, ultimo: ultimo?.dia ?? null, aparelhos: push?.n ?? 0, ia, plano, listaDeCompras, receitas, lembretes };
     },
     db,
   );

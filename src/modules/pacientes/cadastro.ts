@@ -15,6 +15,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { auditRead } from '@/modules/plataforma/audit';
 import { idValido, PacienteError } from './base';
 import { MSG_CADASTRO, normalizarQuebras, OBSERVACAO_MAXIMO, tamanhoDoTexto, type Escolaridade, type EstadoCivil, type IdentidadeDeGenero, type Uf } from './cadastro-textos';
+import { normalizarCep } from './cep';
 import { cpfValido, normalizarCpf } from './cpf';
 import { normalizarTelefone } from './telefone';
 
@@ -137,6 +138,8 @@ function erroDaRegra(campo: CampoDoCadastro, r: Regra): string {
 /** Os mesmos padrões dos CHECKs (`patient_cadastro_*_check`), conferidos de novo depois de normalizar. */
 const E164 = /^\+[1-9][0-9]{7,14}$/;
 const OITO_DIGITOS = /^[0-9]{8}$/;
+/** E.164 brasileiro com o número local de 9 dígitos (celular): recusado no telefone fixo. */
+const CELULAR_BR = /^\+55[1-9]{2}9[0-9]{8}$/;
 
 /**
  * Um campo: ausente, nulo, vazio ou só espaços → `null`; senão, o valor normalizado ou a mensagem do campo. As quebras
@@ -164,12 +167,13 @@ function validarCampo(campo: CampoDoCadastro, bruto: unknown): { ok: true; valor
       return d && cpfValido(d) ? { ok: true, valor: d } : erro;
     }
     case 'cep': {
-      const d = t.replace(/-/g, '');
-      return OITO_DIGITOS.test(d) ? { ok: true, valor: d } : erro;
+      const d = normalizarCep(t);
+      return d && OITO_DIGITOS.test(d) ? { ok: true, valor: d } : erro;
     }
     case 'telefone': {
       const e164 = normalizarTelefone(t);
-      return e164 && E164.test(e164) ? { ok: true, valor: e164 } : erro;
+      // fixo: o número brasileiro de 9 dígitos (celular, começa com 9) não serve; o internacional segue só o E.164
+      return e164 && E164.test(e164) && !CELULAR_BR.test(e164) ? { ok: true, valor: e164 } : erro;
     }
   }
 }

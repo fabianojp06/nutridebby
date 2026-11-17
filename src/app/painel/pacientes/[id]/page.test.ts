@@ -246,10 +246,30 @@ describe('aba Início (Plano 18)', () => {
 
     it('peso oculto: a seção Antropometria diz "Peso e IMC ocultos no app."; sem ele, não', async () => {
       expect(secaoHtml(await render(), 'Antropometria')).not.toContain('Peso e IMC ocultos no app.');
+      estado.paciente = { ...estado.paciente, pesoOcultoNoAppEm: new Date('2026-11-01T12:00:00Z') };
       estado.noApp = { ...estado.noApp, pesoOculto: true };
       const html = await render();
       expect(secaoHtml(html, 'Antropometria')).toContain('Peso e IMC ocultos no app.');
       expect(secaoHtml(html, 'Plano alimentar')).not.toContain('Peso e IMC');
+    });
+
+    it('peso oculto vem da marca do paciente: arquivado (o No app vai neutro) e o No app que falhou continuam com a nota', async () => {
+      const OCULTO = new Date('2026-11-01T12:00:00Z');
+      // arquivado: o No app devolve `pesoOculto: false` (semAcesso), mas o peso continua oculto no app
+      estado.paciente = { ...estado.paciente, status: 'arquivado', pesoOcultoNoAppEm: OCULTO };
+      estado.noApp = { ...estado.noApp, acesso: { estado: 'arquivado', ultimoAcesso: null, textoDoConvite: null }, pesoOculto: false, contagens: null, visiveis: {} };
+      expect(secaoHtml(await render(), 'Antropometria')).toContain('Peso e IMC ocultos no app.');
+      // a contagem do No app falhou (sem o cartão): a nota continua
+      estado.paciente = { ...estado.paciente, status: 'ativo' };
+      estado.noAppFalha = new TypeError('falhou');
+      const html = await render();
+      expect(html).not.toContain('data-guia="no-app-cartao"');
+      expect(secaoHtml(html, 'Antropometria')).toContain('Peso e IMC ocultos no app.');
+      // e o inverso: o No app dizendo oculto não basta, sem a marca no paciente
+      estado.noAppFalha = null;
+      estado.paciente = { ...estado.paciente, pesoOcultoNoAppEm: null };
+      estado.noApp = { ...estado.noApp, pesoOculto: true };
+      expect(secaoHtml(await render(), 'Antropometria')).not.toContain('Peso e IMC ocultos no app.');
     });
 
     it('convite pendente: "Ainda não entrou no app." com o texto do convite, sem contagens', async () => {

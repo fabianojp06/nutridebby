@@ -6,10 +6,9 @@ import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
 import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
 import { NOME_IA_NUTRI, RISCO_REVOGADO_MAX_DIAS } from '@/modules/ia/nutri-paciente/constantes';
 import { AUTORIZACAO_IA_VERSAO, responsavelDoTenant, textoDaAutorizacao } from '@/modules/ia/textos-legais';
-import { formatarData } from '@/modules/pacientes/datas';
+import { formatarData, formatarDataHora } from '@/modules/pacientes/datas';
 import { exportacoesRecentes, MSG_EXPORTACAO } from '@/modules/pacientes/exportacao';
 import { MSG_LGPD, PRAZO_GUARDA_ANOS } from '@/modules/pacientes/lgpd';
-import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
 import { carregarProntuario } from '../prontuario';
 import {
   arquivarAction,
