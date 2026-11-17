@@ -546,3 +546,10 @@ Três lentes sobre o commit d1d333f: executabilidade, banco e guardas (`revisor-
    - (b) A seção do Financeiro fica sem `auditRead`, pelo precedente D17 do Plano 10A (só rótulo, data e situação, sem valor). "Ver todos" e "Nova entrada" passam por rotas da ficha que redirecionam. Nada muda no Plano 18, mas a RN-318/RN-329 muda, com o OK do `normas-cfn-lgpd`.
 
    Recomendação: **(b)**. Mantém o Plano 18 intacto, e a seção não mostra valor nem descrição, como as listas de documentos (D17).
+
+## Decisões da orquestradora (16/11/2026, com autorização do dono para seguir as recomendações)
+
+- **Seção "Financeiro" no Início (T12):** fica a opção **(a)**, o contrato estendido que o Plano 18 entrega no PR 1 (`leitura: { entidade: "financeiro" }`, `verTodos`, `href` absoluto, grupo `outros`, `podeAdicionar`). O `auditRead` é feito de forma central por `inicio.ts`, nunca pelo arquivo da seção. Com isso, as RN-318 e RN-329 ficam como estão. A (b) foi descartada: o 18 já resolveu a regra "sem auditRead nas seções" com a auditoria central, e valor financeiro na ficha é leitura que merece registro.
+- **Trem de merge da onda 1:** 17 → 18 PR 1 → 20 PR 1 → 19 (código) → 18 PR 2 → 20 PR 2 → 20 PR 3 → 19 (seed, sozinho).
+- **DPA:** nesta onda, só o Plano 20 sobe a versão, para a 1.1.
+- **Faixa de IP do E2E:** cada plano usa a própria faixa (sufixo = número do plano). Antes, confira em `e2e/` como os IPs são gerados.
