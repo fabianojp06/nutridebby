@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Pool, type PoolClient } from 'pg';
@@ -652,5 +652,480 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
       await c.query('rollback').catch(() => undefined);
       c.release();
     }
+  });
+});
+
+// Plano 23 (AG-D54, RNF-403 b): as peças SECURITY DEFINER da custom rls_agenda_2 trocam o papel para `worker` e passam pela
+// RLS FORCE; só aqui (dono NOBYPASSRLS, como em produção) uma troca de contexto errada aparece — com o dono superusuário dos
+// outros testes, a função leria tudo sem a troca. A custom é achada pelo sufixo (o §5 de sessoes-paralelas.md renumera).
+describe('Plano 23: peças SECURITY DEFINER com dono NOBYPASSRLS', () => {
+  const ARQUIVO = readdirSync(new URL('../../drizzle/', import.meta.url)).find((f) => f.endsWith('_rls_agenda_2.sql'));
+  const CUSTOM = readFileSync(new URL(`../../drizzle/${ARQUIVO}`, import.meta.url), 'utf8');
+  const SALA = 'https://sala.example.test/fixa';
+  type Ctx = { role: string; patient?: string; user?: string };
+  const NUTRI: Ctx = { role: 'nutri', user: '00000000-0000-4000-8000-0000000023a1' };
+  const WORKER: Ctx = { role: 'worker' };
+  const PUBLICO: Ctx = { role: 'publico' };
+  type Row = Record<string, unknown>;
+
+  /** Uma transação no login do app com o contexto de `withTenant`; `fim` decide se confirma. */
+  const em = async <R>(t: string, x: Ctx, fn: (q: (texto: string, params?: unknown[]) => Promise<Row[]>) => Promise<R>, fim: 'commit' | 'rollback' = 'commit'): Promise<R> => {
+    const c = await app.connect();
+    try {
+      await c.query('begin');
+      await c.query(
+        `select set_config('app.tenant_id', $1, true), set_config('app.role', $2, true), set_config('app.patient_id', $3, true), set_config('app.user_id', $4, true)`,
+        [t, x.role, x.patient ?? '', x.user ?? ''],
+      );
+      const r = await fn(async (texto, params = []) => (await c.query(texto, params)).rows as Row[]);
+      await c.query(fim);
+      return r;
+    } catch (e) {
+      await c.query('rollback').catch(() => undefined);
+      throw e;
+    } finally {
+      c.release();
+    }
+  };
+  const contexto = `select current_setting('app.role', true) as role, current_setting('app.patient_id', true) as patient`;
+  const novoTenant = async (extra: { endereco?: string | null; link?: string | null; paginaPublica?: boolean } = {}) =>
+    (
+      await app.query(
+        `insert into tenants (slug, nome_exibicao, endereco_consultorio, link_online_padrao, agendamento_publico_ativo) values ($1, 'P23', $2, $3, $4) returning id`,
+        [`p23-${crypto.randomUUID().slice(0, 8)}`, extra.endereco ?? null, extra.link ?? null, extra.paginaPublica ?? true],
+      )
+    ).rows[0].id as string;
+  const novoPaciente = (t: string, status = 'ativo') =>
+    em(t, WORKER, async (q) => (await q(`insert into patients (tenant_id, nome, data_nascimento, sexo, email, status) values ($1, 'Pac', '1990-01-01', 'F', $2, $3) returning id`, [t, `${crypto.randomUUID()}@p23.dev`, status]))[0].id as string);
+  type Local = { nome: string; tipo?: 'presencial' | 'online'; endereco?: string; cidade?: string; mostrar?: boolean; link?: string; agendamento?: boolean; principal?: boolean; arquivado?: boolean; criado?: string };
+  const novoLocal = (t: string, l: Local) =>
+    em(t, NUTRI, async (q) =>
+      (
+        await q(
+          `insert into locais_atendimento (tenant_id, nome, tipo, endereco, cidade, mostrar_endereco, link_sala, agendamento_online, principal, arquivado_em, created_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, case when $10 then now() end, coalesce($11::timestamptz, now())) returning id`,
+          [t, l.nome, l.tipo ?? 'presencial', l.endereco ?? null, l.cidade ?? null, l.mostrar ?? false, l.link ?? null, l.agendamento ?? false, l.principal ?? false, l.arquivado ?? false, l.criado ?? null],
+        )
+      )[0].id as string,
+    );
+  let seq = 0;
+  /** Cada consulta ou pedido num horário próprio (EXCLUDE appointments_sem_sobreposicao e a sobreposição do aguardando). */
+  const horario = () => {
+    const inicio = new Date(Date.UTC(2031, 2, 1, 12) + ++seq * 2 * 3_600_000);
+    return { inicio, fim: new Date(inicio.getTime() + 3_600_000) };
+  };
+  type Consulta = { local: string | null; modalidade: 'presencial' | 'online'; origem?: 'nutri' | 'paciente'; link?: string | null; paciente: string };
+  const inserirConsulta = (q: (texto: string, params?: unknown[]) => Promise<Row[]>, t: string, c: Consulta, h = horario()) =>
+    q(
+      `insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, local_id, link_online) values ($1, $2, $3, $4, $5, $6, $7, $8)
+       returning id, status, link_online`,
+      [t, c.paciente, h.inicio, h.fim, c.modalidade, c.origem ?? 'paciente', c.local, c.link ?? null],
+    );
+  const negado = (trecho: string) => (e: unknown) => (e as { code?: string }).code === '42501' && String((e as Error).message).includes(trecho);
+
+  it('as funções novas são SECURITY DEFINER do migrator, sem EXECUTE para PUBLIC e com EXECUTE para o app', async () => {
+    const nomes = [
+      'app_locais_para_agendamento',
+      'app_local_da_consulta',
+      'app_pedidos_aguardando',
+      'app_pedido_aguardar',
+      'app_pedido_publico_desistir',
+      'app_appointments_link_da_sala',
+      'app_anonimizar_autorizacoes_aniversario',
+    ];
+    const { rows } = await owner.query(
+      `select p.proname, pg_get_userbyid(p.proowner) as dono, p.prosecdef, array_to_string(p.proconfig, ',') as config,
+              exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE') as publico,
+              has_function_privilege('nutri_app_role', p.oid, 'EXECUTE') as app
+         from pg_proc p where p.proname = any($1) order by p.proname`,
+      [nomes],
+    );
+    expect(rows.map((r) => r.proname)).toEqual([...nomes].sort());
+    for (const r of rows) {
+      expect(r, r.proname).toMatchObject({ dono: 'nutri_owner', prosecdef: true, config: 'search_path=public, pg_temp', publico: false });
+      if (r.proname !== 'app_appointments_link_da_sala') expect(r.app, r.proname).toBe(true);
+    }
+  });
+
+  it('app_locais_para_agendamento (AG-D62): publico e paciente recebem todos os ativos do próprio tenant, sem a sala, minimizados; nutri e worker, nada; o contexto volta', async () => {
+    const t = await novoTenant();
+    const outro = await novoTenant();
+    const p = await novoPaciente(t);
+    const principal = await novoLocal(t, { nome: 'Consultório', endereco: 'Rua A, 1', cidade: 'São Paulo', mostrar: true, agendamento: true, principal: true, criado: '2026-01-03T12:00Z' });
+    const video = await novoLocal(t, { nome: 'Videoconferência', tipo: 'online', link: SALA, agendamento: true, criado: '2026-01-01T12:00Z' });
+    const sala = await novoLocal(t, { nome: 'Sala B', endereco: 'Rua B, 2', cidade: 'Santos', mostrar: true, agendamento: false, criado: '2026-01-02T12:00Z' });
+    const clinica = await novoLocal(t, { nome: 'Clínica', endereco: 'Rua C, 3', cidade: 'Campinas', mostrar: false, agendamento: true, criado: '2026-01-02T12:00Z' });
+    await novoLocal(t, { nome: 'Antigo', arquivado: true, criado: '2025-12-01T12:00Z' });
+    await novoLocal(outro, { nome: 'Outro consultório', agendamento: true, principal: true });
+    const empate = [sala, clinica].sort(); // mesmo created_at: desempata pelo id
+    const esperado = (id: string) =>
+      ({
+        [principal]: { nome: 'Consultório', tipo: 'presencial', cidade: 'São Paulo', endereco: 'Rua A, 1', principal: true, agendamento_online: true },
+        [video]: { nome: 'Videoconferência', tipo: 'online', cidade: null, endereco: null, principal: false, agendamento_online: true },
+        // sem agendamento: só o tipo (a RN-410a ainda precisa saber que ele existe)
+        [sala]: { nome: null, tipo: 'presencial', cidade: null, endereco: null, principal: false, agendamento_online: false },
+        // sem mostrar_endereco: o nome e a cidade, sem o endereço
+        [clinica]: { nome: 'Clínica', tipo: 'presencial', cidade: 'Campinas', endereco: null, principal: false, agendamento_online: true },
+      })[id];
+    for (const x of [PUBLICO, { role: 'paciente', patient: p }, { role: 'paciente', patient: p, user: crypto.randomUUID() }]) {
+      const { rows, ctx } = await em(t, x, async (q) => ({ rows: await q('select * from app_locais_para_agendamento()'), ctx: (await q(contexto))[0] }));
+      expect(rows.map((r) => r.id), x.role).toEqual([principal, video, ...empate]);
+      expect(Object.keys(rows[0])).toEqual(['id', 'nome', 'tipo', 'cidade', 'endereco', 'principal', 'agendamento_online', 'criado_em']);
+      for (const r of rows) expect(r).toMatchObject({ ...esperado(r.id as string), criado_em: expect.any(Date) });
+      expect(JSON.stringify(rows)).not.toContain('sala.example.test');
+      expect(ctx).toEqual({ role: x.role, patient: x.patient ?? '' });
+    }
+    for (const x of [NUTRI, WORKER]) {
+      const { rows, ctx } = await em(t, x, async (q) => ({ rows: await q('select * from app_locais_para_agendamento()'), ctx: (await q(contexto))[0] }));
+      expect(rows, x.role).toEqual([]);
+      expect(ctx).toEqual({ role: x.role, patient: '' });
+    }
+
+    // AG-D62: principal sem agendamento + outro presencial com agendamento. A regra sem local vai para o principal ativo do tipo
+    // (RN-410a, o primeiro presencial da projeção); ele não aceita agendamento, então o recorte do TS não gera horário fora do painel
+    const t2 = await novoTenant();
+    const semAgendamento = await novoLocal(t2, { nome: 'Consultório', principal: true, agendamento: false, criado: '2026-01-02T12:00Z' });
+    const comAgendamento = await novoLocal(t2, { nome: 'Clínica', agendamento: true, criado: '2026-01-01T12:00Z' });
+    const rows = await em(t2, PUBLICO, (q) => q('select * from app_locais_para_agendamento()'));
+    expect(rows.find((r) => r.tipo === 'presencial')).toMatchObject({ id: semAgendamento, principal: true, agendamento_online: false, nome: null });
+    expect(rows.filter((r) => r.agendamento_online).map((r) => r.id)).toEqual([comAgendamento]);
+  });
+
+  it('app_local_da_consulta: o local da consulta do próprio paciente (nome, tipo, cidade, endereço), nunca a sala; vazio para a consulta de outro e fora da sessão de paciente', async () => {
+    const t = await novoTenant();
+    const [p1, p2] = [await novoPaciente(t), await novoPaciente(t)];
+    const local = await novoLocal(t, { nome: 'Consultório', endereco: 'Rua A, 1', cidade: 'São Paulo', mostrar: false, principal: true });
+    const video = await novoLocal(t, { nome: 'Videoconferência', tipo: 'online', link: SALA });
+    const [c1, c2, c3, c4] = await em(t, NUTRI, async (q) => [
+      (await inserirConsulta(q, t, { paciente: p1, local, modalidade: 'presencial', origem: 'nutri' }))[0].id,
+      (await inserirConsulta(q, t, { paciente: p2, local, modalidade: 'presencial', origem: 'nutri' }))[0].id,
+      (await inserirConsulta(q, t, { paciente: p1, local: video, modalidade: 'online', origem: 'nutri', link: 'https://consulta.example.test/1' }))[0].id,
+      (await inserirConsulta(q, t, { paciente: p1, local: null, modalidade: 'presencial', origem: 'nutri' }))[0].id,
+    ]);
+    const ler = (x: Ctx, id: unknown) => em(t, x, async (q) => ({ rows: await q('select * from app_local_da_consulta($1)', [id]), ctx: (await q(contexto))[0] }));
+    for (const x of [{ role: 'paciente', patient: p1 }, { role: 'paciente', patient: p1, user: crypto.randomUUID() }]) {
+      const a = await ler(x, c1);
+      expect(a.rows).toEqual([{ nome: 'Consultório', tipo: 'presencial', cidade: 'São Paulo', endereco: 'Rua A, 1' }]);
+      expect(a.ctx).toEqual({ role: 'paciente', patient: p1 });
+      const v = await ler(x, c3);
+      expect(v.rows).toEqual([{ nome: 'Videoconferência', tipo: 'online', cidade: null, endereco: null }]);
+      expect((await ler(x, c2)).rows).toEqual([]); // consulta de outro paciente
+      expect((await ler(x, c4)).rows).toEqual([]); // consulta sem local (imagem anterior)
+    }
+    expect((await ler({ role: 'paciente', patient: p2 }, c1)).rows).toEqual([]);
+    for (const x of [PUBLICO, NUTRI, WORKER]) {
+      const r = await ler(x, c1);
+      expect(r.rows, x.role).toEqual([]);
+      expect(r.ctx).toEqual({ role: x.role, patient: '' });
+    }
+  });
+
+  it('appointments_link_da_sala: copia a sala na consulta de origem paciente em local online, em qualquer papel; recusa local arquivado ou sem agendamento só no paciente e no publico; local nulo passa intacto', async () => {
+    const t = await novoTenant();
+    const p = await novoPaciente(t);
+    const video = await novoLocal(t, { nome: 'Videoconferência', tipo: 'online', link: SALA, agendamento: true });
+    const videoSemAgendamento = await novoLocal(t, { nome: 'Vídeo interno', tipo: 'online', link: 'https://sala.example.test/interna', agendamento: false });
+    const videoArquivado = await novoLocal(t, { nome: 'Vídeo antigo', tipo: 'online', link: 'https://sala.example.test/antiga', arquivado: true });
+    const presencial = await novoLocal(t, { nome: 'Consultório', agendamento: true, principal: true });
+    const presencialSemAgendamento = await novoLocal(t, { nome: 'Sala da equipe', agendamento: false });
+    const PACIENTE: Ctx = { role: 'paciente', patient: p };
+    const MANDADO = 'https://codigo.example.test/mandado';
+    const gravar = (x: Ctx, c: Omit<Consulta, 'paciente'>) =>
+      em(t, x, async (q) => ({ linha: (await inserirConsulta(q, t, { paciente: p, ...c }))[0], ctx: (await q(contexto))[0] }));
+
+    for (const x of [PACIENTE, PUBLICO]) {
+      const { linha, ctx } = await gravar(x, { local: video, modalidade: 'online', link: MANDADO });
+      expect(linha, x.role).toMatchObject({ status: 'agendada', link_online: SALA }); // o link mandado pelo código é ignorado
+      expect(ctx).toEqual({ role: x.role, patient: x.patient ?? '' });
+      expect((await gravar(x, { local: presencial, modalidade: 'presencial' })).linha).toMatchObject({ status: 'agendada', link_online: null });
+      // imagem do PR 1: sem local, o link mandado fica e a chave desligada dá agendada
+      expect((await gravar(x, { local: null, modalidade: 'online', link: MANDADO })).linha).toMatchObject({ status: 'agendada', link_online: MANDADO });
+      for (const local of [videoSemAgendamento, videoArquivado]) {
+        await expect(gravar(x, { local, modalidade: 'online', link: MANDADO }), x.role).rejects.toSatisfy(negado('o local não aceita agendamento pelo paciente'));
+      }
+      await expect(gravar(x, { local: presencialSemAgendamento, modalidade: 'presencial' })).rejects.toSatisfy(negado('o local não aceita agendamento pelo paciente'));
+    }
+    // o aceite da pessoa nova roda na sessão nutri com origem paciente: a sala também é copiada
+    const aceite = await gravar(NUTRI, { local: video, modalidade: 'online', origem: 'paciente', link: MANDADO });
+    expect(aceite.linha).toMatchObject({ status: 'agendada', link_online: SALA });
+    expect(aceite.ctx).toEqual({ role: 'nutri', patient: '' });
+    // a equipe marca no local sem agendamento e manda o link da consulta (origem nutri: o código decide o link)
+    expect((await gravar(NUTRI, { local: videoSemAgendamento, modalidade: 'online', origem: 'nutri', link: MANDADO })).linha).toMatchObject({ link_online: MANDADO });
+    expect((await gravar(NUTRI, { local: presencialSemAgendamento, modalidade: 'presencial', origem: 'nutri' })).linha).toMatchObject({ link_online: null });
+    expect((await gravar(WORKER, { local: videoSemAgendamento, modalidade: 'online', origem: 'paciente', link: MANDADO })).linha).toMatchObject({
+      link_online: 'https://sala.example.test/interna',
+    });
+  });
+
+  /** Pedido da página pública (como gravarPedido: contexto worker do teste), já verificado há `verificadoHa` (null = sem código). */
+  type Pedido = { email?: string; nome?: string; token?: string; verificadoHa?: string | null; concluido?: boolean; modalidade?: 'presencial' | 'online' };
+  const novoPedido = (t: string, o: Pedido = {}) =>
+    em(t, WORKER, async (q) =>
+      (
+        await q(
+          `insert into public_booking_requests (id, tenant_id, token_hash, codigo_hash, email, nome, inicio, modalidade, termo_versao, expira_em, verificado_em, concluido_em)
+           values (gen_random_uuid(), $1, $2, 'codigo', $3, $4, '2031-06-01T12:00Z', $5, 'termo-v1', now() + interval '1 day',
+                   case when $6::text is null then null else now() - $6::interval end, case when $7 then now() end) returning id`,
+          [t, o.token ?? crypto.randomUUID(), o.email ?? `${crypto.randomUUID()}@pessoa.dev`, o.nome ?? 'Pessoa Nova', o.modalidade ?? 'presencial', o.verificadoHa === undefined ? '1 minute' : o.verificadoHa, o.concluido ?? false],
+        )
+      )[0].id as string,
+    );
+  const aguardar = (t: string, pedido: string, local: string, h: { inicio: Date; fim: Date }, x: Ctx = PUBLICO) =>
+    em(t, x, async (q) => ({ r: (await q('select app_pedido_aguardar($1, $2, $3, $4) as r', [pedido, local, h.inicio, h.fim]))[0].r, ctx: (await q(contexto))[0] }));
+  const lerPedido = async (t: string, id: string) =>
+    (await em(t, WORKER, (q) => q('select local_id, modalidade, inicio, fim, aguardando_desde is not null as aguardando, resolvido_em is not null as resolvido, resolucao from public_booking_requests where id = $1', [id])))[0];
+
+  it('app_pedido_aguardar (RN-425): grava com a modalidade do local; teto 20 por consultório e 1 por e-mail; ocupado sobre solicitada e sobre outro aguardando; inválido sem código, com código vencido, já aguardando, concluído, fora do publico ou com local sem agendamento', async () => {
+    const t = await novoTenant();
+    const outro = await novoTenant();
+    const p = await novoPaciente(t);
+    const video = await novoLocal(t, { nome: 'Videoconferência', tipo: 'online', link: SALA, agendamento: true });
+    const presencial = await novoLocal(t, { nome: 'Consultório', agendamento: true, principal: true });
+    const semAgendamento = await novoLocal(t, { nome: 'Sala da equipe', agendamento: false });
+    const arquivado = await novoLocal(t, { nome: 'Antigo', arquivado: true });
+    const deOutro = await novoLocal(outro, { nome: 'Consultório', agendamento: true, principal: true });
+
+    // pedido presencial aguardando num local online: grava a modalidade do local (a FK composta recusaria outra)
+    const h1 = horario();
+    const p1 = await novoPedido(t, { email: 'Ana@Pessoa.dev', modalidade: 'presencial' });
+    expect(await aguardar(t, p1, video, h1)).toEqual({ r: 'ok', ctx: { role: 'publico', patient: '' } });
+    expect(await lerPedido(t, p1)).toEqual({ local_id: video, modalidade: 'online', inicio: h1.inicio, fim: h1.fim, aguardando: true, resolvido: false, resolucao: null });
+    expect((await aguardar(t, p1, video, horario())).r).toBe('invalido'); // já aguardando
+
+    // um por e-mail (sem diferença de maiúsculas)
+    expect((await aguardar(t, await novoPedido(t, { email: 'ana@pessoa.dev' }), presencial, horario())).r).toBe('email');
+    // ocupado: sobre outro aguardando e sobre uma consulta solicitada (chave ligada, pedido do paciente)
+    expect((await aguardar(t, await novoPedido(t), presencial, { inicio: new Date(h1.inicio.getTime() + 30 * 60_000), fim: new Date(h1.fim.getTime() + 30 * 60_000) })).r).toBe('ocupado');
+    await em(t, NUTRI, (q) => q('update tenants set agenda_confirmar_pedidos = true where id = $1', [t]));
+    const hs = horario();
+    const [sol] = await em(t, { role: 'paciente', patient: p }, (q) => inserirConsulta(q, t, { paciente: p, local: presencial, modalidade: 'presencial' }, hs));
+    expect(sol.status).toBe('solicitada');
+    expect((await aguardar(t, await novoPedido(t), presencial, hs)).r).toBe('ocupado');
+    // encostar não é sobrepor
+    expect((await aguardar(t, await novoPedido(t), presencial, { inicio: hs.fim, fim: new Date(hs.fim.getTime() + 3_600_000) })).r).toBe('ok');
+
+    // inválidos: nada é gravado
+    const invalidos: [string, string][] = [
+      [await novoPedido(t, { verificadoHa: null }), presencial],
+      [await novoPedido(t, { verificadoHa: '31 minutes' }), presencial],
+      [await novoPedido(t, { concluido: true }), presencial],
+      [await novoPedido(t), semAgendamento],
+      [await novoPedido(t), arquivado],
+      [await novoPedido(t), deOutro],
+      [await novoPedido(outro), presencial], // pedido de outro consultório
+      [crypto.randomUUID(), presencial],
+    ];
+    for (const [pedido, local] of invalidos) expect((await aguardar(t, pedido, local, horario())).r, `${pedido} ${local}`).toBe('invalido');
+    expect((await lerPedido(t, invalidos[0][0])).aguardando).toBe(false);
+    // dentro da validade de 30 min (VERIFICADO_VALIDADE_MS de agendamento-publico.ts) passa
+    expect((await aguardar(t, await novoPedido(t, { verificadoHa: '29 minutes' }), presencial, horario())).r).toBe('ok');
+    // só o publico: nos outros papéis é inválido e nada muda
+    const naoPublico = await novoPedido(t);
+    for (const x of [NUTRI, WORKER, { role: 'paciente', patient: p }]) {
+      const { r, ctx } = await aguardar(t, naoPublico, presencial, horario(), x);
+      expect(r, x.role).toBe('invalido');
+      expect(ctx).toEqual({ role: x.role, patient: x.patient ?? '' });
+    }
+    expect((await lerPedido(t, naoPublico)).aguardando).toBe(false);
+
+    // teto de 20 aguardando por consultório
+    const t3 = await novoTenant();
+    const l3 = await novoLocal(t3, { nome: 'Consultório', agendamento: true, principal: true });
+    const resultados: unknown[] = [];
+    for (let i = 0; i < 21; i++) resultados.push((await aguardar(t3, await novoPedido(t3), l3, horario())).r);
+    expect(resultados).toEqual([...Array(20).fill('ok'), 'teto_tenant']);
+  });
+
+  it('app_pedidos_aguardando (AG-D58): só os intervalos (tstzrange) dos aguardando do tenant no período, no publico e no paciente; vazio na equipe', async () => {
+    const t = await novoTenant();
+    const outro = await novoTenant();
+    const p = await novoPaciente(t);
+    const local = await novoLocal(t, { nome: 'Consultório', agendamento: true, principal: true });
+    const localOutro = await novoLocal(outro, { nome: 'Consultório', agendamento: true, principal: true });
+    const h1 = horario();
+    const h2 = horario();
+    expect((await aguardar(t, await novoPedido(t), local, h1)).r).toBe('ok');
+    const resolvido = await novoPedido(t);
+    expect((await aguardar(t, resolvido, local, h2)).r).toBe('ok');
+    await em(t, WORKER, (q) => q(`update public_booking_requests set resolvido_em = now(), resolucao = 'recusado' where id = $1`, [resolvido]));
+    expect((await aguardar(outro, await novoPedido(outro), localOutro, h1)).r).toBe('ok');
+    await novoPedido(t); // só verificado, sem aguardar
+
+    const ler = (x: Ctx, de: Date, ate: Date) =>
+      em(t, x, async (q) => ({
+        rows: await q('select pg_typeof(r)::text as tipo, lower(r) as de, upper(r) as ate from app_pedidos_aguardando($1, $2) r', [de, ate]),
+        ctx: (await q(contexto))[0],
+      }));
+    for (const x of [PUBLICO, { role: 'paciente', patient: p }]) {
+      const { rows, ctx } = await ler(x, new Date(h1.inicio.getTime() - 86_400_000), new Date(h2.fim.getTime() + 86_400_000));
+      expect(rows, x.role).toEqual([{ tipo: 'tstzrange', de: h1.inicio, ate: h1.fim }]);
+      expect(ctx).toEqual({ role: x.role, patient: x.patient ?? '' });
+      expect((await ler(x, h1.fim, h2.fim)).rows).toEqual([]); // fora do período (encostar não conta)
+    }
+    for (const x of [NUTRI, WORKER]) expect((await ler(x, new Date(0), new Date(h2.fim.getTime() + 86_400_000))).rows, x.role).toEqual([]);
+    const { rows } = await owner.query(`select pg_get_function_result('app_pedidos_aguardando(timestamptz, timestamptz)'::regprocedure) as r`);
+    expect(rows[0].r).toBe('SETOF tstzrange');
+  });
+
+  it('app_pedido_publico_desistir (AG-D48, AG-D63): mostra sem gravar; desiste uma vez (gravou e o primeiro nome só nessa chamada); inválido para pedido concluído, recusado, vencido ou sem aguardar; o contexto volta', async () => {
+    const t = await novoTenant();
+    const local = await novoLocal(t, { nome: 'Consultório', agendamento: true, principal: true });
+    const h = horario();
+    const pedido = await novoPedido(t, { token: 'tok-desistir', nome: '  Maria Clara Souza' });
+    expect((await aguardar(t, pedido, local, h)).r).toBe('ok');
+    const desistir = (token: string, confirmar: boolean, x: Ctx = PUBLICO) =>
+      em(t, x, async (q) => ({ rows: await q('select * from app_pedido_publico_desistir($1, $2)', [token, confirmar]), ctx: (await q(contexto))[0] }));
+
+    const ver = await desistir('tok-desistir', false);
+    expect(ver.rows).toEqual([{ estado: 'aguardando', inicio: h.inicio, gravou: false, primeiro_nome: null }]);
+    expect(ver.ctx).toEqual({ role: 'publico', patient: '' });
+    expect((await lerPedido(t, pedido)).resolvido).toBe(false);
+    for (const x of [NUTRI, WORKER]) {
+      const r = await desistir('tok-desistir', true, x);
+      expect(r.rows, x.role).toEqual([]);
+      expect(r.ctx).toEqual({ role: x.role, patient: '' });
+    }
+    expect((await lerPedido(t, pedido)).resolvido).toBe(false);
+
+    const gravou = await desistir('tok-desistir', true);
+    expect(gravou.rows).toEqual([{ estado: 'cancelado', inicio: h.inicio, gravou: true, primeiro_nome: 'Maria' }]);
+    expect(gravou.ctx).toEqual({ role: 'publico', patient: '' });
+    expect(await lerPedido(t, pedido)).toMatchObject({ aguardando: true, resolvido: true, resolucao: 'desistido' });
+    // F5, duplo clique e o provedor que reabre o link: cancelado, sem gravar de novo e sem o nome
+    expect((await desistir('tok-desistir', true)).rows).toEqual([{ estado: 'cancelado', inicio: h.inicio, gravou: false, primeiro_nome: null }]);
+    expect((await desistir('tok-desistir', false)).rows).toEqual([{ estado: 'cancelado', inicio: h.inicio, gravou: false, primeiro_nome: null }]);
+    // o horário volta a ser oferecido
+    expect(await em(t, PUBLICO, (q) => q('select * from app_pedidos_aguardando($1, $2)', [h.inicio, h.fim]))).toEqual([]);
+
+    const invalido = [{ estado: 'invalido', inicio: null, gravou: false, primeiro_nome: null }];
+    await novoPedido(t, { token: 'tok-concluido', concluido: true });
+    await novoPedido(t, { token: 'tok-sem-aguardar' });
+    for (const [token, resolucao] of [['tok-recusado', 'recusado'], ['tok-vencido', 'vencido'], ['tok-aceito', 'aceito']]) {
+      const id = await novoPedido(t, { token });
+      expect((await aguardar(t, id, local, horario())).r).toBe('ok');
+      await em(t, WORKER, (q) => q('update public_booking_requests set resolvido_em = now(), resolucao = $2 where id = $1', [id, resolucao]));
+    }
+    // vencido e ainda não processado (leitura preguiçosa, RN-427): começa antes da antecedência (12 h)
+    const preguicoso = await novoPedido(t, { token: 'tok-preguicoso' });
+    expect((await aguardar(t, preguicoso, local, { inicio: new Date(Date.now() + 3_600_000), fim: new Date(Date.now() + 7_200_000) })).r).toBe('ok');
+    for (const token of ['tok-concluido', 'tok-sem-aguardar', 'tok-recusado', 'tok-vencido', 'tok-aceito', 'tok-preguicoso', 'tok-inexistente']) {
+      expect((await desistir(token, false)).rows, token).toEqual(invalido);
+      expect((await desistir(token, true)).rows, token).toEqual(invalido);
+    }
+    expect(await lerPedido(t, preguicoso)).toMatchObject({ resolvido: false, resolucao: null });
+  });
+
+  it('app_anonimizar_autorizacoes_aniversario (RN-438): o app executa; recusa titular não bloqueado e fora do worker; anula só o registrado_por de origem app', async () => {
+    const t = await novoTenant();
+    const p = await novoPaciente(t);
+    const conta = crypto.randomUUID();
+    await em(t, NUTRI, (q) => q(`insert into aniversario_autorizacoes (tenant_id, patient_id, evento, origem, forma, registrado_por) values ($1, $2, 'autorizou', 'nutri', 'escrito', $3)`, [t, p, NUTRI.user]));
+    await em(t, { role: 'paciente', patient: p, user: conta }, (q) =>
+      q(`insert into aniversario_autorizacoes (tenant_id, patient_id, evento, origem, registrado_por) values ($1, $2, 'retirou', 'app', $3)`, [t, p, conta]),
+    );
+    await em(t, { role: 'paciente', patient: p }, (q) => q(`insert into aniversario_autorizacoes (tenant_id, patient_id, evento, origem) values ($1, $2, 'retirou', 'link')`, [t, p]));
+    const anonimizar = (x: Ctx) => em(t, x, (q) => q('select app_anonimizar_autorizacoes_aniversario($1)', [p]));
+    await expect(anonimizar(WORKER)).rejects.toMatchObject({ code: '42501' }); // titular ativo
+    await em(t, WORKER, (q) => q(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2026-01-01' where id = $1`, [p]));
+    await expect(anonimizar(NUTRI)).rejects.toMatchObject({ code: '42501' }); // fora do worker
+    await anonimizar(WORKER);
+    const linhas = await em(t, WORKER, (q) => q('select origem, evento, forma, registrado_por from aniversario_autorizacoes where patient_id = $1 order by registrado_em', [p]));
+    expect(linhas).toEqual([
+      { origem: 'nutri', evento: 'autorizou', forma: 'escrito', registrado_por: NUTRI.user }, // autoria da nutricionista (ECF.17.01)
+      { origem: 'app', evento: 'retirou', forma: null, registrado_por: null },
+      { origem: 'link', evento: 'retirou', forma: null, registrado_por: null },
+    ]);
+    await anonimizar(WORKER); // de novo: nada a fazer, sem erro
+    await em(t, WORKER, (q) => q(`update patients set anonimizado_em = now() where id = $1`, [p]));
+    await expect(anonimizar(WORKER)).rejects.toMatchObject({ code: '42501' }); // já anonimizado
+  });
+
+  // Roda por último neste arquivo (como o da 0110): o bloco roda em todos os tenants do cluster.
+  it('P23-BACKFILL (AG-D6, AG-D40, AG-D47): locais iniciais por consultório e regras com local, "ambas" desdobrada; idempotente', async () => {
+    const inicio = CUSTOM.indexOf('-- P23-BACKFILL início');
+    const fim = CUSTOM.indexOf('-- P23-BACKFILL fim');
+    expect(inicio).toBeGreaterThan(-1);
+    expect(fim).toBeGreaterThan(inicio);
+    const BLOCO = CUSTOM.slice(inicio, fim);
+    const migrar = async () => {
+      const o = await owner.connect();
+      try {
+        await o.query('begin');
+        for (const st of BLOCO.split('--> statement-breakpoint')) {
+          if (st.split('\n').some((l) => l.trim() && !l.trim().startsWith('--'))) await o.query(st);
+        }
+        await o.query('commit');
+      } finally {
+        await o.query('rollback').catch(() => undefined);
+        o.release();
+      }
+    };
+    const regra = (q: (texto: string, params?: unknown[]) => Promise<Row[]>, t: string, dia: number, modalidade: string) =>
+      q(`insert into availability_rules (tenant_id, dia_semana, inicio, fim, duracao_min, modalidade) values ($1, $2, '08:00', '12:00', 60, $3)`, [t, dia, modalidade]);
+    const A = await novoTenant({ endereco: 'Rua A, 1' });
+    const B = await novoTenant({ link: 'https://meet.example.test/b' });
+    const C = await novoTenant();
+    const D = await novoTenant({ endereco: 'Rua D, 4', link: 'https://meet.example.test/d', paginaPublica: false });
+    const E = await novoTenant({ endereco: 'Rua E, 5' }); // já tem locais (consultório criado depois, garantirLocaisIniciais)
+    const F = await novoTenant({ link: 'http://inseguro.example.test/f' }); // link fora do formato da sala: não é copiado
+    await em(A, WORKER, async (q) => {
+      await regra(q, A, 1, 'ambas');
+      await regra(q, A, 2, 'presencial');
+    });
+    await em(B, WORKER, (q) => regra(q, B, 3, 'online'));
+    await em(D, WORKER, async (q) => {
+      await regra(q, D, 1, 'presencial');
+      await regra(q, D, 2, 'online');
+    });
+    await novoLocal(E, { nome: 'Sala 1', agendamento: true, criado: '2026-01-01T12:00Z' });
+    const sala2 = await novoLocal(E, { nome: 'Sala 2', principal: true, agendamento: true, criado: '2026-01-02T12:00Z' });
+    await em(E, WORKER, (q) => regra(q, E, 4, 'presencial'));
+    await em(F, WORKER, (q) => regra(q, F, 5, 'online'));
+
+    const retrato = async (t: string) =>
+      em(t, WORKER, async (q) => ({
+        locais: await q(`select id, nome, tipo, endereco, link_sala, agendamento_online, principal from locais_atendimento where tenant_id = $1 order by principal desc, nome`, [t]),
+        regras: await q(
+          `select r.dia_semana, r.inicio::text as inicio, r.fim::text as fim, r.duracao_min, r.modalidade, l.nome as local
+             from availability_rules r left join locais_atendimento l on l.tenant_id = r.tenant_id and l.id = r.local_id
+            where r.tenant_id = $1 order by r.dia_semana, r.modalidade`,
+          [t],
+        ),
+      }));
+    const sem = (locais: Row[]) => locais.map((l) => Object.fromEntries(Object.entries(l).filter(([k]) => k !== 'id')));
+    const regraEm = (dia: number, modalidade: string, local: string) => ({ dia_semana: dia, inicio: '08:00:00', fim: '12:00:00', duracao_min: 60, modalidade, local });
+    const consultorio = (endereco: string | null) => ({ nome: 'Consultório', tipo: 'presencial', endereco, link_sala: null, agendamento_online: true, principal: true });
+    const videoconferencia = (link: string | null, principal = false) => ({ nome: 'Videoconferência', tipo: 'online', endereco: null, link_sala: link, agendamento_online: link !== null, principal });
+
+    await migrar();
+    const depois = Object.fromEntries(await Promise.all([A, B, C, D, E, F].map(async (t) => [t, await retrato(t)] as const)));
+    // com endereço, sem link, regra "ambas": Consultório principal + Videoconferência sem sala; "ambas" vira presencial + par online
+    expect(sem(depois[A].locais)).toEqual([consultorio('Rua A, 1'), videoconferencia(null)]);
+    expect(depois[A].regras).toEqual([regraEm(1, 'online', 'Videoconferência'), regraEm(1, 'presencial', 'Consultório'), regraEm(2, 'presencial', 'Consultório')]);
+    // sem endereço, com link, só regra online: só a Videoconferência, principal, com a sala
+    expect(sem(depois[B].locais)).toEqual([videoconferencia('https://meet.example.test/b', true)]);
+    expect(depois[B].regras).toEqual([regraEm(3, 'online', 'Videoconferência')]);
+    // sem nada: só o Consultório
+    expect(sem(depois[C].locais)).toEqual([consultorio(null)]);
+    expect(depois[C].regras).toEqual([]);
+    // página pública desligada: os dois aceitam agendamento pelo paciente (AG-D40: o portal continua com horários)
+    expect(sem(depois[D].locais)).toEqual([consultorio('Rua D, 4'), videoconferencia('https://meet.example.test/d')]);
+    expect(depois[D].regras).toEqual([regraEm(1, 'presencial', 'Consultório'), regraEm(2, 'online', 'Videoconferência')]);
+    // consultório que já tem locais: nenhum local novo; a regra sem local vai para o principal ativo do tipo (RN-410a)
+    expect(depois[E].locais.map((l) => l.nome)).toEqual(['Sala 2', 'Sala 1']);
+    expect(depois[E].regras).toEqual([regraEm(4, 'presencial', 'Sala 2')]);
+    expect(depois[E].locais[0].id).toBe(sala2);
+    // link padrão fora do formato da sala: a Videoconferência nasce sem sala e sem agendamento
+    expect(sem(depois[F].locais)).toEqual([videoconferencia(null, true)]);
+    expect(depois[F].regras).toEqual([regraEm(5, 'online', 'Videoconferência')]);
+
+    await migrar(); // de novo: nada muda (só tenant sem local e só regra sem local)
+    for (const t of [A, B, C, D, E, F]) expect(await retrato(t)).toEqual(depois[t]);
+    // a RLS volta a ser FORCE nas duas tabelas
+    const { rows } = await owner.query(`select relname, relforcerowsecurity from pg_class where relname in ('locais_atendimento', 'availability_rules') order by relname`);
+    expect(rows).toEqual([
+      { relname: 'availability_rules', relforcerowsecurity: true },
+      { relname: 'locais_atendimento', relforcerowsecurity: true },
+    ]);
   });
 });

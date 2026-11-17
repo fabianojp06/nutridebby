@@ -11,7 +11,7 @@ import * as schema from '@/db/schema';
 import { appointments, notifications, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
-import { agendarComoPaciente, horariosParaPaciente, janelaDoPaciente } from './agendamento-paciente';
+import { agendarComoPaciente, escolherHorario, horariosParaPaciente, janelaDoPaciente } from './agendamento-paciente';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError } from './consultas';
 import { partesNoFuso } from './fuso';
@@ -61,6 +61,21 @@ describe('horários para o paciente (US-032, RN-03)', () => {
     const horas = async (extra: { ignorarConsultaId?: string } = {}) => (await horariosParaPaciente(tenantAgenda(T), agora, { ...recorte, ...extra })).map((h) => partesNoFuso(h.inicio, SP).hora);
     expect(await horas()).toEqual(['08:00', '10:00']);
     expect(await horas({ ignorarConsultaId: id })).toEqual(['08:00', '09:00', '10:00']);
+  });
+
+  it('AG-D47 (Plano 23, PR 1): sobre as regras "ambas" desdobradas pelo backfill (presencial + online), escolherHorario aceita online e presencial no horário juntado', async () => {
+    const T = await novoTenant(app.db);
+    await semanaToda(app.db, T.ctx, { modalidade: 'presencial' });
+    await semanaToda(app.db, T.ctx, { modalidade: 'online' });
+    const tenant = tenantAgenda(T, { linkOnlinePadrao: 'https://meet.google.com/abc' });
+    const inicio = em('2026-10-16', '09:00');
+    const hs = await horariosParaPaciente(tenant, agora, { db: app.db, de: inicio, ate: em('2026-10-16', '11:00') });
+    expect(hs.map((h) => [partesNoFuso(h.inicio, SP).hora, h.modalidades])).toEqual([
+      ['09:00', ['presencial', 'online']],
+      ['10:00', ['presencial', 'online']],
+    ]);
+    await expect(escolherHorario(tenant, inicio.toISOString(), 'online', agora, { db: app.db })).resolves.toMatchObject({ inicio, modalidade: 'online' });
+    await expect(escolherHorario(tenant, inicio.toISOString(), 'presencial', agora, { db: app.db })).resolves.toMatchObject({ inicio, modalidade: 'presencial' });
   });
 });
 
