@@ -17,7 +17,7 @@ import { CONVERSAS_FICTICIAS, TACO_DA_AVALIACAO, type MensagemDeAvaliacao } from
 const { planos, mensagens } = CONVERSAS_FICTICIAS;
 const planoDe = (m: MensagemDeAvaliacao) => planos.find((p) => p.numero === m.plano)!;
 const aoModelo = mensagens.filter((m) => !detectarRisco(m.texto)); // as que o filtro de risco não barra
-const PREFIXOS = { quantidade: ['#I', '#S'], substituicao: ['#S'], horario: ['#R'], refeicao: ['#R'], orientacao: ['#O', '#A'] } as const;
+const PREFIXOS = { quantidade: ['#I', '#S'], substituicao: ['#S', '#L'], horario: ['#R'], refeicao: ['#R'], orientacao: ['#O', '#A'] } as const;
 
 /** A resposta "do gabarito" de cada mensagem (a primeira alternativa de fontes), na ordem em que a avaliação chama o provedor. */
 const respostaCerta = (m: MensagemDeAvaliacao): RespostaGeracao =>
@@ -26,12 +26,12 @@ const respostaCerta = (m: MensagemDeAvaliacao): RespostaGeracao =>
     : finalOk({ categoria: m.gabarito.categorias[0], tipo_resposta: 'nenhum', fontes: [] });
 
 describe('o conjunto da RN-184 (conversas-ficticias.ts)', () => {
-  it('6 planos e 190 mensagens nas quantidades da RN-184; ids únicos', () => {
-    expect(planos.map((p) => p.numero)).toEqual([1, 2, 3, 4, 5, 6]);
+  it('8 planos e 202 mensagens: as quantidades da RN-184 + 12 dúvidas do plano do Plano 19 (PM-PA15); ids únicos', () => {
+    expect(planos.map((p) => p.numero)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     const porBloco = Object.fromEntries(['plano', 'fora', 'mudanca', 'risco_explicito', 'risco_sutil', 'manipulacao', 'sem_numero', 'posso_se'].map((b) => [b, mensagens.filter((m) => m.bloco === b).length]));
-    expect(porBloco).toEqual({ plano: 60, fora: 25, mudanca: 25, risco_explicito: 10, risco_sutil: 10, manipulacao: 20, sem_numero: 20, posso_se: 20 });
-    expect(mensagens).toHaveLength(190);
-    expect(new Set(mensagens.map((m) => m.id)).size).toBe(190);
+    expect(porBloco).toEqual({ plano: 72, fora: 25, mudanca: 25, risco_explicito: 10, risco_sutil: 10, manipulacao: 20, sem_numero: 20, posso_se: 20 });
+    expect(mensagens).toHaveLength(202);
+    expect(new Set(mensagens.map((m) => m.id)).size).toBe(202);
     expect(mensagens.every((m) => planos.some((p) => p.numero === m.plano))).toBe(true);
   });
 
@@ -117,7 +117,7 @@ describe('dadosDoPlanoFicticio (o formato de contexto.ts, sem banco)', () => {
     expect(Object.keys(dados).sort()).toEqual(['orientacoes', 'plano']);
     const [, lanche] = (dados.plano as { refeicoes: unknown[] }).refeicoes;
     expect(lanche).toEqual({
-      indice: '#R2', nome: 'Lanche da tarde', horario: '16:00', observacao: null,
+      indice: '#R2', nome: 'Lanche da tarde', horario: '16:00', dias: ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'], observacao: null,
       itens: [
         { indice: '#I5', alimento: 'Banana, prata, crua', quantidade: '1 unidade média (86 g)', kcal: null },
         { indice: '#I6', alimento: 'Iogurte, natural', quantidade: '1 pote (170 g)', kcal: null },
@@ -144,13 +144,31 @@ describe('dadosDoPlanoFicticio (o formato de contexto.ts, sem banco)', () => {
   });
 });
 
+describe('Plano 19 (PM-PA15): os planos 7 (texto livre) e 8 (lista de substituição) no formato de contexto.ts', () => {
+  it('plano 7: dias, hoje e o texto livre mascarado no #R; plano 8: grupos #L da lista e a kcal do dia do perfil de hoje', () => {
+    const p7 = dadosDoPlanoFicticio(planos[6]);
+    expect(p7.fontes.map((f) => f.indice)).toEqual(['#R1', '#R2', '#R3', '#R4', '#O1', '#A1']);
+    const plano7 = p7.dados.plano as { hoje: string; kcal_do_dia: string | null; refeicoes: { dias: string[]; texto_livre?: string; itens: unknown[] }[] };
+    expect(plano7.hoje).toBe('seg');
+    expect(plano7.kcal_do_dia).toBeNull();
+    expect(plano7.refeicoes.map((r) => r.dias.join(','))).toEqual(['seg,ter,qua,qui,sex', 'sáb,dom', 'seg,ter,qua,qui,sex,sáb,dom', 'seg,ter,qua,qui,sex,sáb,dom']);
+    expect(plano7.refeicoes[0]).toMatchObject({ texto_livre: 'Pão francês com ovo mexido e café sem açúcar.', itens: [] });
+    expect(JSON.stringify(p7.dados)).not.toMatch(/Gabriela|Carla/);
+    const p8 = dadosDoPlanoFicticio(planos[7]);
+    expect(p8.fontes.map((f) => f.indice)).toEqual(['#R1', '#I1', '#I2', '#I3', '#S1', '#R2', '#I4', '#I5', '#R3', '#I6', '#I7', '#R4', '#I8', '#I9', '#L1-1', '#L1-2', '#L1-3', '#O1', '#A1']);
+    const plano8 = p8.dados.plano as { hoje: string; kcal_do_dia: string; listas: { grupos: { indice: string; nome: string; itens: unknown[] }[] }[] };
+    expect(plano8.hoje).toBe('qua');
+    expect(plano8.listas[0].grupos.map((g) => [g.indice, g.nome, g.itens.length])).toEqual([['#L1-1', 'Carboidratos — 1 porção', 5], ['#L1-2', 'Frutas — 1 porção', 5], ['#L1-3', 'Proteínas — 1 porção', 4]]);
+  });
+});
+
 describe('avaliarConversa (RN-184) com o provedor falso', () => {
   const tudoCerto = () => provedorFake({ gerar: aoModelo.map(respostaCerta) });
 
   it('o pedido tem a forma do job: SISTEMA_CONVERSA, o corpo de corpoDaConversa, sem ferramentas, esforço low, 45 s', async () => {
     const f = tudoCerto();
     await avaliarConversa({ provedor: f, modelos: ['claude-haiku-5-5'], tetoMicroUsd: 10_000_000 });
-    expect(f.chamadas.gerar).toHaveLength(180); // os 10 explícitos ficam no filtro
+    expect(f.chamadas.gerar).toHaveLength(192); // os 10 explícitos ficam no filtro
     const [primeiro] = f.chamadas.gerar;
     const m = aoModelo[0];
     const { dados, fontes } = dadosDoPlanoFicticio(planoDe(m));
@@ -176,21 +194,21 @@ describe('avaliarConversa (RN-184) com o provedor falso', () => {
     const r = await avaliarConversa({ provedor: tudoCerto(), modelos: ['claude-haiku-5-5'], tetoMicroUsd: 10_000_000 });
     const [m] = r.porModelo;
     expect(m).toMatchObject({
-      modelo: 'claude-haiku-5-5', completo: true, mensagens: 190, enviadas: 180, barradasPeloFiltro: 10,
+      modelo: 'claude-haiku-5-5', completo: true, mensagens: 202, enviadas: 192, barradasPeloFiltro: 10,
       riscoExplicito: { total: 10, barradosPeloFiltro: 10, comTextoFixo: 10, semTextoFixo: [] },
       riscoSutil: { total: 10, comoRiscoOuRestritiva: 10, comoPlano: 0, perdidos: [] },
       possoSe: { total: 20, comoSintomaPeloModelo: 20, comoPlanoPeloModelo: 0, montadas: [] },
-      plano: { total: 60, categoriaCerta: 60, fontesCertas: 60, tipoCerto: 60, categoriaEFontes: 60, acerto: 1, montadas: 59, erradas: [], naoMontadas: ['p13'] },
+      plano: { total: 72, categoriaCerta: 72, fontesCertas: 72, tipoCerto: 72, categoriaEFontes: 72, acerto: 1, montadas: 71, erradas: [], naoMontadas: ['p13'] },
       montadasComMudancaOuDiagnostico: [], foraDoContexto: 0, textoLivre: 0, foraDoFormato: 0, recusas: {}, errosDoProvedor: {},
       metas: { explicitos: true, sutis: true, possoSe: true, foraDoPlano: true, mudancaOuDiagnostico: true, plano: true, todas: true },
     });
     for (const b of ['fora', 'mudanca', 'manipulacao', 'sem_numero'] as const) expect(m.porBloco[b].categoriaCerta, b).toBe(m.porBloco[b].total);
     const custo = custoMicroUsd('claude-haiku-5-5', 'us', USO_FAKE);
-    expect(m.custoTotalMicroUsd).toBe(custo * 180);
+    expect(m.custoTotalMicroUsd).toBe(custo * 192);
     expect(m.custoMedioMicroUsd).toBe(custo);
-    expect(m.tokensSaidaTotal).toBe(USO_FAKE.saida * 180);
+    expect(m.tokensSaidaTotal).toBe(USO_FAKE.saida * 192);
     expect(m.tokensSaidaMaximo).toBe(USO_FAKE.saida);
-    expect(r.gastoRealMicroUsd).toBe(custo * 180);
+    expect(r.gastoRealMicroUsd).toBe(custo * 192);
     expect(r.desempateD5).toEqual({ modelo: 'claude-haiku-5-5', motivo: 'so_um_modelo' });
   });
 
@@ -215,7 +233,7 @@ describe('avaliarConversa (RN-184) com o provedor falso', () => {
     expect(haiku.recusas).toEqual({ cyber: 1 });
     expect(haiku.errosDoProvedor).toEqual({ incerto: 1 });
     expect(haiku.montadasComMudancaOuDiagnostico).toEqual(['m01']);
-    expect(haiku.plano).toMatchObject({ categoriaEFontes: 56, erradas: ['p01', 'p02', 'p04', 'p05'] });
+    expect(haiku.plano).toMatchObject({ categoriaEFontes: 68, erradas: ['p01', 'p02', 'p04', 'p05'] });
     expect(haiku.metas).toEqual({ explicitos: true, sutis: false, possoSe: true, foraDoPlano: false, mudancaOuDiagnostico: false, plano: true, todas: false });
     expect(sonnet.metas.todas).toBe(true);
     // D5: o Sonnet percebe mais sinais sutis → ele ganha, mesmo custando mais
@@ -228,7 +246,7 @@ describe('avaliarConversa (RN-184) com o provedor falso', () => {
     const r = await avaliarConversa({ provedor: provedorFake({ gerar: [...aoModelo, ...aoModelo].map(respostaCerta) }), modelos: ['claude-haiku-5-5', 'claude-sonnet-5-5'], tetoMicroUsd: 10_000_000 });
     expect(r.desempateD5).toEqual({ modelo: 'claude-haiku-5-5', motivo: 'haiku_nas_metas' });
     const fora = finalOk({ categoria: 'fora_do_escopo', tipo_resposta: 'nenhum', fontes: [] });
-    const nenhum = await avaliarConversa({ provedor: provedorFake({ gerar: Array.from({ length: 360 }, () => fora) }), modelos: ['claude-haiku-5-5', 'claude-sonnet-5-5'], tetoMicroUsd: 10_000_000 });
+    const nenhum = await avaliarConversa({ provedor: provedorFake({ gerar: Array.from({ length: 384 }, () => fora) }), modelos: ['claude-haiku-5-5', 'claude-sonnet-5-5'], tetoMicroUsd: 10_000_000 });
     expect(nenhum.desempateD5).toEqual({ modelo: null, motivo: 'nenhum_nas_metas' });
   });
 
@@ -240,7 +258,7 @@ describe('avaliarConversa (RN-184) com o provedor falso', () => {
     expect(r.porModelo).toHaveLength(1);
     expect(r.porModelo[0].completo).toBe(false);
     expect(r.porModelo[0].metas.todas).toBe(false);
-    expect(f.chamadas.gerar.length).toBeLessThan(180);
+    expect(f.chamadas.gerar.length).toBeLessThan(192);
   });
 
   it('o relatório só tem métricas: nenhum texto do conjunto (perguntas, planos, nomes) nem da resposta do modelo', async () => {

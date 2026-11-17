@@ -76,7 +76,7 @@ const kcalDaQuantidade = (porCem: Nutrientes100, gramas: number, mostrar: boolea
 };
 
 /** Plano 15 (§7.3): a IA Nutri mostra o item com a mesma regra da tela (RN-02 por construção). */
-export const kcalDo = (i: ItemPlano, mostrar: boolean): string | null => kcalDaQuantidade(i.porCem, i.quantidadeG, mostrar);
+export const kcalDo = (i: Pick<ItemPlano, 'porCem' | 'quantidadeG'>, mostrar: boolean): string | null => kcalDaQuantidade(i.porCem, i.quantidadeG, mostrar);
 
 const paraCalculo = (r: PlanoCompleto['refeicoes'][number]) => ({
   diasSemana: r.diasSemana,

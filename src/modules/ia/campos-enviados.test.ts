@@ -1,8 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { pacienteAutorizado, prontuarioCompleto } from '../../../test/ia';
-import { novoTenant } from '../../../test/pacientes';
+import { mensagemNoBanco } from '../../../test/ia-nutri';
+import { novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { planoEmRascunho } from '../../../test/plano';
+import { closeDb } from '@/db/client';
 import {
   anamneses,
   anthropometry,
@@ -18,13 +22,24 @@ import {
   storedFiles,
 } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { stopBoss } from '@/jobs/boss';
+import { idTaco } from '@/modules/alimentos/taco';
 import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
+import { ligarLista } from '@/modules/plano-alimentar/ligados';
+import { salvarLista } from '@/modules/plano-alimentar/listas';
+import { publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { CATEGORIAS, CATEGORIAS_DA_IA_NUTRI, CATEGORIAS_POR_USO, FRASE_DA_CATEGORIA, FRASE_DA_CATEGORIA_IA_NUTRI } from './campos-enviados';
+import { montarContexto } from './nutri-paciente/contexto';
 import { montarPedidoDoRascunho, validarMetas } from './rascunho-dados';
 import { montarPedidoDoResumo } from './resumo-dados';
 
 const app = makeDb(inject('appDatabaseUrl'));
-afterAll(() => app.pool.end());
+// a publicação do plano (Plano 19, abaixo) enfileira o PDF: o boss e o banco padrão fecham também
+afterAll(async () => {
+  await stopBoss();
+  await closeDb();
+  await app.pool.end();
+});
 const agora = new Date();
 const fuso = 'America/Sao_Paulo';
 
@@ -183,6 +198,54 @@ describe('F2 (parecer 3.2 (ii)) / D8: o que sai bate com o texto da autorizaçã
     expect(JSON.stringify(com.dados)).toContain('[removido] não come carne.');
     expect(JSON.stringify(com.dados)).toContain('[removido] trabalha à noite.');
     expect(com.bytes).toBe(Buffer.byteLength(JSON.stringify(com.dados), 'utf8'));
+  });
+});
+
+/**
+ * Plano 19 (D26, RN-255): o plano publicado em texto livre com a lista de substituição ligada, pelos serviços de verdade; o
+ * texto livre e a orientação da lista levam um marcador e o primeiro nome do paciente.
+ */
+async function planoLivreComLista(T: TenantDeTeste, patientId: string): Promise<void> {
+  const plano = await planoEmRascunho(app.db, T, patientId, {
+    modo: 'livre',
+    refeicoes: [{ nome: 'Almoço', horario: '12:00', itens: [], descricaoLivre: 'MARCADOR-TEXTO-LIVRE: Marcadora come arroz e feijão.' }],
+  });
+  const { id: listaId } = await salvarLista(
+    T.ctx,
+    null,
+    {
+      nome: 'Trocas',
+      orientacao: 'MARCADOR-ORIENTACAO-LISTA: Marcadora troca dentro do grupo.',
+      grupos: [{ id: randomUUID(), nome: 'Carboidratos — 1 porção', itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null }] }],
+    },
+    { db: app.db },
+  );
+  await ligarLista(T.ctx, { planId: plano.planId, patientId }, listaId, { db: app.db });
+  const r = await publicarPlano(T.ctx, patientId, plano.planId, { db: app.db });
+  if (r.avisos) await publicarPlano(T.ctx, patientId, plano.planId, { db: app.db }, { confirmarAvisos: r.avisos });
+}
+
+describe('Plano 19 (D26, RN-255): texto livre e lista de substituição', () => {
+  it('o resumo da IA da nutricionista não manda o texto livre nem a lista (D26: refeição livre sem itens e sem o texto); a IA Nutri recebe os dois mascarados', async () => {
+    const T = await novoTenant(app.db);
+    const p = await pacienteAutorizado(app.db, T.ctx, { nome: 'Marcadora Silvestre', email: 'marcadora@teste.dev' });
+    await planoLivreComLista(T, p.id);
+    const w = { tenantId: T.tenantId, role: 'worker' as const };
+    const [pp] = await withTenant(w, (tx) => tx.select().from(patients).where(eq(patients.id, p.id)), app.db);
+    const pedido = await withTenant(w, (tx) => montarPedidoDoResumo(tx, pp, { notasPrivadas: true, agora, fuso }), app.db);
+    const json = JSON.stringify(pedido.dados);
+    for (const x of ['MARCADOR-TEXTO-LIVRE', 'MARCADOR-ORIENTACAO-LISTA', 'Carboidratos', 'Trocas', 'Marcadora']) expect(json, x).not.toContain(x);
+    // nada novo sai (RN-109): a refeição com as mesmas chaves de antes, sem itens
+    const plano = pedido.dados.plano as { refeicoes: Record<string, unknown>[] };
+    expect(Object.keys(plano).sort()).toEqual(['indice', 'orientacoes', 'publicado_em', 'refeicoes']);
+    expect(plano.refeicoes).toEqual([{ nome: 'Almoço', horario: '12:00', itens: [] }]);
+
+    // IA Nutri: o texto livre e a orientação da lista entram, com o nome do paciente mascarado
+    const mensagemId = await mensagemNoBanco(app.db, T.tenantId, p.id, { texto: 'o que tem no almoço?' });
+    const c = (await montarContexto(app.db, { tenantId: T.tenantId, patientId: p.id, mensagemId }))!;
+    expect(c.corpo).toContain('MARCADOR-TEXTO-LIVRE: [removido] come arroz e feijão.');
+    expect(c.corpo).toContain('MARCADOR-ORIENTACAO-LISTA: [removido] troca dentro do grupo.');
+    expect(c.corpo).not.toMatch(/Marcadora|Silvestre|marcadora@/);
   });
 });
 

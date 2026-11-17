@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
@@ -8,17 +9,39 @@ import {
   editarEPublicarDeNovo,
   fecharHarnessDaConversa,
   finalOk,
+  ORIENTACOES_DO_PLANO,
   outroPacientePronto,
   pronto,
+  TACO_ARROZ,
+  TACO_BANANA,
+  TACO_MACA,
 } from '../../../../test/ia-nutri-conversa';
 import { mensagemNoBanco } from '../../../../test/ia-nutri';
-import { mealPlans } from '@/db/schema';
+import type { TenantDeTeste } from '../../../../test/pacientes';
+import { planoEmRascunho, planoPublicado, type RefeicaoDeTeste } from '../../../../test/plano';
+import { mealPlans, referenciasNutrientes, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
-import { editarPublicado } from '@/modules/plano-alimentar/publicacao';
+import { idTaco } from '@/modules/alimentos/taco';
+import type { DiaDaSemana } from '@/modules/plano-alimentar/dias';
+import { ligarLista } from '@/modules/plano-alimentar/ligados';
+import { salvarLista } from '@/modules/plano-alimentar/listas';
+import { editarPublicado, publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { quantidadeDoItem } from '@/modules/portal/plano';
 import { CATEGORIAS_DA_IA_NUTRI } from '../campos-enviados';
+import { custoMaximoMicroUsd, MAX_TOKENS_CONVERSA, TOKENS_ENTRADA_TETO_CONVERSA, TOKENS_INSTRUCOES_TETO, tokensDeBytes } from '../precos';
 import { provedorFake } from '../provedor-fake';
-import { corpoDaConversa, montarContexto, relerTrechos } from './contexto';
+import {
+  BYTES_DA_RESERVA,
+  cabeNaReserva,
+  contextoDoPlano,
+  corpoDaConversa,
+  MARCADOR_RESUMIDO,
+  montarContexto,
+  relerTrechos,
+  turnoDaConversa,
+  type ItemDoHistorico,
+  type PlanoDoContexto,
+} from './contexto';
 import { encaminhar, enviarANutri, perguntar } from './conversa';
 import { SISTEMA_CONVERSA } from './instrucoes';
 import { processarPerguntaIaNutri } from './job';
@@ -206,5 +229,267 @@ describe('relerTrechos (§4.2 passo 5, RN-172)', () => {
     expect(await reler('#A1', 'orientacao')).toEqual([{ indice: '#A1', fonte: 'Atendimento de 01/09/2026 — orientações', texto: 'Evite frituras, Ana.' }]);
     // uma fonte com o tipo trocado (item dito substituição) → null
     expect(await relerTrechos(app.db, { tenantId: T.tenantId, patientId: p.id, planId: c.planId }, [{ ...f('#I1')[0], tipo: 'substituicao' }], 'substituicao')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Plano 19, Tarefa 10c (RN-255, RN-247 (h), RN-240, D25; R-239 / PM-PA9)
+// ---------------------------------------------------------------------------------------------------------------------
+
+const TACO_BATATA_DOCE = 88;
+const TACO_MANDIOCA = 129;
+const SABADO = new Date('2026-11-14T15:00:00Z'); // sábado, 12:00 em São Paulo
+const QUARTA = new Date('2026-11-11T15:00:00Z');
+const SEG_A_SEX = [1, 2, 3, 4, 5];
+const SAB_E_DOM = [0, 6];
+
+const publicar = async (T: TenantDeTeste, patientId: string, planId: string) => {
+  const r = await publicarPlano(T.ctx, patientId, planId, { db: app.db });
+  if (r.avisos) await publicarPlano(T.ctx, patientId, planId, { db: app.db }, { confirmarAvisos: r.avisos });
+};
+
+/**
+ * Plano com alimentos, dias e a lista ligada: "Almoço" (arroz, com a batata-doce como substituição), "Lanche da tarde" de
+ * segunda a sexta (banana) e de sábado e domingo (maçã); a lista "Trocas do dia a dia" com a orientação citando o paciente
+ * ("Ana") e dois grupos; um perfil de referência (nunca sai). Publicado pelos serviços de verdade.
+ */
+async function planoComLista(T: TenantDeTeste, patientId: string) {
+  const refeicoes: RefeicaoDeTeste[] = [
+    { nome: 'Almoço', horario: '12:30', itens: [{ gramas: 100, taco: TACO_ARROZ }, { gramas: 150, taco: TACO_BATATA_DOCE, substitui: 0 }] },
+    { nome: 'Lanche da tarde', horario: '16:00', dias: SEG_A_SEX, itens: [{ gramas: 100, taco: TACO_BANANA }] },
+    { nome: 'Lanche da tarde', horario: '16:30', dias: SAB_E_DOM, itens: [{ gramas: 130, taco: TACO_MACA }] },
+  ];
+  const plano = await planoEmRascunho(app.db, T, patientId, { mostrarCalorias: true, orientacoes: ORIENTACOES_DO_PLANO, refeicoes });
+  const grupo = (nome: string, itens: [number, string][]) => ({ id: randomUUID(), nome, itens: itens.map(([taco, g]) => ({ id: randomUUID(), foodId: idTaco(taco), quantidadeG: g, medida: null })) });
+  const { id: listaId } = await salvarLista(
+    T.ctx,
+    null,
+    { nome: 'Trocas do dia a dia', orientacao: 'Ana, troque só dentro do mesmo grupo.', grupos: [grupo('Carboidratos — 1 porção', [[TACO_ARROZ, '100'], [TACO_MANDIOCA, '100']]), grupo('Frutas — 1 porção', [[TACO_BANANA, '100']])] },
+    { db: app.db },
+  );
+  await ligarLista(T.ctx, { planId: plano.planId, patientId }, listaId, { db: app.db });
+  const [perfil] = await withTenant(
+    T.ctx,
+    (tx) => tx.insert(referenciasNutrientes).values({ tenantId: T.tenantId, nome: 'PERFIL-MARCADOR', fonte: 'FONTE-PERFIL-MARCADOR', valores: { ferro_mg: { meta: 18, maximo: 45 } } }).returning(),
+    app.db,
+  );
+  await withTenant(T.ctx, (tx) => tx.update(mealPlans).set({ referenciaId: perfil.id }).where(eq(mealPlans.id, plano.planId)), app.db);
+  await publicar(T, patientId, plano.planId);
+}
+
+/** Plano em texto livre: "Almoço" (todos os dias, o texto cita o paciente) e "Jantar" de segunda a sexta. */
+const planoLivre = (T: TenantDeTeste, patientId: string) =>
+  planoPublicado(app.db, T, patientId, {
+    modo: 'livre',
+    mostrarCalorias: true,
+    orientacoes: ORIENTACOES_DO_PLANO,
+    refeicoes: [
+      { nome: 'Almoço', horario: '12:30', itens: [], descricaoLivre: 'Arroz, feijão e salada à vontade. Ana, capriche na salada.' },
+      { nome: 'Jantar', horario: '19:30', dias: SEG_A_SEX, itens: [], observacao: 'Sem fritura.', descricaoLivre: 'Sopa de legumes com frango.' },
+    ],
+  });
+
+type PlanoNoContexto = {
+  hoje: string;
+  kcal_do_dia: string | null;
+  refeicoes: Record<string, unknown>[];
+  listas: { nome: string; orientacao?: string | null; resumido?: string; grupos: Record<string, unknown>[] }[];
+  orientacoes: unknown[];
+};
+const planoDe = (c: { dados: Record<string, unknown> }) => c.dados.plano as PlanoNoContexto;
+
+describe('Plano 19 — o contexto com dias, texto livre e lista de substituição (RN-255, RN-247 (h), RN-240)', () => {
+  it('dias de cada refeição e o dia de hoje no fuso do consultório; kcal do dia do perfil de hoje; lista mascarada com #L; nenhum micro nem perfil', async () => {
+    const { T, p, ctxP } = await pronto({ plano: planoComLista });
+    const { mensagemId } = await perguntar(ctxP, 'posso trocar o arroz por quê?', depsApp);
+    const c = (await montarContexto(app.db, { tenantId: T.tenantId, patientId: p.id, mensagemId: mensagemId!, agora: SABADO }))!;
+    expect(c.fontes.map((f) => f.indice)).toEqual(['#R1', '#I1', '#S1', '#R2', '#I2', '#R3', '#I3', '#L1-1', '#L1-2', '#O1', '#A1', '#A2']);
+    expect(c.fontes.filter((f) => f.tipo === 'lista_substituicao').map((f) => f.grupo)).toEqual([0, 1]);
+    const plano = planoDe(c);
+    expect(Object.keys(plano).sort()).toEqual(['hoje', 'kcal_do_dia', 'listas', 'orientacoes', 'refeicoes']);
+    expect(plano.hoje).toBe('sáb');
+    expect(plano.kcal_do_dia).toBe('201 kcal'); // sábado: arroz (128) + maçã de 130 g (72,8); nunca a soma dos dois lanches
+    expect(plano.refeicoes.map((r) => r.dias)).toEqual([['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'], ['seg', 'ter', 'qua', 'qui', 'sex'], ['sáb', 'dom']]);
+    expect(plano.listas).toEqual([
+      {
+        nome: 'Trocas do dia a dia',
+        orientacao: '[removido], troque só dentro do mesmo grupo.',
+        grupos: [
+          { indice: '#L1-1', nome: 'Carboidratos — 1 porção', itens: [{ alimento: 'Arroz, tipo 1, cozido', quantidade: '100 g', kcal: '128 kcal' }, { alimento: 'Mandioca, cozida', quantidade: '100 g', kcal: '125 kcal' }] },
+          { indice: '#L1-2', nome: 'Frutas — 1 porção', itens: [{ alimento: 'Banana, prata, crua', quantidade: '100 g', kcal: '98 kcal' }] },
+        ],
+      },
+    ]);
+    // a projeção é fechada: só estas chaves em cada refeição e item (RN-240: micros e perfil nunca entram)
+    for (const r of plano.refeicoes) expect(Object.keys(r).sort()).toEqual(['dias', 'horario', 'indice', 'itens', 'nome', 'observacao', 'substituicoes']);
+    expect(Object.keys((plano.refeicoes[0].itens as object[])[0]).sort()).toEqual(['alimento', 'indice', 'kcal', 'quantidade']);
+    for (const s of [JSON.stringify(c.dados), c.corpo]) {
+      expect(s).not.toMatch(/micros|_mg|_mcg|PERFIL-MARCADOR|referencia|\bAna\b|Souza|Debby/);
+      expect(s).not.toContain(MARCADOR_RESUMIDO); // plano pequeno: nada resumido
+    }
+    expect(c.resumido).toBe(false);
+    // num dia de semana, o perfil de hoje é o outro
+    const quarta = (await montarContexto(app.db, { tenantId: T.tenantId, patientId: p.id, mensagemId: mensagemId!, agora: QUARTA }))!;
+    expect(planoDe(quarta)).toMatchObject({ hoje: 'qua', kcal_do_dia: '226 kcal' }); // arroz (128) + banana (98)
+  });
+
+  it('virada do dia no fuso do consultório (America/Manaus): domingo 23:59 → segunda 00:00', async () => {
+    const { T, p, ctxP } = await pronto({ plano: planoComLista });
+    await withTenant(T.ctx, (tx) => tx.update(tenants).set({ fuso: 'America/Manaus' }).where(eq(tenants.id, T.tenantId)), app.db);
+    const { mensagemId } = await perguntar(ctxP, 'o que tem no lanche?', depsApp);
+    const domingo = new Date('2026-11-16T03:59:00Z'); // 23:59 de domingo em Manaus (UTC−4); já segunda em São Paulo
+    const segunda = new Date('2026-11-16T04:00:00Z');
+    expect(planoDe((await montarContexto(app.db, { tenantId: T.tenantId, patientId: p.id, mensagemId: mensagemId!, agora: domingo }))!).hoje).toBe('dom');
+    expect(planoDe((await montarContexto(app.db, { tenantId: T.tenantId, patientId: p.id, mensagemId: mensagemId!, agora: segunda }))!).hoje).toBe('seg');
+  });
+
+  it('texto livre: a descricao_livre mascarada é o trecho #R (sem itens); sem cálculo, nenhuma kcal (RN-243)', async () => {
+    const { T, p, ctxP } = await pronto({ plano: planoLivre });
+    const { mensagemId } = await perguntar(ctxP, 'o que tem no almoço?', depsApp);
+    const c = (await montarContexto(app.db, { tenantId: T.tenantId, patientId: p.id, mensagemId: mensagemId!, agora: SABADO }))!;
+    expect(c.fontes.map((f) => f.indice)).toEqual(['#R1', '#R2', '#O1', '#A1', '#A2']);
+    const plano = planoDe(c);
+    expect(plano.kcal_do_dia).toBeNull();
+    expect(plano.refeicoes).toEqual([
+      { indice: '#R1', nome: 'Almoço', horario: '12:30', dias: ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'], observacao: null, texto_livre: 'Arroz, feijão e salada à vontade. [removido], capriche na salada.', itens: [], substituicoes: [] },
+      { indice: '#R2', nome: 'Jantar', horario: '19:30', dias: ['seg', 'ter', 'qua', 'qui', 'sex'], observacao: 'Sem fritura.', texto_livre: 'Sopa de legumes com frango.', itens: [], substituicoes: [] },
+    ]);
+    expect(c.corpo).not.toMatch(/\bAna\b|kcal"\s*:\s*"/);
+  });
+});
+
+describe('Plano 19 — relerTrechos e a resposta (RN-255; Review Focus 5)', () => {
+  it('o grupo da lista relido da cópia publicada, com a fonte "Lista de substituição — {grupo}"; texto livre com a fonte "— texto do plano"; dias no trecho', async () => {
+    const comLista = await pronto({ plano: planoComLista });
+    const r1 = await perguntar(comLista.ctxP, 'posso trocar o arroz por quê?', depsApp);
+    const c = (await montarContexto(app.db, { tenantId: comLista.T.tenantId, patientId: comLista.p.id, mensagemId: r1.mensagemId! }))!;
+    const reler = (i: string, tipo: Parameters<typeof relerTrechos>[3]) =>
+      relerTrechos(app.db, { tenantId: comLista.T.tenantId, patientId: comLista.p.id, planId: c.planId }, c.fontes.filter((f) => f.indice === i), tipo);
+    expect(await reler('#L1-1', 'substituicao')).toEqual([{ indice: '#L1-1', fonte: 'Lista de substituição — Carboidratos — 1 porção', texto: 'Arroz, tipo 1, cozido — 100 g · 128 kcal; Mandioca, cozida — 100 g · 125 kcal' }]);
+    expect(await reler('#R3', 'horario')).toEqual([{ indice: '#R3', fonte: 'Lanche da tarde — horário', texto: 'Lanche da tarde: 16:30 (sáb e dom)' }]);
+    expect(await reler('#R2', 'refeicao')).toEqual([{ indice: '#R2', fonte: 'Lanche da tarde — itens', texto: 'Lanche da tarde (16:00, seg a sex): Banana, prata, crua — 100 g · 98 kcal' }]);
+    // um grupo que não existe na cópia → null
+    const l = c.fontes.find((f) => f.indice === '#L1-2')!;
+    expect(await relerTrechos(app.db, { tenantId: comLista.T.tenantId, patientId: comLista.p.id, planId: c.planId }, [{ ...l, grupo: 9 }], 'substituicao')).toBeNull();
+
+    const livre = await pronto({ plano: planoLivre });
+    const r2 = await perguntar(livre.ctxP, 'o que tem no almoço?', depsApp);
+    const cl = (await montarContexto(app.db, { tenantId: livre.T.tenantId, patientId: livre.p.id, mensagemId: r2.mensagemId! }))!;
+    const releia = (i: string) => relerTrechos(app.db, { tenantId: livre.T.tenantId, patientId: livre.p.id, planId: cl.planId }, cl.fontes.filter((f) => f.indice === i), 'refeicao');
+    expect(await releia('#R1')).toEqual([{ indice: '#R1', fonte: 'Almoço — texto do plano', texto: 'Almoço (12:30): Arroz, feijão e salada à vontade. Ana, capriche na salada.' }]);
+    expect(await releia('#R2')).toEqual([{ indice: '#R2', fonte: 'Jantar — texto do plano', texto: 'Jantar (19:30, seg a sex): Sopa de legumes com frango. Sem fritura.' }]);
+  });
+
+  it('Review Focus 5: o modelo devolve ["#L1-1", "#S1"] e a resposta cita a substituição do almoço antes da lista (spec 19, "IA Nutri e a lista")', async () => {
+    const { T, p, ctxP } = await pronto({ plano: planoComLista });
+    const { mensagemId } = await perguntar(ctxP, 'posso trocar o arroz por quê?', depsApp);
+    const fake = provedorFake({ gerar: [finalOk({ categoria: 'plano', tipo_resposta: 'substituicao', fontes: ['#L1-1', '#S1'] })] });
+    expect(await processarPerguntaIaNutri({ tenantId: T.tenantId, mensagemId: mensagemId! }, depsDoJob(fake))).toBe('respondida');
+    const [ia] = await comoWorker(T, sql`select texto, fontes from ia_nutri_mensagens where patient_id = ${p.id} and autor = 'ia'`);
+    expect(ia.fontes).toEqual(['#L1-1', '#S1']);
+    expect(ia.texto).toMatch(
+      /^No seu plano, as opções de substituição são:\nBatata, doce, cozida — 150 g · \d+ kcal\nFonte: Almoço — substituições\nArroz, tipo 1, cozido — 100 g · 128 kcal; Mandioca, cozida — 100 g · 125 kcal\nFonte: Lista de substituição — Carboidratos — 1 porção\nIsto é/,
+    );
+  });
+});
+
+// R-239 (PM-PA9): o contexto do plano cabe na reserva por prioridade — puro, sem banco
+const porCem = { kcal: 128, proteinaG: 2.5, carboidratoG: 28.1, lipidioG: 0.2, fibraG: 1.6 };
+const alvo = { nome: 'Ana Souza', email: null, telefone: null };
+function planoGrande(o: { refeicoes: number; itens: number; listas: number; nome: string; medida: string | null; observacao: string; diasDa: (k: number) => DiaDaSemana[] }): PlanoDoContexto {
+  const porRefeicao = Math.ceil(o.itens / o.refeicoes);
+  let n = 0;
+  return {
+    id: 'p',
+    modo: 'calculado',
+    mostrarCalorias: true,
+    orientacoes: 'Beba água ao longo do dia e evite açúcar. '.repeat(48).slice(0, 2000),
+    refeicoes: Array.from({ length: o.refeicoes }, (_, r) => ({
+      id: `r${r}`,
+      nome: `Refeição ${r + 1} — ${'n'.repeat(60)}`.slice(0, 60),
+      horario: '12:30',
+      observacao: o.observacao,
+      diasSemana: o.diasDa(r),
+      descricaoLivre: null,
+      itens: Array.from({ length: Math.max(0, Math.min(porRefeicao, o.itens - r * porRefeicao)) }, (_, j) => {
+        n++;
+        return { id: `i${n}`, nome: o.nome, quantidadeG: 100, medidaCaseiraTxt: o.medida, porCem, substituiItemId: j % 2 ? `i${n - 1}` : null };
+      }),
+    })),
+    listas: Array.from({ length: o.listas }, (_, l) => ({
+      id: `l${l}`,
+      nome: `Lista ${l + 1} ${'x'.repeat(80)}`.slice(0, 80),
+      orientacao: 'Troque só dentro do grupo, na quantidade da lista. '.repeat(20).slice(0, 1000),
+      grupos: Array.from({ length: 20 }, (_, g) => ({
+        nome: `Grupo ${g + 1} — ${'g'.repeat(60)}`.slice(0, 60),
+        itens: Array.from({ length: 30 }, () => ({ nome: o.nome, quantidadeG: 100, medidaCaseiraTxt: o.medida, porCem })),
+      })),
+    })),
+  };
+}
+/** "Notas e histórico no máximo": 5 orientações de atendimento de 5.000 caracteres, 3 perguntas de 500 e 3 respostas com 4 fontes, a pergunta com 500. */
+function turnoNoMaximo(plano: PlanoDoContexto, hoje: DiaDaSemana) {
+  const orientacoes = Array.from({ length: 5 }, (_, k) => ({ indice: `#A${k + 1}`, data: '2026-09-01', texto: 'Evite açúcar e frituras; prefira água. '.repeat(130).slice(0, 5000) }));
+  const fontesDosAtendimentos = orientacoes.map((a, k) => ({ indice: a.indice, tipo: 'orientacao_atendimento' as const, id: `a${k}` }));
+  const historico: ItemDoHistorico[] = Array.from({ length: 3 }, () => [
+    { autor: 'paciente' as const, texto: 'Posso trocar a refeição de hoje? '.repeat(16).slice(0, 500) },
+    { autor: 'ia' as const, tipo_resposta: 'substituicao', fontes: ['#S100', '#S101', '#L5-20', '#L4-19'] },
+  ]).flat();
+  return turnoDaConversa({ plano, alvo, hoje, orientacoes, fontesDosAtendimentos, historico, pergunta: 'O que posso comer no lugar do arroz hoje? '.repeat(12).slice(0, 500) });
+}
+const semLimiteDeCusto = (bytes: number) =>
+  custoMaximoMicroUsd('claude-haiku-5-5', 'us', tokensDeBytes(bytes) + TOKENS_INSTRUCOES_TETO, MAX_TOKENS_CONVERSA) <=
+  custoMaximoMicroUsd('claude-haiku-5-5', 'us', TOKENS_ENTRADA_TETO_CONVERSA, MAX_TOKENS_CONVERSA);
+
+describe('R-239 / PM-PA9: o contexto do plano cabe na reserva da pergunta, por prioridade', () => {
+  it('50 refeições / 400 itens + 5 listas cheias (20 × 30), nomes de 120 caracteres, notas e histórico no máximo → montado ≤ reserva, sem limite_custo', () => {
+    const plano = planoGrande({ refeicoes: 50, itens: 400, listas: 5, nome: 'N'.repeat(120), medida: 'M'.repeat(60), observacao: 'Mastigue devagar. '.repeat(120).slice(0, 2000), diasDa: (k) => (k % 2 ? [1, 2, 3, 4, 5] : [0, 6]) });
+    const inteiro = contextoDoPlano(plano, alvo, 1); // sem orçamento: o plano inteiro (a medição de antes)
+    expect(cabeNaReserva(Buffer.byteLength(JSON.stringify(inteiro.plano)))).toBe(false);
+    const t = turnoNoMaximo(plano, 1);
+    expect(t.bytes).toBeLessThanOrEqual(BYTES_DA_RESERVA);
+    expect(t.bytes).toBe(Buffer.byteLength(t.corpo) + Buffer.byteLength(SISTEMA_CONVERSA));
+    expect(cabeNaReserva(t.bytes)).toBe(true);
+    expect(semLimiteDeCusto(t.bytes)).toBe(true); // o teto do portão (job.ts) nunca passa da reserva
+    expect(t.resumido).toBe(true);
+    expect(t.corpo).toContain(MARCADOR_RESUMIDO);
+    // os nomes de cada lista e de cada grupo sempre vão, com o índice
+    const p = JSON.parse(t.corpo.slice(t.corpo.indexOf('\n') + 1)).contexto.plano as PlanoNoContexto;
+    expect(p.listas).toHaveLength(5);
+    for (const l of p.listas) expect(l.grupos.map((g) => g.indice)).toHaveLength(20);
+    expect(p.refeicoes).toHaveLength(50);
+    // todo índice do contexto aponta para uma parte enviada; a parte resumida não leva itens nem índices de item
+    const indices = new Set(t.fontes.map((f) => f.indice));
+    for (const r of p.refeicoes) {
+      if (r.resumido) expect(r.itens).toBeUndefined();
+      else for (const i of r.itens as { indice: string }[]) expect(indices.has(i.indice)).toBe(true);
+    }
+  });
+
+  it('a prioridade: refeições de hoje completas antes das dos outros dias; depois as listas', () => {
+    // 6 refeições, cada uma com observação longa; hoje = segunda: R1, R3 e R5 valem na segunda
+    const plano = planoGrande({ refeicoes: 6, itens: 12, listas: 1, nome: 'Arroz, tipo 1, cozido', medida: '4 colheres de sopa', observacao: 'o'.repeat(2000), diasDa: (k) => (k % 2 ? [6] : [1]) });
+    const esqueleto = contextoDoPlano(plano, alvo, 1, 0);
+    const base = Buffer.byteLength(JSON.stringify(esqueleto.plano)) + esqueleto.fontes.reduce((t, f) => t + Buffer.byteLength(f.indice) + 3, 0);
+    const c = contextoDoPlano(plano, alvo, 1, base + 3 * 2400); // cabem 3 refeições completas
+    const refeicoes = (c.plano as PlanoNoContexto).refeicoes;
+    expect(refeicoes.map((r) => (r.resumido ? 'resumida' : 'completa'))).toEqual(['completa', 'resumida', 'completa', 'resumida', 'completa', 'resumida']);
+    expect(refeicoes[1]).toEqual({ indice: '#R2', nome: refeicoes[1].nome, horario: '12:30', dias: ['sáb'], resumido: MARCADOR_RESUMIDO });
+    expect((c.plano as PlanoNoContexto).listas[0].grupos.every((g) => g.resumido === MARCADOR_RESUMIDO)).toBe(true);
+    // os índices dos itens não mudam com o resumo (contadores do plano inteiro): R3 continua com #I3
+    expect(c.fontes.map((f) => f.indice).filter((i) => i.startsWith('#I'))).toEqual(['#I1', '#I3', '#I5']);
+    expect(c.resumido).toBe(true);
+    // com folga, tudo completo e nenhum marcador
+    const tudo = contextoDoPlano(plano, alvo, 1);
+    expect(tudo.resumido).toBe(false);
+    expect(JSON.stringify(tudo.plano)).not.toContain(MARCADOR_RESUMIDO);
+  });
+
+  it('15 refeições / 200 itens sem lista (o limite de antes), notas e histórico no máximo → nenhum marcador', () => {
+    const plano = planoGrande({ refeicoes: 15, itens: 200, listas: 0, nome: 'Arroz, tipo 1, cozido', medida: '4 colheres de sopa', observacao: 'Mastigue devagar e beba água entre as refeições.', diasDa: () => [0, 1, 2, 3, 4, 5, 6] });
+    const t = turnoNoMaximo(plano, 3);
+    expect(t.resumido).toBe(false);
+    expect(t.corpo).not.toContain(MARCADOR_RESUMIDO);
+    expect(cabeNaReserva(t.bytes)).toBe(true);
   });
 });

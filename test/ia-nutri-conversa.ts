@@ -62,19 +62,22 @@ export async function atendimentosDoCaso(T: TenantDeTeste, patientId: string): P
   );
 }
 
-/** O paciente com conta, liberado, com o consentimento e o plano do caso. */
-async function pacienteDoCaso(T: TenantDeTeste, o: { mostrarCalorias?: boolean } = {}) {
+/** Plano 19 (T10c): outro plano publicado no lugar do plano do caso (dias, texto livre, lista de substituição ligada). */
+type PlanoDoTeste = (T: TenantDeTeste, patientId: string) => Promise<unknown>;
+
+/** O paciente com conta, liberado, com o consentimento e o plano do caso (ou o `plano` pedido). */
+async function pacienteDoCaso(T: TenantDeTeste, o: { mostrarCalorias?: boolean; plano?: PlanoDoTeste } = {}) {
   const { paciente: p, userId } = await pacienteComConta(app.db, T);
   const ctxP = ctxPaciente(T.tenantId, p.id, userId);
   await liberarNoBanco(app.db, T.ctx, p.id);
   await aceiteNoBanco(app.db, ctxP);
-  await planoDoCaso(T, p.id, o);
+  await (o.plano ? o.plano(T, p.id) : planoDoCaso(T, p.id, o));
   await atendimentosDoCaso(T, p.id);
   return { p, ctxP };
 }
 
 /** Consultório com a IA Nutri pronta e o paciente do caso. */
-export async function pronto(o: { cotaUsd?: number; mostrarCalorias?: boolean } = {}) {
+export async function pronto(o: { cotaUsd?: number; mostrarCalorias?: boolean; plano?: PlanoDoTeste } = {}) {
   const T = await novoTenant(app.db);
   await iaNutriPronta(app.db, T.tenantId, { cotaUsd: o.cotaUsd });
   const { p, ctxP } = await pacienteDoCaso(T, o);

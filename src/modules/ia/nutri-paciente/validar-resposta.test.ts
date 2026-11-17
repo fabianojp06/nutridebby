@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { validarSaida } from './validar-resposta';
 
-const enviados = new Set(['#R1', '#I1', '#I2', '#S1', '#O1', '#A1']);
+const enviados = new Set(['#R1', '#I1', '#I2', '#S1', '#L1-1', '#L2-3', '#O1', '#A1']);
 const saida = (o: object) => JSON.stringify({ categoria: 'plano', tipo_resposta: 'substituicao', fontes: ['#S1'], ...o });
 
 describe('validarSaida (RN-175, D21 = a): o JSON fixo, sem texto livre', () => {
@@ -42,6 +42,17 @@ describe('validarSaida (RN-175, D21 = a): o JSON fixo, sem texto livre', () => {
 
   it('fontes repetidas saem uma vez, na ordem', () =>
     expect(validarSaida(saida({ tipo_resposta: 'quantidade', fontes: ['#I2', '#I1', '#I2'] }), { enviados, pergunta: 'quanto de arroz?' })).toEqual({ ok: true, tipo: 'quantidade', fontes: ['#I2', '#I1'] }));
+
+  it('Plano 19 (RN-255): substituição aceita #S e #L (o grupo da lista); quantidade e refeição não aceitam #L', () => {
+    expect(validarSaida(saida({ fontes: ['#L1-1', '#S1'] }), { enviados, pergunta: 'posso trocar o arroz por quê?' })).toEqual({ ok: true, tipo: 'substituicao', fontes: ['#L1-1', '#S1'] });
+    expect(validarSaida(saida({ fontes: ['#L2-3'] }), { enviados, pergunta: 'qual fruta posso comer?' })).toMatchObject({ ok: true });
+    expect(validarSaida(saida({ tipo_resposta: 'quantidade', fontes: ['#L1-1'] }), { enviados, pergunta: 'quanto de arroz?' })).toMatchObject({ ok: false, motivo: 'invalida_tipo' });
+    expect(validarSaida(saida({ tipo_resposta: 'refeicao', fontes: ['#L1-1'] }), { enviados, pergunta: 'o que tem no almoço?' })).toMatchObject({ ok: false, motivo: 'invalida_tipo' });
+    expect(validarSaida(saida({ fontes: ['#L9-9'] }), { enviados, pergunta: 'posso trocar?' })).toMatchObject({ ok: false, motivo: 'invalida_fonte' });
+  });
+
+  it('R-239: "plano" sem fonte (o trecho estava resumido e o modelo não sabe onde) → "Não encontrei…" com o envio à nutricionista', () =>
+    expect(validarSaida(saida({ fontes: [] }), { enviados, pergunta: 'o que tem no lanche de sábado?' })).toMatchObject({ ok: false, textoFixo: 'nao_encontrei' }));
 
   it('orientação aceita #O e #A; horário só #R', () => {
     expect(validarSaida(saida({ tipo_resposta: 'orientacao', fontes: ['#O1', '#A1'] }), { enviados, pergunta: 'o que ela disse sobre água?' })).toMatchObject({ ok: true });

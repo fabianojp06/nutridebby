@@ -202,7 +202,7 @@ export async function processarPerguntaIaNutri(d: DadosJobIaPaciente, deps: Deps
   if (deps.abortado?.()) return 'ignorada';
 
   // (2) o contexto, na sessão de paciente (só leitura)
-  const c: ContextoDaConversa | null = await montarContexto(deps.db, { tenantId: d.tenantId, patientId: pacienteId, mensagemId: d.mensagemId });
+  const c: ContextoDaConversa | null = await montarContexto(deps.db, { tenantId: d.tenantId, patientId: pacienteId, mensagemId: d.mensagemId, agora: agora() });
   if (!c) return encerrar({ status: 'falhou', textoFixo: 'nao_encontrei', motivo: 'indisponivel', reserva: 'estornar' });
 
   // (3) PORTÃO DO ENVIO: paciente FOR SHARE → tenant FOR SHARE → mensagem FOR UPDATE → ia_uso → plataforma

@@ -102,7 +102,9 @@ describe('processarPerguntaIaNutri (§4.2 do worker)', () => {
       }
     };
     juntar(JSON.parse(c.corpo.slice(c.corpo.indexOf('\n') + 1)));
-    const permitidas = ['contexto', 'plano', 'orientacoes', 'indices', 'historico', 'pergunta', 'refeicoes', 'indice', 'nome', 'horario', 'observacao', 'itens', 'substituicoes', 'alimento', 'quantidade', 'kcal', 'substitui', 'texto', 'data', 'autor', 'tipo_resposta', 'fontes'];
+    const permitidas = ['contexto', 'plano', 'orientacoes', 'indices', 'historico', 'pergunta', 'refeicoes', 'indice', 'nome', 'horario', 'observacao', 'itens', 'substituicoes', 'alimento', 'quantidade', 'kcal', 'substitui', 'texto', 'data', 'autor', 'tipo_resposta', 'fontes',
+      // Plano 19 (RN-255, R-239): dias e hoje, kcal do dia, texto livre, listas ligadas (grupos) e o marcador de resumo
+      'hoje', 'kcal_do_dia', 'dias', 'texto_livre', 'listas', 'grupos', 'orientacao', 'resumido'];
     expect([...chaves].filter((k) => !permitidas.includes(k))).toEqual([]);
   });
 
