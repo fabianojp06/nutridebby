@@ -118,6 +118,15 @@ describe('Relatórios (US-306)', () => {
     expect(com).toMatch(/<p id="csv-ate-erro" role="alert"[^>]*>Escolha um período de até 12 meses.<\/p>/);
   });
 
+  it('?erro=origem (a rota não confirmou a origem do download): o alerta junto do "Baixar CSV", sem marcar o período', async () => {
+    await cenario();
+    const html = await render({ erro: 'origem' });
+    expect(html).toContain(`<p role="alert" class="rounded-2xl border border-erro bg-erro-fundo p-3 text-erro">${M.csv.erroOrigem}</p>`);
+    expect(html.indexOf(M.csv.erroOrigem)).toBeLessThan(html.indexOf('Baixar CSV</button>'));
+    expect(html).not.toContain('aria-invalid="true"');
+    expect(await render()).not.toContain(M.csv.erroOrigem);
+  });
+
   it('sem configuração: o primeiro acesso (RN-301), sem tabelas', async () => {
     await tenant();
     const t = texto(await render());

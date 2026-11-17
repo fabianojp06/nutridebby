@@ -2,6 +2,7 @@
 
 import { useRef, useState, type FormEvent } from 'react';
 import { Campo } from '@/components/campo';
+import { Aviso } from '@/components/ui/aviso';
 import { Botao } from '@/components/ui/botao';
 import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 import { periodoValido } from '@/modules/financeiro/meses';
@@ -23,8 +24,19 @@ function errosDoPeriodo(de: string, ate: string): Erros {
  * formulário confere o período antes de navegar ("De" ≤ "Até", até 366 dias) e, se não der, mostra o erro em
  * `role="alert"` junto do campo e leva o foco a ele, sem sair de Relatórios. A rota confere de novo e, se recusar, volta
  * com `?erro=periodo` (`erroDoServidor`). "Incluir o nome dos pacientes" desmarcado não vai na URL (`pacientes` = 0).
+ * `?erro=origem` (`erroDeOrigem`: a rota não conseguiu confirmar que o pedido veio de Relatórios) → alerta junto do botão.
  */
-export function BaixarCsv({ de, ate, erroDoServidor }: { de: string; ate: string; erroDoServidor: boolean }) {
+export function BaixarCsv({
+  de,
+  ate,
+  erroDoServidor,
+  erroDeOrigem = false,
+}: {
+  de: string;
+  ate: string;
+  erroDoServidor: boolean;
+  erroDeOrigem?: boolean;
+}) {
   const [erros, setErros] = useState<Erros>(erroDoServidor ? { ate: E.periodoLongo } : {});
   const form = useRef<HTMLFormElement>(null);
   function conferir(e: FormEvent<HTMLFormElement>) {
@@ -66,6 +78,11 @@ export function BaixarCsv({ de, ate, erroDoServidor }: { de: string; ate: string
           {C.ajuda}
         </p>
       </div>
+      {erroDeOrigem && (
+        <div className="max-w-2xl">
+          <Aviso tipo="erro">{C.erroOrigem}</Aviso>
+        </div>
+      )}
       <Botao>{C.baixar}</Botao>
     </form>
   );

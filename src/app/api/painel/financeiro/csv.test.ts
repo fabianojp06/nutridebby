@@ -47,11 +47,14 @@ beforeEach(() => {
 const BOM = [0xef, 0xbb, 0xbf];
 const LOGIN = `/entrar?volta=${encodeURIComponent('/painel/financeiro/relatorios')}`;
 
-/** O link e o formulário de Relatórios: navegação da própria origem (`Sec-Fetch-Site: same-origin`), salvo `site`. */
-const pedir = (rota: typeof lancamentosCsv, caminho: string, cookie?: string, site: string | null = 'same-origin') =>
+/**
+ * O link e o formulário de Relatórios: navegação da própria origem (`Sec-Fetch-Site: same-origin`), salvo `site`; `extra`
+ * acrescenta `Origin`/`Referer` (navegador sem `Sec-Fetch-Site`).
+ */
+const pedir = (rota: typeof lancamentosCsv, caminho: string, cookie?: string, site: string | null = 'same-origin', extra: Record<string, string> = {}) =>
   rota(
     new Request(`http://localhost:3000/api/painel/financeiro/${caminho}`, {
-      headers: { ...(cookie ? { cookie } : {}), ...(site ? { 'sec-fetch-site': site } : {}) },
+      headers: { ...(cookie ? { cookie } : {}), ...(site ? { 'sec-fetch-site': site } : {}), ...extra },
     }),
   );
 
@@ -219,15 +222,58 @@ describe('pedido vindo de outro site e HEAD (RN-321: o exportar só vale do cliq
     [fluxoCsv, 'fluxo-de-caixa.csv?ano=2026'],
   ] as const;
 
-  it('Sec-Fetch-Site cross-site, same-site ou ausente → 303 para Relatórios, sem arquivo e sem exportar', async () => {
+  it('Sec-Fetch-Site cross-site ou same-site → 303 para Relatórios, sem arquivo e sem exportar (mesmo com Referer da própria origem)', async () => {
     const C = await cenario();
-    for (const site of ['cross-site', 'same-site', null])
+    for (const site of ['cross-site', 'same-site'])
+      for (const extra of [{}, { referer: 'http://localhost:3000/painel/financeiro/relatorios' }] as Record<string, string>[])
+        for (const [rota, caminho] of CAMINHOS) {
+          const r = await pedir(rota, caminho, C.cookie, site, extra);
+          expect([r.status, r.headers.get('location')], `${site} ${caminho}`).toEqual([303, '/painel/financeiro/relatorios']);
+          expect(r.headers.get('content-disposition'), `${site} ${caminho}`).toBeNull();
+        }
+    expect(await exportacoes(C.tenantId)).toEqual([]);
+  });
+
+  it('sem Sec-Fetch-Site e sem Origin nem Referer → 303 para Relatórios com ?erro=origem, sem arquivo e sem exportar', async () => {
+    const C = await cenario();
+    for (const [rota, caminho] of CAMINHOS) {
+      const r = await pedir(rota, caminho, C.cookie, null);
+      expect([r.status, r.headers.get('location')], caminho).toEqual([303, '/painel/financeiro/relatorios?erro=origem']);
+      expect(r.headers.get('content-disposition'), caminho).toBeNull();
+    }
+    expect(await exportacoes(C.tenantId)).toEqual([]);
+  });
+
+  it('sem Sec-Fetch-Site, com Origin ou Referer de outro site (ou Origin de fora com Referer da casa) → 303 ?erro=origem, sem exportar', async () => {
+    const C = await cenario();
+    const casos: Record<string, string>[] = [
+      { referer: 'https://outro.example/pagina' },
+      { referer: 'http://localhost:3001/painel/financeiro/relatorios' },
+      { referer: 'não é url' },
+      { origin: 'https://outro.example' },
+      { origin: 'null' },
+      { origin: 'https://outro.example', referer: 'http://localhost:3000/painel/financeiro/relatorios' },
+    ];
+    for (const extra of casos)
       for (const [rota, caminho] of CAMINHOS) {
-        const r = await pedir(rota, caminho, C.cookie, site);
-        expect([r.status, r.headers.get('location')], `${site} ${caminho}`).toEqual([303, '/painel/financeiro/relatorios']);
-        expect(r.headers.get('content-disposition'), `${site} ${caminho}`).toBeNull();
+        const r = await pedir(rota, caminho, C.cookie, null, extra);
+        expect([r.status, r.headers.get('location')], `${JSON.stringify(extra)} ${caminho}`).toEqual([303, '/painel/financeiro/relatorios?erro=origem']);
+        expect(r.headers.get('content-disposition')).toBeNull();
       }
     expect(await exportacoes(C.tenantId)).toEqual([]);
+  });
+
+  it('sem Sec-Fetch-Site, com Referer ou Origin da própria origem (Safari antes do 16.4) → baixa e grava o exportar', async () => {
+    const C = await cenario();
+    for (const extra of [{ referer: 'http://localhost:3000/painel/financeiro/relatorios?ano=2026' }, { origin: 'http://localhost:3000' }] as Record<string, string>[]) {
+      const r = await pedir(fluxoCsv, 'fluxo-de-caixa.csv?ano=2026', C.cookie, null, extra);
+      expect(r.status, JSON.stringify(extra)).toBe(200);
+      expect(r.headers.get('content-disposition')).toBe('attachment; filename="fluxo-de-caixa-2026.csv"');
+    }
+    expect(await exportacoes(C.tenantId)).toHaveLength(2);
+    const r = await pedir(lancamentosCsv, 'lancamentos.csv?de=2026-10-01&ate=2026-10-31', C.cookie, null, { referer: 'http://localhost:3000/painel/financeiro/relatorios' });
+    expect(r.status).toBe(200);
+    expect(await exportacoes(C.tenantId)).toHaveLength(3);
   });
 
   it('HEAD → 405 sem tocar o banco (o HEAD automático do Next chamaria o GET)', async () => {
