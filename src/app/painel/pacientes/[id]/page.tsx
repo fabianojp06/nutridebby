@@ -1,6 +1,9 @@
+import Link from 'next/link';
+import { Aviso } from '@/components/ui/aviso';
 import { BotaoLink } from '@/components/ui/botao';
 import { Cartao } from '@/components/ui/cartao';
 import { montarAdicionar } from '@/modules/ficha/adicionar';
+import { cadastroIncompleto } from '@/modules/ficha/incompleto';
 import { secoesDoInicio } from '@/modules/ficha/inicio';
 import { cartaoResumo, linhasDoResumo } from '@/modules/ficha/resumo';
 import { MSG_FICHA } from '@/modules/ficha/textos';
@@ -22,13 +25,16 @@ export const dynamic = 'force-dynamic';
 export default async function InicioPage({ params }: PageProps<'/painel/pacientes/[id]'>) {
   const { id } = await params;
   const { ctx, tenant, paciente } = await carregarProntuario(id);
-  const [ia, secoes, resumo] = await Promise.all([
+  const bloqueado = paciente.status === 'bloqueado';
+  // RN-269: a nota "Cadastro incompleto" só onde dá para completar (o Perfil de bloqueado ou anonimizado é só para consulta)
+  const completavel = !bloqueado && !paciente.anonimizadoEm;
+  const [ia, secoes, resumo, incompleto] = await Promise.all([
     iaDoAssistente(ctx, tenant, paciente, 'resumo_historico'),
     secoesDoInicio(ctx, tenant, paciente),
     cartaoResumo(ctx, tenant.fuso, paciente),
+    completavel ? cadastroIncompleto(ctx, paciente.id) : null,
   ]);
-  const bloqueado = paciente.status === 'bloqueado';
-  const podeAdicionar = !bloqueado && !paciente.anonimizadoEm;
+  const podeAdicionar = completavel;
   const grupos = podeAdicionar ? montarAdicionar(paciente.id, secoes) : [];
   const chaves = grupos.flatMap((g) => g.itens.flatMap((i) => ('acao' in i ? [i.acao] : [])));
   return (
@@ -41,6 +47,15 @@ export default async function InicioPage({ params }: PageProps<'/painel/paciente
           <ul className="space-y-1">
             {linhasDoResumo(resumo).map((l) => <li key={l}>{l}</li>)}
           </ul>
+          {/* RN-269: nota, não erro (aparece em quase todo paciente antigo); sem região viva. O Perfil audita a leitura: sem prefetch */}
+          {incompleto && (
+            <div className="mt-3">
+              <Aviso tipo="aviso" papel="nenhum">
+                {incompleto}{' '}
+                <Link href={`/painel/pacientes/${paciente.id}/perfil`} prefetch={false} className="underline">{MSG_FICHA.incompleto.completar}</Link>
+              </Aviso>
+            </div>
+          )}
         </Cartao>
       </div>
       {/* US-120 (Plano 14B): só com a IA da plataforma presente e o paciente ativo; sem poder pedir, o motivo (texto da aba Exames) */}

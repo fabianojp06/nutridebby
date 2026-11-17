@@ -46,6 +46,8 @@ export const PRAZO_RESPOSTA_DIAS = 15;
 
 export const MSG_LGPD = {
   confirmarNome: 'Digite o nome do paciente exatamente como está no cadastro para confirmar.',
+  /** Plano 18 (D7, RN-266): com nome social, a instrução pede e mostra o nome de registro (a conferência é com `patients.nome`). */
+  confirmarNomeDeRegistro: (nome: string) => `Digite o nome de registro do paciente (${nome}) exatamente como está no cadastro para confirmar.`,
 } as const;
 
 export class LgpdError extends Error {

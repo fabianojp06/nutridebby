@@ -20,6 +20,7 @@ export default async function ProntuarioLayout({ children, params }: LayoutProps
   ]);
   const medidas = linhaDoCabecalho(cabecalho);
   const selo = seloDoPaciente(paciente);
+  const nomeSocial = paciente.nomeSocial;
   const partes = [
     paciente.dataNascimento ? `${idadeEm(paciente.dataNascimento, hojeNoFuso(tenant.fuso))} anos` : null,
     paciente.sexo === 'F' ? 'Feminino' : paciente.sexo === 'M' ? 'Masculino' : null,
@@ -31,10 +32,24 @@ export default async function ProntuarioLayout({ children, params }: LayoutProps
         <header data-guia="cabecalho-paciente" className="space-y-1 rounded-3xl border border-borda bg-cartao p-5">
           <p className="text-sm"><Link href="/painel/pacientes" className="text-link underline">Pacientes</Link></p>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-titulo text-2xl font-semibold">{paciente.nome}</h1>
+            {/* D7, RN-266: com nome social, a tela abre por ele e o papel pelo nome civil (Res. CFN 594/2017, art. 4º, § 1º, I) */}
+            {nomeSocial ? (
+              <h1 className="font-titulo text-2xl font-semibold">
+                <span className="print:hidden">{nomeSocial}</span>
+                <span className="hidden print:inline">{paciente.nome}</span>
+              </h1>
+            ) : (
+              <h1 className="font-titulo text-2xl font-semibold">{paciente.nome}</h1>
+            )}
             {selo && <Selo>{selo}</Selo>}
             {paciente.pesoOcultoNoAppEm && <Selo>{MSG_FICHA.cabecalho.pesoOculto}</Selo>}
           </div>
+          {nomeSocial && (
+            <>
+              <p className="text-sm print:hidden">{MSG_FICHA.cabecalho.nomeDeRegistro(paciente.nome)}</p>
+              <p className="hidden text-sm print:block">{MSG_FICHA.cabecalho.nomeSocial(nomeSocial)}</p>
+            </>
+          )}
           <p className="text-sm text-suave">{partes.join(' · ')}</p>
           {/* RN-275: as medidas não saem no papel (a folha pode ir para a mão do paciente com o peso oculto, RN-203) */}
           <p className="text-sm print:hidden">{medidas}</p>

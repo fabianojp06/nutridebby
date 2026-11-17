@@ -78,5 +78,26 @@ export const MSG_FICHA = {
     gordura: (p: string) => `gordura ${p}%`,
     semAvaliacao: 'Sem avaliação antropométrica.',
     pesoOculto: 'Peso oculto no app',
+    /** D7, RN-266: na tela, abaixo do título (o nome social); no papel, logo depois do nome civil (Res. CFN 594/2017, art. 4º, § 1º, I). */
+    nomeDeRegistro: (nome: string) => `Nome de registro: ${nome}`,
+    nomeSocial: (nomeSocial: string) => `Nome social: ${nomeSocial}`,
+  },
+  /** Nota do cartão Resumo (D17, RN-269, spec §8.3): itens em minúsculas, na ordem da lista fechada. */
+  incompleto: {
+    itensFaltando: (itens: string) => `Cadastro incompleto: faltam ${itens}.`,
+    quantidade: (n: number) => `Cadastro incompleto: faltam ${n} dados.`,
+    completar: 'Completar no Perfil',
+    itens: {
+      dataNascimento: 'data de nascimento',
+      sexo: 'sexo',
+      identidadeGenero: 'identidade de gênero',
+      estadoCivil: 'estado civil',
+      nacionalidade: 'nacionalidade',
+      naturalidade: 'naturalidade',
+      escolaridade: 'escolaridade',
+      ocupacao: 'ocupação',
+      endereco: 'endereço',
+      telefone: 'telefone',
+    },
   },
 } as const;

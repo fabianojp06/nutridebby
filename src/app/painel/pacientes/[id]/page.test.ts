@@ -12,6 +12,8 @@ const estado = vi.hoisted(() => ({
   secoes: [] as unknown[],
   ia: null as unknown,
   chamadas: [] as unknown[][],
+  incompleto: null as string | null,
+  incompletoPedido: [] as string[],
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('./prontuario', () => ({
@@ -31,6 +33,13 @@ vi.mock('@/modules/ficha/inicio', () => ({
 vi.mock('@/modules/ficha/resumo', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/ficha/resumo')>()),
   cartaoResumo: async () => ({ aniversario: '20 de maio', pacienteDesde: '03/02/2025', planoPublicadoEm: '10/11/2026' }),
+}));
+// RN-269: a nota "Cadastro incompleto" (o texto vem pronto de incompleto.ts, que só lê a presença dos campos)
+vi.mock('@/modules/ficha/incompleto', () => ({
+  cadastroIncompleto: async (_ctx: unknown, id: string) => {
+    estado.incompletoPedido.push(id);
+    return estado.incompleto;
+  },
 }));
 vi.mock('./inicio/acoes', () => ({ acoesDoAdicionar: () => ({ 'criar-receita': vi.fn(), 'criar-parecer': vi.fn() }) }));
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => ({ push: () => undefined }) }));
@@ -67,6 +76,8 @@ describe('aba Início (Plano 18)', () => {
     estado.secoes = REGISTRO;
     estado.ia = null;
     estado.chamadas = [];
+    estado.incompleto = null;
+    estado.incompletoPedido = [];
   });
 
   it('ativo: o botão Adicionar, o cartão Resumo e as seções na ordem do registro', async () => {
@@ -121,5 +132,43 @@ describe('aba Início (Plano 18)', () => {
     const html = await render();
     expect(html).toMatch(/<h2 id="ia-titulo"[^>]*>Inteligência artificial<\/h2>/);
     expect(html).toContain(`href="${BASE}/resumo-ia"`);
+  });
+
+  describe('nota "Cadastro incompleto" (RN-269, RN-276)', () => {
+    const resumo = (html: string) => html.match(/<section aria-labelledby="resumo-titulo"[\s\S]*?<\/section>/)?.[0] ?? '';
+
+    it('no cartão Resumo: o texto exato, sem papel de região viva, e o link "Completar no Perfil" (sem prefetch: o Perfil audita)', async () => {
+      estado.incompleto = 'Cadastro incompleto: faltam estado civil e endereço.';
+      const html = await render();
+      const cartao = resumo(html);
+      expect(cartao).toContain('Cadastro incompleto: faltam estado civil e endereço.');
+      const nota = cartao.match(/<p[^>]*>Cadastro incompleto:[\s\S]*?<\/p>/)?.[0] ?? '';
+      expect(nota).not.toMatch(/role=/);
+      expect(nota).toMatch(/class="[^"]*\bbg-aviso-fundo\b/);
+      expect(nota).toMatch(new RegExp(`<a[^>]*href="${BASE}/perfil"[^>]*>Completar no Perfil</a>`));
+      expect(estado.incompletoPedido).toEqual([PACIENTE]);
+    });
+
+    it('com 4 ou mais faltando, o texto com a quantidade', async () => {
+      estado.incompleto = 'Cadastro incompleto: faltam 6 dados.';
+      const cartao = resumo(await render());
+      expect(cartao).toContain('Cadastro incompleto: faltam 6 dados.');
+      expect(cartao).toContain('Completar no Perfil');
+    });
+
+    it('cadastro completo: sem nota e sem link', async () => {
+      const html = await render();
+      expect(html).not.toContain('Cadastro incompleto');
+      expect(html).not.toContain('Completar no Perfil');
+    });
+
+    it('bloqueado ou anonimizado: sem nota (o Perfil é só para consulta) e sem consultar a presença', async () => {
+      estado.incompleto = 'Cadastro incompleto: faltam 6 dados.';
+      estado.paciente = { ...estado.paciente, status: 'bloqueado' };
+      expect(await render()).not.toContain('Cadastro incompleto');
+      estado.paciente = { ...estado.paciente, status: 'arquivado', anonimizadoEm: new Date('2026-10-01T12:00:00Z') };
+      expect(await render()).not.toContain('Cadastro incompleto');
+      expect(estado.incompletoPedido).toEqual([]);
+    });
   });
 });
