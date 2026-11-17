@@ -301,6 +301,43 @@ describe('Plano 20 — Financeiro no banco (spec §9)', () => {
     ).rejects.toSatisfy(doGatilho);
   });
 
+  it('marcador ligado à mão no worker (sem a função): prazo hoje ou futuro → 42501; pago não vira cancelado; cancelado_em é o do banco', async () => {
+    const C = await cenario();
+    const aberto = await lancar(C, { valor: 10000, vencimento: '2026-10-10' });
+    const pago = await lancar(C, { valor: 20000, pagoEm: '2026-10-11', forma: 'pix' });
+    const aMao = (id: unknown, set: SQL) =>
+      withTenant(worker(C), async (tx) => {
+        await tx.execute(sql`select set_config('app.fin_anonimizando', '1', true)`);
+        return (await tx.execute(sql`update fin_lancamentos set ${set} where id = ${id} returning *`)).rows[0] as Row;
+      }, app.db);
+    const anonimizarAberto = sql`anonimizado_em = now(), descricao = null, cancelado_em = '2001-01-01'`;
+
+    const hoje = sql`(now() at time zone 'America/Sao_Paulo')::date`;
+    await bloquear(C, C.p, sql`${hoje} + 1`);
+    await expect(aMao(aberto.id, anonimizarAberto)).rejects.toSatisfy(doGatilho); // prazo no futuro
+    await em(worker(C), sql`update patients set anonimizar_apos = ${hoje} where id = ${C.p}`);
+    await expect(aMao(aberto.id, anonimizarAberto)).rejects.toSatisfy(doGatilho); // vence hoje: só depois de hoje
+    await em(worker(C), sql`update patients set anonimizar_apos = null where id = ${C.p}`);
+    await expect(aMao(aberto.id, anonimizarAberto)).rejects.toSatisfy(doGatilho); // sem prazo
+    expect((await ler(aberto.id)).anonimizado_em).toBeNull();
+
+    await em(worker(C), sql`update patients set anonimizar_apos = ${hoje} - 1 where id = ${C.p}`);
+    // pago não ganha cancelamento na anonimização (só os em aberto viram cancelados), nem com autora
+    await expect(aMao(pago.id, sql`anonimizado_em = now(), cancelado_em = now()`)).rejects.toSatisfy(doGatilho);
+    await expect(aMao(pago.id, sql`anonimizado_em = now(), cancelado_em = now(), cancelado_por = ${C.nutriId}`)).rejects.toSatisfy(doGatilho);
+    expect((await ler(pago.id)).cancelado_em).toBeNull();
+    // o em aberto: a data mandada não vale; cancelado_em é a hora do banco, sem autora
+    await expect(aMao(aberto.id, sql`anonimizado_em = now(), cancelado_em = '2001-01-01', cancelado_por = ${C.nutriId}`)).rejects.toSatisfy(doGatilho);
+    const antes = Date.now();
+    await aMao(aberto.id, anonimizarAberto);
+    const a = await ler(aberto.id);
+    expect(a.cancelado_por).toBeNull();
+    expect(new Date(a.cancelado_em as string).getTime()).toBeGreaterThanOrEqual(antes - 5_000);
+    // o pago anonimizado sem cancelamento passa e fica sem cancelamento
+    await aMao(pago.id, sql`anonimizado_em = now(), descricao = null`);
+    expect(await ler(pago.id)).toMatchObject({ cancelado_em: null, cancelado_por: null });
+  });
+
   it('uma cobrança ativa por consulta: a segunda viola o índice; depois de cancelar a primeira, a segunda entra', async () => {
     const C = await cenario();
     const a = await consulta(C);

@@ -45,7 +45,7 @@ CREATE TRIGGER fin_categorias_fixas BEFORE UPDATE OR DELETE ON fin_categorias FO
 --> statement-breakpoint
 -- RN-304, RN-308, RN-309, RN-315, RN-316 (spec §9.4). O BEFORE roda antes do WITH CHECK da RLS, então a ordem importa:
 --   (1) contexto vazio ou `worker` → 42501 (no UPDATE, o worker só passa no ramo da anonimização, com o marcador local
---       app.fin_anonimizando = '1', ligado só por app_anonimizar_financeiro);
+--       app.fin_anonimizando = '1', ligado só por app_anonimizar_financeiro, e o paciente bloqueado com o prazo vencido);
 --   (2) qualquer papel diferente de `nutri` → RETURN NEW SEM ler patients: paciente, publico e conta são recusados pela RLS
 --       da própria tabela (paciente_sem_insert, publico_negado, tenant_isolation) — lendo o paciente antes, nesses contextos
 --       ele viria vazio pela RLS e a recusa mudaria de mensagem (test/isolamento.test.ts, violaRlsDe);
@@ -60,6 +60,7 @@ DECLARE
   r text := coalesce(app_current_role(), '');
   v_status text;
   v_anonimizado timestamptz;
+  v_vencido boolean;
 BEGIN
   IF r = '' THEN
     RAISE EXCEPTION 'lançamento do Financeiro só com o contexto de uma sessão' USING ERRCODE = '42501';
@@ -96,20 +97,31 @@ BEGIN
 
   IF r = 'worker' THEN
     -- RN-316: só a anonimização, dentro de app_anonimizar_financeiro, de um lançamento ainda não anonimizado de um paciente
-    -- bloqueado à espera da anonimização, mexendo só nos textos, no cancelamento e nas datas de controle
+    -- bloqueado com o prazo de guarda vencido, mexendo só nos textos, no cancelamento e nas datas de controle. As defesas
+    -- não confiam no marcador (um código do worker pode ligá-lo à mão): o prazo é conferido aqui também, o pago não vira
+    -- cancelado (só os em aberto, RN-316) e o cancelamento é sem autora, na hora do banco.
     IF coalesce(current_setting('app.fin_anonimizando', true), '') <> '1'
        OR OLD.anonimizado_em IS NOT NULL OR NEW.anonimizado_em IS NULL
        OR (to_jsonb(NEW) - 'anonimizado_em' - 'descricao' - 'motivo_cancelamento' - 'cancelado_em' - 'cancelado_por' - 'updated_at')
           IS DISTINCT FROM (to_jsonb(OLD) - 'anonimizado_em' - 'descricao' - 'motivo_cancelamento' - 'cancelado_em' - 'cancelado_por' - 'updated_at')
        OR (OLD.cancelado_em IS NOT NULL AND (NEW.cancelado_em, NEW.cancelado_por) IS DISTINCT FROM (OLD.cancelado_em, OLD.cancelado_por))
-       OR (OLD.cancelado_em IS NULL AND NEW.cancelado_por IS NOT NULL) THEN
+       OR (OLD.cancelado_em IS NULL AND NEW.cancelado_por IS NOT NULL)
+       OR (OLD.cancelado_em IS NULL AND OLD.pago_em IS NOT NULL AND NEW.cancelado_em IS NOT NULL) THEN
       RAISE EXCEPTION 'o worker só altera o lançamento na anonimização (app_anonimizar_financeiro)' USING ERRCODE = '42501';
     END IF;
-    SELECT p.status, p.anonimizado_em INTO v_status, v_anonimizado
-      FROM public.patients p WHERE p.tenant_id = OLD.tenant_id AND p.id = OLD.patient_id
-      FOR KEY SHARE;
-    IF v_status IS DISTINCT FROM 'bloqueado' OR v_anonimizado IS NOT NULL THEN
-      RAISE EXCEPTION 'anonimização do Financeiro só de paciente bloqueado ainda não anonimizado' USING ERRCODE = '42501';
+    SELECT p.status, p.anonimizado_em,
+           (p.anonimizar_apos IS NOT NULL AND p.anonimizar_apos < (now() AT TIME ZONE t.fuso)::date)
+      INTO v_status, v_anonimizado, v_vencido
+      FROM public.patients p JOIN public.tenants t ON t.id = p.tenant_id
+      WHERE p.tenant_id = OLD.tenant_id AND p.id = OLD.patient_id
+      FOR KEY SHARE OF p;
+    IF v_status IS DISTINCT FROM 'bloqueado' OR v_anonimizado IS NOT NULL OR v_vencido IS NOT TRUE THEN
+      RAISE EXCEPTION 'anonimização do Financeiro só de paciente bloqueado, ainda não anonimizado, com o prazo vencido' USING ERRCODE = '42501';
+    END IF;
+    -- o em aberto que a anonimização cancela: na hora do banco e sem autora (a data mandada pelo UPDATE não vale)
+    IF OLD.cancelado_em IS NULL AND NEW.cancelado_em IS NOT NULL THEN
+      NEW.cancelado_em := clock_timestamp();
+      NEW.cancelado_por := NULL;
     END IF;
     RETURN NEW;
   END IF;
