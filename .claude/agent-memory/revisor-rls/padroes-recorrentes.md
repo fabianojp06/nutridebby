@@ -452,3 +452,16 @@ Plano 23, T1c (SECURITY DEFINER da agenda, 17/11/2026): sem Critical/Important; 
   (concluir/confirmarCodigo do agendamento público) inverte a ordem tenant → linha. Conferir o chamador na tarefa que liga.
 - Anonimização SECURITY DEFINER nova copiando o molde 0065/0108 (bloqueado + anonimizado_em nulo) sem o prazo vencido que a
   0123 já exige: apontar o molde mais novo.
+Plano 23, revisão final do PR 1 (fundação, 17/11/2026): sem Critical/Important na lente banco.
+- PR de fundação é o ALVO da volta atrás dos PRs seguintes (runbook): job da imagem dele que apaga/trata linhas sem conhecer
+  o estado novo (limparPedidosPublicos apaga aguardando > 24 h pela criação) perde dado na volta. Conferir varreduras do worker.
+- Backfill que desdobra linhas (regra "ambas" → par) contra teto do módulo da mesma imagem (MAX_REGRAS 30): a nutri trava.
+SUS-100 (17/11/2026): teste de guarda com DDL (drop/create policy, drop trigger) em tabela real no banco compartilhado do
+  Testcontainers segura AccessExclusive até o rollback → 40P01 com outro arquivo. Correção: clone por TEMPLATE
+  (`test/ddl.ts`). Em teste novo com DDL em tabela real, exigir o banco próprio; o TEMPLATE não copia ACL/SET de banco.
+Plano 23, re-revisão do /code-review do PR #59 (17/11/2026): os 5 itens resolvidos, sem quebra nova Critical/Important.
+- Recorrentes que o /code-review pegou e a revisão por tarefa não: gatilho que deriva coluna da FK só no BEFORE INSERT (a FK
+  trocada no UPDATE deixa o dado do pai antigo); "ocupado" em função SQL com lista de status ≠ recorte do EXCLUDE/TS e sem
+  bloqueios; borda `<=` × `<` entre validade SQL e TS. Cruzar sempre com o EXCLUDE, o leitor TS e a borda do TS.
+- Junção de linhas desdobradas por chave de horário (juntarPares) vale só enquanto o par não pode nascer: quando a tarefa
+  seguinte liberar regras por local na mesma faixa, a junção e o "apaga a outra metade" passam a apagar regra legítima.
