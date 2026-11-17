@@ -44,6 +44,11 @@ describe('"Ligado ao plano" no editor (US-239)', () => {
     const h = html({ biblioteca });
     expect(h).toMatch(/>Atualizar da biblioteca<span class="sr-only">: Trocas do dia a dia<\/span>/);
     expect(h.match(/>Remover<span/g)).toHaveLength(4);
+    // sucesso de "Ligar" e "Atualizar": a região viva fica montada (vazia) desde o início, e os títulos dos itens recebem
+    // o foco depois da ação (o painel de "Ligar" se esconde com o foco dentro)
+    expect(h).toContain('<p role="status" class="sr-only"></p>');
+    expect(h).toMatch(/<h3 id="[^"]+-lista-l1" tabindex="-1"[^>]*>Trocas do dia a dia<\/h3>/);
+    expect(h).toMatch(/<p id="[^"]+-conteudo-c2" tabindex="-1"[^>]*>Panqueca de aveia<\/p>/);
     expect(h).toContain('>Ligar lista de substituição</button>');
     expect(h).toMatch(/<option value="b2"[^>]*>Lanches — 2 grupos · 7 itens<\/option>/);
     expect(h).not.toContain('<option value="b1"');

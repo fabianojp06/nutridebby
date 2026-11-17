@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { ROTULO_TIPO_CONTEUDO } from '@/modules/conteudo/constantes';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { MAX_CONTEUDOS_PLANO, MAX_LISTAS_PLANO, MSG_LIGADOS, type ConteudoParaLigar, type ListaDaBiblioteca } from '@/modules/plano-alimentar/biblioteca-constantes';
@@ -30,6 +30,8 @@ type Props = {
  * biblioteca não alteram este plano.", com "Atualizar da biblioteca" enquanto a lista de origem existe e "Remover"); a
  * receita ou o material, com o tipo e a situação ("Publicado" / "Não publicado — o paciente não vê" / "{título}
  * (excluído)"). Cada ação grava na hora (fora do salvamento automático); o erro fica ao lado do bloco, em `role="alert"`.
+ * O sucesso é lido pela região `role="status"` sempre montada, e o foco vai ao título do item ligado ou atualizado (o
+ * painel de "Ligar" se esconde, e o próprio seletor some quando acaba o que ligar) ou, depois de "Remover", ao da seção.
  */
 export function LigadoAoPlano({ planId, patientId, listas: listasIniciais, conteudos: conteudosIniciais, fuso, biblioteca }: Props) {
   const id = useId();
@@ -41,11 +43,21 @@ export function LigadoAoPlano({ planId, patientId, listas: listasIniciais, conte
   const [erroConteudos, setErroConteudos] = useState('');
   const [pendente, setPendente] = useState(false);
   const titulo = useRef<HTMLHeadingElement>(null);
+  const [aviso, setAviso] = useState('');
+  // título do item que recebe o foco depois de ligar ou atualizar: só existe depois do commit (item novo), então o foco
+  // vai no efeito, não no clique; objeto novo a cada vez para repetir o foco no mesmo item
+  const [foco, setFoco] = useState<{ alvo: string } | null>(null);
+  useEffect(() => {
+    if (foco) document.getElementById(foco.alvo)?.focus();
+  }, [foco]);
+  const idDaLista = (listaId: string) => `${id}-lista-${listaId}`;
+  const idDoConteudo = (ligacaoId: string) => `${id}-conteudo-${ligacaoId}`;
 
   /** Roda a ação; devolve o valor ou põe o erro no bloco certo. */
   async function rodar<T>(acao: () => Promise<ResultadoLigado<T>>, setErro: (m: string) => void): Promise<{ ok: true; valor: T } | { ok: false }> {
     setPendente(true);
     setErro('');
+    setAviso(''); // a mesma frase de novo (duas listas ligadas seguidas) volta a ser lida
     try {
       const r = await acao();
       if (r.erro !== undefined) {
@@ -73,13 +85,14 @@ export function LigadoAoPlano({ planId, patientId, listas: listasIniciais, conte
   return (
     <section aria-labelledby={`${id}-titulo`} className="space-y-4 rounded-2xl border border-borda bg-cartao p-3">
       <h2 id={`${id}-titulo`} ref={titulo} tabIndex={-1} className="font-titulo text-lg font-semibold">{MSG_LIGADOS.titulo}</h2>
+      <p role="status" className="sr-only">{aviso}</p>
       {vazio && <p className="text-suave">{MSG_LIGADOS.vazio}</p>}
 
       {listas.length > 0 && (
         <ul className="space-y-3">
           {listas.map((l) => (
             <li key={l.id} className="space-y-1 rounded-xl border border-borda p-3">
-              <h3 className="font-medium">{l.nome}</h3>
+              <h3 id={idDaLista(l.id)} tabIndex={-1} className="font-medium">{l.nome}</h3>
               <p className="text-sm text-suave">{MSG_LIGADOS.copia(formatarDataNoFuso(l.copiadaEm, fuso))}</p>
               {l.orientacao && (
                 <>
@@ -109,7 +122,10 @@ export function LigadoAoPlano({ planId, patientId, listas: listasIniciais, conte
                       className={LINK}
                       onClick={async () => {
                         const r = await rodar(() => atualizarDaBibliotecaAction(dono, l.id), setErroListas);
-                        if (r.ok) trocarLista(r.valor);
+                        if (!r.ok) return;
+                        trocarLista(r.valor);
+                        setAviso(MSG_LIGADOS.listaAtualizada);
+                        setFoco({ alvo: idDaLista(r.valor.id) });
                       }}
                     >
                       {MSG_LIGADOS.atualizar}<span className="sr-only">: {l.nome}</span>
@@ -144,8 +160,11 @@ export function LigadoAoPlano({ planId, patientId, listas: listasIniciais, conte
           erro={erroListas}
           aoLigar={async (listaId) => {
             const r = await rodar(() => ligarListaAction(dono, listaId), setErroListas);
-            if (r.ok) trocarLista(r.valor);
-            return r.ok;
+            if (!r.ok) return false;
+            trocarLista(r.valor);
+            setAviso(MSG_LIGADOS.listaLigada);
+            setFoco({ alvo: idDaLista(r.valor.id) });
+            return true;
           }}
         />
       )}
@@ -155,7 +174,7 @@ export function LigadoAoPlano({ planId, patientId, listas: listasIniciais, conte
           {conteudos.map((c) => (
             <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-borda p-3">
               <div>
-                <p className="font-medium">{c.situacao === 'excluido' ? MSG_LIGADOS.excluido(c.titulo) : c.titulo}</p>
+                <p id={idDoConteudo(c.id)} tabIndex={-1} className="font-medium">{c.situacao === 'excluido' ? MSG_LIGADOS.excluido(c.titulo) : c.titulo}</p>
                 {c.situacao !== 'excluido' && (
                   <p className={`text-sm ${c.situacao === 'publicado' ? 'text-suave' : 'font-semibold text-aviso'}`}>
                     {[c.tipo ? ROTULO_TIPO_CONTEUDO[c.tipo] : null, c.situacao === 'publicado' ? MSG_LIGADOS.publicado : MSG_LIGADOS.naoPublicado].filter(Boolean).join(' · ')}
@@ -191,8 +210,11 @@ export function LigadoAoPlano({ planId, patientId, listas: listasIniciais, conte
           erro={erroConteudos}
           aoLigar={async (contentId) => {
             const r = await rodar(() => ligarConteudoAction(dono, contentId), setErroConteudos);
-            if (r.ok) trocarConteudo(r.valor);
-            return r.ok;
+            if (!r.ok) return false;
+            trocarConteudo(r.valor);
+            setAviso(MSG_LIGADOS.conteudoLigado);
+            setFoco({ alvo: idDoConteudo(r.valor.id) });
+            return true;
           }}
         />
       )}
@@ -253,6 +275,8 @@ function Ligar({ rotulo, campo, opcoes, cheio, pendente, erro, aoLigar }: {
           type="button"
           disabled={pendente || !valor}
           onClick={async () => {
+            // o painel se esconde com o foco aqui (e o seletor some quando era a última opção): quem chama leva o
+            // foco ao título do item ligado
             if (await aoLigar(valor)) setAberto(false);
           }}
           className={BOTAO}

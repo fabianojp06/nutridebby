@@ -94,6 +94,10 @@ export const MSG_LIGADOS = {
   conteudo: 'Receita ou material',
   ligar: 'Ligar',
   vazio: 'Nenhuma lista, receita ou material ligado a este plano.',
+  /** Sem texto na spec: o sucesso de cada ação, lido pela região `role="status"` da seção (o item novo já aparece na lista). */
+  listaLigada: 'Lista ligada.',
+  listaAtualizada: 'Lista atualizada da biblioteca.',
+  conteudoLigado: 'Receita ou material ligado.',
   /** "2 grupos · 7 itens" da cópia (o mesmo texto da biblioteca). */
   contagem: MSG_LISTAS.contagem,
 } as const;
