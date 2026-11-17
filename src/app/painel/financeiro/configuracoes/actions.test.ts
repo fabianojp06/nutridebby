@@ -68,6 +68,26 @@ describe('salvarConfiguracoesAction (US-300)', () => {
     expect(revalidatePath).toHaveBeenCalledWith('/painel/financeiro', 'layout');
   });
 
+  it('cada salvamento leva um envio novo na URL (?ok=config&envio=<n>), mesmo com os mesmos valores: a tela foca o h1 e anuncia de novo', async () => {
+    const T = await novoTenant(app.db);
+    entrarComo(T);
+    const valores = { saldoInicialEm: '2026-11-01', saldoInicial: '1.500,00', valorConsulta: '250,00' };
+    const destino = async (prev: { envio?: number }) => {
+      const erro = await salvarConfiguracoesAction(prev, formulario(valores)).then(
+        () => null,
+        (e: Error) => e.message,
+      );
+      const m = new RegExp(`^redirect ${CAMINHO.replaceAll('/', '\\/')}\\?ok=config&envio=(\\d+)$`).exec(erro ?? '');
+      expect(m, String(erro)).not.toBeNull();
+      return Number(m![1]);
+    };
+    const primeiro = await destino({});
+    await new Promise((r) => setTimeout(r, 2));
+    const segundo = await destino({}); // o estado não muda num redirect: o envio novo vem do relógio
+    expect(segundo).not.toBe(primeiro);
+    expect(await destino({ envio: segundo + 10_000_000_000 })).toBe(segundo + 10_000_000_001); // nunca igual ao anterior
+  });
+
   it('saldo negativo salva (conta no vermelho é saldo válido)', async () => {
     const T = await novoTenant(app.db);
     entrarComo(T);

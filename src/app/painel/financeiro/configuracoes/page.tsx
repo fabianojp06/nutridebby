@@ -2,7 +2,7 @@ import { requireNutri } from '@/lib/tenant-session';
 import { lerConfiguracoes, listarCategorias } from '@/modules/financeiro/configuracoes';
 import { valorParaCampo } from '@/modules/financeiro/dinheiro';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
-import { TopoDoFinanceiro } from '../topo';
+import { marcadorDoEnvio, TopoDoFinanceiro } from '../topo';
 import { Categorias } from './categorias';
 import { FormSaldo } from './form-saldo';
 
@@ -23,9 +23,9 @@ export default async function ConfiguracoesDoFinanceiro({ searchParams }: PagePr
         valorConsulta: config.valorConsultaCentavos === null ? '' : valorParaCampo(config.valorConsultaCentavos),
       }
     : { saldoInicialEm: hojeNoFuso(tenant.fuso), saldoInicial: '', valorConsulta: '' };
-  // depois de salvar, o redirect volta a esta tela (a mesma árvore): a chave com o que foi salvo e o `ok` descarta o erro
-  // de um envio anterior que o estado do formulário ainda guardaria
-  const chave = [typeof parametros.ok === 'string' ? parametros.ok : '', ...Object.values(inicial)].join('|');
+  // depois de salvar, o redirect volta a esta tela (a mesma árvore): a chave com o `ok`, o `envio` (novo a cada salvamento,
+  // mesmo com os mesmos valores) e o que foi salvo descarta o erro de um envio anterior que o estado do formulário guardaria
+  const chave = [typeof parametros.ok === 'string' ? parametros.ok : '', marcadorDoEnvio(parametros.envio), ...Object.values(inicial)].join('|');
   return (
     <>
       <TopoDoFinanceiro titulo="Configurações do Financeiro" parametros={parametros} />

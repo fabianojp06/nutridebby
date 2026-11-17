@@ -78,5 +78,17 @@ describe('/painel/financeiro/configuracoes (US-300)', () => {
     expect(consultas).not.toContain('>Excluir<'); // a categoria da cobrança nunca se exclui (RN-303): sem o botão
     // "Nova categoria" em cada lista, com o tipo no nome acessível
     expect(h.match(/>Nova categoria<span class="sr-only"> de (entrada|saída)<\/span><\/label>/g)).toHaveLength(2);
+    // a região de status das categorias já existe, vazia, entre o h2 e as listas (§7: sempre montada, fora das linhas)
+    const secao = /<section[^>]*aria-labelledby="categorias-titulo"[\s\S]*<\/section>/.exec(h)?.[0] ?? '';
+    expect(secao).toMatch(/<\/h2><p role="status"><\/p><div/);
+  });
+
+  it('?envio= é só marcador: dígitos viram parte da chave do formulário, nunca texto na tela; outro valor é ignorado', async () => {
+    await tenant();
+    const h = await html({ ok: 'config', envio: '<b>1</b>' });
+    expect(h).not.toContain('<b>1</b>');
+    expect(h).not.toContain('&lt;b&gt;');
+    expect(h).toMatch(/<p role="status"[^>]*>Configurações salvas\.<\/p>/);
+    expect(await html({ ok: 'config', envio: '1763400000000' })).not.toContain('1763400000000');
   });
 });
