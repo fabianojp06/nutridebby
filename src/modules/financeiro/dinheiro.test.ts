@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatarReais, paraCentavos } from './dinheiro';
+import { formatarReais, paraCentavos, valorParaCampo } from './dinheiro';
 
 /** RN-326: entrada em reais na forma brasileira, sem ponto flutuante; tela "R$ 1.250,00" e "−R$ 320,00". */
 describe('paraCentavos', () => {
@@ -70,5 +70,19 @@ describe('formatarReais', () => {
 
   it('volta pelo paraCentavos', () => {
     for (const c of [1, 99, 125_050, -32_000, 1_000_000_000, -1_000_000_000]) expect(paraCentavos(formatarReais(c))).toEqual({ ok: true, centavos: c });
+  });
+});
+
+/** O valor salvo de volta no campo do formulário (Configurações, edição): sem "R$", com o "-" do teclado. */
+describe('valorParaCampo', () => {
+  it.each([
+    [150_000, '1.500,00'],
+    [25_000, '250,00'],
+    [1, '0,01'],
+    [-32_000, '-320,00'],
+    [1_000_000_000, '10.000.000,00'],
+  ])('%i → %j', (centavos, texto) => {
+    expect(valorParaCampo(centavos)).toBe(texto);
+    expect(paraCentavos(texto)).toEqual({ ok: true, centavos });
   });
 });

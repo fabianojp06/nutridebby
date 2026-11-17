@@ -17,7 +17,8 @@ const ID = '[0-9a-f-]{36}';
 export const GUIAS: readonly Guia[] = [
   {
     id: ID_BOAS_VINDAS,
-    versao: 3, // Plano 12: o passo do menu passou a citar "Exames recebidos"; 3 = Plano 15: o passo do menu cita "Dúvidas dos pacientes" (★ DO-6)
+    versao: 4, // Plano 12: o passo do menu passou a citar "Exames recebidos"; 3 = Plano 15: o passo do menu cita "Dúvidas dos pacientes" (★ DO-6)
+    // 4 = Plano 20: o passo do menu cita "Financeiro" (sobe +1 sobre a da main no rebase)
     padrao: /^\/painel$/,
     titulo: 'Início',
     ajuda: {
@@ -29,7 +30,7 @@ export const GUIAS: readonly Guia[] = [
     },
     passos: [
       { titulo: 'Boas-vindas ao NutriDebby', texto: 'Um passeio rápido pelo painel. Você pode pular agora e rever depois no menu da sua conta.' },
-      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Conteúdos e Configurações ficam sempre no topo. Com o recebimento de exames pelo app ligado, "Exames recebidos" aparece também, com o número dos que aguardam. Quando você ativa a IA Nutri para pacientes, "Dúvidas dos pacientes" aparece também, com o número das abertas.' },
+      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Conteúdos, Financeiro e Configurações ficam no topo. Com o recebimento de exames ligado, "Exames recebidos" aparece também, com o número dos que aguardam. Quando você ativa a IA Nutri para pacientes, "Dúvidas dos pacientes" aparece também, com o número das abertas.' },
       { alvo: 'proxima-consulta', titulo: 'Próxima consulta', texto: 'A consulta mais próxima de hoje, com atalhos para o prontuário e para a chamada online.' },
       { alvo: 'atalhos', titulo: 'Atalhos', texto: 'Cadastre um paciente, marque uma consulta ou publique um conteúdo direto do Início.' },
       { alvo: 'tema', titulo: 'Claro ou escuro', texto: 'Este botão liga e desliga o modo escuro. A escolha fica salva na sua conta, em qualquer aparelho.' },
@@ -422,6 +423,41 @@ export const GUIAS: readonly Guia[] = [
       ],
     },
     passos: [{ alvo: 'ativar-2fa', titulo: 'Ativar', texto: 'Confirme a senha, leia o QR Code com o aplicativo autenticador e digite o código de 6 dígitos.' }],
+  },
+  {
+    // Plano 20: no FIM da lista (o Plano 18 insere guias antes de 'prontuario'). Texto em rascunho até a revisão do
+    // revisor-interface e da Debby (spec §6.2). Os passos das Configurações abrem no centro quando o alvo não está na tela.
+    id: 'financeiro',
+    versao: 1,
+    padrao: /^\/painel\/financeiro(\/.*)?$/,
+    titulo: 'Financeiro',
+    ajuda: {
+      resumo: 'O caixa do consultório: o saldo, o que entrou e saiu no mês, os pagamentos pendentes dos pacientes e os relatórios. Só você vê; nada é enviado ao paciente.',
+      secoes: [
+        {
+          titulo: 'Para começar',
+          itens: [
+            'Em "Configurações", informe a data e o valor do saldo do caixa e o valor da sua consulta.',
+            'Com o valor da consulta informado, cada consulta marcada como Realizada gera a cobrança sozinha, na categoria Consultas.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'O saldo atual soma ao saldo do caixa tudo o que foi recebido e pago a partir da data do saldo.',
+            'Categoria com lançamentos não pode ser excluída: use "Arquivar" para que ela não apareça nos formulários.',
+            'A categoria Consultas pode mudar de nome, mas não pode ser arquivada nem excluída.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'financeiro-secoes', titulo: 'Seções do Financeiro', texto: 'Resumo, Lançamentos, Pagamentos pendentes, Relatórios e Configurações ficam nesta barra, em todas as telas do Financeiro.' },
+      { alvo: 'financeiro-cartoes', titulo: 'Resumo do mês', texto: 'O saldo atual, as entradas e as saídas do mês e os pagamentos pendentes dos pacientes. Os cartões aparecem depois que você configura o Financeiro.' },
+      { alvo: 'financeiro-saldo', titulo: 'Saldo do caixa', texto: 'Informe quanto havia no caixa numa data. O saldo atual soma a este valor tudo o que foi recebido e pago a partir dela.' },
+      { alvo: 'financeiro-valor-consulta', titulo: 'Valor da consulta', texto: 'Sugerido em toda cobrança criada ao marcar a consulta como Realizada. Sem ele, as consultas não geram cobrança.' },
+      { alvo: 'financeiro-categorias', titulo: 'Categorias', texto: 'Organize as entradas e as saídas: crie, renomeie ou arquive categorias. A categoria Consultas é a das cobranças das consultas.' },
+    ],
   },
 ];
 

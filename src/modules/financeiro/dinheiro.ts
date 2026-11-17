@@ -31,3 +31,11 @@ export function formatarReais(centavos: number): string {
   const texto = REAIS.format(Math.abs(centavos) / 100);
   return centavos < 0 ? `−${texto}` : texto;
 }
+
+const NUMERO = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** O valor de volta no campo do formulário: "1.500,00", "-320,00" (sem "R$" e com o "-" do teclado; o paraCentavos lê). */
+export function valorParaCampo(centavos: number): string {
+  const texto = NUMERO.format(Math.abs(centavos) / 100);
+  return centavos < 0 ? `-${texto}` : texto;
+}

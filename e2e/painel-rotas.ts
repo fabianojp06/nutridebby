@@ -37,6 +37,8 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/duvidas/[id]': (i) => `/painel/duvidas/${i.duvida}`,
   '/painel/exames-recebidos': () => '/painel/exames-recebidos',
   '/painel/exames-recebidos/[id]': (i) => `/painel/exames-recebidos/${i.envio}`,
+  '/painel/financeiro': () => '/painel/financeiro', // Plano 20 (a semente deixa o Financeiro configurado)
+  '/painel/financeiro/configuracoes': () => '/painel/financeiro/configuracoes',
   '/painel/pacientes': () => '/painel/pacientes',
   '/painel/pacientes/novo': () => '/painel/pacientes/novo',
   '/painel/pacientes/[id]': (i) => `/painel/pacientes/${i.paciente}`, // a aba Início (Plano 18; era o Resumo)
