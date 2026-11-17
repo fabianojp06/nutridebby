@@ -9,7 +9,8 @@ import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publica
 // RNF-10 / RNF-09 (P06-10): WCAG 2.1 AA em todas as telas do PWA, no tamanho de um Android (projeto "celular").
 // Bloco de IP deste spec (o limite de login é por IP): 10.9.10.21 a 10.9.10.30; Plano 10A (T16): 10.9.14.79 (a nutricionista
 // dos documentos, E2E_DOCS, com 2FA) e 10.9.14.80 (as páginas sem login do documento); Plano 15 (T13): 10.9.29.64 (a paciente
-// liberada para a IA Nutri e sem o consentimento, da tela "Antes de usar a IA Nutri").
+// liberada para a IA Nutri e sem o consentimento, da tela "Antes de usar a IA Nutri"); Plano 17 (P17-08): 10.9.10.25 (a
+// paciente sem lembretes, de Eu › Lembretes vazia).
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const MULTI = { email: 'multi-e2e@nutridebby.test', senha: 'Multi2026segura' }; // scripts/e2e-seed.ts: 3 consultórios, o "3" sem o termo
 test.describe.configure({ mode: 'serial' });
@@ -30,6 +31,7 @@ test.beforeAll(async ({ browser }) => {
   // qualquer que seja a hora do CI (com 12:00, só entre 10:30 e 23:59)
   // texto livre com um link longo (observação, orientações, diário e comentário): a tela de 320 px não pode rolar na horizontal
   await publicarPlanoDoDia(nutri, paciente.prontuario, undefined, { observacao: `Veja ${LINK_LONGO}`, orientacoes: `Leia ${LINK_LONGO}` });
+  await lembreteLivreComLink(paciente.prontuario);
   await paciente.page.goto('/p/plano');
   refeicaoId = (await paciente.page.locator('details[id^="ref-"]').first().getAttribute('id'))!.slice(4);
   await marcarParaPaciente(nutri, paciente.nome, paciente.email, 1); // R11: semana 1 (o portal.spec usa a 0)
@@ -89,6 +91,20 @@ async function conversaComMensagensReais() {
   await expect(page.getByText('Sua dúvida foi vista no consultório.')).toHaveCount(2);
 }
 
+/**
+ * Plano 17 (P17-08): um lembrete livre com o link longo (97 caracteres, ≤ 120), pela seção "Lembretes no app" da aba Plano
+ * alimentar — Eu › Lembretes mostra "Sua nutricionista: Leia …" e não pode rolar na horizontal a 320 px.
+ */
+async function lembreteLivreComLink(prontuario: string) {
+  await nutri.goto(`${prontuario}/plano-alimentar`);
+  const secao = nutri.locator('[data-guia="lembretes-app"]');
+  await nutri.waitForLoadState('networkidle'); // formulário controlado pelo React: o clique antes da hidratação se perde
+  await secao.getByRole('button', { name: 'Adicionar lembrete livre' }).click();
+  await secao.getByLabel('Texto do lembrete').fill(`Leia ${LINK_LONGO}`);
+  await secao.getByRole('button', { name: 'Salvar lembrete livre' }).click();
+  await expect(secao.getByRole('status')).toHaveText('Lembrete salvo.');
+}
+
 /** A aba "IA Nutri" da ficha: "Liberar a IA Nutri para este paciente" (US-170). */
 async function liberarIaNutri(prontuario: string) {
   await nutri.goto(`${prontuario}/ia-nutri`);
@@ -117,7 +133,7 @@ async function semViolacoes(page: Page, url: string) {
 
 // Plano 15: /p/plano/ia com a conversa (resposta montada, texto fixo de risco e dúvidas vistas); "Antes de usar a IA Nutri"
 // (/p/plano/ia/autorizar) só abre sem o consentimento — teste próprio, com outra paciente, abaixo
-const ROTAS = ['/p/inicio', '/p/jornada', '/p/plano', '/p/plano/ia', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/perfil/ia', '/p/documentos', '/p/exames', '/p/ajuda'];
+const ROTAS = ['/p/inicio', '/p/jornada', '/p/plano', '/p/plano/ia', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/perfil/ia', '/p/perfil/lembretes', '/p/documentos', '/p/exames', '/p/ajuda'];
 for (const url of ROTAS) {
   test(`axe sem violações (WCAG 2.1 AA) em ${url}`, async () => {
     await semViolacoes(paciente.page, url);
@@ -248,12 +264,13 @@ test('320 px com o texto em 200% (WCAG 1.4.4/1.4.10): nenhuma tela do layout G r
   await paciente.page.setViewportSize({ width: 320, height: 780 });
   try {
     // todas as telas do portal que esta paciente abre (termo, escolher e sem-acesso: testes próprios do arquivo)
-    for (const url of ['/p/inicio', '/p/jornada', '/p/plano', `/p/plano/refeicao/${refeicaoId}`, '/p/plano/ia', '/p/evolucao', '/p/exames', '/p/perfil', '/p/ajuda', '/p/diario', '/p/conteudos', '/p/agenda', '/p/compras', '/p/documentos']) {
+    for (const url of ['/p/inicio', '/p/jornada', '/p/plano', `/p/plano/refeicao/${refeicaoId}`, '/p/plano/ia', '/p/evolucao', '/p/exames', '/p/perfil', '/p/perfil/lembretes', '/p/ajuda', '/p/diario', '/p/conteudos', '/p/agenda', '/p/compras', '/p/documentos']) {
       await paciente.page.goto(url);
       await paciente.page.waitForLoadState('networkidle');
       expect(await violacoes(paciente.page), `axe a 320 px: ${url}`).toEqual([]);
-      // o link longo do texto livre está mesmo na página (diário: registro e comentário; plano: orientações e a observação na sanfona; refeição: observação)
-      const comLink = { '/p/diario': 2, '/p/plano': 2, [`/p/plano/refeicao/${refeicaoId}`]: 1 }[url] ?? 0;
+      // o link longo do texto livre está mesmo na página (diário: registro e comentário; plano: orientações e a observação na sanfona; refeição: observação;
+      // Plano 17: o lembrete livre em Eu › Lembretes)
+      const comLink = { '/p/diario': 2, '/p/plano': 2, [`/p/plano/refeicao/${refeicaoId}`]: 1, '/p/perfil/lembretes': 1 }[url] ?? 0;
       if (comLink) await expect(paciente.page.getByRole('main').getByText(LINK_LONGO, { exact: false })).toHaveCount(comLink);
       await paciente.page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
       expect(await paciente.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), url).toBe(true);
@@ -450,6 +467,36 @@ test('IA Nutri: axe em "Antes de usar a IA Nutri" (/p/plano/ia/autorizar), claro
     }
   } finally {
     await semAceite.page.context().close();
+  }
+});
+
+// Plano 17 (P17-08): Eu › Lembretes sem nenhum lembrete (o push antigo ainda abre a tela: frase com sentido, sem redirecionar)
+// — outra paciente, recém-cadastrada; Eu não mostra a seção "Lembretes". Claro, aparelho escuro e 320 px com o texto a 200%.
+test('Lembretes: axe em Eu › Lembretes vazia (/p/perfil/lembretes), claro e escuro, e a 320 px com o texto a 200%', async ({ browser }) => {
+  test.setTimeout(60_000);
+  const semLembretes = await pacienteNoPortal(browser, nutri, '10.9.10.25');
+  try {
+    const page = semLembretes.page;
+    await page.goto('/p/perfil');
+    await expect(page.getByRole('heading', { level: 2, name: 'Lembretes', exact: true })).toHaveCount(0);
+    const vazia = page.getByText('Sua nutricionista ainda não configurou lembretes para você.', { exact: true });
+    for (const modo of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: modo });
+      await page.goto('/p/perfil/lembretes');
+      await expect(vazia, modo).toBeVisible();
+      await page.waitForLoadState('networkidle');
+      expect(await violacoes(page), modo).toEqual([]);
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.setViewportSize({ width: 320, height: 780 });
+    await page.goto('/p/perfil/lembretes');
+    await expect(vazia).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    expect(await violacoes(page), '320 px').toEqual([]);
+    await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '320 px a 200%').toBe(true);
+  } finally {
+    await semLembretes.page.context().close();
   }
 });
 
