@@ -596,8 +596,8 @@ não é disputado (spec §4, abordagem 2).
 
 1. Cada lembrete ativo gera os seus avisos do dia (`dias` conferidos pelo dia da semana local). O pedido do diário de uma
    refeição **já registrada hoje** sai aqui, antes da janela, da fusão e do teto (`slots.ts:69`): não derruba a água do
-   mesmo minuto. "Já registrada" = um registro do dia local com a cópia da refeição do plano (`refeicao_do_plano`) ou, quando
-   o nome está na lista fechada, com a mesma refeição (`registradasNoDiario`, `envio.ts:113`; conferência de estado do
+   mesmo minuto. "Já registrada" = um registro do dia local com a refeição do plano escolhida (`refeicao_slot`, 0121, gravada com ou sem
+   resposta), com a cópia da resposta (`refeicao_do_plano`) ou, quando o nome está na lista fechada, com a mesma refeição (`registradasNoDiario`, `envio.ts:113`; conferência de estado do
    worker, sem `auditRead`).
 2. Fora da janela 06:00–22:00 (as 22:00 valem) não há aviso; hora que não existe no fuso (horário de verão) também não.
    Slot anterior ao `updated_at` do lembrete não sai (`validoDesde`, `slots.ts:78`): lembrete salvo às 10:03 não envia a
@@ -1219,6 +1219,7 @@ A resposta "Comi assim" / "Comi outra coisa" é um **registro do diário** com d
 |---|---|
 | `resposta text` | `null` (registro comum) ou `'como_no_plano'`/`'outra_coisa'` (`diary_entries_resposta_valida`) |
 | `refeicao_do_plano text` | presente se e só se `resposta` presente, 1 a 80 caracteres (`diary_entries_refeicao_do_plano`) |
+| `refeicao_slot text` (Plano 17, `drizzle/0121_diario_refeicao_slot.sql`, só `ADD COLUMN`) | anulável, sem CHECK: o mesmo rótulo `"{nome} · {HH:MM}"`, gravado por `registrarNoDiario` sempre que o registro vem de uma refeição do plano (`refeicaoId`), com ou sem resposta; só o worker dos lembretes a lê (`registradasNoDiario`, `src/modules/lembretes/envio.ts:114`); nunca exibida nem exportada (marcador técnico, fora do `dados.json`) |
 | `diary_entries_outra_coisa_tem_conteudo` | "Comi outra coisa" exige texto ou foto |
 | `diary_entries_tem_conteudo` (recriado) | texto, foto ou `resposta is not distinct from 'como_no_plano'` |
 
