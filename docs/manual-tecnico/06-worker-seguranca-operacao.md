@@ -905,12 +905,16 @@ expansão), mas a imagem anterior tem dois efeitos ([§12.11](12-financeiro.md#1
 - **DPA.** O PR 2 sobe o DPA para a 1.1. Quem já aceitou a 1.1 fica com `tenants.dpa_versao = '1.1'`; a imagem anterior
   (`DPA_VERSAO = '1.0'`) leva essa nutricionista a `/painel/dpa`, e o aceite **não destrava**: `registrarAceiteDpa` só grava
   `tenants.dpa_versao` quando insere a linha de `consents`, e a `dpa-1.0` dela já existe (T6-R2b). Todo o painel fica
-  parado para quem aceitou a 1.1. Saída: **corrigir para a frente** (passo 5); voltar a imagem do PR 2 só com o dono
-  decidindo antes como destravar ([§12.13](12-financeiro.md#1213-divergências-conhecidas), #12).
+  parado para quem aceitou a 1.1. Saída preferida: **corrigir para a frente** (passo 5). Se a volta da imagem for
+  inevitável: com o OK do dono (regra 3 do servidor) e o role migrator, `UPDATE tenants SET dpa_versao = '1.0' WHERE
+  dpa_versao = '1.1'`, com o motivo registrado (os aceites `dpa-1.1` ficam em `consents` como prova). No avanço
+  seguinte não precisa de SQL: desde a revisão final do PR 2, `registrarAceiteDpa` regrava o tenant quando a linha da
+  versão já existe e o tenant está noutra versão (com o `aceito_em` da prova, sem linha nova). Runbook
+  `docs/operacao/financeiro.md` §6, "Volta atrás e DPA (#149)"; [§12.13](12-financeiro.md#1213-divergências-conhecidas), #12.
 - **Anonimização (R-314).** A imagem anterior não chama `app_anonimizar_financeiro` nem exporta a seção `financeiro`; o
   paciente vencido no meio ganha `anonimizado_em`, e a função (que exige `anonimizado_em` nulo) nunca mais anonimiza os
-  lançamentos dele. Risco prático nulo hoje (o primeiro vencimento é bloqueio + 20 anos); se acontecer, anonimizar à mão,
-  com o dono (P20-16). Runbook: `docs/operacao/financeiro.md`, §6.
+  lançamentos dele. Risco prático nulo hoje (o primeiro vencimento é bloqueio + 20 anos, nenhum antes de 2046); se
+  acontecer, anonimizar à mão, com o dono (P20-16). Runbook: `docs/operacao/financeiro.md`, §6.
 
 ---
 

@@ -29,7 +29,8 @@ orquestradora).
    enquanto não aceitar, o painel fica parado nessa tela." O app do paciente não muda nem pede aceite novo.
 3. **Snapshot (regra 5 do servidor).** Atenção ao aviso de 06/11/2026: até a Hostinger resolver, o snapshot **congela a
    VPS** e exige reboot manual. Não tirar snapshot com a produção no ar sem o dono decidir. O PR 2 **não tem migration**
-   (as tabelas vieram no PR 1): a volta atrás é só de imagem (ver §6).
+   (as tabelas vieram no PR 1): a volta atrás é de imagem, com uma ressalva do DPA — depois que alguém aceitou a 1.1, a
+   imagem antiga trava o painel (ver §6, "Volta atrás e DPA (#149)").
 4. **Aviso às outras sessões (R-312).** Depois do PR 2, todo "Realizada" no consultório do E2E cria cobrança, e essa
    consulta nunca mais sai da semente (a semente a deixa `cancelada`, porque `fin_lancamentos` não se apaga e a FK é
    `NO ACTION`). Nenhum E2E pode esperar a agenda do consultório do E2E vazia.
@@ -113,8 +114,23 @@ a Debby, antes da consulta (ex.: na conversa do agendamento). Mostrar o preço n
 - **Volta atrás da imagem (R-314).** Voltar a imagem do PR 2 para a do PR 1 (ou anterior) desliga a anonimização do
   Financeiro em `anonimizarVencidos` e a seção `financeiro` da cópia dos dados: o paciente vencido no meio ganha
   `anonimizado_em`, e a função `app_anonimizar_financeiro` (que exige `anonimizado_em` nulo) nunca mais anonimiza os
-  lançamentos dele. Risco prático nulo hoje (o primeiro vencimento é bloqueio + 20 anos). Se houver volta atrás com
-  paciente vencido no meio, anonimizar à mão, com o dono (item no backlog).
+  lançamentos dele. Risco prático nulo hoje (o primeiro vencimento é bloqueio + 20 anos, nenhum antes de 2046). Se houver
+  volta atrás com paciente vencido no meio, anonimizar à mão, com o dono (item no backlog).
+- **Volta atrás e DPA (#149).** Depois que alguém aceitou o DPA 1.1, **preferir corrigir para a frente** (um PR novo com
+  a correção), não voltar a imagem. Se a volta da imagem for inevitável: a imagem antiga exige a 1.0 (`DPA_VERSAO`), o
+  tenant está marcado com a 1.1 e toda nutricionista desse consultório cai em /painel/dpa (as APIs do painel dão 403).
+  Aceitar de novo lá **não destrava**: a linha `dpa-1.0` já existe em `consents`, e o `registrarAceiteDpa` da imagem
+  antiga só regrava o tenant quando insere a linha. Sem saída pela tela, o painel inteiro (agenda, prontuário e as
+  ferramentas do DPA, cláusulas 4 e 5) fica parado.
+  - Saída: com o **OK do dono** (regra 3 do servidor: banco de produção), no `nutri_db` com o role migrator
+    (`DATABASE_URL_MIGRATOR`), nunca pelo MCP de dev: `UPDATE tenants SET dpa_versao = '1.0' WHERE dpa_versao = '1.1';`.
+    Registrar o motivo (data, quem rodou, quantas linhas). Os aceites `dpa-1.1` ficam em `consents` como prova; a
+    nutricionista volta a operar sob a 1.0 até o novo avanço.
+  - No avanço seguinte (a imagem do PR 2 ou posterior), não precisa de SQL: o reaceite em /painel/dpa já regrava o
+    tenant com a 1.1 e a data do aceite que já estava em `consents`, sem linha nova de prova (correção da revisão final
+    do PR 2, teste em `src/modules/plataforma/dpa.test.ts`).
+  - A imagem antiga também não chama `app_anonimizar_financeiro` (item anterior, R-314); nenhum prazo vence antes de 2046.
+  - Detalhe técnico: manual técnico, cap. 6 §6.8.1.
 
 ## 7. Pendências externas (não travam a v1)
 

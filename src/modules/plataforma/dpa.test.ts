@@ -79,6 +79,44 @@ describe('Plano 20 (US-309): do DPA 1.0 para o 1.1', () => {
   });
 });
 
+describe('#149: volta atrás e novo avanço (revisão final do PR 2)', () => {
+  it('com dpa-1.1 já em consents e o tenant marcado com a 1.0, o reaceite regrava o tenant sem duplicar a prova', async () => {
+    const { tenantId, userId } = await tenantComNutri();
+    const t1 = new Date('2026-10-16T10:00:00Z');
+    const t2 = new Date('2026-11-17T10:00:00Z');
+    await app.db.insert(consents).values([
+      { userId, termoVersao: 'dpa-1.0', aceitoEm: t1, ip: '203.0.113.1' },
+      { userId, termoVersao: DPA_TERMO, aceitoEm: t2, ip: '203.0.113.2' },
+    ]);
+    // a correção manual do runbook (financeiro.md §6) depois da volta atrás da imagem
+    await app.db.update(tenants).set({ dpaVersao: '1.0', dpaAceitoEm: t1 }).where(eq(tenants.id, tenantId));
+
+    const t3 = new Date('2026-11-20T10:00:00Z');
+    await registrarAceiteDpa(app.db, { userId, tenantId, ip: '203.0.113.3', now: t3 });
+
+    const linhas = await app.db.select().from(consents).where(and(eq(consents.userId, userId), eq(consents.termoVersao, DPA_TERMO)));
+    expect(linhas.map((l) => [l.ip, l.aceitoEm.toISOString()])).toEqual([['203.0.113.2', t2.toISOString()]]);
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, tenantId));
+    // a data é a da prova que já existia, nunca a do clique repetido
+    expect(tenant).toMatchObject({ dpaVersao: DPA_VERSAO, dpaAceitoEm: t2 });
+  });
+
+  it('o reaceite de outra usuária, já com o tenant na versão em vigor, não mexe no tenant', async () => {
+    const { tenantId, userId } = await tenantComNutri();
+    const t1 = new Date('2026-11-17T10:00:00Z');
+    await registrarAceiteDpa(app.db, { userId, tenantId, ip: null, now: t1 });
+    const outra = randomUUID();
+    await app.db.insert(user).values({ id: outra, name: 'Outra', email: `dpa-${randomUUID().slice(0, 8)}@exemplo.com`, appRole: 'nutri', tenantId });
+    const t0 = new Date('2026-11-10T10:00:00Z');
+    await app.db.insert(consents).values({ userId: outra, termoVersao: DPA_TERMO, aceitoEm: t0, ip: null });
+
+    await registrarAceiteDpa(app.db, { userId: outra, tenantId, ip: null, now: new Date('2026-11-21T10:00:00Z') });
+
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, tenantId));
+    expect(tenant).toMatchObject({ dpaVersao: DPA_VERSAO, dpaAceitoEm: t1 });
+  });
+});
+
 describe('consents é prova de aceite (T6-R2c)', () => {
   it('o role da aplicação não pode alterar nem apagar um consentimento', async () => {
     const { tenantId, userId } = await tenantComNutri();

@@ -373,6 +373,12 @@ cobrança (inclusive "Faltou"); h2 com `tabIndex={-1}` que recebe o foco depois 
   dois 403 se distinguem pelo `motivo` que `requireApiNutri` passou a devolver (`MotivoDaRecusa`,
   `src/lib/tenant-session.ts:36`: `sem_sessao`, `dpa_pendente`, `papel`), nunca lendo o corpo. Período inválido → 303 para
   `/painel/financeiro/relatorios?erro=periodo`; ano inválido → 303 para Relatórios.
+- **Só da própria origem, sem HEAD** (revisão final do PR 2): o cookie da sessão é SameSite=Lax e vai junto numa navegação
+  vinda de outro site, e o download grava `exportar` em nome da nutricionista. Depois da guarda de papel e antes do módulo,
+  `downloadDoMesmoSite` (`navegacao.ts`) só segue com `Sec-Fetch-Site` `same-origin` (o link e o formulário de Relatórios)
+  ou `none` (endereço digitado); `cross-site`, `same-site` ou cabeçalho ausente (o critério estrito de
+  `src/app/sair/route.ts`) → 303 para Relatórios, sem ler nem gravar. As duas rotas exportam `HEAD` com 405 (`semHead`):
+  o HEAD automático do Next chamaria o GET. Testes em `src/app/api/painel/financeiro/csv.test.ts`.
 - **Formato** (`csv.ts`): UTF-8 com BOM, `;`, CRLF, datas `dd/mm/aaaa`, valores com vírgula e sem "R$" ("-750,00" no
   resultado negativo). Lançamentos: "Vencimento;Pagamento;Tipo;Categoria;Descrição;[Paciente;]Forma de pagamento;Valor;Situação",
   pela data de referência, cancelados incluídos com a situação, do mais antigo ao mais novo. **Sem** "Incluir o nome dos
@@ -495,7 +501,8 @@ da virada e as pendências abertas como entradas previstas, F-D28); conferência
 **Volta atrás da imagem do PR 2** ([§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás)): o PR 2 não tem
 migration, mas a imagem anterior (a) não chama `app_anonimizar_financeiro` nem exporta a seção `financeiro` — o paciente
 vencido no meio ganha `anonimizado_em` e os lançamentos dele nunca mais são anonimizados pela função (R-314, P20-16;
-o primeiro vencimento é bloqueio + 20 anos); e (b) volta ao DPA 1.0, e quem já aceitou a 1.1 fica presa em `/painel/dpa` — ver #12.
+o primeiro vencimento é bloqueio + 20 anos, nenhum antes de 2046); e (b) volta ao DPA 1.0, e quem já aceitou a 1.1 fica
+presa em `/painel/dpa` até o dono destravar com SQL (runbook §6, "Volta atrás e DPA (#149)") — ver #12.
 
 ## 12.12 Como estender
 
@@ -532,7 +539,7 @@ Spec v0.2 (com a §18) e plano × código em `f6cd00a`. Na lista consolidada do 
 | 9 | RN-318 | Lista as leituras auditadas (detalhe das pendências, lista por paciente, edição, seção "Cobrança", seção da ficha) | A página do atendimento também grava um `ler` ao mostrar "Atendimento registrado. Cobrança de {valor}…" (`valorDaCobrancaDoAtendimento`): o valor nunca vai na URL | Doc |
 | 10 | Spec §6.2 (textos) | Lista fechada dos textos | Textos novos fora da §6.2, à espera da aprovação do dono: "Categoria {nome} criada/renomeada para/arquivada/reativada/excluída." (`configuracoes.feito`), a opção vazia "Selecione" dos seletores, "Nenhum" no seletor de paciente, o título "CSV dos lançamentos" e o botão "Confirmar" do recebimento | Pend. (F-P4) |
 | 11 | US-308, RN-329, F-09 | Seção "Financeiro" no Início da ficha | Não existe: Tarefa 12, PR 3, sobre o contrato estendido do Plano 18 (opção (a)); `CLAUDE.md`, regra 8, já cita a "seção da ficha" entre as leituras com `auditRead` | Pend. |
-| 12 | Spec R-314 (volta atrás) | Só a anonimização fica sem a função | Também o DPA: depois do aceite da 1.1, a imagem anterior (`DPA_VERSAO = '1.0'`) leva toda nutricionista a `/painel/dpa`, e o aceite não destrava — `registrarAceiteDpa` não grava `tenants.dpa_versao` quando a linha `dpa-1.0` de `consents` já existe (`onConflictDoNothing`, T6-R2b), e `tenants.dpa_versao` fica `'1.1'`. Volta atrás do PR 2 só com correção para a frente ou com decisão do dono | Comp. |
+| 12 | Spec R-314 (volta atrás) | Só a anonimização fica sem a função | Também o DPA: depois do aceite da 1.1, a imagem anterior (`DPA_VERSAO = '1.0'`) leva toda nutricionista a `/painel/dpa`, e o aceite não destrava — o `registrarAceiteDpa` da imagem anterior não grava `tenants.dpa_versao` quando a linha `dpa-1.0` de `consents` já existe (`onConflictDoNothing`, T6-R2b). Preferir corrigir para a frente; se a volta for inevitável, com o OK do dono e o role migrator, `UPDATE tenants SET dpa_versao = '1.0' WHERE dpa_versao = '1.1'` (motivo registrado; os aceites `dpa-1.1` ficam em `consents`), runbook `financeiro.md` §6. Desde a revisão final do PR 2, o `registrarAceiteDpa` regrava o tenant quando a linha da versão já existe e o tenant está noutra versão (com o `aceito_em` da prova, sem linha nova): o avanço seguinte destrava pelo reaceite. A imagem anterior também não chama `app_anonimizar_financeiro` (nenhum prazo vence antes de 2046) | Comp. |
 
 Resolvidas antes do fechamento (a spec já traz o que o código faz): os índices `fin_lancamentos_criado_idx` (correção da T4)
 e `fin_lancamentos_categoria_idx` (`/code-review high` do PR 1) estão na §9.3; o ramo `worker` do gatilho que exige o prazo,
