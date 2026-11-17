@@ -223,7 +223,9 @@ Ordem paciente → consulta → lançamento, a mesma da agenda e do atendimento:
   (sem a data, a forma enviada é descartada); descrição opcional de até 200 caracteres. **Paciente só na entrada**, opcional;
   saída com paciente é envio forjado e lança erro (F-D24).
 - **Seletor "Paciente (opcional)"** (`pacientesNaTransacao`): ativos e arquivados ("(arquivado)"), sem bloqueados nem
-  anonimizados, pelo nome civil (`patients.nome`). `novo?tipo=entrada&paciente=<id>` pré-seleciona o paciente se ele puder
+  anonimizados, pelo nome de exibição e na ordem dele (`nomeDeExibicao`, `src/modules/financeiro/nome.ts`: o nome social de
+  `patient_cadastro` quando há, senão `patients.nome` — Plano 18, D7/RN-266; o mesmo no chip "Paciente: {nome}", na lista, no
+  detalhe e nos pagamentos pendentes; o CSV e o `dados.json` ficam com o nome civil). `novo?tipo=entrada&paciente=<id>` pré-seleciona o paciente se ele puder
   receber lançamento; bloqueado → formulário sem paciente e o aviso `bloqueado`; `paciente=` com `tipo=saida` é ignorado.
 - **Depois de salvar** (`voltarALista`, `lancamentos/actions.ts`): a lista no mês de referência do lançamento, com
   `?ok=salvo`, `&aviso=antes_do_saldo` quando a data do recebimento ou do pagamento é anterior à data do saldo ("Este

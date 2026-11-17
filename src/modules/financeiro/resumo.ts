@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, isNotNull, isNull, lt, lte, or, sql, type Column, type SQL } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { finCategorias, finLancamentos, patients, type TipoLancamento } from '@/db/schema';
+import { finCategorias, finLancamentos, patientCadastro, patients, type TipoLancamento } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { idValido } from '@/modules/pacientes/base';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
@@ -10,6 +10,7 @@ import { centavos } from './dinheiro';
 import { exigirNutri } from './erros';
 import { naTela, selecionarNaTela } from './lancamentos';
 import { intervaloDoMes, mesDe, mesesDoAno, ultimos12Meses } from './meses';
+import { cadastroDoPaciente, nomeDeExibicao } from './nome';
 import type { FluxoDoAno, LancamentoNaTela, LinhaFluxo } from './tipos';
 
 /**
@@ -247,7 +248,7 @@ export async function pendentesNaTransacao(tx: Tx, tenantId: string, hoje: strin
   const linhas = await tx
     .select({
       id: patients.id,
-      nome: patients.nome,
+      nome: nomeDeExibicao, // Plano 18 (RN-266): o nome social primeiro
       total: somaTudo,
       quantidade: sql<number>`count(*)::int`,
       maisAntiga,
@@ -255,10 +256,11 @@ export async function pendentesNaTransacao(tx: Tx, tenantId: string, hoje: strin
     })
     .from(L)
     .innerJoin(patients, and(eq(patients.tenantId, L.tenantId), eq(patients.id, L.patientId)))
+    .leftJoin(patientCadastro, cadastroDoPaciente)
     .where(and(eq(L.tenantId, tenantId), pendenteDoPaciente))
-    .groupBy(patients.id, patients.nome)
-    .orderBy(asc(maisAntiga), asc(patients.nome), asc(patients.id));
-  return linhas.map((p) => ({ paciente: { id: p.id, nome: p.nome }, total: centavos(p.total), quantidade: p.quantidade, maisAntiga: p.maisAntiga, emAtraso: p.emAtraso }));
+    .groupBy(patients.id, patients.nome, patientCadastro.nomeSocial)
+    .orderBy(asc(maisAntiga), asc(nomeDeExibicao), asc(patients.id));
+  return linhas.map((p) => ({ paciente: { id: p.id, nome: p.nome ?? '' }, total: centavos(p.total), quantidade: p.quantidade, maisAntiga: p.maisAntiga, emAtraso: p.emAtraso }));
 }
 
 /**
@@ -273,13 +275,17 @@ export async function pendenciasDoPaciente(ctx: TenantContext, tenant: Tenant, p
   return withTenant(
     ctx,
     async (tx) => {
-      const [p] = await tx.select({ id: patients.id, nome: patients.nome, status: patients.status }).from(patients).where(eq(patients.id, patientId));
+      const [p] = await tx
+        .select({ id: patients.id, nome: nomeDeExibicao, status: patients.status })
+        .from(patients)
+        .leftJoin(patientCadastro, cadastroDoPaciente)
+        .where(eq(patients.id, patientId));
       if (!p) return null;
       const linhas = await selecionarNaTela(tx)
         .where(and(eq(L.tenantId, ctx.tenantId), eq(L.patientId, patientId), pendenteDoPaciente))
         .orderBy(asc(L.vencimento), asc(L.createdAt), asc(L.id));
       if (linhas.length) await auditRead(tx, { entidade: 'financeiro', entidadeId: null, patientId });
-      return { paciente: { id: p.id, nome: p.nome, bloqueado: p.status === 'bloqueado' }, linhas: linhas.map((r) => naTela(r, hoje)) };
+      return { paciente: { id: p.id, nome: p.nome ?? '', bloqueado: p.status === 'bloqueado' }, linhas: linhas.map((r) => naTela(r, hoje)) };
     },
     deps.db ?? getDb(),
   );

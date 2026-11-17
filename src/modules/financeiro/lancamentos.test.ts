@@ -6,9 +6,11 @@ import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
+import { gravarCadastro } from '@/modules/pacientes/cadastro';
 import { listarCategorias, salvarConfiguracoes } from './configuracoes';
 import { MSG_FINANCEIRO } from './constantes';
 import { FinanceiroError, FinanceiroNaoConfiguradoError, LancamentoNaoEncontradoError } from './erros';
+import { exportarLancamentosCsv } from './exportacao';
 import {
   abrirLancamento,
   cancelarLancamento,
@@ -20,6 +22,7 @@ import {
   pacienteDoFinanceiro,
   pacientesParaLancamento,
 } from './lancamentos';
+import { pagamentosPendentes, pendenciasDoPaciente } from './resumo';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -472,5 +475,34 @@ describe('pacienteDoFinanceiro (chip da lista, pré-seleção do formulário)', 
     expect(await pacienteDoFinanceiro(C.ctx, B.p, deps)).toBeNull();
     expect(await pacienteDoFinanceiro(C.ctx, 'nao-e-uuid', deps)).toBeNull();
     expect(await leituras(C.tenantId)).toEqual([]);
+  });
+});
+
+describe('Plano 18 (D7, RN-266): o nome de exibição nas telas do Financeiro; o CSV com o nome civil', () => {
+  it('com nome social, seletor, chip, lista, detalhe e pendências mostram o nome social (na ordem dele); sem, o civil; o CSV sai com o nome civil', async () => {
+    const C = await cenario(); // Ana Souza
+    await withTenant(C.ctx, (tx) => gravarCadastro(tx, { tenantId: C.tenantId, patientId: C.p, valor: { nomeSocial: 'Joana Souza' } }), app.db);
+    const bia = (await novoPaciente(app.db, C.ctx, { nome: 'Bia Lima' })).id;
+    const { id } = await entrada(C, { vencimento: '2026-11-10' });
+    await entrada(C, { vencimento: '2026-11-12', pacienteId: bia });
+
+    // seletor do formulário: pelo nome de exibição e na ordem dele (Joana depois de Bia; pelo civil, Ana viria antes)
+    expect(await pacientesParaLancamento(C.ctx, deps)).toEqual([
+      { id: bia, nome: 'Bia Lima', arquivado: false },
+      { id: C.p, nome: 'Joana Souza', arquivado: false },
+    ]);
+    expect((await pacienteDoFinanceiro(C.ctx, C.p, deps))?.nome).toBe('Joana Souza'); // chip "Paciente: {nome}"
+    expect((await pacienteDoFinanceiro(C.ctx, bia, deps))?.nome).toBe('Bia Lima');
+    const lista = await listarLancamentos(C.ctx, C.tenant, {}, deps);
+    expect(lista.linhas.map((l) => l.paciente?.nome).sort()).toEqual(['Bia Lima', 'Joana Souza']);
+    expect((await abrirLancamento(C.ctx, C.tenant, id, deps))?.paciente?.nome).toBe('Joana Souza');
+    expect((await pagamentosPendentes(C.ctx, C.tenant, deps)).map((p) => p.paciente.nome)).toEqual(['Joana Souza', 'Bia Lima']);
+    expect((await pendenciasDoPaciente(C.ctx, C.tenant, C.p, deps))?.paciente.nome).toBe('Joana Souza');
+
+    // o CSV para o contador: documento fiscal, nome civil (nunca o social)
+    const csv = await exportarLancamentosCsv(C.ctx, C.tenant, { de: '2026-11-01', ate: '2026-11-30', comPacientes: true }, deps);
+    expect(csv).toContain('Ana Souza');
+    expect(csv).toContain('Bia Lima');
+    expect(csv).not.toContain('Joana Souza');
   });
 });
