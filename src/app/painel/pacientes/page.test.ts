@@ -118,6 +118,11 @@ describe('lista de pacientes (Plano 18, §8.1)', () => {
     expect(regiao(html)?.[1]).toBe('Paciente arquivado.');
     expect(regiao(await render({ ok: 'reativado' }))?.[1]).toBe('Paciente reativado.');
     expect(regiao(await render({ ok: '<b>x</b>' }))?.[1]).toBe('');
+    // o marcador da ação (r) não muda o texto, nem o malformado; e não entra nos links da lista
+    const comR = await render({ ok: 'arquivado', r: '0a1b2c3d' });
+    expect(regiao(comR)?.[1]).toBe('Paciente arquivado.');
+    expect(comR).not.toContain('0a1b2c3d');
+    expect(regiao(await render({ ok: 'arquivado', r: '<b>' }))?.[1]).toBe('Paciente arquivado.');
     // título focável (o foco vai a ele depois de arquivar)
     expect(html).toMatch(/<h1 [^>]*id="titulo-pacientes"[^>]*tabindex="-1"[^>]*>Pacientes<\/h1>/);
   });

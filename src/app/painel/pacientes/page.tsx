@@ -5,7 +5,7 @@ import { situacoesDoAcesso } from '@/modules/pacientes/convite-paciente';
 import { formatarDataNoFuso, hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
 import { listarEtiquetas } from '@/modules/pacientes/etiquetas';
 import { filtroDaUrl, listarPacientes, type AbaDaLista, type OrdemDaLista, type PacienteNaLista } from '@/modules/pacientes/pacientes';
-import { FocoNoTitulo, MenuDaLinha } from './menu-da-linha';
+import { FocoNoTitulo, MenuDaLinha, StatusDaLista } from './menu-da-linha';
 import { ID_DO_TITULO, MSG_LISTA } from './textos';
 import { rotuloDoAcessoNaLista, urlDaLista } from './valores';
 
@@ -31,6 +31,8 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
   const busca = filtro.busca ?? '';
   const etiquetaId = filtro.etiquetaId ?? '';
   const ok = sp.ok === 'arquivado' || sp.ok === 'reativado' ? sp.ok : null;
+  // D26: o marcador da ação (`r`, gerado pela action) só serve para a região anunciar de novo; fora do formato, vazio
+  const marcador = ok && typeof sp.r === 'string' && /^[0-9a-f]{8}$/.test(sp.r) ? sp.r : '';
   const [etiquetas, lista] = await Promise.all([listarEtiquetas(ctx), listarPacientes(ctx, filtro)]);
   const acessos = await situacoesDoAcesso(ctx, lista.filter((p) => p.status === 'ativo'));
   const hoje = hojeNoFuso(tenant.fuso);
@@ -43,7 +45,7 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
           <h1 id={ID_DO_TITULO} tabIndex={-1} className="font-titulo text-2xl font-semibold">{MSG_LISTA.titulo}</h1>
           <Link data-guia="novo-paciente" href="/painel/pacientes/novo" className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Novo paciente</Link>
         </div>
-        {ok && <FocoNoTitulo key={ok} />}
+        {ok && <FocoNoTitulo key={`${ok}-${marcador}`} />}
         <div className="flex flex-wrap items-end justify-between gap-3 border-b border-borda">
           <nav aria-label={MSG_LISTA.rotuloDasAbas}>
             <ul className="flex">
@@ -91,7 +93,7 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
           <button className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">Filtrar</button>
         </form>
         {/* D26: montada antes do texto aparecer (sempre, também vazia), fora da tabela: a linha arquivada some da aba */}
-        <p role="status" className="min-h-6 font-medium">{ok ? MSG_LISTA.ok[ok] : ''}</p>
+        <StatusDaLista texto={ok ? MSG_LISTA.ok[ok] : ''} marcador={marcador} />
         {lista.length === 0 ? (
           <p>{vazio}</p>
         ) : (

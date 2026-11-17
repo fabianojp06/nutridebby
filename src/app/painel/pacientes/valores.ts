@@ -136,7 +136,7 @@ export function rotuloDoAcessoNaLista(p: Pick<PacienteNaLista, 'status' | 'userI
  * ordem continuam) e a volta das ações da lista (com `ok`). Sempre `/painel/pacientes`, montada aqui: nada vem pronto de
  * um campo do formulário (sem redirect aberto). A ordem padrão (`nome`) e a `registro` (só da agenda) ficam de fora.
  */
-export function urlDaLista(filtro: FiltroDaLista, extra: { ok?: 'arquivado' | 'reativado' } = {}): string {
+export function urlDaLista(filtro: FiltroDaLista, extra: { ok?: 'arquivado' | 'reativado'; r?: string } = {}): string {
   const q = new URLSearchParams();
   const aba = filtro.aba ?? 'ativos';
   if (aba === 'bloqueados') q.set('situacao', 'bloqueados');
@@ -146,6 +146,8 @@ export function urlDaLista(filtro: FiltroDaLista, extra: { ok?: 'arquivado' | 'r
   if (filtro.etiquetaId) q.set('etiqueta', filtro.etiquetaId);
   if (filtro.ordem && filtro.ordem !== 'nome' && filtro.ordem !== 'registro') q.set('ordem', filtro.ordem);
   if (extra.ok) q.set('ok', extra.ok);
+  // D26: marcador de cada ação (`filtroDaUrl` o ignora); muda a cada volta, para a região de status anunciar de novo
+  if (extra.ok && extra.r) q.set('r', extra.r);
   return `/painel/pacientes?${q.toString()}`;
 }
 

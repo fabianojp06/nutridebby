@@ -140,6 +140,10 @@ describe('urlDaLista (RN-270)', () => {
     expect(params(urlDaLista({ aba: 'inativos', ordem: 'registro' }))).toEqual({ aba: 'inativos' });
     expect(urlDaLista({})).toBe('/painel/pacientes?aba=ativos');
   });
+  it('o marcador r (D26) vai depois do ok, e só com ok', () => {
+    expect(urlDaLista({ aba: 'ativos' }, { ok: 'arquivado', r: '0a1b2c3d' })).toBe('/painel/pacientes?aba=ativos&ok=arquivado&r=0a1b2c3d');
+    expect(urlDaLista({ aba: 'ativos' }, { r: '0a1b2c3d' })).toBe('/painel/pacientes?aba=ativos');
+  });
   it('busca com espaços nas pontas some quando vazia', () => {
     expect(params(urlDaLista({ aba: 'ativos', busca: '   ' }))).toEqual({ aba: 'ativos' });
   });

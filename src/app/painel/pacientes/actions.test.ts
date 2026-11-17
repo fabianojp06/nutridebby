@@ -116,6 +116,12 @@ describe('arquivar e reativar pela lista (Plano 18, RN-273, D26)', () => {
   };
   const statusDe = async (T: TenantDeTeste, id: string) =>
     (await withTenant(T.ctx, (tx) => tx.select({ status: patients.status }).from(patients).where(eq(patients.id, id)), db))[0]?.status;
+  /** A volta sem o marcador `r` (aleatório, um por ação), que tem de ser 8 hex quando há `ok`. */
+  const semMarcador = (msg: string | null) => {
+    const r = msg?.match(/&r=([^&]*)$/)?.[1];
+    expect(r).toMatch(/^[0-9a-f]{8}$/);
+    return msg!.replace(/&r=[^&]*$/, '');
+  };
   const params = (msg: string | null) => {
     const u = new URL(msg!.replace(/^redirect /, ''), 'http://x');
     return { caminho: u.pathname, ...Object.fromEntries(u.searchParams) };
@@ -127,7 +133,7 @@ describe('arquivar e reativar pela lista (Plano 18, RN-273, D26)', () => {
     await reenviarConvitePaciente(T.ctx, T.tenant, p.id, { db, appUrl: 'http://localhost:3000' });
     expect((await situacaoDoAcesso(T.ctx, p, db)).estado).toBe('pendente');
     const msg = await destino(arquivarDaListaAction(daLista(p.id)));
-    expect(msg).toBe('redirect /painel/pacientes?aba=todos&busca=Ana&ordem=recentes&ok=arquivado');
+    expect(semMarcador(msg)).toBe('redirect /painel/pacientes?aba=todos&busca=Ana&ordem=recentes&ok=arquivado');
     expect(await statusDe(T, p.id)).toBe('arquivado');
     expect(await situacaoDoAcesso(T.ctx, p, db)).toEqual({ estado: 'sem_convite' });
     expect(revalidatePath).toHaveBeenCalledWith(`/painel/pacientes/${p.id}`, 'layout');
@@ -137,7 +143,7 @@ describe('arquivar e reativar pela lista (Plano 18, RN-273, D26)', () => {
     const T = await consultorio();
     const p = await novoPaciente(db, T.ctx, { status: 'arquivado' });
     const msg = await destino(reativarDaListaAction(daLista(p.id, { aba: 'inativos', busca: '', ordem: 'idade' })));
-    expect(params(msg)).toEqual({ caminho: '/painel/pacientes', aba: 'inativos', ok: 'reativado' });
+    expect(params(semMarcador(msg))).toEqual({ caminho: '/painel/pacientes', aba: 'inativos', ok: 'reativado' });
     expect(await statusDe(T, p.id)).toBe('ativo');
   });
 
@@ -147,8 +153,17 @@ describe('arquivar e reativar pela lista (Plano 18, RN-273, D26)', () => {
     const f = daLista(p.id, { busca: '' });
     for (const k of ['url', 'redirect', 'voltar', 'next', 'situacao']) f.set(k, 'https://malicioso.example/x');
     const msg = await destino(arquivarDaListaAction(f));
-    expect(msg).toBe('redirect /painel/pacientes?aba=todos&ordem=recentes&ok=arquivado');
+    expect(semMarcador(msg)).toBe('redirect /painel/pacientes?aba=todos&ordem=recentes&ok=arquivado');
     expect(msg).not.toContain('malicioso');
+  });
+
+  it('arquivar dois seguidos volta a URLs diferentes (o marcador r muda), para a região de status anunciar de novo (D26)', async () => {
+    const T = await consultorio();
+    const [a, b] = [await novoPaciente(db, T.ctx), await novoPaciente(db, T.ctx)];
+    const um = await destino(arquivarDaListaAction(daLista(a.id)));
+    const dois = await destino(arquivarDaListaAction(daLista(b.id)));
+    expect(semMarcador(um)).toBe(semMarcador(dois));
+    expect(um).not.toBe(dois);
   });
 
   it('bloqueado: recusa — nada muda e a volta é sem o ok', async () => {

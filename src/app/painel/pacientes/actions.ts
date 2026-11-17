@@ -1,5 +1,6 @@
 'use server';
 
+import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
@@ -84,7 +85,7 @@ export async function salvarEtiquetasAction(patientId: string, _prev: EtiquetasS
 /**
  * Plano 18 (RN-273, D26): arquivar ou reativar pela lista, com as mesmas funções da aba Privacidade. A volta é para a mesma
  * lista (aba, busca, etiqueta e ordem dos campos ocultos, passados por `filtroDaUrl`; a URL é montada no servidor, nunca
- * lida de um campo) com `ok`, que a região de status fixa anuncia. Paciente bloqueado: recusa (nada muda, volta sem `ok`).
+ * lida de um campo) com `ok` e o marcador `r`, que a região de status fixa anuncia. Paciente bloqueado: recusa (nada muda, volta sem `ok`).
  */
 async function situacaoPelaLista(formData: FormData, ok: 'arquivado' | 'reativado', fn: typeof arquivarPaciente): Promise<never> {
   const { ctx } = await requireNutri('/painel/pacientes');
@@ -99,7 +100,8 @@ async function situacaoPelaLista(formData: FormData, ok: 'arquivado' | 'reativad
     feito = false;
   }
   revalidatePath(`/painel/pacientes/${patientId}`, 'layout');
-  redirect(urlDaLista(filtro, feito ? { ok } : {}));
+  // `r` muda a cada ação: arquivar dois seguidos volta a uma URL diferente e a região de status anuncia de novo (D26)
+  redirect(urlDaLista(filtro, feito ? { ok, r: randomUUID().slice(0, 8) } : {}));
 }
 
 export async function arquivarDaListaAction(formData: FormData): Promise<void> {
