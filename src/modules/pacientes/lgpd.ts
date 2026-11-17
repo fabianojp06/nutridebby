@@ -8,6 +8,7 @@ import {
   examSubmissionFiles,
   examSubmissions,
   exams,
+  finLancamentos,
   iaAutorizacoes,
   iaTarefas,
   lembretesRotina,
@@ -558,6 +559,11 @@ export async function anonimizarVencidos(
             if (!pendente) return false;
             // D13 (Tarefa 15): aceites do termo sem IP e sem a conta — antes do UPDATE, que solta a conta (0065)
             await tx.execute(sql`select app_anonimizar_aceites(${id})`);
+            // Plano 20 (RN-316, F-D23): os lançamentos do Financeiro perdem os textos e os em aberto viram cancelados; valor,
+            // datas, categoria e forma ficam. Antes do UPDATE (a função exige o paciente ainda não anonimizado) e só com
+            // lançamento: a função confere o prazo pelo relógio do banco, e o `now` daqui pode ser outro (testes)
+            const [comLancamento] = await tx.select({ id: finLancamentos.id }).from(finLancamentos).where(eq(finLancamentos.patientId, id)).limit(1);
+            if (comLancamento) await tx.execute(sql`select app_anonimizar_financeiro(${id})`);
             // Plano 14A (US-113): as autorizações de IA ficam (prova), sem IP, user-agent, HMAC e, no canal app, sem a conta
             await tx.execute(sql`select app_anonimizar_autorizacoes_ia(${id})`);
             // Plano 15: os consentimentos da IA Nutri ficam (prova), sem IP, user-agent e conta

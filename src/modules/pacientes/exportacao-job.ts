@@ -52,6 +52,7 @@ import { conteudosDoTitular, type ConteudosDoTitular } from '@/modules/conteudo/
 import { DESTINO_ROTULO, ROTULO_DESTINO_LEGADO, type DestinoIA } from '@/modules/ia/constantes';
 import { iaNutriParaExportacao, type IaNutriExportado } from '@/modules/ia/nutri-paciente/lgpd';
 import { documentosParaExportacao, type DocumentoExportado } from '@/modules/documentos/lgpd-documentos';
+import { financeiroParaExportacao, type FinanceiroExportado } from '@/modules/financeiro/titular';
 import { ROTULO_RESPOSTA, type RespostaDoDiario } from '@/modules/portal/diario-constantes';
 import { respostaParaCampo } from './anamnese-tipos';
 import { ESCOLARIDADES, ESTADOS_CIVIS, IDENTIDADES_DE_GENERO, type Opcao } from './cadastro-textos';
@@ -340,6 +341,12 @@ export type DadosExportacao = {
   iaNutri: IaNutriExportado;
   /** Os laudos, fotos do diário ou PDFs de documentos passaram do teto de memória da exportação e não foram no ZIP. */
   laudosForaDoZip: boolean;
+  /**
+   * Plano 20 (US-307, spec §10, F-D22): os lançamentos do Financeiro com o titular — nos dois escopos, só aqui (o
+   * prontuario.pdf não muda). Cópia integral do que é do titular (LGPD art. 19, § 3º): descrição, categoria e motivo do
+   * cancelamento inclusive; nunca quem lançou nem quem cancelou (dado da equipe). fin_lancamentos é staff_only: inclusão explícita.
+   */
+  financeiro: FinanceiroExportado[];
 };
 
 /**
@@ -413,8 +420,9 @@ async function planosParaExportacao(tx: Tx, ids: string[], escopo: EscopoExporta
 }
 
 /**
- * Todas as tabelas do paciente, menos as staff_only (notas privadas, etiquetas) — inclusive o cadastro complementar
- * (`patient_cadastro`, Plano 18, por inclusão explícita: `cadastroParaExportacao`). Consultas em sequência:
+ * Todas as tabelas do paciente, menos as staff_only (notas privadas, etiquetas; ia_tarefas e fin_lancamentos entram por
+ * inclusão explícita) — inclusive o cadastro complementar (`patient_cadastro`, Plano 18, por inclusão explícita:
+ * `cadastroParaExportacao`). Consultas em sequência:
  * uma transação é uma conexão só, e consultas paralelas nela geram o aviso de descontinuação do pg 8.23
  * (erro no pg 9).
  */
@@ -514,6 +522,8 @@ export async function montarDados(
     .orderBy(asc(iaAutorizacoes.registradoEm), asc(iaAutorizacoes.id));
   // Plano 15 (§7.6): a conversa com a IA Nutri e os consentimentos (os dois escopos; na equipe, sem o texto da D22)
   const iaNutri = await iaNutriParaExportacao(tx, patientId, escopo);
+  // Plano 20 (US-307): a situação no dia da exportação, no fuso do consultório (RN-305)
+  const financeiro = await financeiroParaExportacao(tx, patientId, hojeNoFuso(fuso, now));
   // O termo em papel no ZIP: a data do ato (no fuso do consultório, como a escolhida no registro) e a ordem entre os
   // termos — sem texto do usuário (regra 9)
   let nTermo = 0;
@@ -688,6 +698,7 @@ export async function montarDados(
     }),
     iaNutri,
     laudosForaDoZip: false,
+    financeiro,
   };
   // Plano 10A: o PDF assinado (nunca o preparado) em documentos/, no mesmo teto dos laudos
   const pdfsDeDocumentos: AnexoParaZip[] = docs.anexos.map((a) => ({ tipo: 'documento', ...a }));

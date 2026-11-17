@@ -5,7 +5,9 @@ import type { Db } from '@/db/client';
 import * as schema from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { listarCategorias, salvarConfiguracoes } from '@/modules/financeiro/configuracoes';
+import { cancelarLancamento, criarLancamento } from '@/modules/financeiro/lancamentos';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
+import { consultaDireta } from './agenda';
 import { novoPaciente, type TenantDeTeste } from './pacientes';
 
 /**
@@ -43,6 +45,44 @@ export async function cincoMilLancamentos(db: Db, T: TenantDeTeste, agora: Date,
     db,
   );
   return { pacientes };
+}
+
+/**
+ * US-307 (Plano 20, T9): as cobranças de um paciente ativo para a exportação e a LGPD, pela sessão da nutricionista (o
+ * gatilho e a auditoria de sempre) — a da consulta (padrão: 10/09/2026, 10h em São Paulo; outro horário para um segundo
+ * paciente do mesmo consultório, que a agenda não aceita consultas sobrepostas), recebida por Pix em 10/09; uma
+ * cancelada; e uma em aberto, vencida em 20/09. Configura o Financeiro do consultório (saldo em 01/01/2026). `agora` é o
+ * relógio do módulo (as datas do recebimento não podem passar de hoje).
+ */
+export async function cobrancasDoPaciente(
+  db: Db,
+  T: TenantDeTeste,
+  patientId: string,
+  agora: Date,
+  consultaInicio = new Date('2026-09-10T13:00:00Z'),
+): Promise<{ recebida: string; cancelada: string; aberta: string; consultaInicio: Date }> {
+  const deps = { db, agora };
+  await salvarConfiguracoes(T.ctx, T.tenant, { saldoInicialEm: '2026-01-01', saldoInicial: '0,00', valorConsulta: '250,00' }, deps);
+  const consultas = (await listarCategorias(T.ctx, deps)).find((c) => c.chave === 'consultas')!.id;
+  const consulta = await consultaDireta(db, T.ctx, patientId, consultaInicio);
+  const [recebida] = await withTenant(
+    T.ctx,
+    (tx) =>
+      tx
+        .insert(schema.finLancamentos)
+        .values({
+          tenantId: T.tenantId, tipo: 'entrada', categoriaId: consultas, valorCentavos: 25_000, vencimento: '2026-09-10', pagoEm: '2026-09-10',
+          formaPagamento: 'pix', descricao: 'Consulta de retorno', patientId, appointmentId: consulta, criadoPor: T.nutriId,
+        })
+        .returning({ id: schema.finLancamentos.id }),
+    db,
+  );
+  const lancar = (vencimento: string, descricao: string) =>
+    criarLancamento(T.ctx, T.tenant, { tipo: 'entrada', valor: '180,00', categoriaId: consultas, vencimento, pacienteId: patientId, descricao }, deps);
+  const cancelada = await lancar('2026-09-15', 'Cobrança em dobro');
+  await cancelarLancamento(T.ctx, cancelada.id, 'Lançada duas vezes', deps);
+  const aberta = await lancar('2026-09-20', 'Pacote mensal');
+  return { recebida: recebida.id, cancelada: cancelada.id, aberta: aberta.id, consultaInicio };
 }
 
 /**
