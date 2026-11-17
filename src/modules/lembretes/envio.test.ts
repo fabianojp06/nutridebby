@@ -7,11 +7,12 @@ import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../..
 import { planoEmRascunho, planoPublicado, type RefeicaoDeTeste } from '../../../test/plano';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb, type Db } from '@/db/client';
-import { diaryEntries, lembretesRotina, lembretesRotinaEnvios, patients, pushSubscriptions, tenants } from '@/db/schema';
+import { diaryEntries, lembretesRotina, lembretesRotinaEnvios, meals, patients, pushSubscriptions, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
 import type { InscricaoPush, ProvedorPush, ResultadoPush } from '@/modules/notificacoes/push';
+import { registrarNoDiario } from '@/modules/portal/diario';
 import { CONCORRENCIA_ENVIO, processarLembretes, type DepsLembretes } from './envio';
 
 /**
@@ -246,6 +247,25 @@ describe('refeições do plano (Review Focus 2) e textos da tela de bloqueio', (
     await rodar(T, as('12:30', 5), push);
     expect(push.enviados.map((e) => e.endpoint)).toEqual([semRegistro.inscricao.endpoint]);
     expect(push.enviados[0].payload.corpo).toBe('Registre sua refeição no diário');
+  });
+
+  it('refeição fora da lista registrada sem resposta não recebe o pedido do diário (pela refeição do plano escolhida, refeicao_slot)', async () => {
+    const T = await novoTenant(app.db);
+    const registrou = await cenario({ T });
+    const semRegistro = await cenario({ T });
+    for (const c of [registrou, semRegistro]) {
+      await lembrete(T, c.p.id, refeicoes(0, 30));
+      await comPlano(T, c.p.id, [{ nome: 'Colação', horario: '10:00' }]);
+    }
+    // pelo link da refeição do plano, com texto e sem resposta: refeicao 'Outro', refeicao_do_plano nulo
+    const [colacao] = await withTenant(T.ctx, (tx) => tx.select({ id: meals.id }).from(meals).where(eq(meals.patientId, registrou.p.id)), app.db);
+    await registrarNoDiario(ctxPaciente(T.tenantId, registrou.p.id, registrou.userId), { fuso: 'America/Sao_Paulo' }, { refeicao: null, texto: 'pão de queijo', foto: null, refeicaoId: colacao.id }, { db: app.db, agora: as('10:10') });
+    const push = pushFalso();
+    await rodar(T, as('10:00', 10), push);
+    await rodar(T, as('10:30', 10), push);
+    const doDiario = push.enviados.filter((e) => e.payload.corpo === 'Registre sua refeição no diário');
+    expect(doDiario.map((e) => e.endpoint)).toEqual([semRegistro.inscricao.endpoint]);
+    expect(push.enviados.filter((e) => e.endpoint === registrou.inscricao.endpoint).map((e) => e.payload.corpo)).toEqual(['Hora da sua refeição']);
   });
 
   it('Review Focus 1: o dia do diário é o do tenant — em America/Manaus, o Almoço das 23:30 do dia 16 (03:30Z do 17) não conta para o 17', async () => {

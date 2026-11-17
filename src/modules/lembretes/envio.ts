@@ -106,16 +106,17 @@ async function refeicoesDosPlanos(tx: Tx, patientIds: string[]): Promise<Map<str
 }
 
 /**
- * §5.2: refeição do plano já registrada hoje (no dia local do tenant, como `diaDe` do diário) — pela cópia da refeição do
- * plano (`refeicao_do_plano`) ou, quando o nome está na lista fechada, pela refeição do registro. Conferência de estado
- * do worker: nada volta a uma usuária, então sem `auditRead`; só `patient_id`, `refeicao` e `refeicao_do_plano`.
+ * §5.1/§5.2: refeição do plano já registrada hoje (no dia local do tenant, como `diaDe` do diário) — pela refeição do plano
+ * escolhida no registro (`refeicao_slot`, gravado com ou sem resposta), pela cópia da resposta (`refeicao_do_plano`) ou,
+ * quando o nome está na lista fechada, pela refeição do registro. Conferência de estado do worker: nada volta a uma
+ * usuária, então sem `auditRead`; só `patient_id`, `refeicao`, `refeicao_do_plano` e `refeicao_slot` (nunca `texto`).
  */
 async function registradasNoDiario(tx: Tx, refeicoes: Map<string, RefeicaoDoPlano[]>, patientIds: string[], hoje: string, fuso: string): Promise<Map<string, string[]>> {
   const porPaciente = new Map<string, string[]>();
   const alvo = patientIds.filter((id) => refeicoes.get(id)?.length);
   if (!alvo.length) return porPaciente;
   const registros = await tx
-    .select({ patientId: diaryEntries.patientId, refeicao: diaryEntries.refeicao, refeicaoDoPlano: diaryEntries.refeicaoDoPlano })
+    .select({ patientId: diaryEntries.patientId, refeicao: diaryEntries.refeicao, refeicaoDoPlano: diaryEntries.refeicaoDoPlano, refeicaoSlot: diaryEntries.refeicaoSlot })
     .from(diaryEntries)
     .where(and(inArray(diaryEntries.patientId, alvo), gte(diaryEntries.dataHora, inicioDoDia(hoje, fuso)), lt(diaryEntries.dataHora, inicioDoDia(somarDias(hoje, 1), fuso))));
   for (const patientId of alvo) {
@@ -125,7 +126,7 @@ async function registradasNoDiario(tx: Tx, refeicoes: Map<string, RefeicaoDoPlan
       if (!r.horario) return false; // sem horário não há slot
       const rotulo = rotuloDaRefeicao(r.nome, r.horario.slice(0, 5));
       const daLista = refeicaoDoDiario(r.nome);
-      return doPaciente.some((d) => d.refeicaoDoPlano === rotulo || (daLista !== 'Outro' && d.refeicao === daLista));
+      return doPaciente.some((d) => d.refeicaoSlot === rotulo || d.refeicaoDoPlano === rotulo || (daLista !== 'Outro' && d.refeicao === daLista));
     });
     porPaciente.set(patientId, registradas.map((r) => r.nome));
   }

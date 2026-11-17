@@ -75,7 +75,8 @@ async function refeicaoDoPlanoPublicado(tx: Tx, patientId: string, refeicaoId: s
   return r ? { nome: r.nome, horario: r.horario ? r.horario.slice(0, 5) : '' } : null;
 }
 
-type Gravacao = { refeicao: string; resposta: RespostaDoDiario | null; refeicaoDoPlano: string | null };
+/** `refeicaoSlot` (Plano 17): o rótulo da refeição do plano escolhida, com ou sem resposta — só para o pedido do diário do worker. */
+type Gravacao = { refeicao: string; resposta: RespostaDoDiario | null; refeicaoDoPlano: string | null; refeicaoSlot: string | null };
 
 /**
  * US-042 / RN-07 e, no Plano 16, as respostas à refeição do plano (RN-197): `refeicaoId` + `resposta` ("como_no_plano"
@@ -113,12 +114,12 @@ export async function registrarNoDiario(
   /** Com o paciente travado: a refeição do plano, a resposta que vale (ou o registro que já existe) e o limite do dia. */
   const preparar = async (tx: Tx): Promise<Gravacao | { existente: string }> => {
     await travarPaciente(tx, patientId);
-    let g: Gravacao = { refeicao: refeicaoInformada, resposta: null, refeicaoDoPlano: null };
+    let g: Gravacao = { refeicao: refeicaoInformada, resposta: null, refeicaoDoPlano: null, refeicaoSlot: null };
     if (refeicaoId) {
       const r = await refeicaoDoPlanoPublicado(tx, patientId, refeicaoId);
       if (!r) throw new DiarioError({ geral: MSG_DIARIO.refeicaoNaoEncontrada });
       const rotulo = rotuloDaRefeicao(r.nome, r.horario);
-      g = { refeicao: refeicaoDoDiario(r.nome), resposta: null, refeicaoDoPlano: null };
+      g = { refeicao: refeicaoDoDiario(r.nome), resposta: null, refeicaoDoPlano: null, refeicaoSlot: rotulo };
       if (resposta) {
         const { inicio, fim } = diaDe(agora, tenant.fuso);
         const [ja] = await tx
@@ -142,7 +143,7 @@ export async function registrarNoDiario(
         if ('existente' in g) return { id: g.existente, jaRegistrado: true };
         const [e] = await tx
           .insert(diaryEntries)
-          .values({ tenantId: ctx.tenantId, patientId, dataHora: agora, refeicao: g.refeicao, texto: texto || null, resposta: g.resposta, refeicaoDoPlano: g.refeicaoDoPlano, createdAt: agora, updatedAt: agora })
+          .values({ tenantId: ctx.tenantId, patientId, dataHora: agora, refeicao: g.refeicao, texto: texto || null, resposta: g.resposta, refeicaoDoPlano: g.refeicaoDoPlano, refeicaoSlot: g.refeicaoSlot, createdAt: agora, updatedAt: agora })
           .returning({ id: diaryEntries.id });
         return { id: e.id, jaRegistrado: false };
       },
@@ -153,7 +154,7 @@ export async function registrarNoDiario(
   // Fora da transação: o start do pg-boss não pode esperar segurando a conexão (e a trava) do paciente
   const boss = deps.boss ?? (await getBoss());
   let id = '';
-  let gravacao: Gravacao = { refeicao: refeicaoInformada, resposta: null, refeicaoDoPlano: null };
+  let gravacao: Gravacao = { refeicao: refeicaoInformada, resposta: null, refeicaoDoPlano: null, refeicaoSlot: null };
   try {
     await salvarArquivo(
       ctx,
@@ -178,6 +179,7 @@ export async function registrarNoDiario(
               texto: texto || null,
               resposta: gravacao.resposta,
               refeicaoDoPlano: gravacao.refeicaoDoPlano,
+              refeicaoSlot: gravacao.refeicaoSlot,
               fotoOriginalPath: arquivo.caminho,
               fotoStatus: 'processando',
               createdAt: agora,

@@ -235,7 +235,7 @@ export async function prontuarioCompleto(db: Db, ctx: TenantContext, patientId: 
           comentarioNutri: `${marcador}-COMENTARIO`,
           // o mais recente (dentro dos 30 dias): foto pronta + original e "Comi outra coisa" com a cópia da refeição do plano
           ...(dias === 1
-            ? { fotoPath: foto, fotoOriginalPath: fotoOriginal, fotoStatus: 'pronta', resposta: 'outra_coisa', refeicaoDoPlano: `${marcador}-REFEICAO-PLANO · 12:00` }
+            ? { fotoPath: foto, fotoOriginalPath: fotoOriginal, fotoStatus: 'pronta', resposta: 'outra_coisa', refeicaoDoPlano: `${marcador}-REFEICAO-PLANO · 12:00`, refeicaoSlot: `${marcador}-REFEICAO-PLANO · 12:00` }
             : {}),
         });
       }

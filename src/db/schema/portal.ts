@@ -41,6 +41,12 @@ export const diaryEntries = pgTable(
     resposta: text('resposta'),
     /** Plano 16: "{nome} · {HH:MM}" da refeição do plano — CÓPIA, não FK (a refeição pode mudar numa publicação nova). */
     refeicaoDoPlano: text('refeicao_do_plano'),
+    /**
+     * Plano 17 (§5.1, pedido do diário): "{nome} · {HH:MM}" da refeição do plano escolhida, gravado sempre que o registro vem
+     * dela (com ou sem resposta) — só para o worker reconhecer a refeição já registrada. Nunca exibido nem exportado: a
+     * exibição continua `refeicaoDoPlano ?? refeicao`.
+     */
+    refeicaoSlot: text('refeicao_slot'),
     comentarioNutri: text('comentario_nutri'),
     comentadoEm: timestamp('comentado_em', { withTimezone: true }),
     vistoPelaNutriEm: timestamp('visto_pela_nutri_em', { withTimezone: true }),
