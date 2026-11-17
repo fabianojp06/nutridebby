@@ -128,6 +128,20 @@ describe('sugerirFaixa (RN-377)', () => {
     expect(sugerirFaixa(null)).toBeNull();
     expect(sugerirFaixa('Negativo')).toBeNull();
   });
+  it('ponto de milhar dos laudos não vira ponto decimal: na dúvida, nada', () => {
+    expect(sugerirFaixa('4.000 a 11.000 /mm³')).toBeNull();
+    expect(sugerirFaixa('150.000 a 450.000')).toBeNull();
+    expect(sugerirFaixa('1.005 a 1.030')).toBeNull();
+    expect(sugerirFaixa('4000 a 11000 /mm³')).toEqual({ refMin: 4000, refMax: 11000 });
+    expect(sugerirFaixa('1.234,5 a 2.000,0')).toBeNull();
+  });
+  it('sinal negativo no número; o "-" entre os dois continua separador', () => {
+    expect(sugerirFaixa('-5 a 5')).toEqual({ refMin: -5, refMax: 5 });
+    expect(sugerirFaixa('-2,5 - +2,5')).toBeNull();
+    expect(sugerirFaixa('-3 - -1 mmol/L')).toEqual({ refMin: -3, refMax: -1 });
+    expect(sugerirFaixa('-2,5 – 2,5')).toEqual({ refMin: -2.5, refMax: 2.5 });
+    expect(sugerirFaixa('3-5')).toEqual({ refMin: 3, refMax: 5 });
+  });
 });
 
 describe('referenciaDaFaixa, faixaDiverge e foraParaOApp (RN-376, RN-385)', () => {
@@ -144,6 +158,8 @@ describe('referenciaDaFaixa, faixaDiverge e foraParaOApp (RN-376, RN-385)', () =
     expect(faixaDiverge({ referencia: 'até 200', refMax: 200 })).toBe(false);
     expect(faixaDiverge({ referencia: null, refMin: 70, refMax: 99 })).toBe(false);
     expect(faixaDiverge({ referencia: '70 a 99' })).toBe(false);
+    expect(faixaDiverge({ referencia: referenciaDaFaixa(-5, 5), refMin: -5, refMax: 5 })).toBe(false);
+    expect(faixaDiverge({ referencia: referenciaDaFaixa(4000, 11000), refMin: 4000, refMax: 11000 })).toBe(false);
   });
   it('foraParaOApp: null com faixa 70–110 e texto "70 a 99" (N22-07); true/false com faixa coerente; null sem faixa', () => {
     expect(foraParaOApp({ valor: 105, referencia: '70 a 99', refMin: 70, refMax: 110 })).toBeNull();
