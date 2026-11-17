@@ -842,6 +842,7 @@ CHECKs de coerência (F-D24):
 - `fin_lancamentos_pago_idx`: `(tenant_id, pago_em) where cancelado_em is null and pago_em is not null` (saldo, fluxo, mês recebido).
 - `fin_lancamentos_aberto_idx`: `(tenant_id, vencimento) where cancelado_em is null and pago_em is null` (previstos, pendentes).
 - `fin_lancamentos_paciente_idx`: `(tenant_id, patient_id, vencimento) where patient_id is not null` (detalhe, aba, exportação, anonimização).
+- `fin_lancamentos_criado_idx`: `(tenant_id, created_at, id)` ("Últimos lançamentos" do Resumo, `order by created_at desc, id desc limit 10`; acrescentado na correção da T4 — sem ele, top-N sobre a tabela de todos os consultórios).
 
 ### 9.4 Migration custom `rls_financeiro`
 

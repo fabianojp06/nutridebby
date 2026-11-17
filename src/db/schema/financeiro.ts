@@ -128,6 +128,8 @@ export const finLancamentos = pgTable(
     index('fin_lancamentos_pago_idx').on(t.tenantId, t.pagoEm).where(sql`${t.canceladoEm} is null and ${t.pagoEm} is not null`),
     index('fin_lancamentos_aberto_idx').on(t.tenantId, t.vencimento).where(sql`${t.canceladoEm} is null and ${t.pagoEm} is null`),
     index('fin_lancamentos_paciente_idx').on(t.tenantId, t.patientId, t.vencimento).where(sql`${t.patientId} is not null`),
+    // "Últimos lançamentos" do Resumo (order by created_at desc, id desc limit 10): sem ele, top-N da tabela de todos os consultórios
+    index('fin_lancamentos_criado_idx').on(t.tenantId, t.createdAt, t.id),
   ],
 );
 export type FinLancamentoRow = typeof finLancamentos.$inferSelect;
