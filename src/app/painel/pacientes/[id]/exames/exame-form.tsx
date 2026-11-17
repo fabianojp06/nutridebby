@@ -38,11 +38,14 @@ export function ExameForm({
   const form = useRef<HTMLFormElement>(null);
   const [linhas, setLinhas] = useState<LinhaDoForm[]>(() => linhasIniciais(inicial));
   const [erros, setErros] = useState<Record<string, string>>({});
+  /** As chaves das linhas no envio que gerou `erros` (o índice do erro é a posição no envio, não na tela de agora). */
+  const [chavesDoEnvio, setChavesDoEnvio] = useState<number[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [ok, setOk] = useState(false);
 
-  const comErros = (e: Record<string, string>) => {
+  const comErros = (e: Record<string, string>, chaves: number[]) => {
     setErros(e);
+    setChavesDoEnvio(chaves);
     // depois de desenhar os erros: o foco vai ao primeiro (formulário longo, o botão fica longe do topo)
     window.setTimeout(() => focarPrimeiroErro(form.current), 0);
   };
@@ -51,8 +54,9 @@ export function ExameForm({
     ev.preventDefault();
     setOk(false);
     const fd = new FormData(ev.currentTarget);
+    const chaves = linhas.map((l) => l.chave);
     const arquivo = fd.get('arquivo');
-    if (arquivo instanceof File && arquivo.size > EXAME_MAX_BYTES) return comErros({ arquivo: MSG_EXAME.arquivo });
+    if (arquivo instanceof File && arquivo.size > EXAME_MAX_BYTES) return comErros({ arquivo: MSG_EXAME.arquivo }, chaves);
     // no lançamento toda linha é nova: sem origem (e o servidor ignora qualquer iaTarefaId)
     fd.set(
       'valores',
@@ -67,14 +71,14 @@ export function ExameForm({
     try {
       const r = await fetch(`/api/painel/pacientes/${patientId}/exames`, { method: 'POST', body: fd });
       const corpo = (await r.json().catch(() => ({}))) as { erros?: Record<string, string> };
-      if (!r.ok) return comErros(corpo.erros ?? { geral: 'Não foi possível salvar o exame. Tente de novo.' });
+      if (!r.ok) return comErros(corpo.erros ?? { geral: 'Não foi possível salvar o exame. Tente de novo.' }, chaves);
       setErros({});
       setLinhas([linhaVazia()]);
       form.current?.reset();
       setOk(true);
       router.refresh();
     } catch {
-      comErros({ geral: 'Não foi possível salvar o exame. Tente de novo.' });
+      comErros({ geral: 'Não foi possível salvar o exame. Tente de novo.' }, chaves);
     } finally {
       setEnviando(false);
     }
@@ -113,7 +117,7 @@ export function ExameForm({
         <p className="text-sm text-suave">PDF, JPEG ou PNG de até 20 MB.</p>
         {erro('arquivo')}
       </div>
-      <LinhasDoExame idBase="novo" linhas={linhas} aoMudar={setLinhas} erros={erros} catalogo={catalogo} modelos={modelos} />
+      <LinhasDoExame idBase="novo" linhas={linhas} aoMudar={setLinhas} erros={erros} chavesDoEnvio={chavesDoEnvio} catalogo={catalogo} modelos={modelos} />
       {erros.geral && (
         <p id="geral-erro" role="alert" tabIndex={-1} className="text-sm text-erro">
           {erros.geral}

@@ -271,8 +271,11 @@ export async function exameEditado(nutri: Page, prontuario: string, sufixo: stri
   await nutri.getByLabel('Valor 1', { exact: true }).fill('98');
   await nutri.getByLabel('Justificativa da alteração').fill('Valor digitado errado');
   await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
-  await expect(nutri).toHaveURL(/\/exames\?exame=salvo/);
-  await expect(nutri.getByRole('status').filter({ hasText: 'Exame salvo.' })).toBeVisible();
+  await expect(nutri).toHaveURL(new RegExp(`/exames\\?editado=${exame}#exame-salvo$`));
+  // a confirmação fica no exame editado, recebe o foco (a âncora) e está à vista (revisão da T4)
+  const salvo = nutri.getByRole('article', { name: new RegExp(`^${titulo}`) }).getByRole('status').filter({ hasText: 'Exame salvo.' });
+  await expect(salvo).toBeFocused();
+  await expect(salvo).toBeInViewport();
   return exame;
 }
 

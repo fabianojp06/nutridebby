@@ -63,14 +63,16 @@ export type LinhaEditada = { origem: number | null; nome: unknown; valor: unknow
 /** A linha como o banco a compara: as chaves opcionais ausentes valem `null` (a ordem das chaves do jsonb não conta). */
 const chaveDaLinha = (v: ValorExame) => JSON.stringify([v.nome, v.valor, v.unidade, v.referencia, v.iaTarefaId ?? null, v.refMin ?? null, v.refMax ?? null]);
 
-/** Justificativa (RN-378): 5 a 500 caracteres, sem NUL; vazia → `null`; inválida → `undefined`. */
+/** Justificativa (RN-378): 5 a 500 caracteres (code points), sem NUL; vazia → `null`; inválida → `undefined`. */
 function lerJustificativa(v: unknown): string | null | undefined {
   if (v === undefined || v === null) return null;
   if (typeof v !== 'string') return undefined;
   if (v.includes('\u0000')) return undefined;
   const t = v.trim();
   if (!t) return null;
-  return t.length >= JUSTIFICATIVA_MIN && t.length <= JUSTIFICATIVA_MAX ? t : undefined;
+  // por code point, como o CHECK `char_length` (0126): "🙂🙂🙂" tem 3, não 6 (a recusa nunca chega ao banco nem ao log)
+  const tamanho = [...t].length;
+  return tamanho >= JUSTIFICATIVA_MIN && tamanho <= JUSTIFICATIVA_MAX ? t : undefined;
 }
 
 /**

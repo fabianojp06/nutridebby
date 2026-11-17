@@ -2,7 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { MSG_EXAMES } from '@/modules/exames/constantes';
-import { LinhasDoExame, linhaVazia, type LinhaDoForm } from './linhas-do-exame';
+import { lerLinhasComErros } from '@/modules/pacientes/exames';
+import { linhaDoGravado, linhaParaEnvio, LinhasDoExame, linhaVazia, type LinhaDoForm } from './linhas-do-exame';
 
 /**
  * Plano 22 (T4, spec §7 "Linhas do lançamento"): só a estrutura (sem DOM; o Vitest roda em `environment: 'node'`). O
@@ -10,8 +11,9 @@ import { LinhasDoExame, linhaVazia, type LinhaDoForm } from './linhas-do-exame';
  */
 const L = MSG_EXAMES.lancamento;
 const linha = (o: Partial<LinhaDoForm>, chave = 0): LinhaDoForm => ({ ...linhaVazia(chave), ...o });
-const montar = (linhas: LinhaDoForm[], erros: Record<string, string> = {}) =>
-  renderToStaticMarkup(createElement(LinhasDoExame, { idBase: 'novo', linhas, aoMudar: () => {}, erros, catalogo: [], modelos: [] }));
+/** `chavesDoEnvio`: por padrão, as linhas de agora (os erros vieram deste mesmo desenho). */
+const montar = (linhas: LinhaDoForm[], erros: Record<string, string> = {}, chavesDoEnvio: number[] = linhas.map((l) => l.chave)) =>
+  renderToStaticMarkup(createElement(LinhasDoExame, { idBase: 'novo', linhas, aoMudar: () => {}, erros, chavesDoEnvio, catalogo: [], modelos: [] }));
 /** A tag de abertura do controle com o id pedido. */
 const tag = (html: string, id: string) => html.match(new RegExp(`<(?:input|button)[^>]*\\bid="${id}"[^>]*>`))?.[0] ?? '';
 const descritoPor = (html: string, id: string) => (tag(html, id).match(/aria-describedby="([^"]*)"/)?.[1] ?? '').split(' ').filter(Boolean);
@@ -83,9 +85,59 @@ describe('LinhasDoExame — estrutura (sem DOM)', () => {
     expect(html).not.toContain('<dialog');
   });
 
-  it('a linha que veio da IA: nome, valor e unidade só de leitura', () => {
-    const html = montar([linha({ nome: 'Glicose de jejum', valor: '92', unidade: 'mg/dL', origem: 0, daIa: true })]);
-    for (const c of ['nome', 'valor', 'unidade']) expect(tag(html, `novo-${c}-0`), c).toContain('readOnly=""');
+  it('a linha que veio da IA: nome, valor e unidade só de leitura, com "IA · conferido em {data}" e o porquê no nome acessível', () => {
+    const html = montar([linha({ nome: 'Glicose de jejum', valor: '92', unidade: 'mg/dL', origem: 0, daIa: true, iaConferidoEm: '02/09/2026' })]);
+    for (const c of ['nome', 'valor', 'unidade']) {
+      expect(tag(html, `novo-${c}-0`), c).toContain('readOnly=""');
+      expect(descritoPor(html, `novo-${c}-0`), c).toEqual(expect.arrayContaining(['novo-ia-0', 'novo-ia-fixa-0']));
+    }
     expect(tag(html, 'novo-refMin-0')).not.toContain('readOnly');
+    expect(descritoPor(html, 'novo-refMin-0')).not.toContain('novo-ia-0');
+    expect(html).toContain(`<p id="novo-ia-0" class="text-suave">IA · conferido em 02/09/2026</p>`);
+    expect(html).toContain(`<p id="novo-ia-fixa-0" class="text-suave">${L.iaFixa}</p>`);
+    // sem a marca da tarefa (a data não veio): o texto sem data; linha que não é da IA, nada
+    expect(montar([linha({ nome: 'G', valor: '92', origem: 0, daIa: true })])).toContain('>IA · conferido</p>');
+    expect(montar([linha({ nome: 'G', valor: '92' })])).not.toContain('IA · conferido');
+  });
+
+  it('erros do servidor pela posição no envio: a linha removida leva o erro junto; a acrescentada depois não herda nenhum', () => {
+    const erro = MSG_EXAMES.lancamentoErros.faixaInvalida;
+    // no envio: chaves 3, 5 e 7 (o erro é da 5, índice 1); a 3 saiu depois e a 9 entrou
+    const linhas = [linha({ nome: 'Ferritina', refMin: 'x' }, 5), linha({ nome: 'Vitamina D' }, 7), linha({ nome: 'Ferro' }, 9)];
+    const html = montar(linhas, { 'valores.1.refMin': erro }, [3, 5, 7]);
+    expect(tag(html, 'novo-refMin-5')).toContain('aria-invalid="true"');
+    expect(html).toContain(`<p id="novo-refMin-5-erro" role="alert"`);
+    for (const c of [7, 9]) expect(tag(html, `novo-refMin-${c}`), String(c)).not.toContain('aria-invalid');
+    expect(html.match(/role="alert"/g)).toHaveLength(1);
+    // o erro da linha que saiu (índice 0, chave 3) não aparece em ninguém
+    const semDona = montar(linhas, { 'valores.0.refMin': erro }, [3, 5, 7]);
+    expect(semDona).not.toContain('aria-invalid');
+    expect(semDona).not.toContain(erro);
+  });
+
+  it('o id de "Adicionar linha" (destino do foco ao remover a última linha e ao "Remover todos")', () => {
+    expect(montar([linha({ nome: 'G' })])).toMatch(/<button [^>]*id="novo-adicionar-linha"[^>]*>Adicionar linha<\/button>/);
+  });
+});
+
+describe('linhaDoGravado → linhaParaEnvio → lerLinhasComErros (revisão da T4: ida e volta sem mexer)', () => {
+  it('valor e faixa abaixo de 1e-6 voltam sem notação exponencial e com o mesmo número', () => {
+    const gravados = [
+      { nome: 'Traço', valor: 1e-7, unidade: 'mg/L', referencia: null, refMin: 1e-7, refMax: 5e-7 },
+      { nome: 'Outro', valor: 0.0000005, unidade: null, referencia: '< 1', refMin: 0, refMax: 2.5e-8 },
+      { nome: 'Glicemia', valor: 95.5, unidade: 'mg/dL', referencia: '70 a 99', refMin: 70, refMax: 99 },
+    ];
+    const linhas = gravados.map((v, i) => linhaDoGravado(v, i));
+    expect(linhas[0]).toMatchObject({ valor: '0,0000001', refMin: '0,0000001', refMax: '0,0000005' });
+    expect(linhas.map((l) => [l.valor, l.refMin, l.refMax].join(' ')).join(' ')).not.toMatch(/e/i);
+    const lidas = lerLinhasComErros(linhas.map(linhaParaEnvio));
+    expect('erros' in lidas ? lidas.erros : null).toBeNull();
+    const numeros = (v: { valor: number; refMin?: number; refMax?: number }) => [v.valor, v.refMin, v.refMax];
+    expect('linhas' in lidas && lidas.linhas.map((l) => numeros(l.valor))).toEqual(gravados.map(numeros));
+  });
+
+  it('a linha da IA leva a data da conferência; a que não é da IA, nunca', () => {
+    expect(linhaDoGravado({ nome: 'G', valor: 92, unidade: null, referencia: null, iaTarefaId: 't' }, 0, '02/09/2026')).toMatchObject({ daIa: true, iaConferidoEm: '02/09/2026' });
+    expect(linhaDoGravado({ nome: 'G', valor: 92, unidade: null, referencia: null }, 0, '02/09/2026')).toMatchObject({ daIa: false, iaConferidoEm: null });
   });
 });

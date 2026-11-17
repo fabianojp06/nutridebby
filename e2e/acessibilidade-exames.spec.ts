@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type Request } from '@playwright/test';
 import { entrarComo } from './helpers';
 import { bibliotecasDeExames, escolherTema } from './painel';
+import { criarPacientePeloFormulario } from './pacientes-form';
 
 // Plano 22 (T3, EP-D54, R22-22): o axe dos estados de /painel/exames que não são rota (diálogos abertos, formulário com
 // erro), nos modos claro e escuro, a 1280 e a 360 px; e o contrato do `Dialogo` (src/components/dialogo.tsx) no navegador
@@ -254,4 +255,69 @@ test('Exame do catálogo (revisão da T3): o foco acompanha "Acrescentar faixa",
   await expect(nutri.getByRole('alert').filter({ hasText: 'Informe a fonte (de 2 a 300 caracteres).' })).toBeVisible();
   await expect(nutri.getByLabel('Fonte')).toBeFocused();
   await expect(nutri.getByLabel('Fonte')).toBeInViewport();
+});
+
+test('Linhas do exame (revisão da T4): o foco nunca cai no body — "Usar {a} a {b}", "Remover" da linha e "Remover todos"', async () => {
+  await nutri.setViewportSize({ width: 1280, height: 800 });
+  const sufixo = `lf${Date.now().toString(36)}`;
+  const prontuario = await criarPacientePeloFormulario(nutri, { nome: `Paciente Linhas ${sufixo}`, email: `linhas-${sufixo}@nutridebby.test` });
+  await nutri.goto(`${prontuario}/exames`);
+
+  // "Usar 70 a 99": o botão some (a faixa deixou de estar vazia) e o foco vai ao "de" já preenchido
+  await nutri.getByLabel('Marcador 1', { exact: true }).fill('Glicemia de jejum');
+  await nutri.getByLabel('Referência do laudo 1', { exact: true }).fill('70 a 99 mg/dL');
+  await nutri.getByRole('button', { name: 'Usar 70 a 99 (linha 1)' }).click();
+  const de1 = nutri.getByLabel('Faixa do laudo: de 1', { exact: true });
+  await expect(de1).toBeFocused();
+  await expect(de1).toHaveValue('70');
+  await expect(nutri.getByLabel('até 1', { exact: true })).toHaveValue('99');
+
+  // "Remover" da linha: o foco vai ao marcador da linha que tomou o lugar (ou da anterior); sem linhas, a "Adicionar linha"
+  const adicionarLinha = nutri.getByRole('button', { name: 'Adicionar linha' });
+  await adicionarLinha.click();
+  await adicionarLinha.click();
+  await nutri.getByLabel('Marcador 2', { exact: true }).fill('Ferritina');
+  await nutri.getByLabel('Marcador 3', { exact: true }).fill('Vitamina D');
+  await nutri.getByRole('button', { name: 'Remover a linha 2' }).click();
+  await expect(nutri.getByRole('group', { name: 'Linha 2: Vitamina D' }).getByLabel('Marcador 2', { exact: true })).toBeFocused();
+  await nutri.getByRole('button', { name: 'Remover a linha 2' }).click();
+  await expect(nutri.getByRole('group', { name: 'Linha 1: Glicemia de jejum' }).getByLabel('Marcador 1', { exact: true })).toBeFocused();
+  await nutri.getByRole('button', { name: 'Remover a linha 1' }).click();
+  await expect(nutri.getByRole('group', { name: /^Linha 1/ })).toHaveCount(0);
+  await expect(adicionarLinha).toBeFocused();
+
+  // "Remover todos" confirmado: o gatilho some junto com o diálogo; o foco vai a "Adicionar linha"
+  await adicionarLinha.click();
+  await nutri.getByRole('button', { name: 'Remover todos' }).click();
+  const confirmar = nutri.getByRole('alertdialog', { name: 'Remover todos' });
+  await expect(confirmar).toBeVisible();
+  await confirmar.getByRole('button', { name: 'Remover', exact: true }).click();
+  await expect(confirmar).toHaveCount(0);
+  await expect(nutri.getByRole('button', { name: 'Remover todos' })).toHaveCount(0);
+  await expect(adicionarLinha).toBeFocused();
+});
+
+test('Linhas do exame (revisão da T4): o erro do servidor fica na linha que errou depois de remover a de cima', async () => {
+  await nutri.setViewportSize({ width: 1280, height: 800 });
+  const sufixo = `le${Date.now().toString(36)}`;
+  const prontuario = await criarPacientePeloFormulario(nutri, { nome: `Paciente Erro Linha ${sufixo}`, email: `erro-linha-${sufixo}@nutridebby.test` });
+  await nutri.goto(`${prontuario}/exames`);
+  await nutri.getByLabel('Título do exame').fill(`Rotina ${sufixo}`);
+  await nutri.getByLabel('Marcador 1', { exact: true }).fill('Glicemia de jejum');
+  await nutri.getByLabel('Valor 1', { exact: true }).fill('105');
+  await nutri.getByRole('button', { name: 'Adicionar linha' }).click();
+  await nutri.getByLabel('Marcador 2', { exact: true }).fill('Ferritina');
+  await nutri.getByLabel('Valor 2', { exact: true }).fill('abc');
+  await nutri.getByRole('button', { name: 'Salvar exame' }).click();
+  await expect(nutri.getByLabel('Valor 2', { exact: true })).toHaveAttribute('aria-invalid', 'true');
+  await expect(nutri.getByLabel('Valor 1', { exact: true })).not.toHaveAttribute('aria-invalid', 'true');
+
+  // a linha de cima sai: "Ferritina" passa a ser a linha 1 e leva o erro junto; nenhuma linha certa é acusada
+  await nutri.getByRole('button', { name: 'Remover a linha 1' }).click();
+  const ferritina = nutri.getByRole('group', { name: 'Linha 1: Ferritina' });
+  await expect(ferritina.getByLabel('Valor 1', { exact: true })).toHaveAttribute('aria-invalid', 'true');
+  await expect(ferritina.getByRole('alert')).toHaveCount(1);
+  // uma linha nova entra sem erro (não estava no envio)
+  await nutri.getByRole('button', { name: 'Adicionar linha' }).click();
+  await expect(nutri.getByLabel('Valor 2', { exact: true })).not.toHaveAttribute('aria-invalid', 'true');
 });

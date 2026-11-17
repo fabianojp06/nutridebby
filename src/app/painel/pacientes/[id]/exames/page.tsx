@@ -64,7 +64,6 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
     <div className="space-y-8">
       <FocoNaAncora />
       {busca.envio === 'salvo' && <Aviso tipo="ok">{MSG_REVISAO.salvo}</Aviso>}
-      {busca.exame === 'salvo' && <Aviso tipo="ok">{MSG_EXAMES.exame.salvo}</Aviso>}
       {iaRecusou && <Aviso tipo="aviso">{iaRecusou}</Aviso>}
       {enviados > 0 && (
         <p>
@@ -120,8 +119,7 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
           <article key={e.id} aria-labelledby={`exame-${e.id}`} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                {/* tabIndex: "Editar exame" volta com #exame-{id} e o foco vem para cá (FocoNaAncora) */}
-                <h3 id={`exame-${e.id}`} tabIndex={-1} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
+                <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
                 {doPaciente.has(e.id) && <Selo>{MSG_REVISAO.selo}</Selo>}
               </div>
               <div className="flex gap-4">
@@ -143,6 +141,13 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
                 )}
               </div>
             </div>
+            {/* "Editar exame" volta com ?editado={id}#exame-salvo: a confirmação fica no exame editado e recebe o foco
+                (FocoNaAncora), à vista e lida pelo leitor de tela — não no topo da página, acima do "Novo exame" */}
+            {busca.editado === e.id && (
+              <Aviso tipo="ok" id="exame-salvo" focavel>
+                {MSG_EXAMES.exame.salvo}
+              </Aviso>
+            )}
             {e.valores.length > 0 && (
               <table className="w-full text-left">
                 <caption className="sr-only">{`Valores do exame ${e.titulo}`}</caption>

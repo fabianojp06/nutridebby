@@ -3,8 +3,9 @@ import { notFound } from 'next/navigation';
 import { Aviso } from '@/components/ui/aviso';
 import { MSG_EXAMES } from '@/modules/exames/constantes';
 import { exameParaEditar } from '@/modules/exames/edicao';
+import { marcasDeIa } from '@/modules/ia/tarefas';
 import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
-import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
+import { formatarData, formatarDataNoFuso, hojeNoFuso } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../../../prontuario';
 import { EditarForm } from './editar-form';
 
@@ -19,6 +20,10 @@ export default async function EditarExamePage({ params }: PageProps<'/painel/pac
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const exame = await exameParaEditar(ctx, paciente.id, exameId);
   if (!exame) notFound();
+  // "IA · conferido em {data}" na linha que veio da IA, como na lista (D8: vale mesmo com a IA desligada depois)
+  const marcas = exame.valores.some((v) => v.iaTarefaId) ? await marcasDeIa(ctx, paciente.id) : new Map<string, Date>();
+  const doExame = new Set(exame.valores.map((v) => v.iaTarefaId).filter(Boolean));
+  const conferidoEm = Object.fromEntries([...marcas].filter(([tarefa]) => doExame.has(tarefa)).map(([tarefa, em]) => [tarefa, formatarDataNoFuso(em, tenant.fuso)]));
   const base = `/painel/pacientes/${paciente.id}/exames`;
   return (
     <section aria-labelledby="editar-exame" className="max-w-6xl space-y-4">
@@ -39,6 +44,7 @@ export default async function EditarExamePage({ params }: PageProps<'/painel/pac
           patientId={paciente.id}
           exameId={exame.id}
           exame={{ titulo: exame.titulo, data: exame.data, valores: exame.valores, updatedAt: exame.updatedAt }}
+          conferidoEm={conferidoEm}
           hoje={hojeNoFuso(tenant.fuso)}
           catalogo={exame.catalogo.map(({ nome, unidade, sinonimos, componentes }) => ({ nome, unidade, sinonimos, componentes }))}
         />

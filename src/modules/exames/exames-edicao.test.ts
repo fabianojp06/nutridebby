@@ -11,6 +11,7 @@ import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../..
 import type { Tx } from '@/db/client';
 import { auditLog, examesCatalogo, examVersoes, exams, patients, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { numeroParaCampo } from '@/lib/numero';
 import { aplicarSugestao } from '@/modules/ia/conferencia';
 import type { ResultadoLeitura } from '@/modules/ia/tipos';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
@@ -50,11 +51,12 @@ const doGravado = (valores: { nome: string; valor: number; unidade: string | nul
   valores.map((v, i) => ({
     origem: i,
     nome: v.nome,
-    valor: String(v.valor).replace('.', ','),
+    // o mesmo texto que o formulário mostra (linhaDoGravado): sem notação exponencial
+    valor: numeroParaCampo(v.valor),
     unidade: v.unidade ?? '',
     referencia: v.referencia ?? '',
-    refMin: v.refMin === undefined ? '' : String(v.refMin),
-    refMax: v.refMax === undefined ? '' : String(v.refMax),
+    refMin: numeroParaCampo(v.refMin),
+    refMax: numeroParaCampo(v.refMax),
   }));
 const nova = (o: Partial<LinhaEditada> = {}): LinhaEditada => ({ origem: null, nome: 'Ferritina', valor: '80', unidade: 'ng/mL', referencia: '', refMin: '', refMax: '', ...o });
 
@@ -139,7 +141,7 @@ describe('editarExame (US-371 "Editar exame", RN-378)', () => {
     const { T, p, exameId, aberto } = await cenario();
     const linhas = doGravado(aberto.valores);
     linhas[0].valor = '105';
-    for (const justificativa of ['', '   ', 'abc', `Valor\u0000errado`, 'x'.repeat(501), null]) {
+    for (const justificativa of ['', '   ', 'abc', '🙂🙂🙂', '🙂🙂🙂🙂', `Valor\u0000errado`, 'x'.repeat(501), null]) {
       expect(await erros(editarExame(T.ctx, fuso, p.id, exameId, { titulo: 'Rotina', data: '2026-09-01', linhas, justificativa, lidoEm: aberto.updatedAt }, deps)), String(justificativa)).toEqual({
         justificativa: E.justificativa,
       });
@@ -148,6 +150,27 @@ describe('editarExame (US-371 "Editar exame", RN-378)', () => {
     expect(await erros(editarExame(T.ctx, fuso, p.id, exameId, { titulo: 'Rotina', data: '2026-09-01', linhas: [], justificativa: '', lidoEm: aberto.updatedAt }, deps))).toEqual({ justificativa: E.justificativa });
     expect(await versoes(T, exameId)).toEqual([]);
     expect((await exame(T, exameId)).valores[0].valor).toBe(95);
+    // o tamanho é por code point, como o CHECK char_length: 5 emojis (10 unidades UTF-16) bastam
+    await editarExame(T.ctx, fuso, p.id, exameId, { titulo: 'Rotina', data: '2026-09-01', linhas, justificativa: '🙂'.repeat(5), lidoEm: aberto.updatedAt }, deps);
+    expect((await versoes(T, exameId)).map((v) => v.justificativa)).toEqual(['🙂'.repeat(5)]);
+  });
+
+  it('valor e faixa abaixo de 1e-6 (gravados como 1e-7): a linha intocada volta sem notação exponencial e a edição do título salva', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const exameId = await criarExame(
+      T.ctx,
+      T.tenant,
+      p.id,
+      { titulo: 'Traço', data: '2026-09-01', valores: [{ nome: 'Traço', valor: '0,0000001', unidade: 'mg/L', referencia: null, refMin: '0,0000001', refMax: '0,0000005' }], arquivo: null },
+      { db: app.db, now: new Date('2026-09-02T12:00:00Z') },
+    );
+    const aberto = (await exameParaEditar(T.ctx, p.id, exameId, deps))!;
+    expect(aberto.valores[0]).toMatchObject({ valor: 1e-7, refMin: 1e-7, refMax: 5e-7 });
+    await editarExame(T.ctx, fuso, p.id, exameId, { titulo: 'Traço anual', data: '2026-09-01', linhas: doGravado(aberto.valores), justificativa: 'Título padronizado', lidoEm: aberto.updatedAt }, deps);
+    const depois = await exame(T, exameId);
+    expect(depois.titulo).toBe('Traço anual');
+    expect(depois.valores).toEqual(aberto.valores);
   });
 
   it('só acréscimo (título, data e linhas existentes iguais, na mesma ordem) → passa sem justificativa e grava a versão de antes', async () => {

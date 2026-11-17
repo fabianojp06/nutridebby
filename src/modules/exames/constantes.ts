@@ -246,6 +246,10 @@ export const MSG_EXAMES = {
     usarFaixa: (a: string, b: string) => `Usar ${a} a ${b}`,
     usarFaixaRotulo: (a: string, b: string, n: number) => `Usar ${a} a ${b} (linha ${n})`,
     faixaDiverge: 'A faixa numérica não bate com o texto da referência. Confira no laudo.',
+    /** "Editar exame": a linha que veio da IA continua com "IA · conferido em…" (spec §"Editar exame"); sem a marca, sem data. */
+    iaConferido: (data: string | null) => (data ? `IA · conferido em ${data}` : 'IA · conferido'),
+    /** Texto novo (revisão da T4): por que nome, valor e unidade da linha da IA não mudam. Rascunho para a Debby. */
+    iaFixa: 'Marcador, valor e unidade vieram do laudo e não mudam. Para corrigir, remova a linha e lance outra.',
   },
   /** Linha "Lançamento: erros" (as mensagens de hoje de `exames.ts` continuam). */
   lancamentoErros: {

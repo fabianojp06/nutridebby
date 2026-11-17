@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Dialogo, DialogoConfirmar } from '@/components/dialogo';
 import { Botao } from '@/components/ui/botao';
-import { lerDecimal } from '@/lib/numero';
+import { lerDecimal, numeroParaCampo } from '@/lib/numero';
 import { classificarNeutra, faixaDiverge, formatarLimite, ROTULO_NEUTRA, sugerirFaixa } from '@/modules/exames/classificacao';
 import { MSG_EXAMES } from '@/modules/exames/constantes';
 import { normalizarNome } from '@/modules/ia/correspondencia';
@@ -20,6 +20,11 @@ import { EscolherDoCatalogo, type ItemDoCatalogo, type LinhaDaAnalise } from '@/
  *
  * Os diálogos ("Adicionar do catálogo", "Carregar modelo de solicitação", "Remover todos") são levados para fora do
  * `<form>` da tela por `createPortal`, no contêiner do tema, e só existem abertos (contrato do `Dialogo`, EP-D42).
+ *
+ * Foco (revisão da T4): o botão que some no próprio clique nunca deixa o foco no `body` — "Remover" da linha leva à
+ * linha vizinha (ou a "Adicionar linha"), "Remover todos" a "Adicionar linha" e "Usar {a} a {b}" ao "de" já preenchido.
+ * Os erros do servidor vêm pelo índice da linha **no envio** (`chavesDoEnvio`): remover ou acrescentar linhas depois
+ * nunca leva a mensagem para outra linha.
  */
 
 const L = MSG_EXAMES.lancamento;
@@ -37,6 +42,8 @@ export type LinhaDoForm = {
   refMax: string;
   /** A linha veio da IA (edição): nome, valor e unidade ficam fixos (RN-378). */
   daIa: boolean;
+  /** Linha da IA: a data da conferência já formatada ("IA · conferido em {data}"); sem a marca, `null`. */
+  iaConferidoEm: string | null;
 };
 export type ModeloParaCarregar = { id: string; nome: string; linhas: LinhaDaAnalise[] };
 type CampoDeTexto = 'nome' | 'valor' | 'unidade' | 'referencia' | 'refMin' | 'refMax';
@@ -47,13 +54,16 @@ type CampoDeTexto = 'nome' | 'valor' | 'unidade' | 'referencia' | 'refMin' | 're
  */
 let proximaChave = 1000;
 export const novaChave = (): number => proximaChave++;
-export const linhaVazia = (chave: number = novaChave()): LinhaDoForm => ({ chave, origem: null, nome: '', valor: '', unidade: '', referencia: '', refMin: '', refMax: '', daIa: false });
-/** O número gravado no campo, com vírgula decimal e todas as casas (sem arredondar: salvar sem mexer não muda o valor). */
-const numeroParaCampo = (n: number | undefined) => (n === undefined ? '' : String(n).replace('.', ','));
-/** A linha gravada como o formulário a mostra, com a origem (a chave é o índice: primeiro desenho). */
+export const linhaVazia = (chave: number = novaChave()): LinhaDoForm => ({ chave, origem: null, nome: '', valor: '', unidade: '', referencia: '', refMin: '', refMax: '', daIa: false, iaConferidoEm: null });
+/**
+ * A linha gravada como o formulário a mostra, com a origem (a chave é o índice: primeiro desenho). Os números com vírgula,
+ * todas as casas e sem notação exponencial (`numeroParaCampo`): salvar sem mexer não muda o valor nem trava a linha.
+ */
 export function linhaDoGravado(
   v: { nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string; refMin?: number; refMax?: number },
   origem: number,
+  /** A data da conferência da IA já formatada (a linha com `iaTarefaId`); sem a marca, `null`. */
+  iaConferidoEm: string | null = null,
 ): LinhaDoForm {
   return {
     chave: origem,
@@ -65,6 +75,7 @@ export function linhaDoGravado(
     refMin: numeroParaCampo(v.refMin),
     refMax: numeroParaCampo(v.refMax),
     daIa: !!v.iaTarefaId,
+    iaConferidoEm: v.iaTarefaId ? iaConferidoEm : null,
   };
 }
 /** O que vai ao servidor (o `iaTarefaId` nunca: a origem é só o índice). */
@@ -132,7 +143,7 @@ function CarregarModelo({ modelos, aoCarregar }: { modelos: ModeloParaCarregar[]
 }
 
 /** "Remover todos" com a confirmação "Remover"/"Cancelar" (nada muda até salvar). */
-function RemoverTodos({ aoRemover }: { aoRemover: () => void }) {
+function RemoverTodos({ aoRemover, focoAoFechar }: { aoRemover: () => void; focoAoFechar: () => HTMLElement | null }) {
   const [destino, setDestino] = useState<HTMLElement | null>(null);
   const fechar = () => setDestino(null);
   return (
@@ -150,6 +161,8 @@ function RemoverTodos({ aoRemover }: { aoRemover: () => void }) {
             confirmar={L.remover}
             cancelar={L.cancelar}
             aoFechar={fechar}
+            // confirmado, o próprio "Remover todos" some (sem linhas): o foco vai a "Adicionar linha"
+            focoAoFechar={focoAoFechar}
             aoConfirmar={() => {
               aoRemover();
               fechar();
@@ -166,6 +179,7 @@ export function LinhasDoExame({
   linhas,
   aoMudar,
   erros,
+  chavesDoEnvio,
   catalogo,
   modelos,
 }: {
@@ -173,16 +187,33 @@ export function LinhasDoExame({
   idBase: string;
   linhas: LinhaDoForm[];
   aoMudar: (f: (atuais: LinhaDoForm[]) => LinhaDoForm[]) => void;
-  /** Erros do servidor: `valores` (a lista) e `valores.{i}.{campo}` (a linha de índice i). */
+  /** Erros do servidor: `valores` (a lista) e `valores.{i}.{campo}` (a linha de índice i **no envio**). */
   erros: Record<string, string>;
+  /** As chaves das linhas no envio que gerou `erros`, na ordem enviada: o índice `i` do erro é a linha `chavesDoEnvio[i]`. */
+  chavesDoEnvio: readonly number[];
   catalogo: ItemDoCatalogo[];
   /** Sem a prop, sem "Carregar modelo de solicitação". */
   modelos?: ModeloParaCarregar[];
 }) {
   const idAviso = `${idBase}-aviso-classificacao`;
   const idAjudaFaixa = `${idBase}-ajuda-faixa`;
+  const idAdicionarLinha = `${idBase}-adicionar-linha`;
   const mudar = (chave: number, campo: CampoDeTexto, v: string) => aoMudar((ls) => ls.map((l) => (l.chave === chave ? { ...l, [campo]: v } : l)));
   const adicionar = (novas: LinhaDaAnalise[]) => aoMudar((ls) => acrescentarLinhas(ls, novas));
+  /** O id a focar depois do próximo desenho (o rótulo do grupo e o valor do campo já atualizados quando o leitor anunciar). */
+  const focarDepois = useRef<string | null>(null);
+  useEffect(() => {
+    const alvo = focarDepois.current;
+    if (!alvo) return;
+    focarDepois.current = null;
+    document.getElementById(alvo)?.focus();
+  });
+  const remover = (chave: number) => {
+    const i = linhas.findIndex((x) => x.chave === chave);
+    const vizinha = linhas[i + 1] ?? linhas[i - 1];
+    focarDepois.current = vizinha ? `${idBase}-nome-${vizinha.chave}` : idAdicionarLinha;
+    aoMudar((ls) => ls.filter((x) => x.chave !== chave));
+  };
 
   return (
     <fieldset className="space-y-3" aria-describedby={erros.valores ? `${idBase}-valores-erro` : undefined}>
@@ -190,8 +221,8 @@ export function LinhasDoExame({
       <div className="flex flex-wrap gap-2">
         <EscolherDoCatalogo modo="linhas" catalogo={catalogo} aoAdicionar={adicionar} />
         {modelos && <CarregarModelo modelos={modelos} aoCarregar={adicionar} />}
-        {linhas.length > 0 && <RemoverTodos aoRemover={() => aoMudar(() => [])} />}
-        <Botao type="button" variante="secundario" onClick={() => aoMudar((ls) => [...ls, linhaVazia()])}>
+        {linhas.length > 0 && <RemoverTodos aoRemover={() => aoMudar(() => [])} focoAoFechar={() => document.getElementById(idAdicionarLinha)} />}
+        <Botao id={idAdicionarLinha} type="button" variante="secundario" onClick={() => aoMudar((ls) => [...ls, linhaVazia()])}>
           {L.adicionarLinha}
         </Botao>
       </div>
@@ -202,7 +233,21 @@ export function LinhasDoExame({
         {L.ajudaFaixa}
       </p>
       {linhas.map((l, i) => (
-        <Linha key={l.chave} idBase={idBase} l={l} i={i} erros={erros} idAviso={idAviso} idAjudaFaixa={idAjudaFaixa} mudar={mudar} remover={() => aoMudar((ls) => ls.filter((x) => x.chave !== l.chave))} />
+        <Linha
+          key={l.chave}
+          idBase={idBase}
+          l={l}
+          i={i}
+          indiceNoEnvio={chavesDoEnvio.indexOf(l.chave)}
+          erros={erros}
+          idAviso={idAviso}
+          idAjudaFaixa={idAjudaFaixa}
+          mudar={mudar}
+          remover={() => remover(l.chave)}
+          focar={(id) => {
+            focarDepois.current = id;
+          }}
+        />
       ))}
       {erros.valores && (
         <p id={`${idBase}-valores-erro`} role="alert" className="text-sm text-erro">
@@ -217,24 +262,30 @@ function Linha({
   idBase,
   l,
   i,
+  indiceNoEnvio,
   erros,
   idAviso,
   idAjudaFaixa,
   mudar,
   remover,
+  focar,
 }: {
   idBase: string;
   l: LinhaDoForm;
   i: number;
+  /** O índice desta linha no envio que gerou `erros` (-1: a linha entrou depois, sem erro do servidor). */
+  indiceNoEnvio: number;
   erros: Record<string, string>;
   idAviso: string;
   idAjudaFaixa: string;
   mudar: (chave: number, campo: CampoDeTexto, v: string) => void;
   remover: () => void;
+  /** Foca o elemento com este id depois do próximo desenho. */
+  focar: (id: string) => void;
 }) {
   const n = i + 1;
   const id = (campo: string) => `${idBase}-${campo}-${l.chave}`;
-  const erro = (campo: CampoDeTexto) => erros[`valores.${i}.${campo}`];
+  const erro = (campo: CampoDeTexto) => (indiceNoEnvio < 0 ? undefined : erros[`valores.${indiceNoEnvio}.${campo}`]);
   const valor = lerDecimal(l.valor);
   const refMin = lerDecimal(l.refMin);
   const refMax = lerDecimal(l.refMax);
@@ -272,15 +323,17 @@ function Linha({
   };
 
   const faixa = [idAjudaFaixa, ...(diverge ? [id('diverge')] : [])];
+  // a linha da IA: os campos fixos dizem por quê (o `readOnly` não é anunciado por todos os leitores)
+  const daIa = l.daIa ? [id('ia'), id('ia-fixa')] : [];
   return (
     <div
       role="group"
       aria-label={l.nome.trim() ? L.grupoLinha(n, l.nome.trim()) : `Linha ${n}`}
       className="grid gap-2 rounded-2xl border border-linha p-2 md:grid-cols-4 lg:grid-cols-8 lg:items-start"
     >
-      {campo('nome', L.marcador(n), { somenteLeitura: l.daIa, max: 80 })}
-      {campo('valor', L.valor(n), { somenteLeitura: l.daIa, decimal: true, extra: [...(neutra ? [id('classe')] : []), idAviso] })}
-      {campo('unidade', L.unidade(n), { somenteLeitura: l.daIa, max: 20 })}
+      {campo('nome', L.marcador(n), { somenteLeitura: l.daIa, max: 80, extra: daIa })}
+      {campo('valor', L.valor(n), { somenteLeitura: l.daIa, decimal: true, extra: [...(neutra ? [id('classe')] : []), idAviso, ...daIa] })}
+      {campo('unidade', L.unidade(n), { somenteLeitura: l.daIa, max: 20, extra: daIa })}
       {campo('referencia', L.referencia(n), { max: 80 })}
       {campo('refMin', L.faixaDe(n), { decimal: true, extra: faixa })}
       {campo('refMax', L.faixaAte(n), { decimal: true, extra: faixa })}
@@ -298,6 +351,8 @@ function Linha({
             onClick={() => {
               mudar(l.chave, 'refMin', formatarLimite(sugestao.refMin));
               mudar(l.chave, 'refMax', formatarLimite(sugestao.refMax));
+              // o botão some (a faixa deixou de estar vazia): o foco vai ao "de" já preenchido, e o leitor anuncia o valor
+              focar(id('refMin'));
             }}
           >
             {L.usarFaixa(formatarLimite(sugestao.refMin), formatarLimite(sugestao.refMax))}
@@ -308,7 +363,16 @@ function Linha({
             {L.faixaDiverge}
           </p>
         )}
-        {l.daIa && <p className="text-suave">IA · conferido</p>}
+        {l.daIa && (
+          <>
+            <p id={id('ia')} className="text-suave">
+              {L.iaConferido(l.iaConferidoEm)}
+            </p>
+            <p id={id('ia-fixa')} className="text-suave">
+              {L.iaFixa}
+            </p>
+          </>
+        )}
       </div>
       <div className="md:self-end lg:self-auto lg:pt-6">
         <Botao type="button" variante="secundario" aria-label={`Remover a linha ${n}`} onClick={remover}>

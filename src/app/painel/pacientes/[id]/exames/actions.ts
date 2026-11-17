@@ -117,6 +117,7 @@ export async function editarExameAction(patientId: string, exameId: string, _pre
     throw e;
   }
   revalidatePath(`/painel/pacientes/${patientId}`, 'layout');
-  redirect(`/painel/pacientes/${patientId}/exames?exame=salvo#exame-${exameId}`);
+  // "Exame salvo." aparece no próprio exame editado (não no topo, longe do foco) e recebe o foco pela âncora
+  redirect(`/painel/pacientes/${patientId}/exames?editado=${exameId}#exame-salvo`);
 }
 

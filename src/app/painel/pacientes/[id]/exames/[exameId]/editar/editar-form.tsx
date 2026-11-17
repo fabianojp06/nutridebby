@@ -19,19 +19,27 @@ export function EditarForm({
   patientId,
   exameId,
   exame,
+  conferidoEm,
   hoje,
   catalogo,
 }: {
   patientId: string;
   exameId: string;
   exame: { titulo: string; data: string; valores: ValorGravado[]; updatedAt: string };
+  /** A data da conferência (já formatada) por `iaTarefaId`: "IA · conferido em {data}" na linha da IA. */
+  conferidoEm: Record<string, string>;
   hoje: string;
   catalogo: ItemDoCatalogo[];
 }) {
   const [estado, acao, enviando] = useActionState<EditarState, FormData>(editarExameAction.bind(null, patientId, exameId), {});
-  const [linhas, setLinhas] = useState<LinhaDoForm[]>(() => exame.valores.map((v, i) => linhaDoGravado(v, i)));
+  const [linhas, setLinhas] = useState<LinhaDoForm[]>(() => exame.valores.map((v, i) => linhaDoGravado(v, i, v.iaTarefaId ? (conferidoEm[v.iaTarefaId] ?? null) : null)));
   const form = useRef<HTMLFormElement>(null);
   const erros = estado.erros ?? {};
+  // as chaves das linhas no envio em curso; quando a resposta chega (`estado.envio` novo), passam a valer para os erros
+  // dela — remover ou acrescentar linhas depois nunca leva a mensagem para outra linha
+  const [chavesEnviadas, setChavesEnviadas] = useState<number[]>([]);
+  const [doEnvio, setDoEnvio] = useState<{ envio: number | undefined; chaves: number[] }>({ envio: undefined, chaves: [] });
+  if (doEnvio.envio !== estado.envio) setDoEnvio({ envio: estado.envio, chaves: chavesEnviadas });
   const v = (k: string, padrao: string) => (typeof estado.valores?.[k] === 'string' ? (estado.valores[k] as string) : padrao);
   const chave = estado.envio ?? 0;
 
@@ -47,7 +55,7 @@ export function EditarForm({
       </p>
     );
   return (
-    <form ref={form} action={acao} className="space-y-4">
+    <form ref={form} action={acao} onSubmit={() => setChavesEnviadas(linhas.map((l) => l.chave))} className="space-y-4">
       <input type="hidden" name="lidoEm" value={exame.updatedAt} />
       <input type="hidden" name="linhas" value={JSON.stringify(linhas.map(linhaParaEnvio))} />
       <div className="grid gap-3 sm:grid-cols-2">
@@ -83,7 +91,7 @@ export function EditarForm({
           {erro('data')}
         </div>
       </div>
-      <LinhasDoExame idBase="editar" linhas={linhas} aoMudar={setLinhas} erros={erros} catalogo={catalogo} />
+      <LinhasDoExame idBase="editar" linhas={linhas} aoMudar={setLinhas} erros={erros} chavesDoEnvio={doEnvio.chaves} catalogo={catalogo} />
       <div className="space-y-1">
         <label htmlFor="editar-justificativa" className="block font-medium">
           {MSG_EXAMES.exame.justificativa}
