@@ -180,19 +180,22 @@ export async function atenderPedidoExclusao(
         .where(and(eq(notifications.patientId, p.id), eq(notifications.status, 'pendente')));
       // US-018: "inscrições de push … apagadas na hora" (só as deste vínculo — D14)
       await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, p.id));
-      // Plano 17 (§5.5): a configuração dos lembretes é ajuste do app, não prontuário. A conduta (plano alimentar, receita do
-      // suplemento) fica nos registros próprios (Res. CFN 594/2017; Res. CFN 656/2020, art. 3º, XI e XII). Por isso a equipe
-      // apaga de fato, e a exclusão atendida apaga na hora, como as notificações no aparelho e as conversas da IA Nutri (termo
-      // 1.0, §24); o `audit_log` guarda quem criou, alterou e excluiu, sem o conteúdo. A marca do último envio
-      // (lembretes_rotina_envios) sai em cascata. Depois do UPDATE acima: o gatilho lembretes_rotina_sem_apagar (0120) só deixa
-      // a sessão `nutri` apagar o lembrete que o paciente desligou com o titular já `bloqueado`.
-      await tx.delete(lembretesRotina).where(eq(lembretesRotina.patientId, p.id));
       await apagarUsoDeConteudo(tx, p.id); // D15: sai das audiências de conteúdo (US-018), sem uso em conteúdo (RNF-08)
       await apagarAcessosDoTitular(tx, p.id); // D13: acessos ao portal (CS-02) são dado de uso, não obrigatório (RNF-08)
       // Plano 11 (spec §5.3): leituras de IA na fila canceladas (reserva estornada) e sugestões esvaziadas na hora; as que
       // estão em processamento falham no worker (RN-100 de novo: paciente bloqueado). Ordem de travas da cota (cota.ts):
       // paciente (já travado acima) → tenant (travado por cancelarTarefas) → tarefas → ia_uso → plataforma
       await cancelarTarefas(tx, { tenantId: ctx.tenantId, patientId: p.id, agora: now, por: ctx.actorUserId ?? null });
+      // Plano 17 (§5.5): a configuração dos lembretes é ajuste do app, não prontuário. A conduta (plano alimentar, receita do
+      // suplemento) fica nos registros próprios (Res. CFN 594/2017; Res. CFN 656/2020, art. 3º, XI e XII). Por isso a equipe
+      // apaga de fato, e a exclusão atendida apaga na hora, como as notificações no aparelho e as conversas da IA Nutri (termo
+      // do paciente 1.0, parágrafo "Algumas coisas saem logo: …", termo-paciente-textos.ts); o `audit_log` guarda quem criou,
+      // alterou e excluiu, sem o conteúdo. A marca do último envio (lembretes_rotina_envios) sai em cascata. Duas condições
+      // de ordem: (1) depois do UPDATE que leva a `bloqueado` — o gatilho lembretes_rotina_sem_apagar (0120) só deixa a
+      // sessão `nutri` apagar o lembrete que o paciente desligou com o titular já `bloqueado`; (2) depois da trava do tenant
+      // (cancelarTarefas, FOR NO KEY UPDATE) — ordem paciente → tenant → linhas, porque o `marcar` do worker dos lembretes
+      // segura o tenant FOR SHARE antes de gravar a marca (KEY SHARE no lembrete pela FK); apagar antes faria um ciclo.
+      await tx.delete(lembretesRotina).where(eq(lembretesRotina.patientId, p.id));
       await recordAudit(tx, {
         acao: 'bloquear',
         entidade: 'patients',
