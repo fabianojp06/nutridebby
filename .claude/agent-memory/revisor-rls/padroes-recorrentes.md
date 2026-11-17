@@ -383,3 +383,11 @@ Plano 20, T3 (módulo do Financeiro, 17/11/2026):
 - Testes de bloqueio concorrente que usam UPDATE simples de `status` (FOR NO KEY UPDATE) não conflitam com FOR KEY SHARE:
   a serialização só existe porque o bloqueio real (lgpd.ts) faz `carregarPacienteParaEscrita` (FOR UPDATE). Conferir o
   caminho real de quem muda a situação, não o helper do teste.
+
+Plano 20, T7 (cobrança da consulta, 17/11/2026) — revisão limpa na lente banco; molde aceito para conferir em outras:
+- Efeito colateral chamado DENTRO da transação de outro fluxo (presença → cobrança): a função relê a situação do paciente
+  sob a própria trava (FOR KEY SHARE, que espera o FOR UPDATE do bloqueio real) e devolve um resultado, em vez de deixar o
+  gatilho recusar com 42501 e derrubar o fluxo principal. Conferir sempre: (a) o bloqueio real usa FOR UPDATE (KEY SHARE
+  não espera UPDATE simples); (b) nenhum throw residual (ex.: categoria ausente) no caminho chamado.
+- Action de seção que recebe o id do registro pelo formulário (não por bind) ao lado do id da página: só RLS do tenant
+  limita; costuma ser Minor (a usuária já pode agir no registro pela tela própria).
