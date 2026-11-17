@@ -95,7 +95,8 @@ test('Plano 18: a faixa de abas da ficha cabe a 1280 px sem "incomplete"; o cada
     const r = await new AxeBuilder({ page: nutri }).withTags(TAGS).include('nav[aria-label="Seções do prontuário"]').analyze();
     expect(r.violations.map((v) => v.id)).toEqual([]);
     expect(r.incomplete.map((i) => `${i.id}: ${i.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
-    await expect(nutri.getByRole('heading', { level: 2, name: 'Cadastro' })).toBeVisible();
+    // Plano 18 (§8.4, T7a): o cadastro em seções — os títulos são as legendas dos fieldsets
+    for (const secao of ['Dados gerais', 'Contato e endereço', 'Observação']) await expect(nutri.getByRole('heading', { level: 2, name: secao })).toBeVisible();
     await expect(nutri.getByRole('button', { name: 'Salvar cadastro' })).toBeVisible();
     await expect(nutri.getByRole('heading', { level: 2, name: 'Acesso ao app' })).toBeVisible();
     await expect(nutri.getByRole('heading', { level: 2, name: 'Etiquetas' })).toBeVisible();

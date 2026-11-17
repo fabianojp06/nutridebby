@@ -49,6 +49,8 @@ export const GUIAS: readonly Guia[] = [
     passos: [
       { alvo: 'novo-paciente', titulo: 'Novo paciente', texto: 'Comece cadastrando o paciente. O convite para o app sai por e-mail ao salvar.' },
       { alvo: 'busca-pacientes', titulo: 'Busca', texto: 'Ache um paciente pelo nome ou filtre pela situação (ativo, arquivado).' },
+      // Plano 18 (§8.4): o alvo está em "Novo paciente" (na lista, o passo aparece centralizado); a versão sobe na Tarefa 8
+      { alvo: 'cadastro-paciente', titulo: 'Cadastro do paciente', texto: 'O cadastro fica em seções. Só nome, nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta.' },
     ],
   },
   {
@@ -169,6 +171,36 @@ export const GUIAS: readonly Guia[] = [
       // PR 1 sem o selo: a frase "O selo No app marca o que o paciente vê no app." (spec §8.3) entra na Tarefa 9, com a versao 2.
       { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes.' },
     ],
+  },
+  {
+    // Plano 18 (§8.4): só a aba Perfil; antes do `prontuario`, que casa todas as abas. Título "Perfil do paciente":
+    // distinto dos outros (o manual completo lista um h2 por guia; `e2e/manual.spec.ts`).
+    id: 'perfil-paciente',
+    versao: 1,
+    padrao: new RegExp(`^/painel/pacientes/${ID}/perfil$`),
+    titulo: 'Perfil do paciente',
+    ajuda: {
+      resumo: 'O Perfil guarda o cadastro do paciente em seções (dados gerais, contato e endereço, observação), o acesso ao app e as etiquetas.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Só nome, nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta. Depois, use "Salvar cadastro".',
+            'Preencha o nome social só a pedido do paciente.',
+            'Se o convite para o app vencer, use "Reenviar convite" em "Acesso ao app".',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'O CPF não aparece na lista nem no app. Se outro paciente do consultório já tiver o mesmo CPF, o link "Abrir o cadastro existente (abre em nova aba)" mostra o cadastro dele.',
+            'A observação pode ir na cópia dos dados que o paciente pedir (LGPD). Para anotações só suas, use as notas privadas do atendimento.',
+            'Paciente bloqueado por pedido de exclusão tem o cadastro só para consulta.',
+          ],
+        },
+      ],
+    },
+    passos: [{ alvo: 'cadastro-paciente', titulo: 'Cadastro do paciente', texto: 'O cadastro fica em seções. Só nome, nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta.' }],
   },
   {
     id: 'prontuario',

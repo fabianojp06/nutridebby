@@ -181,7 +181,7 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(g.titulo).toBe('Início do paciente');
     expect(g.versao).toBe(1);
     expect(guiaDaRota(`/painel/pacientes/${UUID}`)?.id).toBe('inicio-paciente');
-    expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil`)?.id).toBe('prontuario');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil`)?.id).toBe('perfil-paciente'); // guia próprio desde a Tarefa 7a
     expect(guiaDaRota(`/painel/pacientes/${UUID}/app`)?.id).toBe('prontuario');
     expect(GUIAS.findIndex((x) => x.id === 'inicio-paciente')).toBeLessThan(GUIAS.findIndex((x) => x.id === 'prontuario'));
     expect(g.passos.map((p) => p.alvo)).toEqual(['cabecalho-paciente', 'abas-prontuario', 'adicionar-prontuario', 'secoes-inicio']);
@@ -191,6 +191,20 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(g.passos.find((p) => p.alvo === 'secoes-inicio')?.texto).toBe('Cada seção mostra quantos registros há e os três mais recentes.');
     // O selo "No app" só existe a partir da Tarefa 9 (PR 2): na versao 1 nenhum texto do guia fala dele.
     expect(JSON.stringify({ ajuda: g.ajuda, passos: g.passos })).not.toMatch(/No app/);
+  });
+  it('Plano 18 (§8.4): o guia "Perfil do paciente" casa só o Perfil, vem antes do prontuário e traz o passo do cadastro em seções; o de Pacientes tem o mesmo passo (Novo paciente)', () => {
+    const g = GUIAS.find((x) => x.id === 'perfil-paciente')!;
+    expect(g.titulo).toBe('Perfil do paciente');
+    expect(g.versao).toBe(1);
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil`)?.id).toBe('perfil-paciente');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil/x`)?.id).toBe('prontuario');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}`)?.id).toBe('inicio-paciente');
+    expect(GUIAS.findIndex((x) => x.id === 'perfil-paciente')).toBeLessThan(GUIAS.findIndex((x) => x.id === 'prontuario'));
+    const passo = { alvo: 'cadastro-paciente', titulo: 'Cadastro do paciente', texto: 'O cadastro fica em seções. Só nome, nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta.' };
+    expect(g.passos).toContainEqual(passo);
+    const pacientes = GUIAS.find((x) => x.id === 'pacientes')!;
+    expect(guiaDaRota('/painel/pacientes/novo')?.id).toBe('pacientes');
+    expect(pacientes.passos).toContainEqual(passo);
   });
   it('nenhum título de guia repetido (o manual completo lista um h2 por guia; "Início" é o de boas-vindas)', () => {
     expect(new Set(GUIAS.map((g) => g.titulo)).size).toBe(GUIAS.length);

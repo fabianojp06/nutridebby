@@ -12,11 +12,12 @@ export async function criarPacientePeloFormulario(
   dados: { nome: string; email: string; nascimento?: string; sexo?: 'Feminino' | 'Masculino'; telefone?: string },
 ): Promise<string> {
   await nutri.goto('/painel/pacientes/novo');
-  await nutri.getByLabel('Nome').fill(dados.nome);
+  // Plano 18 (T7a): "Nome completo" ao lado de "Nome social (opcional)" — exact, porque o getByLabel casa por trecho
+  await nutri.getByLabel('Nome completo', { exact: true }).fill(dados.nome);
   await nutri.getByLabel('Data de nascimento').fill(dados.nascimento ?? '1990-05-20');
   await nutri.getByLabel(dados.sexo ?? 'Feminino').check();
   await nutri.getByLabel('E-mail').fill(dados.email);
-  if (dados.telefone) await nutri.getByLabel('Telefone (opcional)').fill(dados.telefone);
+  if (dados.telefone) await nutri.getByLabel('Celular / WhatsApp (opcional)').fill(dados.telefone);
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
   await expect(nutri).toHaveURL(/\/painel\/pacientes\/[0-9a-f-]{36}$/);
   return new URL(nutri.url()).pathname;
