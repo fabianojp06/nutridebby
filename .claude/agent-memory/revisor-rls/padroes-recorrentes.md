@@ -384,3 +384,10 @@ Plano 23, T1b (gatilhos do pedido, 17/11/2026):
   cancelada (`cancelada → agendada`, provado no dev com ROLLBACK) ou mover o horário de uma agendada contorna a regra. Conferir
   sempre o que o papel já pode fazer por UPDATE nas linhas que NÃO estão no estado novo, não só as transições do estado novo.
 - `tenants` sem RLS: gatilho "só a equipe muda a coluna" barra papel, não tenant — a sessão nutri de A muda a linha de B.
+Plano 23, T1c (SECURITY DEFINER da agenda, 17/11/2026): sem Critical/Important; migrate-owner com dono NOBYPASSRLS ok.
+- Gatilho que decide pela coluna `origem` que o próprio papel grava (cópia do link só com origem='paciente'): a sessão de
+  paciente/publico manda origem 'nutri' e mantém o link do código. Conferir se o discriminador é gravável pelo papel guardado.
+- Função SQL que toma a trava consultiva do tenant e depois a linha: o módulo que já fez FOR UPDATE da linha antes de chamá-la
+  (concluir/confirmarCodigo do agendamento público) inverte a ordem tenant → linha. Conferir o chamador na tarefa que liga.
+- Anonimização SECURITY DEFINER nova copiando o molde 0065/0108 (bloqueado + anonimizado_em nulo) sem o prazo vencido que a
+  0123 já exige: apontar o molde mais novo.
