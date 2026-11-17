@@ -1,12 +1,13 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useRef, useState } from 'react';
 import { MAX_TEXTO, MSG_TEXTO_LIVRE } from '@/modules/plano-alimentar/constantes';
 import { MSG_MINHAS_REFEICOES, NOME_MINHA_REFEICAO_MAX, type MinhaRefeicaoEnviada } from '@/modules/plano-alimentar/biblioteca-constantes';
 import { kcalTexto, totalDosItens } from '@/modules/plano-alimentar/calculo';
 import type { MinhaRefeicao } from '@/modules/plano-alimentar/refeicoes-modelo';
 import { TIPOS_DE_REFEICAO } from '@/modules/plano-alimentar/tipos-de-refeicao';
 import { gramasDoItem, itemEstadoDe, itemParaEnvio, type ItemEstado } from '../editor/estado';
+import { useFocoNoPrimeiroErro } from '../foco-no-erro';
 import { ItemDaBiblioteca } from '../item-da-biblioteca';
 import type { MinhaRefeicaoState } from './actions';
 
@@ -17,7 +18,8 @@ const descritoPor = (...ids: (string | false | undefined)[]) => ids.filter(Boole
 /**
  * US-237 "Tela de cadastro": nome, tipo, horário, observação e, conforme o modo, os itens (quantidade, medida,
  * remover; alimento novo entra pelo editor do plano: carregar, mudar e salvar de novo) ou o texto livre. Os erros ficam
- * ao lado do campo (`role="alert"`, `aria-describedby`); o que foi digitado fica no estado da tela.
+ * ao lado do campo (`role="alert"`, `aria-describedby`) e, a cada resposta com erro, o foco vai ao primeiro campo
+ * inválido (com até 40 itens, o botão "Salvar refeição" fica longe do topo); o que foi digitado fica no estado da tela.
  */
 export function RefeicaoForm({ acao, refeicao }: { acao: Acao; refeicao: MinhaRefeicao }) {
   const [state, action, pendente] = useActionState(acao, {});
@@ -27,6 +29,8 @@ export function RefeicaoForm({ acao, refeicao }: { acao: Acao; refeicao: MinhaRe
   const [observacao, setObservacao] = useState(refeicao.observacao);
   const [descricao, setDescricao] = useState(refeicao.descricaoLivre ?? '');
   const [itens, setItens] = useState<ItemEstado[]>(() => refeicao.itens.map(itemEstadoDe));
+  const raiz = useRef<HTMLFormElement>(null);
+  useFocoNoPrimeiroErro(raiz, state.erros);
   const e = state.erros ?? {};
   const erro = (k: string) => e[k];
   const livre = refeicao.modo === 'livre';
@@ -34,7 +38,7 @@ export function RefeicaoForm({ acao, refeicao }: { acao: Acao; refeicao: MinhaRe
   const total = totalDosItens(itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, substituiItemId: i.substituiItemId })));
   const erroCampo = (k: string, id: string) => e[k] && <p id={`${id}-erro`} role="alert" className="text-sm text-erro">{e[k]}</p>;
   return (
-    <form action={action} className="space-y-4" noValidate>
+    <form ref={raiz} action={action} className="space-y-4" noValidate>
       <input type="hidden" name="dados" value={JSON.stringify(dados)} />
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1">

@@ -66,8 +66,9 @@ export function ItemDaBiblioteca({ i, onde, substituicao = false, alterar, remov
         Remover {i.nome}{sr}
       </button>
       {errQ && <p id={`${i.id}-erro`} role="alert" className="w-full text-sm text-erro">{errQ}</p>}
-      {errAlimento && <p role="alert" className="w-full text-sm text-erro">{errAlimento}</p>}
-      {errSub && <p role="alert" className="w-full text-sm text-erro">{errSub}</p>}
+      {/* sem campo ao lado: o próprio aviso recebe o foco do primeiro erro (`useFocoNoPrimeiroErro`) */}
+      {errAlimento && <p role="alert" tabIndex={-1} data-foco-erro className="w-full text-sm text-erro">{errAlimento}</p>}
+      {errSub && <p role="alert" tabIndex={-1} data-foco-erro className="w-full text-sm text-erro">{errSub}</p>}
     </li>
   );
 }

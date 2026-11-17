@@ -6,17 +6,18 @@ import {
   contents, energyCalcs, foods, mealItems, mealPlans, meals, planoConteudos, planoListasSubstituicao, referenciasNutrientes, type MacrosPrescritos, type MealPlanRow, type MedidaDoItem,
 } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { gramasDaMedida, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos/medidas-constantes';
+import { textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { ehChaveNutriente, MSG_NUTRIENTES, type ChaveNutriente } from '@/modules/alimentos/nutrientes';
 import { MAX_NUTRIENTES_EXIBIDOS } from '@/modules/alimentos/referencias-constantes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { lerDecimal, arredondar } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
 import type { ItemIa, RefeicaoIa } from '@/modules/ia/plano-ia';
-import { itensComoTexto, lerQuantidade } from './calculo';
+import { itensComoTexto } from './calculo';
 import { MAX_ENVIOS_INCERTOS, MAX_ITENS, MAX_REFEICOES, MAX_TEXTO, META_MAX, META_MIN, MSG_DIAS, MSG_PLANO, MSG_TEXTO_LIVRE } from './constantes';
 import { TODOS_OS_DIAS, type DiaDaSemana } from './dias';
 import { ConflitoRevisaoError, PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
+import { lerCamposDoItem } from './item-entrada';
 import type { ModoPlano } from './tipos';
 
 type Deps = { db?: Db; now?: Date };
@@ -101,12 +102,6 @@ type Validado = {
 const HORARIO = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** D7: chave de idempotência de cada PUT (uuid do cliente) e as dos envios sem resposta confirmada. */
 const chavesSchema = z.object({ envio: z.uuid(), enviosIncertos: z.array(z.uuid()).max(MAX_ENVIOS_INCERTOS).optional() });
-const medidaSchema = z.object({
-  nome: z.string().trim().min(1).max(60),
-  plural: z.string().trim().min(1).max(60),
-  gramas: z.number().min(0.1).max(5000),
-  qtd: z.number().gt(0).max(QTD_MEDIDA_MAX),
-});
 
 const MODOS: readonly ModoPlano[] = ['calculado', 'livre'];
 
@@ -195,32 +190,15 @@ function validar(entrada: unknown): Validado {
     const principais = new Set(lista.filter((i) => i?.substituiItemId === null || i?.substituiItemId === undefined).map((i) => i?.id));
     lista.forEach((i, ordemItem) => {
       if (!novoId(i?.id)) throw new PlanoError({ geral: MSG_PLANO.invalido });
-      const ci = `item:${i.id}`;
-      if (!idValido(i.foodId)) erros[`${ci}:foodId`] = MSG_PLANO.alimento;
-      let medida: MedidaDoItem | null = null;
-      let gramas: number | null;
-      if (i.medida !== null && i.medida !== undefined) {
-        const m = medidaSchema.safeParse(i.medida);
-        if (!m.success) {
-          erros[`${ci}:medida`] = MSG_PLANO.quantidade;
-          gramas = null;
-        } else {
-          medida = m.data;
-          gramas = lerQuantidade(gramasDaMedida(m.data.qtd, m.data.gramas));
-        }
-      } else {
-        // a coluna é numeric(7,2): com 3 ou mais casas, o valor gravado nunca bateria com o enviado (UPDATE e audit_log a cada salvamento)
-        const g = lerQuantidade(i.quantidadeG);
-        gramas = g === null ? null : arredondar(g, 2);
-      }
-      if (gramas === null && !erros[`${ci}:medida`]) erros[`${ci}:quantidadeG`] = MSG_PLANO.quantidade;
+      // a mesma leitura da biblioteca (`item-entrada.ts`); o item com erro segue na lista (o PlanoError sai no fim, com todos os erros)
+      const { chave: ci, foodId, quantidadeG, medida } = lerCamposDoItem(i, erros);
       const sub = i.substituiItemId ?? null;
       if (sub !== null && (sub === i.id || !principais.has(sub))) erros[`${ci}:substituiItemId`] = MSG_PLANO.substituicao;
       itens.push({
         id: i.id as string,
         mealId: r.id as string,
-        foodId: i.foodId as string,
-        quantidadeG: gramas ?? 0,
+        foodId,
+        quantidadeG: quantidadeG ?? 0,
         medida,
         medidaCaseiraTxt: medida ? textoMedida(medida.qtd, medida) : null,
         substituiItemId: sub as string | null,

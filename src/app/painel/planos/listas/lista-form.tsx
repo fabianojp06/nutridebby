@@ -9,6 +9,7 @@ import {
 import type { Lista } from '@/modules/plano-alimentar/listas';
 import { DialogoBuscaAlimento, type DestinoDaBusca } from '../editor/dialogo-busca';
 import { itemDoAlimento, itemEstadoDe, itemParaEnvio, referenciaDosEquivalentes, type ItemEstado } from '../editor/estado';
+import { useFocoNoPrimeiroErro } from '../foco-no-erro';
 import { ItemDaBiblioteca } from '../item-da-biblioteca';
 import type { ListaState } from './actions';
 
@@ -25,7 +26,8 @@ const novoId = () => crypto.randomUUID(); // gerado no evento, nunca no render
  * US-238 (RN-251): nome, orientação ("Aparece para o paciente no app.", RN-254) e os grupos, cada um com os alimentos
  * (busca por nome, quantidade e medida caseira, energia calculada agora) e "Sugerir equivalentes", que abre o diálogo de
  * busca na aba Equivalentes com o primeiro item do grupo como referência (RN-242): o escolhido entra no grupo com a
- * quantidade sugerida. Tudo vai num JSON (`dados`); os erros ficam ao lado do campo.
+ * quantidade sugerida. Tudo vai num JSON (`dados`); os erros ficam ao lado do campo e, a cada resposta com erro, o foco
+ * vai ao primeiro campo inválido (a página é longa: o botão "Salvar lista" fica no fim).
  */
 export function ListaForm({ acao, lista, rotuloBotao }: { acao: Acao; lista: Lista | null; rotuloBotao: string }) {
   const [state, action, pendente] = useActionState(acao, {});
@@ -34,6 +36,8 @@ export function ListaForm({ acao, lista, rotuloBotao }: { acao: Acao; lista: Lis
   const [grupos, setGrupos] = useState<GrupoEstado[]>(() => (lista?.grupos ?? []).map((g) => ({ id: g.id, nome: g.nome, itens: g.itens.map(itemEstadoDe) })));
   const [busca, setBusca] = useState<{ destino: DestinoDaBusca; n: number } | null>(null);
   const abridor = useRef<HTMLElement | null>(null);
+  const raiz = useRef<HTMLDivElement>(null);
+  useFocoNoPrimeiroErro(raiz, state.erros);
   const e = state.erros ?? {};
   const erro = (k: string) => e[k];
   const dados: ListaEnviada = { nome, orientacao, grupos: grupos.map((g) => ({ id: g.id, nome: g.nome, itens: g.itens.map(itemParaEnvio) })) };
@@ -43,7 +47,7 @@ export function ListaForm({ acao, lista, rotuloBotao }: { acao: Acao; lista: Lis
   const grupoDaBusca = busca ? grupos.find((g) => g.id === busca.destino.refeicaoId) : undefined;
 
   return (
-    <div className="space-y-4">
+    <div ref={raiz} className="space-y-4">
       {/* só o JSON e o botão ficam no formulário: Enter na busca de alimento (fora dele) não envia a lista */}
       <form id="lista-form" action={action} noValidate>
         <input type="hidden" name="dados" value={JSON.stringify(dados)} />
@@ -104,7 +108,7 @@ export function ListaForm({ acao, lista, rotuloBotao }: { acao: Acao; lista: Lis
                 />
               ))}
             </ul>
-            {erroItens && <p role="alert" className="text-sm text-erro">{erroItens}</p>}
+            {erroItens && <p role="alert" tabIndex={-1} data-foco-erro className="text-sm text-erro">{erroItens}</p>}
             {cabe ? (
               <BuscaAlimento rotulo={`Adicionar alimento em ${rotulo}`} aoEscolher={(a) => noGrupo(g.id, (x) => ({ ...x, itens: [...x.itens, itemDoAlimento(a, novoId())] }))} />
             ) : (
