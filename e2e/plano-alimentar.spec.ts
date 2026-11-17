@@ -6,7 +6,7 @@ const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
 
 const sufixo = Date.now().toString(36);
-const VALORES = 'Valores por 100 g: energia entre 0 e 900 kcal; os demais entre 0 e 100 g';
+const VALORES = 'Valores por 100 g: energia entre 0 e 1000 kcal; os demais entre 0 e 100 g';
 const BLOQUEADO = 'Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.';
 let nutri: Page;
 
@@ -54,13 +54,13 @@ test('busca: "Nenhum alimento encontrado.", Esc fecha a lista e Enter abre o ali
 test('meu alimento: cadastro com selo, TACO só com "Duplicar como meu alimento", medida caseira (US-021, US-020)', async () => {
   await nutri.goto('/painel/alimentos/novo');
   await nutri.getByLabel('Nome').fill('x');
-  await nutri.getByLabel('Energia (kcal)').fill('901');
+  await nutri.getByLabel('Energia (kcal)').fill('1001');
   await nutri.getByRole('button', { name: 'Salvar alimento' }).click();
   await expect(nutri.getByText('Informe o nome do alimento (2 a 120 caracteres)')).toBeVisible();
   await expect(nutri.getByText('Escolha o grupo do alimento')).toBeVisible();
   await expect(nutri.getByText(VALORES).first()).toBeVisible();
   await expect(nutri.getByLabel('Nome')).toHaveValue('x'); // o que foi digitado não se perde
-  await expect(nutri.getByLabel('Energia (kcal)')).toHaveValue('901');
+  await expect(nutri.getByLabel('Energia (kcal)')).toHaveValue('1001');
   // o grupo escolhido também sobrevive ao erro de outro campo (o <select> não volta para "Escolha…")
   await nutri.getByLabel('Grupo').selectOption('Frutas e derivados');
   await nutri.getByRole('button', { name: 'Salvar alimento' }).click();
@@ -116,7 +116,7 @@ test('duplicar alimento da TACO sem valor abre a edição com aviso; editar e ex
   await expect(nutri.getByLabel('Grupo')).toHaveValue('Leite e derivados'); // veio da cópia
   await nutri.getByLabel('Nome').fill(`Leite da casa ${sufixo}`);
   await nutri.getByLabel('Grupo').selectOption('Bebidas (alcoólicas e não alcoólicas)');
-  await nutri.getByLabel('Energia (kcal)').fill('901'); // erro em outro campo: o grupo trocado não pode voltar ao antigo
+  await nutri.getByLabel('Energia (kcal)').fill('1001'); // erro em outro campo: o grupo trocado não pode voltar ao antigo
   await nutri.getByRole('button', { name: 'Salvar alterações' }).click();
   await expect(nutri.getByText(VALORES).first()).toBeVisible();
   await expect(nutri.getByLabel('Grupo')).toHaveValue('Bebidas (alcoólicas e não alcoólicas)');
