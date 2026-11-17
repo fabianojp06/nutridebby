@@ -21,3 +21,5 @@ mesmo comentário/observação em `/p/diario`, `refeicao-detalhe.tsx` e `plano/p
 não só a tela da tarefa. O E2E de 320 px não pega: o seed não tem comentário com URL longa.
 
 Quarta vez (T8 do Plano 14A, 09/10/2026): agora não é texto livre, é o **e-mail de contato** do consultório (até 254 caracteres, sem ponto de quebra) dentro de texto legal (`TextoLegalView`, `${d.contato}`) em `/p/perfil/ia`. Fora o `whitespace-pre-line`, procure também e-mail e URL interpolados em texto fixo.
+
+Quinta vez, agora no painel (T6 do Plano 20, 17/11/2026): a descrição (até 200 caracteres, texto livre) e o motivo do cancelamento do Financeiro saem em `<span>` flex da linha da lista e em `<dd>` de grid sem `wrap-break-word`/`min-w-0`. Vale para o painel também, não só para o portal.
