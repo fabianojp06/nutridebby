@@ -48,7 +48,8 @@ export default async function PagamentosPendentes({ searchParams }: PageProps<'/
           role="region"
           aria-labelledby="pendentes-caption"
           tabIndex={0}
-          className="overflow-x-auto rounded-3xl border border-borda bg-cartao p-2 focus-visible:outline-offset-[-3px]"
+          // `relative`: o texto `sr-only` dos links (absoluto) fica preso à região que rola; sem ele, a 360 px a página rolava
+          className="relative overflow-x-auto rounded-3xl border border-borda bg-cartao p-2 focus-visible:outline-offset-[-3px]"
         >
           <table className="min-w-full text-left [&_td]:px-3 [&_td]:py-2 [&_th]:px-3 [&_th]:py-2 [&_thead_th]:whitespace-nowrap">
             <caption id="pendentes-caption" className="px-3 pb-2 text-left font-semibold">
