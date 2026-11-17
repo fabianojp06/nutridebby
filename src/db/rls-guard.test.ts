@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
-import { inject } from 'vitest';
-import { makeDb } from '../../test/db';
+import { Pool } from 'pg';
+import { describe, expect, inject, it } from 'vitest';
+import { bancoProprioParaDdl } from '../../test/ddl';
 import {
   CONTEUDO_POR_AUDIENCIA,
   ESCRITA_POR_AUDIENCIA,
@@ -20,8 +20,24 @@ import {
   STAFF_ONLY,
 } from './rls-guard';
 
-const owner = makeDb(inject('ownerDatabaseUrl'));
-afterAll(() => owner.pool.end());
+// SUS-100: os testes de "a guarda funciona" fazem DDL (drop/create policy, drop trigger) em tabela real; num banco
+// próprio, clonado do modelo pós-migrations, as travas AccessExclusive não disputam com os outros arquivos (40P01).
+const owner = bancoProprioParaDdl();
+
+describe('banco próprio dos testes de DDL (SUS-100)', () => {
+  it('a guarda roda num clone do banco migrado, não no banco compartilhado', async () => {
+    const compartilhado = new Pool({ connectionString: inject('ownerDatabaseUrl'), max: 1 });
+    try {
+      const q = 'select current_database() as banco, (select count(*)::int from drizzle.__drizzle_migrations) as migrations';
+      const [clone, base] = await Promise.all([owner.pool.query(q), compartilhado.query(q)]);
+      expect(clone.rows[0].banco).toMatch(/^ddl_/);
+      expect(clone.rows[0].banco).not.toBe(base.rows[0].banco);
+      expect(clone.rows[0].migrations).toBe(base.rows[0].migrations);
+    } finally {
+      await compartilhado.end();
+    }
+  });
+});
 
 describe('guarda de RLS (US-006: "Nova tabela sem RLS quebra o CI")', () => {
   it('nenhuma tabela com tenant_id está fora da regra', async () => {
