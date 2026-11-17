@@ -76,7 +76,11 @@ function voltarALista(r: { mes: string; antesDoSaldo: boolean }, prev: Lancament
 }
 
 const ORIGEM = 'http://financeiro.invalid';
-const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+/**
+ * Maiúsculas também, como `idValido` (`z.guid()`); só no id — o resto do caminho continua exato (com a flag `i` inteira,
+ * `/PAINEL/...` passaria e levaria a um 404).
+ */
+const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
 /** A lista, a edição de um lançamento ou "Pagamentos pendentes de {nome}" (receber no detalhe, US-304). */
 const CAMINHO_DE_VOLTA = new RegExp(
   `^/painel/financeiro/(?:lancamentos(?:/${UUID})?|pendencias/${UUID})$`,

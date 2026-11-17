@@ -353,6 +353,25 @@ describe('listarLancamentos e abrirLancamento (RN-305, RN-306, RN-318)', () => {
     expect((await listarLancamentos(C.ctx, C.tenant, {}, deps)).meses).toEqual(['2026-11', '2026-10', '2026-09', '2026-08']);
   });
 
+  it('meses: o mesmo que min(coalesce(pago_em, vencimento)) — o vencimento antigo de um pago não conta; o cancelado conta', async () => {
+    const C = await cenario();
+    const B = await cenario();
+    await entrada(B, { vencimento: '2025-01-10' }); // outro consultório: não entra
+    const minimo = async () =>
+      (await owner.pool.query(`select min(coalesce(pago_em, vencimento))::text as d from fin_lancamentos where tenant_id = $1`, [C.tenantId])).rows[0].d as string;
+    const doMes = async () => (await listarLancamentos(C.ctx, C.tenant, {}, deps)).meses.at(-1);
+    await entrada(C, { vencimento: '2026-05-10', pagoEm: '2026-07-01', forma: 'pix' });
+    expect([await doMes(), (await minimo()).slice(0, 7)]).toEqual(['2026-07', '2026-07']);
+    const cancelada = await entrada(C, { vencimento: '2026-06-15' });
+    await cancelarLancamento(C.ctx, cancelada.id, 'Duplicada', deps);
+    expect([await doMes(), (await minimo()).slice(0, 7)]).toEqual(['2026-06', '2026-06']);
+    const canceladaPaga = await entrada(C, { vencimento: '2026-03-20', pagoEm: '2026-04-02', forma: 'pix' });
+    await cancelarLancamento(C.ctx, canceladaPaga.id, 'Devolvido', deps);
+    expect([await doMes(), (await minimo()).slice(0, 7)]).toEqual(['2026-04', '2026-04']);
+    await entrada(C, { vencimento: '2026-02-01' });
+    expect([await doMes(), (await minimo()).slice(0, 7)]).toEqual(['2026-02', '2026-02']);
+  });
+
   it('com paciente e sem mês: todos os meses do paciente e UM "ler" no audit_log (entidade financeiro, sem entidade_id)', async () => {
     const C = await cenario();
     const outro = (await novoPaciente(app.db, C.ctx, { nome: 'Bruno Lima' })).id;

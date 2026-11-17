@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatarReais, paraCentavos, valorParaCampo } from './dinheiro';
+import { centavos, formatarReais, paraCentavos, valorParaCampo } from './dinheiro';
 
 /** RN-326: entrada em reais na forma brasileira, sem ponto flutuante; tela "R$ 1.250,00" e "−R$ 320,00". */
 describe('paraCentavos', () => {
@@ -84,5 +84,18 @@ describe('valorParaCampo', () => {
   ])('%i → %j', (centavos, texto) => {
     expect(valorParaCampo(centavos)).toBe(texto);
     expect(paraCentavos(texto)).toEqual({ ok: true, centavos });
+  });
+});
+
+/** RNF-304: a soma em `bigint` do banco (texto) vira `number` só se couber sem perda. */
+describe('centavos', () => {
+  it('texto, número e nulo; fora do inteiro seguro → RangeError', () => {
+    expect(centavos('125050')).toBe(125_050);
+    expect(centavos('-500')).toBe(-500);
+    expect(centavos(42)).toBe(42);
+    expect(centavos(null)).toBe(0);
+    expect(centavos(undefined)).toBe(0);
+    expect(centavos(String(Number.MAX_SAFE_INTEGER))).toBe(Number.MAX_SAFE_INTEGER);
+    expect(() => centavos('9007199254740993')).toThrow(RangeError);
   });
 });

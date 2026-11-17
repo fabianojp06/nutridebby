@@ -12,7 +12,8 @@ import type { LancamentoState } from '../../../financeiro/lancamentos/actions';
 
 /**
  * US-303 / RN-314: as ações da seção "Cobrança" da tela da consulta. A consulta vem ligada no servidor (`bind`); a sessão,
- * de `requireNutri`. Deu certo → a mesma consulta com `?ok=cobranca_…` (a mensagem da §6.2) e um envio novo (as peças da
+ * de `requireNutri`. O id do lançamento vem do formulário: as três ações sobre a cobrança passam `daConsulta` e o módulo
+ * recusa (`LancamentoNaoEncontradoError` → 404, nada muda) o lançamento que não é a cobrança desta consulta. Deu certo → a mesma consulta com `?ok=cobranca_…` (a mensagem da §6.2) e um envio novo (as peças da
  * seção remontam com o que está gravado); recusado → o erro junto do campo, com o digitado (`valores`, nunca no erro —
  * RN-322).
  */
@@ -63,7 +64,7 @@ export async function registrarCobrancaAction(consultaId: string, prev: Lancamen
 export async function salvarValorCobrancaAction(consultaId: string, prev: LancamentoState, fd: FormData): Promise<LancamentoState> {
   const valores = { valor: texto(fd, 'valor') };
   return naConsulta(consultaId, prev, valores, async ({ ctx }) => {
-    await ajustarValor(ctx, texto(fd, 'id'), valores.valor);
+    await ajustarValor(ctx, texto(fd, 'id'), valores.valor, { daConsulta: consultaId });
     return 'cobranca_salva';
   });
 }
@@ -72,7 +73,7 @@ export async function salvarValorCobrancaAction(consultaId: string, prev: Lancam
 export async function receberCobrancaAction(consultaId: string, prev: LancamentoState, fd: FormData): Promise<LancamentoState> {
   const valores = { pagoEm: texto(fd, 'pagoEm'), forma: texto(fd, 'forma') };
   return naConsulta(consultaId, prev, valores, async ({ ctx, tenant }) => {
-    await marcarRecebido(ctx, tenant, texto(fd, 'id'), valores);
+    await marcarRecebido(ctx, tenant, texto(fd, 'id'), valores, { daConsulta: consultaId });
     return 'cobranca_recebida';
   });
 }
@@ -81,7 +82,7 @@ export async function receberCobrancaAction(consultaId: string, prev: Lancamento
 export async function cancelarCobrancaAction(consultaId: string, prev: LancamentoState, fd: FormData): Promise<LancamentoState> {
   const valores = { motivo: texto(fd, 'motivo') };
   return naConsulta(consultaId, prev, valores, async ({ ctx }) => {
-    await cancelarLancamento(ctx, texto(fd, 'id'), valores.motivo);
+    await cancelarLancamento(ctx, texto(fd, 'id'), valores.motivo, { daConsulta: consultaId });
     return 'cobranca_cancelada';
   });
 }

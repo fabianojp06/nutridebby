@@ -25,6 +25,7 @@ const { cancelarCobrancaAction, receberCobrancaAction, registrarCobrancaAction, 
 const { closeDb } = await import('@/db/client');
 const { withTenant } = await import('@/db/tenant');
 const { salvarConfiguracoes } = await import('@/modules/financeiro/configuracoes');
+const { criarLancamento } = await import('@/modules/financeiro/lancamentos');
 const { MSG_FINANCEIRO } = await import('@/modules/financeiro/constantes');
 const { hojeNoFuso } = await import('@/modules/pacientes/datas');
 const { revalidatePath } = await import('next/cache');
@@ -143,6 +144,24 @@ describe('salvar o valor, receber e cancelar pela seção da consulta (US-303)',
     expect(await cancelarCobrancaAction(C.c, {}, formulario({ id: C.l, motivo: '' }))).toMatchObject({ erros: { motivo: M.informeMotivo } });
     expect(await destino(cancelarCobrancaAction(C.c, {}, formulario({ id: C.l, motivo: 'Não vou cobrar' })))).toMatch(volta(C, 'cobranca_cancelada'));
     expect((await linhas(C.tenantId))[0].cancelado_em).not.toBeNull();
+  });
+
+  it('id do formulário que não é a cobrança desta consulta (outra consulta ou lançamento avulso, mesmo consultório) → 404, nada muda', async () => {
+    const A = await comCobranca();
+    const outra = await consultaDireta(app.db, A.ctx, A.p, em('2026-11-11', '14:00'), 60, { status: 'realizada' });
+    await destino(registrarCobrancaAction(outra, {}, formulario({ valor: '300' })));
+    const daOutra = (await linhas(A.tenantId)).find((l) => l.appointment_id === outra)!.id as string;
+    const categoriaId = (await linhas(A.tenantId))[0].categoria_id as string;
+    const avulsa = (await criarLancamento(A.ctx, A.tenant, { tipo: 'entrada', valor: '90,00', categoriaId, vencimento: '2026-11-10' }, { db: app.db })).id;
+    const antes = await linhas(A.tenantId);
+    vi.mocked(revalidatePath).mockClear();
+    for (const id of [daOutra, avulsa]) {
+      await expect(salvarValorCobrancaAction(A.c, {}, formulario({ id, valor: '1,00' }))).rejects.toThrow('notFound');
+      await expect(receberCobrancaAction(A.c, {}, formulario({ id, pagoEm: '2026-11-10', forma: 'pix' }))).rejects.toThrow('notFound');
+      await expect(cancelarCobrancaAction(A.c, {}, formulario({ id, motivo: 'Não é desta consulta' }))).rejects.toThrow('notFound');
+    }
+    expect(await linhas(A.tenantId)).toEqual(antes);
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it('outra sessão (outro consultório) não muda a cobrança: 404', async () => {

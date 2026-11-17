@@ -9,13 +9,19 @@ import { dataValida, hojeNoFuso } from '@/modules/pacientes/datas';
 import { auditRead } from '@/modules/plataforma/audit';
 import { caracteres, configuracaoNaTransacao, DATA_MINIMA, textoDoCampo } from './configuracoes';
 import { DESCRICAO_MAX, MOTIVO_MAX, MSG_FINANCEIRO, VALOR_MAX_CENTAVOS } from './constantes';
-import { paraCentavos } from './dinheiro';
+import { centavos, paraCentavos } from './dinheiro';
 import { exigirNutri, FinanceiroError, FinanceiroNaoConfiguradoError, LancamentoNaoEncontradoError } from './erros';
 import { intervaloDoMes, mesDe } from './meses';
 import { dataDeReferencia, situacaoDoLancamento } from './situacao';
 import type { FiltrosLista, LancamentoNaTela, TotaisDaLista } from './tipos';
 
 type Deps = { db?: Db; agora?: Date };
+/**
+ * `daConsulta` (a seção "Cobrança" da tela da consulta, US-303): o lançamento tem de ser a cobrança desta consulta
+ * (`appointment_id`, no tenant da sessão); outro id → `LancamentoNaoEncontradoError`, sem alterar nada. O id do lançamento
+ * vem do formulário; a consulta, do `bind` da action.
+ */
+type DepsDaAlteracao = Deps & { daConsulta?: string };
 const M = MSG_FINANCEIRO.erros;
 /** RN-306: com paciente e sem mês, a lista para nos 200 mais recentes. */
 export const LIMITE_SEM_MES = 200;
@@ -167,15 +173,21 @@ type Travado = { l: FinLancamentoRow; bloqueado: boolean };
  * O `patient_id` é fixo (gatilho), então a leitura sem trava que o descobre não muda depois. Cancelado ou anonimizado
  * (o lançamento ou o paciente) → a mensagem da spec.
  */
-async function travarLancamento(tx: Tx, id: string): Promise<Travado> {
+async function travarLancamento(tx: Tx, tenantId: string, id: string, daConsulta?: string): Promise<Travado> {
   if (!idValido(id)) throw new LancamentoNaoEncontradoError();
-  const [antes] = await tx.select({ patientId: finLancamentos.patientId }).from(finLancamentos).where(eq(finLancamentos.id, id));
-  if (!antes) throw new LancamentoNaoEncontradoError();
+  const deOutraConsulta = (r: { tenantId: string; appointmentId: string | null }) =>
+    r.tenantId !== tenantId || (daConsulta !== undefined && r.appointmentId !== daConsulta);
+  const [antes] = await tx
+    .select({ tenantId: finLancamentos.tenantId, patientId: finLancamentos.patientId, appointmentId: finLancamentos.appointmentId })
+    .from(finLancamentos)
+    .where(and(eq(finLancamentos.tenantId, tenantId), eq(finLancamentos.id, id)));
+  // `appointment_id` é fixo (gatilho): conferido antes de qualquer trava, e de novo na linha travada (defesa)
+  if (!antes || deOutraConsulta(antes)) throw new LancamentoNaoEncontradoError();
   const [p] = antes.patientId
     ? await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, antes.patientId)).for('key share')
     : [];
-  const [l] = await tx.select().from(finLancamentos).where(eq(finLancamentos.id, id)).for('update');
-  if (!l) throw new LancamentoNaoEncontradoError();
+  const [l] = await tx.select().from(finLancamentos).where(and(eq(finLancamentos.tenantId, tenantId), eq(finLancamentos.id, id))).for('update');
+  if (!l || deOutraConsulta(l)) throw new LancamentoNaoEncontradoError();
   if (l.anonimizadoEm || p?.anonimizadoEm) throw new FinanceiroError({ geral: M.anonimizado });
   if (l.canceladoEm) throw new FinanceiroError({ geral: M.cancelado });
   return { l, bloqueado: p?.status === 'bloqueado' };
@@ -192,11 +204,11 @@ const recusaDoLancamento = (id: string) => async (tx: Tx) => {
 };
 
 /** Escrita num lançamento existente: travas, conferências e a tradução do 42501 que escapar. */
-async function alterarLancamento<T>(ctx: TenantContext, id: string, deps: Deps, fn: (tx: Tx, t: Travado) => Promise<T>): Promise<T> {
+async function alterarLancamento<T>(ctx: TenantContext, id: string, deps: DepsDaAlteracao, fn: (tx: Tx, t: Travado) => Promise<T>): Promise<T> {
   exigirNutri(ctx);
   const db = deps.db ?? getDb();
   try {
-    return await withTenant(ctx, async (tx) => fn(tx, await travarLancamento(tx, id)), db);
+    return await withTenant(ctx, async (tx) => fn(tx, await travarLancamento(tx, ctx.tenantId, id, deps.daConsulta)), db);
   } catch (e) {
     return traduzirRecusaDoGatilho(e, ctx, db, recusaDoLancamento(id));
   }
@@ -234,7 +246,7 @@ export async function editarLancamento(
  * "Salvar valor" da seção "Cobrança" da consulta (US-303): só o valor (RN-304), com as travas e as recusas de
  * `editarLancamento`. Paciente bloqueado (RN-315): só para menor ou igual.
  */
-export async function ajustarValor(ctx: TenantContext, id: string, valor: unknown, deps: Deps = {}): Promise<void> {
+export async function ajustarValor(ctx: TenantContext, id: string, valor: unknown, deps: DepsDaAlteracao = {}): Promise<void> {
   const erros: Record<string, string> = {};
   const valorCentavos = validarValor(valor, erros);
   if (valorCentavos === null) throw new FinanceiroError(erros);
@@ -254,7 +266,7 @@ export async function marcarRecebido(
   tenant: { fuso: string },
   id: string,
   input: { pagoEm: string; forma: string },
-  deps: Deps = {},
+  deps: DepsDaAlteracao = {},
 ): Promise<{ mes: string; tipo: TipoLancamento }> {
   const agora = deps.agora ?? new Date();
   return alterarLancamento(ctx, id, deps, async (tx, { l }) => {
@@ -278,7 +290,7 @@ export async function desfazerRecebimento(ctx: TenantContext, id: string, deps: 
 }
 
 /** RN-309: motivo de 1 a 200 caracteres, sem volta. `cancelado_em`/`cancelado_por` vêm do gatilho (a sessão e o relógio). */
-export async function cancelarLancamento(ctx: TenantContext, id: string, motivo: string, deps: Deps = {}): Promise<void> {
+export async function cancelarLancamento(ctx: TenantContext, id: string, motivo: string, deps: DepsDaAlteracao = {}): Promise<void> {
   exigirNutri(ctx);
   const m = textoDoCampo(motivo);
   if (!m) throw new FinanceiroError({ motivo: M.informeMotivo });
@@ -294,6 +306,24 @@ export async function cancelarLancamento(ctx: TenantContext, id: string, motivo:
 
 /** Data de referência (RN-306): o pagamento, ou o vencimento em aberto. */
 const referencia = sql<string>`coalesce(${finLancamentos.pagoEm}, ${finLancamentos.vencimento})`;
+
+/**
+ * O dia de referência (RN-306) mais antigo do consultório, cancelados inclusive ('AAAA-MM-DD', ou null sem lançamentos):
+ * o `<select>` de "Mês" da lista e o de "Ano" de Relatórios. O mesmo que `min(coalesce(pago_em, vencimento))`, em três
+ * partes com `tenant_id` explícito para os índices parciais servirem (o `min` de um índice para na primeira linha): os
+ * pagos ativos por `fin_lancamentos_pago_idx`, os em aberto ativos por `fin_lancamentos_aberto_idx`, e os cancelados (sem
+ * índice parcial próprio) pelo índice do consultório.
+ */
+export async function diaMaisAntigoNaTransacao(tx: Tx, tenantId: string): Promise<string | null> {
+  const L = finLancamentos;
+  const doTenant = sql`${L.tenantId} = ${tenantId}`;
+  const r = await tx.execute<{ dia: string | null }>(sql`select least(
+    (select min(${L.pagoEm}) from ${L} where ${doTenant} and ${L.canceladoEm} is null and ${L.pagoEm} is not null),
+    (select min(${L.vencimento}) from ${L} where ${doTenant} and ${L.canceladoEm} is null and ${L.pagoEm} is null),
+    (select min(coalesce(${L.pagoEm}, ${L.vencimento})) from ${L} where ${doTenant} and ${L.canceladoEm} is not null)
+  )::text as dia`);
+  return r.rows[0]?.dia ?? null;
+}
 
 /** As colunas de `LancamentoNaTela`, com categoria, paciente e consulta — uma consulta só, sem N+1 (também o Resumo, T4). */
 export function selecionarNaTela(tx: Tx) {
@@ -358,8 +388,6 @@ function mesesAte(atual: string, ate: string | null): string[] {
   return out;
 }
 
-const centavos = (v: unknown) => Number(v ?? 0);
-
 /**
  * US-302 / RN-306: a lista pela data de referência. Sem `mes`, o mês atual no fuso; com `pacienteId` e sem `mes`, todos os
  * meses, até 200 linhas (`maisDe200`). Totais do filtro inteiro, sem os cancelados (somas em bigint no SQL). `meses`: do
@@ -399,14 +427,14 @@ export async function listaNaTransacao(tx: Tx, tenantId: string, hoje: string, f
   const linhas = await (limite ? consulta.limit(limite + 1) : consulta);
   const [t] = await tx
     .select({
-      recebido: sql`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'entrada' and ${finLancamentos.pagoEm} is not null), 0)::text`,
-      aReceber: sql`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'entrada' and ${finLancamentos.pagoEm} is null), 0)::text`,
-      pago: sql`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'saida' and ${finLancamentos.pagoEm} is not null), 0)::text`,
-      aPagar: sql`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'saida' and ${finLancamentos.pagoEm} is null), 0)::text`,
+      recebido: sql<string>`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'entrada' and ${finLancamentos.pagoEm} is not null), 0)::text`,
+      aReceber: sql<string>`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'entrada' and ${finLancamentos.pagoEm} is null), 0)::text`,
+      pago: sql<string>`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'saida' and ${finLancamentos.pagoEm} is not null), 0)::text`,
+      aPagar: sql<string>`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'saida' and ${finLancamentos.pagoEm} is null), 0)::text`,
     })
     .from(finLancamentos)
     .where(and(filtro, isNull(finLancamentos.canceladoEm)));
-  const [antigo] = await tx.select({ dia: sql<string | null>`min(${referencia})` }).from(finLancamentos);
+  const antigo = await diaMaisAntigoNaTransacao(tx, tenantId);
   const maisDe200 = limite !== null && linhas.length > limite;
   const visiveis = maisDe200 ? linhas.slice(0, limite) : linhas;
   if (pacienteId && visiveis.length) await auditRead(tx, { entidade: 'financeiro', entidadeId: null, patientId: pacienteId });
@@ -414,7 +442,7 @@ export async function listaNaTransacao(tx: Tx, tenantId: string, hoje: string, f
     linhas: visiveis.map((r) => naTela(r, hoje)),
     totais: { entradas: { recebido: centavos(t.recebido), aReceber: centavos(t.aReceber) }, saidas: { pago: centavos(t.pago), aPagar: centavos(t.aPagar) } },
     maisDe200,
-    meses: mesesAte(mesDe(hoje), antigo?.dia ? mesDe(antigo.dia) : null),
+    meses: mesesAte(mesDe(hoje), antigo ? mesDe(antigo) : null),
   };
 }
 

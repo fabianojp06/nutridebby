@@ -5,8 +5,9 @@ import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import type { Db } from '@/db/client';
 import * as schema from '@/db/schema';
+import { withTenant } from '@/db/tenant';
 import { listarCategorias, salvarConfiguracoes } from './configuracoes';
-import { criarLancamento } from './lancamentos';
+import { criarLancamento, diaMaisAntigoNaTransacao } from './lancamentos';
 import { entradasESaidas12Meses, fluxoDeCaixaDoAno, pagamentosPendentes, pendenciasDoPaciente, resumoDoMes } from './resumo';
 
 /**
@@ -114,6 +115,10 @@ describe('agregados do Financeiro — plano das consultas (RNF-301, índices da 
     semVarreduraSemTenant(await explicar((d) => fluxoDeCaixaDoAno(T.ctx, T.tenant, 2026, d)), 2);
     await salvarConfiguracoes(T.ctx, T.tenant, { saldoInicialEm: '2026-03-15', saldoInicial: '1.500,00', valorConsulta: '250,00' }, { db: app.db, agora });
     semVarreduraSemTenant(await explicar((d) => fluxoDeCaixaDoAno(T.ctx, T.tenant, 2026, d)), 2);
+  });
+
+  it('o dia mais antigo (o "Mês" da lista e o "Ano" de Relatórios) pelos índices do consultório', async () => {
+    semVarreduraSemTenant(await explicar((d) => withTenant(T.ctx, (tx) => diaMaisAntigoNaTransacao(tx, T.tenantId), d.db)), 1);
   });
 
   it('12 meses, pagamentos pendentes e pendências do paciente pelo índice do consultório', async () => {

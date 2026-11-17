@@ -6,6 +6,7 @@ import { idValido } from '@/modules/pacientes/base';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { auditRead } from '@/modules/plataforma/audit';
 import { configuracaoNaTransacao, type Configuracao } from './configuracoes';
+import { centavos } from './dinheiro';
 import { exigirNutri } from './erros';
 import { naTela, selecionarNaTela } from './lancamentos';
 import { intervaloDoMes, mesDe, mesesDoAno, ultimos12Meses } from './meses';
@@ -52,13 +53,6 @@ const entre = (coluna: Column, de: string, ate: string) => sql`${coluna} between
 const mesDoPagamento = sql<string | null>`to_char(${L.pagoEm}, 'YYYY-MM')`;
 /** RN-311: entradas com paciente, não canceladas e sem recebimento (previstas ou em atraso). */
 const pendenteDoPaciente = and(entrada, isNotNull(L.patientId), ativo, aberto);
-
-/** RNF-304: o `bigint` volta como texto e só vira `number` se couber sem perda. */
-function centavos(texto: string | number | null | undefined): number {
-  const n = Number(texto ?? 0);
-  if (!Number.isSafeInteger(n)) throw new RangeError('financeiro: soma fora do inteiro seguro');
-  return n;
-}
 
 /**
  * US-305 / RN-307. Saldo atual = saldo do caixa + recebidos − pagos, não cancelados, com pagamento no dia do saldo ou
