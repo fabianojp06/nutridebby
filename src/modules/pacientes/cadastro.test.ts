@@ -6,6 +6,7 @@ import type { PoolClient } from 'pg';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
+import * as schema from '@/db/schema';
 import { auditLog, patientCadastro, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
@@ -21,6 +22,7 @@ import {
   gravarCadastro,
   IDENTIDADES_DE_GENERO,
   MSG_CADASTRO,
+  tamanhoDoTexto,
   UFS,
   validarCadastro,
   type CadastroComplementar,
@@ -37,6 +39,14 @@ const errosDoBanco: string[] = [];
 app.pool.on('connect', (client: PoolClient) => {
   const original = client.query.bind(client) as (...a: unknown[]) => unknown;
   (client as unknown as { query: (...a: unknown[]) => unknown }).query = (...a: unknown[]) => {
+    // forma com callback (o `pool.query` do pg chama assim): o erro passa pela callback, não pela promessa
+    const cb = a.at(-1);
+    if (typeof cb === 'function') {
+      a[a.length - 1] = (e: { code?: string } | null, ...resto: unknown[]) => {
+        if (e) errosDoBanco.push(e.code ?? '?');
+        return (cb as (...x: unknown[]) => unknown)(e, ...resto);
+      };
+    }
     const r = original(...a);
     if (r && typeof (r as Promise<unknown>).then === 'function') {
       (r as Promise<unknown>).catch((e: { code?: string }) => void errosDoBanco.push(e?.code ?? '?'));
@@ -93,6 +103,22 @@ async function esperarAlguemEsperandoTrava() {
   throw new Error('ninguém esperou a trava');
 }
 
+describe('controles positivos dos espiões', () => {
+  it('o espião de SQLSTATE anota um erro provocado de propósito (pela transação e pelo pool.query)', async () => {
+    const T = await novoTenant(app.db);
+    errosDoBanco.length = 0;
+    await expect(withTenant(T.ctx, (tx) => tx.execute(sql`select 1/0`), app.db)).rejects.toThrow();
+    await expect(app.pool.query(`select 'x'::int`)).rejects.toThrow();
+    expect(errosDoBanco).toEqual(expect.arrayContaining(['22012', '22P02']));
+    // e um 23514 de verdade, gravado por fora das regras (só para provar que o espião o veria)
+    const p = await novoPaciente(app.db, T.ctx);
+    errosDoBanco.length = 0;
+    await expect(withTenant(T.ctx, (tx) => tx.insert(patientCadastro).values({ tenantId: T.tenantId, patientId: p.id, cep: '123' }), app.db)).rejects.toThrow();
+    expect(errosDoBanco).toContain('23514');
+    errosDoBanco.length = 0;
+  });
+});
+
 describe('gravação na mesma transação (RN-260)', () => {
   it('cria com os campos novos na mesma transação (cenário da US-260)', async () => {
     const T = await novoTenant(app.db);
@@ -123,6 +149,31 @@ describe('gravação na mesma transação (RN-260)', () => {
     expect((await erroDe(criarPaciente(T.ctx, T.tenant, ana({ email, cpf: CPF }), deps))).erros).toEqual({ email: 'Paciente já cadastrado com este e-mail' });
     const r = await withTenant(T.ctx, (tx) => tx.select().from(patientCadastro).where(eq(patientCadastro.tenantId, T.tenantId)), app.db);
     expect(r).toEqual([]);
+  });
+
+  it('envio parcial: campo ausente mantém o gravado; só \'\' ou null explícito esvazia', async () => {
+    const T = await novoTenant(app.db);
+    const p = await criarPaciente(T.ctx, T.tenant, ana({ cpf: CPF, ocupacao: 'Professora', observacao: 'Prefere manhã', uf: 'SP' }), deps);
+    const base = ana({ email: p.email });
+    // só a ocupação: o resto continua
+    await atualizarPaciente(T.ctx, T.tenant, p.id, { ...base, ocupacao: 'Engenheira' }, deps);
+    expect((await cadastroDe(T, p.id))[0]).toMatchObject({ cpf: CPF_DIGITOS, ocupacao: 'Engenheira', observacao: 'Prefere manhã', uf: 'SP' });
+    // '' esvazia só o campo enviado
+    await atualizarPaciente(T.ctx, T.tenant, p.id, { ...base, observacao: '' }, deps);
+    expect((await cadastroDe(T, p.id))[0]).toMatchObject({ cpf: CPF_DIGITOS, ocupacao: 'Engenheira', observacao: null, uf: 'SP' });
+    // null explícito também
+    await atualizarPaciente(T.ctx, T.tenant, p.id, { ...base, cpf: null }, deps);
+    expect((await cadastroDe(T, p.id))[0]).toMatchObject({ cpf: null, ocupacao: 'Engenheira', uf: 'SP' });
+    // gravarCadastro direto, com um campo só
+    await withTenant(T.ctx, (tx) => gravarCadastro(tx, { tenantId: T.tenantId, patientId: p.id, valor: { nomeSocial: 'Joana Silva' }, now }), app.db);
+    expect((await cadastroDe(T, p.id))[0]).toMatchObject({ nomeSocial: 'Joana Silva', ocupacao: 'Engenheira', uf: 'SP' });
+    // undefined explícito numa chave conta como ausente
+    await atualizarPaciente(T.ctx, T.tenant, p.id, { ...base, uf: undefined, ocupacao: '' }, deps);
+    expect((await cadastroDe(T, p.id))[0]).toMatchObject({ nomeSocial: 'Joana Silva', ocupacao: null, uf: 'SP' });
+    // paciente sem linha, envio parcial só com vazios: não nasce linha
+    const q = await criarPaciente(T.ctx, T.tenant, ana(), deps);
+    await atualizarPaciente(T.ctx, T.tenant, q.id, { ...ana({ email: q.email }), ocupacao: '', cpf: null }, deps);
+    expect(await cadastroDe(T, q.id)).toEqual([]);
   });
 
   it('bloqueado não grava', async () => {
@@ -288,6 +339,11 @@ describe('regras dos CHECKs conferidas antes do banco (D23)', () => {
       }
     }
     expect(UFS).toHaveLength(27);
+    // as listas da tela (cadastro-textos.ts, sem banco) são as do schema (os CHECKs), na mesma ordem
+    expect(IDENTIDADES_DE_GENERO.map((o) => o.valor)).toEqual([...schema.IDENTIDADES_DE_GENERO]);
+    expect(ESTADOS_CIVIS.map((o) => o.valor)).toEqual([...schema.ESTADOS_CIVIS]);
+    expect(ESCOLARIDADES.map((o) => o.valor)).toEqual([...schema.ESCOLARIDADES]);
+    expect(UFS.map((o) => o.valor)).toEqual([...schema.UFS]);
     // formatos
     for (const [entrada, gravado] of [
       ['13015-904', '13015904'],
@@ -332,6 +388,52 @@ describe('regras dos CHECKs conferidas antes do banco (D23)', () => {
   });
 });
 
+describe('quebras de linha e revalidação na gravação', () => {
+  it('\\r\\n vira \\n antes de validar e gravar: 1.000 caracteres com quebras passam, como conta a tela', async () => {
+    const T = await novoTenant(app.db);
+    // 1.000 caracteres com \n (como o navegador mostra no textarea); o FormData manda as quebras como \r\n
+    const texto = `${Array.from({ length: 10 }, (_, i) => `${i}`.repeat(99)).join('\n')}b`;
+    expect(Array.from(texto)).toHaveLength(1000);
+    const enviado = texto.replace(/\n/g, '\r\n');
+    expect(tamanhoDoTexto(enviado)).toBe(1000); // o contador da tela conta o mesmo que o servidor
+    expect(MSG_CADASTRO.contadorObservacao(tamanhoDoTexto(enviado))).toBe('1.000 de 1.000 caracteres');
+    expect(validarCadastro({ observacao: enviado })).toMatchObject({ ok: true, valor: { observacao: texto } });
+    const p = await criarPaciente(T.ctx, T.tenant, ana({ observacao: enviado }), deps);
+    expect((await cadastroDe(T, p.id))[0]).toMatchObject({ observacao: texto });
+    const r = await withTenant(T.ctx, (tx) => tx.execute(sql`select char_length(observacao) as n from patient_cadastro where patient_id = ${p.id}`), app.db);
+    expect(r.rows).toEqual([{ n: 1000 }]);
+    // \r sozinho também vira \n; 1.001 com quebras continua recusado
+    expect(validarCadastro({ observacao: 'a\rb' })).toMatchObject({ ok: true, valor: { observacao: 'a\nb' } });
+    expect(validarCadastro({ observacao: `${enviado}c` })).toEqual({ ok: false, erros: { observacao: 'Use no máximo 1.000 caracteres' } });
+    expect(tamanhoDoTexto(`${enviado}c`)).toBe(1001);
+    // as pontas saem, como no servidor
+    expect(tamanhoDoTexto('  \r\n ab \r\n')).toBe(2);
+  });
+
+  it('gravarCadastro revalida: valor fora das regras não chega ao CHECK (nenhum 23514) e volta como erro do campo', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    errosDoBanco.length = 0;
+    const gravar = (valor: Record<string, unknown>) =>
+      withTenant(T.ctx, (tx) => gravarCadastro(tx, { tenantId: T.tenantId, patientId: p.id, valor: valor as Partial<CadastroComplementar>, now }), app.db);
+    for (const [valor, erros] of [
+      [{ cep: '123' }, { cep: 'CEP inválido. Use os 8 números.' }],
+      [{ observacao: 'x'.repeat(1001) }, { observacao: 'Use no máximo 1.000 caracteres' }],
+      [{ uf: 'XX', nomeSocial: 'J' }, { uf: 'Selecione um estado da lista', nomeSocial: 'Use entre 2 e 120 caracteres' }],
+      [{ cpf: '11111111111' }, { cpf: 'CPF inválido. Confira os números.' }],
+      [{ telefoneFixo: '123' }, { telefoneFixo: 'Telefone fixo inválido' }],
+    ] as const) {
+      const e = await erroDe(gravar(valor));
+      expect(e.erros).toEqual(erros);
+    }
+    expect(await cadastroDe(T, p.id)).toEqual([]);
+    // o valor normalizado (o que validarCadastro devolve) passa de novo pela revalidação sem mudar
+    await gravar({ cpf: CPF_DIGITOS, cep: '13015904', telefoneFixo: '+551131234567', uf: 'SP', observacao: 'a\nb' });
+    expect((await cadastroDe(T, p.id))[0]).toMatchObject({ cpf: CPF_DIGITOS, cep: '13015904', telefoneFixoE164: '+551131234567', uf: 'SP', observacao: 'a\nb' });
+    expect(errosDoBanco.filter((c) => c.startsWith('23'))).toEqual([]);
+  });
+});
+
 describe('nada do cadastro em log nem no Sentry (RNF-262)', () => {
   it('log sem dado: "Salvar" com erro de CPF, CEP e observação de teste', async () => {
     const T = await novoTenant(app.db);
@@ -343,6 +445,11 @@ describe('nada do cadastro em log nem no Sentry (RNF-262)', () => {
     for (const nivel of ['log', 'info', 'warn', 'error', 'debug'] as const) {
       vi.spyOn(console, nivel).mockImplementation((...a: unknown[]) => void capturado.push(a));
     }
+    // controle positivo: o espião pega o que passa pelo logger e pelo console
+    logger.warn({ campo: 'controle' }, 'linha de controle do logger');
+    console.error('linha de controle do console');
+    expect(JSON.stringify(capturado)).toContain('linha de controle do logger');
+    expect(JSON.stringify(capturado)).toContain('linha de controle do console');
     const segredos = [CPF, CPF_DIGITOS, '13015-904', '13015904', 'Observação reservada de teste', '111.111.111-11', '11111111111'];
     const erros: unknown[] = [];
     // CPF inválido + CEP + observação

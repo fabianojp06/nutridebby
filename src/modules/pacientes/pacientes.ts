@@ -83,14 +83,19 @@ type DadosPaciente = z.output<ReturnType<typeof pacienteSchema>>;
 type Deps = { db?: Db; now?: Date; appUrl?: string };
 
 /**
- * O cadastro complementar só é gravado quando o formulário manda algum dos campos dele (o formulário em seções manda
- * todos, vazio = ''): quem chama sem eles (testes e chamadores de antes do Plano 18) não apaga o que já está gravado.
+ * O cadastro complementar grava só os campos que vieram (o formulário em seções manda todos, vazio = ''): chave ausente
+ * mantém o que está gravado — quem chama sem eles (testes e chamadores de antes do Plano 18) ou com parte deles não apaga
+ * em silêncio o resto (`gravarCadastro`).
  */
-function validar(tenant: TenantDoPaciente, input: Record<string, unknown>, now: Date): { v: DadosPaciente; cadastro: CadastroComplementar | null } {
+function validar(
+  tenant: TenantDoPaciente,
+  input: Record<string, unknown>,
+  now: Date,
+): { v: DadosPaciente; cadastro: Partial<CadastroComplementar> | null } {
   const r = pacienteSchema(hojeNoFuso(tenant.fuso, now)).safeParse(input);
   if (!r.success) throw new PacienteError(primeiroErroPorCampo(r.error));
-  const mandou = CAMPOS_DO_CADASTRO.some((c) => input[c] !== undefined);
-  return { v: r.data, cadastro: mandou ? (Object.fromEntries(CAMPOS_DO_CADASTRO.map((c) => [c, r.data[c]])) as CadastroComplementar) : null };
+  const enviados = CAMPOS_DO_CADASTRO.filter((c) => input[c] !== undefined);
+  return { v: r.data, cadastro: enviados.length ? (Object.fromEntries(enviados.map((c) => [c, r.data[c]])) as Partial<CadastroComplementar>) : null };
 }
 
 function comoDuplicado(err: unknown): never {

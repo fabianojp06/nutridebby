@@ -377,7 +377,7 @@ export const dataExports = pgTable(
   ],
 );
 
-/** Listas fechadas do cadastro complementar (US-260); os rótulos ficam em `src/modules/pacientes/cadastro.ts`. */
+/** Listas fechadas do cadastro complementar (US-260); os rótulos ficam em `src/modules/pacientes/cadastro-textos.ts`. */
 export const IDENTIDADES_DE_GENERO = ['mulher', 'homem', 'nao_binario', 'outra', 'prefere_nao_informar'] as const;
 export const ESTADOS_CIVIS = ['solteiro', 'casado', 'uniao_estavel', 'separado', 'divorciado', 'viuvo'] as const;
 export const ESCOLARIDADES = [

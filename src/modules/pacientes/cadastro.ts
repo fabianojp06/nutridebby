@@ -14,6 +14,7 @@ import {
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { auditRead } from '@/modules/plataforma/audit';
 import { idValido, PacienteError } from './base';
+import { MSG_CADASTRO, normalizarQuebras, tamanhoDoTexto, type Escolaridade, type EstadoCivil, type IdentidadeDeGenero, type Uf } from './cadastro-textos';
 import { cpfValido, normalizarCpf } from './cpf';
 import { normalizarTelefone } from './telefone';
 
@@ -24,10 +25,19 @@ import { normalizarTelefone } from './telefone';
  * 23505 levaria o CPF ao log). Nenhuma mensagem repete o valor digitado; nada daqui vai para log (RNF-262).
  */
 
-export type IdentidadeDeGenero = (typeof VALORES_IDENTIDADE)[number];
-export type EstadoCivil = (typeof VALORES_ESTADO_CIVIL)[number];
-export type Escolaridade = (typeof VALORES_ESCOLARIDADE)[number];
-export type Uf = (typeof VALORES_UF)[number];
+// textos, listas e a contagem de caracteres ficam em `cadastro-textos.ts` (sem banco: o formulário de cliente importa de lá)
+export {
+  ESCOLARIDADES,
+  ESTADOS_CIVIS,
+  IDENTIDADES_DE_GENERO,
+  MSG_CADASTRO,
+  tamanhoDoTexto,
+  UFS,
+  type Escolaridade,
+  type EstadoCivil,
+  type IdentidadeDeGenero,
+  type Uf,
+} from './cadastro-textos';
 
 export type CadastroComplementar = {
   /** Só os 11 dígitos. */
@@ -81,124 +91,6 @@ export const CADASTRO_VAZIO: CadastroComplementar = Object.freeze(
   Object.fromEntries(CAMPOS_DO_CADASTRO.map((c) => [c, null])) as CadastroComplementar,
 ) as CadastroComplementar;
 
-/** Textos exatos da spec (US-260, §8.4). */
-export const MSG_CADASTRO = {
-  cpfInvalido: 'CPF inválido. Confira os números.',
-  cpfRepetido: 'Já existe um paciente com este CPF neste consultório.',
-  abrirExistente: 'Abrir o cadastro existente (abre em nova aba)',
-  escolhaDaLista: 'Escolha uma opção da lista',
-  ufDaLista: 'Selecione um estado da lista',
-  telefoneFixo: 'Telefone fixo inválido',
-  cepInvalido: 'CEP inválido. Use os 8 números.',
-  observacaoMaximo: 'Use no máximo 1.000 caracteres',
-  tamanho: (min: number, max: number) => `Use entre ${min} e ${max} caracteres`,
-  avisoObservacao:
-    'O paciente pode receber uma cópia deste campo se pedir os dados dele (LGPD). Para anotações só suas, use as notas privadas do atendimento.',
-  contadorObservacao: (n: number) => `${n.toLocaleString('pt-BR')} de 1.000 caracteres`,
-  secoes: {
-    dadosGerais: 'Dados gerais',
-    contatoEEndereco: 'Contato e endereço',
-    observacao: 'Observação',
-    acessoAoApp: 'Acesso ao app',
-    etiquetas: 'Etiquetas',
-  },
-  legendaEndereco: 'Endereço (opcional)',
-  selecione: 'Selecione',
-  rotulos: {
-    nome: 'Nome completo',
-    nomeSocial: 'Nome social (opcional)',
-    dataNascimento: 'Data de nascimento',
-    identidadeGenero: 'Identidade de gênero (opcional)',
-    estadoCivil: 'Estado civil (opcional)',
-    escolaridade: 'Escolaridade (opcional)',
-    ocupacao: 'Ocupação (opcional)',
-    nacionalidade: 'Nacionalidade (opcional)',
-    naturalidade: 'Naturalidade (opcional)',
-    cpf: 'CPF (opcional)',
-    email: 'E-mail',
-    telefone: 'Celular / WhatsApp (opcional)',
-    telefoneFixo: 'Telefone fixo (opcional)',
-    cep: 'CEP',
-    logradouro: 'Rua',
-    numero: 'Número',
-    complemento: 'Complemento',
-    bairro: 'Bairro',
-    cidade: 'Cidade',
-    uf: 'Estado',
-    observacao: 'Observação (opcional)',
-  },
-  dicas: {
-    nomeSocial: 'Preencha só a pedido do paciente. Aparece no painel junto do nome completo.',
-    identidadeGenero: 'Como o paciente se identifica. As fórmulas usam o sexo biológico.',
-    ocupacao: 'Profissão ou atividade principal.',
-    nacionalidade: 'Ex.: brasileira',
-    naturalidade: 'Cidade e estado onde nasceu. Ex.: Campinas (SP)',
-    cpf: 'Para identificar o paciente sem engano. Não aparece na lista nem no app.',
-    telefone: 'Ex.: (11) 91234-5678. Aceita fixo, mas os avisos de WhatsApp só saem para celular, se o paciente autorizar.',
-    telefoneFixo: 'Ex.: (11) 3123-4567',
-  },
-} as const;
-
-type Opcao<V extends string> = { valor: V; rotulo: string };
-const opcoes = <V extends string>(valores: readonly V[], rotulos: Record<V, string>): readonly Opcao<V>[] =>
-  Object.freeze(valores.map((valor) => Object.freeze({ valor, rotulo: rotulos[valor] })));
-
-/** Listas fechadas da US-260 com os rótulos da tela (§8.4); os valores vêm do schema (os mesmos dos CHECKs). */
-export const IDENTIDADES_DE_GENERO = opcoes(VALORES_IDENTIDADE, {
-  mulher: 'Mulher',
-  homem: 'Homem',
-  nao_binario: 'Não binário',
-  outra: 'Outra',
-  prefere_nao_informar: 'Prefere não informar',
-});
-export const ESTADOS_CIVIS = opcoes(VALORES_ESTADO_CIVIL, {
-  solteiro: 'Solteiro(a)',
-  casado: 'Casado(a)',
-  uniao_estavel: 'União estável',
-  separado: 'Separado(a)',
-  divorciado: 'Divorciado(a)',
-  viuvo: 'Viúvo(a)',
-});
-export const ESCOLARIDADES = opcoes(VALORES_ESCOLARIDADE, {
-  sem_escolaridade: 'Sem escolaridade',
-  fundamental_incompleto: 'Ensino fundamental incompleto',
-  fundamental_completo: 'Ensino fundamental completo',
-  medio_incompleto: 'Ensino médio incompleto',
-  medio_completo: 'Ensino médio completo',
-  superior_incompleto: 'Ensino superior incompleto',
-  superior_completo: 'Ensino superior completo',
-  pos_graduacao: 'Pós-graduação',
-});
-export const UFS = opcoes(VALORES_UF, {
-  AC: 'Acre',
-  AL: 'Alagoas',
-  AP: 'Amapá',
-  AM: 'Amazonas',
-  BA: 'Bahia',
-  CE: 'Ceará',
-  DF: 'Distrito Federal',
-  ES: 'Espírito Santo',
-  GO: 'Goiás',
-  MA: 'Maranhão',
-  MT: 'Mato Grosso',
-  MS: 'Mato Grosso do Sul',
-  MG: 'Minas Gerais',
-  PA: 'Pará',
-  PB: 'Paraíba',
-  PR: 'Paraná',
-  PE: 'Pernambuco',
-  PI: 'Piauí',
-  RJ: 'Rio de Janeiro',
-  RN: 'Rio Grande do Norte',
-  RS: 'Rio Grande do Sul',
-  RO: 'Rondônia',
-  RR: 'Roraima',
-  SC: 'Santa Catarina',
-  SP: 'São Paulo',
-  SE: 'Sergipe',
-  TO: 'Tocantins',
-});
-
 /** As regras de cada campo: uma fonte só (as faixas e listas dos CHECKs de `patient_cadastro`). */
 type Regra =
   | { tipo: 'texto'; min: number; max: number }
@@ -247,21 +139,22 @@ const E164 = /^\+[1-9][0-9]{7,14}$/;
 const OITO_DIGITOS = /^[0-9]{8}$/;
 
 /**
- * Um campo: ausente, nulo, vazio ou só espaços → `null`; senão, o valor normalizado ou a mensagem do campo. O tamanho
- * conta caracteres como o `char_length` do Postgres (code points, não unidades UTF-16 do JS).
+ * Um campo: ausente, nulo, vazio ou só espaços → `null`; senão, o valor normalizado ou a mensagem do campo. As quebras
+ * `\r\n` (como o FormData manda) viram `\n` antes de tudo, e o tamanho conta como `tamanhoDoTexto` (o contador da tela):
+ * caracteres como o `char_length` do Postgres (code points, não unidades UTF-16 do JS).
  */
 function validarCampo(campo: CampoDoCadastro, bruto: unknown): { ok: true; valor: string | null } | { ok: false; erro: string } {
   if (bruto === undefined || bruto === null) return { ok: true, valor: null };
   const regra = REGRAS[campo];
   const erro = { ok: false as const, erro: erroDaRegra(campo, regra) };
   if (typeof bruto !== 'string') return erro;
-  const t = bruto.trim();
+  const t = normalizarQuebras(bruto).trim();
   if (!t) return { ok: true, valor: null };
   // o NUL derrubaria o INSERT (texto do Postgres não aceita) — recusado como valor fora da regra
   if (t.includes('\u0000')) return erro;
   switch (regra.tipo) {
     case 'texto': {
-      const n = Array.from(t).length;
+      const n = tamanhoDoTexto(t);
       return n >= regra.min && n <= regra.max ? { ok: true, valor: t } : erro;
     }
     case 'lista':
@@ -281,7 +174,10 @@ function validarCampo(campo: CampoDoCadastro, bruto: unknown): { ok: true; valor
   }
 }
 
-/** Confere todas as regras dos CHECKs (D23). Campo ausente conta como vazio. */
+/**
+ * Confere todas as regras dos CHECKs (D23). Campo ausente conta como vazio no resultado; quem grava distingue ausente
+ * (mantém o gravado) de vazio (esvazia) pelas chaves que mandou — `gravarCadastro`.
+ */
 export function validarCadastro(
   input: Record<string, unknown>,
 ): { ok: true; valor: CadastroComplementar } | { ok: false; erros: Partial<Record<CampoDoCadastro, string>> } {
@@ -322,25 +218,28 @@ export class CpfRepetidoError extends PacienteError {
   }
 }
 
-const colunasDo = (v: CadastroComplementar) => ({
-  cpf: v.cpf,
-  nomeSocial: v.nomeSocial,
-  identidadeGenero: v.identidadeGenero,
-  estadoCivil: v.estadoCivil,
-  escolaridade: v.escolaridade,
-  ocupacao: v.ocupacao,
-  nacionalidade: v.nacionalidade,
-  naturalidade: v.naturalidade,
-  telefoneFixoE164: v.telefoneFixo,
-  cep: v.cep,
-  logradouro: v.logradouro,
-  numero: v.numero,
-  complemento: v.complemento,
-  bairro: v.bairro,
-  cidade: v.cidade,
-  uf: v.uf,
-  observacao: v.observacao,
-});
+/** Os campos enviados como colunas da tabela (chave ausente fica fora do INSERT/UPDATE: mantém o gravado). */
+const COLUNA: Record<CampoDoCadastro, Exclude<keyof typeof patientCadastro.$inferInsert, 'id' | 'tenantId' | 'patientId' | 'createdAt' | 'updatedAt'>> = {
+  cpf: 'cpf',
+  nomeSocial: 'nomeSocial',
+  identidadeGenero: 'identidadeGenero',
+  estadoCivil: 'estadoCivil',
+  escolaridade: 'escolaridade',
+  ocupacao: 'ocupacao',
+  nacionalidade: 'nacionalidade',
+  naturalidade: 'naturalidade',
+  telefoneFixo: 'telefoneFixoE164',
+  cep: 'cep',
+  logradouro: 'logradouro',
+  numero: 'numero',
+  complemento: 'complemento',
+  bairro: 'bairro',
+  cidade: 'cidade',
+  uf: 'uf',
+  observacao: 'observacao',
+};
+const colunasDo = (v: Partial<CadastroComplementar>) =>
+  Object.fromEntries(CAMPOS_DO_CADASTRO.filter((c) => v[c] !== undefined).map((c) => [COLUNA[c], v[c]])) as Partial<typeof patientCadastro.$inferInsert>;
 
 const doBanco = (c: PatientCadastroRow): CadastroComplementar => ({
   cpf: c.cpf,
@@ -379,22 +278,29 @@ async function conferirCpf(tx: Tx, tenantId: string, patientId: string, cpf: str
 }
 
 /**
- * RN-260: grava o cadastro complementar na transação do paciente (quem chama já travou ou criou o paciente). A linha só
- * nasce com algum campo preenchido; depois de nascer, esvaziar tudo grava a linha com tudo nulo (o DELETE é só da
- * anonimização). `valor` vem de `validarCadastro`/`pacienteSchema` (as regras dos CHECKs já conferidas).
+ * RN-260: grava o cadastro complementar na transação do paciente (quem chama já travou ou criou o paciente). Só os
+ * campos **enviados** mudam: chave ausente (ou `undefined`) mantém o que está gravado; `''` ou `null` esvazia. A linha só
+ * nasce com algum campo preenchido; depois de nascer, esvaziar grava nulo (o DELETE é só da anonimização). Defesa (D23):
+ * os valores passam de novo por `validarCadastro` antes do INSERT/UPDATE — nenhum valor fora das regras chega ao CHECK
+ * (o 23514 levaria a linha inteira ao log do Postgres); fora delas, `PacienteError` com a mensagem do campo.
  */
 export async function gravarCadastro(
   tx: Tx,
-  a: { tenantId: string; patientId: string; valor: CadastroComplementar; now?: Date },
+  a: { tenantId: string; patientId: string; valor: Partial<CadastroComplementar>; now?: Date },
 ): Promise<void> {
+  const enviados = CAMPOS_DO_CADASTRO.filter((c) => a.valor[c] !== undefined);
+  if (!enviados.length) return;
+  const r = validarCadastro(Object.fromEntries(enviados.map((c) => [c, a.valor[c]])));
+  if (!r.ok) throw new PacienteError(r.erros);
+  const valor = Object.fromEntries(enviados.map((c) => [c, r.valor[c]])) as Partial<CadastroComplementar>;
   const now = a.now ?? new Date();
-  const colunas = { ...colunasDo(a.valor), updatedAt: now };
+  const colunas = { ...colunasDo(valor), updatedAt: now };
   const doPaciente = and(eq(patientCadastro.tenantId, a.tenantId), eq(patientCadastro.patientId, a.patientId));
-  if (CAMPOS_DO_CADASTRO.every((c) => a.valor[c] === null)) {
+  if (enviados.every((c) => valor[c] === null)) {
     await tx.update(patientCadastro).set(colunas).where(doPaciente);
     return;
   }
-  if (a.valor.cpf) await conferirCpf(tx, a.tenantId, a.patientId, a.valor.cpf);
+  if (valor.cpf) await conferirCpf(tx, a.tenantId, a.patientId, valor.cpf);
   try {
     await tx
       .insert(patientCadastro)
