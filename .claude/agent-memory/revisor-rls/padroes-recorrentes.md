@@ -374,3 +374,12 @@ Plano 18, revisão final do PR 2 (17/11/2026): limpo na lente banco (0124/0125, 
 alcançável — tamanho por code point = char_length —, auditRead só no Perfil, rede da anonimização, isolamento com ator).
 - Repetiu "Minor da tarefa que não chega ao backlog": a projeção de `listarPacientes` no limite servidor→cliente
   (agenda/nova → ConsultaForm) apontada na T8 não entrou na seção de backlog do plano. Conferir item a item na final.
+
+Plano 20, T3 (módulo do Financeiro, 17/11/2026):
+- Conferência da linha-mãe sem trava (categoria lida sem FOR KEY SHARE) antes do INSERT da filha + DELETE/arquivamento da
+  mãe com FOR UPDATE noutra transação: em READ COMMITTED quem perde é o INSERT (23503 na FK, sem tradução → erro genérico),
+  não o DELETE — e o comentário costuma afirmar o contrário. Conferir: a conferência da mãe trava `FOR KEY SHARE` e relê
+  o estado (arquivada) sob a trava.
+- Testes de bloqueio concorrente que usam UPDATE simples de `status` (FOR NO KEY UPDATE) não conflitam com FOR KEY SHARE:
+  a serialização só existe porque o bloqueio real (lgpd.ts) faz `carregarPacienteParaEscrita` (FOR UPDATE). Conferir o
+  caminho real de quem muda a situação, não o helper do teste.
