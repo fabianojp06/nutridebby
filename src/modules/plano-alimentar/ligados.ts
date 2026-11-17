@@ -8,6 +8,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { FONTES, FONTES_DE_ALIMENTO, type Fonte } from '@/modules/alimentos/fontes';
 import { MSG_CONTEUDO, type TipoConteudo } from '@/modules/conteudo/constantes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
+import { auditRead } from '@/modules/plataforma/audit';
 import { MAX_CONTEUDOS_PLANO, MAX_LISTAS_PLANO, MSG_LIGADOS, MSG_LISTAS, type ConteudoParaLigar } from './biblioteca-constantes';
 import { PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
 import { lerListaNaTransacao } from './listas';
@@ -58,13 +59,27 @@ export function lerCopiaDaLista(conteudo: unknown): GrupoDaListaLigada[] {
   return copiaSchema.parse(conteudo).grupos;
 }
 
+/**
+ * RN-252/RN-257: os grupos da cópia da lista ligada, só por `lerCopiaDaLista`, sem lançar. O CHECK da tabela só exige
+ * um objeto JSON: cópia fora do formato (até `{}`) → `[]`, e a lista sai com nome, orientação e data da cópia — a
+ * página Plano, o PDF, a publicação, o mural, a IA Nutri, o editor e a exportação não caem por uma linha. Nada do
+ * conteúdo vai para log (regra 3).
+ */
+export function gruposDaCopia(conteudo: unknown): GrupoDaListaLigada[] {
+  try {
+    return lerCopiaDaLista(conteudo);
+  } catch {
+    return [];
+  }
+}
+
 const paraLista = (l: PlanoListaSubstituicaoRow): ListaLigada => ({
   id: l.id,
   listaOrigemId: l.listaOrigemId,
   nome: l.nome,
   orientacao: l.orientacao,
   copiadaEm: l.copiadaEm.toISOString(),
-  grupos: lerCopiaDaLista(l.conteudo),
+  grupos: gruposDaCopia(l.conteudo),
 });
 
 type Atual = { titulo: string; tipo: string; status: string };
@@ -154,7 +169,9 @@ async function copiaDaBiblioteca(tx: Tx, listaId: string): Promise<{ nome: strin
 
 /**
  * "Ligar lista de substituição": grava a cópia da lista no rascunho. A mesma lista ligada de novo (clique duplo, outra
- * aba) devolve a cópia que já está no plano; a sexta lista → "O plano pode ter até 5 listas e 10 receitas ou materiais.".
+ * aba) devolve a cópia que já está no plano — leitura de dado do plano do paciente, então com `auditRead` na mesma
+ * transação (regra 8; a gravação nova é auditada pelo gatilho); a sexta lista → "O plano pode ter até 5 listas e 10
+ * receitas ou materiais.".
  */
 export async function ligarLista(ctx: TenantContext, d: DonoDoPlano, listaId: string, deps: { db?: Db; now?: Date } = {}): Promise<ListaLigada> {
   if (!idValido(listaId)) throw new LigadoError(MSG_LISTAS.naoEncontrada);
@@ -164,7 +181,10 @@ export async function ligarLista(ctx: TenantContext, d: DonoDoPlano, listaId: st
       await travarRascunho(tx, d);
       const ligadas = await tx.select().from(planoListasSubstituicao).where(eq(planoListasSubstituicao.planId, d.planId));
       const mesma = ligadas.find((l) => l.listaOrigemId === listaId);
-      if (mesma) return paraLista(mesma);
+      if (mesma) {
+        if (d.patientId) await auditRead(tx, { entidade: 'plano_alimentar', entidadeId: d.planId, patientId: d.patientId });
+        return paraLista(mesma);
+      }
       if (ligadas.length >= MAX_LISTAS_PLANO) throw new LigadoError(MSG_LIGADOS.limite);
       const copia = await copiaDaBiblioteca(tx, listaId);
       if (!copia) throw new LigadoError(MSG_LISTAS.naoEncontrada);

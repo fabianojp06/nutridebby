@@ -32,8 +32,10 @@ function congeladoDoItem(n: unknown, fonteDoAlimento: Fonte): Congelado {
  * Plano inteiro na transação. Rascunho/modelo: valores atuais dos alimentos + medidas para trocar (só se o chamador
  * for mostrar o editor: `comMedidas: false` na publicação e na exportação, que não as usam).
  * Publicado/arquivado: a cópia congelada na publicação (D10), sem medidas para trocar.
+ * `comLigados: false` (o mural, que só mostra as refeições do dia) não lê as listas e os conteúdos ligados: `listas` e
+ * `conteudos` saem vazios.
  */
-export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { auditar?: boolean; comMedidas?: boolean } = {}): Promise<PlanoCompleto | null> {
+export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { auditar?: boolean; comMedidas?: boolean; comLigados?: boolean } = {}): Promise<PlanoCompleto | null> {
   if (!idValido(planId)) return null;
   const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId));
   if (!p) return null;
@@ -68,7 +70,7 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
     origemIa = { sugestao: p.aprovadoEm === null, aprovadoEm: p.aprovadoEm?.toISOString() ?? null, descartados: g?.descartados ?? 0 };
   }
   // RN-252/RN-253: a lista ligada é a cópia; o conteúdo ligado, com o título e a situação que esta sessão enxerga
-  const ligados = await ligadosNaTransacao(tx, p.id);
+  const ligados = opts.comLigados === false ? { listas: [], conteudos: [] } : await ligadosNaTransacao(tx, p.id);
   if (opts.auditar !== false && p.patientId) await auditRead(tx, { entidade: 'plano_alimentar', entidadeId: p.id, patientId: p.patientId });
   return {
     id: p.id,

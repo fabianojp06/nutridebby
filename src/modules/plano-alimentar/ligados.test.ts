@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { novoConteudo } from '../../../test/conteudos';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { contents, listasSubstituicao, patients, planoConteudos, planoListasSubstituicao } from '@/db/schema';
+import { auditLog, contents, listasSubstituicao, patients, planoConteudos, planoListasSubstituicao } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { criarAlimento, duplicarComoMeu } from '@/modules/alimentos/alimentos';
@@ -16,6 +16,7 @@ import { MSG_CONTEUDO } from '@/modules/conteudo/constantes';
 import { despublicarConteudo, excluirConteudo } from '@/modules/conteudo/conteudos';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { caminhoDoPdfDoConteudo, conteudoDoPaciente, conteudosNovosNaTransacao, feedDeConteudos, marcarFavorito, registrarVisualizacao } from '@/modules/portal/conteudos';
+import { planoDoPaciente } from '@/modules/portal/plano';
 import { MAX_CONTEUDOS_PLANO, MAX_GRUPOS_LISTA, MAX_ITENS_GRUPO, MAX_LISTAS_PLANO, MSG_LIGADOS, MSG_LISTAS } from './biblioteca-constantes';
 import { carregarPlano, lerPlanoNaTransacao } from './carregar';
 import { PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
@@ -139,6 +140,29 @@ describe('"Ligado ao plano" — lista de substituição (US-239, RN-252)', () =>
     await removerLista(T.ctx, doRascunho, copia.id, deps); // de novo (outra aba): nada a fazer
     expect((await carregarPlano(T.ctx, rascunho, app.db))!.listas).toEqual([]);
     expect((await carregarPlano(T.ctx, planId, app.db))!.listas).toEqual([nova]);
+  });
+
+  it('code review do PR #57: a mesma lista ligada de novo devolve a cópia com auditRead na mesma transação (regra 8)', async () => {
+    const { T, ana, planId, dono } = await cenario();
+    const { id: listaId } = await salvarLista(T.ctx, null, lista('Trocas'), deps);
+    const leituras = () =>
+      withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, ana.id), eq(auditLog.entidade, 'plano_alimentar'), eq(auditLog.entidadeId, planId), eq(auditLog.acao, 'ler'))), app.db);
+    const l = await ligarLista(T.ctx, dono, listaId, deps);
+    const antes = (await leituras()).length;
+    expect(await ligarLista(T.ctx, dono, listaId, deps)).toEqual(l);
+    expect((await leituras()).length).toBe(antes + 1);
+  });
+
+  it('code review do PR #57: cópia fora do formato (`{}`, só passa no CHECK de objeto) vira lista sem grupos, sem derrubar o plano (editor, publicação, página Plano)', async () => {
+    const { T, ana, planId, dono, ctxAna } = await cenario();
+    const { id: listaId } = await salvarLista(T.ctx, null, lista('Trocas'), deps);
+    const l = await ligarLista(T.ctx, dono, listaId, deps);
+    await withTenant(T.ctx, (tx) => tx.update(planoListasSubstituicao).set({ conteudo: {} }).where(eq(planoListasSubstituicao.id, l.id)), app.db);
+    const estragada = { ...l, grupos: [] };
+    expect((await withTenant(T.ctx, (tx) => lerPlanoNaTransacao(tx, planId), app.db))!.listas).toEqual([estragada]);
+    await publicar(T, ana.id, planId);
+    const pagina = await planoDoPaciente(ctxAna, 'America/Sao_Paulo', { db: app.db });
+    expect(pagina!.listas).toMatchObject([{ nome: 'Trocas', orientacao: l.orientacao, grupos: [] }]);
   });
 
   it('um salvamento da lista em curso termina antes do "Ligar" (FOR SHARE): a cópia sai inteira da versão nova', async () => {

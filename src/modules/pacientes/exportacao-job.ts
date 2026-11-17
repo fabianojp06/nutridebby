@@ -59,7 +59,7 @@ import { MSG_LIGADOS } from '@/modules/plano-alimentar/biblioteca-constantes';
 import type { MicrosPorCem } from '@/modules/plano-alimentar/calculo';
 import { lerCongelados, type Congelado } from '@/modules/plano-alimentar/congelados';
 import { rotuloDosDiasPorExtenso, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
-import { lerCopiaDaLista } from '@/modules/plano-alimentar/ligados';
+import { gruposDaCopia } from '@/modules/plano-alimentar/ligados';
 import type { GrupoDaListaLigada } from '@/modules/plano-alimentar/tipos';
 import { DESTINO_ROTULO, ROTULO_DESTINO_LEGADO, type DestinoIA } from '@/modules/ia/constantes';
 import { iaNutriParaExportacao, type IaNutriExportado } from '@/modules/ia/nutri-paciente/lgpd';
@@ -312,18 +312,6 @@ function congeladoDe(n: unknown): Congelado | null {
     return lerCongelados(n);
   } catch {
     return null;
-  }
-}
-
-/**
- * RN-252/RN-257: os grupos da cópia da lista ligada, só por `lerCopiaDaLista`; cópia fora do formato → `[]` (a lista sai
- * com nome, orientação e data da cópia). Como `congeladoDe`: a exportação é obrigação legal e não cai por uma linha.
- */
-function gruposDaCopia(conteudo: unknown): GrupoDaListaLigada[] {
-  try {
-    return lerCopiaDaLista(conteudo);
-  } catch {
-    return [];
   }
 }
 

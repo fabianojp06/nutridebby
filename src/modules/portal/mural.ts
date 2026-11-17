@@ -34,8 +34,9 @@ export async function muralDoPaciente(ctx: TenantContext, tenant: TenantAgenda, 
       const [p] = await tx.select({ nome: patients.nome }).from(patients).where(eq(patients.id, patientId));
 
       const [publicado] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(and(eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'publicado')));
-      // auditRead do plano dentro (D22), só se há plano; sem a liberação das receitas (o mural não mostra receita)
-      const plano = publicado ? await lerPlanoNaTransacao(tx, publicado.id, { comMedidas: false }) : null;
+      // auditRead do plano dentro (D22), só se há plano; sem a liberação das receitas (o mural não mostra receita) e sem
+      // as listas e os conteúdos ligados (o mural só mostra as refeições do dia)
+      const plano = publicado ? await lerPlanoNaTransacao(tx, publicado.id, { comMedidas: false, comLigados: false }) : null;
 
       const diario = await tx
         .select()
