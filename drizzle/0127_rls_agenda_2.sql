@@ -36,6 +36,256 @@ CREATE POLICY aguardando_fora_do_publico ON public_booking_requests AS RESTRICTI
   USING (app_current_role() IS DISTINCT FROM 'publico' OR aguardando_desde IS NULL)
   WITH CHECK (app_current_role() IS DISTINCT FROM 'publico' OR (aguardando_desde IS NULL AND resolvido_em IS NULL AND resolucao IS NULL));
 --> statement-breakpoint
+-- Peças SECURITY DEFINER (spec §9.1, molde app_conteudo_por_etiqueta, 0083). O dono das tabelas é o migrator NOBYPASSRLS e a
+-- RLS é FORCE: sem a troca, a função rodaria com o app.role de quem chamou e não veria nenhuma linha (locais_atendimento é
+-- staff_only e publico_negado; o aguardando some do publico). Cada função guarda app.role e app.patient_id; fora do papel
+-- esperado ou sem tenant devolve vazio; troca para `worker` sem paciente (set_config local à transação); filtra à mão pelo
+-- tenant da sessão (e pelo paciente guardado, em app_local_da_consulta); devolve o contexto do chamador antes de retornar.
+-- search_path fixo, nomes com public., EXECUTE só para o app.
+--
+-- AG-D4, AG-D62 (RN-406, RN-410a): todos os locais ativos do tenant, para o portal e a página pública escolherem; nunca a
+-- sala (link_sala). Nome e cidade só dos que aceitam agendamento; endereço só com mostrar_endereco e agendamento. O local sem
+-- agendamento vem só com o tipo, principal, agendamento_online e criado_em: a regra sem local é atribuída antes (RN-410a) e o
+-- recorte por agendamento_online é do código, depois.
+CREATE OR REPLACE FUNCTION app_locais_para_agendamento()
+RETURNS TABLE (id uuid, nome text, tipo text, cidade text, endereco text, principal boolean, agendamento_online boolean, criado_em timestamptz)
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+  v_role text := current_setting('app.role', true);
+  v_patient text := coalesce(current_setting('app.patient_id', true), '');
+  v_tenant uuid := public.app_current_tenant();
+BEGIN
+  IF v_role IS NULL OR v_role NOT IN ('publico', 'paciente') OR v_tenant IS NULL THEN
+    RETURN;
+  END IF;
+  PERFORM set_config('app.role', 'worker', true);
+  PERFORM set_config('app.patient_id', '', true);
+  RETURN QUERY
+    SELECT l.id,
+           CASE WHEN l.agendamento_online THEN l.nome END,
+           l.tipo,
+           CASE WHEN l.agendamento_online THEN l.cidade END,
+           CASE WHEN l.agendamento_online AND l.mostrar_endereco THEN l.endereco END,
+           l.principal, l.agendamento_online, l.created_at
+      FROM public.locais_atendimento l
+     WHERE l.tenant_id = v_tenant AND l.arquivado_em IS NULL
+     ORDER BY l.principal DESC, l.created_at, l.id;
+  PERFORM set_config('app.role', v_role, true);
+  PERFORM set_config('app.patient_id', v_patient, true);
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_locais_para_agendamento() FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_locais_para_agendamento() TO nutri_app_role;
+--> statement-breakpoint
+-- RN-406: o local de uma consulta do próprio paciente (sessão de paciente, com ou sem conta), para "Sua consulta" e o link
+-- da consulta. Nunca a sala (o link da própria consulta online já está em appointments.link_online). O endereço vem mesmo sem
+-- mostrar_endereco: é onde a consulta dele acontece (o e-mail da consulta já leva o endereço).
+CREATE OR REPLACE FUNCTION app_local_da_consulta(p_consulta uuid)
+RETURNS TABLE (nome text, tipo text, cidade text, endereco text)
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+  v_role text := current_setting('app.role', true);
+  v_patient text := coalesce(current_setting('app.patient_id', true), '');
+  v_tenant uuid := public.app_current_tenant();
+BEGIN
+  IF v_role IS DISTINCT FROM 'paciente' OR v_patient = '' OR v_tenant IS NULL OR p_consulta IS NULL THEN
+    RETURN;
+  END IF;
+  PERFORM set_config('app.role', 'worker', true);
+  PERFORM set_config('app.patient_id', '', true);
+  RETURN QUERY
+    SELECT l.nome, l.tipo, l.cidade, l.endereco
+      FROM public.appointments a
+      JOIN public.locais_atendimento l ON l.tenant_id = a.tenant_id AND l.id = a.local_id
+     WHERE a.tenant_id = v_tenant AND a.id = p_consulta AND a.patient_id = v_patient::uuid;
+  PERFORM set_config('app.role', v_role, true);
+  PERFORM set_config('app.patient_id', v_patient, true);
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_local_da_consulta(uuid) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_local_da_consulta(uuid) TO nutri_app_role;
+--> statement-breakpoint
+-- RN-409 / RN-425 / AG-D58: os intervalos dos pedidos da pessoa nova aguardando a nutricionista, para os horários livres do
+-- portal e da página pública (o publico não lê a linha aguardando; o paciente nem lê a tabela). Só tstzrange, sem dado pessoal.
+-- Papéis publico e paciente; nutri e worker leem a tabela direto.
+CREATE OR REPLACE FUNCTION app_pedidos_aguardando(p_de timestamptz, p_ate timestamptz)
+RETURNS SETOF tstzrange
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_role text := current_setting('app.role', true);
+  v_patient text := coalesce(current_setting('app.patient_id', true), '');
+  v_tenant uuid := public.app_current_tenant();
+BEGIN
+  IF v_role IS NULL OR v_role NOT IN ('publico', 'paciente') OR v_tenant IS NULL OR p_de IS NULL OR p_ate IS NULL THEN
+    RETURN;
+  END IF;
+  PERFORM set_config('app.role', 'worker', true);
+  PERFORM set_config('app.patient_id', '', true);
+  RETURN QUERY
+    SELECT tstzrange(b.inicio, b.fim, '[)')
+      FROM public.public_booking_requests b
+     WHERE b.tenant_id = v_tenant AND b.aguardando_desde IS NOT NULL AND b.resolvido_em IS NULL
+       AND b.inicio < p_ate AND b.fim > p_de
+     ORDER BY b.inicio;
+  PERFORM set_config('app.role', v_role, true);
+  PERFORM set_config('app.patient_id', v_patient, true);
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_pedidos_aguardando(timestamptz, timestamptz) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_pedidos_aguardando(timestamptz, timestamptz) TO nutri_app_role;
+--> statement-breakpoint
+-- RN-424 / RN-425: o pedido da pessoa nova passa a aguardar a nutricionista — gravado só aqui (aguardando_fora_do_publico
+-- recusa o INSERT e o UPDATE diretos do publico). Só no papel publico, sob a trava do tenant (classe própria, ordem e-mail →
+-- tenant → pedido), antes de ler. `invalido`: pedido de outro tenant ou inexistente, sem código válido (verificado_em há
+-- 30 min ou mais: a mesma VERIFICADO_VALIDADE_MS de agendamento-publico.ts — mudou lá, muda aqui), já aguardando ou concluído,
+-- ou local que não é ativo com agendamento pelo paciente neste tenant. Depois, nesta ordem: `teto_tenant` (20 aguardando no
+-- consultório), `email` (1 por e-mail) e `ocupado` (sobreposição com consulta agendada, confirmada ou solicitada e com outro
+-- aguardando). Grava local, modalidade = tipo do local (a FK composta recusaria outra), início, fim e aguardando_desde.
+CREATE OR REPLACE FUNCTION app_pedido_aguardar(p_pedido uuid, p_local uuid, p_inicio timestamptz, p_fim timestamptz)
+RETURNS text
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_role text := current_setting('app.role', true);
+  v_patient text := coalesce(current_setting('app.patient_id', true), '');
+  v_tenant uuid := public.app_current_tenant();
+  v_pedido record;
+  v_tipo text;
+  v_res text;
+BEGIN
+  IF v_role IS DISTINCT FROM 'publico' OR v_tenant IS NULL OR p_pedido IS NULL OR p_local IS NULL
+     OR p_inicio IS NULL OR p_fim IS NULL OR p_fim <= p_inicio THEN
+    RETURN 'invalido';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('agenda-pedidos-tenant'), hashtext(v_tenant::text));
+  PERFORM set_config('app.role', 'worker', true);
+  PERFORM set_config('app.patient_id', '', true);
+  <<corpo>>
+  BEGIN
+    SELECT b.email, b.verificado_em, b.concluido_em, b.aguardando_desde INTO v_pedido
+      FROM public.public_booking_requests b
+     WHERE b.tenant_id = v_tenant AND b.id = p_pedido
+       FOR UPDATE;
+    IF NOT FOUND OR v_pedido.verificado_em IS NULL OR v_pedido.verificado_em <= now() - interval '30 minutes'
+       OR v_pedido.concluido_em IS NOT NULL OR v_pedido.aguardando_desde IS NOT NULL THEN
+      v_res := 'invalido';
+      EXIT corpo;
+    END IF;
+    SELECT l.tipo INTO v_tipo
+      FROM public.locais_atendimento l
+     WHERE l.tenant_id = v_tenant AND l.id = p_local AND l.arquivado_em IS NULL AND l.agendamento_online;
+    IF NOT FOUND THEN
+      v_res := 'invalido';
+      EXIT corpo;
+    END IF;
+    IF (SELECT count(*) FROM public.public_booking_requests b
+         WHERE b.tenant_id = v_tenant AND b.aguardando_desde IS NOT NULL AND b.resolvido_em IS NULL) >= 20 THEN
+      v_res := 'teto_tenant';
+      EXIT corpo;
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.public_booking_requests b
+                WHERE b.tenant_id = v_tenant AND b.aguardando_desde IS NOT NULL AND b.resolvido_em IS NULL
+                  AND lower(b.email) = lower(v_pedido.email)) THEN
+      v_res := 'email';
+      EXIT corpo;
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.appointments a
+                WHERE a.tenant_id = v_tenant AND a.status IN ('agendada', 'confirmada', 'solicitada')
+                  AND a.inicio < p_fim AND a.fim > p_inicio)
+       OR EXISTS (SELECT 1 FROM public.public_booking_requests b
+                   WHERE b.tenant_id = v_tenant AND b.aguardando_desde IS NOT NULL AND b.resolvido_em IS NULL
+                     AND b.inicio < p_fim AND b.fim > p_inicio) THEN
+      v_res := 'ocupado';
+      EXIT corpo;
+    END IF;
+    UPDATE public.public_booking_requests b
+       SET local_id = p_local, modalidade = v_tipo, inicio = p_inicio, fim = p_fim, aguardando_desde = now()
+     WHERE b.tenant_id = v_tenant AND b.id = p_pedido;
+    v_res := 'ok';
+  END corpo;
+  PERFORM set_config('app.role', v_role, true);
+  PERFORM set_config('app.patient_id', v_patient, true);
+  RETURN v_res;
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_pedido_aguardar(uuid, uuid, timestamptz, timestamptz) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_pedido_aguardar(uuid, uuid, timestamptz, timestamptz) TO nutri_app_role;
+--> statement-breakpoint
+-- AG-D42 / AG-D48 / AG-D63: a pessoa nova desiste do pedido aguardando pelo link do e-mail (papel publico, que não lê a
+-- linha), com o hash do token do próprio pedido, sob a trava do tenant e da linha (RN-427a). Com p_confirmar falso só mostra
+-- (GET: leitores de link não gravam); com verdadeiro grava resolvido_em + resolucao = 'desistido'. `estado`: `aguardando`,
+-- `cancelado` (gravou agora, ou já tinha desistido) ou `invalido` (não existe, sem aguardar, aceito, recusado, vencido — também
+-- o vencido ainda não processado: começa antes da antecedência, RN-427). `gravou` e o primeiro nome (para o aviso à
+-- nutricionista) só na chamada que gravou: F5, duplo clique e o provedor que reabre o link não repetem o aviso.
+CREATE OR REPLACE FUNCTION app_pedido_publico_desistir(p_token_hash text, p_confirmar boolean)
+RETURNS TABLE (estado text, inicio timestamptz, gravou boolean, primeiro_nome text)
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+  v_role text := current_setting('app.role', true);
+  v_patient text := coalesce(current_setting('app.patient_id', true), '');
+  v_tenant uuid := public.app_current_tenant();
+  v_b record;
+  v_achou boolean;
+  v_antecedencia integer;
+BEGIN
+  IF v_role IS DISTINCT FROM 'publico' OR v_tenant IS NULL OR p_token_hash IS NULL THEN
+    RETURN;
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('agenda-pedidos-tenant'), hashtext(v_tenant::text));
+  PERFORM set_config('app.role', 'worker', true);
+  PERFORM set_config('app.patient_id', '', true);
+  estado := 'invalido';
+  inicio := NULL;
+  gravou := false;
+  primeiro_nome := NULL;
+  SELECT b.id, b.nome, b.inicio, b.aguardando_desde, b.resolucao INTO v_b
+    FROM public.public_booking_requests b
+   WHERE b.tenant_id = v_tenant AND b.token_hash = p_token_hash
+     FOR UPDATE;
+  v_achou := FOUND;
+  SELECT t.antecedencia_min_h INTO v_antecedencia FROM public.tenants t WHERE t.id = v_tenant;
+  IF v_achou AND v_b.aguardando_desde IS NOT NULL THEN
+    IF v_b.resolucao IS NOT DISTINCT FROM 'desistido' THEN
+      estado := 'cancelado';
+      inicio := v_b.inicio;
+    ELSIF v_b.resolucao IS NULL AND v_b.inicio - make_interval(hours => coalesce(v_antecedencia, 0)) > now() THEN
+      inicio := v_b.inicio;
+      IF coalesce(p_confirmar, false) THEN
+        UPDATE public.public_booking_requests b SET resolvido_em = now(), resolucao = 'desistido'
+         WHERE b.tenant_id = v_tenant AND b.id = v_b.id;
+        estado := 'cancelado';
+        gravou := true;
+        primeiro_nome := split_part(btrim(v_b.nome), ' ', 1);
+      ELSE
+        estado := 'aguardando';
+      END IF;
+    END IF;
+  END IF;
+  PERFORM set_config('app.role', v_role, true);
+  PERFORM set_config('app.patient_id', v_patient, true);
+  RETURN NEXT;
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_pedido_publico_desistir(text, boolean) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_pedido_publico_desistir(text, boolean) TO nutri_app_role;
+--> statement-breakpoint
 -- RN-421 / RN-422 (spec §9.2; AG-D17, AG-D24, AG-D44): o pedido do paciente é a consulta `solicitada`, decidida aqui.
 -- INSERT: na sessão `paciente` ou `publico` o status é do banco — `solicitada` com a chave ligada, `agendada` com ela
 -- desligada ou na remarcação (o marcador local app.agenda_remarcavel aponta para a consulta de origem, do mesmo paciente e
@@ -158,6 +408,56 @@ END $$;
 --> statement-breakpoint
 CREATE TRIGGER appointments_regras_pedido BEFORE INSERT OR UPDATE ON appointments FOR EACH ROW EXECUTE FUNCTION app_appointments_regras_pedido();
 --> statement-breakpoint
+-- RN-406 / AG-D4 (spec §9.1): a sala do local entra na consulta pelo banco, não pelo código. BEFORE INSERT, SECURITY DEFINER
+-- (molde 0083: o paciente e o publico não leem locais_atendimento). Consulta sem local (imagem anterior ao PR 2: o código manda
+-- o link_online) passa intacta, antes da troca de papel. Com local: em QUALQUER papel, na consulta de origem `paciente` num
+-- local online, link_online := link_sala (o que o código mandou é ignorado; o aceite da pessoa nova roda na sessão nutri com
+-- origem paciente). Só nas sessões paciente e publico, recusa (42501) local arquivado ou sem agendamento pelo paciente (o
+-- módulo traduz para "Esse horário não está mais disponível"). O local é procurado no tenant da linha (e no da sessão, quando há
+-- sessão): a FK composta recusa local de outro consultório. O contexto volta antes do RETURN e do RAISE. Dispara antes de
+-- appointments_regras_pedido (ordem alfabética); o CHECK appointments_link_online vem depois dos BEFORE.
+CREATE OR REPLACE FUNCTION app_appointments_link_da_sala() RETURNS trigger
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_role text;
+  v_patient text;
+  v_tenant uuid;
+  v_local record;
+  v_achou boolean;
+BEGIN
+  IF NEW.local_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+  v_role := coalesce(current_setting('app.role', true), '');
+  v_patient := coalesce(current_setting('app.patient_id', true), '');
+  v_tenant := public.app_current_tenant();
+  PERFORM set_config('app.role', 'worker', true);
+  PERFORM set_config('app.patient_id', '', true);
+  SELECT l.tipo, l.link_sala, l.agendamento_online, l.arquivado_em INTO v_local
+    FROM public.locais_atendimento l
+   WHERE l.tenant_id = NEW.tenant_id AND (v_tenant IS NULL OR l.tenant_id = v_tenant) AND l.id = NEW.local_id;
+  v_achou := FOUND;
+  PERFORM set_config('app.role', v_role, true);
+  PERFORM set_config('app.patient_id', v_patient, true);
+  IF NOT v_achou THEN
+    RETURN NEW; -- a FK composta recusa
+  END IF;
+  IF NEW.origem IS NOT DISTINCT FROM 'paciente' AND v_local.tipo = 'online' THEN
+    NEW.link_online := v_local.link_sala;
+  END IF;
+  IF v_role IN ('paciente', 'publico') AND (v_local.arquivado_em IS NOT NULL OR NOT v_local.agendamento_online) THEN
+    RAISE EXCEPTION 'o local não aceita agendamento pelo paciente' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+-- função de gatilho: ninguém a chama direto (o gatilho dispara sem EXECUTE de quem grava)
+REVOKE ALL ON FUNCTION app_appointments_link_da_sala() FROM PUBLIC;
+--> statement-breakpoint
+CREATE TRIGGER appointments_link_da_sala BEFORE INSERT ON appointments FOR EACH ROW EXECUTE FUNCTION app_appointments_link_da_sala();
+--> statement-breakpoint
 -- RN-420: a chave dos pedidos só muda na sessão `nutri` (molde tenants_ia_nutri_da_equipe, 0116): paciente, público, conta e
 -- worker (o processo web também usa o papel worker: página pública, limpeza) recebem 42501. O contexto vazio (migration, semente,
 -- admin fora de withTenant) passa.
@@ -209,3 +509,185 @@ BEGIN
 END $$;
 --> statement-breakpoint
 CREATE TRIGGER aniversario_autorizacoes_regras BEFORE INSERT ON aniversario_autorizacoes FOR EACH ROW EXECUTE FUNCTION app_aniversario_autorizacoes_regras();
+--> statement-breakpoint
+-- RN-438 (spec §9.7; molde app_anonimizar_autorizacoes_ia, 0108, e app_anonimizar_aceites, 0065): na anonimização do titular,
+-- anula só o registrado_por de origem `app` (a conta do paciente); o da nutricionista é autoria (ECF.17.01) e o do link já é
+-- nulo. Só no contexto worker de um tenant, com o titular bloqueado à espera da anonimização (travado). UPDATE revogado do
+-- app: só esta função altera a tabela.
+CREATE OR REPLACE FUNCTION app_anonimizar_autorizacoes_aniversario(p_patient uuid) RETURNS void
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_tenant uuid := public.app_current_tenant();
+BEGIN
+  IF v_tenant IS NULL OR public.app_current_role() IS DISTINCT FROM 'worker' THEN
+    RAISE EXCEPTION 'app_anonimizar_autorizacoes_aniversario() só roda no contexto worker de um tenant' USING ERRCODE = '42501';
+  END IF;
+  PERFORM 1 FROM public.patients p
+    WHERE p.id = p_patient AND p.tenant_id = v_tenant AND p.status = 'bloqueado' AND p.anonimizado_em IS NULL
+    FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'app_anonimizar_autorizacoes_aniversario(): o paciente não está bloqueado à espera da anonimização neste tenant' USING ERRCODE = '42501';
+  END IF;
+  UPDATE public.aniversario_autorizacoes
+     SET registrado_por = NULL
+   WHERE tenant_id = v_tenant AND patient_id = p_patient AND origem = 'app' AND registrado_por IS NOT NULL;
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_anonimizar_autorizacoes_aniversario(uuid) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_anonimizar_autorizacoes_aniversario(uuid) TO nutri_app_role;
+--> statement-breakpoint
+-- P23-BACKFILL início
+-- Locais iniciais e regras com local (spec §9.1 e §9.3; AG-D6, AG-D40, AG-D47; molde NO FORCE … FORCE da 0042, sem auditoria:
+-- locais e regras não têm patient_id). Idempotente — só tenant sem nenhum local e só regra com local_id nulo —, para o teste
+-- (migrate-owner.test.ts) rodar o bloco de novo; garantirLocaisIniciais (locais.ts) aplica o mesmo depois do deploy.
+-- Por tenant sem local: "Consultório" (presencial, endereço do perfil) quando há endereço, regra presencial ou "ambas", ou
+-- nenhuma regra online; "Videoconferência" (online, sala = link padrão no formato do CHECK) quando há regra online ou "ambas",
+-- ou link padrão; principal = o Consultório, se existir. agendamento_online = presencial ou com sala, sem olhar
+-- agendamento_publico_ativo (AG-D40: o portal nunca dependeu da página pública). Regras (RN-410a): cada uma vai para o local
+-- ativo do tipo (o principal primeiro, depois o mais antigo); "ambas" vira presencial e ganha a cópia online (AG-D47).
+ALTER TABLE locais_atendimento NO FORCE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE availability_rules NO FORCE ROW LEVEL SECURITY;
+--> statement-breakpoint
+WITH alvo AS (
+  SELECT t.id AS tenant_id,
+         left(nullif(btrim(t.endereco_consultorio), ''), 300) AS endereco,
+         CASE WHEN btrim(t.link_online_padrao) ~ '^https://\S+$' AND char_length(btrim(t.link_online_padrao)) <= 500
+              THEN btrim(t.link_online_padrao) END AS sala,
+         nullif(btrim(t.link_online_padrao), '') IS NOT NULL AS tem_link,
+         EXISTS (SELECT 1 FROM availability_rules r WHERE r.tenant_id = t.id AND r.modalidade IN ('presencial', 'ambas')) AS regra_presencial,
+         EXISTS (SELECT 1 FROM availability_rules r WHERE r.tenant_id = t.id AND r.modalidade IN ('online', 'ambas')) AS regra_online,
+         EXISTS (SELECT 1 FROM availability_rules r WHERE r.tenant_id = t.id AND r.modalidade = 'online') AS so_online
+    FROM tenants t
+   WHERE NOT EXISTS (SELECT 1 FROM locais_atendimento l WHERE l.tenant_id = t.id)
+), decisao AS (
+  SELECT a.*, (a.endereco IS NOT NULL OR a.regra_presencial OR NOT a.so_online) AS consultorio,
+         (a.regra_online OR a.tem_link) AS videoconferencia
+    FROM alvo a
+)
+INSERT INTO locais_atendimento (tenant_id, nome, tipo, endereco, link_sala, agendamento_online, principal)
+SELECT d.tenant_id, 'Consultório', 'presencial', d.endereco, NULL, true, true FROM decisao d WHERE d.consultorio
+UNION ALL
+SELECT d.tenant_id, 'Videoconferência', 'online', NULL, d.sala, d.sala IS NOT NULL, NOT d.consultorio FROM decisao d WHERE d.videoconferencia;
+--> statement-breakpoint
+-- "ambas" com os dois tipos de local: a cópia online (a original vira presencial logo abaixo)
+WITH presencial AS (
+  SELECT DISTINCT ON (l.tenant_id) l.tenant_id, l.id FROM locais_atendimento l
+   WHERE l.tipo = 'presencial' AND l.arquivado_em IS NULL ORDER BY l.tenant_id, l.principal DESC, l.created_at, l.id
+), online AS (
+  SELECT DISTINCT ON (l.tenant_id) l.tenant_id, l.id FROM locais_atendimento l
+   WHERE l.tipo = 'online' AND l.arquivado_em IS NULL ORDER BY l.tenant_id, l.principal DESC, l.created_at, l.id
+)
+INSERT INTO availability_rules (tenant_id, dia_semana, inicio, fim, duracao_min, modalidade, local_id, created_at, updated_at)
+SELECT r.tenant_id, r.dia_semana, r.inicio, r.fim, r.duracao_min, 'online', o.id, r.created_at, now()
+  FROM availability_rules r
+  JOIN presencial p ON p.tenant_id = r.tenant_id
+  JOIN online o ON o.tenant_id = r.tenant_id
+ WHERE r.local_id IS NULL AND r.modalidade = 'ambas';
+--> statement-breakpoint
+WITH presencial AS (
+  SELECT DISTINCT ON (l.tenant_id) l.tenant_id, l.id FROM locais_atendimento l
+   WHERE l.tipo = 'presencial' AND l.arquivado_em IS NULL ORDER BY l.tenant_id, l.principal DESC, l.created_at, l.id
+)
+UPDATE availability_rules r SET modalidade = 'presencial', local_id = p.id, updated_at = now()
+  FROM presencial p
+ WHERE p.tenant_id = r.tenant_id AND r.local_id IS NULL AND r.modalidade IN ('presencial', 'ambas');
+--> statement-breakpoint
+-- o que sobrou: online, e "ambas" de consultório sem local presencial (vira online)
+WITH online AS (
+  SELECT DISTINCT ON (l.tenant_id) l.tenant_id, l.id FROM locais_atendimento l
+   WHERE l.tipo = 'online' AND l.arquivado_em IS NULL ORDER BY l.tenant_id, l.principal DESC, l.created_at, l.id
+)
+UPDATE availability_rules r SET modalidade = 'online', local_id = o.id, updated_at = now()
+  FROM online o
+ WHERE o.tenant_id = r.tenant_id AND r.local_id IS NULL AND r.modalidade IN ('online', 'ambas');
+--> statement-breakpoint
+ALTER TABLE availability_rules FORCE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE locais_atendimento FORCE ROW LEVEL SECURITY;
+--> statement-breakpoint
+-- P23-BACKFILL fim
+-- R-410 (RN-423): a consulta `solicitada` (pedido ainda sem resposta) não conta nas métricas do admin. Corpo copiado da `main`
+-- (0059 e 0087) na regeneração — se a main mudou alguma das duas, copiar de novo antes de gerar (§5 de sessoes-paralelas.md);
+-- só muda `<> 'cancelada'` para `NOT IN ('cancelada', 'solicitada')`. CREATE OR REPLACE mantém dono e privilégios.
+CREATE OR REPLACE FUNCTION admin_tenant_metrics()
+RETURNS TABLE (
+  tenant_id uuid,
+  arquivos bigint,
+  armazenamento_bytes bigint,
+  pacientes_ativos bigint,
+  consultas_mes bigint,
+  mensagens_whatsapp_mes bigint
+)
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+  t record;
+  v_inicio_mes timestamptz;
+  v_fim_mes timestamptz;
+BEGIN
+  IF coalesce(current_setting('app.tenant_id', true), '') <> '' THEN
+    RAISE EXCEPTION 'admin_tenant_metrics() não pode rodar dentro de withTenant (contexto app.* de um tenant ativo)'
+      USING ERRCODE = '55000';
+  END IF;
+  FOR t IN SELECT tn.id, tn.armazenamento_bytes AS bytes, tn.fuso FROM public.tenants tn ORDER BY tn.created_at LOOP
+    PERFORM set_config('app.tenant_id', t.id::text, true);
+    PERFORM set_config('app.role', 'worker', true);
+    PERFORM set_config('app.patient_id', '', true);
+    v_inicio_mes := date_trunc('month', now() AT TIME ZONE t.fuso) AT TIME ZONE t.fuso;
+    v_fim_mes := (date_trunc('month', now() AT TIME ZONE t.fuso) + interval '1 month') AT TIME ZONE t.fuso;
+    tenant_id := t.id;
+    armazenamento_bytes := t.bytes;
+    SELECT count(*) INTO arquivos FROM public.stored_files sf WHERE sf.tenant_id = t.id;
+    SELECT count(*) INTO pacientes_ativos FROM public.patients p WHERE p.tenant_id = t.id AND p.status = 'ativo';
+    SELECT count(*) INTO consultas_mes FROM public.appointments a
+      WHERE a.tenant_id = t.id AND a.status NOT IN ('cancelada', 'solicitada') AND a.inicio >= v_inicio_mes AND a.inicio < v_fim_mes;
+    SELECT count(*) INTO mensagens_whatsapp_mes FROM public.notifications n
+      WHERE n.tenant_id = t.id AND n.canal = 'whatsapp' AND n.tipo IN ('lembrete_24h', 'lembrete_2h', 'convite_paciente')
+        AND n.enviada_em >= v_inicio_mes AND n.enviada_em < v_fim_mes;
+    RETURN NEXT;
+  END LOOP;
+  PERFORM set_config('app.tenant_id', '', true);
+  PERFORM set_config('app.role', '', true);
+END $$;
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION admin_metricas_sucesso()
+RETURNS TABLE (tenant_id uuid, pacientes_com_conta bigint, abriram_7_dias bigint, faltas_mes bigint, iniciadas_mes bigint)
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+  t record;
+  v_hoje date;
+  v_inicio_mes timestamptz;
+BEGIN
+  IF coalesce(current_setting('app.tenant_id', true), '') <> '' THEN
+    RAISE EXCEPTION 'admin_metricas_sucesso() não pode rodar dentro de withTenant' USING ERRCODE = '55000';
+  END IF;
+  FOR t IN SELECT tn.id, tn.fuso FROM public.tenants tn ORDER BY tn.created_at LOOP
+    PERFORM set_config('app.tenant_id', t.id::text, true);
+    PERFORM set_config('app.role', 'worker', true);
+    PERFORM set_config('app.patient_id', '', true);
+    v_hoje := (now() AT TIME ZONE t.fuso)::date;
+    v_inicio_mes := date_trunc('month', now() AT TIME ZONE t.fuso) AT TIME ZONE t.fuso;
+    tenant_id := t.id;
+    SELECT count(*),
+           count(*) FILTER (WHERE EXISTS (SELECT 1 FROM public.access_events e WHERE e.tenant_id = p.tenant_id AND e.patient_id = p.id AND e.dia >= v_hoje - 6))
+      INTO pacientes_com_conta, abriram_7_dias
+      FROM public.patients p
+     WHERE p.tenant_id = t.id AND p.status = 'ativo' AND p.user_id IS NOT NULL AND p.anonimizado_em IS NULL;
+    SELECT count(*) FILTER (WHERE a.status = 'faltou'), count(*) FILTER (WHERE a.status NOT IN ('cancelada', 'solicitada'))
+      INTO faltas_mes, iniciadas_mes
+      FROM public.appointments a
+     WHERE a.tenant_id = t.id AND a.inicio >= v_inicio_mes AND a.inicio <= now();
+    RETURN NEXT;
+  END LOOP;
+  PERFORM set_config('app.tenant_id', '', true);
+  PERFORM set_config('app.role', '', true);
+END $$;
