@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { DbError } from '@/db/errors';
-import { appointments, finCategorias, finLancamentos, patients, type FinLancamentoRow, type TipoLancamento } from '@/db/schema';
+import { appointments, finCategorias, finLancamentos, patientCadastro, patients, type FinLancamentoRow, type TipoLancamento } from '@/db/schema';
 import { FORMAS_DE_PAGAMENTO, type FormaPagamento } from '@/db/schema/financeiro-formas';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { idValido, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
@@ -12,6 +12,7 @@ import { DESCRICAO_MAX, MOTIVO_MAX, MSG_FINANCEIRO, VALOR_MAX_CENTAVOS } from '.
 import { centavos, paraCentavos } from './dinheiro';
 import { exigirNutri, FinanceiroError, FinanceiroNaoConfiguradoError, LancamentoNaoEncontradoError } from './erros';
 import { intervaloDoMes, mesDe } from './meses';
+import { cadastroDoPaciente, nomeDeExibicao } from './nome';
 import { dataDeReferencia, situacaoDoLancamento } from './situacao';
 import type { FiltrosLista, LancamentoNaTela, TotaisDaLista } from './tipos';
 
@@ -325,19 +326,23 @@ export async function diaMaisAntigoNaTransacao(tx: Tx, tenantId: string): Promis
   return r.rows[0]?.dia ?? null;
 }
 
-/** As colunas de `LancamentoNaTela`, com categoria, paciente e consulta — uma consulta só, sem N+1 (também o Resumo, T4). */
+/**
+ * As colunas de `LancamentoNaTela`, com categoria, paciente e consulta — uma consulta só, sem N+1 (também o Resumo, T4). O
+ * paciente pelo nome de exibição (Plano 18, RN-266: o nome social primeiro; `nome.ts`).
+ */
 export function selecionarNaTela(tx: Tx) {
   return tx
     .select({
       l: finLancamentos,
       categoriaNome: finCategorias.nome,
-      pacienteNome: patients.nome,
+      pacienteNome: nomeDeExibicao,
       pacienteStatus: patients.status,
       consultaInicio: appointments.inicio,
     })
     .from(finLancamentos)
     .innerJoin(finCategorias, and(eq(finCategorias.tenantId, finLancamentos.tenantId), eq(finCategorias.id, finLancamentos.categoriaId)))
     .leftJoin(patients, and(eq(patients.tenantId, finLancamentos.tenantId), eq(patients.id, finLancamentos.patientId)))
+    .leftJoin(patientCadastro, cadastroDoPaciente)
     .leftJoin(appointments, and(eq(appointments.tenantId, finLancamentos.tenantId), eq(appointments.id, finLancamentos.appointmentId)));
 }
 type LinhaSelecionada = Awaited<ReturnType<typeof selecionarNaTela>>[number];
@@ -470,19 +475,23 @@ export async function pacientesParaLancamento(ctx: TenantContext, deps: Deps = {
 
 export type PacienteParaLancamento = { id: string; nome: string; arquivado: boolean };
 
-/** `pacientesParaLancamento` na transação de quem chama (o formulário novo, RNF-301). */
+/**
+ * `pacientesParaLancamento` na transação de quem chama (o formulário novo, RNF-301). Pelo nome de exibição (Plano 18, RN-266:
+ * o nome social primeiro), na ordem dele.
+ */
 export async function pacientesNaTransacao(tx: Tx): Promise<PacienteParaLancamento[]> {
   const linhas = await tx
-    .select({ id: patients.id, nome: patients.nome, status: patients.status })
+    .select({ id: patients.id, nome: nomeDeExibicao, status: patients.status })
     .from(patients)
+    .leftJoin(patientCadastro, cadastroDoPaciente)
     .where(and(inArray(patients.status, ['ativo', 'arquivado']), isNull(patients.anonimizadoEm)))
-    .orderBy(asc(patients.nome), asc(patients.id));
-  return linhas.map((p) => ({ id: p.id, nome: p.nome, arquivado: p.status === 'arquivado' }));
+    .orderBy(asc(nomeDeExibicao), asc(patients.id));
+  return linhas.map((p) => ({ id: p.id, nome: p.nome ?? '', arquivado: p.status === 'arquivado' }));
 }
 
 /**
- * O paciente de `?paciente=` na lista (chip "Paciente: {nome}") e no formulário novo (aviso do bloqueado, §6.2): só nome e
- * situação, como a lista de pacientes — sem `auditRead` (a leitura do financeiro dele é auditada por `listarLancamentos`).
+ * O paciente de `?paciente=` na lista (chip "Paciente: {nome}") e no formulário novo (aviso do bloqueado, §6.2): só nome (o de
+ * exibição, Plano 18) e situação, como a lista de pacientes — sem `auditRead` (a leitura do financeiro dele é auditada por `listarLancamentos`).
  * Id inválido ou de outro consultório (RLS) → null. `bloqueado` não inclui o anonimizado (que não ganha aviso).
  */
 export async function pacienteDoFinanceiro(ctx: TenantContext, id: string, deps: Deps = {}): Promise<PacienteDoFinanceiro | null> {
@@ -495,8 +504,12 @@ export type PacienteDoFinanceiro = { id: string; nome: string; bloqueado: boolea
 
 /** `pacienteDoFinanceiro` na transação de quem chama (as telas da lista e do formulário novo, RNF-301). Id já conferido. */
 export async function pacienteNaTransacao(tx: Tx, id: string): Promise<PacienteDoFinanceiro | null> {
-  const [p] = await tx.select({ nome: patients.nome, status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, id));
+  const [p] = await tx
+    .select({ nome: nomeDeExibicao, status: patients.status, anonimizadoEm: patients.anonimizadoEm })
+    .from(patients)
+    .leftJoin(patientCadastro, cadastroDoPaciente)
+    .where(eq(patients.id, id));
   if (!p) return null;
   const anonimizado = !!p.anonimizadoEm;
-  return { id, nome: p.nome, bloqueado: p.status === 'bloqueado' && !anonimizado, anonimizado };
+  return { id, nome: p.nome ?? '', bloqueado: p.status === 'bloqueado' && !anonimizado, anonimizado };
 }
