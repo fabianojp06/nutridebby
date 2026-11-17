@@ -795,6 +795,18 @@ zero falhas, mas com o p95 das páginas em 2.123 ms (era 4.515), o das APIs em 5
 painel (`/painel/pacientes` 2,9 s) e o teto de lembretes (P08-14; o envio não foi medido na rodada 2, que caiu no
 horário silencioso).
 
+**Plano 18 (CS-263, RNF-260): cenário "abrir a ficha".** O `cenario.js` tem um quarto cenário, `ficha` (5 VUs tirados dos
+25 da nutricionista): lista → Início (as seções do registro numa transação, o cabeçalho e o cartão "No app", contado no
+contexto do paciente) → Perfil → "No app do paciente", com pacientes variados a cada iteração. As rotas
+`/painel/pacientes/:id/perfil` e `/painel/pacientes/:id/app` entraram em `ROTAS`, e o Início ganhou threshold próprio
+(`http_req_duration{nome:/painel/pacientes/:id}` p95 < 800 ms). A semente (`seed.ts`) passou a gravar o cadastro
+complementar (*upsert* em `(tenant_id, patient_id)`, CPF nulo ou único por consultório, sem DELETE: o gatilho
+`patient_cadastro_sem_apagar` não deixa) e o registro clínico das seções (antropometria, gasto energético, anamneses,
+atendimentos, exames, envios e documentos), e liga os documentos e o recebimento de exames em todos os consultórios;
+rodar a semente duas vezes seguidas tem de terminar sem erro e com "0 registros clínicos novos" (idempotência). A linha do
+relatório está em `docs/operacao/carga.md`. **O p95 do CS-263 ainda não foi medido** (a pilha de carga não rodou com o
+PR 2; pendência para a próxima rodada, com OK do dono).
+
 ---
 
 ## 6.7 Checklist do go-live
@@ -867,6 +879,25 @@ para a frente** (passo 5). Na janela start-first de um deploy normal, a instânc
 (aceito). A imagem antiga também mostra cada "Comi assim" (sem texto nem foto) como um registro em branco no feed do
 diário e no registro aberto do painel, porque não conhece a coluna `resposta`. Runbook: `docs/operacao/app-paciente.md`,
 passo 7.
+
+**Voltar atrás depois do Plano 18, PR 2 (cadastro complementar).** As migrations `0124_patient_cadastro` e
+`0125_rls_patient_cadastro` só **acrescentam** (tabela nova, política e gatilhos): a imagem anterior sobe contra o schema
+novo e não lê nem grava `patient_cadastro`. O que muda enquanto ela roda:
+
+- **Anonimização.** A `anonimizarVencidos` da imagem antiga marca `anonimizado_em` sem apagar a linha do cadastro
+  complementar (CPF, endereço, observação). A linha fica até a imagem nova voltar: a primeira varredura dela apaga, no
+  início de cada tenant, a linha de todo titular já anonimizado (`apagarCadastrosDosAnonimizados`, `lgpd.ts:644`;
+  [§4.2.8](04-modulos-clinicos.md#428-lgpd-arquivar-pedido-de-exclusão-e-anonimização-us-018-rnf-08)). Nenhuma ação
+  manual; **nunca** apagar à mão no banco de produção. O gatilho `patient_cadastro_titular_ativo` impede que algo grave
+  de novo o cadastro de quem já foi anonimizado.
+- **Exportação.** O `dados.json` da imagem antiga sai **sem** `paciente.cadastro` e o `prontuario.pdf` sem a
+  identificação nova (nome social, endereço, estado civil…), embora os dados estejam guardados. Pedido de cópia do
+  titular gerado nessa janela fica incompleto (LGPD, art. 18, II): depois de voltar a imagem nova, gerar de novo a
+  exportação dos pedidos desse período (os últimos pedidos de cópia ficam na aba Privacidade de cada paciente,
+  `exportacoesRecentes`; sem SQL ad hoc em produção).
+- **Telas.** A imagem antiga volta à lista sem abas e ao formulário sem as seções novas: o cadastro complementar
+  gravado não aparece, mas não se perde; nada do que ela grava em `patients` apaga a linha.
+- **Na janela start-first de um deploy normal**, o mesmo vale por segundos (aceito).
 
 ---
 

@@ -411,6 +411,24 @@ Os casos estão em `src/lib/paciente-session.cache.test.ts`. No Vitest o `cache`
 
 `ctx.patientId` liga a RLS por paciente. `withTenant` exige `patientId` e `actorUserId` para `role: 'paciente'` (`src/db/tenant.ts`, `assertContext`), salvo os fluxos sem login listados em `SEM_CONTA_PERMITIDOS`.
 
+**O contexto de paciente aberto pela nutricionista (Plano 18, D16, RN-281).** O "No app do paciente" do painel conta o que
+o app mostra **com a RLS do paciente**, em vez de reproduzir os filtros do portal na sessão `nutri` (a audiência do
+conteúdo e a etiqueta, `paciente_so_emitidos`, `paciente_sem_rascunho`). Por isso `src/modules/ficha/no-app.ts` é o
+sétimo arquivo de `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:39-47`). As travas:
+
+- `noAppDoPaciente` (`no-app.ts:84`) só aceita `ctx.role === 'nutri'` (`:90`) e, antes de abrir o contexto do paciente,
+  confere na sessão `nutri` que o paciente é do consultório; arquivado, bloqueado ou anonimizado não abre o contexto
+  (só a linha do acesso, `semAcesso`, `:58`), nem paciente sem conta (`comAcesso`, `:173`).
+- O helper `comoPaciente` (`:41`) **não é exportado**: abre `{ tenantId, role: 'paciente', patientId, semConta: true }`,
+  confere no banco (`current_setting('app.role')` e `app.patient_id`) que a transação está mesmo no papel e no paciente
+  pedidos e só então marca a transação como `TxDePaciente` (`src/modules/ficha/tipos.ts:22`, tipo marcado; o único lugar
+  que o cria). Os `noApp.contar`/`noApp.visiveis` das seções só recebem esse tipo.
+- Dentro dele, só `count(*)` e ids: nenhuma coluna de conteúdo, nenhum `auditRead`, nunca `liberarReceitasDoPlano` (as
+  receitas sugeridas do plano são contadas na sessão `nutri`, D24). A guarda de fonte `no-app-fonte.test.ts` confere.
+- `patient_cadastro` continua negada nesse contexto (política `patient_cadastro_paciente_com_conta`): 0 linhas, mesmo
+  sendo a nutricionista quem pediu.
+- O `audit_log` desse contexto sairia sem ator (como todo `semConta`), mas nada é gravado: é só leitura.
+
 ---
 
 ## 3.9 Bootstrap do admin (`pnpm admin:criar`)

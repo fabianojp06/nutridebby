@@ -299,6 +299,9 @@ fábricas de `COM_MAE` (`:331`; desde o Plano 17, também `lembretes_rotina_envi
 | Registro de seções da ficha (Plano 18, D14) | `src/modules/ficha/registro.test.ts` | Ordem da RN-278, com as seções do Plano 18 primeiro e as de outros planos no fim; ids únicos; um arquivo por seção em `src/modules/ficha/secoes/`. Nenhum desses arquivos cita `auditRead`/`recordAudit`, o contexto de paciente sem login, `liberarReceitasDoPlano`, `import()` ou `require`; os imports ficam na lista fechada `IMPORTS_PERMITIDOS`. Todo destino do Adicionar é `href` (relativo sem `/` ou absoluto em `/painel/`) ou uma `ChaveDeAcao`; `verTodos` é absoluto em `/painel/`; nenhuma das 8 seções declara `leitura` |
 | Cabeçalho da ficha por um caminho só (Plano 18, D13) | `src/modules/ficha/cabecalho-fonte.test.ts` | `carregarCabecalho` é `cache(async (patientId: string)` e usa o `ctx` de `carregarProntuario`; em `src/app`, só `prontuario.ts` cita `lerCabecalho`; o layout lê só por `carregarCabecalho`. Uma chamada a mais gravaria outra linha "Visualizou" de antropometria |
 | Links do Início sem pré-carga (Plano 18) | `src/app/painel/pacientes/[id]/inicio/secao.test.ts`, `adicionar.test.ts` | Todo `<Link>` de `secao.tsx` e do diálogo Adicionar tem `prefetch={false}`: as páginas de destino gravam `auditRead` |
+| "No app" no contexto do paciente (Plano 18, D16) | `src/modules/ficha/no-app-fonte.test.ts` | `comoPaciente` existe e não é exportado; confere o papel na própria transação antes de virar `TxDePaciente`; só `no-app.ts` cria `TxDePaciente`; imports em lista fechada; nada de `auditRead`, da liberação das receitas do plano nem do cadastro complementar; arquivado, bloqueado e anonimizado saem antes de outra leitura; só a sessão `nutri`; os textos de `MSG_NO_APP` iguais à spec §8.5 |
+| Nome social na IA por uma projeção só (Plano 18, RN-282) | `src/modules/ia/nome-social-fonte.test.ts`, `src/modules/ia/guardas.test.ts` | Em `src/modules/ia/**` (fora de teste), `patientCadastro` só na projeção `{ nomeSocial: patientCadastro.nomeSocial }` de `nome-social.ts` (falha com `select().from(patientCadastro)`, join sem projeção ou outra coluna; controle positivo); `nome-social-worker.ts` só importado pelo contexto da IA Nutri e fora do grafo do Next |
+| Colunas do paciente com destino decidido (Plano 18, §10) | `src/modules/pacientes/colunas-decididas.test.ts` (Testcontainers) | Toda coluna de `patients` e `patient_cadastro` (`information_schema.columns`) está no mapa `{ exportacao, anonimizacao, ia }`; coluna nova sem decisão quebra o teste de **todo** plano que a acrescentar |
 | `web-push` só no worker | `src/modules/notificacoes/push.test.ts:434` | Nada do grafo do Next alcança `push.ts`, `enviar.ts`, `web-push` nem `heic-decode` |
 | Sentry | `src/lib/sentry-guarda.test.ts` | `Sentry.init` só em `src/lib/sentry.ts`; nenhum SDK de navegador, Replay ou tracing; `@sentry/node` fora de componente de cliente |
 | Erro de job sem detalhe | `src/worker/sem-detalhe.test.ts` | Todo job registra por `workSemDetalhe`; nenhum `boss.work(` direto em `src/worker/index.ts` |
@@ -416,8 +419,12 @@ apontado para produção.
 - **Paciente novo só pelo helper (Plano 18, RNF-263 g).** `criarPacientePeloFormulario(nutri, { nome, email, nascimento?,
   sexo?, telefone? })` (`e2e/pacientes-form.ts:9`) preenche "Novo paciente" e devolve o caminho do prontuário; `pacienteNoPortal`
   (`e2e/portal.ts`) já o usa. Spec novo (Planos 19, 20…) cadastra paciente só por ele. O `agenda.spec.ts` ainda preenche o
-  formulário direto (`novoPaciente` e o teste do convite por WhatsApp): o PR 2 do Plano 18, que troca os rótulos ("Nome"
-  vira "Nome completo"; muda o telefone), passa esses pontos ao helper.
+  formulário direto (`novoPaciente` e o teste do convite por WhatsApp); no PR 2 do Plano 18, que trocou os rótulos ("Nome"
+  virou "Nome completo", ao lado de "Nome social (opcional)"; o telefone virou "Celular / WhatsApp (opcional)"), o
+  `novoPaciente` passou ao helper (`agenda.spec.ts:68`) e o teste do convite por WhatsApp, que precisa de outros campos,
+  usa os rótulos novos com `exact: true` (`:313`; o `getByLabel` casa por trecho e "Nome" pegaria "Nome social"). A
+  semente do E2E (`scripts/e2e-seed.ts`) ganhou duas pacientes com cadastro (`SEMENTE_COMPLETA`, com nome social e CPF
+  fixo, e `SEMENTE_INCOMPLETA`, `e2e/cadastro.ts`), por *upsert* em `(tenant_id, patient_id)`, sem DELETE.
 
 ### Acessibilidade (RNF-10)
 
@@ -443,7 +450,7 @@ Detalhes que evitam falso verde:
 | `sair.spec.ts` | 7 | Sair e `Clear-Site-Data` |
 | `sessao-portal.spec.ts` | 2 | Sessão do portal (S-1, S-2, S-4) |
 | `plataforma.spec.ts` | 6 | Admin cria nutricionista, convite, DPA, marca |
-| `pacientes.spec.ts` | 9 | Cadastro, convite, prontuário |
+| `pacientes.spec.ts` | 9 | Cadastro, convite, prontuário (desde o Plano 18, os rótulos novos do formulário em seções) |
 | `plano-alimentar.spec.ts` | 18 | Criar, calcular e publicar plano |
 | `agenda.spec.ts` | 12 | Horários, consultas, lembretes, link da consulta, página pública, WhatsApp sandbox, presença |
 | `portal.spec.ts` | 20 | Portal do paciente |
@@ -454,7 +461,7 @@ Detalhes que evitam falso verde:
 | `csp.spec.ts` | 3 | CSP e cabeçalhos |
 | `health.spec.ts` | 1 | `/api/health` (o que o monitor externo confere) |
 | `acessibilidade.spec.ts` | 11 (+ laço) | Portal |
-| `acessibilidade-painel.spec.ts` | 7 (+ laço) | Painel; desde o Plano 18, a faixa de 13 abas da ficha a 1280 px sem rolar e sem "incomplete", com o cadastro no Perfil |
+| `acessibilidade-painel.spec.ts` | 9 (+ laço) | Painel; desde o Plano 18, a faixa de 13 abas da ficha a 1280 px sem rolar e sem "incomplete", com o cadastro no Perfil, e (PR 2) Início, Perfil, lista e "No app do paciente" a 1280 e 360 px, claro e escuro |
 | `documentos.spec.ts` (Plano 10A) | 1 | Receita de ponta a ponta pela digitalizada (rascunho → preparar → fotos + 2FA → portal: abrir e confirmar → situação no painel → verificação pública sem dado do paciente), com axe nos cartões "Aguardando assinatura" e "Documento assinado"; `acessibilidade.spec.ts` ganhou o axe de `/p/documentos`, `/v/<código>` e `/documento/<token>` (claro, escuro, 360 px) |
 
 | `painel-pwa.spec.ts` (Plano 09) | 1 | Painel instalável: manifest próprio, nenhum service worker, HTML sem cache (P09-05) |
@@ -462,6 +469,7 @@ Detalhes que evitam falso verde:
 | `conferencia-ia.spec.ts` (Plano 11) | 1 | A conferência guarda marcações e correções depois de um erro e no segundo envio (o React 19 limpava o formulário; revisão da T13) |
 | `ficha.spec.ts` (Plano 18, PR 1) | 5 (+ laço de 2 temas) | Aba Início (US-262, US-263, CS-260): diálogo "Adicionar ao prontuário" (foco no título; Esc e "Fechar" devolvem o foco ao botão); Adicionar → Antropometria (foco em "Nova avaliação") e → Anamnese (foco no seletor de modelo); Adicionar → Receita (rascunho pela Server Action da aba Documentos); seção → item em 2 cliques; axe do diálogo aberto, claro e escuro. Bloco de IP `10.9.18.1`–`.5`. Cadastra o paciente por `criarPacientePeloFormulario` |
 | `lembretes.spec.ts` (Plano 17) | 2 (+ laço de 3 modos) | A nutricionista salva a sugestão na seção "Lembretes no app" ("Previsto para hoje", aviso sem aparelho), o paciente desliga a água em Eu › Lembretes (interruptor otimista com a ação presa na rede, foco e região de status) e a nutricionista vê "Desligado pelo paciente em {data}" sem o "Apagar"; axe da seção com lembretes salvos e com o suplemento aberto com erro nos três modos do painel. IPs `10.9.31.71`–`.75`. O envio do push fica nos testes de `src/modules/lembretes` (o E2E não tem aparelho inscrito); `acessibilidade.spec.ts` ganhou `/p/perfil/lembretes` (com o lembrete livre de link longo, a 320 px com texto a 200%) e a tela vazia (`10.9.10.25`) |
+| `cadastro.spec.ts` (Plano 18, PR 2) | 10 (2 em laço de 2 temas) | Cadastro com CPF, estado civil e CEP (US-260; o CPF nunca na lista); CPF repetido com a mensagem, o link em nova aba e o digitado mantido, com axe claro e escuro; Perfil (o estado civil e a Observação não voltam atrás, foco no CEP inválido); lista (abas, "Mais recentes" com a busca, `?status=arquivado` → Inativos); menu da linha (Esc, clique fora, Tab depois do último item); arquivar pela lista duas vezes (região de status e foco no título, D26); Início (nota "Cadastro incompleto", selo e cartão "No app"); "No app do paciente" da paciente da semente; impressão com o nome civil antes de "Nome social"; axe do menu aberto e do diálogo Adicionar. IPs `10.9.18.20`–`.29`; repetível no banco de dev (CPF novo a cada execução, sufixo `c18…`) |
 
 Os números são de chamadas `test(` no arquivo; laços geram mais casos na execução.
 

@@ -5,7 +5,7 @@ Este capítulo descreve os três blocos de domínio que sustentam o consultório
 - **Plataforma** (`src/modules/plataforma/`): contas, convites, perfil e marca, armazenamento, monitoramento, métricas e preferências.
 - **Pacientes e prontuário** (`src/modules/pacientes/`): cadastro, etiquetas, anamnese, antropometria, gasto energético, exames, atendimentos, evolução e LGPD.
 - **Alimentos e plano alimentar** (`src/modules/alimentos/`, `src/modules/plano-alimentar/`).
-- **Ficha do paciente** (`src/modules/ficha/`, Plano 18): abas Início e Perfil, cabeçalho com a última avaliação e o registro de seções do Início ([§4.2.10](#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)).
+- **Ficha do paciente** (`src/modules/ficha/`, Plano 18): abas Início e Perfil, cabeçalho com a última avaliação e o registro de seções do Início ([§4.2.10](#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)); no PR 2, a nota "Cadastro incompleto" e o "No app do paciente" ([§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)), ao lado do cadastro complementar (`patient_cadastro`, CPF) e da lista nova de `src/modules/pacientes/`.
 
 Fonte de verdade: o código. Cada afirmação cita arquivo e linha (ou função). Decisões citadas como "Plano NN, Dx" vêm de `docs/superpowers/plans/`. Regras "RN-xx", "RNF-xx", "US-xxx" e "CS-xx" vêm da spec (`docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md` e `…-historias.md`). "Regra n do CLAUDE.md" é a regra obrigatória n de `CLAUDE.md` do projeto.
 
@@ -255,21 +255,26 @@ Decisão D17: colunas na `user` (não cookie, não `localStorage`, não tabela n
 
 ### 4.2.1 Cadastro de paciente (US-010, RN-17)
 
-**Arquivos:** `src/modules/pacientes/pacientes.ts`, `base.ts`, `datas.ts`, `telefone.ts`, `convite-paciente.ts`.
+**Arquivos:** `src/modules/pacientes/pacientes.ts`, `base.ts`, `datas.ts`, `telefone.ts`, `convite-paciente.ts`; desde o Plano 18 (PR 2), `cadastro.ts`, `cadastro-textos.ts` e `cpf.ts`.
 
-**Tabela:** `patients` 🔒. Restrições relevantes (`src/db/schema/pacientes.ts`): `UNIQUE (tenant_id, email)` em `citext`; status `ativo`/`arquivado`/`bloqueado`; telefone E.164; CHECK `patients_nascimento_e_sexo` (nascimento e sexo obrigatórios, salvo origem `agendamento_publico` ou anonimizado).
+**Tabelas:** `patients` 🔒 e, desde o Plano 18, `patient_cadastro` 🔒 (o cadastro complementar, [§2.5.4](02-banco-de-dados.md#254-prontuário-pacientests); detalhe na [§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)). Restrições relevantes (`src/db/schema/pacientes.ts`): `UNIQUE (tenant_id, email)` em `citext`; status `ativo`/`arquivado`/`bloqueado`; telefone E.164; CHECK `patients_nascimento_e_sexo` (nascimento e sexo obrigatórios, salvo origem `agendamento_publico` ou anonimizado).
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `pacienteSchema(hoje)` | Nome 2–120; nascimento válido, idade 18–120 no dia do tenant (RN-17); sexo `F`/`M`; e-mail; telefone normalizado para E.164; WhatsApp autorizado exige telefone; convite por WhatsApp exige autorização | `pacientes.ts:42` |
-| `criarPaciente(ctx, tenant, input)` | Insere com `origem = 'nutri'`, autorização de WhatsApp de origem `nutri`, convite por e-mail de 7 dias na mesma transação e, se pedido, o aviso por WhatsApp (sem link). E-mail repetido decidido pela `UNIQUE` | `pacientes.ts:115` |
-| `atualizarPaciente(...)` | Trava o paciente; e-mail bloqueado depois que ele ativou o acesso; e-mail corrigido antes do aceite reenvia o convite | `pacientes.ts:151` |
-| `buscarPaciente(ctx, id)` | Abre o prontuário e audita a leitura (`patients`) | `pacientes.ts:196` |
-| `listarPacientes(ctx, filtro)` | Busca sem acento por nome ou e-mail (`unaccent … ilike`, curingas escapados), filtro por status e etiqueta, até 500 linhas. Filtrar por etiqueta audita uma leitura de "etiquetas" por paciente devolvido | `pacientes.ts:218` |
+| `pacienteSchema(hoje)` | Nome 2–120; nascimento válido, idade 18–120 no dia do tenant (RN-17); sexo `F`/`M`; e-mail; telefone normalizado para E.164; WhatsApp autorizado exige telefone; convite por WhatsApp exige autorização. Plano 18: mais os 17 campos opcionais do cadastro complementar (`formaDoCadastro`, as regras de `validarCadastro`, uma fonte só com os CHECKs) | `pacientes.ts:40` |
+| `criarPaciente(ctx, tenant, input)` | Insere com `origem = 'nutri'`, autorização de WhatsApp de origem `nutri`, convite por e-mail de 7 dias na mesma transação e, se pedido, o aviso por WhatsApp (sem link). E-mail repetido decidido pela `UNIQUE`. Plano 18: o cadastro complementar na mesma transação (`gravarCadastro`, só os campos enviados) | `pacientes.ts:127` |
+| `atualizarPaciente(...)` | Trava o paciente; e-mail bloqueado depois que ele ativou o acesso; e-mail corrigido antes do aceite reenvia o convite. Plano 18: `gravarCadastro` depois da trava, na mesma transação; chave ausente mantém o gravado | `pacientes.ts:165` |
+| `buscarPaciente(ctx, id)` | Abre o prontuário e audita a leitura (`patients`). Plano 18 (D7, D20): devolve `PacienteDaFicha` (a linha de `patients` + `nomeSocial`, por projeção num `left join`; nada mais do cadastro complementar) | `pacientes.ts:217` |
+| `listarPacientes(ctx, filtro)` | Busca sem acento por nome, **nome social** ou e-mail (`unaccent … ilike`, curingas escapados), filtro por aba (`ativos`, `inativos`, `todos`, `bloqueados`) e etiqueta, até 500 linhas; ordem `nome`/`nome_desc` pelo nome exibido (`coalesce(nome_social, nome)` sem acento e sem maiúsculas), `recentes`/`antigos` por `created_at`, empate pelo id (Plano 18, RN-270–RN-272). Filtrar por etiqueta audita uma leitura de "etiquetas" por paciente devolvido | `pacientes.ts:291` |
+| `filtroDaUrl(searchParams)` | Plano 18: o filtro da lista a partir da URL; `?aba=` só aceita as três abas, `?situacao=bloqueados` (o "Ver bloqueados"), os links antigos `?status=arquivado` (→ `inativos`) e `?status=bloqueado`; valor desconhecido cai no padrão (`ativos`, `nome`) | `pacientes.ts:270` |
+| `situacoesDoAcesso(ctx, pacientes)` | Plano 18 (§8.1): a coluna "Acesso ao app" da lista numa consulta só (convite mais recente de cada paciente sem conta, as regras de `situacaoDoAcesso`); só lê `invites`, filtrando pelo tenant | `convite-paciente.ts:105` |
+| `gravarCadastro(tx, …)` / `cadastroDoPaciente(ctx, id)` | Plano 18: grava o cadastro complementar (pré-checagem do CPF sob trava) / devolve os valores à aba Perfil com `auditRead` (entidade `patients`) — [§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2) | `cadastro.ts:287`, `:321` |
 
-Autorização de WhatsApp (`autorizacaoWhatsapp`, `pacientes.ts:101`): o formulário da nutricionista nunca desfaz uma escolha do paciente. Marcar só grava se não há opt-in nem opt-out; desmarcar só apaga opt-in de origem `nutri`.
+Autorização de WhatsApp (`autorizacaoWhatsapp`, `pacientes.ts:113`): o formulário da nutricionista nunca desfaz uma escolha do paciente. Marcar só grava se não há opt-in nem opt-out; desmarcar só apaga opt-in de origem `nutri`.
 
-A lista não audita (nome e contato), como a agenda (Plano 05, D10). Abrir o prontuário audita.
+A lista não audita (nome e contato), como a agenda (Plano 05, D10). Abrir o prontuário audita. Plano 18: a lista nova
+(abas, ordem, "Desde", nome social e o menu "Ações" por linha) está na [§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2);
+a agenda continua pedindo a ordem pelo nome de registro (`ordem: 'registro'`, que `filtroDaUrl` nunca devolve).
 
 Plano 14B-2: a página do paciente — desde o Plano 18, a aba Início da ficha (`src/app/painel/pacientes/[id]/page.tsx:43`) —
 ganha a seção "Inteligência artificial"
@@ -280,7 +285,7 @@ ativada. A tela `/painel/pacientes/[id]/resumo-ia` está na [§10.13.6](10-ia.md
 Plano 18 (D12): o formulário do cadastro, o "Acesso ao app" (antes "Acesso ao portal") e as "Etiquetas" saíram dessa
 página e foram para a aba Perfil (`src/app/painel/pacientes/[id]/perfil/page.tsx:12`), sem mudar as funções acima; as
 três Server Actions (`atualizarPacienteAction`, `reenviarConviteAction`, `salvarEtiquetasAction`) mandam o login de volta
-ao Perfil (`requireNutri` com `/painel/pacientes/{id}/perfil`, `src/app/painel/pacientes/actions.ts:29,45,58`).
+ao Perfil (`requireNutri` com `/painel/pacientes/{id}/perfil`, `src/app/painel/pacientes/actions.ts:41,57,70`).
 Detalhe da ficha na [§4.2.10](#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1).
 
 ### 4.2.2 Etiquetas (US-019)
@@ -454,7 +459,7 @@ stateDiagram-v2
 | `concluirExclusaoAtendida(data, deps)` | Job: apaga as fotos e **só depois** envia o e-mail "pedido atendido" (F-13). Na última tentativa o e-mail sai mesmo com erro de disco. Plano 15: antes do e-mail, as conversas da IA Nutri e a participação (`apagarIaNutriDoTitular`), menos a pergunta com risco não aberta, que fica até 30 dias (D22); o e-mail cita "as conversas com a IA Nutri" e essa guarda ([§10.14.7](10-ia.md#10147-retenção-exclusão-anonimização-e-exportação-rn-181-d8--180-dias-d22-76-133)) | `lgpd.ts:230` |
 | `pedidosDoTitularAbertos(ctx)` | Quadro "Pedidos do titular" do Início, prazo mais curto primeiro | `lgpd.ts:269` |
 | `anexosDoPaciente(tx, id)` | Laudos, exportações, PDFs de plano e fotos do diário do paciente | `lgpd.ts:289` |
-| `anonimizarVencidos(db, now)` | Job diário: por tenant (inclusive suspensos), rede de segurança das fotos, depois anonimiza cada bloqueado vencido. Plano 15: `app_anonimizar_consentimentos_ia_nutri` (tira IP, user-agent e conta do consentimento da IA Nutri) e `limparIaNutriNaAnonimizacao` (o que restou da conversa e a participação) | `lgpd.ts:338` |
+| `anonimizarVencidos(db, now)` | Job diário: por tenant (inclusive suspensos), rede de segurança das fotos, depois anonimiza cada bloqueado vencido. Plano 15: `app_anonimizar_consentimentos_ia_nutri` (tira IP, user-agent e conta do consentimento da IA Nutri) e `limparIaNutriNaAnonimizacao` (o que restou da conversa e a participação). Plano 18 (RN-283): apaga a linha de `patient_cadastro` e, no início de cada tenant, roda a rede `apagarCadastrosDosAnonimizados` | `lgpd.ts:498` |
 | `contaSemOutroVinculo(tx, userId)` / `anonimizarContaSemVinculo(tx, userId, now)` | P06-08: a conta de login sem outro vínculo é anonimizada; sessões, senha, 2FA e `verification` ligados a ela saem; só conta `paciente` | `conta-titular.ts:10,29` |
 
 O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:98-169`):
@@ -481,11 +486,25 @@ A anonimização de cada paciente (`lgpd.ts:372-428`):
 2. Trava o paciente; `app_anonimizar_aceites(id)` tira IP e conta dos aceites (migration 0065).
 3. `nome = 'Paciente anonimizado'`, e-mail `anonimo-<id>@anonimizado.invalid`, telefone, nascimento e `user_id` nulos.
 4. Se surgiu anexo novo nesse meio tempo, desfaz tudo (fica para o dia seguinte).
-5. Apaga push, lembretes de rotina (Plano 17, com a pausa limpa no UPDATE do item 3), uso de conteúdo e acessos gravados depois do bloqueio; limpa textos livres e destinos da agenda (`anonimizarAgenda`, `lgpd.ts:314`; Plano 05, D10).
+5. Plano 18 (D18, RN-283): apaga a linha de `patient_cadastro` (CPF, endereço, observação…) inteira, **depois** do UPDATE do
+   item 3, que grava `anonimizado_em` — o gatilho `patient_cadastro_sem_apagar` só deixa o `worker` apagar com o titular já
+   anonimizado, e o `patient_cadastro_titular_ativo` recusa gravar de novo (`lgpd.ts:588`). O gatilho de auditoria grava o
+   "Excluiu" de ator nulo. Apaga push, lembretes de rotina (Plano 17, com a pausa limpa no UPDATE do item 3), uso de conteúdo e acessos gravados depois do bloqueio; limpa textos livres e destinos da agenda (`anonimizarAgenda`, `lgpd.ts:314`; Plano 05, D10).
 6. Anonimiza a conta de login sem outro vínculo (Plano 06, D18).
 7. `recordAudit('anonimizar')`.
 
 Um tenant com erro não para os outros; o log leva só o tenant e o código do erro (RNF-11).
+
+**Rede do cadastro complementar (Plano 18, RN-283).** `apagarCadastrosDosAnonimizados` (`lgpd.ts:644`) roda no **início**
+de cada tenant da varredura (`lgpd.ts:508`), num `withTenant` worker próprio, antes da rede das fotos e da listagem dos
+vencidos: `delete from patient_cadastro c using patients p where … p.anonimizado_em is not null`. Serve à janela do
+deploy e a uma volta atrás para a imagem anterior ao Plano 18, cuja anonimização marca `anonimizado_em` sem apagar a
+linha; num dia normal não acha nada. Fica antes da listagem porque a listagem que falha faz `continue` e pularia o
+tenant (o teste `rede` de `lgpd.test.ts` cobre a listagem que falha). Erro só no log, com o tenant e o motivo, sem dado.
+A spec (RN-283) diz "no fim" da varredura: divergência registrada (#18 abaixo).
+
+O pedido de exclusão atendido (`bloqueado`) **não** muda o cadastro complementar: ele fica guardado até a anonimização,
+como o resto do prontuário (teste em `lgpd.test.ts`).
 
 Jobs: `retencao-lgpd` às 04h (`src/worker/index.ts:153`), que também chama `expirarExportacoesVencidas`; `exclusao-atendida` com 5 novas tentativas (`src/jobs/queues.ts:20`).
 
@@ -531,7 +550,7 @@ sequenceDiagram
 | `estadoDaExportacao(...)` | Estado para a página do link; entregar o link pronto audita `exportacoes` | `exportacao.ts:129` |
 | `exportacoesRecentes(...)` | Últimos 5 pedidos, auditados | `exportacao.ts:171` |
 | `linkDaExportacao(appUrl, pedido)` | Titular: `/p/meus-dados/exportacoes/<id>` (com o consultório); equipe: `/painel/pacientes/<id>/exportacoes/<id>` | `exportacao.ts:37` |
-| `montarDados(tx, patientId, now, fuso, escopo)` | `dados.json` com paciente, anamneses, antropometria, gasto energético, exames, atendimentos (só orientações), planos (rascunho só no escopo `equipe`), pedidos LGPD, consultas, lembretes (mensagens das consultas), aceites, dispositivos push (sem endpoint), lembretes de rotina (`lembretesDeRotina`, Plano 17: configuração, texto, `ligado` e a escolha do titular, sem a marca de envio; e `paciente.lembretesPausadosEm`, nos dois escopos), diário e conteúdos | `exportacao-job.ts:331` |
+| `montarDados(tx, patientId, now, fuso, escopo)` | `dados.json` com paciente, anamneses, antropometria, gasto energético, exames, atendimentos (só orientações), planos (rascunho só no escopo `equipe`), pedidos LGPD, consultas, lembretes (mensagens das consultas), aceites, dispositivos push (sem endpoint), lembretes de rotina (`lembretesDeRotina`, Plano 17: configuração, texto, `ligado` e a escolha do titular, sem a marca de envio; e `paciente.lembretesPausadosEm`, nos dois escopos), diário e conteúdos; desde o Plano 18, `paciente.cadastro` (abaixo) | `exportacao-job.ts:421` |
 | `gerarExportacao(data, deps)` | Job idempotente: só age sobre `pendente`; cota esgotada, anonimização no meio ou última tentativa → `falhou` | `exportacao-job.ts:474` |
 | `expirarExportacao` / `expirarExportacoesVencidas` | Apaga o ZIP e marca `expirada` na transação do arquivo; a varredura diária pega o que o job de +24 h não conseguiu | `exportacao-job.ts:716,627` |
 
@@ -556,14 +575,29 @@ avaliação, `enviadaEm`/`destino` só da pergunta que saiu, data e situação d
 revogação fica de fora. No escopo da equipe, a pergunta com risco de quem desativou a IA Nutri vai sem o texto (D22: lida
 uma vez, pela fila "Dúvidas dos pacientes"; [§10.14.7](10-ia.md#10147-retenção-exclusão-anonimização-e-exportação-rn-181-d8--180-dias-d22-76-133)).
 
+Plano 18 (§10, D18, RN-262): o `dados.json` ganha `paciente.cadastro` nos **dois** escopos (`cadastroParaExportacao`,
+`exportacao-job.ts:100`, por inclusão explícita de cada coluna): `cpf` e `telefoneFixo` formatados como a tela,
+`identidadeDeGenero`, `estadoCivil` e `escolaridade` pelo **rótulo** que a tela mostra (LGPD, art. 18, II e V; art. 19,
+§ 3º), `nomeSocial`, `ocupacao`, `nacionalidade`, `naturalidade`, `endereco` (`cep` com hífen, `rua`, `numero`,
+`complemento`, `bairro`, `cidade`, `uf`) e `observacao`; sem linha, `cadastro: null`. É o único lugar fora do
+formulário com o CPF. O `prontuario.pdf` (`Identificacao`, `prontuario-pdf.tsx:68`) passa a trazer a identificação da Res.
+CFN 594/2017: "Nome: {nome civil}", logo depois "Nome social: …" (quando há; D7), nascimento, sexo, identidade de gênero,
+estado civil, nacionalidade, naturalidade, escolaridade, ocupação, endereço numa linha e os dois telefones; **sem** o
+CPF (RN-262) e **sem** a observação (fica no `dados.json`). Campo vazio sai "-". O ZIP não tem LEIA-ME: o que a spec
+§10 diz do "LEIA-ME da exportação" não tem onde entrar (divergência #17 abaixo). A guarda
+`colunas-decididas.test.ts` quebra quando aparece coluna nova em `patients` ou `patient_cadastro` sem a decisão de
+exportação, anonimização e IA (§2.11, passo 8).
+
 Validade do link: 24 h (`EXPORTACAO_VALIDADE_MS`, `exportacao.ts:14`). O ZIP não vai para o backup de `/data` (Plano 03, decisão do dono).
 
 ### 4.2.10 Ficha do paciente: Início, Perfil, cabeçalho e registro de seções (Plano 18, PR 1)
 
 O Plano 18 (spec `docs/superpowers/specs/2026-11-16-nutridebby-18-ficha-cadastro-design.md`, plano
 `docs/superpowers/plans/2026-11-16-nutridebby-18-ficha-cadastro.md`) sai em dois PRs (D21). Esta seção descreve o
-**PR 1** (Tarefas 1–4, fundação **sem migration**). O PR 2 ainda não está no código: cadastro complementar
-(`patient_cadastro`), lista com abas, "No app do paciente" e LGPD.
+**PR 1** (Tarefas 1–4, fundação **sem migration**, em produção pelo PR #52). O PR 2 (Tarefas 5–12c: cadastro complementar
+`patient_cadastro`, lista com abas, "No app do paciente", LGPD, nome social na IA, E2E e carga) está na
+[§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2); aqui ficam só as notas do que ele mudou
+nas peças do PR 1.
 
 **Arquivos.** Módulo `src/modules/ficha/`: `tipos.ts` (contrato), `secoes/` (um arquivo por seção, mais `comum.ts` e
 `index.ts`), `inicio.ts`, `resumo.ts`, `adicionar.ts`, `cabecalho.ts` e `textos.ts`. Os textos ficam em `MSG_FICHA`
@@ -584,7 +618,7 @@ no worker. O módulo usa `pacientes` (6 imports), `documentos` (2) e `plataforma
   `abas.tsx:23`). O nome começa pelo texto visível (WCAG 2.5.3), e o título da página continua "Histórico de acessos".
 
 O Início também fica ativo em `/app` e `/resumo-ia`, páginas que saem dele sem aba própria (`DO_INICIO`,
-`abas.tsx:27,47`; a `/app` chega no PR 2). Com 13 abas, a faixa cabe a 1280 px sem rolar: o comentário de `abas.tsx`
+`abas.tsx:27,47`; a `/app` é a página "No app do paciente" do PR 2). Com 13 abas, a faixa cabe a 1280 px sem rolar: o comentário de `abas.tsx`
 estima cerca de 1170 de 1232 px, e o E2E confere (`acessibilidade-painel.spec.ts`, caso "Plano 18: a faixa de abas…",
 `scrollWidth <= clientWidth` e axe sem "incomplete"). Uma 14ª aba não cabe (R-266).
 
@@ -597,8 +631,10 @@ estima cerca de 1170 de 1232 px, e o E2E confere (`acessibilidade-painel.spec.ts
 
 Paciente bloqueado vê tudo só para leitura, com o aviso "Paciente bloqueado por pedido de exclusão: o prontuário é só
 para consulta.". As Server Actions continuam em `src/app/painel/pacientes/actions.ts`, com a volta do login no Perfil
-(`:29,45,58`). `atualizarPacienteAction` revalida o layout inteiro (`revalidatePath(…, 'layout')`, `:39`), e o
-cabeçalho é lido de novo. `reenviarConviteAction` e `salvarEtiquetasAction` revalidam só o Perfil (`:52,69`).
+(`:41,57,70`). `atualizarPacienteAction` revalida o layout inteiro (`revalidatePath(…, 'layout')`, `:51`), e o
+cabeçalho é lido de novo. `reenviarConviteAction` e `salvarEtiquetasAction` revalidam só o Perfil (`:64,81`). No PR 2 o
+Perfil passou a ler os valores do cadastro complementar (`cadastroDoPaciente`, com `auditRead`) e o formulário ficou em
+seções ([§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)).
 
 #### Cabeçalho com a última avaliação (D13, RN-275)
 
@@ -653,7 +689,8 @@ As seções e o cartão não gravam trilha (§2.8.3).
 
   O plano sai de uma consulta a `meal_plans` com `status = 'publicado'` (RN-01: no máximo um). Sem `auditRead`: as datas
   vêm do paciente que `carregarProntuario` já leu e auditou, e a do plano é só uma data. `linhasDoResumo` (`:53`) monta as
-  linhas. A nota "Cadastro incompleto" (RN-269) entra na Tarefa 7b.
+  linhas. No PR 2, a nota "Cadastro incompleto" (RN-269) fica dentro do cartão e o cartão "No app do paciente" ao lado
+  dele ([§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)).
 - **Seção** (`inicio/secao.tsx:13`, RN-278):
   - `<details>` aberto quando `total > 0`;
   - `<summary>` em `block min-h-11 py-2`, sem `flex`, com o `<h3>` "{Título} ({n})" e a seta em SVG `aria-hidden`;
@@ -698,7 +735,7 @@ As seções e o cartão não gravam trilha (§2.8.3).
 | `resumo(tx, patientId, fuso)` | Contador e os 3 últimos numa consulta (`count(*) over ()` + `limit 3`: `totalJunto` e `LIMITE_DA_SECAO`, `secoes/comum.ts:6,9`); o fuso converte instantes no dia do tenant (`diaNoFuso`, `:12`). Pode devolver `podeAdicionar: false` para esconder o `adicionar` da seção (padrão `true`) |
 | `leitura?: { entidade }` | Seção que devolve dado auditado (o Financeiro do Plano 20). `inicio.ts` grava **um** `auditRead` dessa entidade, com `entidadeId: null`, na mesma transação e só quando a seção devolve itens (`inicio.ts:53`). O arquivo da seção nunca chama `auditRead`. Nenhuma das 8 seções do Plano 18 declara `leitura` |
 | `adicionar?` | Lista de `{ grupo, rotulo, destino }`: grupo `'avaliacoes' \| 'prescricoes' \| 'outros'` (`tipos.ts:31`; "Outros" só aparece quando alguma seção o usa); destino `{ href }` (relativo à ficha, sem `/` inicial, ou absoluto em `/painel/`) ou `{ acao: ChaveDeAcao }` (`'criar-receita' \| 'criar-parecer'`, `tipos.ts:25,28`) |
-| `noApp?` | `contar` e `visiveis` sobre `TxDePaciente` (`tipos.ts:22`, tipo marcado que só o `no-app.ts` da Tarefa 9 cria). Nenhuma seção implementa no PR 1 |
+| `noApp?` | `contar` e `visiveis` sobre `TxDePaciente` (`tipos.ts:22`, tipo marcado que só `no-app.ts` cria). Implementam (PR 2): `plano-alimentar`, `antropometria`, `atendimentos`, `exames-enviados` e `documentos` |
 
 `secoesDoInicio(ctx, tenant, paciente)` (`inicio.ts:35`):
 
@@ -708,7 +745,8 @@ As seções e o cartão não gravam trilha (§2.8.3).
   (`SecaoNoInicio`, `:9`).
 - Refaz cada item só com as chaves do contrato (`comoItem`, `:12-19`), e uma seção não passa adiante coluna a mais.
   `ItemDaSecao` tem exatamente `id`, `rotulo`, `data` (AAAA-MM-DD no fuso), `situacao?`, `noApp` e `href`
-  (`tipos.ts:12`). Até a Tarefa 9, `noApp` é `false` em todo item.
+  (`tipos.ts:12`). `secoesDoInicio` devolve `noApp: false`; a página do Início liga o selo nos ids que `noAppDoPaciente`
+  achou no contexto do paciente (`secoesComSelo`, `src/app/painel/pacientes/[id]/page.tsx:27`; PR 2).
 
 Sem conteúdo clínico: rótulo genérico, data e situação, nunca o nome do modelo da anamnese nem o do exame, que são dado
 de saúde ("Anamnese gestante", "Glicemia"; D14). É o precedente da agenda, da lista de pacientes e das listas de
@@ -738,8 +776,9 @@ As 8 seções do Plano 18, na ordem do registro:
    arquivo.
 4. Se a seção cria registro, preencha `adicionar`. Ação nova (não link) pede uma chave nova em `ChaveDeAcao` e a entrada
    em `ACOES` de `inicio/acoes.ts`.
-5. Se o paciente vê aquilo no app, implemente `noApp`, contado no contexto de paciente, e o caso de paridade (Tarefa 9,
-   PR 2).
+5. Se o paciente vê aquilo no app, implemente `noApp`, contado no contexto de paciente (o `TxDePaciente` que
+   `noAppDoPaciente` passa), e o caso de paridade em `src/modules/ficha/no-app.test.ts`. A seção não abre o contexto
+   sozinha nem escreve a palavra do contexto sem login (a guarda `sem-conta-guarda.test.ts` lê os comentários também).
 
 Fora disso, é mudança de contrato, decidida com a orquestradora e o `revisor-rls`.
 
@@ -756,6 +795,141 @@ Testes: `src/modules/ficha/secoes.test.ts` (Testcontainers) cobre:
 
 `cabecalho.test.ts` e `resumo.test.ts` cobrem o cabeçalho e o cartão. A guarda de fonte `registro.test.ts` cobre a
 ordem, os ids, um arquivo por seção, nenhum `auditRead`, a lista fechada de imports e os destinos (§7.4.3).
+
+### 4.2.11 Cadastro complementar, lista e "No app do paciente" (Plano 18, PR 2)
+
+PR 2 do Plano 18 (Tarefas 5–12c; spec v0.3, US-260, US-261, US-264, RN-260 a RN-284), conferido no branch local
+`plano-18-pr2` em `3799409` (17/11/2026), antes da revisão final e do rebase. Migrations `0124_patient_cadastro` (gerada)
+e `0125_rls_patient_cadastro` (custom), geradas de novo sobre a `main` (procedimento da seção "Migration" do plano):
+se outra migration entrar antes do merge, os números mudam.
+
+#### Cadastro complementar (`patient_cadastro`, D1, RN-260 a RN-265)
+
+Os campos da Res. CFN 594/2017 que não estavam em `patients` (CPF, nome social, identidade de gênero, estado civil,
+escolaridade, ocupação, nacionalidade, naturalidade, telefone fixo, endereço e observação) ficam numa tabela filha, uma
+linha por paciente ([§2.5.4](02-banco-de-dados.md#254-prontuário-pacientests); proteção na matriz da §2.5.1).
+
+| Peça | O que faz | Onde |
+|---|---|---|
+| `CAMPOS_DO_CADASTRO`, `CadastroComplementar` | Os 17 campos, na ordem do formulário (`telefoneFixo` ↔ `telefone_fixo_e164`) | `cadastro.ts:42`, `:67` |
+| `validarCadastro` / `formaDoCadastro` | As regras dos CHECKs da tabela, numa fonte só: o `pacienteSchema` usa `formaDoCadastro` (zod) e `gravarCadastro` passa os valores de novo por `validarCadastro` antes de gravar — o 23514 levaria a linha inteira ao log do Postgres. Listas fechadas e rótulos em `cadastro-textos.ts` (sem banco: o formulário cliente importa de lá) | `cadastro.ts:181`, `:210`; `cadastro-textos.ts:19` |
+| `normalizarCpf`, `cpfValido`, `formatarCpf` | Só os 11 dígitos; dígitos verificadores (rejeita os 11 iguais); "000.000.000-00" | `cpf.ts:8`, `:21`, `:27` |
+| `gravarCadastro(tx, …)` | Na transação de `criarPaciente`/`atualizarPaciente` (o paciente já travado ou recém-criado). Só os campos **enviados** mudam: chave ausente mantém o gravado; `''`/`null` esvazia. A linha só nasce com algum campo preenchido (*upsert* em `(tenant_id, patient_id)`); depois, esvaziar tudo grava nulo | `cadastro.ts:287` |
+| `conferirCpf` (D23, RN-261) | Antes do INSERT, `pg_advisory_xact_lock(hashtext('patient_cadastro_cpf'), hashtext(tenant_id || ':' || cpf))` e a busca do outro paciente do consultório com o mesmo CPF: dois cadastros iguais ao mesmo tempo se enfileiram e o segundo acha o primeiro. Repetido → `CpfRepetidoError` com `outroId` (nulo quando o outro está bloqueado ou anonimizado: sem link). O índice único `patient_cadastro_cpf_unico` é só a última defesa (o 23505 levaria o CPF ao log) | `cadastro.ts:269-278`, `:214` |
+| `cadastroDoPaciente(ctx, id)` | **O único lugar que lê os valores** (D20): a aba Perfil. Grava `auditRead` (entidade `patients`, `entidade_id` = id da linha de `patient_cadastro`, "Cadastro do paciente"); sem linha, `null` sem auditar | `cadastro.ts:321` |
+
+Regras de exibição (D4, RN-262): o CPF só aparece no campo do Perfil/Novo paciente e no `dados.json`. Nunca na lista, no
+cabeçalho, no Início, no "No app", no `prontuario.pdf`, em URL, em log (da aplicação e do Postgres), no Sentry, em
+mensagem, e-mail, push ou WhatsApp; nenhuma mensagem de erro repete o valor digitado (`MSG_CADASTRO`). Teste "nada do
+cadastro em log nem no Sentry (RNF-262)" em `cadastro.test.ts:437` (logger espiado; `filtrarEvento` e
+`filtrarBreadcrumb` de `src/lib/sentry-filtro.ts`, sem mudança no filtro).
+
+Trilha (regra 8): o gatilho grava as escritas como entidade `patients`. Como o `entidade_id` é o id da linha do
+cadastro (≠ titular), o `criar` dela aparece no Histórico de acessos como "Alterou" (`rotuloDaAcao`,
+`src/modules/plataforma/audit.ts`): criar o paciente com cadastro não mostra dois "Criou", e o primeiro preenchimento de
+um paciente antigo não parece um cadastro novo. O "Excluiu" de ator nulo da anonimização continua "Excluiu".
+
+**Formulário em seções** (`src/app/painel/pacientes/paciente-form.tsx`, US-260, spec §8.4): o mesmo formulário em
+"Novo paciente" e no Perfil, com `fieldset`/`legend` e o `<h2>` de cada seção — "Dados gerais", "Contato e endereço" (o
+endereço num `fieldset` "Endereço (opcional)") e "Observação"; no Perfil vêm depois "Acesso ao app" e "Etiquetas". Os
+rótulos mudaram: "Nome completo", "Celular / WhatsApp (opcional)", "Nome social (opcional)" etc. (`MSG_CADASTRO.rotulos`).
+Erros por campo com `aria-describedby` e, com o formulário longo, "Revise os campos marcados." junto do botão e o foco
+no primeiro campo com erro. CPF repetido: "Já existe um paciente com este CPF neste consultório." e o link "Abrir o
+cadastro existente (abre em nova aba)" (só com `outroId`); o digitado continua no campo. A Observação traz o aviso de
+que vai na cópia dos dados do titular (D3) e o contador "{n} de 1.000 caracteres". O agendamento público continua sem
+os campos novos.
+
+**Nome social** (D7, RN-266):
+
+- Tela da ficha: o `<h1>` mostra o nome social e, abaixo, "Nome de registro: {nome}" (`layout.tsx:36-50`).
+- Impressão: o nome civil no `<h1>` e "Nome social: {nome social}" logo depois (classes `print:`; Res. CFN 594/2017,
+  art. 4º, § 1º, I). O mesmo vale para o `prontuario.pdf` (§4.2.9). Teste em `impressao.test.ts`.
+- Lista: só o nome exibido (o social, quando há); a busca procura nos dois; a ordem é pelo nome exibido.
+- Privacidade: com nome social, a confirmação do pedido de exclusão pede o **nome de registro** e o mostra
+  (`MSG_LGPD.confirmarNomeDeRegistro`, `lgpd.ts:51`; `privacidade/page.tsx:132`), porque a conferência é com
+  `patients.nome`.
+- IA: entra só na máscara ([§10.13.1](10-ia.md#10131-o-que-sai-e-a-pseudonimização-d8d11-rn-115-rn-120)).
+
+#### Lista de pacientes (US-261, RN-270 a RN-273)
+
+`src/app/painel/pacientes/page.tsx` (textos em `textos.ts`, `MSG_LISTA`):
+
+- Abas "Ativos", "Inativos" (os arquivados, com a dica "Pacientes arquivados: sem acesso ao app e sem notificações. O
+  prontuário continua guardado.") e "Todos"; o link "Ver bloqueados" (`?situacao=bloqueados`) abre os bloqueados por
+  pedido de exclusão, só para consulta. Os links antigos `?status=arquivado` e `?status=bloqueado` continuam valendo
+  (`filtroDaUrl`).
+- "Ordenar por": "Nome (A–Z)", "Nome (Z–A)", "Mais recentes", "Mais antigos" — trocar a ordem mantém a busca, a aba e a
+  etiqueta.
+- Colunas "Nome", "Idade", "E-mail", "Acesso ao app" (`situacoesDoAcesso`, uma consulta só), "Desde" (a data do
+  cadastro) e "Ações". Nada do cadastro complementar além do nome social.
+- Menu "Ações de {nome}" por linha (`menu-da-linha.tsx:26`, disclosure com `aria-expanded`/`aria-controls`): "Abrir
+  ficha", "Editar cadastro", "Arquivar" ou "Reativar" e "Pedir exclusão (LGPD)" (só leva à aba Privacidade). Esc e o
+  clique fora fecham; o foco que sai do menu também fecha, sem voltar ao botão.
+- Arquivar e reativar pela lista (`arquivarDaListaAction`/`reativarDaListaAction`, `actions.ts:107,111`; D26): as mesmas
+  funções da aba Privacidade (arquivar apaga os convites pendentes), com a confirmação do navegador; a volta é para a
+  mesma lista, montada no servidor, com `ok` e um marcador `r` novo a cada ação, e a região `role="status"` (sempre
+  montada acima da tabela) anuncia "Paciente arquivado." ou "Paciente reativado." com o foco no título. Paciente
+  bloqueado: nada muda.
+
+#### Início: nota "Cadastro incompleto", cartão e selo "No app" (RN-269, RN-276, RN-279)
+
+`InicioPage` (`src/app/painel/pacientes/[id]/page.tsx:49`) passou a carregar, junto com as seções, o cartão Resumo e a
+IA, a nota "Cadastro incompleto" e o "No app do paciente":
+
+- **Nota "Cadastro incompleto"** (`src/modules/ficha/incompleto.ts`): `presencaDoCadastro` (`:19`) lê só expressões
+  `campo is not null` (nunca o valor; D20) da lista fechada — data de nascimento, sexo, identidade de gênero, estado
+  civil, nacionalidade, naturalidade, escolaridade, ocupação, endereço (CEP, rua, número, bairro, cidade e UF; o
+  complemento não conta) e telefone (celular ou fixo). Nome social, CPF e observação ficam fora. `textoDoIncompleto`
+  (`:44`): até 3 itens, "Cadastro incompleto: faltam {itens}." (vírgula e "e"); 4 ou mais, "Cadastro incompleto: faltam
+  {n} dados.". Sem `auditRead`. A nota fica dentro do cartão Resumo, com o link "Completar no Perfil"
+  (`prefetch={false}`: o Perfil audita), e não aparece para bloqueado nem anonimizado (`page.tsx:54`).
+- **Cartão "No app do paciente"** (`inicio/cartao-no-app.tsx:43`): o acesso ("Acesso: ativo · último acesso em
+  {data}" ou o convite), o plano publicado, os documentos (só com `documentosLiberados`) e os conteúdos, com "Ver
+  detalhes" para a página `/app`.
+- **Selo "No app"** nos itens das seções que o paciente vê (`secoesComSelo`, `page.tsx:27`): os ids que
+  `noAppDoPaciente` achou no contexto do paciente; nunca reproduzido na sessão `nutri`. Com "Não mostrar peso no app", a
+  seção Antropometria diz "Peso e IMC ocultos no app." (`page.tsx:100`).
+- Se o "No app" falhar, o Início abre sem o cartão e sem o selo; o log leva só o nome do erro (`page.tsx:30-36`).
+
+#### "No app do paciente" (US-264, D16, D24, RN-279, RN-281)
+
+`noAppDoPaciente(ctx, patientId, itens?)` (`src/modules/ficha/no-app.ts:84`) diz o que o paciente vê hoje no app,
+contado com as regras do próprio app. Só a sessão `nutri` chama (`:90`). Três passos:
+
+1. **Sessão `nutri`, uma transação** (`:95`): confere que o paciente é do consultório. Arquivado, bloqueado ou
+   anonimizado param aqui: só a linha do acesso, nada mais é lido (`semAcesso`, `:58`; minimização, LGPD art. 6º, III).
+   Com o paciente ativo: as marcas de peso oculto, WhatsApp e pausa dos lembretes; o % de gordura e a IA Nutri do
+   consultório; o último dia de acesso (`access_events`); os aparelhos com push; a participação na IA Nutri; o plano
+   publicado com a data, a lista de compras (a regra de `listaDoPlano`) e as **receitas sugeridas** (D24: contadas aqui,
+   porque a liberação das receitas do plano é só do "Meu plano" do portal); os lembretes do Plano 17 (só as marcas
+   ligado/desligado pelo paciente, nunca o texto).
+2. **Situação do acesso** (`situacaoDoAcesso`): ativo, convite pendente (com "Vale até …"), expirado ou sem convite.
+3. **Contexto do paciente sem login** (`comoPaciente`, `:41`, só com o paciente ativo e com conta): para cada seção com
+   `noApp`, `contar` e, para os ids pedidos, `visiveis`; os conteúdos publicados que a audiência deixa ver (a política
+   `paciente_conteudo_visivel` e a etiqueta decidem); o diário dos últimos 30 dias. O contexto e as travas estão na
+   [§3.8](03-autenticacao-e-acesso.md#38-sessão-do-paciente-vínculos-nd_vinculo-e-contexto-conta).
+
+Devolve só números, datas, ids e marcas (`NoApp`, `:14`); nenhuma leitura é registrada no `audit_log` (o que sai não é
+dado de saúde). As seções com `noApp`: `plano-alimentar` (publicado), `antropometria`, `atendimentos`,
+`exames-enviados` (não cancelado) e `documentos` (a RLS `paciente_so_emitidos`), todas por `noAppPor`
+(`secoes/comum.ts:26`).
+
+A página `/painel/pacientes/[id]/app` (`app/page.tsx:56`, textos exatos da spec §8.5 em `MSG_NO_APP`,
+`src/modules/ficha/textos.ts:115`) mostra uma linha por assunto: Acesso, Notificações, Plano, Lembretes, Evolução,
+Jornada, Documentos (com a liberação), Conteúdos, Exames (com o recebimento ligado), Diário e IA Nutri. Sem acesso, só a
+linha do acesso; sem conta ainda, o que a nutricionista configurou, sem as contagens. Está na aba Início (`DO_INICIO`)
+e o guia é o do `prontuario`.
+
+**Testes.** `src/db/patient-cadastro.test.ts` (público, paciente com login, contexto sem login, gatilhos, auditoria,
+CPF e CHECKs), `src/modules/pacientes/cpf.test.ts`, `cadastro.test.ts` (corrida de duas conexões sem 23505, log e Sentry
+sem o valor, `outroId`, as leituras: `buscarPaciente` só com `nomeSocial`), `pacientes.test.ts` (abas, ordens, busca
+pelo nome social, chaves do item da lista, `filtroDaUrl`),
+`src/modules/ficha/incompleto.test.ts`, `no-app.test.ts` (paridade com o portal num cenário só: conteúdo por etiqueta,
+receita fora da audiência, plano arquivado, documento cancelado e de anonimizado, envio cancelado, peso oculto, diário
+dentro e fora dos 30 dias, paciente arquivado; CS-261), `no-app-fonte.test.ts` (guardas de fonte), os testes de página
+(`page.test.ts`, `perfil/page.test.ts`, `app/page.test.ts`, `privacidade/page.test.ts`, `impressao.test.ts`,
+`menu-da-linha.test.ts`, `actions.test.ts`, `valores.test.ts`) e o E2E `e2e/cadastro.spec.ts`
+([§7](07-testes-qualidade-e-processo.md)).
 
 ---
 
@@ -991,6 +1165,7 @@ estão na tabela única de [§6.2.3 Filas](06-worker-seguranca-operacao.md#623-f
 | Novo campo do plano | Validar em `validar` de `rascunho.ts`, comparar em `iguais`, copiar em `copiarConteudo`/`editarPublicado` e exportar em `planosParaExportacao` |
 | Ampliar medidas IBGE (E-08) | Editar `seeds/medidas-ibge.csv` e gerar migration nova com `pnpm seed:medidas` |
 | Seção nova no Início da ficha (Plano 18, D14) | Um arquivo em `src/modules/ficha/secoes/` e **uma** linha no fim de `SECOES_DA_FICHA`; rótulos genéricos, sem conteúdo clínico; nunca `auditRead` no arquivo (dado auditado: `leitura: { entidade }`, gravado por `inicio.ts`); `disponivel` monótona no total; imports só da lista fechada de `registro.test.ts`. Passo a passo na [§4.2.10](#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1) |
+| Campo novo no cadastro do paciente (Plano 18) | Dado do titular que não precisa ir ao público nem aos fluxos sem login vai em `patient_cadastro` (nunca em `patients`, que o contexto `publico` e o paciente sem login leem); a regra entra em `validarCadastro` **e** no CHECK (uma fonte: `cadastro-textos.ts`), o rótulo em `MSG_CADASTRO`, e a decisão de exportação, anonimização e IA no mapa de `colunas-decididas.test.ts`. Ler o valor só no Perfil (`cadastroDoPaciente`, com `auditRead`); a lista e o Início, só presença ou o nome social por projeção ([§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)) |
 
 ---
 
@@ -1025,12 +1200,32 @@ Plano 18, PR 1 (ficha: Início, Perfil, cabeçalho e registro de seções; confe
     e o primeiro item da seção mostram sempre a mesma avaliação.
 13. **RN-277: `resumo(tx, patientId)`.** O código usa `resumo(tx, patientId, fuso)` (`src/modules/ficha/tipos.ts:55`):
     o fuso do tenant converte os instantes no dia (`diaNoFuso`, `secoes/comum.ts:12`, RN-06).
-14. **Spec §8.3: o passo `secoes-inicio` do guia `inicio-paciente` termina com "O selo No app marca o que o paciente vê
+14. **Resolvida no PR 2 (Tarefa 9): o guia `inicio-paciente` foi à v2 com a frase do selo e o passo `no-app-cartao`.**
+    Registro original — **Spec §8.3: o passo `secoes-inicio` do guia `inicio-paciente` termina com "O selo No app marca o que o paciente vê
     no app."** A v1 sai sem essa frase (`src/modules/ajuda/conteudo.ts:170`), porque o selo só existe a partir da
     Tarefa 9 (PR 2), que leva o guia à v2. O teste "Plano 18 (§8.3)…" de `conteudo.test.ts` garante que nenhum texto do
     guia cite "No app". Pendência do PR 2, não erro.
-15. **Spec §8.3: no Início, a nota "Cadastro incompleto" (RN-269), o cartão "No app do paciente" e "Peso e IMC ocultos no
+15. **Resolvida no PR 2 (Tarefas 7b e 9; [§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)).**
+    Registro original — **Spec §8.3: no Início, a nota "Cadastro incompleto" (RN-269), o cartão "No app do paciente" e "Peso e IMC ocultos no
     app." na seção Antropometria.** Nada disso está no PR 1: entram nas Tarefas 7b e 9 (PR 2).
-16. **`CLAUDE.md`, regra 8: a lista das leituras que não chamam `auditRead`.** A regra ainda não cita as seções e o
+16. **Resolvida na Tarefa 12c (17/11/2026): a regra 8 ganhou a frase do Plano 18.** Registro original —
+    **`CLAUDE.md`, regra 8: a lista das leituras que não chamam `auditRead`.** A regra ainda não cita as seções e o
     cartão Resumo do Início (sem trilha), nem a leitura auditada da última antropometria no cabeçalho
     (`carregarCabecalho`). A anotação entra no fechamento do plano (Tarefa 12c).
+
+Plano 18, PR 2 (cadastro complementar, lista, "No app", LGPD e IA; conferido no branch local `plano-18-pr2` em `3799409`,
+17/11/2026, antes da revisão final e do rebase):
+
+17. **Spec §10: "O LEIA-ME da exportação cita o bloco novo."** O ZIP não tem LEIA-ME (`dados.json`, `prontuario.pdf`,
+    `laudos/`, `diario/`, `documentos/`, `autorizacao-ia/`; §4.2.9); o bloco `paciente.cadastro` fica descrito só no
+    tipo `CadastroExportado` (`exportacao-job.ts:69`) e no comentário de `DadosExportacao.paciente.cadastro`. Mesma
+    situação que o Plano 20 registrou para a seção `financeiro` (revisão de normas, M-4). Criar o LEIA-ME é decisão à
+    parte (texto ao titular: passa pelo `normas-cfn-lgpd`), não deste PR.
+18. **RN-283: a rede idempotente roda "no fim" da varredura diária.** O código a roda no **início** de cada tenant, antes
+    da listagem dos vencidos (`lgpd.ts:508`, `apagarCadastrosDosAnonimizados` em `:644`): no fim, um tenant cuja
+    listagem falha (`continue`) ficaria sem a rede. O efeito pedido (a linha de titular anonimizado some na varredura
+    seguinte) é o mesmo; a spec deve trocar "no fim" por "no início de cada tenant".
+19. **Plano, "Estrutura de arquivos".** Há dois arquivos de textos que a tabela não lista: `src/modules/pacientes/cadastro-textos.ts`
+    (`MSG_CADASTRO`, listas fechadas e a contagem de caracteres, sem banco, porque o formulário cliente importa) e
+    `src/app/painel/pacientes/textos.ts` (`MSG_LISTA`, pelo mesmo motivo, para o menu da linha). `cadastro.ts` reexporta
+    o primeiro.

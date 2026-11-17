@@ -1609,9 +1609,9 @@ O portal segue o modo do aparelho, **sem botão**: `data-tema="sistema"` fixo (`
 
 ### 5.8.1 Conteúdo
 
-`src/modules/ajuda/conteudo.ts` exporta `GUIAS`: 18 guias tipados (`boas-vindas`, `pacientes`, `plano-alimentar`,
-`documentos`, `ia-nutri`, `inicio-paciente`, `prontuario`, `agenda`, `horarios`, `exames-recebidos`, `duvidas`, `diarios`, `conteudos`, `alimentos`,
-`modelos`, `configuracoes`, `whatsapp` e `seguranca`; `exames-recebidos` do Plano 12, `ia-nutri` e `duvidas` do Plano 15, `inicio-paciente` do Plano 18). Plano 10A (D18): `documentos` (v1) antes do `prontuario`; `configuracoes` na v2 (seção "Dados para
+`src/modules/ajuda/conteudo.ts` exporta `GUIAS`: 19 guias tipados (`boas-vindas`, `pacientes`, `plano-alimentar`,
+`documentos`, `ia-nutri`, `inicio-paciente`, `perfil-paciente`, `prontuario`, `agenda`, `horarios`, `exames-recebidos`, `duvidas`, `diarios`, `conteudos`, `alimentos`,
+`modelos`, `configuracoes`, `whatsapp` e `seguranca`; `exames-recebidos` do Plano 12, `ia-nutri` e `duvidas` do Plano 15, `inicio-paciente` e `perfil-paciente` do Plano 18). Plano 10A (D18): `documentos` (v1) antes do `prontuario`; `configuracoes` na v2 (seção "Dados para
 documentos"); `seguranca` (v1) para `/conta/seguranca`, mostrado na própria tela num bloco "Como funciona"
 (`ajuda-seguranca.tsx`), porque a tela fica fora do layout do painel; o teste do manual passou a cobrir `src/app/conta`. Plano 11:
 `configuracoes` na v3 (seção de ajuda "Inteligência artificial (IA)", quatro itens; os passos do tour não mudaram — a
@@ -1646,12 +1646,33 @@ Plano 18, PR 1 (abas Início e Perfil, [§4.2.10](04-modulos-clinicos.md#4210-fi
     tem a sua aba.".
   - O resumo e o primeiro item do "Passo a passo" passam a citar o Início e o Perfil.
   - Quem já viu a v2 recebe de novo o aviso "Primeira vez aqui?".
-- **`pacientes` continua na v1.** Só o item da gaveta mudou, e agora termina em: use "Reenviar convite" em "Acesso ao app",
-  na aba Perfil do prontuário. O tour não muda, e o comentário no arquivo registra a escolha.
-- **Tela nova `/painel/pacientes/[id]/perfil`.** O `prontuario` cobre a tela (o padrão casa qualquer aba): nada em
-  `SEM_AJUDA`. O guia próprio `perfil-paciente` (spec §8.4) chega no PR 2 (Tarefa 7a).
+- **`pacientes` continuou na v1 no PR 1.** Só o item da gaveta mudou ("Reenviar convite" em "Acesso ao app", na aba
+  Perfil); o tour não mudou. No PR 2 foi à v2 (abaixo).
+- **Tela nova `/painel/pacientes/[id]/perfil`.** No PR 1 o `prontuario` cobria a tela (o padrão casa qualquer aba); no
+  PR 2 ela ganhou o guia próprio `perfil-paciente` (abaixo). Nada em `SEM_AJUDA`.
 - **Teste do manual.** O teste dos nomes citados entre aspas passou a ler também `src/modules/ficha` (`TSX_FORA`), onde
   ficam os textos do Início (`MSG_FICHA`).
+
+Plano 18, PR 2 (cadastro em seções, lista e "No app", [§4.2.11](04-modulos-clinicos.md#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)):
+
+- **`pacientes` na v2** (`conteudo.ts:42`, comentário "Plano 18: abas da lista, Ações e o cadastro em seções"; spec
+  §8.1 e §8.4). Passos `novo-paciente` (sem mudança), `busca-pacientes` ("Ache um paciente pelo nome ou pelo e-mail. As
+  abas separam ativos e arquivados; os bloqueados ficam em Ver bloqueados."), o novo `acoes-paciente` ("Em Ações você
+  abre a ficha, edita o cadastro, arquiva ou reativa o paciente sem sair da lista."; alvo no cabeçalho da coluna
+  "Ações", `src/app/painel/pacientes/page.tsx:107`) e o novo `cadastro-paciente` ("O cadastro fica em seções. Só nome,
+  nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta."; alvo no `<form>` de
+  `paciente-form.tsx:107`, que só existe em "Novo paciente": na lista o passo aparece centralizado). A gaveta trocou "no
+  filtro de situação" por "os arquivados ficam na aba Inativos" e "prontuário" por "ficha".
+- **`inicio-paciente` na v2** (`conteudo.ts:152`): o passo `secoes-inicio` ganhou a frase da spec §8.3 ("… O selo No
+  app marca o que o paciente vê no app.") e entrou o passo `no-app-cartao` ("O que o paciente enxerga no app, contado
+  com as mesmas regras do app."; alvo no cartão, `inicio/cartao-no-app.tsx:48`). A gaveta explica o cartão e a página
+  "No app do paciente" (a página `/app` cai no guia `prontuario`, que casa qualquer aba).
+- **Guia novo `perfil-paciente`** (v1, `conteudo.ts:181`, título "Perfil do paciente"; padrão `^/painel/pacientes/ID/perfil$`,
+  antes do `prontuario`): o mesmo passo `cadastro-paciente` do guia `pacientes` e a gaveta com o nome social "só a
+  pedido do paciente", o CPF fora da lista e do app (e o link "Abrir o cadastro existente (abre em nova aba)"), a
+  observação na cópia dos dados do titular e o paciente bloqueado só para consulta.
+- **`prontuario` continua na v3** (a do PR 1).
+- Teste: `conteudo.test.ts`, casos "Plano 18 (§8.1)…", "Plano 18 (§8.3)…" e "Plano 18 (§8.4)…".
 
 | Campo | Papel |
 |---|---|
