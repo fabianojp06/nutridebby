@@ -1,3 +1,4 @@
+import { getEnv } from '@/env';
 import { DPA_PATH, type ApiNutri } from '@/lib/tenant-session';
 
 /**
@@ -21,16 +22,30 @@ export function recusaNaNavegacao(acesso: Extract<ApiNutri, { ok: false }>): Res
   }
 }
 
+/** A origem da aplicação (APP_URL, o mesmo critério de `src/app/sair/route.ts`) é a de `valor`? URL inválida → não. */
+function mesmaOrigem(valor: string): boolean {
+  if (!URL.canParse(valor)) return false;
+  return new URL(valor).origin === new URL(getEnv().APP_URL).origin;
+}
+
 /**
  * RN-321 / DPA cl. 6 e 12: o download grava `exportar` em nome da nutricionista, e o cookie da sessão (SameSite=Lax) vai
  * junto numa navegação de primeiro nível vinda de outro site. Só segue o pedido feito na própria origem (o link e o
- * formulário de Relatórios: `same-origin`) ou digitado na barra de endereço (`none`). Outro site, um subdomínio
- * (`same-site`) ou cabeçalho ausente (o mesmo critério estrito de `src/app/sair/route.ts`) → 303 para Relatórios, sem ler
- * nem gravar nada. A rota chama depois da guarda de papel (o 403 JSON de `acesso-negado.test.ts`) e antes do módulo.
+ * formulário de Relatórios: `same-origin`) ou digitado na barra de endereço (`none`). Outro site ou um subdomínio
+ * (`same-site`) → 303 para Relatórios. Sem o cabeçalho (Safari antes do 16.4, proxies que o tiram): segue só se `Origin`
+ * — ou, sem ele, `Referer` (a política padrão manda a URL inteira na mesma origem) — for a origem do APP_URL; senão, 303
+ * para Relatórios com `?erro=origem` (a página diz o que fazer, em vez de falhar calada). Nos dois 303 nada é lido nem
+ * gravado. Devolve `null` quando o pedido segue. A rota chama depois da guarda de papel (o 403 JSON de
+ * `acesso-negado.test.ts`) e antes do módulo.
  */
-export function downloadDoMesmoSite(req: Request): boolean {
+export function recusaDeOrigem(req: Request): Response | null {
   const site = req.headers.get('sec-fetch-site');
-  return site === 'same-origin' || site === 'none';
+  if (site === 'same-origin' || site === 'none') return null;
+  if (site !== null) return irPara(RELATORIOS);
+  const origin = req.headers.get('origin');
+  const referer = req.headers.get('referer');
+  const confirmada = origin !== null ? mesmaOrigem(origin) : referer !== null && mesmaOrigem(referer);
+  return confirmada ? null : irPara(`${RELATORIOS}?erro=origem`);
 }
 
 /**

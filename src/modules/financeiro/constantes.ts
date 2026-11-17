@@ -275,6 +275,11 @@ export const MSG_FINANCEIRO = {
     },
     /** Coluna "Tipo" do arquivo (o singular dos filtros "Entradas"/"Saídas"). */
     tipos: { entrada: 'Entrada', saida: 'Saída' } satisfies Record<TipoLancamento, string>,
+    /**
+     * `?erro=origem` (`recusaDeOrigem`): o navegador não mandou `Sec-Fetch-Site` e nem `Origin` nem `Referer` confirmaram a
+     * própria origem. Fora da §6.2 (`/code-review` do PR #55): aguarda a aprovação do dono, como os outros textos novos.
+     */
+    erroOrigem: 'Não foi possível baixar o arquivo por este navegador. Atualize o navegador ou abra o Financeiro pelo menu e tente de novo.',
   },
 
   // Configurações (US-300)

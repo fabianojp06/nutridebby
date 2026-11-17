@@ -25,7 +25,8 @@ const LINK = 'inline-flex min-h-11 items-center text-link underline';
 
 /**
  * US-306: "Relatórios" — o fluxo de caixa do ano escolhido em "Ano" (`?ano=`), as entradas e saídas dos últimos 12 meses
- * (barras só de desenho e a tabela como alternativa) e o CSV dos lançamentos (`?erro=periodo`: a rota recusou o período).
+ * (barras só de desenho e a tabela como alternativa) e o CSV dos lançamentos (`?erro=periodo`: a rota recusou o período;
+ * `?erro=origem`: a rota não confirmou a origem do pedido).
  * Uma transação (RNF-301); sem `auditRead` (RN-318) — o download grava o `exportar` na rota. Sem configuração (RN-301): o
  * primeiro acesso.
  */
@@ -124,7 +125,12 @@ export default async function Relatorios({ searchParams }: PageProps<'/painel/fi
       </Cartao>
 
       <Cartao id="csv-titulo" titulo={TITULO_CSV}>
-        <BaixarCsv de={mesAtual.de} ate={mesAtual.ate} erroDoServidor={parametros.erro === 'periodo'} />
+        <BaixarCsv
+          de={mesAtual.de}
+          ate={mesAtual.ate}
+          erroDoServidor={parametros.erro === 'periodo'}
+          erroDeOrigem={parametros.erro === 'origem'}
+        />
       </Cartao>
     </>
   );
