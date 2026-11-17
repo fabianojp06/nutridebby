@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, isNull, sql, type Column, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNotNull, isNull, lt, lte, or, sql, type Column, type SQL } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { finCategorias, finLancamentos, patients, type TipoLancamento } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -47,6 +47,7 @@ const movimento = sql`case when ${entrada} then ${L.valorCentavos}::bigint else 
 const somaSe = (valor: SQL, condicao: SQL | undefined) => sql<string>`coalesce(sum(${valor}) filter (where ${condicao}), 0)::text`;
 const soma = (condicao: SQL | undefined) => somaSe(sql`${L.valorCentavos}::bigint`, condicao);
 const somaTudo = sql<string>`coalesce(sum(${L.valorCentavos}::bigint), 0)::text`;
+const somaMovimento = sql<string>`coalesce(sum(${movimento}), 0)::text`;
 const entre = (coluna: Column, de: string, ate: string) => sql`${coluna} between ${de} and ${ate}`;
 const mesDoPagamento = sql<string | null>`to_char(${L.pagoEm}, 'YYYY-MM')`;
 /** RN-311: entradas com paciente, não canceladas e sem recebimento (previstas ou em atraso). */
@@ -73,6 +74,10 @@ export async function resumoDoMes(ctx: TenantContext, tenant: Tenant, deps: Deps
     ctx,
     async (tx) => {
       const config = await configuracaoNaTransacao(tx);
+      // RNF-301: o WHERE só deixa passar o que algum `filter` usa — pagos desde o saldo ou o dia 1º (o que vier antes) e os
+      // em aberto —, no formato dos índices parciais (pago_idx com faixa de pago_em, aberto_idx): BitmapOr no consultório,
+      // nunca a tabela de todos os consultórios
+      const pagosDesde = config && config.saldoInicialEm < de ? config.saldoInicialEm : de;
       const [a] = await tx
         .select({
           // sem configuração não há saldo: a data do saldo vira uma condição sempre falsa
@@ -87,7 +92,8 @@ export async function resumoDoMes(ctx: TenantContext, tenant: Tenant, deps: Deps
           pendentesTotal: soma(pendenteDoPaciente),
         })
         .from(L)
-        .where(and(eq(L.tenantId, ctx.tenantId), ativo));
+        .where(and(eq(L.tenantId, ctx.tenantId), ativo, or(and(pago, gte(L.pagoEm, pagosDesde)), aberto)));
+      // pelo fin_lancamentos_criado_idx (tenant_id, created_at, id), de trás para a frente
       const ultimos = await selecionarNaTela(tx).where(eq(L.tenantId, ctx.tenantId)).orderBy(desc(L.createdAt), desc(L.id)).limit(ULTIMOS);
       return {
         configurado: config !== null,
@@ -163,12 +169,14 @@ export async function fluxoDeCaixaDoAno(ctx: TenantContext, tenant: Tenant, ano:
         const mesDoSaldo = mesDe(config.saldoInicialEm);
         const noAno = mesDoSaldo >= meses[0];
         const fimDoMesDoSaldo = intervaloDoMes(mesDoSaldo).ate;
-        const desde = sql`${L.pagoEm} >= ${config.saldoInicialEm}`;
-        // antes do ano (saldo de um ano anterior) ou do mês do saldo até o fim dele (saldo neste ano)
+        // antes do ano (saldo de um ano anterior) ou do mês do saldo até o fim dele (saldo neste ano); tudo no WHERE, para a
+        // faixa de pago_em ir pelo fin_lancamentos_pago_idx (RNF-301)
         const [s] = await tx
-          .select({ movimento: somaSe(movimento, and(pago, desde, noAno ? sql`${L.pagoEm} <= ${fimDoMesDoSaldo}` : sql`${L.pagoEm} < ${de}`)) })
+          .select({ movimento: somaMovimento })
           .from(L)
-          .where(and(eq(L.tenantId, ctx.tenantId), ativo));
+          .where(
+            and(eq(L.tenantId, ctx.tenantId), ativo, pago, gte(L.pagoEm, config.saldoInicialEm), noAno ? lte(L.pagoEm, fimDoMesDoSaldo) : lt(L.pagoEm, de)),
+          );
         const base = config.saldoInicialCentavos + centavos(s.movimento);
         // saldo de um ano anterior: `base` é o início de janeiro; neste ano: `base` é o fim do mês do saldo
         let anterior: number | null = noAno ? null : base;
