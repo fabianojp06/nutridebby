@@ -25,7 +25,7 @@ export default async function Compras({ searchParams }: PageProps<'/p/compras'>)
         {dias === null && <p id="dias-erro" role="alert" className="text-erro">{MSG_COMPRAS.dias}</p>}
         {dias !== null && !lista && <p role="status">{MSG_COMPRAS.semPlano}</p>}
         {lista?.semAlimentos && <p role="status">{MSG_COMPRAS.semAlimentos}</p>}
-        {lista && !lista.semAlimentos && <ListaCompras planoId={lista.planoId} grupos={lista.grupos} />}
+        {lista && !lista.semAlimentos && (lista.grupos.length === 0 ? <p role="status">{MSG_COMPRAS.semRefeicaoNosDias}</p> : <ListaCompras planoId={lista.planoId} grupos={lista.grupos} />)}
         {lista?.textoLivreFora && <p className="text-sm text-suave">{MSG_COMPRAS.textoLivreFora}</p>}
       </main>
     </>

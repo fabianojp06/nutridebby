@@ -83,6 +83,9 @@ export function DiaDeHoje({ refeicoes, perfis, fuso, agoraDoServidor, perguntarS
 
   const deHoje = perfilDoDia(perfis, agora.dia);
   const outros = perfis.filter((p) => p !== deHoje);
+  // RN-247 (d): depois da última refeição de hoje (ou num dia sem refeição), a próxima pode estar só num perfil de "Ver
+  // outros dias" — o <details> de fora abre junto, senão o destaque e o texto da próxima ficam escondidos (também do leitor)
+  const proximaEmOutroDia = proxima !== null && !deHoje?.refeicaoIds.includes(proxima.id) && outros.some((p) => p.refeicaoIds.includes(proxima.id));
   return (
     <>
       <section aria-labelledby={idHoje} className="space-y-3">
@@ -97,7 +100,7 @@ export function DiaDeHoje({ refeicoes, perfis, fuso, agoraDoServidor, perguntarS
         )}
       </section>
       {outros.length > 0 && (
-        <details className="rounded-2xl border border-borda bg-cartao p-3">
+        <details open={proximaEmOutroDia} className="rounded-2xl border border-borda bg-cartao p-3">
           <summary className="min-h-11 cursor-pointer font-semibold">{MSG_PLANO_DIAS.verOutrosDias}</summary>
           <div className="mt-3 space-y-6">
             {outros.map((p) => (

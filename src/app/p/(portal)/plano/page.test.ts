@@ -171,6 +171,29 @@ describe('Plano 19: os dias e "Ligado ao seu plano" (RN-247 c, RN-252, RN-253, U
     expect(html).toContain('Ver outros dias');
   });
 
+  it('RN-247 (d), CS-233: sábado à noite, sem refeição no domingo, a próxima ("Próxima: seg às 07:30") fica visível — "Ver outros dias" e a refeição abertos; com a próxima hoje, "Ver outros dias" fica fechado', async () => {
+    plano.atual = {
+      ...PLANO,
+      refeicoes: [
+        refeicao({ id: 'r-cafe', nome: 'Café da semana', horario: '07:30', dias: SEG_A_SEX, observacao: '' }),
+        refeicao({ id: 'r-sab', nome: 'Jantar', horario: '19:00', dias: [6], observacao: '' }),
+      ],
+      perfis: [
+        { dias: SEG_A_SEX, titulo: 'Segunda a sexta', totalKcal: null, refeicaoIds: ['r-cafe'] },
+        { dias: [6], titulo: 'Sábado', totalKcal: null, refeicaoIds: ['r-sab'] },
+      ],
+    };
+    em('2026-11-15T00:00:00Z'); // sábado, 21:00 em São Paulo (depois do jantar)
+    const html = await pagina();
+    expect(html).toMatch(/<details open=""[^>]*><summary class="min-h-11[^"]*">Ver outros dias<\/summary>/);
+    expect(html).toMatch(/<details id="ref-r-cafe" open=""[^>]*><summary[^>]*><h3[^>]*>Café da semana · 07:30<\/h3><span[^>]*>Próxima: seg às 07:30<\/span>/);
+
+    em('2026-11-14T15:00:00Z'); // sábado, 12:00: a próxima é o jantar de hoje
+    const meioDia = await pagina();
+    expect(meioDia).toMatch(/<details class="[^"]*"><summary class="min-h-11[^"]*">Ver outros dias<\/summary>/);
+    expect(meioDia).toMatch(/<details id="ref-r-sab" open=""[^>]*>/);
+  });
+
   it('com um perfil só (todas as refeições nos 7 dias), nada muda: sem "Hoje (…)" nem "Ver outros dias"', async () => {
     const html = await pagina();
     expect(html).not.toContain('Hoje (');

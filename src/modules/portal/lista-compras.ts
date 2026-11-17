@@ -17,6 +17,8 @@ export const MSG_COMPRAS = {
   semAlimentos: 'Este plano não tem alimentos com quantidade, então não há lista de compras.',
   /** RN-248: só algumas refeições em texto livre — abaixo da lista. */
   textoLivreFora: 'As refeições em texto livre não entram na lista.',
+  /** RN-248: a janela pedida não pega nenhuma refeição com alimento (ex.: 1 dia num domingo, plano só de seg a sex). Texto fora da spec, para aprovação. */
+  semRefeicaoNosDias: 'Nenhuma refeição com alimentos do seu plano cai nesses dias. Aumente o número de dias.',
 } as const;
 
 export type ItemCompra = { nome: string; gramas: number; texto: string };
