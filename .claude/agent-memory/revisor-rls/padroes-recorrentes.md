@@ -305,3 +305,8 @@ Plano 17, revisão final do branch (17/11/2026):
   em toda revisão final e entregar o texto proposto.
 - Limpeza LGPD nova (DELETE na exclusão/anonimização) que a imagem antiga não faz: na volta atrás (§6.8.1) o dado fica.
   Conferir se o fechamento registra isso, junto com o gatilho novo que a imagem antiga atravessa sem saber.
+
+Plano 17, re-revisão do code review (17/11/2026):
+- Coluna nova "técnica" em tabela de saúde já exportada: o dados.json (exportacao-job) lista colunas à mão e nenhuma guarda
+  força a decisão. Conferir se a coluna guarda informação que não está em outra (ex.: a refeição do plano escolhida num
+  registro 'Outro' sem resposta) — se sim, recomendar exportar (art. 19, II). Coluna nova sem CHECK de tamanho que a irmã tem.
