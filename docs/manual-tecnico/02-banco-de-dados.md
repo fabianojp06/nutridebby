@@ -676,6 +676,7 @@ Não chamam `auditRead`, por decisão:
 | Listas de documentos no painel e no portal (tipo, data, situação, assinatura, recibos) | Como a agenda; o conteúdo e o PDF são auditados | Plano 10A, D17 |
 | Fila "Dúvidas dos pacientes", o contador do menu e a situação das perguntas no portal (`GET /api/p/ia-nutri/situacao`: só id e status) | Só listam ou dão estado; abrir a dúvida, a aba da ficha e a conversa do paciente são auditados | Plano 15, RN-183 |
 | `temLembretes` e `temLembretesNaTela` (cartão de Hoje e seção de Eu) e a leitura dos lembretes pelo worker | Só sim/não, ou conferência de estado que não volta a nenhuma usuária; a lista do painel e a do portal são auditadas | Plano 17 |
+| Seções do Início da ficha (`secoesDoInicio`: contador e os 3 últimos com rótulo genérico, data e situação) e o cartão Resumo (`cartaoResumo`: aniversário, "Paciente desde" e a data do plano publicado) | Sem conteúdo clínico (nunca o nome do modelo da anamnese nem o do exame), como a agenda e as listas de documentos; o paciente já foi lido e auditado por `carregarProntuario`, e a última antropometria do cabeçalho grava **um** `ler` (`antropometria`) por execução do layout. Seção que devolve dado auditado declara `leitura: { entidade }` e `inicio.ts` grava um `auditRead` dela, só com itens ([§4.2.10](04-modulos-clinicos.md#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)) | Plano 18, D13, D14, RN-276, RN-277 |
 
 Tabelas com `patient_id` sem gatilho estão em `AUDIT_EXCEPTIONS`, cada uma com o motivo (`src/db/audit-guard.ts:4-19`).
 

@@ -5,6 +5,7 @@ Este capítulo descreve os três blocos de domínio que sustentam o consultório
 - **Plataforma** (`src/modules/plataforma/`): contas, convites, perfil e marca, armazenamento, monitoramento, métricas e preferências.
 - **Pacientes e prontuário** (`src/modules/pacientes/`): cadastro, etiquetas, anamnese, antropometria, gasto energético, exames, atendimentos, evolução e LGPD.
 - **Alimentos e plano alimentar** (`src/modules/alimentos/`, `src/modules/plano-alimentar/`).
+- **Ficha do paciente** (`src/modules/ficha/`, Plano 18): abas Início e Perfil, cabeçalho com a última avaliação e o registro de seções do Início ([§4.2.10](#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)).
 
 Fonte de verdade: o código. Cada afirmação cita arquivo e linha (ou função). Decisões citadas como "Plano NN, Dx" vêm de `docs/superpowers/plans/`. Regras "RN-xx", "RNF-xx", "US-xxx" e "CS-xx" vêm da spec (`docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md` e `…-historias.md`). "Regra n do CLAUDE.md" é a regra obrigatória n de `CLAUDE.md` do projeto.
 
@@ -270,10 +271,17 @@ Autorização de WhatsApp (`autorizacaoWhatsapp`, `pacientes.ts:101`): o formul�
 
 A lista não audita (nome e contato), como a agenda (Plano 05, D10). Abrir o prontuário audita.
 
-Plano 14B-2: a página do paciente (`src/app/painel/pacientes/[id]/page.tsx:51`) ganha a seção "Inteligência artificial"
+Plano 14B-2: a página do paciente — desde o Plano 18, a aba Início da ficha (`src/app/painel/pacientes/[id]/page.tsx:43`) —
+ganha a seção "Inteligência artificial"
 com o link "Resumo do histórico (IA)" quando a IA permite o resumo (`iaDoAssistente`, `[id]/ia-assistente.ts:19`) ou o
 motivo quando não permite; nada aparece com a IA ausente, o consultório suspenso, o paciente não ativo ou a IA ainda não
 ativada. A tela `/painel/pacientes/[id]/resumo-ia` está na [§10.13.6](10-ia.md#10136-telas-e-manual-guiado).
+
+Plano 18 (D12): o formulário do cadastro, o "Acesso ao app" (antes "Acesso ao portal") e as "Etiquetas" saíram dessa
+página e foram para a aba Perfil (`src/app/painel/pacientes/[id]/perfil/page.tsx:12`), sem mudar as funções acima; as
+três Server Actions (`atualizarPacienteAction`, `reenviarConviteAction`, `salvarEtiquetasAction`) mandam o login de volta
+ao Perfil (`requireNutri` com `/painel/pacientes/{id}/perfil`, `src/app/painel/pacientes/actions.ts:29,45,58`).
+Detalhe da ficha na [§4.2.10](#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1).
 
 ### 4.2.2 Etiquetas (US-019)
 
@@ -550,6 +558,205 @@ uma vez, pela fila "Dúvidas dos pacientes"; [§10.14.7](10-ia.md#10147-retenç�
 
 Validade do link: 24 h (`EXPORTACAO_VALIDADE_MS`, `exportacao.ts:14`). O ZIP não vai para o backup de `/data` (Plano 03, decisão do dono).
 
+### 4.2.10 Ficha do paciente: Início, Perfil, cabeçalho e registro de seções (Plano 18, PR 1)
+
+O Plano 18 (spec `docs/superpowers/specs/2026-11-16-nutridebby-18-ficha-cadastro-design.md`, plano
+`docs/superpowers/plans/2026-11-16-nutridebby-18-ficha-cadastro.md`) sai em dois PRs (D21). Esta seção descreve o
+**PR 1** (Tarefas 1–4, fundação **sem migration**). O PR 2 ainda não está no código: cadastro complementar
+(`patient_cadastro`), lista com abas, "No app do paciente" e LGPD.
+
+**Arquivos.** Módulo `src/modules/ficha/`: `tipos.ts` (contrato), `secoes/` (um arquivo por seção, mais `comum.ts` e
+`index.ts`), `inicio.ts`, `resumo.ts`, `adicionar.ts`, `cabecalho.ts` e `textos.ts`. Os textos ficam em `MSG_FICHA`
+(`textos.ts:7`), sem import de servidor, porque o diálogo cliente lê dali. Telas em `src/app/painel/pacientes/[id]/`:
+`abas.tsx`, `layout.tsx`, `prontuario.ts`, `page.tsx` (Início), `perfil/page.tsx`, `inicio/adicionar.tsx`,
+`inicio/secao.tsx` e `inicio/acoes.ts`; e `src/components/foco-na-ancora.tsx`. Sem tabela nova, sem fila nova e nada
+no worker. O módulo usa `pacientes` (6 imports), `documentos` (2) e `plataforma` (2). Só as telas da ficha o importam.
+
+#### Abas (D12, RN-274)
+
+`ABAS` (`abas.tsx:10`) tem 13 abas, nesta ordem:
+
+- **Início** (`''`, o antigo "Resumo") e **Perfil** (`perfil`).
+- Antropometria, Gasto energético, Anamnese, Atendimentos, Exames, Evolução, Privacidade e Plano alimentar.
+- **Documentos**, só com `documentos_liberados` (D20 do 10A), e **IA Nutri**, com a IA Nutri ativada ou com
+  participação (Plano 15).
+- **Histórico**: rótulo visível "Histórico" e nome acessível "Histórico de acessos" (`nome` → `aria-label`,
+  `abas.tsx:23`). O nome começa pelo texto visível (WCAG 2.5.3), e o título da página continua "Histórico de acessos".
+
+O Início também fica ativo em `/app` e `/resumo-ia`, páginas que saem dele sem aba própria (`DO_INICIO`,
+`abas.tsx:27,47`; a `/app` chega no PR 2). Com 13 abas, a faixa cabe a 1280 px sem rolar: o comentário de `abas.tsx`
+estima cerca de 1170 de 1232 px, e o E2E confere (`acessibilidade-painel.spec.ts`, caso "Plano 18: a faixa de abas…",
+`scrollWidth <= clientWidth` e axe sem "incomplete"). Uma 14ª aba não cabe (R-266).
+
+**Perfil** (`perfil/page.tsx:12`) recebeu, como estavam no Resumo:
+
+- "Cadastro" (`PacienteForm`, "Salvar cadastro");
+- "Acesso ao app" (título que era "Acesso ao portal"), com `textoDoAcesso`, a linha do convite por WhatsApp e
+  "Reenviar convite";
+- "Etiquetas".
+
+Paciente bloqueado vê tudo só para leitura, com o aviso "Paciente bloqueado por pedido de exclusão: o prontuário é só
+para consulta.". As Server Actions continuam em `src/app/painel/pacientes/actions.ts`, com a volta do login no Perfil
+(`:29,45,58`). `atualizarPacienteAction` revalida o layout inteiro (`revalidatePath(…, 'layout')`, `:39`), e o
+cabeçalho é lido de novo. `reenviarConviteAction` e `salvarEtiquetasAction` revalidam só o Perfil (`:52,69`).
+
+#### Cabeçalho com a última avaliação (D13, RN-275)
+
+`lerCabecalho(ctx, patientId)` (`cabecalho.ts:22`):
+
+- Aceita só `ctx.role === 'nutri'`; id malformado devolve `null` sem consultar.
+- Lê a última linha de `anthropometry`, ordenada por `data desc, created_at desc, id desc` (`:32`; o id só desempata).
+  A seção Antropometria usa a mesma ordem.
+- Seleciona só o id, a data e as medidas.
+- Com avaliação, grava **um** `auditRead` (entidade `antropometria`, `entidadeId` da avaliação) na mesma transação
+  (`:35`). Sem avaliação, não grava nada.
+
+`linhaDoCabecalho` (`:49`) devolve "Última avaliação em {dd/mm/aaaa}: altura 1,65 m · peso 72,4 kg · IMC 26,6 · gordura
+28,1%". A altura sai em metros com duas casas; peso, IMC e gordura, com uma; a gordura some quando é nula. Sem avaliação,
+"Sem avaliação antropométrica.".
+
+A ficha só lê o cabeçalho por `carregarCabecalho` (`src/app/painel/pacientes/[id]/prontuario.ts:25`):
+
+- É um `cache()` do React com chave texto (`patientId`), como `carregarProntuario` (`:13`), de onde vem o `ctx`.
+- Mora em `src/app` porque `src/modules` não importa de `@/app`.
+- O layout chama uma vez (`layout.tsx:18`) e põe a linha com `print:hidden` (`:37`): a folha impressa pode ir para a mão
+  do paciente com o peso oculto (RN-203).
+- Com `peso_oculto_no_app_em`, aparece o selo "Peso oculto no app" (`:33`). O painel continua mostrando o peso (RN-204).
+
+O layout não roda de novo entre abas irmãs. Roda no carregamento completo e a cada `revalidatePath(…, 'layout')`, e cada
+execução grava uma linha "Visualizou" de antropometria (custo aceito na D13). A guarda `cabecalho-fonte.test.ts` impede
+outra chamada direta, que gravaria mais uma linha:
+
+- `carregarCabecalho` é `cache(async (patientId: string)`;
+- em `src/app`, só `prontuario.ts` cita `lerCabecalho`;
+- o layout lê só por `carregarCabecalho`.
+
+#### Página Início (US-262, US-263)
+
+`InicioPage` (`src/app/painel/pacientes/[id]/page.tsx:21`) carrega três coisas em paralelo (`:24`), cada uma na sua
+transação: `iaDoAssistente`, `secoesDoInicio` e `cartaoResumo`. A tela mostra, nesta ordem:
+
+1. O botão **Adicionar** (`:34`). Fica fora para paciente bloqueado ou anonimizado; o arquivado registra, como em cada
+   aba (`:29`).
+2. O cartão **Resumo** (`:36`).
+3. O bloco "Inteligência artificial" da US-120, como estava (`:43`).
+4. As seções, numa `<section data-guia="secoes-inicio">` com o `<h2>` "Registros do prontuário" só para leitor de tela
+   (`:53`).
+
+A página abre só com a leitura auditada do paciente, de `carregarProntuario`, e a da última antropometria, do layout.
+As seções e o cartão não gravam trilha (§2.8.3).
+
+- **Cartão Resumo** (RN-276), `cartaoResumo(ctx, fuso, paciente)` (`resumo.ts:25`), só da sessão `nutri`:
+  - "Aniversário: {dia} de {mês}", sem o ano;
+  - "Paciente desde {dd/mm/aaaa}", do `created_at` no fuso;
+  - "Plano alimentar publicado em {data}" ou "Nenhum plano publicado".
+
+  O plano sai de uma consulta a `meal_plans` com `status = 'publicado'` (RN-01: no máximo um). Sem `auditRead`: as datas
+  vêm do paciente que `carregarProntuario` já leu e auditou, e a do plano é só uma data. `linhasDoResumo` (`:53`) monta as
+  linhas. A nota "Cadastro incompleto" (RN-269) entra na Tarefa 7b.
+- **Seção** (`inicio/secao.tsx:13`, RN-278):
+  - `<details>` aberto quando `total > 0`;
+  - `<summary>` em `block min-h-11 py-2`, sem `flex`, com o `<h3>` "{Título} ({n})" e a seta em SVG `aria-hidden`;
+  - no corpo, até 3 links "{rótulo} · {dd/mm/aaaa} · {situação}" e "Ver todos", com o nome acessível
+    "Ver todos: {Título}";
+  - seção vazia: "Nenhum registro ainda.".
+
+  Os links das seções e do diálogo usam `prefetch={false}`, porque as páginas de destino gravam `auditRead`. Guardas de
+  fonte em `secao.test.ts` e `adicionar.test.ts`.
+- **Adicionar** (D15, D25, RN-280), `Adicionar` (`inicio/adicionar.tsx:17`):
+  - Botão "Adicionar" com o nome acessível "Adicionar ao prontuário", `aria-haspopup="dialog"` e
+    `data-guia="adicionar-prontuario"`.
+  - Abre um `<dialog>` nativo por `showModal()`, com o foco no título "Adicionar ao prontuário" (`tabIndex={-1}`). Esc e
+    "Fechar" fecham e devolvem o foco ao botão (`onClose`). O diálogo traz a dica "Antes do plano alimentar, registre a
+    anamnese, a antropometria e o gasto energético.".
+  - `montarAdicionar` (`adicionar.ts:27`) monta os grupos a partir das seções que `secoesDoInicio` devolveu (as
+    indisponíveis já saíram) e que têm `podeAdicionar`.
+  - Ordem dos itens: dentro de "Avaliações", o roteiro da consulta (`ORDEM_NO_ADICIONAR`, `:16`: Anamnese,
+    Antropometria, Gasto energético, Exame, Atendimento); seção de outro plano vem depois, na ordem do registro.
+  - Ordem dos grupos: "Avaliações", "Prescrições" e "Outros", cada um só quando tem item.
+  - Item `href` relativo vira `/painel/pacientes/{id}/…`; absoluto em `/painel/` fica como está (`caminhoNaFicha`,
+    `:19`).
+  - Item `acao` vira `<form action>` com a mesma Server Action dos botões da aba Documentos (`criarReceitaAction`,
+    `criarParecerAction`). `acoesDoAdicionar` (`inicio/acoes.ts:11`) faz o `bind` ao paciente só das chaves presentes.
+- **Foco no destino.** `FocoNaAncora` (`src/components/foco-na-ancora.tsx:10`, cliente) põe o foco no elemento da
+  âncora ao montar e a cada `hashchange`. Âncora malformada ou inexistente não faz nada. Está nas abas Antropometria,
+  Gasto energético, Exames e Atendimentos, nos `<h2>` `nova-avaliacao`, `novo-calculo`, `novo-exame` e
+  `novo-atendimento`, que ganharam `tabIndex={-1}`. Na Anamnese, a âncora `#modelo` é o `<select id="modelo">` que já
+  existia: "Adicionar → Anamnese" nunca abre `anamnese/nova` sem modelo, que dá `notFound()`.
+
+#### Registro de seções (D14, RN-277, spec §11)
+
+`SECOES_DA_FICHA` (`secoes/index.ts:15`) é a lista ordenada das seções do Início. Cada seção é uma `SecaoDaFicha`
+(`tipos.ts:38`):
+
+| Campo | Contrato |
+|---|---|
+| `id`, `titulo` | Únicos (guarda `registro.test.ts`); títulos em `MSG_FICHA.titulos` |
+| `aba` | Segmento da aba do "Ver todos" (`''` = Início), quando não há `verTodos` |
+| `verTodos?(patientId)` | "Ver todos" fora da ficha: caminho absoluto em `/painel/` (ex.: o Financeiro do Plano 20). Resolvido por `verTodosDa` (`inicio.ts:22`) |
+| `disponivel(tenant, paciente, total)` | Se a seção aparece. **Monótona no total**: com o total maior, nunca passa de `true` a `false` (`tipos.ts:45-50`). `secoesDoInicio` chama primeiro com `Number.POSITIVE_INFINITY` e pula sem consultar a seção que não apareceria com total nenhum (`inicio.ts:50`); depois confere com o total real (`:52`). O `total` só serve à RN-192 (envios) |
+| `resumo(tx, patientId, fuso)` | Contador e os 3 últimos numa consulta (`count(*) over ()` + `limit 3`: `totalJunto` e `LIMITE_DA_SECAO`, `secoes/comum.ts:6,9`); o fuso converte instantes no dia do tenant (`diaNoFuso`, `:12`). Pode devolver `podeAdicionar: false` para esconder o `adicionar` da seção (padrão `true`) |
+| `leitura?: { entidade }` | Seção que devolve dado auditado (o Financeiro do Plano 20). `inicio.ts` grava **um** `auditRead` dessa entidade, com `entidadeId: null`, na mesma transação e só quando a seção devolve itens (`inicio.ts:53`). O arquivo da seção nunca chama `auditRead`. Nenhuma das 8 seções do Plano 18 declara `leitura` |
+| `adicionar?` | Lista de `{ grupo, rotulo, destino }`: grupo `'avaliacoes' \| 'prescricoes' \| 'outros'` (`tipos.ts:31`; "Outros" só aparece quando alguma seção o usa); destino `{ href }` (relativo à ficha, sem `/` inicial, ou absoluto em `/painel/`) ou `{ acao: ChaveDeAcao }` (`'criar-receita' \| 'criar-parecer'`, `tipos.ts:25,28`) |
+| `noApp?` | `contar` e `visiveis` sobre `TxDePaciente` (`tipos.ts:22`, tipo marcado que só o `no-app.ts` da Tarefa 9 cria). Nenhuma seção implementa no PR 1 |
+
+`secoesDoInicio(ctx, tenant, paciente)` (`inicio.ts:35`):
+
+- Aceita só a sessão `nutri` (`:41`); id malformado devolve `[]` (`:42`).
+- Roda **todas** as seções numa transação (`withTenant`), uma consulta por seção.
+- Devolve cada seção só com `id`, `titulo`, `aba`, `verTodos` (já resolvido), `resumo` e `podeAdicionar`
+  (`SecaoNoInicio`, `:9`).
+- Refaz cada item só com as chaves do contrato (`comoItem`, `:12-19`), e uma seção não passa adiante coluna a mais.
+  `ItemDaSecao` tem exatamente `id`, `rotulo`, `data` (AAAA-MM-DD no fuso), `situacao?`, `noApp` e `href`
+  (`tipos.ts:12`). Até a Tarefa 9, `noApp` é `false` em todo item.
+
+Sem conteúdo clínico: rótulo genérico, data e situação, nunca o nome do modelo da anamnese nem o do exame, que são dado
+de saúde ("Anamnese gestante", "Glicemia"; D14). É o precedente da agenda, da lista de pacientes e das listas de
+documentos (P05 D10, 10A D17).
+
+As 8 seções do Plano 18, na ordem do registro:
+
+| `id` (arquivo em `secoes/`) | Título | Item: rótulo · data · situação | Item abre | "Ver todos" | Aparece | Adicionar |
+|---|---|---|---|---|---|---|
+| `plano-alimentar` | "Plano alimentar" | "Plano alimentar" · publicação ou criação (`coalesce`), no fuso · Rascunho/Publicado/Arquivado; versão mais nova primeiro | `plano-alimentar/{id}` | aba Plano alimentar | sempre | Prescrições: "Plano alimentar" → `plano-alimentar` |
+| `antropometria` | "Antropometria" | "Avaliação" · `data` (sem as medidas) | `antropometria` | aba Antropometria | sempre | Avaliações: "Antropometria" → `antropometria#nova-avaliacao` |
+| `gasto-energetico` | "Gasto energético" | "Cálculo" · dia do cálculo no fuso | `gasto-energetico` | aba Gasto energético | sempre | Avaliações: "Gasto energético" → `gasto-energetico#novo-calculo` |
+| `anamneses` | "Anamneses" | "Anamnese" · `data` (nunca o modelo) | `anamnese/{id}` | aba Anamnese | sempre | Avaliações: "Anamnese" → `anamnese#modelo` |
+| `atendimentos` | "Atendimentos" | "Atendimento" · `data` (sem orientações nem notas) | `atendimentos/{id}` | aba Atendimentos | sempre | Avaliações: "Atendimento" → `atendimentos#novo-atendimento` |
+| `exames` | "Exames" | "Exame" · `data` (nunca o título) | `exames` | aba Exames | sempre | Avaliações: "Exame" → `exames#novo-exame` |
+| `exames-enviados` | "Exames enviados pelo paciente" | "Envio do paciente" · dia do envio no fuso · Processando/Aguardando revisão/Aceito/Recusado/Expirado/Falhou; fora o cancelado e nada do titular bloqueado ou anonimizado | `/painel/exames-recebidos/{id}` em recebido, aceito e recusado; a aba Exames nas outras (`ABRE_A_REVISAO`, `exames-enviados.ts:14`) | aba Exames | titular nem bloqueado nem anonimizado (como a fila de exames recebidos) e recebimento ligado (`examesPacienteAtivadoEm`) ou algum envio (RN-192) | — |
+| `documentos` | "Documentos" | `TIPO_DOCUMENTO_ROTULO` ("Receita"/"Parecer nutricional") · dia da criação no fuso · `ROTULO_STATUS` | `documentos/{id}` | aba Documentos | só com `documentosLiberados` (D20 do 10A) | Prescrições: "Receita" (`criar-receita`) e "Parecer nutricional" (`criar-parecer`) |
+
+**Pendurar uma seção nova** (spec §11; o Financeiro do Plano 20 é o primeiro uso previsto):
+
+1. Crie `src/modules/ficha/secoes/<id>.ts` exportando uma `SecaoDaFicha`, com rótulos genéricos e sem conteúdo clínico.
+   O arquivo só importa o que está em `IMPORTS_PERMITIDOS` (`registro.test.ts`). Import novo entra na lista de propósito,
+   com a revisão vendo, e nunca é helper que audite por padrão.
+2. Acrescente **uma linha** no fim de `SECOES_DA_FICHA`, sem reordenar as outras. Os testes do Plano 18 filtram as 8
+   dele por `test/ficha.ts` (`DO_PLANO_18`, `SECOES_DO_PLANO_18`), e a seção nova não os quebra.
+3. Dado auditado: declare `leitura: { entidade }` (a entidade também em `ENTIDADE_ROTULO`). Nunca chame `auditRead` no
+   arquivo.
+4. Se a seção cria registro, preencha `adicionar`. Ação nova (não link) pede uma chave nova em `ChaveDeAcao` e a entrada
+   em `ACOES` de `inicio/acoes.ts`.
+5. Se o paciente vê aquilo no app, implemente `noApp`, contado no contexto de paciente, e o caso de paridade (Tarefa 9,
+   PR 2).
+
+Fora disso, é mudança de contrato, decidida com a orquestradora e o `revisor-rls`.
+
+Testes: `src/modules/ficha/secoes.test.ts` (Testcontainers) cobre:
+
+- chaves exatas;
+- contador e 3 últimos, com os desempates;
+- conteúdo clínico ausente;
+- nenhum `audit_log` gravado pelas 8 seções;
+- a `leitura` de uma seção de teste;
+- Documentos desligados;
+- a RN-192;
+- outro tenant e papel.
+
+`cabecalho.test.ts` e `resumo.test.ts` cobrem o cabeçalho e o cartão. A guarda de fonte `registro.test.ts` cobre a
+ordem, os ids, um arquivo por seção, nenhum `auditRead`, a lista fechada de imports e os destinos (§7.4.3).
+
 ---
 
 ## 4.3 Alimentos
@@ -783,6 +990,7 @@ estão na tabela única de [§6.2.3 Filas](06-worker-seguranca-operacao.md#623-f
 | Mudar o cálculo do plano | Só em `calculo.ts` (editor, servidor e PDF compartilham); o plano publicado lê `nutrientes` congelados |
 | Novo campo do plano | Validar em `validar` de `rascunho.ts`, comparar em `iguais`, copiar em `copiarConteudo`/`editarPublicado` e exportar em `planosParaExportacao` |
 | Ampliar medidas IBGE (E-08) | Editar `seeds/medidas-ibge.csv` e gerar migration nova com `pnpm seed:medidas` |
+| Seção nova no Início da ficha (Plano 18, D14) | Um arquivo em `src/modules/ficha/secoes/` e **uma** linha no fim de `SECOES_DA_FICHA`; rótulos genéricos, sem conteúdo clínico; nunca `auditRead` no arquivo (dado auditado: `leitura: { entidade }`, gravado por `inicio.ts`); `disponivel` monótona no total; imports só da lista fechada de `registro.test.ts`. Passo a passo na [§4.2.10](#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1) |
 
 ---
 
@@ -803,3 +1011,26 @@ Plano × código:
 
 9. **Teto de laudos na exportação.** Decisão do dono no Plano 03: 200 MB. Código: `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:153`), valor do Plano 06, D16 (que passou a incluir as fotos do diário no mesmo teto). A tabela de decisões do Plano 03 ficou desatualizada.
 10. **DPA e termo do paciente.** **Resolvida (P08-06, 15/10/2026):** `DPA_VERSAO` e `TERMO_PACIENTE_VERSAO = '1.0'` (`dpa.ts:13`, `termo-paciente.ts:7`), como previa o Plano 08, D14, mas com o texto publicado pelo dono sem o advogado (na linha da A-D27). Antes, `'0.1-provisorio'` (Tarefa 8 bloqueada no E-09).
+
+Plano 18, PR 1 (ficha: Início, Perfil, cabeçalho e registro de seções; conferido no branch `plano-18-ficha-cadastro` em
+`d9066f9`, 17/11/2026, antes do merge):
+
+11. **RN-277 e Tarefa 1 do plano: o item de "Exames enviados pelo paciente" abre em `/painel/exames-recebidos/{id}`.**
+    O código só leva à revisão nas situações recebido, aceito e recusado. Em processando, expirado e falhou, o item leva
+    à aba Exames do paciente (`ABRE_A_REVISAO`, `src/modules/ficha/secoes/exames-enviados.ts:14,41`). O motivo é a
+    revisão final do PR 1: nessas situações, a página da revisão diria "Este envio já foi revisado." sem ninguém ter
+    revisado. Spec e plano não foram atualizados.
+12. **RN-275: a última avaliação é `order by data desc, created_at desc limit 1`.** O código também desempata por
+    `id desc` (`cabecalho.ts:32`), e a seção Antropometria usa a mesma ordem (`secoes/antropometria.ts:18`): o cabeçalho
+    e o primeiro item da seção mostram sempre a mesma avaliação.
+13. **RN-277: `resumo(tx, patientId)`.** O código usa `resumo(tx, patientId, fuso)` (`src/modules/ficha/tipos.ts:55`):
+    o fuso do tenant converte os instantes no dia (`diaNoFuso`, `secoes/comum.ts:12`, RN-06).
+14. **Spec §8.3: o passo `secoes-inicio` do guia `inicio-paciente` termina com "O selo No app marca o que o paciente vê
+    no app."** A v1 sai sem essa frase (`src/modules/ajuda/conteudo.ts:170`), porque o selo só existe a partir da
+    Tarefa 9 (PR 2), que leva o guia à v2. O teste "Plano 18 (§8.3)…" de `conteudo.test.ts` garante que nenhum texto do
+    guia cite "No app". Pendência do PR 2, não erro.
+15. **Spec §8.3: no Início, a nota "Cadastro incompleto" (RN-269), o cartão "No app do paciente" e "Peso e IMC ocultos no
+    app." na seção Antropometria.** Nada disso está no PR 1: entram nas Tarefas 7b e 9 (PR 2).
+16. **`CLAUDE.md`, regra 8: a lista das leituras que não chamam `auditRead`.** A regra ainda não cita as seções e o
+    cartão Resumo do Início (sem trilha), nem a leitura auditada da última antropometria no cabeçalho
+    (`carregarCabecalho`). A anotação entra no fechamento do plano (Tarefa 12c).

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { FocoNaAncora } from '@/components/foco-na-ancora';
 import { listarAnamneses, listarModelosUsaveis } from '@/modules/pacientes/anamnese';
 import { formatarData } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../prontuario';
@@ -11,6 +12,8 @@ export default async function AnamnesesPage({ params }: PageProps<'/painel/pacie
   const [lista, modelos] = await Promise.all([listarAnamneses(ctx, paciente.id), listarModelosUsaveis(ctx)]);
   return (
     <div className="space-y-8">
+      {/* Plano 18 (RN-280): "Adicionar → Anamnese" chega em #modelo — o foco vai ao seletor de modelo */}
+      <FocoNaAncora />
       {paciente.status !== 'bloqueado' && (
         <form method="get" action={`/painel/pacientes/${paciente.id}/anamnese/nova`} className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">

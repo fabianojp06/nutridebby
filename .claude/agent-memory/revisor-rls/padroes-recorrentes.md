@@ -310,3 +310,18 @@ Plano 17, re-revisão do code review (17/11/2026):
 - Coluna nova "técnica" em tabela de saúde já exportada: o dados.json (exportacao-job) lista colunas à mão e nenhuma guarda
   força a decisão. Conferir se a coluna guarda informação que não está em outra (ex.: a refeição do plano escolhida num
   registro 'Outro' sem resposta) — se sim, recomendar exportar (art. 19, II). Coluna nova sem CHECK de tamanho que a irmã tem.
+Plano 18, T1 (registro de seções do Início, 17/11/2026): limpo na lente banco. Ponto de atenção para planos que penduram seção:
+- Guarda de fonte "arquivo nunca chama auditRead" por regex do nome direto deixa passar helper que audita por padrão
+  (`lerPlanoNaTransacao`, `lerDocumentoNaTransacao`, `auditar !== false`). Conferir os imports da seção nova, não só o grep.
+
+Plano 18, PR 1 (registro de seções da ficha, 17/11/2026):
+- Tipo marcado (`TxDePaciente`, brand com `unique symbol`) apresentado como garantia de contexto: qualquer módulo faz
+  `tx as TxDePaciente`. Só vale com guarda de fonte do cast (só o arquivo dono). Conferir no PR que cria o dono.
+- Mesma "última linha" lida em dois lugares com ORDER BY diferente (cabeçalho com `id desc`, seção sem): no empate, a tela
+  mostra registros diferentes. Conferir desempate igual quando duas leituras dizem "a última".
+
+Plano 18 (ficha, re-revisão do code review do PR 1, 17/11/2026):
+- Guarda de "lista fechada de imports" (ex.: `IMPORTS_PERMITIDOS` de `ficha/registro.test.ts`) ampliada com o módulo
+  inteiro (que exporta funções que auditam/escrevem) só para reaproveitar um filtro puro. A guarda textual
+  (`auditRead|recordAudit`) não pega a chamada indireta. Sugerir mover o helper puro para um módulo sem efeitos
+  (constantes/filtro) ou restringir os nomes importados.

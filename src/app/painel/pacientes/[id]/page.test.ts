@@ -1,0 +1,125 @@
+import type { ReactElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SecaoNoInicio } from '@/modules/ficha/inicio';
+
+// Plano 18 (US-262, US-263, RN-276): a aba Início — Adicionar (some para bloqueado e anonimizado), o cartão Resumo, o
+// bloco da IA (US-120) e as seções na ordem em que o registro as devolve. Prontuário, IA, seções e cartão simulados.
+const PACIENTE = '00000000-0000-4000-8000-0000000000a1';
+const BASE = `/painel/pacientes/${PACIENTE}`;
+const estado = vi.hoisted(() => ({
+  paciente: {} as Record<string, unknown>,
+  secoes: [] as unknown[],
+  ia: null as unknown,
+  chamadas: [] as unknown[][],
+}));
+vi.mock('server-only', () => ({}));
+vi.mock('./prontuario', () => ({
+  carregarProntuario: async () => ({
+    ctx: { tenantId: 't', role: 'nutri' },
+    tenant: { fuso: 'America/Sao_Paulo', documentosLiberados: true, examesPacienteAtivadoEm: null, status: 'ativa' },
+    paciente: estado.paciente,
+  }),
+}));
+vi.mock('./ia-assistente', () => ({ iaDoAssistente: async () => estado.ia }));
+vi.mock('@/modules/ficha/inicio', () => ({
+  secoesDoInicio: async (...args: unknown[]) => {
+    estado.chamadas.push(args);
+    return estado.secoes;
+  },
+}));
+vi.mock('@/modules/ficha/resumo', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/ficha/resumo')>()),
+  cartaoResumo: async () => ({ aniversario: '20 de maio', pacienteDesde: '03/02/2025', planoPublicadoEm: '10/11/2026' }),
+}));
+vi.mock('./inicio/acoes', () => ({ acoesDoAdicionar: () => ({ 'criar-receita': vi.fn(), 'criar-parecer': vi.fn() }) }));
+vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => ({ push: () => undefined }) }));
+const { default: InicioPage } = await import('./page');
+const { MSG_BLOQUEADO } = await import('@/modules/pacientes/base');
+
+const secao = (id: string, titulo: string, aba: string, total = 0): SecaoNoInicio => ({
+  id,
+  titulo,
+  aba,
+  verTodos: `${BASE}/${aba}`,
+  podeAdicionar: true,
+  resumo: { total, ultimos: total ? [{ id: `${id}-1`, rotulo: 'Item', data: '2026-10-12', noApp: false, href: `${aba}/${id}-1` }] : [] },
+});
+const REGISTRO = [
+  secao('plano-alimentar', 'Plano alimentar', 'plano-alimentar', 1),
+  secao('antropometria', 'Antropometria', 'antropometria', 5),
+  secao('gasto-energetico', 'Gasto energético', 'gasto-energetico'),
+  secao('anamneses', 'Anamneses', 'anamnese', 3),
+  secao('atendimentos', 'Atendimentos', 'atendimentos'),
+  secao('exames', 'Exames', 'exames'),
+  secao('documentos', 'Documentos', 'documentos'),
+];
+
+async function render(): Promise<string> {
+  const el = (await InicioPage({ params: Promise.resolve({ id: PACIENTE }) } as never)) as ReactElement;
+  return renderToStaticMarkup(el);
+}
+const h3s = (html: string) => [...html.matchAll(/<h3[^>]*>([^<]*)<\/h3>/g)].map((m) => m[1]);
+
+describe('aba Início (Plano 18)', () => {
+  beforeEach(() => {
+    estado.paciente = { id: PACIENTE, nome: 'Ana Teste', status: 'ativo', anonimizadoEm: null, dataNascimento: '1990-05-20', createdAt: new Date('2025-02-03T15:00:00Z') };
+    estado.secoes = REGISTRO;
+    estado.ia = null;
+    estado.chamadas = [];
+  });
+
+  it('ativo: o botão Adicionar, o cartão Resumo e as seções na ordem do registro', async () => {
+    const html = await render();
+    expect(html).toContain('data-guia="adicionar-prontuario"');
+    expect(html).toMatch(/<h2[^>]*>Resumo<\/h2>/);
+    expect(html).toContain('Aniversário: 20 de maio');
+    expect(html).toContain('Paciente desde 03/02/2025');
+    expect(html).toContain('Plano alimentar publicado em 10/11/2026');
+    expect(html).toContain('data-guia="secoes-inicio"');
+    const secoes = h3s(html).filter((t) => /\(\d+\)$/.test(t));
+    expect(secoes).toEqual(['Plano alimentar (1)', 'Antropometria (5)', 'Gasto energético (0)', 'Anamneses (3)', 'Atendimentos (0)', 'Exames (0)', 'Documentos (0)']);
+    // o Início lê as seções com o tenant e o paciente do prontuário (uma chamada)
+    expect(estado.chamadas).toHaveLength(1);
+    expect(estado.chamadas[0][2]).toBe(estado.paciente);
+  });
+
+  it('a ordem das seções é a que secoesDoInicio devolve (a página não reordena)', async () => {
+    estado.secoes = [...REGISTRO].reverse();
+    expect(h3s(await render()).filter((t) => /\(\d+\)$/.test(t))[0]).toBe('Documentos (0)');
+  });
+
+  it('bloqueado: sem Adicionar (as seções continuam, só para consulta)', async () => {
+    estado.paciente = { ...estado.paciente, status: 'bloqueado' };
+    const html = await render();
+    expect(html).not.toContain('data-guia="adicionar-prontuario"');
+    expect(html).not.toContain('Adicionar ao prontuário');
+    expect(html).toContain('Antropometria (5)');
+    // o aviso do antigo Resumo (o mesmo do Perfil), no topo do Início
+    expect(MSG_BLOQUEADO).toBe('Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.');
+    expect(html.startsWith(`<div class="space-y-6"><p role="status">${MSG_BLOQUEADO}</p>`)).toBe(true);
+  });
+
+  it('o aviso de bloqueado só aparece para o paciente bloqueado', async () => {
+    expect(await render()).not.toContain(MSG_BLOQUEADO);
+    estado.paciente = { ...estado.paciente, status: 'arquivado' };
+    expect(await render()).not.toContain(MSG_BLOQUEADO);
+  });
+
+  it('anonimizado: sem Adicionar', async () => {
+    estado.paciente = { ...estado.paciente, status: 'arquivado', anonimizadoEm: new Date('2026-10-01T12:00:00Z') };
+    expect(await render()).not.toContain('data-guia="adicionar-prontuario"');
+  });
+
+  it('arquivado: com Adicionar (cada aba continua deixando registrar)', async () => {
+    estado.paciente = { ...estado.paciente, status: 'arquivado' };
+    expect(await render()).toContain('data-guia="adicionar-prontuario"');
+  });
+
+  it('o bloco da IA (US-120) continua no Início, como estava', async () => {
+    estado.ia = { podePedir: true, aviso: null };
+    const html = await render();
+    expect(html).toMatch(/<h2 id="ia-titulo"[^>]*>Inteligência artificial<\/h2>/);
+    expect(html).toContain(`href="${BASE}/resumo-ia"`);
+  });
+});

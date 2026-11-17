@@ -64,3 +64,11 @@ isolamento, divergência #3).
   colunas; `\|` escapado (cap. 4, `indicadorMeta`) é falso positivo de colunas.
 - Plano cujas decisões são NORMAS-DECISAO-n/NORMAS-0n (lente de normas) em vez de Dx: citar esses rótulos.
 - Tela de portal nova sob `/p/perfil/*` marca Eu pelo prefixo; não precisa de `tambem` nem de `SEM_AJUDA`.
+
+- Plano 18 PR 1 (17/11/2026): aba nova da ficha envelhece "12 abas" (cap. 5 §5.3.9), a citação `[id]/page.tsx:N` e o
+  termo "página do paciente" (caps. 4 §4.2.1 e 10 §10.13), `prontuario.ts:N` (caps. 3 e 7) e `conteudo.ts:N` (cap. 10
+  P11-20 g; guia novo no meio de `GUIAS` desloca tudo). `conteudo.test.ts:48`/`conteudo.ts:19` do cap. 7 já estavam velhos.
+- Plano em dois PRs: documentar só o que está no código; o que a spec promete para o PR 2 vira divergência "Pend." para
+  retirar no fechamento seguinte. No PR 1 a orquestradora pediu para não mexer no Docs: a proposta do manual do usuário
+  ficou para o fechamento do plano (T12c).
+

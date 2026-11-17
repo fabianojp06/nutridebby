@@ -678,7 +678,7 @@ sequenceDiagram
 
 ## 3.17 Como estender com segurança
 
-- **Página nova do painel:** primeira linha `await requireNutri('/painel/…')`; numa aba do prontuário, `carregarProntuario(id)` (`src/app/painel/pacientes/[id]/prontuario.ts:12`). Use o `ctx` devolvido em `withTenant`. Nunca monte o `TenantContext` à mão. Server Action só em `actions.ts`. Checklist completo: [§7.4.5](07-testes-qualidade-e-processo.md#745-checklist-tela-nova).
+- **Página nova do painel:** primeira linha `await requireNutri('/painel/…')`; numa aba do prontuário, `carregarProntuario(id)` (`src/app/painel/pacientes/[id]/prontuario.ts:13`). Use o `ctx` devolvido em `withTenant`. Nunca monte o `TenantContext` à mão. Server Action só em `actions.ts`. Checklist completo: [§7.4.5](07-testes-qualidade-e-processo.md#745-checklist-tela-nova).
 - **Página nova do portal:** `await requirePaciente('/p/…')`. Nenhuma guarda do CI confere isso no portal (§7.4.5).
 - **Rota nova em `/api/painel/*`:** `requireApiNutri(req)`; em `/api/p/*`, `requireApiPaciente(req)`. Lembre: o proxy não protege `/api/*`.
 - **Página nova do admin:** `requireUser(['admin'], path)`. O admin não lê tabelas 🔒. Precisa de número agregado? Use função `SECURITY DEFINER` como `admin_tenant_metrics()`.

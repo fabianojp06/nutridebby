@@ -39,12 +39,12 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'pacientes',
-    versao: 1,
+    versao: 1, // Plano 18: "Reenviar convite" na aba Perfil, só na gaveta (o tour não muda, a versão fica)
     padrao: /^\/painel\/pacientes(\/novo)?$/,
     titulo: 'Pacientes',
     ajuda: {
       resumo: 'A lista dos seus pacientes. Tudo começa aqui: cadastrar, convidar para o app e abrir o prontuário.',
-      secoes: [{ titulo: 'Passo a passo', itens: ['Clique em "Novo paciente" e preencha nome, data de nascimento, sexo e e-mail.', 'Ao salvar, o paciente recebe o convite para o app por e-mail (e por WhatsApp, se você marcar "Enviar convite por WhatsApp" com a autorização). Se o convite vencer, use "Reenviar convite" no prontuário.', 'Use a busca para achar pelo nome; arquivados aparecem no filtro de situação.'] }],
+      secoes: [{ titulo: 'Passo a passo', itens: ['Clique em "Novo paciente" e preencha nome, data de nascimento, sexo e e-mail.', 'Ao salvar, o paciente recebe o convite para o app por e-mail (e por WhatsApp, se você marcar "Enviar convite por WhatsApp" com a autorização). Se o convite vencer, use "Reenviar convite" em "Acesso ao app", na aba Perfil do prontuário.', 'Use a busca para achar pelo nome; arquivados aparecem no filtro de situação.'] }],
     },
     passos: [
       { alvo: 'novo-paciente', titulo: 'Novo paciente', texto: 'Comece cadastrando o paciente. O convite para o app sai por e-mail ao salvar.' },
@@ -142,23 +142,52 @@ export const GUIAS: readonly Guia[] = [
     passos: [{ alvo: 'ia-nutri-aba', titulo: 'IA Nutri do paciente', texto: 'Libere a IA Nutri paciente por paciente. Depois, o paciente lê o texto e decide no app. Aqui você lê as conversas dele com a IA e registra a desativação quando ele pedir.' }],
   },
   {
+    // Plano 18 (§8.3): só o Início da ficha; antes do `prontuario`, que casa todas as abas (os passos novos só têm alvo aqui).
+    // Título "Início do paciente": "Início" é o do guia de boas-vindas (o manual completo lista um h2 por guia).
+    id: 'inicio-paciente',
+    versao: 1,
+    padrao: new RegExp(`^/painel/pacientes/${ID}$`),
+    titulo: 'Início do paciente',
+    ajuda: {
+      resumo: 'O Início reúne o que já foi feito com o paciente: o resumo, o botão "Adicionar" e uma seção para cada parte do acompanhamento, com os três registros mais recentes.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Use "Adicionar" para registrar anamnese, antropometria, gasto energético, exame, atendimento ou prescrição sem procurar a aba.',
+            'Abra uma seção para ver os registros mais recentes; "Ver todos" leva à aba com a lista completa.',
+            'O cadastro, o acesso ao app e as etiquetas ficam no Perfil.',
+          ],
+        },
+        { titulo: 'Perguntas comuns', itens: ['Paciente bloqueado por pedido de exclusão não tem o botão "Adicionar": o prontuário é só para consulta.'] },
+      ],
+    },
+    passos: [
+      { alvo: 'cabecalho-paciente', titulo: 'O paciente', texto: 'Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o paciente está arquivado ou bloqueado.' },
+      { alvo: 'abas-prontuario', titulo: 'Abas do prontuário', texto: 'Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento tem a sua aba.' },
+      { alvo: 'adicionar-prontuario', titulo: 'Adicionar', texto: 'Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.' },
+      // PR 1 sem o selo: a frase "O selo No app marca o que o paciente vê no app." (spec §8.3) entra na Tarefa 9, com a versao 2.
+      { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes.' },
+    ],
+  },
+  {
     id: 'prontuario',
     // D20 (Plano 10A): sem "documentos" e sem subir a versão — a aba só aparece com o consultório liberado; ela fica descrita no guia `documentos`.
     // Plano 11: o item da IA entra nas perguntas comuns sem subir a versão, pelo mesmo motivo (a IA depende da liberação; os passos não mudam).
     // Plano 14B-2: item da IA sem subir a versão (depende da liberação, como no Plano 11)
-    versao: 2, // Plano 14A: a autorização de IA na aba Privacidade (item novo nas perguntas comuns)
+    versao: 3, // Plano 14A: a autorização de IA na aba Privacidade (item novo nas perguntas comuns); 3 = Plano 18: abas Início e Perfil
     padrao: new RegExp(`^/painel/pacientes/${ID}(/.*)?$`),
     titulo: 'Prontuário',
     ajuda: {
-      resumo: 'Tudo do paciente em abas: anamnese, antropometria, gasto energético, atendimentos, exames, evolução, plano alimentar e privacidade.',
+      resumo: 'Tudo do paciente em abas: o Início reúne o que já foi feito, o Perfil guarda o cadastro, e as outras trazem anamnese, antropometria, gasto energético, atendimentos, exames, evolução, plano alimentar e privacidade.',
       secoes: [
-        { titulo: 'Passo a passo', itens: ['Comece pela anamnese (use um modelo para ganhar tempo).', 'Registre as medidas em Antropometria; a Evolução mostra os gráficos.', 'Em Privacidade ficam a cópia dos dados e o pedido de exclusão do paciente.'] },
+        { titulo: 'Passo a passo', itens: ['No Início, veja o que já foi feito; no Perfil, confira o cadastro. Depois, comece pela anamnese (use um modelo para ganhar tempo).', 'Registre as medidas em Antropometria; a Evolução mostra os gráficos.', 'Em Privacidade ficam a cópia dos dados e o pedido de exclusão do paciente.'] },
         { titulo: 'Perguntas comuns', itens: ['Cada acesso ao prontuário fica registrado no "Histórico de acessos" (LGPD).', 'Paciente arquivado sai da agenda e dos conteúdos, mas o prontuário continua guardado.', 'Na aba Exames, "Ler valores com IA" lê o laudo anexado e mostra os valores para você conferir; só as linhas marcadas são salvas.', 'Em Privacidade, "Uso de IA" mostra se o paciente autorizou o uso de IA e os registros; o pedido vai por "Enviar pedido de autorização por e-mail" ou pelo "Registrar termo em papel" (imprimir pelo Chrome ou Edge, para sair o rodapé com o código e o número da página; o paciente assina; fotografar todas as páginas; ao salvar, digitar o código de referência do rodapé do papel; guardar o original na pasta do paciente e entregar uma via a ele).', 'Na aba Evolução, "Não mostrar peso no app" tira o peso e o IMC do app do paciente; o prontuário e a cópia dos dados não mudam.', '"Resumo do histórico (IA)": um resumo do prontuário antes da consulta, com cada frase ligada ao registro de onde veio. Só com a autorização do paciente; as notas privadas só vão se você marcar "Incluir notas privadas".'] },
       ],
     },
     passos: [
-      { alvo: 'cabecalho-paciente', titulo: 'O paciente', texto: 'Nome, idade e situação. O selo mostra se o paciente está arquivado ou bloqueado.' },
-      { alvo: 'abas-prontuario', titulo: 'Abas do prontuário', texto: 'Cada parte do acompanhamento fica numa aba. Em tela estreita, a faixa de abas rola para o lado.' },
+      { alvo: 'cabecalho-paciente', titulo: 'O paciente', texto: 'Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o paciente está arquivado ou bloqueado.' },
+      { alvo: 'abas-prontuario', titulo: 'Abas do prontuário', texto: 'Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento tem a sua aba.' },
     ],
   },
   {

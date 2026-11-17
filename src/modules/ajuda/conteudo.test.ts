@@ -10,7 +10,7 @@ const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
   .join('\n');
 
 // Rótulos que vêm de módulos (opções da agenda, filtros): citados no manual, desenhados fora do .tsx
-const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes']
+const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes', 'src/modules/ficha']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.ts') && !d.name.endsWith('.test.ts')).map((d) => path.join(d.parentPath, d.name)))
   // Plano 16: os rótulos da resposta do diário ("Comeu como no plano") vêm de uma constante do portal (sem import de servidor)
   .concat(path.resolve('src/modules/portal/diario-constantes.ts'))
@@ -69,7 +69,7 @@ describe('conteúdo do manual (P08-10)', () => {
     const g = GUIAS.find((x) => x.id === 'prontuario')!;
     const textos = [g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)];
     expect(textos.filter((t) => /documento/i.test(t))).toEqual([]);
-    expect(g.versao).toBe(2); // subiu no Plano 14A pela autorização de IA (item novo nas perguntas comuns), não pela aba Documentos
+    expect(g.versao).toBe(3); // 2 no Plano 14A pela autorização de IA (item novo nas perguntas comuns), 3 no Plano 18 pelas abas Início e Perfil; nunca pela aba Documentos
   });
   it('Plano 12: o passo do menu do boas-vindas cita "Exames recebidos" e o guia subiu de versão (quem já viu o tour, vê de novo)', () => {
     const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
@@ -104,7 +104,7 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(itens('prontuario')).toContain(
       '"Resumo do histórico (IA)": um resumo do prontuário antes da consulta, com cada frase ligada ao registro de onde veio. Só com a autorização do paciente; as notas privadas só vão se você marcar "Incluir notas privadas".',
     );
-    expect(GUIAS.find((x) => x.id === 'prontuario')!.versao).toBe(2);
+    expect(GUIAS.find((x) => x.id === 'prontuario')!.versao).toBe(3); // Plano 18: abas Início e Perfil
     expect(itens('plano-alimentar')).toContain(
       '"Gerar rascunho com IA": informe a meta, os macronutrientes e as refeições; a IA escolhe alimentos da TACO e da sua tabela, e todas as contas são do sistema. O plano publicado leva o selo "Elaborado com apoio de IA e revisado pela nutricionista".',
     );
@@ -154,6 +154,46 @@ describe('conteúdo do manual (P08-10)', () => {
     const perguntas = g.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')!.itens.join(' ');
     expect(perguntas).toContain('24 lembretes por dia');
     expect(perguntas).toContain('entre 6h e 22h');
+  });
+
+  it('Plano 18 (§8.2): o guia do prontuário na versão 3, com o cabeçalho e as abas Início e Perfil; o resumo e o passo a passo citam os dois', () => {
+    const g = GUIAS.find((x) => x.id === 'prontuario')!;
+    expect(g.versao).toBe(3);
+    expect(g.passos.find((p) => p.alvo === 'cabecalho-paciente')?.texto).toBe(
+      'Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o paciente está arquivado ou bloqueado.',
+    );
+    expect(g.passos.find((p) => p.alvo === 'abas-prontuario')?.texto).toBe(
+      'Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento tem a sua aba.',
+    );
+    expect(g.ajuda.resumo).toMatch(/Início.*Perfil/);
+    const passoAPasso = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens;
+    expect(passoAPasso[0]).toMatch(/Início.*Perfil.*anamnese/);
+  });
+  it('Plano 18: o guia de Pacientes manda ao "Reenviar convite" da aba Perfil, só na gaveta (o tour não muda, versão 1)', () => {
+    const g = GUIAS.find((x) => x.id === 'pacientes')!;
+    expect(g.versao).toBe(1);
+    const itens = g.ajuda.secoes.flatMap((s) => s.itens);
+    expect(itens).toContainEqual(expect.stringContaining('use "Reenviar convite" em "Acesso ao app", na aba Perfil do prontuário.'));
+    expect(g.passos.map((p) => p.texto).join(' ')).not.toContain('Reenviar convite');
+  });
+  it('Plano 18 (§8.3): o guia "Início do paciente" casa só o Início da ficha, vem antes do prontuário e traz os passos da spec', () => {
+    const g = GUIAS.find((x) => x.id === 'inicio-paciente')!;
+    expect(g.titulo).toBe('Início do paciente');
+    expect(g.versao).toBe(1);
+    expect(guiaDaRota(`/painel/pacientes/${UUID}`)?.id).toBe('inicio-paciente');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil`)?.id).toBe('prontuario');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/app`)?.id).toBe('prontuario');
+    expect(GUIAS.findIndex((x) => x.id === 'inicio-paciente')).toBeLessThan(GUIAS.findIndex((x) => x.id === 'prontuario'));
+    expect(g.passos.map((p) => p.alvo)).toEqual(['cabecalho-paciente', 'abas-prontuario', 'adicionar-prontuario', 'secoes-inicio']);
+    const prontuario = GUIAS.find((x) => x.id === 'prontuario')!;
+    for (const alvo of ['cabecalho-paciente', 'abas-prontuario']) expect(g.passos.find((p) => p.alvo === alvo)?.texto).toBe(prontuario.passos.find((p) => p.alvo === alvo)?.texto);
+    expect(g.passos.find((p) => p.alvo === 'adicionar-prontuario')?.texto).toBe('Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.');
+    expect(g.passos.find((p) => p.alvo === 'secoes-inicio')?.texto).toBe('Cada seção mostra quantos registros há e os três mais recentes.');
+    // O selo "No app" só existe a partir da Tarefa 9 (PR 2): na versao 1 nenhum texto do guia fala dele.
+    expect(JSON.stringify({ ajuda: g.ajuda, passos: g.passos })).not.toMatch(/No app/);
+  });
+  it('nenhum título de guia repetido (o manual completo lista um h2 por guia; "Início" é o de boas-vindas)', () => {
+    expect(new Set(GUIAS.map((g) => g.titulo)).size).toBe(GUIAS.length);
   });
   it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
     expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');

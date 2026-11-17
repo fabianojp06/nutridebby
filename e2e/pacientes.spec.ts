@@ -69,7 +69,8 @@ test('o paciente recebe o convite, cria a senha, aceita o termo e chega ao porta
   await expect(page.locator('p[role="alert"]')).toContainText('Convite inválido ou já usado.');
   await ctx.close();
 
-  await nutri.goto(prontuario);
+  await nutri.goto(`${prontuario}/perfil`); // Plano 18 (D12): o "Acesso ao app" fica no Perfil
+  await expect(nutri.getByRole('heading', { level: 2, name: 'Acesso ao app' })).toBeVisible();
   await expect(nutri.getByText('Ativo: o paciente já criou a senha.')).toBeVisible();
 });
 

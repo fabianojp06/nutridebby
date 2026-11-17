@@ -1,3 +1,4 @@
+import { FocoNaAncora } from '@/components/foco-na-ancora';
 import { formatarDecimal } from '@/lib/numero';
 import { MSG_CADASTRO_INCOMPLETO } from '@/modules/pacientes/base';
 import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
@@ -21,8 +22,9 @@ export default async function GastoEnergeticoPage({ params }: PageProps<'/painel
   const podeCalcular = cadastroCompleto && paciente.status !== 'bloqueado' && idade !== null && Number.isFinite(idade) && idade >= 18;
   return (
     <div className="space-y-8">
+      <FocoNaAncora />
       <section aria-labelledby="novo-calculo" className="max-w-3xl space-y-3">
-        <h2 id="novo-calculo" className="text-lg font-semibold">Calcular gasto energético</h2>
+        <h2 id="novo-calculo" tabIndex={-1} className="text-lg font-semibold">Calcular gasto energético</h2>
         {!cadastroCompleto ? (
           <p role="status">{MSG_CADASTRO_INCOMPLETO}</p>
         ) : podeCalcular ? (

@@ -1,5 +1,6 @@
 import { expect, type Browser, type BrowserContextOptions, type Page } from '@playwright/test';
 import { esperarEmail, primeiroLink } from './mailpit';
+import { criarPacientePeloFormulario } from './pacientes-form';
 
 let seq = 0;
 /**
@@ -17,14 +18,8 @@ export async function pacienteNoPortal(
   const nome = `Paula Portal ${sufixo}`;
   const email = `paula-${sufixo}@nutridebby.test`;
   const senha = `Paula${sufixo}2026`;
-  await nutri.goto('/painel/pacientes/novo');
-  await nutri.getByLabel('Nome').fill(nome);
-  await nutri.getByLabel('Data de nascimento').fill('1990-05-20');
-  await nutri.getByLabel('Feminino').check();
-  await nutri.getByLabel('E-mail').fill(email);
-  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
-  await expect(nutri).toHaveURL(/\/painel\/pacientes\/[0-9a-f-]{36}$/);
-  const prontuario = new URL(nutri.url()).pathname;
+  // Plano 18: o cadastro pelo helper único do formulário (o PR 2 troca os rótulos só lá)
+  const prontuario = await criarPacientePeloFormulario(nutri, { nome, email, nascimento: '1990-05-20', sexo: 'Feminino' });
   const convite = await esperarEmail(email, { assunto: 'Convite de Consultório E2E no NutriDebby' });
   const ctx = await browser.newContext({ ...opcoes, extraHTTPHeaders: { 'x-forwarded-for': ip } });
   const page = await ctx.newPage();

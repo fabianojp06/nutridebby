@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { FocoNaAncora } from '@/components/foco-na-ancora';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
 import { consultaParaIniciarAtendimento } from '@/modules/agenda/presenca';
 import { listarAtendimentos } from '@/modules/pacientes/atendimentos';
@@ -22,9 +23,10 @@ export default async function AtendimentosPage({ params, searchParams }: PagePro
   const dataInicial = diaDaConsulta && diaDaConsulta < hoje ? diaDaConsulta : hoje;
   return (
     <div className="space-y-8">
+      <FocoNaAncora />
       {paciente.status !== 'bloqueado' && (
         <section aria-labelledby="novo-atendimento" className="max-w-3xl space-y-3">
-          <h2 id="novo-atendimento" className="text-lg font-semibold">Novo atendimento</h2>
+          <h2 id="novo-atendimento" tabIndex={-1} className="text-lg font-semibold">Novo atendimento</h2>
           {daConsulta && <p className="text-sm">{`Atendimento da consulta de ${formatarQuando(daConsulta.inicio, tenant.fuso)}.`}</p>}
           <AtendimentoForm acao={registrarAtendimentoAction.bind(null, paciente.id)} inicial={{ data: dataInicial, notasPrivadas: '', orientacoes: '' }} hoje={hoje} botao="Registrar atendimento" somenteLeitura={false} consultaId={daConsulta?.id} />
         </section>

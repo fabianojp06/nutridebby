@@ -24,8 +24,9 @@ export async function criarPacienteAction(_prev: PacienteState, formData: FormDa
   redirect(`/painel/pacientes/${id}`);
 }
 
+/** Plano 18 (D12): o cadastro, o acesso ao app e as etiquetas ficam na aba Perfil — a volta depois do login é para ela. */
 export async function atualizarPacienteAction(patientId: string, _prev: PacienteState, formData: FormData): Promise<PacienteState> {
-  const { ctx, tenant } = await requireNutri(`/painel/pacientes/${patientId}`);
+  const { ctx, tenant } = await requireNutri(`/painel/pacientes/${patientId}/perfil`);
   const valores = valoresDoFormulario(formData);
   try {
     await atualizarPaciente(ctx, tenant, patientId, valores);
@@ -41,20 +42,20 @@ export async function atualizarPacienteAction(patientId: string, _prev: Paciente
 
 /** O botão só aparece quando reenviar vale; uma recusa aqui é corrida (outra aba) e a página já mostra a situação nova. */
 export async function reenviarConviteAction(patientId: string): Promise<void> {
-  const { ctx, tenant } = await requireNutri(`/painel/pacientes/${patientId}`);
+  const { ctx, tenant } = await requireNutri(`/painel/pacientes/${patientId}/perfil`);
   try {
     await reenviarConvitePaciente(ctx, tenant, patientId);
   } catch (e) {
     if (e instanceof PacienteNaoEncontradoError) notFound();
     if (!(e instanceof ConvitePacienteError) && !(e instanceof PacienteBloqueadoError)) throw e;
   }
-  revalidatePath(`/painel/pacientes/${patientId}`);
+  revalidatePath(`/painel/pacientes/${patientId}/perfil`);
 }
 
 export type EtiquetasState = { erro?: string; ok?: boolean };
 
 export async function salvarEtiquetasAction(patientId: string, _prev: EtiquetasState, formData: FormData): Promise<EtiquetasState> {
-  const { ctx } = await requireNutri(`/painel/pacientes/${patientId}`);
+  const { ctx } = await requireNutri(`/painel/pacientes/${patientId}/perfil`);
   try {
     await salvarEtiquetasDoPaciente(ctx, patientId, {
       etiquetas: formData.getAll('etiquetas').map(String),
@@ -65,6 +66,6 @@ export async function salvarEtiquetasAction(patientId: string, _prev: EtiquetasS
     if (e instanceof PacienteNaoEncontradoError) notFound();
     throw e;
   }
-  revalidatePath(`/painel/pacientes/${patientId}`);
+  revalidatePath(`/painel/pacientes/${patientId}/perfil`);
   return { ok: true };
 }

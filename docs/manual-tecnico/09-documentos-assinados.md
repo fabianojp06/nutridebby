@@ -39,7 +39,10 @@ stateDiagram-v2
 ```
 
 **Interruptor do admin (Plano 10A, D20).** `tenants.documentos_liberados` (padrão `false`, `src/db/schema/platform.ts`).
-Desligado: a aba "Documentos" não aparece (`Abas`, `src/app/painel/pacientes/[id]/abas.tsx`), as páginas e as Server
+Desligado: a aba "Documentos" não aparece (`Abas`, `src/app/painel/pacientes/[id]/abas.tsx`), nem, desde o Plano 18, a
+seção "Documentos" do Início da ficha e os itens "Receita" e "Parecer nutricional" do diálogo Adicionar (`disponivel`
+de `secaoDocumentos`, `src/modules/ficha/secoes/documentos.ts:14`; a seção nem é consultada,
+[§4.2.10](04-modulos-clinicos.md#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)), as páginas e as Server
 Actions do painel dão 404 (`acesso()` em `src/app/painel/pacientes/[id]/documentos/actions.ts`), as rotas
 `/api/painel/documentos/*` e `/api/p/documentos/*` dão 404, o portal não conta nem mostra documento (`ativo()` em
 `src/modules/documentos/portal.ts`), o link do e-mail fica indisponível e não envia código (`abrirLink` em
