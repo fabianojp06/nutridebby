@@ -374,3 +374,7 @@ Plano 18, revisão final do PR 2 (17/11/2026): limpo na lente banco (0124/0125, 
 alcançável — tamanho por code point = char_length —, auditRead só no Perfil, rede da anonimização, isolamento com ator).
 - Repetiu "Minor da tarefa que não chega ao backlog": a projeção de `listarPacientes` no limite servidor→cliente
   (agenda/nova → ConsultaForm) apontada na T8 não entrou na seção de backlog do plano. Conferir item a item na final.
+Plano 23, T1a (Agenda 2, banco, 17/11/2026):
+- Política RESTRICTIVE `FOR SELECT` usada para "o papel não grava o estado X" (aguardando_fora_do_publico): barra o UPDATE
+  (linha nova conferida pelo SELECT) e o FOR UPDATE, mas NÃO o INSERT sem RETURNING — o `publico` insere a linha já no estado
+  X (provado no dev com rollback). Conferir os três comandos; pedir FOR ALL (USING + WITH CHECK) ou política de INSERT própria.
