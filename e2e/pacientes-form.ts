@@ -1,8 +1,9 @@
 import { expect, type Page } from '@playwright/test';
 
 /**
- * Plano 18 (RNF-263 g): o único lugar dos E2E que preenche o formulário "Novo paciente". O PR 2 do Plano 18 troca os
- * rótulos do formulário ("Nome" vira "Nome completo", ao lado de "Nome social"; o telefone muda): só este helper muda.
+ * Plano 18 (RNF-263 g): o caminho dos E2E para preencher o formulário "Novo paciente". O PR 2 do Plano 18 troca os
+ * rótulos do formulário ("Nome" vira "Nome completo", ao lado de "Nome social"; o telefone muda) aqui e passa ao helper
+ * os pontos do `agenda.spec.ts` que ainda preenchem o formulário direto.
  * Os E2E novos (Planos 17, 19, 20…) cadastram paciente por aqui, nunca pelos rótulos direto.
  * Devolve o caminho do prontuário (`/painel/pacientes/{id}`).
  */

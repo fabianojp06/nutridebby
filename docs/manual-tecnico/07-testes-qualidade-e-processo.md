@@ -414,9 +414,10 @@ apontado para produção.
   do painel abre todas as telas e exige a lista vazia. É a prova de que a CSP pode valer direto (Plano 08, D7).
 - **Admin com 2FA.** `entrarComoAdmin` ativa o 2FA no primeiro login e gera o código TOTP com `otpauth`.
 - **Paciente novo só pelo helper (Plano 18, RNF-263 g).** `criarPacientePeloFormulario(nutri, { nome, email, nascimento?,
-  sexo?, telefone? })` (`e2e/pacientes-form.ts:9`) é o único lugar dos E2E que preenche "Novo paciente" e devolve o
-  caminho do prontuário; `pacienteNoPortal` (`e2e/portal.ts`) já o usa. O PR 2 do Plano 18 troca os rótulos do formulário
-  ("Nome" vira "Nome completo"; muda o telefone) e só o helper muda: spec novo (Planos 19, 20…) cadastra paciente por ele.
+  sexo?, telefone? })` (`e2e/pacientes-form.ts:9`) preenche "Novo paciente" e devolve o caminho do prontuário; `pacienteNoPortal`
+  (`e2e/portal.ts`) já o usa. Spec novo (Planos 19, 20…) cadastra paciente só por ele. O `agenda.spec.ts` ainda preenche o
+  formulário direto (`novoPaciente` e o teste do convite por WhatsApp): o PR 2 do Plano 18, que troca os rótulos ("Nome"
+  vira "Nome completo"; muda o telefone), passa esses pontos ao helper.
 
 ### Acessibilidade (RNF-10)
 
@@ -453,7 +454,7 @@ Detalhes que evitam falso verde:
 | `csp.spec.ts` | 3 | CSP e cabeçalhos |
 | `health.spec.ts` | 1 | `/api/health` (o que o monitor externo confere) |
 | `acessibilidade.spec.ts` | 11 (+ laço) | Portal |
-| `acessibilidade-painel.spec.ts` | 6 (+ laço) | Painel; desde o Plano 18, a faixa de 13 abas da ficha a 1280 px sem rolar e sem "incomplete", com o cadastro no Perfil |
+| `acessibilidade-painel.spec.ts` | 7 (+ laço) | Painel; desde o Plano 18, a faixa de 13 abas da ficha a 1280 px sem rolar e sem "incomplete", com o cadastro no Perfil |
 | `documentos.spec.ts` (Plano 10A) | 1 | Receita de ponta a ponta pela digitalizada (rascunho → preparar → fotos + 2FA → portal: abrir e confirmar → situação no painel → verificação pública sem dado do paciente), com axe nos cartões "Aguardando assinatura" e "Documento assinado"; `acessibilidade.spec.ts` ganhou o axe de `/p/documentos`, `/v/<código>` e `/documento/<token>` (claro, escuro, 360 px) |
 
 | `painel-pwa.spec.ts` (Plano 09) | 1 | Painel instalável: manifest próprio, nenhum service worker, HTML sem cache (P09-05) |

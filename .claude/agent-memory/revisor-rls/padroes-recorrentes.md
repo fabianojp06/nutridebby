@@ -313,3 +313,9 @@ Plano 17, re-revisão do code review (17/11/2026):
 Plano 18, T1 (registro de seções do Início, 17/11/2026): limpo na lente banco. Ponto de atenção para planos que penduram seção:
 - Guarda de fonte "arquivo nunca chama auditRead" por regex do nome direto deixa passar helper que audita por padrão
   (`lerPlanoNaTransacao`, `lerDocumentoNaTransacao`, `auditar !== false`). Conferir os imports da seção nova, não só o grep.
+
+Plano 18, PR 1 (registro de seções da ficha, 17/11/2026):
+- Tipo marcado (`TxDePaciente`, brand com `unique symbol`) apresentado como garantia de contexto: qualquer módulo faz
+  `tx as TxDePaciente`. Só vale com guarda de fonte do cast (só o arquivo dono). Conferir no PR que cria o dono.
+- Mesma "última linha" lida em dois lugares com ORDER BY diferente (cabeçalho com `id desc`, seção sem): no empate, a tela
+  mostra registros diferentes. Conferir desempate igual quando duas leituras dizem "a última".
