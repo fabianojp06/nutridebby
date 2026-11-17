@@ -8,13 +8,14 @@ const PACIENTE = '00000000-0000-4000-8000-0000000000a1';
 const AVISO_BLOQUEADO = 'Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.';
 let paciente: Record<string, unknown>;
 let acesso: { estado: string; expiraEm?: Date };
+let conviteWa: { status: string; motivoIgnorada: string | null; agendadaPara: Date; enviadaEm: Date | null } | null;
 vi.mock('server-only', () => ({}));
 vi.mock('../prontuario', () => ({
   carregarProntuario: async () => ({ ctx: {}, tenant: { fuso: 'America/Sao_Paulo' }, paciente }),
 }));
 vi.mock('@/modules/pacientes/convite-paciente', () => ({
   situacaoDoAcesso: async () => acesso,
-  situacaoDoConviteWhatsapp: async () => null,
+  situacaoDoConviteWhatsapp: async () => conviteWa,
 }));
 vi.mock('@/modules/pacientes/etiquetas', () => ({
   listarEtiquetas: async () => [{ id: 'e1', nome: 'Gestante' }],
@@ -36,6 +37,7 @@ describe('aba Perfil (Plano 18, D12)', () => {
       whatsappAutorizadoEm: null, status: 'ativo', userId: null, anonimizadoEm: null,
     };
     acesso = { estado: 'pendente', expiraEm: new Date('2026-11-20T15:00:00Z') };
+    conviteWa = null;
   });
 
   it('mostra o cadastro, o "Acesso ao app" e as "Etiquetas", nessa ordem', async () => {
@@ -49,6 +51,21 @@ describe('aba Perfil (Plano 18, D12)', () => {
     expect(html).toContain('Gestante');
     expect(html).toContain('Salvar etiquetas');
     expect(html).not.toContain(AVISO_BLOQUEADO);
+  });
+
+  it('sem convite por WhatsApp: sem a linha dele', async () => {
+    expect(await render()).not.toContain('Convite por WhatsApp');
+  });
+
+  it('convite por WhatsApp enviado: a linha aparece no "Acesso ao app"', async () => {
+    const quando = new Date('2026-11-16T13:30:00Z');
+    conviteWa = { status: 'enviada', motivoIgnorada: null, agendadaPara: quando, enviadaEm: quando };
+    const html = await render();
+    expect(html).toContain('Convite por WhatsApp: enviado em seg., 16/11/2026 às 10:30');
+    // depois do título "Acesso ao app" e antes de "Etiquetas"
+    const i = html.indexOf('Convite por WhatsApp');
+    expect(i).toBeGreaterThan(html.indexOf('>Acesso ao app<'));
+    expect(i).toBeLessThan(html.indexOf('>Etiquetas<'));
   });
 
   it('acesso já ativo: sem "Reenviar convite"', async () => {

@@ -82,26 +82,29 @@ test('estados abertos também passam: menu da conta, aviso de erro de formulári
  */
 test('Plano 18: a faixa de abas da ficha cabe a 1280 px sem "incomplete"; o cadastro fica no Perfil', async () => {
   await escolherTema(nutri, 'Claro');
-  await nutri.setViewportSize({ width: 1280, height: 720 });
-  await nutri.goto(`/painel/pacientes/${ids.paciente}/perfil`);
-  const faixa = nutri.getByRole('navigation', { name: 'Seções do prontuário' });
-  await expect(faixa.getByRole('link')).toHaveCount(13);
-  await expect(faixa.getByRole('link').first()).toHaveText('Início');
-  await expect(faixa.getByRole('link', { name: 'Perfil', exact: true })).toHaveAttribute('aria-current', 'page');
-  await expect(faixa.getByRole('link').last()).toHaveText('Histórico');
-  await expect(faixa.getByRole('link').last()).toHaveAccessibleName('Histórico de acessos');
-  expect(await faixa.locator('ul').evaluate((ul) => ul.scrollWidth <= ul.clientWidth), 'a faixa de abas rola a 1280 px').toBe(true);
-  const r = await new AxeBuilder({ page: nutri }).withTags(TAGS).include('nav[aria-label="Seções do prontuário"]').analyze();
-  expect(r.violations.map((v) => v.id)).toEqual([]);
-  expect(r.incomplete.map((i) => `${i.id}: ${i.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
-  await expect(nutri.getByRole('heading', { level: 2, name: 'Cadastro' })).toBeVisible();
-  await expect(nutri.getByRole('button', { name: 'Salvar cadastro' })).toBeVisible();
-  await expect(nutri.getByRole('heading', { level: 2, name: 'Acesso ao app' })).toBeVisible();
-  await expect(nutri.getByRole('heading', { level: 2, name: 'Etiquetas' })).toBeVisible();
-  await nutri.goto(`/painel/pacientes/${ids.paciente}`);
-  await expect(faixa.getByRole('link', { name: 'Início', exact: true })).toHaveAttribute('aria-current', 'page');
-  await expect(nutri.getByRole('button', { name: 'Salvar cadastro' })).toHaveCount(0);
-  await escolherTema(nutri, 'Igual ao aparelho');
+  try {
+    await nutri.setViewportSize({ width: 1280, height: 720 });
+    await nutri.goto(`/painel/pacientes/${ids.paciente}/perfil`);
+    const faixa = nutri.getByRole('navigation', { name: 'Seções do prontuário' });
+    await expect(faixa.getByRole('link')).toHaveCount(13);
+    await expect(faixa.getByRole('link').first()).toHaveText('Início');
+    await expect(faixa.getByRole('link', { name: 'Perfil', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(faixa.getByRole('link').last()).toHaveText('Histórico');
+    await expect(faixa.getByRole('link').last()).toHaveAccessibleName('Histórico de acessos');
+    expect(await faixa.locator('ul').evaluate((ul) => ul.scrollWidth <= ul.clientWidth), 'a faixa de abas rola a 1280 px').toBe(true);
+    const r = await new AxeBuilder({ page: nutri }).withTags(TAGS).include('nav[aria-label="Seções do prontuário"]').analyze();
+    expect(r.violations.map((v) => v.id)).toEqual([]);
+    expect(r.incomplete.map((i) => `${i.id}: ${i.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
+    await expect(nutri.getByRole('heading', { level: 2, name: 'Cadastro' })).toBeVisible();
+    await expect(nutri.getByRole('button', { name: 'Salvar cadastro' })).toBeVisible();
+    await expect(nutri.getByRole('heading', { level: 2, name: 'Acesso ao app' })).toBeVisible();
+    await expect(nutri.getByRole('heading', { level: 2, name: 'Etiquetas' })).toBeVisible();
+    await nutri.goto(`/painel/pacientes/${ids.paciente}`);
+    await expect(faixa.getByRole('link', { name: 'Início', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(nutri.getByRole('button', { name: 'Salvar cadastro' })).toHaveCount(0);
+  } finally {
+    await escolherTema(nutri, 'Igual ao aparelho');
+  }
 });
 
 /**

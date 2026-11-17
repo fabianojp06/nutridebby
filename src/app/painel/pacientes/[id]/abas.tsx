@@ -38,8 +38,9 @@ export function Abas({ patientId, documentos, iaNutri = false }: { patientId: st
       {/* 13 abas (Documentos, Plano 10A; IA Nutri, Plano 15; Início e Perfil, Plano 18): sem o gap e com px-1.25 (5 px), cabem
           inteiras a partir de 1280 px. Medido com 12 abas: 1213 de 1232 px (com px-2 eram 1285 e a última ficava cortada —
           "incomplete" no axe). Plano 18: "Perfil" soma cerca de 46 px, "Histórico" no lugar de "Histórico de acessos" tira
-          cerca de 85 e "Início" no lugar de "Resumo", poucos — perto de 1170 de 1232 px, conferido pelo axe a 1280 px em
-          e2e/acessibilidade-painel.spec.ts. Uma 14ª aba não cabe (R-266); mais estreito, a faixa rola */}
+          cerca de 85 e "Início" no lugar de "Resumo", poucos. Com 13 abas, o valor é estimado (não medido): perto de 1170 de
+          1232 px, até o E2E medir (axe a 1280 px em e2e/acessibilidade-painel.spec.ts). Uma 14ª aba não cabe (R-266); mais
+          estreito, a faixa rola */}
       <ul className="flex overflow-x-auto border-b border-borda">
         {ABAS.filter((a) => (a.seg !== 'documentos' || documentos) && (a.seg !== 'ia-nutri' || iaNutri)).map((a) => {
           const href = a.seg ? `${base}/${a.seg}` : base;
