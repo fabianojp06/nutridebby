@@ -744,7 +744,7 @@ orquestradora"); detalhe nas divergências 1–12 do [cap. 12](12-financeiro.md#
 | 150 | RN-318 | Lista das leituras auditadas | Também a mensagem do atendimento com a cobrança criada grava um `ler` | Doc | 12 #9 |
 | 151 | Spec §6.2 | Lista fechada dos textos | Textos novos à espera de aprovação: resultado das ações nas categorias, "Selecione", "Nenhum", "CSV dos lançamentos", "Confirmar" | Pend. | 12 #10 |
 | 152 | US-308, RN-329 | Seção "Financeiro" no Início da ficha | Não existe: Tarefa 12, PR 3 | Pend. | 12 #11 |
-| 153 | Spec R-314 | Na volta atrás da imagem, só a anonimização fica sem a função | Também o DPA: quem aceitou a 1.1 fica presa em `/painel/dpa` com a imagem anterior, porque o aceite da 1.0 já existe e `registrarAceiteDpa` não regrava `tenants.dpa_versao` | Comp. | 12 #12, 3, 6 |
+| 153 | Spec R-314 | Na volta atrás da imagem, só a anonimização fica sem a função | Também o DPA: quem aceitou a 1.1 fica presa em `/painel/dpa` com a imagem anterior, porque o aceite da 1.0 já existe e o `registrarAceiteDpa` dela não regrava `tenants.dpa_versao`. Saída com o OK do dono: `UPDATE tenants SET dpa_versao = '1.0' WHERE dpa_versao = '1.1'` (runbook `financeiro.md` §6); no avanço seguinte, o reaceite já regrava o tenant (correção da revisão final do PR 2) | Comp. | 12 #12, 3, 6 |
 
 ### CI no runner próprio (12/10/2026)
 
