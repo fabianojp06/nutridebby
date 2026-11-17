@@ -10,8 +10,8 @@ orquestradora"). Runbook do dono: [`docs/operacao/financeiro.md`](../operacao/fi
 As decisões da spec usam o prefixo **F-D** (F-D1 a F-D30) e as pendências externas **F-P** (F-P1 a F-P5), para não
 colidir com o Dx dos planos. Nenhuma variável de ambiente nova, nenhuma fila nova, nenhuma dependência nova.
 
-A **seção "Financeiro" no Início da ficha** (US-308, RN-329, PD-33) **ainda não existe**: é a Tarefa 12, num PR 3
-([§12.13](#1213-divergências-conhecidas), #11).
+A **seção "Financeiro" no Início da ficha** (US-308, RN-329, PD-33) é a Tarefa 12, no PR 3 (branch `plano-20-ficha`,
+sobre o PR 2 e o PR 1 do Plano 18): [§12.4.4](#1244-seção-financeiro-no-início-da-ficha-us-308-rn-329).
 
 ## 12.1 Visão
 
@@ -66,7 +66,7 @@ vazio em silêncio, e a tela mostraria "nenhum lançamento" em vez de um erro (R
 | `erros.ts` | `FinanceiroError` (erros por campo, sempre com textos de `MSG_FINANCEIRO`, nunca o digitado), `FinanceiroNaoConfiguradoError`, `LancamentoNaoEncontradoError`, `CategoriaNaoEncontradaError`, `exigirNutri` |
 | `configuracoes.ts` | `lerConfiguracoes`, `salvarConfiguracoes` (`:72`), categorias (`listarCategorias`, `criarCategoria`, `renomearCategoria`, `arquivarCategoria`, `reativarCategoria`, `excluirCategoria`); `configuracaoNaTransacao` e `categoriasNaTransacao` para as telas |
 | `lancamentos.ts` | `criarLancamento` (`:121`), `editarLancamento` (`:222`), `ajustarValor` (`:249`, o "Salvar valor" da seção da consulta), `marcarRecebido` (`:264`), `desfazerRecebimento` (`:285`), `cancelarLancamento` (`:293`), `diaMaisAntigoNaTransacao` (`:317`), `listarLancamentos`/`listaNaTransacao` (`:412`), `abrirLancamento`/`lancamentoNaTransacao` (`:458`), `pacientesParaLancamento`, `pacienteDoFinanceiro` |
-| `resumo.ts` | `resumoDoMes` (`:69`), `fluxoDeCaixaDoAno`/`fluxoNaTransacao` (`:131`), `entradasESaidas12Meses`/`dozeMesesNaTransacao` (`:222`), `pagamentosPendentes`/`pendentesNaTransacao` (`:251`), `pendenciasDoPaciente` (`:275`) |
+| `resumo.ts` | `resumoDoMes` (`:69`), `fluxoDeCaixaDoAno`/`fluxoNaTransacao` (`:131`), `entradasESaidas12Meses`/`dozeMesesNaTransacao` (`:222`), `pagamentosPendentes`/`pendentesNaTransacao` (`:251`), `pendenciasDoPaciente` (`:275`), `resumoFinanceiroDoPaciente` (`:311`, a seção da ficha, PR 3) |
 | `telas.ts` | Uma transação por tela (RNF-301): `telaDeLancamentos` (`:45`), `formularioNovo` (`:79`), `telaDeEdicao` (`:110`), `telaDeConfiguracoes` (`:136`, `/code-review` do PR #55), `telaDePendencias` (`:152`), `telaDeRelatorios` (`:182`), com as mesmas consultas e a mesma auditoria das funções avulsas. O "Mês" da lista e o "Ano" de Relatórios vêm de `diaMaisAntigoNaTransacao` (`lancamentos.ts`): o mesmo `min(coalesce(pago_em, vencimento))`, em três partes com `tenant_id` explícito para os índices parciais |
 | `cobranca.ts` | `cobrarConsultaRealizada` (`:97`), `aoCorrigirParaFaltou` (`:110`), `cobrancaDaConsulta` (`:129`), `registrarCobrancaManual` (`:160`), `valorDaCobrancaDoAtendimento` (`:195`) |
 | `exportacao.ts` | `exportarLancamentosCsv` (`:34`) e `exportarFluxoCsv` (`:83`): leitura, `exportar` e montagem numa transação |
@@ -288,6 +288,40 @@ O CS-301 (os totais batem centavo a centavo, inclusive na virada do mês no fuso
 último dia, 00h00 e 23h59 locais, cancelados, antes do saldo), comparando o Resumo, o fluxo, os 12 meses e o CSV do mês com
 a soma em memória.
 
+### 12.4.4 Seção "Financeiro" no Início da ficha (US-308, RN-329)
+
+PR 3 (Tarefa 12), pendurada no registro de seções do Plano 18 pelo contrato estendido no PR 1 dele (decisão (a) da
+orquestradora com o dono;
+[§4.2.10](04-modulos-clinicos.md#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)).
+O arquivo `src/modules/ficha/secoes/financeiro.ts` (`secaoFinanceiro`, última linha de `SECOES_DA_FICHA`) só declara e
+chama o módulo:
+
+| Campo | Valor |
+|---|---|
+| `titulo` | "Financeiro" (`MSG_FINANCEIRO.menu`) |
+| `disponivel` | Sempre: sem configuração a seção mostra "Financeiro (0)" e "Nova entrada" leva às Configurações (`novo/page.tsx` redireciona com `informeSaldo`, RN-301) |
+| `resumo` | `resumoFinanceiroDoPaciente(tx, patientId, fuso)` (`resumo.ts:311`), na transação única do Início |
+| `leitura` | `{ entidade: 'financeiro' }`: o "Visualizou — Financeiro" (RN-318) é gravado por `inicio.ts`, **um** por abertura do Início e só quando a seção devolve lançamento; o arquivo da seção nunca chama `auditRead` (guarda `registro.test.ts`) |
+| `verTodos` | `/painel/financeiro/lancamentos?paciente=<id>` (a lista do paciente em todos os meses, RN-306, com o próprio `ler`) |
+| `adicionar` | Grupo "Outros": "Nova entrada" → `/painel/financeiro/lancamentos/novo?tipo=entrada&paciente=<id>`, por `hrefDoPaciente` (destino novo do contrato, #11) |
+| `noApp` | Nenhum: o paciente não vê o Financeiro (RN-300) |
+
+`resumoFinanceiroDoPaciente` faz **uma** consulta (RNF-301), a partir de `patients` (pela RLS: paciente de outro consultório
+dá linha nenhuma), com `left join` em `fin_lancamentos` pelo `fin_lancamentos_paciente_idx` e em `fin_categorias`:
+`count(l.id) over ()` dá o total de todas as situações (cancelados inclusive; sem lançamento, 0), e `order by
+coalesce(pago_em, vencimento) desc, created_at desc, id desc limit 3` os 3 mais recentes, na ordem da lista filtrada por
+paciente. Cada item tem só "Entrada — {categoria}", a data de referência (RN-306) e a situação (RN-305, "hoje" no fuso),
+com `href` `/painel/financeiro/lancamentos/{id}` (a edição, que grava o próprio `ler`); **nunca** valor nem descrição
+(precedente da D17 do Plano 10A). `podeAdicionar` é falso com o paciente bloqueado ou anonimizado (RN-315) e com o
+paciente fora do consultório; a página já esconde o "Adicionar" nesses casos, e a seção continua mostrando os lançamentos.
+
+Testes: `src/modules/ficha/secoes/financeiro.test.ts` (chaves exatas, total e ordem, sem valor nem descrição, um `ler` por
+abertura e nenhum sem lançamento, bloqueado e anonimizado, outro consultório, uma transação e uma consulta ao Financeiro),
+`resumo-plano.test.ts` (a consulta pelo índice com `tenant_id`), `registro.test.ts` e `adicionar.test.ts` (registro, imports
+permitidos, grupo "Outros"); E2E: `e2e/ficha.spec.ts` ("Outros" no diálogo, o `href` de "Nova entrada" e "Financeiro (0)").
+O guia `inicio-paciente` ganhou um item nas perguntas comuns e subiu para a versão 3 (+1 sobre a da `main` no rebase,
+como o item novo nas perguntas comuns do Plano 14A); os passos do tour não mudam.
+
 ## 12.5 Cobrança da consulta (US-303, RN-310 a RN-314)
 
 **Um lugar só** (F-D13): `cobrarConsultaRealizada(tx, …)` (`cobranca.ts:97`), chamada **na transação** dos dois caminhos que
@@ -424,6 +458,7 @@ cobrança (inclusive "Faltou"); h2 com `tabIndex={-1}` que recebe o foco depois 
 | Edição de lançamento com paciente | `ler` com o id do lançamento | `lancamentoNaTransacao`, `lancamentos.ts:461` |
 | "Pagamentos pendentes de {nome}" | Um `ler` por abertura, só com linha | `pendenciasDoPaciente`, `resumo.ts:281` |
 | Seção "Cobrança" da consulta | `ler` com o id da cobrança, só quando há cobrança | `cobrancaDaConsulta`, `cobranca.ts:142` |
+| Seção "Financeiro" do Início da ficha | Um `ler` (`entidadeId` nulo) por abertura do Início, só com lançamento, gravado por `inicio.ts` pela `leitura` da seção | `secoesDoInicio`, `src/modules/ficha/inicio.ts:53` |
 | Mensagem do atendimento com a cobrança criada | `ler` com o id da cobrança | `valorDaCobrancaDoAtendimento`, `cobranca.ts:210` |
 | CSV | `exportar` (§12.7) | `exportacao.ts` |
 | Configurações | `alterar` de `financeiro_configuracoes`, sem paciente | `configuracoes.ts:95` |
@@ -535,9 +570,10 @@ presa em `/painel/dpa` até o dono destravar com SQL (runbook §6, "Volta atrás
   abertura**, só quando devolve linha; nunca um por lançamento.
 - **Tela nova:** em `src/app/painel/financeiro/…` ela cai no guia `financeiro` (padrão) — suba a `versao` se acrescentar
   passo; `TopoDoFinanceiro` com o h1 dela; uma transação (`telas.ts`); rota em `ROTAS_DO_PAINEL`.
-- **Algo no Início da ficha:** a seção "Financeiro" do PR 3 entra pelo registro (`SECOES_DA_FICHA`) com `leitura: {
-  entidade: 'financeiro' }` (o `auditRead` é central, em `inicio.ts`; decisão (a) da orquestradora,
-  [§4.2.10](04-modulos-clinicos.md#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)).
+- **Algo no Início da ficha:** a seção "Financeiro" ([§12.4.4](#1244-seção-financeiro-no-início-da-ficha-us-308-rn-329))
+  só chama `resumoFinanceiroDoPaciente`; leitura nova vai nessa função (uma consulta, sem valor nem descrição) e o `ler` é
+  sempre o de `inicio.ts` (`leitura`), nunca do arquivo da seção nem da função
+  ([§4.2.10](04-modulos-clinicos.md#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)).
 - **Nunca** importar `@/modules/financeiro` ou `@/db/schema/financeiro` de `src/modules/ia/**` nem de nada que a IA alcance
   (`guardas.test.ts`); nunca mandar valor ou nome do Financeiro ao paciente (C-302).
 - **CSV novo:** navegação com `recusaNaNavegacao`, `arquivoCsv`, `celulaTexto` em toda célula de texto e o `exportar` na
@@ -545,7 +581,7 @@ presa em `/painel/dpa` até o dono destravar com SQL (runbook §6, "Volta atrás
 
 ## 12.13 Divergências conhecidas
 
-Spec v0.2 (com a §18) e plano × código em `7a0e919`. Na lista consolidada do [README](README.md#financeiro-do-consultório-plano-20),
+Spec v0.2 (com a §18) e plano × código em `7a0e919` (a #11, do PR 3, no branch `plano-20-ficha`). Na lista consolidada do [README](README.md#financeiro-do-consultório-plano-20),
 #142 a #153.
 
 | # | Fonte | Diz | Código | Tipo |
@@ -560,7 +596,7 @@ Spec v0.2 (com a §18) e plano × código em `7a0e919`. Na lista consolidada do 
 | 8 | Spec §14.3 (F-P5 ★) | Pergunta ao dono: cancelar sozinho ou só avisar na correção para "Faltou" | **Fechada em 17/11/2026:** fica a v0.2 (avisa, não cancela), como já está no código; a spec ainda a lista como pendente | Doc |
 | 9 | RN-318 | Lista as leituras auditadas (detalhe das pendências, lista por paciente, edição, seção "Cobrança", seção da ficha) | A página do atendimento também grava um `ler` ao mostrar "Atendimento registrado. Cobrança de {valor}…" (`valorDaCobrancaDoAtendimento`): o valor nunca vai na URL | Doc |
 | 10 | Spec §6.2 (textos) | Lista fechada dos textos | Textos novos fora da §6.2, à espera da aprovação do dono: "Categoria {nome} criada/renomeada para/arquivada/reativada/excluída." (`configuracoes.feito`), a opção vazia "Selecione" dos seletores, "Nenhum" no seletor de paciente, o título "CSV dos lançamentos" e o botão "Confirmar" do recebimento | Pend. (F-P4) |
-| 11 | US-308, RN-329, F-09 | Seção "Financeiro" no Início da ficha | Não existe: Tarefa 12, PR 3, sobre o contrato estendido do Plano 18 (opção (a)); `CLAUDE.md`, regra 8, já cita a "seção da ficha" entre as leituras com `auditRead` | Pend. |
+| 11 | RN-329; RN-277 e §11 da spec do Plano 18 | "Nova entrada" só sem bloqueio **e com o Financeiro configurado**; destino do Adicionar `{ href }` (relativo ou absoluto fixo) ou `{ acao }` | `podeAdicionar` só depende do bloqueio e da anonimização: sem configuração o "Nova entrada" aparece e a rota leva às Configurações (RN-301; decisão da orquestradora para a T12). O destino absoluto fixo não carrega o paciente, e a US-308 pede o formulário com o paciente escolhido: o contrato ganhou `{ hrefDoPaciente(patientId) }` (`src/modules/ficha/tipos.ts`, resolvido em `montarAdicionar`) | Reg. (execução, T12) |
 | 12 | Spec R-314 (volta atrás) | Só a anonimização fica sem a função | Também o DPA: depois do aceite da 1.1, a imagem anterior (`DPA_VERSAO = '1.0'`) leva toda nutricionista a `/painel/dpa`, e o aceite não destrava — o `registrarAceiteDpa` da imagem anterior não grava `tenants.dpa_versao` quando a linha `dpa-1.0` de `consents` já existe (`onConflictDoNothing`, T6-R2b). Preferir corrigir para a frente; se a volta for inevitável, com o OK do dono e o role migrator, `UPDATE tenants SET dpa_versao = '1.0' WHERE dpa_versao = '1.1'` (motivo registrado; os aceites `dpa-1.1` ficam em `consents`), runbook `financeiro.md` §6. Desde a revisão final do PR 2, o `registrarAceiteDpa` regrava o tenant quando a linha da versão já existe e o tenant está noutra versão (com o `aceito_em` da prova, sem linha nova): o avanço seguinte destrava pelo reaceite. A imagem anterior também não chama `app_anonimizar_financeiro` (nenhum prazo vence antes de 2046) | Comp. |
 
 Resolvidas antes do fechamento (a spec já traz o que o código faz): os índices `fin_lancamentos_criado_idx` (correção da T4)

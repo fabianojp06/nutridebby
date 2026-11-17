@@ -724,7 +724,8 @@ transação: `iaDoAssistente`, `secoesDoInicio` e `cartaoResumo`. A tela mostra,
    (`:53`).
 
 A página abre só com a leitura auditada do paciente, de `carregarProntuario`, e a da última antropometria, do layout.
-As seções e o cartão não gravam trilha (§2.8.3).
+O cartão e as 8 seções do Plano 18 não gravam trilha (§2.8.3); a seção "Financeiro" (Plano 20) declara `leitura`, e
+`secoesDoInicio` grava por ela um "Visualizou — Financeiro" por abertura, só quando há lançamento.
 
 - **Cartão Resumo** (RN-276), `cartaoResumo(ctx, fuso, paciente)` (`resumo.ts:25`), só da sessão `nutri`:
   - "Aniversário: {dia} de {mês}", sem o ano;
@@ -756,7 +757,7 @@ As seções e o cartão não gravam trilha (§2.8.3).
     Antropometria, Gasto energético, Exame, Atendimento); seção de outro plano vem depois, na ordem do registro.
   - Ordem dos grupos: "Avaliações", "Prescrições" e "Outros", cada um só quando tem item.
   - Item `href` relativo vira `/painel/pacientes/{id}/…`; absoluto em `/painel/` fica como está (`caminhoNaFicha`,
-    `:19`).
+    `:19`). Item `hrefDoPaciente` (Plano 20) é chamado com o id do paciente e passa pelo mesmo `caminhoNaFicha`.
   - Item `acao` vira `<form action>` com a mesma Server Action dos botões da aba Documentos (`criarReceitaAction`,
     `criarParecerAction`). `acoesDoAdicionar` (`inicio/acoes.ts:11`) faz o `bind` ao paciente só das chaves presentes.
 - **Foco no destino.** `FocoNaAncora` (`src/components/foco-na-ancora.tsx:10`, cliente) põe o foco no elemento da
@@ -767,18 +768,18 @@ As seções e o cartão não gravam trilha (§2.8.3).
 
 #### Registro de seções (D14, RN-277, spec §11)
 
-`SECOES_DA_FICHA` (`secoes/index.ts:15`) é a lista ordenada das seções do Início. Cada seção é uma `SecaoDaFicha`
-(`tipos.ts:38`):
+`SECOES_DA_FICHA` (`secoes/index.ts:16`) é a lista ordenada das seções do Início. Cada seção é uma `SecaoDaFicha`
+(`tipos.ts:41`):
 
 | Campo | Contrato |
 |---|---|
-| `id`, `titulo` | Únicos (guarda `registro.test.ts`); títulos em `MSG_FICHA.titulos` |
+| `id`, `titulo` | Únicos (guarda `registro.test.ts`); títulos das 8 do Plano 18 em `MSG_FICHA.titulos` (o do Financeiro, em `MSG_FINANCEIRO.menu`) |
 | `aba` | Segmento da aba do "Ver todos" (`''` = Início), quando não há `verTodos` |
 | `verTodos?(patientId)` | "Ver todos" fora da ficha: caminho absoluto em `/painel/` (ex.: o Financeiro do Plano 20). Resolvido por `verTodosDa` (`inicio.ts:22`) |
-| `disponivel(tenant, paciente, total)` | Se a seção aparece. **Monótona no total**: com o total maior, nunca passa de `true` a `false` (`tipos.ts:45-50`). `secoesDoInicio` chama primeiro com `Number.POSITIVE_INFINITY` e pula sem consultar a seção que não apareceria com total nenhum (`inicio.ts:50`); depois confere com o total real (`:52`). O `total` só serve à RN-192 (envios) |
+| `disponivel(tenant, paciente, total)` | Se a seção aparece. **Monótona no total**: com o total maior, nunca passa de `true` a `false` (`tipos.ts:48-53`). `secoesDoInicio` chama primeiro com `Number.POSITIVE_INFINITY` e pula sem consultar a seção que não apareceria com total nenhum (`inicio.ts:50`); depois confere com o total real (`:52`). O `total` só serve à RN-192 (envios) |
 | `resumo(tx, patientId, fuso)` | Contador e os 3 últimos numa consulta (`count(*) over ()` + `limit 3`: `totalJunto` e `LIMITE_DA_SECAO`, `secoes/comum.ts:8,11`); o fuso converte instantes no dia do tenant (`diaNoFuso`, `:14`). Pode devolver `podeAdicionar: false` para esconder o `adicionar` da seção (padrão `true`) |
-| `leitura?: { entidade }` | Seção que devolve dado auditado (o Financeiro do Plano 20). `inicio.ts` grava **um** `auditRead` dessa entidade, com `entidadeId: null`, na mesma transação e só quando a seção devolve itens (`inicio.ts:53`). O arquivo da seção nunca chama `auditRead`. Nenhuma das 8 seções do Plano 18 declara `leitura` |
-| `adicionar?` | Lista de `{ grupo, rotulo, destino }`: grupo `'avaliacoes' \| 'prescricoes' \| 'outros'` (`tipos.ts:31`; "Outros" só aparece quando alguma seção o usa); destino `{ href }` (relativo à ficha, sem `/` inicial, ou absoluto em `/painel/`) ou `{ acao: ChaveDeAcao }` (`'criar-receita' \| 'criar-parecer'`, `tipos.ts:25,28`) |
+| `leitura?: { entidade }` | Seção que devolve dado auditado (o Financeiro do Plano 20). `inicio.ts` grava **um** `auditRead` dessa entidade, com `entidadeId: null`, na mesma transação e só quando a seção devolve itens (`inicio.ts:53`). O arquivo da seção nunca chama `auditRead`. Nenhuma das 8 seções do Plano 18 declara `leitura`; só o Financeiro (`{ entidade: 'financeiro' }`) |
+| `adicionar?` | Lista de `{ grupo, rotulo, destino }`: grupo `'avaliacoes' \| 'prescricoes' \| 'outros'` (`tipos.ts:34`; "Outros" só aparece quando alguma seção o usa); destino `{ href }` (relativo à ficha, sem `/` inicial, ou absoluto em `/painel/`), `{ hrefDoPaciente(patientId) }` (absoluto em `/painel/` com o paciente, Plano 20: a `{ href }` absoluta é fixa e não leva o paciente) ou `{ acao: ChaveDeAcao }` (`'criar-receita' \| 'criar-parecer'`, `tipos.ts:25,31`) |
 | `noApp?` | `contar` e `visiveis` sobre `TxDePaciente` (`tipos.ts:22`, tipo marcado que só `no-app.ts` cria). Implementam (PR 2): `plano-alimentar`, `antropometria`, `atendimentos`, `exames-enviados` e `documentos` |
 
 `secoesDoInicio(ctx, tenant, paciente)` (`inicio.ts:35`):
@@ -809,7 +810,15 @@ As 8 seções do Plano 18, na ordem do registro:
 | `exames-enviados` | "Exames enviados pelo paciente" | "Envio do paciente" · dia do envio no fuso · Processando/Aguardando revisão/Aceito/Recusado/Expirado/Falhou; fora o cancelado e nada do titular bloqueado ou anonimizado | `/painel/exames-recebidos/{id}` em recebido, aceito e recusado; a aba Exames nas outras (`ABRE_A_REVISAO`, `exames-enviados.ts:14`) | aba Exames | titular nem bloqueado nem anonimizado (como a fila de exames recebidos) e recebimento ligado (`examesPacienteAtivadoEm`) ou algum envio (RN-192) | — |
 | `documentos` | "Documentos" | `TIPO_DOCUMENTO_ROTULO` ("Receita"/"Parecer nutricional") · dia da criação no fuso · `ROTULO_STATUS` | `documentos/{id}` | aba Documentos | só com `documentosLiberados` (D20 do 10A) | Prescrições: "Receita" (`criar-receita`) e "Parecer nutricional" (`criar-parecer`) |
 
-**Pendurar uma seção nova** (spec §11; o Financeiro do Plano 20 é o primeiro uso previsto):
+Depois delas, no fim do registro, a do **Plano 20**:
+
+| `id` (arquivo em `secoes/`) | Título | Item: rótulo · data · situação | Item abre | "Ver todos" | Aparece | Adicionar |
+|---|---|---|---|---|---|---|
+| `financeiro` | "Financeiro" | "Entrada — {categoria}" · data de referência (pagamento ou vencimento) · Previsto/Em atraso/Recebido/Cancelado; nunca valor nem descrição. Lida por `resumoFinanceiroDoPaciente` (módulo do Financeiro), com `leitura: { entidade: 'financeiro' }` | `/painel/financeiro/lancamentos/{id}` | `/painel/financeiro/lancamentos?paciente={id}` (`verTodos`) | sempre (sem configuração, "Financeiro (0)") | Outros: "Nova entrada" → `/painel/financeiro/lancamentos/novo?tipo=entrada&paciente={id}` (`hrefDoPaciente`); fora com o paciente bloqueado ou anonimizado (`podeAdicionar: false`) |
+
+Detalhe no [§12.4.4](12-financeiro.md#1244-seção-financeiro-no-início-da-ficha-us-308-rn-329).
+
+**Pendurar uma seção nova** (spec §11; o Financeiro do Plano 20 foi o primeiro uso):
 
 1. Crie `src/modules/ficha/secoes/<id>.ts` exportando uma `SecaoDaFicha`, com rótulos genéricos e sem conteúdo clínico.
    O arquivo só importa o que está em `IMPORTS_PERMITIDOS` (`registro.test.ts`). Import novo entra na lista de propósito,
@@ -831,13 +840,14 @@ Testes: `src/modules/ficha/secoes.test.ts` (Testcontainers) cobre:
 - chaves exatas;
 - contador e 3 últimos, com os desempates;
 - conteúdo clínico ausente;
-- nenhum `audit_log` gravado pelas 8 seções;
+- nenhum `audit_log` gravado pelas 8 seções do Plano 18;
 - a `leitura` de uma seção de teste;
 - Documentos desligados;
 - a RN-192;
 - outro tenant e papel.
 
-`cabecalho.test.ts` e `resumo.test.ts` cobrem o cabeçalho e o cartão. A guarda de fonte `registro.test.ts` cobre a
+A seção do Financeiro tem os próprios testes em `secoes/financeiro.test.ts` (§12.4.4). `cabecalho.test.ts` e
+`resumo.test.ts` cobrem o cabeçalho e o cartão. A guarda de fonte `registro.test.ts` cobre a
 ordem, os ids, um arquivo por seção, nenhum `auditRead`, a lista fechada de imports e os destinos (§7.4.3).
 
 ### 4.2.11 Cadastro complementar, lista e "No app do paciente" (Plano 18, PR 2)

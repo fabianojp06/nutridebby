@@ -150,7 +150,7 @@ export const GUIAS: readonly Guia[] = [
     // Plano 18 (§8.3): só o Início da ficha; antes do `prontuario`, que casa todas as abas (os passos novos só têm alvo aqui).
     // Título "Início do paciente": "Início" é o do guia de boas-vindas (o manual completo lista um h2 por guia).
     id: 'inicio-paciente',
-    versao: 2, // Plano 18, PR 2: o cartão No app
+    versao: 3, // Plano 20: a seção Financeiro nas perguntas comuns (+1 sobre a main no rebase); 2 = Plano 18, PR 2: o cartão No app
     padrao: new RegExp(`^/painel/pacientes/${ID}$`),
     titulo: 'Início do paciente',
     ajuda: {
@@ -165,7 +165,15 @@ export const GUIAS: readonly Guia[] = [
             'O cartão "No app do paciente" mostra o acesso ao app, o plano, os documentos (só quando liberados no consultório) e os conteúdos que o paciente vê; "Ver detalhes" abre a página com notificações, lembretes, evolução, jornada, exames, diário e IA Nutri, contados com as mesmas regras do app.',
           ],
         },
-        { titulo: 'Perguntas comuns', itens: ['Paciente bloqueado por pedido de exclusão não tem o botão "Adicionar": o prontuário é só para consulta.'] },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Paciente bloqueado por pedido de exclusão não tem o botão "Adicionar": o prontuário é só para consulta.',
+            // Plano 20 (US-308): a seção Financeiro só na gaveta; os passos do tour não mudam (a versão sobe para 3, +1 sobre
+            // a da main, como o item novo nas perguntas comuns do Plano 14A)
+            'A seção Financeiro mostra os lançamentos do paciente, sem valores: "Ver todos" abre os lançamentos dele no Financeiro, e "Nova entrada", no "Adicionar", abre o formulário com o paciente já escolhido. Abrir o Início de um paciente com lançamentos fica registrado no Histórico de acessos.',
+          ],
+        },
       ],
     },
     passos: [

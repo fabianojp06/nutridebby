@@ -224,7 +224,7 @@ describe('conteúdo do manual (P08-10)', () => {
   it('Plano 18 (§8.3): o guia "Início do paciente" casa só o Início da ficha, vem antes do prontuário e traz os passos da spec', () => {
     const g = GUIAS.find((x) => x.id === 'inicio-paciente')!;
     expect(g.titulo).toBe('Início do paciente');
-    expect(g.versao).toBe(2); // 2 no PR 2 do Plano 18: o cartão No app e o selo
+    expect(g.versao).toBe(3); // 2 no PR 2 do Plano 18: o cartão No app e o selo; 3 no Plano 20 (a seção Financeiro nas perguntas comuns)
     expect(guiaDaRota(`/painel/pacientes/${UUID}`)?.id).toBe('inicio-paciente');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil`)?.id).toBe('perfil-paciente'); // guia próprio desde a Tarefa 7a
     expect(guiaDaRota(`/painel/pacientes/${UUID}/app`)?.id).toBe('prontuario');
@@ -240,6 +240,11 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(g.ajuda.secoes.flatMap((s) => s.itens)).toContainEqual(expect.stringContaining('"No app do paciente"'));
     // os documentos só aparecem com a liberação no consultório (a linha some sem ela, §8.5); só a gaveta: sem subir versão
     expect(g.ajuda.secoes.flatMap((s) => s.itens)).toContainEqual(expect.stringContaining('os documentos (só quando liberados no consultório)'));
+    // Plano 20 (US-308): a seção Financeiro só na gaveta, nas perguntas comuns (os passos do tour não mudam; versão 3, +1 sobre a main)
+    expect(g.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')!.itens).toContain(
+      'A seção Financeiro mostra os lançamentos do paciente, sem valores: "Ver todos" abre os lançamentos dele no Financeiro, e "Nova entrada", no "Adicionar", abre o formulário com o paciente já escolhido. Abrir o Início de um paciente com lançamentos fica registrado no Histórico de acessos.',
+    );
+    expect(JSON.stringify(g.passos)).not.toContain('Financeiro');
   });
   it('Plano 18 (§8.4): o guia "Perfil do paciente" casa só o Perfil, vem antes do prontuário e traz o passo do cadastro em seções; o de Pacientes tem o mesmo passo (Novo paciente)', () => {
     const g = GUIAS.find((x) => x.id === 'perfil-paciente')!;

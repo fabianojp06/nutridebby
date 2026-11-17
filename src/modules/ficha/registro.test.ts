@@ -30,6 +30,10 @@ const IMPORTS_PERMITIDOS = [
   // módulo só chama auditRead dentro de abrirEnvio; importar o filtro não audita nada (code review do PR 1 do Plano 18)
   '@/modules/pacientes/exames-enviados',
   '@/modules/pacientes/exames-enviados-constantes',
+  // financeiro.ts (seção, Plano 20): os textos e a leitura da seção, na consulta única do módulo. `resumo.ts` só chama
+  // auditRead dentro de pendenciasDoPaciente; resumoFinanceiroDoPaciente não grava nada (o "ler" é o de inicio.ts)
+  '@/modules/financeiro/constantes',
+  '@/modules/financeiro/resumo',
   '../textos',
   '../tipos',
   './comum',
@@ -65,6 +69,8 @@ const importsDe = (src: string) =>
 describe('registro de seções (RN-277, RN-278)', () => {
   it('ordem da RN-278 (as do Plano 18 primeiro; as de outros planos no fim) e títulos da spec §8.3', () => {
     expect(SECOES_DA_FICHA.slice(0, DO_PLANO_18.length).map((s) => s.id)).toEqual([...DO_PLANO_18]);
+    // Plano 20 (US-308): o Financeiro no fim
+    expect(SECOES_DA_FICHA.slice(DO_PLANO_18.length).map((s) => s.id)).toEqual(['financeiro']);
     expect(SECOES_18.map((s) => s.titulo)).toEqual([
       'Plano alimentar',
       'Antropometria',
@@ -106,7 +112,7 @@ describe('registro de seções (RN-277, RN-278)', () => {
     }
   });
 
-  it('todo destino do Adicionar é href (relativo sem "/" inicial ou absoluto em /painel/) ou uma ChaveDeAcao', () => {
+  it('todo destino do Adicionar é href (relativo sem "/" inicial ou absoluto em /painel/), hrefDoPaciente (absoluto em /painel/, com o paciente) ou uma ChaveDeAcao', () => {
     const entradas = SECOES_DA_FICHA.flatMap((s) => s.adicionar ?? []);
     expect(entradas.length).toBeGreaterThan(0);
     for (const e of entradas) {
@@ -115,6 +121,10 @@ describe('registro de seções (RN-277, RN-278)', () => {
       if ('href' in e.destino) {
         const { href } = e.destino;
         expect(href.startsWith('/painel/') || (!href.startsWith('/') && href.length > 0 && !href.includes('//')), href).toBe(true);
+      } else if ('hrefDoPaciente' in e.destino) {
+        const href = e.destino.hrefDoPaciente(UUID);
+        expect(href, e.rotulo).toMatch(/^\/painel\//);
+        expect(href, e.rotulo).toContain(UUID);
       } else {
         expect(ACOES).toContain(e.destino.acao);
       }
@@ -134,6 +144,11 @@ describe('registro de seções (RN-277, RN-278)', () => {
       { grupo: 'prescricoes', rotulo: 'Receita', destino: { acao: 'criar-receita' } },
       { grupo: 'prescricoes', rotulo: 'Parecer nutricional', destino: { acao: 'criar-parecer' } },
     ]);
+    // Plano 20 (US-308): "Nova entrada" em "Outros", com o paciente escolhido no formulário
+    const [nova, ...resto] = SECOES_DA_FICHA.find((s) => s.id === 'financeiro')!.adicionar!;
+    expect(resto).toEqual([]);
+    expect(nova).toMatchObject({ grupo: 'outros', rotulo: 'Nova entrada' });
+    expect('hrefDoPaciente' in nova.destino && nova.destino.hrefDoPaciente(UUID)).toBe(`/painel/financeiro/lancamentos/novo?tipo=entrada&paciente=${UUID}`);
   });
 
   it('exames-enviados: "Ver todos" na aba Exames e o item abre em /painel/exames-recebidos/{id}', () => {
@@ -159,8 +174,9 @@ describe('registro de seções (RN-277, RN-278)', () => {
     for (const s of SECOES_DA_FICHA) if (s.verTodos) expect(s.verTodos(UUID), s.id).toMatch(/^\/painel\//);
   });
 
-  it('nenhuma das 8 seções do Plano 18 declara leitura (o Início não grava auditRead delas)', () => {
+  it('nenhuma das 8 seções do Plano 18 declara leitura (o Início não grava auditRead delas); o Financeiro (Plano 20) declara', () => {
     expect(SECOES_18.filter((s) => s.leitura)).toEqual([]);
+    expect(SECOES_DA_FICHA.filter((s) => s.leitura).map((s) => [s.id, s.leitura])).toEqual([['financeiro', { entidade: 'financeiro' }]]);
   });
 
   it('documentos só com documentosLiberados; envios com o recebimento ligado ou algum envio (RN-192)', () => {

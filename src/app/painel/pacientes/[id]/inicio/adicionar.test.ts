@@ -32,16 +32,17 @@ const OUTRA: SecaoDaFicha = {
 };
 
 describe('Adicionar ao prontuário (US-263, RN-280)', () => {
-  it('grupos e itens na ordem da US-263: Avaliações (Anamnese, Antropometria, Gasto energético, Exame, Atendimento) e Prescrições (Plano alimentar, Receita, Parecer nutricional)', () => {
+  it('grupos e itens na ordem da US-263: Avaliações (Anamnese, Antropometria, Gasto energético, Exame, Atendimento), Prescrições (Plano alimentar, Receita, Parecer nutricional) e Outros (Nova entrada, Plano 20)', () => {
     const grupos = montarAdicionar(PACIENTE, TODAS);
     expect(rotulos(grupos)).toEqual([
       ['Avaliações', ['Anamnese', 'Antropometria', 'Gasto energético', 'Exame', 'Atendimento']],
       ['Prescrições', ['Plano alimentar', 'Receita', 'Parecer nutricional']],
+      ['Outros', ['Nova entrada']],
     ]);
     const h = html(grupos);
-    expect([...h.matchAll(/<h3[^>]*>([^<]*)<\/h3>/g)].map((m) => m[1])).toEqual(['Avaliações', 'Prescrições']);
+    expect([...h.matchAll(/<h3[^>]*>([^<]*)<\/h3>/g)].map((m) => m[1])).toEqual(['Avaliações', 'Prescrições', 'Outros']);
     expect([...h.matchAll(/<(?:a|button)\b[^>]*>([^<]*)<\/(?:a|button)>/g)].map((m) => m[1]).filter((t) => !['Fechar', '+', 'Adicionar'].includes(t))).toEqual([
-      'Anamnese', 'Antropometria', 'Gasto energético', 'Exame', 'Atendimento', 'Plano alimentar', 'Receita', 'Parecer nutricional',
+      'Anamnese', 'Antropometria', 'Gasto energético', 'Exame', 'Atendimento', 'Plano alimentar', 'Receita', 'Parecer nutricional', 'Nova entrada',
     ]);
   });
 
@@ -64,6 +65,8 @@ describe('Adicionar ao prontuário (US-263, RN-280)', () => {
     expect(itens.find((i) => i.rotulo === 'Plano alimentar')).toEqual({ rotulo: 'Plano alimentar', href: `${BASE}/plano-alimentar` });
     expect(itens.find((i) => i.rotulo === 'Receita')).toEqual({ rotulo: 'Receita', acao: 'criar-receita' });
     expect(itens.find((i) => i.rotulo === 'Parecer nutricional')).toEqual({ rotulo: 'Parecer nutricional', acao: 'criar-parecer' });
+    // Plano 20 (US-308): destino absoluto com o paciente escolhido no formulário
+    expect(itens.find((i) => i.rotulo === 'Nova entrada')).toEqual({ rotulo: 'Nova entrada', href: `/painel/financeiro/lancamentos/novo?tipo=entrada&paciente=${PACIENTE}` });
     const h = html(grupos);
     expect(h).toContain(`href="${BASE}/gasto-energetico#novo-calculo"`);
     expect(h).toContain(`href="${BASE}/exames#novo-exame"`);
@@ -77,6 +80,7 @@ describe('Adicionar ao prontuário (US-263, RN-280)', () => {
     expect(rotulos(grupos)).toEqual([
       ['Avaliações', ['Anamnese', 'Antropometria', 'Gasto energético', 'Exame', 'Atendimento']],
       ['Prescrições', ['Plano alimentar']],
+      ['Outros', ['Nova entrada']],
     ]);
     const h = html(grupos);
     expect(h).not.toContain('Receita');
@@ -84,17 +88,22 @@ describe('Adicionar ao prontuário (US-263, RN-280)', () => {
   });
 
   it('sem item de "Outros": sem o grupo; com uma seção que o usa, "Outros" no fim e o destino absoluto como está', () => {
-    expect(html(montarAdicionar(PACIENTE, TODAS))).not.toContain('Outros');
-    const grupos = montarAdicionar(PACIENTE, [...TODAS, naTela(OUTRA.id)], [...SECOES_DA_FICHA, OUTRA]);
+    const SEM_FINANCEIRO = TODAS.filter((s) => s.id !== 'financeiro');
+    expect(html(montarAdicionar(PACIENTE, SEM_FINANCEIRO))).not.toContain('Outros');
+    const grupos = montarAdicionar(PACIENTE, [...SEM_FINANCEIRO, naTela(OUTRA.id)], [...SECOES_DA_FICHA, OUTRA]);
     expect(grupos.map((g) => g.titulo)).toEqual(['Avaliações', 'Prescrições', 'Outros']);
     expect(grupos[2].itens).toEqual([{ rotulo: 'Lançamento', href: '/painel/financeiro/novo' }]);
     expect(html(grupos)).toContain('href="/painel/financeiro/novo"');
+    // com o Financeiro (Plano 20) também, na ordem do registro
+    expect(montarAdicionar(PACIENTE, [...TODAS, naTela(OUTRA.id)], [...SECOES_DA_FICHA, OUTRA])[2].itens.map((i) => i.rotulo)).toEqual(['Nova entrada', 'Lançamento']);
   });
 
   it('podeAdicionar: false esconde os itens da seção; grupo sem item some', () => {
-    const grupos = montarAdicionar(PACIENTE, TODAS.map((s) => (s.id === 'antropometria' || s.id === 'plano-alimentar' || s.id === 'documentos' ? naTela(s.id, false) : s)));
+    const fora = ['antropometria', 'plano-alimentar', 'documentos', 'financeiro'];
+    const grupos = montarAdicionar(PACIENTE, TODAS.map((s) => (fora.includes(s.id) ? naTela(s.id, false) : s)));
     expect(rotulos(grupos)).toEqual([['Avaliações', ['Anamnese', 'Gasto energético', 'Exame', 'Atendimento']]]);
     expect(html(grupos)).not.toContain('Prescrições');
+    expect(html(grupos)).not.toContain('Outros');
   });
 
   it('seção fora do registro ou sem `adicionar` (envios do paciente) não traz item', () => {
