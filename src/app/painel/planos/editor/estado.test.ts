@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { MSG_NUTRIENTES } from '@/modules/alimentos/nutrientes';
-import { itensComoTexto, totalDoDia, totalMicros } from '@/modules/plano-alimentar/calculo';
+import { itensComoTexto, totalDoDia, totalDosItens, totalMicros } from '@/modules/plano-alimentar/calculo';
 import { refeicoesDoDia } from '@/modules/plano-alimentar/dias';
 import type { PlanoDoCliente } from '@/modules/plano-alimentar/tipos';
 import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
 import {
   errosSemCampo, estadoInicial, gramasDoItem, legendaDosDias, medidaDaOpcao, nomesAcessiveis, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, podeEscolherNutriente, reduzir,
-  referenciaDosEquivalentes, refeicoesDoFiltro, refeicoesParaCalculo, resumoDeNutrientes, textoDaLinha, totaisDoFiltro, type EstadoEditor,
+  referenciaDosEquivalentes, refeicoesDoFiltro, refeicoesParaCalculo, resumoDeNutrientes, textoDaLinha, totaisDoFiltro, totalDaRefeicao, type EstadoEditor,
 } from './estado';
 
 const plano: PlanoDoCliente = {
@@ -501,6 +501,51 @@ describe('Plano 19 — nutrientes do paciente no editor (US-233, RN-236, RN-239,
     // o erro do servidor tem lugar na seção (no calculado); no modo livre a seção some e o erro sobe para o topo
     expect(errosSemCampo(e, { nutrientesExibidos: MSG_NUTRIENTES.limite })).toEqual([]);
     expect(errosSemCampo(reduzir(e, { tipo: 'modo', modo: 'livre' }), { nutrientesExibidos: MSG_NUTRIENTES.limite })).toEqual([MSG_NUTRIENTES.limite]);
+  });
+
+  it('PM-PA9: a tecla troca só a refeição do item; o total e os micros guardados por refeição acompanham cada edição', () => {
+    const comFerro: AlimentoEncontrado = { ...proprio, id: 'f-ferro', micros: { ferro_mg: 2.5, calcio_mg: null } };
+    let e = aplicar(
+      estadoInicial(plano),
+      { tipo: 'novaRefeicao', id: 'r1' }, { tipo: 'novaRefeicao', id: 'r2' }, { tipo: 'novaRefeicao', id: 'r3' },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'i1', alimento: comFerro }, { tipo: 'adicionarItem', refeicaoId: 'r2', id: 'i2', alimento: comFerro },
+      { tipo: 'adicionarItem', refeicaoId: 'r3', id: 'i3', alimento: arroz }, { tipo: 'adicionarItem', refeicaoId: 'r3', id: 'i4', alimento: comFerro, substituiItemId: 'i3' },
+    );
+    const conferir = (s: EstadoEditor) => {
+      const calc = refeicoesParaCalculo(s);
+      for (const dia of [1, 2] as const) expect(totaisDoFiltro(s, dia).total).toEqual(totalDoDia(refeicoesDoDia(calc, dia)));
+      for (const r of s.refeicoes) expect(totalDaRefeicao(r)).toEqual(totalDosItens(r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, substituiItemId: i.substituiItemId }))));
+      const r = resumoDeNutrientes(s, 1, ['ferro_mg', 'calcio_mg'], null);
+      const esperado = totalMicros(refeicoesDoDia(calc, 1), ['ferro_mg', 'calcio_mg']);
+      expect(r).toMatchObject({ tipo: 'linhas', linhas: [{ semValor: esperado.ferro_mg.semValor }, { semValor: esperado.calcio_mg.semValor }] });
+      return r;
+    };
+    expect(conferir(e)).toMatchObject({ linhas: [{ total: '5,0 mg', semValor: 1 }, { semValor: 3 }] });
+    expect(totaisDoFiltro(e, 'todos').total).toEqual(totalDoDia(refeicoesParaCalculo(e))); // um perfil só (os 7 dias)
+
+    const antes = e;
+    e = reduzir(e, { tipo: 'quantidade', itemId: 'i2', valor: '300' });
+    expect(e).not.toBe(antes); // continua sendo edição (o salvamento conta)
+    expect(e.refeicoes[0]).toBe(antes.refeicoes[0]);
+    expect(e.refeicoes[2]).toBe(antes.refeicoes[2]);
+    expect(e.refeicoes[1]).not.toBe(antes.refeicoes[1]);
+    expect(totalDaRefeicao(e.refeicoes[1]).kcal).toBe(390);
+    expect(conferir(e)).toMatchObject({ linhas: [{ total: '10,0 mg', semValor: 1 }, { semValor: 3 }] });
+    // a refeição de antes (o estado anterior) segue com o total dela
+    expect(totalDaRefeicao(antes.refeicoes[1]).kcal).toBe(130);
+
+    // quantidade inválida sai do total; remover a substituição mexe só na refeição dela
+    e = reduzir(e, { tipo: 'quantidade', itemId: 'i1', valor: 'abc' });
+    expect(conferir(e)).toMatchObject({ linhas: [{ total: '7,5 mg', semValor: 1 }, { semValor: 2 }] });
+    const semSub = reduzir(e, { tipo: 'removerItem', itemId: 'i4' });
+    expect(semSub.refeicoes[0]).toBe(e.refeicoes[0]);
+    expect(semSub.refeicoes[1]).toBe(e.refeicoes[1]);
+    expect(semSub.refeicoes[2].itens.map((i) => i.id)).toEqual(['i3']);
+    conferir(semSub);
+    // os dias de uma refeição mudam o total do dia na hora
+    const semTerca = reduzir(semSub, { tipo: 'dia', id: 'r2', dia: 2, marcado: false });
+    expect(totaisDoFiltro(semTerca, 2).total.kcal).toBe(totaisDoFiltro(semSub, 2).total.kcal - 390);
+    conferir(semTerca);
   });
 
   it('plano publicado em formato antigo (item sem micros na cópia): "Micronutrientes não registrados nesta versão do plano."', () => {

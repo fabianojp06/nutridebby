@@ -10,7 +10,7 @@ import { MSG_BUSCA } from '@/modules/alimentos/busca-avancada-constantes';
 import { MSG_RECEITA } from '@/modules/conteudo/constantes';
 import type { ReceitaParaPlano } from '@/modules/conteudo/receitas';
 import type { ConteudoParaLigar, ListaDaBiblioteca, MinhaRefeicaoDaLista } from '@/modules/plano-alimentar/biblioteca-constantes';
-import { diferencaKcalDoItem, kcalTexto, nutrientesDoItem, totalDosItens } from '@/modules/plano-alimentar/calculo';
+import { diferencaKcalDoItem, kcalTexto, nutrientesDoItem } from '@/modules/plano-alimentar/calculo';
 import { MAX_TEXTO, MSG_DIAS, MSG_PLANO, MSG_TEXTO_LIVRE } from '@/modules/plano-alimentar/constantes';
 import { DIA_CURTO, ORDEM_DIAS, rotuloDosDias, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
 import type { ContextoPaciente } from '@/modules/plano-alimentar/meta';
@@ -18,7 +18,7 @@ import type { ModoPlano, PlanoDoCliente } from '@/modules/plano-alimentar/tipos'
 import { casasDecimais, formatarDecimal, lerDecimal } from '@/lib/numero';
 import {
   errosSemCampo, estadoInicial, gramasDoItem, legendaDosDias, medidaDaOpcao, nomesAcessiveis, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, podeCarregar, reduzir,
-  referenciaDosEquivalentes, refeicoesDoFiltro, totaisDoFiltro, trocaPerdeAlgo, type Acao, type EstadoEditor, type FiltroDia, type ItemEstado, type MacrosTexto, type RefeicaoEstado,
+  referenciaDosEquivalentes, refeicoesDoFiltro, totaisDoFiltro, totalDaRefeicao, trocaPerdeAlgo, type Acao, type EstadoEditor, type FiltroDia, type ItemEstado, type MacrosTexto, type RefeicaoEstado,
 } from './estado';
 import { CarregarMinhaRefeicao, SalvarComoMinhaRefeicao } from './minhas-refeicoes';
 import { DialogoBuscaAlimento, type DestinoDaBusca } from './dialogo-busca';
@@ -343,7 +343,7 @@ function Refeicao({ r, nome, livre, filtroDia, despachar, somenteLeitura, erro, 
   /** US-237: com a biblioteca (rascunho ou modelo editável), "Salvar como minha refeição"; null = sem o botão. */
   aoSalvarMinha: ((m: MinhaRefeicaoDaLista) => void) | null;
 }) {
-  const totalRefeicao = totalDosItens(r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, substituiItemId: i.substituiItemId })));
+  const totalRefeicao = totalDaRefeicao(r); // guardado por refeição (PM-PA9): só a editada é recalculada
   const chave = `refeicao:${r.id}`;
   // RN-246: sem dia nenhum o servidor recusa (CHECK); o aviso já aparece ao desmarcar o último
   const erroDias = erro(`${chave}:dias`) ?? (r.diasSemana.length === 0 ? MSG_DIAS.nenhum : undefined);

@@ -1,10 +1,10 @@
-import { formatarDecimal, casasDecimais, lerDecimal } from '@/lib/numero';
+import { arredondar, formatarDecimal, casasDecimais, lerDecimal } from '@/lib/numero';
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { MSG_BUSCA } from '@/modules/alimentos/busca-avancada-constantes';
 import { gramasDaMedida, gramasDaMedidaTexto, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { formatarNutriente, formatarReferencia, NUTRIENTES, type ChaveNutriente } from '@/modules/alimentos/nutrientes';
 import { MAX_NUTRIENTES_EXIBIDOS, type ReferenciaParaPlano } from '@/modules/alimentos/referencias-constantes';
-import { itensComoTexto, kcalTexto, lerQuantidade, totalDoDia, totaisDoDia, totalMicros, ZERO, type ItemComMicros, type Nutrientes } from '@/modules/plano-alimentar/calculo';
+import { itensComoTexto, kcalTexto, lerQuantidade, somarNutrientes, totalDosItens, totalMicros, ZERO, type ItemComMicros, type Nutrientes } from '@/modules/plano-alimentar/calculo';
 import { MAX_ITENS, MAX_REFEICOES, MSG_DIAS } from '@/modules/plano-alimentar/constantes';
 import { diasSemRefeicao, ORDEM_DIAS, perfisDeDia, refeicoesDoDia, rotuloDosDias, TODOS_OS_DIAS, valeNoDia, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
 import type { ItemPlano, ModoPlano, PlanoDoCliente, RascunhoEnviado, ReceitaDaRefeicao, RefeicaoPlano } from '@/modules/plano-alimentar/tipos';
@@ -188,8 +188,14 @@ export function medidaDaOpcao(i: ItemEstado, valor: string): ItemEstado['medida'
   return m ? { nome: m.nome, plural: m.plural, gramas: m.gramas } : null;
 }
 
-const nosItens = (e: EstadoEditor, f: (itens: ItemEstado[]) => ItemEstado[]): EstadoEditor => ({ ...e, refeicoes: e.refeicoes.map((r) => ({ ...r, itens: f(r.itens) })) });
-const noItem = (e: EstadoEditor, id: string, f: (i: ItemEstado) => ItemEstado) => nosItens(e, (its) => its.map((i) => (i.id === id ? f(i) : i)));
+/**
+ * PM-PA9: só a refeição do item vira objeto novo; as outras (e os outros itens) mantêm a identidade, que é a chave do
+ * cálculo guardado por refeição (`paraCalculo`, `totalDaRefeicao`). O estado em si é sempre novo, como antes (edição).
+ */
+const noItem = (e: EstadoEditor, id: string, f: (i: ItemEstado) => ItemEstado): EstadoEditor => ({
+  ...e,
+  refeicoes: e.refeicoes.map((r) => (r.itens.some((i) => i.id === id) ? { ...r, itens: r.itens.map((i) => (i.id === id ? f(i) : i)) } : r)),
+});
 
 export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
   switch (a.tipo) {
@@ -262,7 +268,13 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
     case 'qtdMedida':
       return noItem(e, a.itemId, (i) => ({ ...i, qtdTexto: a.valor }));
     case 'removerItem':
-      return nosItens(e, (its) => its.filter((i) => i.id !== a.itemId && i.substituiItemId !== a.itemId));
+      return {
+        ...e,
+        refeicoes: e.refeicoes.map((r) => {
+          const itens = r.itens.filter((i) => i.id !== a.itemId && i.substituiItemId !== a.itemId);
+          return itens.length === r.itens.length ? r : { ...r, itens };
+        }),
+      };
     case 'moverItem': {
       const r = e.refeicoes.find((x) => x.itens.some((i) => i.id === a.itemId));
       if (!r) return e;
@@ -360,12 +372,67 @@ export function errosSemCampo(e: EstadoEditor, erros: Record<string, string>, fi
   return [...new Set(Object.entries(erros).filter(([chave]) => !campos.has(chave)).map(([, msg]) => msg))];
 }
 
-export const refeicoesParaCalculo = (e: EstadoEditor): { id: string; diasSemana: DiaDaSemana[]; itens: ItemComMicros[] }[] =>
-  e.refeicoes.map((r) => ({
-    id: r.id,
-    diasSemana: r.diasSemana,
-    itens: r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, micros: i.micros, substituiItemId: i.substituiItemId })),
-  }));
+type RefeicaoCalculo = { id: string; diasSemana: DiaDaSemana[]; itens: ItemComMicros[] };
+
+/**
+ * PM-PA9 (RNF-230): o recálculo por tecla refaz só a refeição editada. A refeição do estado é imutável (o reducer troca
+ * só a do item, `noItem`), então a forma de cálculo dela, o total e os micros ficam guardados pela identidade do objeto;
+ * as somas do dia juntam os totais guardados com o mesmo arredondamento de `totalDoDia`/`totalMicros`.
+ */
+const CALCULO = new WeakMap<RefeicaoEstado, RefeicaoCalculo>();
+const TOTAL = new WeakMap<RefeicaoCalculo, Nutrientes>();
+const MICROS = new WeakMap<RefeicaoCalculo, Map<string, Record<ChaveNutriente, { total: number; semValor: number }>>>();
+
+function paraCalculo(r: RefeicaoEstado): RefeicaoCalculo {
+  let c = CALCULO.get(r);
+  if (!c) {
+    c = {
+      id: r.id,
+      diasSemana: r.diasSemana,
+      itens: r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, micros: i.micros, substituiItemId: i.substituiItemId })),
+    };
+    CALCULO.set(r, c);
+  }
+  return c;
+}
+
+function totalGuardado(c: RefeicaoCalculo): Nutrientes {
+  let t = TOTAL.get(c);
+  if (!t) {
+    t = totalDosItens(c.itens);
+    TOTAL.set(c, t);
+  }
+  return t;
+}
+
+/** O total da refeição (RN-02: só os principais com quantidade válida), o do cartão e o que entra no total do dia. */
+export const totalDaRefeicao = (r: RefeicaoEstado): Nutrientes => totalGuardado(paraCalculo(r));
+
+/** = `totalDoDia(refeicoes)`, com o total de cada refeição guardado. */
+const totalDasRefeicoes = (refeicoes: RefeicaoCalculo[]): Nutrientes => refeicoes.reduce((t, r) => somarNutrientes(t, totalGuardado(r)), ZERO);
+
+/** = `totalMicros(refeicoes, chaves)`, com a soma de cada refeição guardada (por lista de chaves). */
+function microsDasRefeicoes(refeicoes: RefeicaoCalculo[], chaves: readonly ChaveNutriente[]): Record<ChaveNutriente, { total: number; semValor: number }> {
+  const chave = chaves.join(',');
+  const out = Object.fromEntries(chaves.map((c) => [c, { total: 0, semValor: 0 }])) as Record<ChaveNutriente, { total: number; semValor: number }>;
+  for (const r of refeicoes) {
+    let porChaves = MICROS.get(r);
+    if (!porChaves) MICROS.set(r, (porChaves = new Map()));
+    let m = porChaves.get(chave);
+    if (!m) {
+      if (porChaves.size >= 4) porChaves.clear(); // o resumo usa duas listas (as exibidas e o catálogo)
+      m = totalMicros([r], chaves) as Record<ChaveNutriente, { total: number; semValor: number }>;
+      porChaves.set(chave, m);
+    }
+    for (const c of chaves) {
+      out[c].semValor += m[c].semValor;
+      out[c].total = arredondar(out[c].total + m[c].total, 6);
+    }
+  }
+  return out;
+}
+
+export const refeicoesParaCalculo = (e: EstadoEditor): RefeicaoCalculo[] => e.refeicoes.map(paraCalculo);
 
 const NENHUMA: ReadonlySet<string> = new Set();
 
@@ -387,10 +454,10 @@ export type PerfilComTotal = { rotulo: string; total: Nutrientes };
  */
 export function totaisDoFiltro(e: EstadoEditor, filtro: FiltroDia): { total: Nutrientes; perfis: PerfilComTotal[] } {
   const calc = refeicoesParaCalculo(e);
-  if (filtro !== 'todos') return { total: totaisDoDia(calc, filtro), perfis: [] };
+  if (filtro !== 'todos') return { total: totalDasRefeicoes(refeicoesDoDia(calc, filtro)), perfis: [] };
   const perfis = perfisDeDia(calc);
-  if (perfis.length <= 1) return { total: perfis.length ? totalDoDia(perfis[0].refeicoes) : ZERO, perfis: [] };
-  return { total: ZERO, perfis: perfis.map((p) => ({ rotulo: rotuloDosDias(p.dias), total: totalDoDia(p.refeicoes) })) };
+  if (perfis.length <= 1) return { total: perfis.length ? totalDasRefeicoes(perfis[0].refeicoes) : ZERO, perfis: [] };
+  return { total: ZERO, perfis: perfis.map((p) => ({ rotulo: rotuloDosDias(p.dias), total: totalDasRefeicoes(p.refeicoes) })) };
 }
 
 /** Uma linha de "Nutrientes do paciente" (RN-239): o total do dia e, com perfil, a meta e o máximo, já formatados. */
@@ -416,6 +483,8 @@ export type LinhaDoNutriente = {
  */
 export type ResumoDeNutrientes = { tipo: 'naoRegistrados' } | { tipo: 'escolhaUmDia' } | { tipo: 'linhas'; linhas: LinhaDoNutriente[] };
 
+const NOME_DO_NUTRIENTE = new Map<string, string>(NUTRIENTES.map((n) => [n.chave, n.nome]));
+
 export function resumoDeNutrientes(e: EstadoEditor, filtro: FiltroDia, chaves: readonly ChaveNutriente[], perfil: Pick<ReferenciaParaPlano, 'valores'> | null): ResumoDeNutrientes {
   if (e.refeicoes.some((r) => r.itens.some((i) => i.micros === null))) return { tipo: 'naoRegistrados' };
   const calc = refeicoesParaCalculo(e);
@@ -426,8 +495,7 @@ export function resumoDeNutrientes(e: EstadoEditor, filtro: FiltroDia, chaves: r
     if (perfis.length > 1) return { tipo: 'escolhaUmDia' };
     doDia = perfis[0]?.refeicoes ?? [];
   }
-  const totais = totalMicros(doDia, chaves);
-  const nome = new Map(NUTRIENTES.map((n) => [n.chave as string, n.nome]));
+  const totais = microsDasRefeicoes(doDia, chaves);
   return {
     tipo: 'linhas',
     linhas: chaves.map((c) => {
@@ -437,7 +505,7 @@ export function resumoDeNutrientes(e: EstadoEditor, filtro: FiltroDia, chaves: r
       const maximo = typeof v?.maximo === 'number' ? v.maximo : null;
       return {
         chave: c,
-        nome: nome.get(c)!,
+        nome: NOME_DO_NUTRIENTE.get(c)!,
         total: formatarNutriente(c, total),
         meta: meta === null ? null : formatarReferencia(c, meta),
         porcentagem: meta === null || meta === 0 ? null : `${Math.round((total / meta) * 100)}%`,
@@ -453,7 +521,8 @@ export function resumoDeNutrientes(e: EstadoEditor, filtro: FiltroDia, chaves: r
 export const textoDaLinha = (l: LinhaDoNutriente): string => `${l.nome}: ${l.total}${l.meta === null ? '' : ` · meta ${l.meta}${l.porcentagem === null ? '' : ` (${l.porcentagem})`}`}`;
 
 /** kcal da legenda com o milhar, como no exemplo da spec ("seg a sex: 1.820 kcal"). */
-const kcalComMilhar = (n: number): string => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(Math.round(n));
+const KCAL_COM_MILHAR = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 });
+const kcalComMilhar = (n: number): string => KCAL_COM_MILHAR.format(Math.round(n));
 
 /**
  * RN-247 (a): a legenda do filtro, na ordem do primeiro dia (seg…dom): cada perfil com a energia do dia ("seg a sex:
@@ -461,7 +530,7 @@ const kcalComMilhar = (n: number): string => new Intl.NumberFormat('pt-BR', { ma
  */
 export function legendaDosDias(e: EstadoEditor): string[] {
   const perfis = perfisDeDia(refeicoesParaCalculo(e));
-  const partes = perfis.map((p) => ({ primeiro: ORDEM_DIAS.indexOf(p.dias[0]), texto: e.modo === 'livre' ? rotuloDosDias(p.dias) : `${rotuloDosDias(p.dias)}: ${kcalComMilhar(totalDoDia(p.refeicoes).kcal)} kcal` }));
+  const partes = perfis.map((p) => ({ primeiro: ORDEM_DIAS.indexOf(p.dias[0]), texto: e.modo === 'livre' ? rotuloDosDias(p.dias) : `${rotuloDosDias(p.dias)}: ${kcalComMilhar(totalDasRefeicoes(p.refeicoes).kcal)} kcal` }));
   const vazios = diasSemRefeicao(e.refeicoes);
   if (vazios.length) partes.push({ primeiro: ORDEM_DIAS.indexOf(vazios[0]), texto: MSG_DIAS.semRefeicoes(rotuloDosDias(vazios)) });
   return partes.sort((a, b) => a.primeiro - b.primeiro).map((p) => p.texto);

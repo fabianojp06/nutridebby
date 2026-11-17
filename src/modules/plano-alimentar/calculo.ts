@@ -31,7 +31,8 @@ export function nutrientesDoItem(porCem: Nutrientes100, gramas: number): Nutrien
   return { ...out, semValor };
 }
 
-const somar = (a: Nutrientes, b: Nutrientes): Nutrientes => ({
+/** Soma de dois totais com o arredondamento da RN-02 (o editor soma os totais de cada refeição guardados, PM-PA9). */
+export const somarNutrientes = (a: Nutrientes, b: Nutrientes): Nutrientes => ({
   kcal: arredondar(a.kcal + b.kcal, 6),
   proteinaG: arredondar(a.proteinaG + b.proteinaG, 6),
   carboidratoG: arredondar(a.carboidratoG + b.carboidratoG, 6),
@@ -46,12 +47,12 @@ export function totalDosItens(itens: ItemCalculo[]): Nutrientes {
     if (i.substituiItemId !== null || i.quantidadeG === null) continue;
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { semValor, ...n } = nutrientesDoItem(i.porCem, i.quantidadeG);
-    t = somar(t, n);
+    t = somarNutrientes(t, n);
   }
   return t;
 }
 
-export const totalDoDia = (refeicoes: { itens: ItemCalculo[] }[]): Nutrientes => refeicoes.reduce((t, r) => somar(t, totalDosItens(r.itens)), ZERO);
+export const totalDoDia = (refeicoes: { itens: ItemCalculo[] }[]): Nutrientes => refeicoes.reduce((t, r) => somarNutrientes(t, totalDosItens(r.itens)), ZERO);
 
 /** RN-247: o total de um dia é o das refeições que valem nele (o perfil do dia), nunca a soma de todas. */
 export const totaisDoDia = (refeicoes: { diasSemana: readonly number[]; itens: ItemCalculo[] }[], dia: DiaDaSemana): Nutrientes => totalDoDia(refeicoesDoDia(refeicoes, dia));
