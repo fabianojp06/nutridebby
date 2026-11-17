@@ -140,6 +140,8 @@ export const consultations = pgTable(
     appointmentId: uuid('appointment_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Plano 23 (RN-430): previsão de retorno; não vai ao portal nem à IA. */
+    retornoPrevistoEm: date('retorno_previsto_em', { mode: 'string' }),
   },
   (t) => [
     unique('consultations_tenant_paciente_id_unique').on(t.tenantId, t.patientId, t.id),
@@ -147,6 +149,7 @@ export const consultations = pgTable(
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'consultations_paciente_fk' }),
     check('consultations_orientacoes_tamanho', sql`char_length(${t.orientacoesPaciente}) <= 5000`),
     index('consultations_paciente_data_idx').on(t.tenantId, t.patientId, t.data),
+    check('consultations_retorno_previsto_faixa', sql`${t.retornoPrevistoEm} is null or ${t.retornoPrevistoEm} between ${t.data} and ${t.data} + 730`),
   ],
 );
 

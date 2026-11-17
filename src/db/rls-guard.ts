@@ -122,6 +122,7 @@ export const STAFF_ONLY: Record<string, string> = {
   exames_modelos_solicitacao: 'Plano 22 (EP-D8, EP-D29, EP-D30): bibliotecas do consultório — só a equipe; sem paciente',
   exam_interpretacoes: 'Plano 22 (EP-D18, EP-D19): nota de interpretação — fora do app; o titular recebe pela exportação (inclusão explícita)',
   exam_versoes: 'Plano 22 (EP-D41): versões anteriores do exame — só a equipe; o titular recebe pela exportação, sem a justificativa',
+  locais_atendimento: 'link da sala: fora do paciente e do público; projeções `app_locais_para_agendamento`/`app_local_da_consulta` (Plano 23, AG-D4)',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
@@ -210,6 +211,7 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   ia_nutri_mensagens: { comandos: ['update'], motivo: 'Plano 15 (US-172, US-174): o paciente avalia a resposta e encaminha a própria pergunta — só essas colunas, de nulo para valor (gatilho ia_nutri_mensagens_regras, 0116); INSERT só por app_ia_nutri_perguntar (0117)' },
   ia_nutri_consentimentos: { comandos: ['insert'], motivo: 'Plano 15 (RN-171, US-171): o paciente dá o próprio consentimento da IA Nutri no app (paciente_consentimento_proprio, 0116); a revogação só por app_ia_nutri_revogar; UPDATE, DELETE e TRUNCATE revogados' },
   lembretes_rotina: { comandos: ['update'], motivo: 'Plano 17 (§5.3): o paciente desliga e religa o próprio lembrete — só desligado_pelo_paciente_em, com o relógio do banco (gatilho lembretes_rotina_regras, 0119); não cria, não edita a configuração nem apaga' },
+  aniversario_autorizacoes: { comandos: ['insert'], motivo: 'Plano 23 (RN-433, US-414): o paciente autoriza ou retira a própria autorização de mensagens de aniversário no app (origem app, com a própria conta) ou só retira pelo link do e-mail (origem link, sem conta) — política paciente_aniversario_proprio; UPDATE, DELETE e TRUNCATE revogados' },
 };
 
 /** B-5 (P06-12): o texto que o Postgres guarda da negação de app_deny_paciente_escrita, sem espaços e parênteses. */
