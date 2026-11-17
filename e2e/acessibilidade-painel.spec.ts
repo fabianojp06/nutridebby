@@ -45,6 +45,10 @@ async function violacoes(page: Page, incluir?: string, opcoes: { ignorarForaDaTe
   expect(r.passes.length, 'o axe rodou regras na página').toBeGreaterThan(0);
   // fundos com transparência caem em "incomplete" no color-contrast: não podem passar calados
   let incertos = r.incomplete.filter((i) => i.id === 'color-contrast').flatMap((i) => i.nodes.map((n) => n.target.join(' ')));
+  let doContraste: string[] = [];
+  if (incertos.length) ({ incertos, violacoes: doContraste } = await contrasteNasTabelasRolaveis(page, incertos, incluir));
+  // Os dois filtros juntos (rebase do Plano 20 sobre o PR 2 do Plano 18): primeiro a rolagem dos contêineres dá veredito ao
+  // que puder; do que continua sem veredito, com `ignorarForaDaTela`, sai só o que não cabe inteiro na tela.
   if (opcoes.ignorarForaDaTela) {
     // Plano 18: a 360 px a faixa de abas da ficha e a tabela da lista rolam na horizontal; o axe não calcula o contraste do
     // que não cabe inteiro na largura da tela (fora dela ou cortado na borda do contêiner que rola: "incomplete"). Só esses
@@ -57,8 +61,46 @@ async function violacoes(page: Page, incluir?: string, opcoes: { ignorarForaDaTe
     }), incertos);
     incertos = incertos.filter((_, i) => !fora[i]);
   }
-  const contrasteIncerto = incertos.map((alvo) => `incompleto color-contrast: ${alvo}`);
-  return [...r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`), ...contrasteIncerto];
+  return [
+    ...r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`),
+    ...doContraste,
+    ...incertos.map((t) => `incompleto color-contrast: ${t}`),
+  ];
+}
+
+/**
+ * Tabela larga num contêiner com rolagem própria (`role="region"` focável, padrão do repositório: a página não rola, a
+ * tabela rola — o Fluxo de caixa do Plano 20 a 1280 px e as tabelas a 360 px): o axe não calcula o contraste da célula
+ * cortada pela borda do contêiner ("partially obscured" → "incomplete"). Rola cada contêiner em passos de meia largura e
+ * roda o color-contrast de novo: a célula incerta só sai da lista se, em algum passo, o axe der veredito (passou ou
+ * violou — a violação entra nas falhas). O que nunca teve veredito continua "incompleto".
+ */
+async function contrasteNasTabelasRolaveis(page: Page, incertos: string[], incluir?: string): Promise<{ incertos: string[]; violacoes: string[] }> {
+  const passos = await page.evaluate(() => {
+    const largas = [...document.querySelectorAll<HTMLElement>('[role="region"][tabindex="0"]')].filter((el) => el.scrollWidth > el.clientWidth);
+    return Math.max(0, ...largas.map((el) => Math.ceil((el.scrollWidth - el.clientWidth) / Math.max(1, Math.floor(el.clientWidth / 2)))));
+  });
+  if (!passos) return { incertos, violacoes: [] };
+  const resolvidos = new Set<string>();
+  const violacoes = new Set<string>();
+  for (let passo = 1; passo <= passos; passo++) {
+    await page.evaluate((k) => {
+      for (const el of document.querySelectorAll<HTMLElement>('[role="region"][tabindex="0"]')) {
+        if (el.scrollWidth > el.clientWidth) el.scrollLeft = Math.min(k * Math.floor(el.clientWidth / 2), el.scrollWidth - el.clientWidth);
+      }
+    }, passo);
+    const so = new AxeBuilder({ page }).withRules(['color-contrast']);
+    const r = await (incluir ? so.include(incluir) : so).analyze();
+    for (const n of r.passes.flatMap((p) => p.nodes)) resolvidos.add(n.target.join(' '));
+    for (const n of r.violations.flatMap((v) => v.nodes)) {
+      resolvidos.add(n.target.join(' '));
+      violacoes.add(`color-contrast (rolando a tabela): ${n.target.join(' ')}`);
+    }
+  }
+  await page.evaluate(() => {
+    for (const el of document.querySelectorAll<HTMLElement>('[role="region"][tabindex="0"]')) el.scrollLeft = 0;
+  });
+  return { incertos: incertos.filter((t) => !resolvidos.has(t)), violacoes: [...violacoes] };
 }
 
 for (const [modo, tema, aparelho] of [

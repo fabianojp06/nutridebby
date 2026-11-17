@@ -137,8 +137,12 @@ test('da consulta realizada ao recebido na mesma tela, sem digitar o valor; sai 
       await nutri.waitForLoadState('networkidle');
       for (const v of await violacoes(nutri)) falhas.push(`${tema} ${largura} px — ${v}`);
       if (largura === 360) {
-        // só a seção do Financeiro (o resto da tela da consulta é da agenda): nada passa da largura da tela
-        const cabe = await cobranca.evaluate((el) => el.scrollWidth <= el.clientWidth && el.getBoundingClientRect().right <= window.innerWidth);
+        // só a seção do Financeiro (o resto da tela da consulta é da agenda): nada dela passa da largura da tela. Não compara
+        // com a largura da própria seção: a faixa de ações usa `-mx-2` (o texto do link alinhado à margem, como nas outras
+        // telas do Financeiro) e passa 8 px da seção de propósito, dentro do respiro da página
+        const cabe = await cobranca.evaluate((el) =>
+          [el, ...el.querySelectorAll('*')].every((n) => n.getBoundingClientRect().right <= window.innerWidth && n.getBoundingClientRect().left >= 0),
+        );
         expect(cabe, `${tema}: a seção "Cobrança" passa da largura a 360 px`).toBe(true);
       }
     }
