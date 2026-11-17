@@ -108,6 +108,8 @@ function configDoTipo(tipo: unknown, config: unknown, erros: Erros): SemTexto<Le
 function texto(tipo: 'suplemento' | 'livre', v: unknown, erros: Erros): string | null {
   const t = typeof v === 'string' ? v.trim() : '';
   if (!t) erros.texto = tipo === 'suplemento' ? M.textoSuplemento : M.textoLivre;
+  // NUL não cabe num `text` do Postgres (SQLSTATE 22021): sem isto, um 500 em vez do erro do campo (como no diário)
+  else if (t.includes('\0')) erros.texto = M.formulario;
   else if ([...t].length > TEXTO_MAX[tipo]) erros.texto = tipo === 'suplemento' ? M.textoLongoSuplemento : M.textoLongoLivre;
   else return t;
   return null;

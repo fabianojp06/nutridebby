@@ -57,6 +57,11 @@ describe('validarLembrete', () => {
     expect(validarLembrete(livre('  Tomar sol  '))).toEqual({ ok: true, valor: { tipo: 'livre', config: { horarios: ['09:00'], dias: TODOS }, texto: 'Tomar sol' } });
   });
 
+  it('texto com NUL (U+0000) é erro do campo, não 500 do Postgres (22021)', () => {
+    expect(erros(validarLembrete(suplemento({}, 'Vitamina\u0000D')))).toEqual({ texto: 'Formulário inválido.' });
+    expect(erros(validarLembrete({ tipo: 'livre', config: { horarios: ['09:00'], dias: TODOS }, texto: 'Tomar\u0000sol' }))).toEqual({ texto: 'Formulário inválido.' });
+  });
+
   it('refeições: antecedência e diário só da lista', () => {
     expect(validarLembrete({ tipo: 'refeicoes', config: { antecedenciaMin: 30, diarioDepoisMin: 60 } }).ok).toBe(true);
     expect(erros(validarLembrete({ tipo: 'refeicoes', config: { antecedenciaMin: 10, diarioDepoisMin: 45 } }))).toEqual({
