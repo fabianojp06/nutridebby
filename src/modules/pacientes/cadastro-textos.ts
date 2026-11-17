@@ -20,6 +20,8 @@ export const MSG_CADASTRO = {
   cpfInvalido: 'CPF inválido. Confira os números.',
   cpfRepetido: 'Já existe um paciente com este CPF neste consultório.',
   abrirExistente: 'Abrir o cadastro existente (abre em nova aba)',
+  /** junto do botão quando o servidor marca algum campo (o formulário é longo; o erro sai no campo, telas acima) */
+  reviseOsCampos: 'Revise os campos marcados.',
   escolhaDaLista: 'Escolha uma opção da lista',
   ufDaLista: 'Selecione um estado da lista',
   telefoneFixo: 'Telefone fixo inválido',

@@ -187,11 +187,32 @@ describe('aba Perfil (Plano 18, D12)', () => {
     expect(html).toContain(`<a href="/painel/pacientes/${OUTRO}/perfil" target="_blank" rel="noopener noreferrer"`);
     expect(html).toMatch(/target="_blank"[^>]*>Abrir o cadastro existente \(abre em nova aba\)<\/a>/);
     expect(html).toContain('value="529.982.247-25"'); // o digitado continua
+    // o link com o token de link (claro e escuro), nunca a cor do consultório como cor de texto (contraste no modo escuro)
+    expect(html).toMatch(/<a [^>]*class="[^"]*\btext-link underline"[^>]*>Abrir o cadastro existente/);
+    expect(html).not.toMatch(/<a [^>]*text-destaque/);
+    // o aviso junto do botão (o erro do campo fica telas acima), focável pelo efeito que leva o foco ao primeiro erro
+    expect(html).toMatch(/<p role="alert" tabindex="-1" class="text-erro">Revise os campos marcados\.<\/p><button/);
     // sem o outro (bloqueado): a mensagem, sem o link
     estado.atual = { ...(estado.atual as object), cpfExistenteId: undefined };
     const sem = await render();
     expect(sem).toContain('Já existe um paciente com este CPF neste consultório.');
     expect(sem).not.toContain('Abrir o cadastro existente');
+  });
+
+  it('erro geral (sem campo marcado): o aviso junto do botão é a mensagem dele; sem erro, nenhum aviso', async () => {
+    expect(await render()).not.toContain('Revise os campos marcados.');
+    estado.atual = { erros: { geral: 'Paciente bloqueado.' }, valores: { ...VALORES_VAZIOS, nome: 'Ana Teste', email: 'ana@ex.com' } };
+    const html = await render();
+    expect(html).toMatch(/<p role="alert" tabindex="-1" class="text-erro">Paciente bloqueado\.<\/p><button/);
+    expect(html).not.toContain('Revise os campos marcados.');
+  });
+
+  it('RNF-261: campos de texto, listas e as caixas do WhatsApp com alvo de 44 px', async () => {
+    paciente = { ...paciente, telefone: '+5511987654321' };
+    const html = await render();
+    for (const id of ['nome', 'cpf', 'cep', 'telefone']) expect(html).toMatch(new RegExp(`<input id="${id}"[^>]*class="min-h-11 `));
+    expect(html).toMatch(/<select id="estadoCivil"[^>]*class="min-h-11 /);
+    expect(html).toMatch(/<div class="flex min-h-11 items-center gap-2"><input id="whatsappAutorizado"/);
   });
 
   it('Plano 18 (§8.1): arquivado e bloqueado ficam "Sem acesso", mesmo com a senha criada', async () => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState, type ReactNode, type SelectHTMLAttributes } from 'react';
+import { useActionState, useEffect, useRef, useState, type ReactNode, type SelectHTMLAttributes } from 'react';
 import { Campo } from '@/components/campo';
 import { ESCOLARIDADES, ESTADOS_CIVIS, IDENTIDADES_DE_GENERO, MSG_CADASTRO, tamanhoDoTexto, UFS, type Opcao } from '@/modules/pacientes/cadastro-textos';
 import type { PacienteState } from './actions';
@@ -49,7 +49,9 @@ function Lista<V extends string>({
   return (
     <div className="space-y-1">
       <label htmlFor={id} className="block font-medium">{rotulo}</label>
-      <select id={id} name={id} aria-invalid={erro ? true : undefined} aria-describedby={descricao} className={`min-h-11 ${CAMPO}`} {...select}>
+      {/* key: o React não re-sincroniza o defaultValue de um <select>, e o reset automático do formulário depois da ação
+          voltaria à opção da montagem (e o Salvar seguinte regravaria o valor antigo); a key remonta com o valor atual */}
+      <select key={String(select.defaultValue ?? '')} id={id} name={id} aria-invalid={erro ? true : undefined} aria-describedby={descricao} className={`min-h-11 ${CAMPO}`} {...select}>
         <option value="">{MSG_CADASTRO.selecione}</option>
         {opcoes.map((o) => (
           <option key={o.valor} value={o.valor}>
@@ -74,22 +76,35 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
   const [telefone, setTelefone] = useState(v.telefone);
   // US-010 "WhatsApp sem autorização": o convite por WhatsApp só fica habilitado com a autorização marcada. A caixa da
   // autorização continua não controlada — depois de cada envio o React volta o formulário para `v` (o que foi enviado,
-  // ou o que ficou salvo) —, e este estado acompanha o que ela mostra: muda com o clique e volta junto quando `v` muda
+  // ou o que ficou salvo) —, e este estado acompanha o que ela mostra: muda com o clique e volta junto a cada resposta
   const [autorizado, setAutorizado] = useState(v.whatsappAutorizado);
   // a observação é controlada pelo contador "{n} de 1.000 caracteres" (contado como o servidor, `tamanhoDoTexto`)
   const [observacao, setObservacao] = useState(v.observacao);
-  const [valoresVistos, setValoresVistos] = useState(v);
-  if (valoresVistos !== v) {
-    setValoresVistos(v);
+  // Só a resposta desta ação reinicia os dois estados (cada resposta é um objeto novo). Nunca a identidade de `inicial`:
+  // ela muda quando outro formulário da página revalida (etiquetas, convite), e o digitado na Observação se perderia.
+  const [respostaVista, setRespostaVista] = useState(state);
+  if (respostaVista !== state) {
+    setRespostaVista(state);
     setAutorizado(v.whatsappAutorizado);
     setObservacao(v.observacao);
   }
+  // Formulário longo, erros do servidor longe do botão: a cada resposta com erro, o foco vai ao primeiro campo marcado
+  // (no grupo do sexo, ao primeiro rádio) ou, sem campo marcado, ao aviso junto do botão
+  const formulario = useRef<HTMLFormElement>(null);
+  const resumo = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (!state.erros || !Object.keys(state.erros).length) return;
+    const marcado = formulario.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    const alvo = marcado?.tagName === 'FIELDSET' ? marcado.querySelector<HTMLElement>('input') : marcado;
+    (alvo && !alvo.matches(':disabled') ? alvo : resumo.current)?.focus();
+  }, [state]);
+  const avisoDeErro = e.geral ?? (Object.keys(e).length ? MSG_CADASTRO.reviseOsCampos : null);
   const conviteDesabilitado = !autorizado || !telefone.trim();
   const texto = (id: keyof typeof R & keyof ValoresPaciente, extra: { dica?: string; autoComplete?: string; inputMode?: 'numeric' | 'tel' } = {}) => (
     <Campo id={id} rotulo={R[id]} defaultValue={v[id] as string} erro={e[id]} {...extra} />
   );
   return (
-    <form action={action} noValidate data-guia="cadastro-paciente" className="space-y-6">
+    <form ref={formulario} action={action} noValidate data-guia="cadastro-paciente" className="space-y-6">
       <fieldset disabled={somenteLeitura} className="space-y-6">
         <Secao titulo={MSG_CADASTRO.secoes.dadosGerais}>
           <Campo id="nome" rotulo={R.nome} required defaultValue={v.nome} erro={e.nome} autoComplete="off" />
@@ -119,7 +134,7 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
             {/* RN-261: o outro paciente com o mesmo CPF (sem o link quando ele está bloqueado) */}
             {e.cpf && state.cpfExistenteId && (
               <p className="text-sm">
-                <a href={`/painel/pacientes/${state.cpfExistenteId}/perfil`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-destaque underline">
+                <a href={`/painel/pacientes/${state.cpfExistenteId}/perfil`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-link underline">
                   {MSG_CADASTRO.abrirExistente}
                 </a>
               </p>
@@ -138,12 +153,11 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
         </Secao>
         <Secao titulo={MSG_CADASTRO.secoes.contatoEEndereco}>
           <Campo id="telefone" rotulo={R.telefone} type="tel" value={telefone} onChange={(ev) => setTelefone(ev.target.value)} erro={e.telefone} dica={D.telefone} />
-          <div className="flex items-start gap-2">
+          <div className="flex min-h-11 items-center gap-2">
             <input
               id="whatsappAutorizado"
               name="whatsappAutorizado"
               type="checkbox"
-              className="mt-1"
               defaultChecked={v.whatsappAutorizado}
               onChange={(ev) => setAutorizado(ev.target.checked)}
               disabled={!telefone.trim()}
@@ -155,12 +169,11 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
           {e.whatsappAutorizado && <p id="whatsappAutorizado-erro" role="alert" className="text-sm text-erro">{e.whatsappAutorizado}</p>}
           {conviteWhatsapp && (
             <div className="space-y-1">
-              <div className="flex items-start gap-2">
+              <div className="flex min-h-11 items-center gap-2">
                 <input
                   id="enviarConviteWhatsapp"
                   name="enviarConviteWhatsapp"
                   type="checkbox"
-                  className="mt-1"
                   defaultChecked={v.enviarConviteWhatsapp}
                   disabled={conviteDesabilitado}
                   aria-invalid={e.enviarConviteWhatsapp ? true : undefined}
@@ -211,7 +224,11 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
           </div>
         </Secao>
       </fieldset>
-      {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
+      {avisoDeErro && (
+        <p ref={resumo} role="alert" tabIndex={-1} className="text-erro">
+          {avisoDeErro}
+        </p>
+      )}
       {state.ok && <p role="status">Cadastro salvo.</p>}
       {!somenteLeitura && <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">{botao}</button>}
     </form>

@@ -22,5 +22,7 @@ describe('Novo paciente (Plano 18, §8.4)', () => {
     expect(html).toMatch(/<form[^>]*data-guia="cadastro-paciente"/);
     expect(html).toContain('0 de 1.000 caracteres');
     for (const id of ['nome', 'cpf', 'cep', 'nomeSocial']) expect(html).toMatch(new RegExp(`<input id="${id}"[^>]*value=""`));
+    // RNF-261: a caixa do convite com alvo de 44 px, como os rádios do sexo
+    expect(html).toMatch(/<div class="flex min-h-11 items-center gap-2"><input id="enviarConviteWhatsapp"/);
   });
 });
