@@ -44,7 +44,10 @@ CREATE POLICY aguardando_fora_do_publico ON public_booking_requests AS RESTRICTI
 -- RN-422 (pedido_vencido só com o prazo vencido: o processo web também usa o papel worker; sistema só com o titular já
 -- bloqueado, exclusão LGPD); horário, local, modalidade e paciente do pedido não mudam; os motivos de pedido só saindo de
 -- `solicitada`. O marcador é gravado aqui, só no cancelamento de agendada/confirmada pelo próprio paciente na sessão dele
--- (pedido_desistido nunca o liga); set_config local: some com o ROLLBACK TO SAVEPOINT e vale depois do RELEASE.
+-- (pedido_desistido nunca o liga) de consulta que ainda não começou; set_config local: some com o ROLLBACK TO SAVEPOINT e
+-- vale depois do RELEASE. Na sessão `paciente` (UPDATE de todas as colunas da própria consulta, 0070): horário, local,
+-- modalidade, link, origem, remarcada_de e presença fixos; encerrada (cancelada, realizada, faltou) não muda; só agendada →
+-- confirmada, agendada|confirmada → cancelada (paciente) e solicitada → cancelada (pedido_desistido).
 -- No contexto vazio (migration, seed) só valem as regras de dado do UPDATE. Recusa com 42501, como a RLS.
 CREATE OR REPLACE FUNCTION app_appointments_regras_pedido() RETURNS trigger
 LANGUAGE plpgsql
@@ -118,8 +121,36 @@ BEGIN
       END IF;
     END IF;
   END IF;
+  -- RN-422 (rodada 1 da T1b): a sessão do paciente tem UPDATE de todas as colunas da própria consulta (0070); a chave dos
+  -- pedidos só vale se ele não reabrir nem mover consulta. Ele só confirma, pede remarcação e cancela (cancelamento.ts).
+  IF r = 'paciente' THEN
+    -- patient_id fica com a RLS (patient_isolation, WITH CHECK): o paciente só grava a própria consulta
+    IF (NEW.inicio, NEW.fim, NEW.local_id, NEW.modalidade, NEW.origem, NEW.remarcada_de, NEW.link_online, NEW.presenca_em,
+        NEW.created_at)
+       IS DISTINCT FROM (OLD.inicio, OLD.fim, OLD.local_id, OLD.modalidade, OLD.origem, OLD.remarcada_de, OLD.link_online,
+        OLD.presenca_em, OLD.created_at) THEN
+      RAISE EXCEPTION 'o paciente não muda o horário, o local, a modalidade, o link, a origem nem a presença da consulta' USING ERRCODE = '42501';
+    END IF;
+    IF OLD.status IN ('cancelada', 'realizada', 'faltou') THEN
+      IF (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at') THEN
+        RAISE EXCEPTION 'consulta encerrada não muda na sessão do paciente' USING ERRCODE = '42501';
+      END IF;
+    ELSIF NEW.status IS DISTINCT FROM OLD.status AND NOT (
+         (OLD.status = 'agendada' AND NEW.status = 'confirmada')
+      OR (OLD.status IN ('agendada', 'confirmada') AND NEW.status = 'cancelada' AND NEW.cancelado_por IS NOT DISTINCT FROM 'paciente')
+      OR (OLD.status = 'solicitada' AND NEW.status = 'cancelada' AND NEW.cancelado_por IS NOT DISTINCT FROM 'pedido_desistido')) THEN
+      RAISE EXCEPTION 'o paciente só confirma ou cancela a consulta' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.confirmada_via IS DISTINCT FROM OLD.confirmada_via AND NOT (OLD.status = 'agendada' AND NEW.status = 'confirmada') THEN
+      RAISE EXCEPTION 'a via da confirmação só muda na confirmação' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.motivo_cancelamento IS DISTINCT FROM OLD.motivo_cancelamento AND NEW.status IS NOT DISTINCT FROM OLD.status THEN
+      RAISE EXCEPTION 'o motivo só muda no cancelamento' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  -- o marcador só no cancelamento de consulta que ainda não começou (o prazo de cancelamento fica no módulo)
   IF r = 'paciente' AND OLD.status IN ('agendada', 'confirmada') AND NEW.status IS NOT DISTINCT FROM 'cancelada'
-     AND NEW.cancelado_por IS NOT DISTINCT FROM 'paciente' THEN
+     AND NEW.cancelado_por IS NOT DISTINCT FROM 'paciente' AND OLD.inicio > now() THEN
     PERFORM set_config('app.agenda_remarcavel', OLD.id::text, true);
   END IF;
   RETURN NEW;

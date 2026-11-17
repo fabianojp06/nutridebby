@@ -563,15 +563,12 @@ describe('Plano 23 — Agenda 2 no banco (T1b: gatilhos)', () => {
       }),
     ).toEqual(['agendada', 'solicitada']);
 
-    // a nutricionista cancelando não libera nada (o marcador é do cancelamento pelo paciente, na sessão do paciente)
+    // a nutricionista cancelando não libera nada (o marcador é do cancelamento pelo paciente, na sessão do paciente); na
+    // sessão do paciente, o cancelamento com cancelado_por = 'nutri' nem passa (rodada 1 da T1b)
     const f = await marcada();
-    expect(
-      await naTransacao(comoP, async (q) => {
-        await q(cancelar(f, 'nutri'));
-        const [n] = await q(novaConsulta(T, p, { remarcadaDe: f }));
-        return n.status;
-      }),
-    ).toBe('solicitada');
+    await expect(em(comoP, cancelar(f, 'nutri'))).rejects.toSatisfy(negadoPor('o paciente só confirma ou cancela a consulta'));
+    await em(T.ctx, cancelar(f, 'nutri'));
+    expect((await em(comoP, novaConsulta(T, p, { remarcadaDe: f })))[0].status).toBe('solicitada');
   });
 
   it('transições do pedido (RN-422): aceite só da nutricionista; cada cancelamento com o seu papel e motivo; nada volta a pedido; o pedido não muda de horário, local, modalidade nem paciente', async () => {
@@ -653,6 +650,114 @@ describe('Plano 23 — Agenda 2 no banco (T1b: gatilhos)', () => {
     await em(T.ctx, sql`update patients set status = 'bloqueado', bloqueado_em = now() where id = ${p}`);
     await em(T.ctx, cancelar(d, 'sistema'));
     expect(await statusDa(T, d)).toBe('cancelada');
+  });
+
+  it('sessão do paciente (RN-422, rodada 1 da T1b): só confirma, pede remarcação ou cancela; não reabre consulta encerrada nem muda horário, local, modalidade, link ou origem', async () => {
+    const T = await novoTenant(app.db);
+    const p = (await novoPaciente(app.db, T.ctx)).id;
+    const outro = (await novoPaciente(app.db, T.ctx)).id;
+    const comoP = ctxPaciente(T.tenantId, p);
+    const local = await criarLocal(T, { principal: true });
+    await ligarPedidos(T);
+    const marcada = async (inicio?: SQL) => (await em(T.ctx, novaConsulta(T, p, { origem: 'nutri', inicio })))[0].id as string;
+    const linha = async (id: string) =>
+      (await em(T.ctx, sql`select status, cancelado_por, confirmada_via, pedido_remarcacao_em is not null as pedido, inicio from appointments where id = ${id}`))[0];
+    const naSessao = (id: string, set: SQL) => em(comoP, sql`update appointments set ${set} where id = ${id} returning id`);
+    const encerrada = negadoPor('consulta encerrada não muda na sessão do paciente');
+    const fixo = negadoPor('o paciente não muda o horário');
+    const soConfirmaOuCancela = negadoPor('o paciente só confirma ou cancela a consulta');
+
+    // controles positivos: as escritas do módulo (cancelamento.ts), coluna a coluna
+    const a = await marcada();
+    expect(await naSessao(a, sql`pedido_remarcacao_em = now(), updated_at = now()`)).toHaveLength(1); // pedirRemarcacao
+    expect(await naSessao(a, sql`status = 'confirmada', confirmada_via = 'link', pedido_remarcacao_em = null, updated_at = now()`)).toHaveLength(1); // confirmarPresenca
+    expect(await naSessao(a, sql`pedido_remarcacao_em = now(), updated_at = now()`)).toHaveLength(1);
+    expect(await naSessao(a, sql`pedido_remarcacao_em = null, updated_at = now()`)).toHaveLength(1); // confirmarPresenca na já confirmada
+    expect(
+      await naSessao(a, sql`status = 'cancelada', cancelado_por = 'paciente', cancelada_em = now(), motivo_cancelamento = 'Imprevisto', pedido_remarcacao_em = null, updated_at = now()`),
+    ).toHaveLength(1); // cancelarConsulta
+    expect(await linha(a)).toMatchObject({ status: 'cancelada', cancelado_por: 'paciente', confirmada_via: 'link', pedido: false });
+    // remarcarComoPaciente: cancela a agendada e cria a nova com remarcada_de (agendada, com a chave ligada)
+    const b = await marcada();
+    expect(
+      await naTransacao(comoP, async (q) => {
+        await q(sql`update appointments set status = 'cancelada', cancelado_por = 'paciente', cancelada_em = now(), motivo_cancelamento = 'Remarcada pelo paciente',
+          pedido_remarcacao_em = null, updated_at = now() where id = ${b}`);
+        const [n] = await q(novaConsulta(T, p, { remarcadaDe: b }));
+        return n.status;
+      }),
+    ).toBe('agendada');
+    // o UPDATE sem mudança (o do teste de isolamento) passa também na encerrada
+    expect(await naSessao(a, sql`patient_id = patient_id`)).toHaveLength(1);
+    expect(await naSessao(a, sql`updated_at = now()`)).toHaveLength(1);
+
+    // encerrada não reabre: cancelada pelo paciente, pedido desistido, pedido recusado, realizada, faltou
+    const reabrir = sql`status = 'agendada', cancelado_por = null, cancelada_em = null`;
+    await expect(naSessao(a, reabrir)).rejects.toSatisfy(encerrada);
+    const [desistido] = await em(comoP, novaConsulta(T, p));
+    expect(desistido.status).toBe('solicitada');
+    await em(comoP, cancelar(desistido.id as string, 'pedido_desistido'));
+    await expect(naSessao(desistido.id as string, reabrir)).rejects.toSatisfy(encerrada);
+    const [recusado] = await em(comoP, novaConsulta(T, p));
+    await em(T.ctx, cancelar(recusado.id as string, 'pedido_recusado'));
+    await expect(naSessao(recusado.id as string, reabrir)).rejects.toSatisfy(encerrada);
+    const realizada = await marcada();
+    const faltou = await marcada();
+    await em(T.ctx, sql`update appointments set status = 'realizada', presenca_em = now() where id = ${realizada}`);
+    await em(T.ctx, sql`update appointments set status = 'faltou', presenca_em = now() where id = ${faltou}`);
+    await expect(naSessao(realizada, sql`status = 'agendada'`)).rejects.toSatisfy(encerrada);
+    await expect(naSessao(faltou, sql`status = 'confirmada', confirmada_via = 'link'`)).rejects.toSatisfy(encerrada);
+    await expect(naSessao(realizada, sql`status = 'agendada', inicio = inicio + interval '1 day', fim = fim + interval '1 day'`)).rejects.toSatisfy(fixo);
+    // nem o motivo, quem cancelou ou a presença da encerrada
+    await expect(naSessao(a, sql`motivo_cancelamento = 'Outro motivo'`)).rejects.toSatisfy(encerrada);
+    await expect(naSessao(recusado.id as string, sql`cancelado_por = 'paciente'`)).rejects.toSatisfy(encerrada);
+    await expect(naSessao(faltou, sql`pedido_remarcacao_em = now()`)).rejects.toSatisfy(encerrada);
+    expect((await linha(a)).status).toBe('cancelada');
+    expect((await linha(desistido.id as string)).status).toBe('cancelada');
+    expect((await linha(recusado.id as string)).status).toBe('cancelada');
+    expect((await linha(realizada)).status).toBe('realizada');
+
+    // agendada e confirmada: horário, local, modalidade, link, origem, remarcada_de e presença fixos
+    const c = await marcada();
+    const fixos: SQL[] = [
+      sql`inicio = inicio + interval '30 minutes', fim = fim + interval '30 minutes'`,
+      sql`inicio = inicio - interval '30 minutes'`,
+      sql`fim = fim + interval '30 minutes'`,
+      sql`local_id = ${local}`,
+      sql`modalidade = 'online', link_online = 'https://sala.example.test/outra'`,
+      sql`origem = 'paciente'`,
+      sql`remarcada_de = ${b}`,
+      sql`presenca_em = now()`,
+    ];
+    for (const set of fixos) await expect(naSessao(c, set)).rejects.toSatisfy(fixo);
+    // o paciente da consulta fica com a RLS (patient_isolation), como prova o teste de isolamento
+    await expect(naSessao(c, sql`patient_id = ${outro}`)).rejects.toSatisfy(rlsDe('appointments'));
+    await em(T.ctx, sql`update appointments set status = 'confirmada', confirmada_via = 'whatsapp' where id = ${c}`);
+    await expect(naSessao(c, sql`inicio = inicio + interval '1 day', fim = fim + interval '1 day'`)).rejects.toSatisfy(fixo);
+    // só as transições do paciente: agendada → confirmada, agendada|confirmada → cancelada (paciente), solicitada → cancelada (pedido_desistido)
+    await expect(naSessao(c, sql`status = 'agendada'`)).rejects.toSatisfy(soConfirmaOuCancela);
+    const d = await marcada();
+    for (const set of [sql`status = 'realizada'`, sql`status = 'faltou'`])
+      await expect(naSessao(d, set)).rejects.toSatisfy(soConfirmaOuCancela);
+    for (const por of ['nutri', 'sistema']) await expect(naSessao(d, sql`status = 'cancelada', cancelado_por = ${por}, cancelada_em = now()`), por).rejects.toSatisfy(soConfirmaOuCancela);
+    // a via da confirmação só na confirmação; o motivo só no cancelamento
+    await expect(naSessao(c, sql`confirmada_via = 'link'`)).rejects.toSatisfy(negadoPor('a via da confirmação só muda'));
+    await expect(naSessao(d, sql`motivo_cancelamento = 'Sem cancelar'`)).rejects.toSatisfy(negadoPor('o motivo só muda no cancelamento'));
+    expect(await linha(c)).toMatchObject({ status: 'confirmada', confirmada_via: 'whatsapp' });
+    expect((await linha(d)).status).toBe('agendada');
+
+    // a equipe continua mudando o horário e reabrindo (moverConsulta): a regra é só da sessão do paciente
+    expect(await em(T.ctx, sql`update appointments set inicio = inicio + interval '30 minutes', fim = fim + interval '30 minutes', status = 'agendada', confirmada_via = null where id = ${c} returning id`)).toHaveLength(1);
+
+    // marcador: só o cancelamento de consulta que ainda não começou libera a remarcação
+    const passada = await marcada(sql`date_trunc('minute', now()) - interval '3 hours'`);
+    expect(
+      await naTransacao(comoP, async (q) => {
+        await q(cancelar(passada, 'paciente'));
+        const [n] = await q(novaConsulta(T, p, { remarcadaDe: passada }));
+        return n.status;
+      }),
+    ).toBe('solicitada');
   });
 
   it('tenants_agenda_da_equipe (RN-420): paciente, publico e conta não mudam a chave dos pedidos; a equipe muda; outra coluna não é barrada por este gatilho', async () => {
