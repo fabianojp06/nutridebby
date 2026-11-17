@@ -54,7 +54,7 @@ export const GUIAS: readonly Guia[] = [
   {
     id: 'plano-alimentar',
     // Plano 14B-2: item da IA sem subir a versão (depende da liberação, como no Plano 11)
-    versao: 2, // Plano 17: a seção Lembretes no app
+    versao: 3, // Plano 17: a seção Lembretes no app; 3 = Plano 19: os passos do modo do plano e dos dias da semana
     padrao: new RegExp(`^/painel/pacientes/${ID}/plano-alimentar(/.*)?$`),
     titulo: 'Plano alimentar',
     ajuda: {
@@ -74,6 +74,8 @@ export const GUIAS: readonly Guia[] = [
     },
     passos: [
       { alvo: 'editor-plano', titulo: 'Refeições e alimentos', texto: 'Cada refeição é um bloco. A busca de alimentos aceita parte do nome; a quantidade pode ser em gramas ou medida caseira.' },
+      { alvo: 'modo-plano', titulo: 'Como montar o plano', texto: 'Escolha "Com alimentos e quantidades" para os cálculos, ou "Texto livre por refeição" para escrever em "O que comer". Ao trocar, os alimentos viram texto.' },
+      { alvo: 'dias-refeicao', titulo: 'Dias da semana', texto: 'Em cada refeição, marque os dias em que ela vale. Escolha um dia aqui para ver só as refeições e os totais dele, ou "Todos" para o resumo de cada grupo de dias.' },
       { alvo: 'publicar-plano', titulo: 'Publicar', texto: 'O paciente só vê o plano depois de publicado. Tudo o que você digita já fica salvo no rascunho.' },
       { alvo: 'lembretes-app', titulo: 'Lembretes no app', texto: 'Configure água, avisos das refeições do plano, suplemento e lembrete livre. O paciente pode desligar qualquer um; o nome do suplemento e o texto livre aparecem só dentro do app.' },
     ],

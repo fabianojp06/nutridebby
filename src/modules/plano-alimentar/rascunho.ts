@@ -11,7 +11,7 @@ import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base'
 import { lerDecimal, arredondar } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
 import type { ItemIa, RefeicaoIa } from '@/modules/ia/plano-ia';
-import { lerQuantidade } from './calculo';
+import { itensComoTexto, lerQuantidade } from './calculo';
 import { MAX_ENVIOS_INCERTOS, MAX_ITENS, MAX_REFEICOES, MAX_TEXTO, META_MAX, META_MIN, MSG_DIAS, MSG_PLANO, MSG_TEXTO_LIVRE } from './constantes';
 import { TODOS_OS_DIAS, type DiaDaSemana } from './dias';
 import { ConflitoRevisaoError, PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
@@ -302,6 +302,9 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
           if (Object.keys(ruins).length) throw new PlanoError(ruins);
         }
         const itensAtuais = new Map((await tx.select().from(mealItems).where(eq(mealItems.planId, planId))).map((i) => [i.id, i]));
+        // RN-245: na troca calculado → livre, os alimentos saem; refeição que veio sem texto ganha os alimentos gravados
+        // como texto (o editor manda o texto que já mostrou, feito pela mesma itensComoTexto) — nenhum alimento some calado
+        const textoDosItens = p.modo === 'calculado' && modo === 'livre' ? await itensGravadosComoTexto(tx, [...itensAtuais.values()]) : new Map<string, string>();
         const novasRefeicoes = new Set(v.refeicoes.map((r) => r.id));
         const novosItens = new Map(v.itens.map((i) => [i.id, i]));
 
@@ -322,7 +325,7 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
           const dados = {
             nome: r.nome, horario: r.horario, observacao: r.observacao, ordem: r.ordem, recipeContentId: r.recipeContentId,
             diasSemana: r.diasSemana ?? (atual?.diasSemana as DiaDaSemana[] | undefined) ?? [...TODOS_OS_DIAS],
-            descricaoLivre: modo === 'livre' ? (r.descricaoLivre !== undefined ? r.descricaoLivre : (atual?.descricaoLivre ?? null)) : null,
+            descricaoLivre: modo === 'livre' ? (r.descricaoLivre !== undefined ? r.descricaoLivre : (atual?.descricaoLivre ?? textoDosItens.get(r.id) ?? null)) : null,
           };
           if (!atual) refeicoesNovas.push({ id: r.id, tenantId: ctx.tenantId, patientId: p.patientId, planId, ...dados });
           else if (
@@ -379,6 +382,24 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
     if (deadlockDetectado(e)) throw new PlanoError({ geral: MSG_PLANO.invalido });
     throw e;
   }
+}
+
+/** RN-245: o texto (`itensComoTexto`) dos itens gravados de cada refeição, na ordem gravada; refeição sem itens fica fora. */
+async function itensGravadosComoTexto(tx: Tx, itens: (typeof mealItems.$inferSelect)[]): Promise<Map<string, string>> {
+  if (!itens.length) return new Map();
+  const nomes = new Map((await tx.select({ id: foods.id, nome: foods.nome }).from(foods).where(inArray(foods.id, [...new Set(itens.map((i) => i.foodId))]))).map((f) => [f.id, f.nome]));
+  const porRefeicao = new Map<string, (typeof mealItems.$inferSelect)[]>();
+  for (const i of [...itens].sort((a, b) => a.ordem - b.ordem)) {
+    const lista = porRefeicao.get(i.mealId);
+    if (lista) lista.push(i);
+    else porRefeicao.set(i.mealId, [i]);
+  }
+  return new Map(
+    [...porRefeicao].map(([mealId, its]) => [
+      mealId,
+      itensComoTexto(its.map((i) => ({ id: i.id, nome: nomes.get(i.foodId) ?? '', quantidadeG: i.quantidadeG, medidaCaseiraTxt: i.medidaCaseiraTxt, substituiItemId: i.substituiItemId }))),
+    ]),
+  );
 }
 
 /**

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
-import { totalDoDia } from '@/modules/plano-alimentar/calculo';
+import { itensComoTexto, totalDoDia } from '@/modules/plano-alimentar/calculo';
 import type { PlanoDoCliente } from '@/modules/plano-alimentar/tipos';
 import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
-import { errosSemCampo, estadoInicial, gramasDoItem, medidaDaOpcao, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type EstadoEditor } from './estado';
+import {
+  errosSemCampo, estadoInicial, gramasDoItem, legendaDosDias, medidaDaOpcao, nomesAcessiveis, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesDoFiltro,
+  refeicoesParaCalculo, totaisDoFiltro, type EstadoEditor,
+} from './estado';
 
 const plano: PlanoDoCliente = {
   id: 'p', patientId: 'pac', isTemplate: false, titulo: 'Plano alimentar', metaKcal: null, energyCalcId: null, status: 'rascunho', versao: 1, revisao: 0,
@@ -236,5 +239,147 @@ describe('estado do editor (US-022)', () => {
     const e2 = reduzir(e1, { tipo: 'receita', id: 'r1', receita: null });
     expect(paraEnvio(e2, 3).refeicoes[0]).not.toHaveProperty('recipeContentId');
     expect(errosSemCampo(e2, { 'refeicao:r1:receita': 'Receita não encontrada.' })).toEqual([]);
+  });
+});
+
+describe('Plano 19 — texto livre e dias da semana no editor (RN-243, RN-245, RN-246, RN-247)', () => {
+  const feijao: AlimentoEncontrado = { ...proprio, id: 'f-feijao', nome: 'Feijão, carioca, cozido', porCem: { kcal: 76, proteinaG: 4.8, carboidratoG: 13.6, lipidioG: 0.5, fibraG: 8.5 } };
+  /** Almoço (arroz 4 colheres de sopa cheias + feijão 90,5 g, com o próprio de 100 g como substituição do arroz). */
+  const comAlimentos = () =>
+    aplicar(
+      estadoInicial(plano),
+      { tipo: 'novaRefeicao', id: 'r1' },
+      { tipo: 'refeicao', id: 'r1', campo: 'nome', valor: 'Almoço' },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'arroz', alimento: arroz },
+      { tipo: 'qtdMedida', itemId: 'arroz', valor: '4' },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'feijao', alimento: feijao },
+      { tipo: 'quantidade', itemId: 'feijao', valor: '90,5' },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'sub', alimento: proprio, substituiItemId: 'arroz' },
+      { tipo: 'novaRefeicao', id: 'r2' },
+    );
+
+  it('calculado → livre: cada refeição ganha o texto de itensComoTexto e os alimentos saem; o envio vai sem itens e com o texto', () => {
+    const e = reduzir(comAlimentos(), { tipo: 'modo', modo: 'livre' });
+    expect(e.modo).toBe('livre');
+    const esperado = itensComoTexto([
+      { id: 'arroz', nome: arroz.nome, quantidadeG: 100, medidaCaseiraTxt: '4 colheres de sopa cheias', substituiItemId: null },
+      { id: 'feijao', nome: feijao.nome, quantidadeG: 90.5, medidaCaseiraTxt: null, substituiItemId: null },
+      { id: 'sub', nome: proprio.nome, quantidadeG: 100, medidaCaseiraTxt: null, substituiItemId: 'arroz' },
+    ]);
+    expect(esperado).toBe('Arroz, tipo 1, cozido — 4 colheres de sopa cheias (ou Alimento 130 — 100 g); Feijão, carioca, cozido — 90,5 g');
+    expect(e.refeicoes.map((r) => ({ texto: r.descricao, itens: r.itens.length }))).toEqual([{ texto: esperado, itens: 0 }, { texto: '', itens: 0 }]);
+    const envio = paraEnvio(e, 4);
+    expect(envio.modo).toBe('livre');
+    expect(envio.refeicoes.map((r) => ({ itens: r.itens, descricaoLivre: r.descricaoLivre }))).toEqual([{ itens: [], descricaoLivre: esperado }, { itens: [], descricaoLivre: '' }]);
+    // no modo livre não entra alimento (o servidor recusaria o PUT inteiro)
+    expect(reduzir(e, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'x', alimento: proprio })).toBe(e);
+    expect(reduzir(e, { tipo: 'modo', modo: 'livre' })).toBe(e); // mesmo modo: nada muda, não é edição
+  });
+
+  it('item com quantidade inválida vira texto com o que foi digitado, sem número inventado', () => {
+    const e = aplicar(comAlimentos(), { tipo: 'quantidade', itemId: 'feijao', valor: 'abc' }, { tipo: 'qtdMedida', itemId: 'arroz', valor: '' }, { tipo: 'modo', modo: 'livre' });
+    expect(e.refeicoes[0].descricao).toBe('Arroz, tipo 1, cozido — ? colher de sopa cheia (ou Alimento 130 — 100 g); Feijão, carioca, cozido — abc g');
+  });
+
+  it('livre → calculado: o texto e a distribuição prescrita saem; o calculado envia texto e distribuição nulos', () => {
+    let e = aplicar(
+      reduzir(comAlimentos(), { tipo: 'modo', modo: 'livre' }),
+      { tipo: 'refeicao', id: 'r2', campo: 'descricao', valor: 'Fruta' },
+      { tipo: 'macro', campo: 'proteina', valor: '20' },
+      { tipo: 'macro', campo: 'carboidrato', valor: '50' },
+      { tipo: 'macro', campo: 'lipidio', valor: '30' },
+    );
+    expect(paraEnvio(e, 0).macrosPrescritos).toEqual({ proteina: '20', carboidrato: '50', lipidio: '30' });
+    e = reduzir(e, { tipo: 'modo', modo: 'calculado' });
+    expect(e.modo).toBe('calculado');
+    expect(e.macros).toEqual({ proteina: '', carboidrato: '', lipidio: '' });
+    expect(e.refeicoes.map((r) => r.descricao)).toEqual(['', '']);
+    const envio = paraEnvio(e, 0);
+    expect(envio.macrosPrescritos).toBeNull();
+    expect(envio.refeicoes.map((r) => r.descricaoLivre)).toEqual([null, null]);
+  });
+
+  it('distribuição vazia no modo livre vai como null (sem distribuição); o plano gravado volta para o editor como texto', () => {
+    const e = reduzir(estadoInicial(plano), { tipo: 'modo', modo: 'livre' });
+    expect(paraEnvio(e, 0).macrosPrescritos).toBeNull();
+    const gravado = estadoInicial({
+      ...plano, modo: 'livre', macrosPrescritos: { proteina: 20, carboidrato: 50, lipidio: 30 },
+      refeicoes: [{ id: 'r1', nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: [1, 2, 3, 4, 5], descricaoLivre: 'Prato feito', itens: [] }],
+    });
+    expect(gravado).toMatchObject({ modo: 'livre', macros: { proteina: '20', carboidrato: '50', lipidio: '30' }, refeicoes: [{ diasSemana: [1, 2, 3, 4, 5], descricao: 'Prato feito' }] });
+  });
+
+  /** Almoço seg–sex (Alimento 130, 100 g = 130 kcal), Almoço sáb–dom (200 g = 260 kcal) e Café todos os dias (130 kcal). */
+  const semana = () =>
+    aplicar(
+      estadoInicial(plano),
+      { tipo: 'novaRefeicao', id: 'cafe' },
+      { tipo: 'refeicao', id: 'cafe', campo: 'nome', valor: 'Café' },
+      { tipo: 'adicionarItem', refeicaoId: 'cafe', id: 'c1', alimento: proprio },
+      { tipo: 'novaRefeicao', id: 'alm1' },
+      { tipo: 'refeicao', id: 'alm1', campo: 'nome', valor: 'Almoço' },
+      { tipo: 'adicionarItem', refeicaoId: 'alm1', id: 'a1', alimento: proprio },
+      { tipo: 'dia', id: 'alm1', dia: 6, marcado: false },
+      { tipo: 'dia', id: 'alm1', dia: 0, marcado: false },
+      { tipo: 'novaRefeicao', id: 'alm2' },
+      { tipo: 'refeicao', id: 'alm2', campo: 'nome', valor: 'Almoço' },
+      { tipo: 'adicionarItem', refeicaoId: 'alm2', id: 'a2', alimento: proprio },
+      { tipo: 'quantidade', itemId: 'a2', valor: '200' },
+      ...([1, 2, 3, 4, 5] as const).map((dia) => ({ tipo: 'dia' as const, id: 'alm2', dia, marcado: false })),
+    );
+
+  it('dias: refeição nova com os 7 dias; desmarcar e marcar mantém a ordem; o envio leva os dias', () => {
+    const e = semana();
+    expect(e.refeicoes.map((r) => r.diasSemana)).toEqual([[0, 1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5], [0, 6]]);
+    expect(reduzir(e, { tipo: 'dia', id: 'alm1', dia: 6, marcado: true }).refeicoes[1].diasSemana).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(reduzir(e, { tipo: 'dia', id: 'alm1', dia: 1, marcado: true })).toBe(e); // já marcado: nada muda
+    expect(paraEnvio(e, 0).refeicoes.map((r) => r.diasSemana)).toEqual([[0, 1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5], [0, 6]]);
+  });
+
+  it('filtro "sáb": só as refeições de sábado e o total de sábado (nunca a soma dos dois Almoços)', () => {
+    const e = semana();
+    expect(refeicoesDoFiltro(e, 6).map((r) => r.id)).toEqual(['cafe', 'alm2']);
+    expect(refeicoesDoFiltro(e, 'todos').map((r) => r.id)).toEqual(['cafe', 'alm1', 'alm2']);
+    expect(totaisDoFiltro(e, 6)).toMatchObject({ total: { kcal: 390 }, perfis: [] });
+    expect(totaisDoFiltro(e, 1)).toMatchObject({ total: { kcal: 260 }, perfis: [] });
+    // "Todos" com perfis diferentes: a tabela dos perfis, sem um total que some os dois Almoços
+    const todos = totaisDoFiltro(e, 'todos');
+    expect(todos.perfis.map((p) => ({ rotulo: p.rotulo, kcal: p.total.kcal }))).toEqual([{ rotulo: 'seg a sex', kcal: 260 }, { rotulo: 'sáb e dom', kcal: 390 }]);
+    // um perfil só: o total dele, sem tabela
+    const umPerfil = totaisDoFiltro(aplicar(e, { tipo: 'removerRefeicao', id: 'alm2' }, { tipo: 'dia', id: 'alm1', dia: 6, marcado: true }, { tipo: 'dia', id: 'alm1', dia: 0, marcado: true }), 'todos');
+    expect(umPerfil).toMatchObject({ total: { kcal: 260 }, perfis: [] });
+  });
+
+  it('legenda com o total de cada perfil e o dia sem refeições', () => {
+    const e = semana();
+    expect(legendaDosDias(e)).toEqual(['seg a sex: 260 kcal', 'sáb e dom: 390 kcal']);
+    const semDomingo = reduzir(reduzir(e, { tipo: 'dia', id: 'alm2', dia: 0, marcado: false }), { tipo: 'dia', id: 'cafe', dia: 0, marcado: false });
+    expect(legendaDosDias(semDomingo)).toEqual(['seg a sex: 260 kcal', 'sáb: 390 kcal', 'dom: sem refeições']);
+    expect(legendaDosDias(estadoInicial(plano))).toEqual(['todos os dias: sem refeições']);
+    // milhar com ponto, como no exemplo da spec ("seg a sex: 1.820 kcal")
+    const grande = reduzir(e, { tipo: 'quantidade', itemId: 'c1', valor: '1300' });
+    expect(legendaDosDias(grande)[0]).toBe('seg a sex: 1.820 kcal');
+    // modo livre: sem cálculo, só os perfis
+    expect(legendaDosDias(reduzir(semDomingo, { tipo: 'modo', modo: 'livre' }))).toEqual(['seg a sex', 'sáb', 'dom: sem refeições']);
+  });
+
+  it('nomes acessíveis únicos: dois "Almoço" levam os dias; nome único fica como está', () => {
+    const e = semana();
+    expect(nomesAcessiveis(e)).toEqual(new Map([['cafe', 'Café'], ['alm1', 'Almoço (seg a sex)'], ['alm2', 'Almoço (sáb e dom)']]));
+    // mesmo nome e mesmos dias: a posição desempata; sem nome, "Refeição {n}"
+    const iguais = aplicar(e, { tipo: 'dia', id: 'alm2', dia: 1, marcado: true }, { tipo: 'dia', id: 'alm2', dia: 2, marcado: true }, { tipo: 'dia', id: 'alm2', dia: 3, marcado: true }, { tipo: 'dia', id: 'alm2', dia: 4, marcado: true }, { tipo: 'dia', id: 'alm2', dia: 5, marcado: true }, { tipo: 'dia', id: 'alm2', dia: 6, marcado: false }, { tipo: 'dia', id: 'alm2', dia: 0, marcado: false }, { tipo: 'refeicao', id: 'cafe', campo: 'nome', valor: '' });
+    const nomes = nomesAcessiveis(iguais);
+    expect(nomes.get('cafe')).toBe('Refeição 1');
+    expect(new Set(nomes.values()).size).toBe(3);
+    expect([nomes.get('alm1'), nomes.get('alm2')]).toEqual(['Almoço (seg a sex, 2ª)', 'Almoço (seg a sex, 3ª)']);
+  });
+
+  it('erros de dias, texto e distribuição têm campo; refeição escondida pelo filtro de dia vai para o aviso do topo', () => {
+    const livre = reduzir(semana(), { tipo: 'modo', modo: 'livre' });
+    const erros = { 'refeicao:alm1:dias': 'Escolha ao menos um dia da semana.', 'refeicao:alm2:descricaoLivre': 'Texto muito longo (até 2000 caracteres).', macrosPrescritos: 'A soma de proteína, carboidrato e lipídio precisa dar 100%.' };
+    expect(errosSemCampo(livre, erros)).toEqual([]);
+    expect(errosSemCampo(livre, erros, 6)).toEqual(['Escolha ao menos um dia da semana.']); // o Almoço de seg a sex não está na tela
+    // no calculado não há caixa "O que comer" nem distribuição
+    expect(errosSemCampo(semana(), erros)).toEqual(['Texto muito longo (até 2000 caracteres).', 'A soma de proteína, carboidrato e lipídio precisa dar 100%.']);
   });
 });

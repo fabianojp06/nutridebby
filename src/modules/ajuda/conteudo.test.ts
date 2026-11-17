@@ -110,7 +110,7 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(itens('plano-alimentar')).toContain(
       '"Gerar rascunho com IA": informe a meta, os macronutrientes e as refeições; a IA escolhe alimentos da TACO e da sua tabela, e todas as contas são do sistema. O plano publicado leva o selo "Elaborado com apoio de IA e revisado pela nutricionista".',
     );
-    expect(GUIAS.find((x) => x.id === 'plano-alimentar')!.versao).toBe(2); // 2 desde o Plano 17 (a seção Lembretes no app, abaixo)
+    expect(GUIAS.find((x) => x.id === 'plano-alimentar')!.versao).toBe(3); // 2 = Plano 17 (a seção Lembretes no app, abaixo); 3 = Plano 19 (passos do modo e dos dias, abaixo)
     // as telas novas ficam no guia do prontuário e no do plano alimentar
     expect(guiaDaRota(`/painel/pacientes/${UUID}/resumo-ia`)?.id).toBe('prontuario');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/plano-alimentar/rascunho-ia`)?.id).toBe('plano-alimentar');
@@ -144,10 +144,10 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota(`/painel/pacientes/${UUID}/ia-nutri-x`)?.id).toBe('prontuario');
     expect(GUIAS.find((x) => x.id === 'duvidas')!.passos.map((p) => p.alvo)).toEqual(['fila-duvidas']);
   });
-  it('Plano 17: a seção "Lembretes no app" no guia do plano alimentar (versão 2, passo depois de Publicar e o limite nas perguntas comuns)', () => {
+  it('Plano 17: a seção "Lembretes no app" no guia do plano alimentar (versão 2, 3 com o Plano 19; passo depois de Publicar e o limite nas perguntas comuns)', () => {
     const g = GUIAS.find((x) => x.id === 'plano-alimentar')!;
-    expect(g.versao).toBe(2);
-    expect(g.passos.map((p) => p.alvo)).toEqual(['editor-plano', 'publicar-plano', 'lembretes-app']);
+    expect(g.versao).toBe(3);
+    expect(g.passos.map((p) => p.alvo)).toEqual(['editor-plano', 'modo-plano', 'dias-refeicao', 'publicar-plano', 'lembretes-app']);
     expect(g.passos.find((p) => p.alvo === 'lembretes-app')).toEqual({
       alvo: 'lembretes-app',
       titulo: 'Lembretes no app',
@@ -211,5 +211,13 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(precisaDoGuia({}, g, ['concluido', 'dispensado'])).toBe(true);
     expect(precisaDoGuia({ [g.id]: { v: g.versao, estado: 'dispensado' } }, g, ['concluido', 'dispensado'])).toBe(false);
     expect(precisaDoGuia({ [g.id]: { v: g.versao - 1, estado: 'concluido' } }, g, ['concluido', 'dispensado'])).toBe(true);
+  });
+
+  it('Plano 19: os passos do modo e dos dias entre o editor e "Publicar", com a versão nova', () => {
+    const g = GUIAS.find((x) => x.id === 'plano-alimentar')!;
+    const alvos = g.passos.map((p) => p.alvo);
+    const editor = alvos.indexOf('editor-plano');
+    expect(alvos.slice(editor, editor + 4)).toEqual(['editor-plano', 'modo-plano', 'dias-refeicao', 'publicar-plano']);
+    expect(g.versao).toBe(3); // 2 = Plano 17 (Lembretes no app); 3 = Plano 19
   });
 });

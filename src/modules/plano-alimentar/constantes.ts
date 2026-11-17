@@ -57,6 +57,11 @@ export const MSG_TEXTO_LIVRE = {
   publicarVazio: 'Inclua pelo menos uma refeição para publicar.',
   /** D31: aviso (não erro) na publicação sem VET; a nutricionista publica com "Publicar mesmo assim". */
   semVet: 'Registre o VET, a distribuição de macro e micronutrientes e as quantidades da prescrição no plano ou no atendimento.',
+  /** RN-245 (US-235): o `confirm` da troca de modo no editor, só quando há o que perder. */
+  paraLivre: 'Os alimentos de cada refeição viram texto e saem do plano. Continuar?',
+  paraCalculado: 'O texto das refeições será apagado. Continuar?',
+  /** RN-254: abaixo do rótulo da observação, do texto livre e da orientação da lista ligada. */
+  apareceNoApp: 'Aparece para o paciente no app.',
 } as const;
 
 /** RN-246 (Plano 19, D17): dias da semana da refeição. */
@@ -65,6 +70,9 @@ export const MSG_DIAS = {
   /** D31: aviso na publicação, na ordem seg…dom ("Domingo não tem refeições.", "Sábado e domingo não têm refeições."). */
   semRefeicao: (dias: readonly DiaDaSemana[]) => `${rotuloDosDiasPorExtenso(dias)} ${dias.length > 1 ? 'não têm' : 'não tem'} refeições.`,
   publicarMesmoAssim: 'Publicar mesmo assim',
+  /** RN-247 (a): legenda do filtro de dias ("dom: sem refeições") e o painel em "Todos" com perfis diferentes. */
+  semRefeicoes: (dias: string) => `${dias}: sem refeições`,
+  escolhaUmDia: 'Escolha um dia para ver os detalhes.',
 } as const;
 
 /** Plano 14B (US-123, RN-125): textos do modelo sugerido (os mesmos de MSG_MODELOS_IA; repetidos aqui para o editor, que não importa o módulo da IA). */

@@ -1,14 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { apagarPublicos, inserirPublicos } from '../../../test/alimentos-publicos';
 import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
-import { auditLog, contents, mealItems, mealPlans, meals, patients, planoConteudos, planoListasSubstituicao } from '@/db/schema';
+import { auditLog, contents, foods, mealItems, mealPlans, meals, patients, planoConteudos, planoListasSubstituicao } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { idTaco } from '@/modules/alimentos/taco';
 import { carregarPacienteParaEscrita, PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
+import { itensComoTexto } from './calculo';
 import { carregarPlano } from './carregar';
 import { MAX_ITENS, MAX_REFEICOES, MSG_DIAS, MSG_PLANO, MSG_TEXTO_LIVRE } from './constantes';
 import { ConflitoRevisaoError, PlanoError, PlanoNaoEncontradoError } from './erros';
@@ -609,6 +610,67 @@ describe('Plano 19 — salvamento com modo, dias, texto livre e limites (RN-243,
     expect(await copiando).toBeUndefined();
     const ligados = await withTenant(T.ctx, (tx) => tx.select({ contentId: planoConteudos.contentId, titulo: planoConteudos.titulo }).from(planoConteudos).where(eq(planoConteudos.planId, m.id)), app.db);
     expect(ligados).toEqual([{ contentId: null, titulo: 'Como montar o prato' }]);
+  });
+
+  it('RN-245: a troca calculado → livre grava pelo salvamento de sempre; refeição sem texto no corpo ganha os alimentos gravados como texto (itensComoTexto)', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await comRascunho(T);
+    const ids = { cafe: randomUUID(), almoco: randomUUID(), pao: randomUUID(), sub: randomUUID(), arroz: randomUUID() };
+    await salvarRascunho(T.ctx, id, conteudo(0, ids), deps);
+    const nomes = new Map(
+      (await withTenant(T.ctx, (tx) => tx.select({ id: foods.id, nome: foods.nome }).from(foods).where(inArray(foods.id, [idTaco(53), idTaco(533), idTaco(3)])), app.db)).map((f) => [f.id, f.nome]),
+    );
+    const textoCafe = itensComoTexto([
+      { id: ids.pao, nome: nomes.get(idTaco(53))!, quantidadeG: 50, medidaCaseiraTxt: null, substituiItemId: null },
+      { id: ids.sub, nome: nomes.get(idTaco(533))!, quantidadeG: 100, medidaCaseiraTxt: null, substituiItemId: ids.pao },
+    ]);
+    expect(textoCafe).toContain(' (ou ');
+    // o editor manda o texto que já mostrou (Almoço, editado); o Café vem sem texto (corpo de outro cliente): o servidor gera
+    const corpo = conteudo(1, ids);
+    const almocoEditado = 'Arroz — 4 colheres de sopa cheias; salada à vontade';
+    await salvarRascunho(
+      T.ctx,
+      id,
+      { ...corpo, modo: 'livre', refeicoes: corpo.refeicoes.map((r) => ({ ...r, itens: [], ...(r.id === ids.almoco ? { descricaoLivre: almocoEditado } : {}) })) },
+      deps,
+    );
+    expect(await cabecalho(T, id)).toEqual({ modo: 'livre', macros: null });
+    expect(await linhasDasRefeicoes(T, id)).toEqual([
+      { id: ids.cafe, dias: [0, 1, 2, 3, 4, 5, 6], texto: textoCafe },
+      { id: ids.almoco, dias: [0, 1, 2, 3, 4, 5, 6], texto: almocoEditado },
+    ]);
+    expect(await withTenant(T.ctx, (tx) => tx.select({ id: mealItems.id }).from(mealItems).where(eq(mealItems.planId, id)), app.db)).toEqual([]); // os itens saem
+    // já no livre, refeição sem texto no corpo fica como está (não é troca)
+    await salvarRascunho(T.ctx, id, { ...corpo, revisao: 2, modo: 'livre', refeicoes: corpo.refeicoes.map((r) => ({ ...r, itens: [] })) }, deps);
+    expect((await linhasDasRefeicoes(T, id)).map((r) => r.texto)).toEqual([textoCafe, almocoEditado]);
+  });
+
+  it('RN-243: o banco nunca guarda texto livre ao lado de alimentos, nem texto ou distribuição no calculado', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await comRascunho(T);
+    const ids = { cafe: randomUUID(), almoco: randomUUID(), pao: randomUUID(), sub: randomUUID(), arroz: randomUUID() };
+    const misturado = (revisao: number) => {
+      const c = conteudo(revisao, ids);
+      return { ...c, modo: 'calculado' as const, macrosPrescritos: { proteina: 20, carboidrato: 50, lipidio: 30 }, refeicoes: c.refeicoes.map((r) => ({ ...r, descricaoLivre: 'texto que não pode ficar' })) };
+    };
+    await salvarRascunho(T.ctx, id, misturado(0), deps);
+    const conferir = async () => {
+      // na sessão do tenant (fora dela a RLS esconderia tudo e a conta daria 0 sempre)
+      const r = await withTenant(T.ctx, (tx) => tx.execute(sql`
+        select count(*)::int as n from meals m
+        where m.plan_id = ${id} and m.descricao_livre is not null
+          and (exists (select 1 from meal_items i where i.meal_id = m.id) or (select modo from meal_plans where id = m.plan_id) = 'calculado')`), app.db);
+      return (r.rows[0] as { n: number }).n;
+    };
+    expect(await conferir()).toBe(0);
+    expect((await linhasDasRefeicoes(T, id)).map((r) => r.texto)).toEqual([null, null]);
+    expect(await cabecalho(T, id)).toEqual({ modo: 'calculado', macros: null });
+    // e depois de ir e voltar do livre
+    const c = conteudo(1, ids);
+    await salvarRascunho(T.ctx, id, { ...c, modo: 'livre', refeicoes: c.refeicoes.map((r) => ({ ...r, itens: [] })) }, deps);
+    await salvarRascunho(T.ctx, id, misturado(2), deps);
+    expect(await conferir()).toBe(0);
+    expect((await linhasDasRefeicoes(T, id)).map((r) => r.texto)).toEqual([null, null]);
   });
 
   it('"Usar como rascunho" e modelos sugeridos (gravarConteudoRascunhoTx, criarRascunhoTx): modo calculado e refeições nos 7 dias', async () => {

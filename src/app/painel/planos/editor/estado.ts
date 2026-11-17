@@ -1,9 +1,10 @@
 import { formatarDecimal, casasDecimais, lerDecimal } from '@/lib/numero';
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
-import { gramasDaMedida, gramasDaMedidaTexto, QTD_MEDIDA_MAX } from '@/modules/alimentos/medidas-constantes';
-import { lerQuantidade, type ItemCalculo } from '@/modules/plano-alimentar/calculo';
-import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
-import type { ItemPlano, PlanoDoCliente, RascunhoEnviado, ReceitaDaRefeicao } from '@/modules/plano-alimentar/tipos';
+import { gramasDaMedida, gramasDaMedidaTexto, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos/medidas-constantes';
+import { itensComoTexto, lerQuantidade, totalDoDia, totaisDoDia, ZERO, type ItemCalculo, type Nutrientes } from '@/modules/plano-alimentar/calculo';
+import { MAX_ITENS, MAX_REFEICOES, MSG_DIAS } from '@/modules/plano-alimentar/constantes';
+import { diasSemRefeicao, ORDEM_DIAS, perfisDeDia, refeicoesDoDia, rotuloDosDias, TODOS_OS_DIAS, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
+import type { ItemPlano, ModoPlano, PlanoDoCliente, RascunhoEnviado, ReceitaDaRefeicao } from '@/modules/plano-alimentar/tipos';
 
 /** Estado local do editor: textos como a nutricionista digitou; números só na hora de calcular e enviar. */
 export type ItemEstado = Omit<ItemPlano, 'quantidadeG' | 'medida' | 'medidaCaseiraTxt'> & {
@@ -11,8 +12,24 @@ export type ItemEstado = Omit<ItemPlano, 'quantidadeG' | 'medida' | 'medidaCasei
   medida: { nome: string; plural: string; gramas: number } | null;
   qtdTexto: string;
 };
-export type RefeicaoEstado = { id: string; nome: string; horario: string; observacao: string; itens: ItemEstado[]; receita?: ReceitaDaRefeicao | null };
-export type EstadoEditor = { titulo: string; metaTexto: string; energyCalcId: string | null; mostrarCalorias: boolean; orientacoes: string; refeicoes: RefeicaoEstado[] };
+/** `descricao`: o texto livre (RN-243), '' no calculado; `diasSemana` em ordem 0…6 (RN-246). */
+export type RefeicaoEstado = { id: string; nome: string; horario: string; observacao: string; diasSemana: DiaDaSemana[]; descricao: string; itens: ItemEstado[]; receita?: ReceitaDaRefeicao | null };
+/** RN-244: a distribuição prescrita como digitada (% do VET). */
+export type MacrosTexto = { proteina: string; carboidrato: string; lipidio: string };
+export type EstadoEditor = {
+  titulo: string;
+  metaTexto: string;
+  energyCalcId: string | null;
+  mostrarCalorias: boolean;
+  orientacoes: string;
+  modo: ModoPlano;
+  macros: MacrosTexto;
+  refeicoes: RefeicaoEstado[];
+};
+/** O filtro de dias do editor (RN-247 a): "Todos" ou um dia. Estado da tela, não do plano (não é edição). */
+export type FiltroDia = 'todos' | DiaDaSemana;
+
+const SEM_MACROS: MacrosTexto = { proteina: '', carboidrato: '', lipidio: '' };
 
 export type Acao =
   | { tipo: 'titulo'; valor: string }
@@ -20,8 +37,11 @@ export type Acao =
   | { tipo: 'usarCalculo'; id: string; kcal: number }
   | { tipo: 'mostrarCalorias'; valor: boolean }
   | { tipo: 'orientacoes'; valor: string }
+  | { tipo: 'modo'; modo: ModoPlano }
+  | { tipo: 'macro'; campo: keyof MacrosTexto; valor: string }
   | { tipo: 'novaRefeicao'; id: string }
-  | { tipo: 'refeicao'; id: string; campo: 'nome' | 'horario' | 'observacao'; valor: string }
+  | { tipo: 'refeicao'; id: string; campo: 'nome' | 'horario' | 'observacao' | 'descricao'; valor: string }
+  | { tipo: 'dia'; id: string; dia: DiaDaSemana; marcado: boolean }
   | { tipo: 'removerRefeicao'; id: string }
   | { tipo: 'receita'; id: string; receita: { id: string; titulo: string } | null }
   | { tipo: 'adicionarItem'; refeicaoId: string; id: string; alimento: AlimentoEncontrado; substituiItemId?: string | null }
@@ -45,11 +65,17 @@ export function estadoInicial(p: PlanoDoCliente): EstadoEditor {
     energyCalcId: p.energyCalcId,
     mostrarCalorias: p.mostrarCalorias,
     orientacoes: p.orientacoes,
+    modo: p.modo,
+    macros: p.macrosPrescritos
+      ? { proteina: String(p.macrosPrescritos.proteina), carboidrato: String(p.macrosPrescritos.carboidrato), lipidio: String(p.macrosPrescritos.lipidio) }
+      : SEM_MACROS,
     refeicoes: p.refeicoes.map((r) => ({
       id: r.id,
       nome: r.nome,
       horario: r.horario,
       observacao: r.observacao,
+      diasSemana: [...r.diasSemana],
+      descricao: r.descricaoLivre ?? '',
       ...(r.receita ? { receita: r.receita } : {}),
       itens: r.itens.map((i) => ({
         id: i.id,
@@ -124,17 +150,30 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
       return { ...e, mostrarCalorias: a.valor };
     case 'orientacoes':
       return { ...e, orientacoes: a.valor };
+    case 'modo':
+      return trocarModo(e, a.modo);
+    case 'macro':
+      return { ...e, macros: { ...e.macros, [a.campo]: a.valor } };
     case 'novaRefeicao':
       if (!podeAdicionarRefeicao(e)) return e;
-      return { ...e, refeicoes: [...e.refeicoes, { id: a.id, nome: `Refeição ${e.refeicoes.length + 1}`, horario: '', observacao: '', itens: [] }] };
+      return {
+        ...e,
+        refeicoes: [...e.refeicoes, { id: a.id, nome: `Refeição ${e.refeicoes.length + 1}`, horario: '', observacao: '', diasSemana: [...TODOS_OS_DIAS], descricao: '', itens: [] }],
+      };
     case 'refeicao':
       return { ...e, refeicoes: e.refeicoes.map((r) => (r.id === a.id ? { ...r, [a.campo]: a.valor } : r)) };
+    case 'dia': {
+      const r = e.refeicoes.find((x) => x.id === a.id);
+      if (!r || r.diasSemana.includes(a.dia) === a.marcado) return e;
+      const diasSemana = a.marcado ? [...r.diasSemana, a.dia].sort((x, y) => x - y) : r.diasSemana.filter((d) => d !== a.dia);
+      return { ...e, refeicoes: e.refeicoes.map((x) => (x === r ? { ...x, diasSemana } : x)) };
+    }
     case 'removerRefeicao':
       return { ...e, refeicoes: e.refeicoes.filter((r) => r.id !== a.id) };
     case 'receita':
       return { ...e, refeicoes: e.refeicoes.map((r) => (r.id === a.id ? { ...r, receita: a.receita ? { ...a.receita, disponivel: true } : null } : r)) };
     case 'adicionarItem': {
-      if (!podeAdicionarItem(e)) return e;
+      if (e.modo === 'livre' || !podeAdicionarItem(e)) return e; // RN-243: no modo livre a refeição não tem alimentos
       const m = a.alimento.medidas[0];
       const novo: ItemEstado = {
         id: a.id,
@@ -180,6 +219,36 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
 }
 
 /**
+ * RN-245: o item como entra no texto da troca para o modo livre. Quantidade válida: a medida caseira (o mesmo
+ * `textoMedida` que o servidor grava em `medida_caseira_txt`) ou os gramas. Inválida (o campo está em erro): o que foi
+ * digitado, com a unidade ("abc g", "? colher de sopa cheia"), em vez de um número que a nutricionista não escreveu.
+ */
+function itemParaTexto(i: ItemEstado) {
+  const g = gramasDoItem(i);
+  const base = { id: i.id, nome: i.nome, substituiItemId: i.substituiItemId };
+  if (g !== null) return { ...base, quantidadeG: g, medidaCaseiraTxt: i.medida ? textoMedida(lerDecimal(i.qtdTexto)!, i.medida) : null };
+  const digitado = (i.medida ? i.qtdTexto : i.quantidadeTexto).trim() || '?';
+  return { ...base, quantidadeG: 0, medidaCaseiraTxt: `${digitado} ${i.medida ? i.medida.nome : 'g'}` };
+}
+
+/**
+ * RN-245: calculado → livre, cada refeição ganha o texto dos seus alimentos (`itensComoTexto`, a mesma regra do
+ * servidor) e os alimentos saem; livre → calculado, o texto e a distribuição prescrita saem. O `confirm` é da tela;
+ * a gravação é o salvamento automático de sempre (D7).
+ */
+function trocarModo(e: EstadoEditor, modo: ModoPlano): EstadoEditor {
+  if (e.modo === modo) return e;
+  if (modo === 'livre') return { ...e, modo, refeicoes: e.refeicoes.map((r) => ({ ...r, descricao: itensComoTexto(r.itens.map(itemParaTexto)), itens: [] })) };
+  return { ...e, modo, macros: SEM_MACROS, refeicoes: e.refeicoes.map((r) => ({ ...r, descricao: '' })) };
+}
+
+/** Há o que a troca de modo apaga? (o `confirm` só aparece quando há: alimentos, ou texto e distribuição.) */
+export function trocaPerdeAlgo(e: EstadoEditor): boolean {
+  if (e.modo === 'calculado') return e.refeicoes.some((r) => r.itens.length > 0);
+  return e.refeicoes.some((r) => r.descricao.trim() !== '') || Object.values(e.macros).some((v) => v.trim() !== '');
+}
+
+/**
  * US-023: o principal anda com as suas substituições, como um bloco que troca de lugar com o bloco vizinho; a
  * substituição só se reordena entre as do mesmo principal (nas pontas do grupo não faz nada). Devolve a própria
  * lista quando nada muda.
@@ -213,17 +282,76 @@ function moverNaRefeicao(its: ItemEstado[], itemId: string, direcao: -1 | 1): It
  * Erros do servidor (D7) que nenhum campo da tela mostra — `geral`, `item:<id>:substituiItemId`, campo de item ou
  * refeição que já saiu da tela. Vão para o aviso do topo, para o "Corrija os campos destacados" nunca ficar sem destaque.
  */
-export function errosSemCampo(e: EstadoEditor, erros: Record<string, string>): string[] {
+export function errosSemCampo(e: EstadoEditor, erros: Record<string, string>, filtro: FiltroDia = 'todos'): string[] {
   const campos = new Set(['titulo', 'metaKcal', 'orientacoes']);
-  for (const r of e.refeicoes) {
-    for (const c of ['nome', 'horario', 'observacao', 'receita']) campos.add(`refeicao:${r.id}:${c}`);
+  if (e.modo === 'livre') campos.add('macrosPrescritos');
+  // Plano 19: a refeição escondida pelo filtro de dias não tem campo na tela
+  for (const r of refeicoesDoFiltro(e, filtro)) {
+    for (const c of ['nome', 'horario', 'observacao', 'receita', 'dias']) campos.add(`refeicao:${r.id}:${c}`);
+    if (e.modo === 'livre') campos.add(`refeicao:${r.id}:descricaoLivre`);
     for (const i of r.itens) for (const c of ['quantidadeG', 'medida', 'foodId']) campos.add(`item:${i.id}:${c}`);
   }
   return [...new Set(Object.entries(erros).filter(([chave]) => !campos.has(chave)).map(([, msg]) => msg))];
 }
 
-export const refeicoesParaCalculo = (e: EstadoEditor): { itens: ItemCalculo[] }[] =>
-  e.refeicoes.map((r) => ({ itens: r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, substituiItemId: i.substituiItemId })) }));
+export const refeicoesParaCalculo = (e: EstadoEditor): { id: string; diasSemana: DiaDaSemana[]; itens: ItemCalculo[] }[] =>
+  e.refeicoes.map((r) => ({
+    id: r.id,
+    diasSemana: r.diasSemana,
+    itens: r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, substituiItemId: i.substituiItemId })),
+  }));
+
+/** RN-247 (a): as refeições que o editor mostra — todas em "Todos"; num dia, só as que valem nele. */
+export const refeicoesDoFiltro = (e: EstadoEditor, filtro: FiltroDia): RefeicaoEstado[] => (filtro === 'todos' ? e.refeicoes : refeicoesDoDia(e.refeicoes, filtro));
+
+export type PerfilComTotal = { rotulo: string; total: Nutrientes };
+
+/**
+ * RN-247 (a): o total do painel é sempre o de um dia (`totaisDoDia`), nunca a soma de todas as refeições. Num dia, o
+ * total dele. Em "Todos": com um perfil de dia só, o total desse perfil; com perfis diferentes, `perfis` traz o total
+ * de cada um (a tabela do painel, com "Escolha um dia para ver os detalhes.") e `total` fica zerado.
+ */
+export function totaisDoFiltro(e: EstadoEditor, filtro: FiltroDia): { total: Nutrientes; perfis: PerfilComTotal[] } {
+  const calc = refeicoesParaCalculo(e);
+  if (filtro !== 'todos') return { total: totaisDoDia(calc, filtro), perfis: [] };
+  const perfis = perfisDeDia(calc);
+  if (perfis.length <= 1) return { total: perfis.length ? totalDoDia(perfis[0].refeicoes) : ZERO, perfis: [] };
+  return { total: ZERO, perfis: perfis.map((p) => ({ rotulo: rotuloDosDias(p.dias), total: totalDoDia(p.refeicoes) })) };
+}
+
+/** kcal da legenda com o milhar, como no exemplo da spec ("seg a sex: 1.820 kcal"). */
+const kcalComMilhar = (n: number): string => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(Math.round(n));
+
+/**
+ * RN-247 (a): a legenda do filtro, na ordem do primeiro dia (seg…dom): cada perfil com a energia do dia ("seg a sex:
+ * 1.820 kcal"; no modo livre, sem cálculo, só os dias) e os dias sem refeição juntos ("dom: sem refeições").
+ */
+export function legendaDosDias(e: EstadoEditor): string[] {
+  const perfis = perfisDeDia(refeicoesParaCalculo(e));
+  const partes = perfis.map((p) => ({ primeiro: ORDEM_DIAS.indexOf(p.dias[0]), texto: e.modo === 'livre' ? rotuloDosDias(p.dias) : `${rotuloDosDias(p.dias)}: ${kcalComMilhar(totalDoDia(p.refeicoes).kcal)} kcal` }));
+  const vazios = diasSemRefeicao(e.refeicoes);
+  if (vazios.length) partes.push({ primeiro: ORDEM_DIAS.indexOf(vazios[0]), texto: MSG_DIAS.semRefeicoes(rotuloDosDias(vazios)) });
+  return partes.sort((a, b) => a.primeiro - b.primeiro).map((p) => p.texto);
+}
+
+/**
+ * RNF-232: o nome da refeição nos rótulos ("Horário de {nome}", "Dias de {nome}"…), único na tela. Nome repetido leva
+ * os dias ("Almoço (seg a sex)"); se ainda repete (mesmos dias), a posição ("Almoço (seg a sex, 3ª)"). Sem nome,
+ * "Refeição {n}".
+ */
+export function nomesAcessiveis(e: EstadoEditor): Map<string, string> {
+  const repete = (lista: string[]) => {
+    const n = new Map<string, number>();
+    for (const x of lista) n.set(x.toLowerCase(), (n.get(x.toLowerCase()) ?? 0) + 1);
+    return (x: string) => n.get(x.toLowerCase())! > 1;
+  };
+  const base = e.refeicoes.map((r, k) => r.nome.trim() || `Refeição ${k + 1}`);
+  const dias = (k: number) => rotuloDosDias(e.refeicoes[k].diasSemana) || 'sem dias';
+  const nomeRepete = repete(base);
+  const comDias = base.map((n, k) => (nomeRepete(n) ? `${n} (${dias(k)})` : n));
+  const comDiasRepete = repete(comDias);
+  return new Map(e.refeicoes.map((r, k) => [r.id, nomeRepete(base[k]) && comDiasRepete(comDias[k]) ? `${base[k]} (${dias(k)}, ${k + 1}ª)` : comDias[k]]));
+}
 
 /** Corpo do PUT (D7). Quantidade inválida vai como texto para o servidor devolver o erro do campo. */
 export function paraEnvio(e: EstadoEditor, revisao: number): RascunhoEnviado {
@@ -234,11 +362,16 @@ export function paraEnvio(e: EstadoEditor, revisao: number): RascunhoEnviado {
     energyCalcId: e.energyCalcId,
     mostrarCalorias: e.mostrarCalorias,
     orientacoes: e.orientacoes,
+    modo: e.modo,
+    // RN-244: os três vazios = sem distribuição; o servidor confere a soma
+    macrosPrescritos: e.modo === 'livre' && Object.values(e.macros).some((v) => v.trim() !== '') ? { ...e.macros } : null,
     refeicoes: e.refeicoes.map((r) => ({
       id: r.id,
       nome: r.nome,
       horario: r.horario,
       observacao: r.observacao,
+      diasSemana: [...r.diasSemana],
+      descricaoLivre: e.modo === 'livre' ? r.descricao : null,
       ...(r.receita ? { recipeContentId: r.receita.id } : {}),
       itens: r.itens.map((i) => {
         const g = gramasDoItem(i);
