@@ -7,7 +7,8 @@ import { lerPlanoNaTransacao } from '@/modules/plano-alimentar/carregar';
 import type { PlanoCompleto, RefeicaoPlano } from '@/modules/plano-alimentar/tipos';
 import { kcalDo, quantidadeDoItem } from '@/modules/portal/plano';
 import type { CATEGORIAS_DA_IA_NUTRI } from '../campos-enviados';
-import { mascarar, type AlvoDaMascara } from '../pseudonimizar';
+import { nomeSocialParaMascara } from '../nome-social-worker';
+import { comNomeSocial, mascarar, type AlvoDaMascara } from '../pseudonimizar';
 import { ATENDIMENTOS_NO_CONTEXTO, ULTIMAS_MENSAGENS_DA_SESSAO, type TipoResposta } from './constantes';
 import { INSTRUCAO_CONVERSA, SISTEMA_CONVERSA } from './instrucoes';
 import type { Trecho } from './montar-resposta';
@@ -20,6 +21,9 @@ import type { Trecho } from './montar-resposta';
  * fica no worker. Texto livre mascarado (nome, e-mail, telefone e CPF do paciente; nomes da equipe; nome do consultório).
  * ÚNICO arquivo novo que lê a tabela `user` (regra 1): só `user.name` das contas de nutricionista do tenant. Só o worker
  * importa (o job `ia-paciente`; guarda de grafo, T13). Sem escrita: só leitura nas duas funções.
+ * Plano 18 (RN-282, D19): o nome social do paciente também sai pela máscara (`outrosNomes`). A sessão de paciente sem
+ * login não lê `patient_cadastro`: o nome social é lido por `nomeSocialParaMascara` (contexto worker próprio) ANTES e fora
+ * desta transação; falhou a leitura, a montagem falha (nada sai sem a máscara).
  */
 export type FonteDoContexto = { indice: string; tipo: 'refeicao' | 'item' | 'substituicao' | 'orientacao_plano' | 'orientacao_atendimento'; id: string };
 type Dados = Record<(typeof CATEGORIAS_DA_IA_NUTRI)[number], unknown>;
@@ -52,18 +56,24 @@ export function corpoDaConversa(
   return `${INSTRUCAO_CONVERSA}\n${JSON.stringify({ contexto: { plano: contexto.plano, orientacoes: contexto.orientacoes, indices: fontes.map((f) => f.indice) }, historico, pergunta })}`;
 }
 
-/** PM-3: o paciente (nome, e-mail, telefone), a equipe (só `user.name` das nutricionistas do tenant) e o consultório. */
-async function alvoDaMascara(tx: Tx, tenantId: string, patientId: string): Promise<AlvoDaMascara> {
+/**
+ * PM-3: o paciente (nome, e-mail, telefone), a equipe (só `user.name` das nutricionistas do tenant) e o consultório.
+ * Plano 18: e o nome social do paciente (já lido no contexto worker).
+ */
+async function alvoDaMascara(tx: Tx, tenantId: string, patientId: string, nomeSocial: string | null): Promise<AlvoDaMascara> {
   const [p] = await tx.select({ nome: patients.nome, email: patients.email, telefone: patients.telefoneE164 }).from(patients).where(eq(patients.id, patientId));
   const [t] = await tx.select({ nomeExibicao: tenants.nomeExibicao, nomeProfissional: tenants.nomeProfissional }).from(tenants).where(eq(tenants.id, tenantId));
   const equipe = await tx.select({ nome: user.name }).from(user).where(and(eq(user.tenantId, tenantId), eq(user.appRole, 'nutri')));
-  return {
-    nome: p?.nome ?? '',
-    email: p?.email ?? null,
-    telefone: p?.telefone ?? null,
-    outrosNomes: [...equipe.map((u) => u.nome), ...(t?.nomeProfissional ? [t.nomeProfissional] : [])].filter(Boolean),
-    frasesExatas: t?.nomeExibicao ? [t.nomeExibicao] : [],
-  };
+  return comNomeSocial(
+    {
+      nome: p?.nome ?? '',
+      email: p?.email ?? null,
+      telefone: p?.telefone ?? null,
+      outrosNomes: [...equipe.map((u) => u.nome), ...(t?.nomeProfissional ? [t.nomeProfissional] : [])].filter(Boolean),
+      frasesExatas: t?.nomeExibicao ? [t.nomeExibicao] : [],
+    },
+    nomeSocial,
+  );
 }
 
 /** O item como a tela do plano mostra (nome — quantidade · kcal). */
@@ -73,6 +83,7 @@ const textoDoItem = (i: RefeicaoPlano['itens'][number], mostrar: boolean): strin
 };
 
 export async function montarContexto(db: Db, d: { tenantId: string; patientId: string; mensagemId: string }): Promise<ContextoDaConversa | null> {
+  const nomeSocial = await nomeSocialParaMascara(db, d.tenantId, d.patientId);
   return withTenant(
     sessaoDoPaciente(d.tenantId, d.patientId),
     async (tx) => {
@@ -85,7 +96,7 @@ export async function montarContexto(db: Db, d: { tenantId: string; patientId: s
       if (!pub) return null;
       const plano = await lerPlanoNaTransacao(tx, pub.id, { auditar: false, comMedidas: false });
       if (!plano || plano.status !== 'publicado') return null;
-      const alvo = await alvoDaMascara(tx, d.tenantId, d.patientId);
+      const alvo = await alvoDaMascara(tx, d.tenantId, d.patientId, nomeSocial);
       const fontes: FonteDoContexto[] = [];
       let nI = 0;
       let nS = 0;

@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   app,
   comoWorker,
@@ -11,12 +11,14 @@ import {
   outroPacientePronto,
   pronto,
 } from '../../../../test/ia-nutri-conversa';
+import { cadastroCompletoNoBanco } from '../../../../test/ia';
 import { mensagemNoBanco } from '../../../../test/ia-nutri';
-import { mealPlans } from '@/db/schema';
+import { consultations, mealPlans } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { editarPublicado } from '@/modules/plano-alimentar/publicacao';
 import { quantidadeDoItem } from '@/modules/portal/plano';
 import { CATEGORIAS_DA_IA_NUTRI } from '../campos-enviados';
+import { nomeSocialParaMascara } from '../nome-social-worker';
 import { provedorFake } from '../provedor-fake';
 import { corpoDaConversa, montarContexto, relerTrechos } from './contexto';
 import { encaminhar, enviarANutri, perguntar } from './conversa';
@@ -26,6 +28,33 @@ import { processarPerguntaIaNutri } from './job';
 // Plano 15 (P15-09): o contexto da pergunta, lido na sessão de paciente sem conta (spec F3-02 v0.4 §4.2 passo 2, §7.3,
 // RN-172, RN-174, RNF-163, DP-8, DP-16, Review Focus 6)
 afterAll(fecharHarnessDaConversa);
+
+/**
+ * Plano 18 (RN-282, Review Focus 1): os contextos que o withTenant abre — o papel, se tem ator e se foi aberto DENTRO de
+ * outro (a leitura do nome social não pode rodar na transação da sessão de paciente sem login). Delega ao de verdade.
+ */
+const contextos = vi.hoisted(() => ({ abertos: [] as { role: string; comAtor: boolean; aninhado: boolean }[], ativos: 0 }));
+vi.mock('@/db/tenant', async (original) => {
+  const m = await original<typeof import('@/db/tenant')>();
+  const withTenant: typeof m.withTenant = async (ctx, fn, db) => {
+    contextos.abertos.push({ role: ctx.role, comAtor: !!ctx.actorUserId, aninhado: contextos.ativos > 0 });
+    contextos.ativos++;
+    try {
+      return await m.withTenant(ctx, fn, db);
+    } finally {
+      contextos.ativos--;
+    }
+  };
+  return { ...m, withTenant };
+});
+// a leitura do nome social, espiável (para simular a falha do banco); delega à de verdade
+vi.mock('../nome-social-worker', async (original) => {
+  const m = await original<typeof import('../nome-social-worker')>();
+  return { nomeSocialParaMascara: vi.fn(m.nomeSocialParaMascara) };
+});
+beforeEach(() => {
+  contextos.abertos.length = 0;
+});
 
 type Historico = { autor: string; texto?: string; tipo_resposta?: string | null; fontes?: string[] }[];
 const historicoDe = (c: { dados: Record<string, unknown> }) => (c.dados.perguntas as { historico: Historico }).historico;
@@ -69,6 +98,39 @@ describe('montarContexto (§7.3, RNF-163)', () => {
     expect(c.corpo).not.toMatch(/Debby|Ana|Souza|123\.456\.789-09/);
     // a pergunta crua fica com o worker (validação e termos), nunca no corpo
     expect(c.pergunta).toBe('meu CPF é 123.456.789-09, Ana pode trocar a banana?');
+  });
+
+  it('Plano 18 (RN-282): o nome social citado na pergunta e nas orientações sai mascarado; lido no contexto worker, fora da sessão do paciente', async () => {
+    const { T, p, ctxP } = await pronto();
+    await cadastroCompletoNoBanco(app.db, T.ctx, p.id, 'Joana Prado');
+    await withTenant(
+      T.ctx,
+      (tx) => tx.update(consultations).set({ orientacoesPaciente: 'Joana, caminhe 30 minutos por dia.' }).where(and(eq(consultations.patientId, p.id), eq(consultations.data, '2026-08-01'))),
+      app.db,
+    );
+    const { mensagemId } = await perguntar(ctxP, 'Joana Prado pode trocar a banana?', depsApp);
+    contextos.abertos.length = 0;
+    const c = (await montarContexto(app.db, { tenantId: T.tenantId, patientId: p.id, mensagemId: mensagemId! }))!;
+    expect(c.corpo).not.toMatch(/Joana|Prado/);
+    expect(JSON.stringify(c.dados)).not.toMatch(/Joana|Prado/);
+    expect(c.corpo).toContain('[removido] pode trocar a banana?');
+    expect(c.dados.orientacoes).toContainEqual({ indice: '#A2', data: '2026-08-01', texto: '[removido], caminhe 30 minutos por dia.' });
+    // o nome social no contexto worker, ANTES e fora da transação da sessão de paciente sem login (que não lê a tabela)
+    expect(contextos.abertos).toEqual([
+      { role: 'worker', comAtor: false, aninhado: false },
+      { role: 'paciente', comAtor: false, aninhado: false },
+    ]);
+    expect(vi.mocked(nomeSocialParaMascara)).toHaveBeenCalledWith(app.db, T.tenantId, p.id);
+  });
+
+  it('Plano 18 (RN-282): sem nome social, o contexto é o de sempre; a falha na leitura do nome social derruba a montagem (nada sai sem a máscara)', async () => {
+    const { T, p, ctxP } = await pronto();
+    const { mensagemId } = await perguntar(ctxP, 'quanto de arroz no almoço?', depsApp);
+    expect(await montarContexto(app.db, { tenantId: T.tenantId, patientId: p.id, mensagemId: mensagemId! })).not.toBeNull();
+    vi.mocked(nomeSocialParaMascara).mockRejectedValueOnce(new Error('conexão perdida'));
+    contextos.abertos.length = 0;
+    await expect(montarContexto(app.db, { tenantId: T.tenantId, patientId: p.id, mensagemId: mensagemId! })).rejects.toThrow('conexão perdida');
+    expect(contextos.abertos.filter((x) => x.role === 'paciente')).toEqual([]); // nem abre a sessão do paciente
   });
 
   it('kcal só com mostrar_calorias do plano; a formatação é a da tela (quantidadeDoItem)', async () => {

@@ -7,7 +7,8 @@ import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
 import { MAX_REFEICOES, META_MAX, META_MIN, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { Categoria } from './campos-enviados';
 import { MSG_RASCUNHO_IA } from './constantes';
-import { respostasMascaradas, textoLivre, type AlvoDaMascara } from './pseudonimizar';
+import { nomeSocialNaTransacao } from './nome-social';
+import { comNomeSocial, respostasMascaradas, textoLivre, type AlvoDaMascara } from './pseudonimizar';
 
 export const MAX_RESTRICOES = 500;
 export type MetasDoRascunho = {
@@ -71,13 +72,15 @@ export function validarMetas(bruto: unknown): { ok: true; metas: MetasDoRascunho
  * campos-enviados.test.ts confere): idade, sexo, as metas (números e nomes das refeições, mascarados), as restrições
  * mascaradas e, só com "Considerar a anamnese", a anamnese mais recente mascarada. Sem id do banco, sem campo do cadastro.
  * Lê dentro do withTenant de quem chama (app no pedido, worker no portão); não devolve nada à tela (sem auditRead).
+ * Plano 18 (RN-282): o nome social entra só na máscara (`outrosNomes`).
  */
 export async function montarPedidoDoRascunho(tx: Tx, p: PatientRow, metas: MetasDoRascunho, o: { agora: Date; fuso: string }): Promise<PedidoDoRascunho> {
   const [ana] = metas.considerarAnamnese
     ? await tx.select().from(anamneses).where(eq(anamneses.patientId, p.id)).orderBy(desc(anamneses.data), desc(anamneses.createdAt)).limit(1)
     : [];
   const base = { idade: p.dataNascimento ? idadeEm(p.dataNascimento, hojeNoFuso(o.fuso, o.agora)) : null, sexo: p.sexo ?? null };
-  return pedidoDoRascunho(base, { nome: p.nome, email: p.email, telefone: p.telefoneE164 }, metas, ana ?? null);
+  const alvo = comNomeSocial({ nome: p.nome, email: p.email, telefone: p.telefoneE164 }, await nomeSocialNaTransacao(tx, p.id));
+  return pedidoDoRascunho(base, alvo, metas, ana ?? null);
 }
 
 /**

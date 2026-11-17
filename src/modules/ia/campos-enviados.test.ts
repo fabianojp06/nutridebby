@@ -1,7 +1,8 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { pacienteAutorizado, prontuarioCompleto } from '../../../test/ia';
+import { cadastroCompletoNoBanco, pacienteAutorizado, PROIBIDOS_DO_CADASTRO, prontuarioCompleto } from '../../../test/ia';
+import { app as appConversa, depsApp, fecharHarnessDaConversa, pronto } from '../../../test/ia-nutri-conversa';
 import { novoTenant } from '../../../test/pacientes';
 import {
   anamneses,
@@ -20,11 +21,16 @@ import {
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
 import { CATEGORIAS, CATEGORIAS_DA_IA_NUTRI, CATEGORIAS_POR_USO, FRASE_DA_CATEGORIA, FRASE_DA_CATEGORIA_IA_NUTRI } from './campos-enviados';
+import { montarContexto } from './nutri-paciente/contexto';
+import { perguntar } from './nutri-paciente/conversa';
 import { montarPedidoDoRascunho, validarMetas } from './rascunho-dados';
 import { montarPedidoDoResumo } from './resumo-dados';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
+afterAll(fecharHarnessDaConversa);
+/** Plano 18 (RN-282): o nome social do paciente do cenário — só para a máscara; nunca sai. */
+const NOME_SOCIAL = 'Rosalinda Prado';
 const agora = new Date();
 const fuso = 'America/Sao_Paulo';
 
@@ -32,7 +38,14 @@ async function cenario() {
   const T = await novoTenant(app.db);
   const p = await pacienteAutorizado(app.db, T.ctx, { nome: 'Marcadora Silvestre', email: 'marcadora@teste.dev', telefoneE164: '+5511999990000', dataNascimento: '1980-05-17', sexo: 'F' });
   await prontuarioCompleto(app.db, T.ctx, p.id);
+  // Plano 18 (RN-282): o cadastro complementar com TODOS os campos preenchidos e um texto livre que cita o nome social
+  await cadastroCompletoNoBanco(app.db, T.ctx, p.id, NOME_SOCIAL);
   const w = { tenantId: T.tenantId, role: 'worker' as const };
+  await withTenant(
+    w,
+    (tx) => tx.update(consultations).set({ orientacoesPaciente: 'Rosalinda deve beber mais água (3).' }).where(and(eq(consultations.patientId, p.id), eq(consultations.data, '2026-09-01'))),
+    app.db,
+  );
   const [pp] = await withTenant(w, (tx) => tx.select().from(patients).where(eq(patients.id, p.id)), app.db);
   return { T, p: pp, w };
 }
@@ -58,6 +71,9 @@ const proibidos = (p: { id: string; tenantId: string; nome: string; email: strin
   'MARCADOR-REFEICAO-PLANO',
   '/exame/',
   '/diario_foto',
+  // Plano 18 (RN-282): o cadastro complementar nunca vai à IA; o nome social só serve para a máscara
+  'Rosalinda',
+  ...PROIBIDOS_DO_CADASTRO,
 ];
 
 /**
@@ -114,6 +130,7 @@ describe('F2 (parecer 3.2 (ii)) / D8: o que sai bate com o texto da autorizaçã
       expect((pedido.dados.diario as { resposta: string | null }[]).map((d) => d.resposta)).toContain('outra_coisa');
       expect(pedido.dados.exames).toHaveLength(2);
       expect(json).toContain('[removido]');
+      expect(json).toContain('[removido] deve beber mais água (3).'); // o nome social mascarado no texto livre (RN-282)
       expect(pedido.bytes).toBe(Buffer.byteLength(json, 'utf8'));
     }
     expect(sem.dados).not.toHaveProperty('notas');
@@ -168,7 +185,7 @@ describe('F2 (parecer 3.2 (ii)) / D8: o que sai bate com o texto da autorizaçã
 
   it('rascunho: só idade, sexo, metas e — com a caixa — a anamnese; restrições mascaradas', async () => {
     const { p, w } = await cenario();
-    const v = validarMetas({ metaKcal: '1800', proteinaPct: '20', carboidratoPct: '50', lipidioPct: '30', refeicoes: [{ nome: 'Almoço', horario: '12:00' }], restricoes: 'Marcadora não come carne.', considerarAnamnese: false });
+    const v = validarMetas({ metaKcal: '1800', proteinaPct: '20', carboidratoPct: '50', lipidioPct: '30', refeicoes: [{ nome: 'Almoço', horario: '12:00' }], restricoes: 'Marcadora não come carne. Rosalinda Prado evita lactose.', considerarAnamnese: false });
     if (!v.ok) throw new Error('metas');
     const ids = await idsDoProntuario(w, p.id);
     const sem = await withTenant(w, (tx) => montarPedidoDoRascunho(tx, p, v.metas, { agora, fuso }), app.db);
@@ -180,7 +197,7 @@ describe('F2 (parecer 3.2 (ii)) / D8: o que sai bate com o texto da autorizaçã
     for (const k of Object.keys(com.dados)) expect(CATEGORIAS_POR_USO.rascunho_plano).toContain(k);
     for (const x of proibidos(p)) expect(JSON.stringify(com.dados), x).not.toContain(x);
     for (const id of ids) expect(JSON.stringify(com.dados), id).not.toContain(id);
-    expect(JSON.stringify(com.dados)).toContain('[removido] não come carne.');
+    expect(JSON.stringify(com.dados)).toContain('[removido] não come carne. [removido] evita lactose.');
     expect(JSON.stringify(com.dados)).toContain('[removido] trabalha à noite.');
     expect(com.bytes).toBe(Buffer.byteLength(JSON.stringify(com.dados), 'utf8'));
   });
@@ -199,5 +216,24 @@ describe('Plano 15 (§7.3): o contrato do que sai na conversa da IA Nutri', () =
     });
     expect(Object.values(CATEGORIAS_POR_USO).flat()).not.toContain('perguntas');
     expect(FRASE_DA_CATEGORIA.perguntas).toBe(FRASE_DA_CATEGORIA_IA_NUTRI.perguntas);
+  });
+});
+
+describe('Plano 18 (RN-282): o contexto da IA Nutri com o cadastro complementar preenchido', () => {
+  it('nada do cadastro sai; o nome social citado na pergunta e nas orientações sai mascarado', async () => {
+    const { T, p, ctxP } = await pronto();
+    await cadastroCompletoNoBanco(appConversa.db, T.ctx, p.id, 'Joana Prado');
+    await withTenant(
+      T.ctx,
+      (tx) => tx.update(consultations).set({ orientacoesPaciente: 'Joana, caminhe 30 minutos por dia.' }).where(and(eq(consultations.patientId, p.id), eq(consultations.data, '2026-08-01'))),
+      appConversa.db,
+    );
+    const { mensagemId } = await perguntar(ctxP, 'sou a Joana Prado, posso trocar a banana?', depsApp);
+    const c = (await montarContexto(appConversa.db, { tenantId: T.tenantId, patientId: p.id, mensagemId: mensagemId! }))!;
+    for (const saida of [JSON.stringify(c.dados), c.corpo]) {
+      for (const x of ['Joana', ...PROIBIDOS_DO_CADASTRO]) expect(saida, x).not.toContain(x);
+    }
+    expect(c.corpo).toContain('sou a [removido], posso trocar a banana?');
+    expect(c.dados.orientacoes).toContainEqual({ indice: '#A2', data: '2026-08-01', texto: '[removido], caminhe 30 minutos por dia.' });
   });
 });

@@ -5,7 +5,8 @@ import { anamneses, anthropometry, consultationNotes, consultations, diaryEntrie
 import { arredondar, casasDecimais, formatarDecimal } from '@/lib/numero';
 import { formatarData, hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
 import type { Categoria } from './campos-enviados';
-import { mascarar, respostasMascaradas, textoLivre, type AlvoDaMascara } from './pseudonimizar';
+import { nomeSocialNaTransacao } from './nome-social';
+import { comNomeSocial, mascarar, respostasMascaradas, textoLivre } from './pseudonimizar';
 import type { Fonte, LinhaDadosUsados } from './tipos';
 
 export type { Fonte, LinhaDadosUsados };
@@ -33,10 +34,11 @@ const CATEGORIAS_DE_REGISTRO: readonly Categoria[] = ['medidas', 'gasto', 'exame
  * do banco, sem campo do cadastro (idade no lugar do nascimento), sem a faixa de referência nem o título dos exames
  * (A-D17), diário sem foto e sem o comentário da nutricionista (A-D8), notas só com a caixa; todo texto livre pela
  * máscara (RN-115). Datas de instantes (cálculo, diário, publicação) no fuso do consultório (RN-06). Lê dentro do
- * withTenant de quem chama (app no pedido, worker no portão); não devolve nada à tela (sem auditRead).
+ * withTenant de quem chama (app no pedido, worker no portão); não devolve nada à tela (sem auditRead). Plano 18 (RN-282):
+ * o nome social entra só na máscara (`outrosNomes`).
  */
 export async function montarPedidoDoResumo(tx: Tx, p: PatientRow, o: { notasPrivadas: boolean; agora: Date; fuso: string }): Promise<PedidoDoResumo> {
-  const alvo: AlvoDaMascara = { nome: p.nome, email: p.email, telefone: p.telefoneE164 };
+  const alvo = comNomeSocial({ nome: p.nome, email: p.email, telefone: p.telefoneE164 }, await nomeSocialNaTransacao(tx, p.id));
   const fontes: Fonte[] = [];
   const marcas: string[] = [];
   const indice = (rotulo: string, tabela: string, id: string, atualizado: Date) => {

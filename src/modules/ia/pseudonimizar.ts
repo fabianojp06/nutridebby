@@ -12,7 +12,15 @@
  * dado pessoal (art. 13, § 4º).
  *
  * Plano 15 (PM-3, §7.3): `outrosNomes` (a equipe: a mesma regra do nome do paciente) e `frasesExatas` (o nome do
- * consultório, só inteiro). O resumo e o rascunho da 14B continuam sem eles (backlog P15-B1).
+ * consultório, só inteiro). O resumo e o rascunho da 14B continuam sem a equipe e o consultório (backlog P15-B1).
+ *
+ * Plano 18 (RN-282, D7, D19): o nome social do paciente, quando houver, entra em `outrosNomes` (`comNomeSocial`) no
+ * resumo, no rascunho e no contexto da IA Nutri — a mesma regra do nome de registro, com o mesmo limite declarado. É lido
+ * só para a máscara (nome-social.ts) e nunca sai. RN-109: a regra da máscara não muda (nem o `>= 3`, nem a lista, nem as
+ * partes do nome); passa a valer para mais um nome do próprio paciente, então sai MENOS do que o texto 1.1 descreve ("o
+ * sistema retira o seu nome"; o nome social é o nome do paciente). Na leitura da Tarefa 11, sem mudança no texto da
+ * autorização nem versão nova; a confirmação do `normas-cfn-lgpd` contra o texto 1.1 fica para antes do merge do PR 2
+ * (spec §10 e §14).
  */
 import type { Resposta, SnapshotModelo } from '@/modules/pacientes/anamnese-tipos';
 
@@ -100,6 +108,12 @@ export function mascarar(texto: string, alvo: AlvoDaMascara): string {
   for (const outro of alvo.outrosNomes ?? []) t = tirarNome(t, outro);
   // o CPF antes do telefone: 11 dígitos seguidos seriam lidos como telefone
   return t.replace(CPF, REMOVIDO).replace(TELEFONE, REMOVIDO);
+}
+
+/** Plano 18 (RN-282): o alvo com o nome social do paciente somado a `outrosNomes`; sem nome social, o mesmo alvo. */
+export function comNomeSocial(alvo: AlvoDaMascara, nomeSocial: string | null): AlvoDaMascara {
+  if (!nomeSocial?.trim()) return alvo;
+  return { ...alvo, outrosNomes: [...(alvo.outrosNomes ?? []), nomeSocial] };
 }
 
 /** Texto livre que vai à IA: mascarado, sem espaços nas pontas, cortado em 2.000 caracteres com "[…]" (desvio 5); vazio → null. */

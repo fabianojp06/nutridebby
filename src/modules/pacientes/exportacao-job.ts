@@ -196,7 +196,8 @@ export type DadosExportacao = {
     /**
      * Plano 18 (§10, D18, RN-262): o cadastro complementar (`patient_cadastro`) — nos dois escopos. CPF e telefone fixo
      * formatados como a tela; identidade de gênero, estado civil e escolaridade pelo rótulo que a tela mostra (LGPD, art.
-     * 19, II); CEP como a tela. O único lugar fora do formulário com o CPF (RN-262). Sem linha (nunca preenchido): `null`.
+     * 18, II e V; art. 19, § 3º); CEP como a tela. O único lugar fora do formulário com o CPF (RN-262). Sem linha (nunca
+     * preenchido): `null`.
      */
     cadastro: CadastroExportado | null;
   };

@@ -14,6 +14,7 @@ import {
   mealItems,
   mealPlans,
   meals,
+  patientCadastro,
   patients,
   storedFiles,
   tenants,
@@ -259,4 +260,52 @@ export async function prontuarioCompleto(db: Db, ctx: TenantContext, patientId: 
     },
     db,
   );
+}
+
+/**
+ * Plano 18 (RN-282, campos-enviados.test.ts): o cadastro complementar com TODOS os campos preenchidos, com marcadores
+ * que nunca podem sair para a IA (com a coluna nula o marcador não provaria nada). `nomeSocial`: o nome social, que só
+ * serve para a máscara. Gravado pela equipe (`ctx`), direto no banco.
+ */
+export const CADASTRO_MARCADO = {
+  cpf: '52998224725',
+  identidadeGenero: 'nao_binario',
+  estadoCivil: 'uniao_estavel',
+  escolaridade: 'pos_graduacao',
+  ocupacao: 'MARCADOR-OCUPACAO',
+  nacionalidade: 'MARCADOR-NACIONALIDADE',
+  naturalidade: 'MARCADOR-NATURALIDADE',
+  telefoneFixoE164: '+551133334444',
+  cep: '01310930',
+  logradouro: 'MARCADOR-RUA',
+  numero: 'MARC-N',
+  complemento: 'MARCADOR-COMPLEMENTO',
+  bairro: 'MARCADOR-BAIRRO',
+  cidade: 'MARCADOR-CIDADE',
+  uf: 'TO',
+  observacao: 'MARCADOR-OBSERVACAO',
+} as const;
+/** Os marcadores de CADASTRO_MARCADO (e as formas formatadas do CPF, do CEP e do telefone fixo) que nunca saem. */
+export const PROIBIDOS_DO_CADASTRO: readonly string[] = [
+  '52998224725',
+  '529.982.247-25',
+  'nao_binario',
+  'uniao_estavel',
+  'pos_graduacao',
+  'MARCADOR-OCUPACAO',
+  'MARCADOR-NACIONALIDADE',
+  'MARCADOR-NATURALIDADE',
+  '33334444',
+  '3333-4444',
+  '01310930',
+  '01310-930',
+  'MARCADOR-RUA',
+  'MARC-N',
+  'MARCADOR-COMPLEMENTO',
+  'MARCADOR-BAIRRO',
+  'MARCADOR-CIDADE',
+  'MARCADOR-OBSERVACAO',
+];
+export async function cadastroCompletoNoBanco(db: Db, ctx: TenantContext, patientId: string, nomeSocial: string): Promise<void> {
+  await withTenant(ctx, (tx) => tx.insert(patientCadastro).values({ tenantId: ctx.tenantId, patientId, nomeSocial, ...CADASTRO_MARCADO }), db);
 }
