@@ -59,7 +59,7 @@ Tabelas sem `patient_id` (`anamnesis_templates`, `patient_tags`, `foods`, `food_
 | `criarConvite(q, userId)` | Apaga convites pendentes do usuário e grava um novo; guarda só o SHA-256 do token; devolve o token em claro só para o e-mail | `convites.ts:23` |
 | `inspecionarConvite(q, token)` | Estado do token (`valido`/`expirado`/`invalido`); token fora do formato (`/^[A-Za-z0-9_-]{43}$/`) nem chega ao banco | `convites.ts:35` |
 | `aceitarConvite(input)` | Primeiro acesso: aceite do DPA obrigatório, política de senha, checagem barata do token **antes** do argon2 (T6-R2a), depois transação: trava o usuário, consome o convite com `UPDATE … WHERE usado_em IS NULL`, grava a senha, marca e-mail verificado, registra o DPA | `convites.ts:66` |
-| `registrarAceiteDpa(q, …)` | `INSERT … ON CONFLICT DO NOTHING` em `consents`; só adianta `tenants.dpa_aceito_em` se a linha foi inserida (prova e marca nunca divergem); com a linha da versão já existente e o tenant noutra versão (volta atrás e novo avanço, #149), regrava `dpa_versao` com o `aceito_em` da prova | `dpa.ts:111` |
+| `registrarAceiteDpa(q, …)` | `INSERT … ON CONFLICT DO NOTHING` em `consents`; só adianta `tenants.dpa_aceito_em` se a linha foi inserida (prova e marca nunca divergem); com a linha da versão já existente e o tenant noutra versão (volta atrás e novo avanço, #153), regrava `dpa_versao` com o `aceito_em` da prova | `dpa.ts:111` |
 | `definirIaLiberada(db, tenantId, liberar, adminId, { producao? })` (Plano 11) | Interruptor "IA" da admin (`tenants.ia_liberada`) com `liberar_ia`/`bloquear_ia` em `admin_actions`; em produção (`o.producao ?? emProducao(getEnv())`) recusa liberar (`IaProvisoriaError`) enquanto o aviso ou o aditivo forem `-provisorio` (D22). Só fora de `withTenant` (gatilho `tenants_interruptores_da_admin`) | `contas.ts:189` |
 | `registrarAceiteAditivoIa(…)` (Plano 11) | Aceite do aditivo de IA em `consents` (`ia-aditivo-<versão>`, com o `tenant_id`) e `tenants.ia_ativada_em` (a data da ativação em vigor: o `coalesce` só a mantém com a IA ativa — aceite de versão nova, clique repetido, `dpa.ts:150-155`; `desativarIa` a zera, `ativacao.ts:48`, e a reativação grava data nova; o primeiro aceite de cada versão fica em `consents.aceito_em`) e `ia_aditivo_versao`; devolve se a linha é nova. Chamada por `ativarIa` ([§10.2](10-ia.md#102-peças)) | `dpa.ts:144` |
 | `suspenderConta` / `reativarConta` | `tenants.status`, revoga as sessões das usuárias do tenant e envia `agenda-tenant` ao worker na mesma transação (o admin nunca toca tabela 🔒) | `suspensao.ts:19,33` |
@@ -465,7 +465,7 @@ stateDiagram-v2
 | `concluirExclusaoAtendida(data, deps)` | Job: apaga as fotos e **só depois** envia o e-mail "pedido atendido" (F-13). Na última tentativa o e-mail sai mesmo com erro de disco. Plano 15: antes do e-mail, as conversas da IA Nutri e a participação (`apagarIaNutriDoTitular`), menos a pergunta com risco não aberta, que fica até 30 dias (D22); o e-mail cita "as conversas com a IA Nutri" e essa guarda ([§10.14.7](10-ia.md#10147-retenção-exclusão-anonimização-e-exportação-rn-181-d8--180-dias-d22-76-133)) | `lgpd.ts:370` |
 | `pedidosDoTitularAbertos(ctx)` | Quadro "Pedidos do titular" do Início, prazo mais curto primeiro | `lgpd.ts:425` |
 | `anexosDoPaciente(tx, id)` | Laudos, exportações, PDFs de plano e fotos do diário do paciente | `lgpd.ts:445` |
-| `anonimizarVencidos(db, now)` | Job diário: por tenant (inclusive suspensos), rede de segurança das fotos, depois anonimiza cada bloqueado vencido. Plano 15: `app_anonimizar_consentimentos_ia_nutri` (tira IP, user-agent e conta do consentimento da IA Nutri) e `limparIaNutriNaAnonimizacao` (o que restou da conversa e a participação). Plano 18 (RN-283): apaga a linha de `patient_cadastro` e, no início de cada tenant, roda a rede `apagarCadastrosDosAnonimizados`. Plano 20: `app_anonimizar_financeiro`, só se o paciente tem lançamento (`:565-566`) | `lgpd.ts:502` |
+| `anonimizarVencidos(db, now)` | Job diário: por tenant (inclusive suspensos), rede de segurança das fotos, depois anonimiza cada bloqueado vencido. Plano 15: `app_anonimizar_consentimentos_ia_nutri` (tira IP, user-agent e conta do consentimento da IA Nutri) e `limparIaNutriNaAnonimizacao` (o que restou da conversa e a participação). Plano 18 (RN-283): apaga a linha de `patient_cadastro` e, no início de cada tenant, roda a rede `apagarCadastrosDosAnonimizados`. Plano 20: `app_anonimizar_financeiro`, só se o paciente tem lançamento (`:565`) | `lgpd.ts:502` |
 | `contaSemOutroVinculo(tx, userId)` / `anonimizarContaSemVinculo(tx, userId, now)` | P06-08: a conta de login sem outro vínculo é anonimizada; sessões, senha, 2FA e `verification` ligados a ela saem; só conta `paciente` | `conta-titular.ts:10,29` |
 
 O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:114-219`):
@@ -486,7 +486,7 @@ O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:114-219`):
 
 Prazo de guarda: `PRAZO_GUARDA_ANOS = 20` (`lgpd.ts:45`), contado do **último registro do prontuário**, que no pedido de exclusão é o próprio bloqueio: `anonimizar_apos` = hoje no fuso do consultório + 20 anos (`lgpd.ts:133-135`), mesmo para quem tem atendimento antigo (JUR-01, decisão do dono em 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"). Até 09/10/2026 contava do último `consultations.data`; a migration de dados `0110_prazo_guarda_bloqueio` recalculou quem já estava bloqueado e não anonimizado — data do bloqueio (`bloqueado_em` no fuso do tenant; sem ela, o `concluido_em` do pedido de exclusão atendido) + 20 anos, só para mais (`GREATEST`), com o gatilho de auditoria ligado (`set_config` por tenant; um "alterar" de ator nulo por paciente que mudou). O 20 está repetido na migration. P-01 (o número) segue pendente com CRN/advogado.
 
-A anonimização de cada paciente (`lgpd.ts:502-644`):
+A anonimização de cada paciente (`lgpd.ts:502-643`):
 
 1. Apaga cada anexo com `removerAntesDoCommit` (se o `rm` falhar, o registro fica e o dia seguinte tenta de novo).
 2. Trava o paciente; `app_anonimizar_aceites(id)` tira IP e conta dos aceites (migration 0065). Plano 20: se o paciente tem
@@ -496,14 +496,14 @@ A anonimização de cada paciente (`lgpd.ts:502-644`):
 4. Se surgiu anexo novo nesse meio tempo, desfaz tudo (fica para o dia seguinte).
 5. Plano 18 (D18, RN-283): apaga a linha de `patient_cadastro` (CPF, endereço, observação…) inteira, **depois** do UPDATE do
    item 3, que grava `anonimizado_em` — o gatilho `patient_cadastro_sem_apagar` só deixa o `worker` apagar com o titular já
-   anonimizado, e o `patient_cadastro_titular_ativo` recusa gravar de novo (`lgpd.ts:597`). O gatilho de auditoria grava o
+   anonimizado, e o `patient_cadastro_titular_ativo` recusa gravar de novo (`lgpd.ts:596`). O gatilho de auditoria grava o
    "Excluiu" de ator nulo. Apaga push, lembretes de rotina (Plano 17, com a pausa limpa no UPDATE do item 3), uso de conteúdo e acessos gravados depois do bloqueio; limpa textos livres e destinos da agenda (`anonimizarAgenda`, `lgpd.ts:478`; Plano 05, D10).
 6. Anonimiza a conta de login sem outro vínculo (Plano 06, D18).
 7. `recordAudit('anonimizar')`.
 
 Um tenant com erro não para os outros; o log leva só o tenant e o código do erro (RNF-11).
 
-**Rede do cadastro complementar (Plano 18, RN-283).** `apagarCadastrosDosAnonimizados` (`lgpd.ts:653`) roda no **início**
+**Rede do cadastro complementar (Plano 18, RN-283).** `apagarCadastrosDosAnonimizados` (`lgpd.ts:652`) roda no **início**
 de cada tenant da varredura (`lgpd.ts:512`), num `withTenant` worker próprio, antes da rede das fotos e da listagem dos
 vencidos: `delete from patient_cadastro c using patients p where … p.anonimizado_em is not null`. Serve à janela do
 deploy e a uma volta atrás para a imagem anterior ao Plano 18, cuja anonimização marca `anonimizado_em` sem apagar a

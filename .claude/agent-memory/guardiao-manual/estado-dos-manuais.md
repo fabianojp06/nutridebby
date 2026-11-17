@@ -9,10 +9,10 @@ metadata:
 `6c3ee8f` (PR 1 de fundação = #53; Plano 18 PR 1 = #52 `9eeacaf`), conferido em `f6cd00a` (src igual em `0326df8`); diff do
 plano = `git diff 9eeacaf..HEAD`. Commit `docs(manual): Plano 20 — Financeiro (P20-11)` (só `docs/manual-tecnico` + esta
 memória). **Cap. 12 novo** (`12-financeiro.md`), §2.5.12 nova, caps. 1–10 e README (divergências #142–#153, renumeradas no rebase sobre o PR 2 do Plano 18, que ocupou #132–#141; cap. 12
-#1–#12; cap. 2 #11). Material do manual do usuário + Central de Ajuda em
+#1–#12; cap. 2 #12). Material do manual do usuário + Central de Ajuda em
 `.superpowers/sdd/2026-11-16-nutridebby-20-financeiro/manual-usuario-financeiro.md` (fora do git; publicar só depois do
-merge do PR 2). Próximo fechamento (PR 3, T12, seção "Financeiro" no Início): `git diff <meu commit>..<head>`; tirar a #148
-(cap. 12 #11) e a #147 se os textos forem aprovados; `inicio-paciente`/`prontuario` podem subir de versão.
+merge do PR 2). Próximo fechamento (PR 3, T12, seção "Financeiro" no Início): `git diff <meu commit>..<head>`; tirar a #152
+(cap. 12 #11) e a #151 se os textos forem aprovados; `inicio-paciente`/`prontuario` podem subir de versão.
 
 Pendências abertas que vi e não corrigi (fora do escopo pedido):
 - #153 (Comp.): volta atrás da imagem do PR 2 depois do aceite do DPA 1.1 prende a nutricionista em `/painel/dpa`

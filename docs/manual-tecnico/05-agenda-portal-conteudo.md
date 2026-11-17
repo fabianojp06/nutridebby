@@ -750,7 +750,7 @@ prontuário e sai na hora.
   `lembretes_rotina_sem_apagar` só deixa a sessão `nutri` apagar o desligado pelo paciente com o titular `bloqueado`) e
   **depois** da trava do tenant de `cancelarTarefas` (ordem paciente → tenant → linhas, porque o `marcar` do worker segura o
   tenant `FOR SHARE` antes de gravar a marca; apagar antes faria um ciclo).
-- **Anonimização** (`anonimizarVencidos`, contexto `worker`): limpa a pausa (`lgpd.ts:579`) e apaga os lembretes gravados
+- **Anonimização** (`anonimizarVencidos`, contexto `worker`): limpa a pausa (`lgpd.ts:578`) e apaga os lembretes gravados
   depois do bloqueio (`:583`).
 - **Exportação** (`montarDados`, `src/modules/pacientes/exportacao-job.ts`): `paciente.lembretesPausadosEm` (`:113`) e a
   chave nova `lembretesDeRotina` (`:181`: `tipo`, `config`, `texto`, `ligado`, `desligadoPeloPacienteEm`, `criadoEm`), nos
@@ -1685,7 +1685,7 @@ Plano 18, PR 2 (cadastro em seções, lista e "No app", [§4.2.11](04-modulos-cl
 
 Plano 20 (Financeiro, [§12.6](12-financeiro.md#126-telas-navegação-e-manual-guiado)):
 
-- **Guia novo `financeiro`**, versão 1, o **último** de `GUIAS` (`conteudo.ts:430`; o Plano 18 insere guias antes do
+- **Guia novo `financeiro`**, versão 1, o **último** de `GUIAS` (`conteudo.ts:442`; o Plano 18 insere guias antes do
   `prontuario`), título "Financeiro", `padrao` `^/painel/financeiro(/.*)?$`: cobre as oito telas novas (nada em
   `SEM_AJUDA`). Ajuda com "Para começar" e "Perguntas comuns"; 12 passos com os alvos `financeiro-secoes`,
   `financeiro-cartoes`, `financeiro-saldo`, `financeiro-valor-consulta`, `financeiro-categorias`, `financeiro-filtros`,
