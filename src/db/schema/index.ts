@@ -11,3 +11,4 @@ export * from './documentos';
 export * from './ia';
 export * from './ia-nutri';
 export * from './exames-enviados';
+export * from './lembretes';

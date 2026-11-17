@@ -1,6 +1,6 @@
 import { and, asc, count, eq, gt, inArray, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { Db, Tx } from '@/db/client';
-import { appointments, notifications, patients, pushSubscriptions, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow } from '@/db/schema';
+import { appointments, notifications, patients, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { renderEmail } from '@/email/templates';
 import type { EmailTransport } from '@/email/transport';
@@ -8,7 +8,8 @@ import { logger, nomeDoErro } from '@/lib/logger';
 import { buscarTenant, getTenantStatus, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { adiarLembrete, ANTECEDENCIA_MS, emHorarioSilencioso, fallbackPorEmail, ignorarPendentesDoTenant, lembreteFazSentido } from './agendar';
 import { emailDaNotificacao, pushDaNotificacao, textoWhatsapp } from './mensagens';
-import type { InscricaoPush, ProvedorPush, ResultadoPush } from './push';
+import type { ProvedorPush } from './push';
+import { enviarAosDispositivos, inscricoesDosPacientes } from './push-dispositivos';
 import { ehLembrete, type Canal, type MotivoIgnorada, type TipoLembrete } from './tipos';
 import { lerConexao } from './whatsapp/conexao';
 import { avisarSeChegou80, CONTA_COTA, contaCota, FORA_DA_COTA, usoDoMes } from './whatsapp/cota';
@@ -105,62 +106,32 @@ const TTL_PUSH_MAX_S = 86_400;
 /**
  * INT-03 (D14, D19): todos os dispositivos do vínculo. As inscrições são lidas numa transação já fechada quando o
  * serviço de push é chamado (uma conexão por transação); as mortas ou inválidas (404/410, endereço recusado, chaves
- * que não cifram) são apagadas numa transação própria, depois. D6 (no máximo uma vez): algum dispositivo recebeu →
- * "enviada", os outros não recebem de novo; algum pode ter recebido (resultado incerto: timeout, conexão caída depois
- * de enviar, exceção do provedor) → "falhou"/"sem_resposta", sem nova tentativa — nem pela falha passageira de outro
- * dispositivo, que reenviaria a todos (rodada 1). Só repete se nenhum recebeu, nenhum ficou incerto e alguma falha foi
- * passageira. Todas mortas = "sem_inscricao".
+ * que não cifram) são apagadas numa transação própria, depois (`enviarAosDispositivos`). D6 (no máximo uma vez): algum
+ * dispositivo recebeu → "enviada", os outros não recebem de novo; algum pode ter recebido (resultado incerto: timeout,
+ * conexão caída depois de enviar, exceção do provedor) → "falhou"/"sem_resposta", sem nova tentativa — nem pela falha
+ * passageira de outro dispositivo, que reenviaria a todos (rodada 1). Só repete se nenhum recebeu, nenhum ficou incerto
+ * e alguma falha foi passageira. Todas mortas = "sem_inscricao".
  */
 async function enviarPush(c: ContextoEnvio, deps: DepsEnvio): Promise<Resultado> {
   if (!deps.push) return ignorar('push_desligado');
   const ctx: TenantContext = { tenantId: c.tenant.id, role: 'worker' };
-  const inscricoes = await withTenant(
-    ctx,
-    (tx) => tx.select({ id: pushSubscriptions.id, endpoint: pushSubscriptions.endpoint, p256dh: pushSubscriptions.p256dh, auth: pushSubscriptions.auth }).from(pushSubscriptions).where(eq(pushSubscriptions.patientId, c.paciente.id)),
-    deps.db,
-  );
+  const inscricoes = (await withTenant(ctx, (tx) => inscricoesDosPacientes(tx, [c.paciente.id]), deps.db)).get(c.paciente.id) ?? [];
   if (!inscricoes.length) return ignorar('sem_inscricao');
   const p = pushDaNotificacao(c, deps);
   if (!p) return { status: 'falhou', erro: 'sem_modelo' };
   const ate = c.consulta ? Math.round((c.consulta.inicio.getTime() - c.agora.getTime()) / 1000) : TTL_PUSH_MAX_S;
   const ttl = Math.min(TTL_PUSH_MAX_S, Math.max(60, ate));
-  const payload = JSON.stringify(p);
-  let entregues = 0;
-  let incerta: string | null = null;
-  let passageira: string | null = null;
-  let definitiva: string | null = null;
-  const mortas: string[] = [];
-  for (const i of inscricoes) {
-    const r = await enviarAoDispositivo(c, deps.push, i, payload, ttl);
-    if (r.ok) entregues++;
-    else if (r.remover) mortas.push(i.id);
-    else if (r.incerto) incerta ??= r.codigo;
-    else if (r.definitivo) definitiva ??= r.codigo;
-    else passageira ??= r.codigo;
-  }
-  if (mortas.length) {
-    try {
-      await withTenant(ctx, (tx) => tx.delete(pushSubscriptions).where(inArray(pushSubscriptions.id, mortas)), deps.db);
-    } catch (err) {
-      // a mensagem já pode ter saído para outro dispositivo: a falha da limpeza não vira nova tentativa (D6); a próxima limpa
-      logger.warn({ tenantId: c.tenant.id, notificacaoId: c.n.id, canal: 'push', err: nomeDoErro(err) }, 'falha ao apagar inscrições de push');
-    }
-  }
-  if (entregues) return { status: 'enviada' };
-  if (incerta) return { status: 'falhou', erro: incerta };
-  if (passageira) return { status: 'repetir', erro: passageira };
-  if (definitiva) return { status: 'falhou', erro: definitiva };
-  return ignorar('sem_inscricao'); // todas mortas (404/410)
-}
-
-/** O provedor devolve as falhas como resultado; se lançar, não se sabe se saiu: não repete (D6), como o WhatsApp. */
-async function enviarAoDispositivo(c: ContextoEnvio, push: ProvedorPush, i: InscricaoPush, payload: string, ttl: number): Promise<ResultadoPush> {
-  try {
-    return await push.enviar(i, payload, ttl);
-  } catch (err) {
-    // RNF-11: só o nome do erro — a mensagem pode trazer o endpoint do dispositivo
-    logger.warn({ tenantId: c.tenant.id, notificacaoId: c.n.id, canal: 'push', err: nomeDoErro(err) }, 'falha no provedor de push');
-    return { ok: false, remover: false, definitivo: true, incerto: true, codigo: 'sem_resposta' };
+  const r = await enviarAosDispositivos({ db: deps.db, tenantId: c.tenant.id, inscricoes, push: deps.push, payload: JSON.stringify(p), ttlS: ttl, logCtx: { notificacaoId: c.n.id, canal: 'push' } });
+  switch (r.resultado) {
+    case 'enviada':
+      return { status: 'enviada' };
+    case 'incerta':
+    case 'definitiva':
+      return { status: 'falhou', erro: r.codigo! };
+    case 'passageira':
+      return { status: 'repetir', erro: r.codigo! };
+    case 'sem_inscricao':
+      return ignorar('sem_inscricao');
   }
 }
 

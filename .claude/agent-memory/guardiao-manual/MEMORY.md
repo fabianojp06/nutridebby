@@ -1,3 +1,3 @@
-- [Estado dos manuais](estado-dos-manuais.md) — técnico: runner próprio em 12/10 (base bbd7728, PR #33); 14B-1 T5F revista 10/10 (4 Important); divergência /admin; usuário: proposta P13+P16+P14A/PR #31 pendente
+- [Estado dos manuais](estado-dos-manuais.md) — técnico: Plano 17 em 17/11 (commit 59cbf0c, base 5482450); pendências abertas; proposta do usuário P17 em .superpowers/sdd
 - [Onde os manuais envelhecem](onde-os-manuais-envelhecem.md) — checklist de contagens, linhas e status que ficam velhos a cada fechamento
 - [Sem push nem PR](sem-push-sem-pr.md) — commit só se pedido; push/PR/merge ficam com quem orquestra

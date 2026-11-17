@@ -35,6 +35,10 @@ export const QUEUES = {
   // RN-05 / D6: varredura das notificações a cada minuto, e `{ tenantId }` para envio imediato. O estado fica no
   // banco (notifications), então não há retry do job: o que falhou volta como "pendente" com a próxima tentativa.
   notificacoes: { retryLimit: 0, expireInSeconds: 300, deleteAfterSeconds: 3_600 },
+  // Plano 17 (§5.5): lembretes de rotina por push, a cada minuto. O estado fica no banco (lembretes_rotina_envios), então
+  // não há retry: o slot que não saiu é pulado depois de 10 min. O pg-boss 12 relança o job expirado com o antigo ainda
+  // rodando; o upsert condicional da marca garante que cada slot sai no máximo uma vez mesmo assim.
+  'lembretes-rotina': { retryLimit: 0, expireInSeconds: 120, deleteAfterSeconds: 3_600 },
   // US-004: lembretes do tenant suspenso viram "ignorada"; na reativação, os das consultas futuras voltam
   'agenda-tenant': { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 300, deleteAfterSeconds: 86_400 },
   // RN-16 / LGPD: pedidos da página pública com mais de 24 h e contadores velhos (todo dia às 04:30)

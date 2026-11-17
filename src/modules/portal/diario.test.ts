@@ -172,6 +172,21 @@ describe('respostas à refeição do plano (Plano 16, RN-197, D3)', () => {
     expect(porId.get(depois.id)).toMatchObject({ resposta: null, refeicaoDoPlano: null, refeicao: 'Almoço', texto: 'e um suco' });
   });
 
+  it('refeicao_slot (Plano 17, pedido do diário): "{nome} · {HH:MM}" sempre que vem a refeição do plano — com e sem resposta, com foto, também no registro comum depois da resposta; nulo sem refeição do plano', async () => {
+    const { ctx, linhas, ref } = await comPlano();
+    const comResposta = await registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: ref('Almoço'), resposta: 'como_no_plano' }, deps(ALMOCO_1240));
+    const depoisDaResposta = await registrarNoDiario(ctx, SP, { refeicao: null, texto: 'e um suco', foto: null, refeicaoId: ref('Almoço'), resposta: 'como_no_plano' }, deps(ALMOCO_1240));
+    const semResposta = await registrarNoDiario(ctx, SP, { refeicao: null, texto: 'banana', foto: null, refeicaoId: ref('Pré-treino') }, deps(ALMOCO_1240));
+    const comFoto = await registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: JPEG, refeicaoId: ref('Ceia'), resposta: '' }, deps(ALMOCO_1240));
+    const comum = await registrarNoDiario(ctx, SP, { refeicao: 'Almoço', texto: 'arroz', foto: null }, deps(ALMOCO_1240));
+    const porId = new Map((await linhas()).map((e) => [e.id, e]));
+    expect(porId.get(comResposta.id)).toMatchObject({ resposta: 'como_no_plano', refeicaoDoPlano: 'Almoço · 12:30', refeicaoSlot: 'Almoço · 12:30' });
+    expect(porId.get(depoisDaResposta.id)).toMatchObject({ resposta: null, refeicaoDoPlano: null, refeicaoSlot: 'Almoço · 12:30' });
+    expect(porId.get(semResposta.id)).toMatchObject({ refeicao: 'Outro', resposta: null, refeicaoDoPlano: null, refeicaoSlot: 'Pré-treino · 17:00' });
+    expect(porId.get(comFoto.id)).toMatchObject({ refeicao: 'Ceia', resposta: null, refeicaoDoPlano: null, refeicaoSlot: 'Ceia · 21:00', fotoStatus: 'processando' });
+    expect(porId.get(comum.id)).toMatchObject({ refeicao: 'Almoço', refeicaoSlot: null });
+  });
+
   it('refeição de outro paciente, do rascunho, do plano arquivado, id inválido ou resposta sem refeição: nada gravado', async () => {
     const { T, p, ctx, linhas, ref } = await comPlano();
     const outro = await novoPaciente(app.db, T.ctx);

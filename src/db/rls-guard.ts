@@ -114,6 +114,7 @@ export const STAFF_ONLY: Record<string, string> = {
   ia_tarefas: 'Plano 11 (spec da IA §3): pedidos e sugestões da IA — só a equipe; o paciente nunca vê, nem os próprios',
   ia_uso: 'Plano 11 (D3): registro técnico de custo da IA — só a equipe (o admin lê pela função admin_metricas_ia)',
   ia_geracoes_modelos: 'Plano 14B (US-123 (d)): pedidos de modelos sugeridos pela IA — registro técnico da equipe; não tem paciente',
+  lembretes_rotina_envios: 'Plano 17 (§5.5): marca técnica do último horário enviado de cada lembrete — escrita só pelo worker (gatilho lembretes_rotina_envios_do_worker, 0119); o paciente vê os lembretes, não a marca',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
@@ -182,7 +183,7 @@ const ESCRITAS: readonly ComandoEscrita[] = ['insert', 'update', 'delete'];
  * entrada aqui. Sem `update`, SELECT … FOR UPDATE/SHARE de paciente não enxerga a linha.
  */
 export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrita[]; motivo: string }> = {
-  patients: { comandos: ['update'], motivo: 'aceite do convite (US-011), opt-in/opt-out do WhatsApp e a trava FOR UPDATE das ações do paciente — colunas conferidas pelo gatilho paciente_colunas (0085, B-4)' },
+  patients: { comandos: ['update'], motivo: 'aceite do convite (US-011), opt-in/opt-out do WhatsApp, a pausa dos lembretes de rotina (Plano 17, gatilho patients_lembretes_do_paciente, 0119) e a trava FOR UPDATE das ações do paciente — colunas conferidas pelo gatilho paciente_colunas (0085, B-4; lembretes_pausados_em desde a 0119)' },
   appointments: { comandos: ['insert', 'update'], motivo: 'agendar, confirmar, cancelar e remarcar pelo link, pelo WhatsApp e pelo portal (US-032, US-033, US-035)' },
   notifications: { comandos: ['insert', 'update'], motivo: 'lembretes da consulta marcada pelo paciente, respostas "1"/"2" e lembretes cancelados' },
   audit_log: { comandos: ['insert'], motivo: 'o gatilho de auditoria e o auditRead rodam com o papel de quem age' },
@@ -201,6 +202,7 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   ia_autorizacoes: { comandos: ['insert'], motivo: 'Plano 14A (RN-107, US-106, US-107, US-109): o paciente autoriza ou retira a própria autorização de IA no app (canal app, com a própria conta) ou pelo link do e-mail (canal link, sem conta) — política paciente_autorizacao_propria (0108); UPDATE, DELETE e TRUNCATE revogados' },
   ia_nutri_mensagens: { comandos: ['update'], motivo: 'Plano 15 (US-172, US-174): o paciente avalia a resposta e encaminha a própria pergunta — só essas colunas, de nulo para valor (gatilho ia_nutri_mensagens_regras, 0116); INSERT só por app_ia_nutri_perguntar (0117)' },
   ia_nutri_consentimentos: { comandos: ['insert'], motivo: 'Plano 15 (RN-171, US-171): o paciente dá o próprio consentimento da IA Nutri no app (paciente_consentimento_proprio, 0116); a revogação só por app_ia_nutri_revogar; UPDATE, DELETE e TRUNCATE revogados' },
+  lembretes_rotina: { comandos: ['update'], motivo: 'Plano 17 (§5.3): o paciente desliga e religa o próprio lembrete — só desligado_pelo_paciente_em, com o relógio do banco (gatilho lembretes_rotina_regras, 0119); não cria, não edita a configuração nem apaga' },
 };
 
 /** B-5 (P06-12): o texto que o Postgres guarda da negação de app_deny_paciente_escrita, sem espaços e parênteses. */

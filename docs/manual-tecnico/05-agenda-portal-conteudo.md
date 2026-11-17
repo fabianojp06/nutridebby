@@ -23,6 +23,7 @@ Convenções do capítulo:
 | Agenda | `src/modules/agenda/` | Fuso, regras e bloqueios, horários livres, consultas, cancelamento, link assinado, página pública, limites por IP, presença, Início do painel | P05 (e P08 para o Início) |
 | Notificações | `src/modules/notificacoes/` | Planejamento e envio (e-mail, WhatsApp, push), textos, cota, webhook do WhatsApp | P05 (P06 e P07 acrescentam tipos) |
 | Portal | `src/modules/portal/` + `src/lib/paciente-session.ts` | Vínculos da conta, acesso diário, plano, diário (e as respostas à refeição do plano), evolução, lista de compras, pedidos do titular, inscrição de push, conteúdos do paciente, mural e faixa de Hoje (`hoje.ts`, `faixaDeHoje`), Jornada | P06 (P07 para conteúdos; P16 para o mural, as respostas e a Jornada; P08-13 para a faixa de Hoje) |
+| Lembretes de rotina | `src/modules/lembretes/` + `src/modules/notificacoes/push-dispositivos.ts` | Configuração por paciente (equipe e paciente), plano do dia (slots, fusão, teto), envio por push no job `lembretes-rotina` (§5.3.9) | P17 |
 | Conteúdo | `src/modules/conteudo/` | Vídeo, oEmbed, capa, markdown, receitas, audiência, aviso, métricas, LGPD do titular | P07 |
 | Ajuda | `src/modules/ajuda/conteudo.ts`, `src/modules/ajuda/portal.ts`, `src/modules/ajuda/precisa-do-guia.ts` (P08-13) | Texto dos tours e do manual do painel (`GUIAS`) e o guia do portal (`GUIA_PORTAL`, `AVISO_PORTAL`) | P08 (P16 para o portal) |
 | Tema | `src/lib/tema/`, `src/app/globals.css`, `src/components/ui/` | Tokens de cor, contraste, cor da marca no escuro, cor da faixa do portal, componentes base | P08 (P16 para o portal) |
@@ -44,6 +45,7 @@ flowchart LR
   end
   subgraph nutri_worker["nutri_worker (pg-boss)"]
     NT["fila notificacoes (cron 1 min)"]
+    LR["fila lembretes-rotina (cron 1 min)"]
     WE["fila whatsapp-evento"]
     DF["fila diario-foto"]
   end
@@ -56,8 +58,9 @@ flowchart LR
   N --> PG & API
   PG & API --> DB
   NT --> RS & EVO & PS
+  LR --> PS
   EVO -- "JWT por instância" --> WH --> DB
-  DB --> NT & WE & DF
+  DB --> NT & WE & DF & LR
 ```
 
 ---
@@ -545,6 +548,207 @@ O admin nunca toca tabela com `tenant_id`. Ele só enfileira o job `agenda-tenan
 - `reagendarTenantReativado`: replaneja os lembretes ignorados por suspensão das consultas futuras ativas. O que já
   passou fica `prazo_passado` (decisão do dono de 02/10/2026). O convite por WhatsApp não volta.
 
+### 5.3.9 Lembretes de rotina por push (Plano 17)
+
+Spec `docs/superpowers/specs/2026-11-13-nutridebby-lembretes-de-rotina-design.md`; plano
+`docs/superpowers/plans/2026-11-13-nutridebby-17-lembretes-rotina.md` (decisões da revisão de 16/11/2026: NORMAS-DECISAO-1,
+NORMAS-DECISAO-2 e NORMAS-03). A nutricionista configura, por paciente, avisos de água, das refeições do plano (com o
+pedido opcional de registro no diário), de suplemento e um lembrete livre; o worker os envia **só por push**. É um motor
+à parte do de 5.3.1–5.3.8: nada vai para `notifications`, nada sai por WhatsApp ou e-mail, e o lote de 40 das consultas
+não é disputado (spec §4, abordagem 2).
+
+**Peças.**
+
+| Peça | Arquivo | Papel |
+|---|---|---|
+| Limites, prioridades e textos | `src/modules/lembretes/constantes.ts` | Janela `06:00`–`22:00` (`JANELA_INICIO`/`JANELA_FIM`, `:10-13`), `TETO_POR_DIA = 24` (`:15`), `PRIORIDADE` (`:26`), `TEXTOS_PUSH` e `TITULO_PUSH` (`:32-42`), mensagens de validação e formatadores dos resumos. Sem banco: o painel e o portal (cliente) também importam |
+| Configuração | `src/modules/lembretes/config.ts` | Tipos por `tipo`, `validarLembrete` (`:117`, formulário da equipe), `validarConfig` (`:128`, o worker revalida o `config` de cada linha **sem** o texto) e `sugestaoInicial` (`:134`) |
+| Plano do dia | `src/modules/lembretes/slots.ts` | `planoDoDia` (`:118`) e `maiorDiaDaSemana` (`:129`), puros, sobre `calcular` (`:33`) |
+| Equipe | `src/modules/lembretes/equipe.ts` | `lembretesDoPaciente` (`:89`), `salvarLembrete` (`:141`), `ligarLembrete` (`:210`), `apagarLembrete` (`:226`) |
+| Paciente | `src/modules/lembretes/paciente.ts` | `meusLembretes` (`:57`), `desligarMeuLembrete` (`:89`), `pausarMeusLembretes` (`:110`), `temLembretes` (`:127`), `temLembretesNaTela` (`:147`) |
+| Envio | `src/modules/lembretes/envio.ts` | `processarLembretes` (`:278`), só no worker |
+| Dispositivos | `src/modules/notificacoes/push-dispositivos.ts` | `inscricoesDosPacientes` (`:23`) e `enviarAosDispositivos` (`:44`): o laço por dispositivo e a limpeza das inscrições mortas, extraídos de `enviarPush` (`enviar.ts`), que passou a usá-los. Só no worker (guarda de grafo em `push.test.ts`) |
+
+**Tipos e texto da tela de bloqueio** (título `NutriDebby`, `TEXTOS_PUSH`; o toque abre a tela com `?v=<tenantId>`,
+`telaDoPortal`, para o vínculo certo com 2+ consultórios):
+
+| Tipo | Configuração | Push | Toque abre |
+|---|---|---|---|
+| `agua` (um por paciente) | início e fim (na janela, fim > início), intervalo de 60, 90, 120, 180 ou 240 min, dias da semana | "Hora de beber água 💧" | `/p/inicio` |
+| `refeicoes` (um por paciente) | antecedência 0, 15 ou 30 min; diário 30 ou 60 min depois, ou não pedir | "Está chegando a hora: {rótulo}" (antecedência > 0) / "Hora de: {rótulo}" (na hora); fora da lista fechada, "Está chegando a hora da sua refeição" / "Hora da sua refeição"; diário: "Registre sua refeição no diário" | `/p/plano`; diário: `/p/diario` |
+| `suplemento` (até 5) | nome (1–60, aparado), 1 a 4 horários, dias | "Hora do seu suplemento" | `/p/perfil/lembretes` |
+| `livre` (até 5) | texto (1–120, aparado), 1 a 4 horários, dias | "Você tem um lembrete do seu plano" | `/p/perfil/lembretes` |
+
+- **Nome da refeição no push (NORMAS-DECISAO-1).** O `{rótulo}` é `refeicaoDoDiario(nome)` — um item da lista fechada do
+  diário (`src/modules/portal/diario-constantes.ts`) —, nunca o nome que a nutricionista digitou nem `rotuloDaRefeicao` (que
+  leva o horário). A comparação ignora acento, maiúscula e espaços nas pontas (`semAcento`); quando o nome não casa com a
+  lista (`'Outro'`), sai o texto genérico (`payloadDoSlot`, `envio.ts:42`).
+- **Suplemento e texto livre nunca vão ao push nem ao log** (regra 3). O worker nem lê `lembretes_rotina.texto`: a leitura
+  em lote (`ler`, `envio.ts:136`) seleciona `id`, `patient_id`, `tipo`, `config` e `updated_at` (minimização, LGPD art. 6º,
+  III). Os dois textos aparecem só dentro do app, como "Sua nutricionista: {texto}" em Eu › Lembretes (voz da
+  nutricionista, C-197). O suplemento tem nome livre, sem vínculo com a receita (NORMAS-DECISAO-2); o formulário mostra a
+  ajuda fixa "O lembrete não substitui a prescrição: composição, via e posologia vão na receita e no prontuário."
+- **Refeições não copiam horário**: no envio, valem as refeições do plano **publicado** de maior versão
+  (`refeicoesDosPlanos`, `envio.ts:84`); republicar muda os avisos sozinho. Refeição sem horário não gera aviso; sem plano
+  publicado, nada sai.
+
+**O plano do dia** (`calcular`, `slots.ts:33`; tudo na hora local de `tenants.fuso`):
+
+1. Cada lembrete ativo gera os seus avisos do dia (`dias` conferidos pelo dia da semana local). O pedido do diário de uma
+   refeição **já registrada hoje** sai aqui, antes da janela, da fusão e do teto (`slots.ts:69`): não derruba a água do
+   mesmo minuto. "Já registrada" = um registro do dia local com a refeição do plano escolhida (`refeicao_slot`, 0121, gravada com ou sem
+   resposta), com a cópia da resposta (`refeicao_do_plano`) ou, quando o nome está na lista fechada, com a mesma refeição (`registradasNoDiario`, `envio.ts:113`; conferência de estado do
+   worker, sem `auditRead`).
+2. Fora da janela 06:00–22:00 (as 22:00 valem) não há aviso; hora que não existe no fuso (horário de verão) também não.
+   Slot anterior ao `updated_at` do lembrete não sai (`validoDesde`, `slots.ts:78`): lembrete salvo às 10:03 não envia a
+   água das 10:00; ligar, religar e editar renovam o `updated_at`.
+3. **Fusão por minuto** (`slots.ts:84`): avisos do mesmo minuto viram **um** slot, com o tipo (e o texto) do mais
+   prioritário — `refeicao` (5) > `suplemento` (4) > `livre` (3) > `diario` (2) > `agua` (1); entre duas refeições, a que
+   vem antes no plano. O slot guarda os ids de todos os lembretes fundidos.
+4. **Teto de 24 por dia** (`slots.ts:96`): acima disso saem os slots de menor prioridade e, no mesmo tipo, os mais tarde
+   do dia (corte determinístico). O teto vale para o plano do dia em vigor em cada execução: mudar a configuração ou o plano
+   no meio do dia pode somar avisos já enviados (limite aceito no plano, sem contador diário).
+
+**Teto ao salvar.** `salvarLembrete` recusa ("Com este lembrete, o paciente receberia mais de 24 avisos em um dia.
+Diminua os horários ou aumente o intervalo da água.") quando `maiorDiaDaSemana` passa de 24: o maior total antes do
+corte numa semana de referência sem horário de verão (seg 08/06/2026 a dom 14/06/2026), contando **todos** os lembretes
+do paciente como ativos (também os desligados pela equipe ou pelo paciente, com o editado no lugar do antigo) e as
+refeições do plano publicado. Por isso ligar e religar não conferem o teto. A publicação do plano **não** é barrada: se o
+plano novo passar do teto, o worker corta, e a seção do painel avisa.
+
+**O job `lembretes-rotina`** (cron `* * * * *` em `src/worker/index.ts:115`; fila em `src/jobs/queues.ts:41`:
+`retryLimit: 0`, expira em 120 s; um job por vez):
+
+```mermaid
+flowchart TD
+  A["processarLembretes (sem VAPID: nada sai, nenhuma marca)"] --> B["por tenant ativo (listarTenantsParaVarredura), contexto worker"]
+  B --> C["ler: 1 transação — lembretes ligados pelas duas partes de pacientes ativos, não anonimizados, com conta, sem pausa e com inscrição de push; config revalidada; plano publicado; marcas; diário do dia"]
+  C --> D["escolher: por paciente, o slot MAIS ANTIGO com agora − 10 min < em ≤ agora e em depois da marca de todos os seus lembretes"]
+  D --> E["marcar: 1 transação — pg_advisory_xact_lock(lembretes-rotina, tenant), status do tenant relido FOR SHARE, upsert condicional da marca, inscrições de quem sai"]
+  E --> F["depois do commit: envio a todos os dispositivos (até 10 em paralelo), TTL 1800 s"]
+```
+
+- **Quem recebe** (`ler`): lembrete `ligado` e sem `desligado_pelo_paciente_em`; paciente `ativo`, não anonimizado (RN-08),
+  com `user_id` (convite aceito), sem `lembretes_pausados_em` e com alguma inscrição de push **no vínculo** (cada consultório
+  só vê as suas inscrições pela RLS). Linha com `config` inválida é pulada e contada (`pulados`), com o aviso de log
+  "lembretes de rotina com configuração inválida" (só tenant e contagem).
+- **Tolerância de 10 min** (`TOLERANCIA_MS`, `envio.ts:33`): slot com mais de 10 min de atraso é pulado, nunca enviado
+  atrasado (worker parado e de volta não manda "hora do almoço" à tarde). **O slot devido mais antigo** é o escolhido (um
+  atraso de 1 min não perde a refeição); um push por paciente por execução, o seguinte no minuto seguinte se ainda estiver
+  na janela de 10 min.
+- **No máximo uma vez por slot** (como o D6 do Plano 05): `marcar` (`envio.ts:205`) trava o tenant
+  (`pg_advisory_xact_lock(hashtext('lembretes-rotina'), hashtext(tenant))`, `:206`), relê o status sob trava
+  (`getTenantStatus(…, { aguardarSuspensao: true })`, `:207`, RN-15) e grava a marca de cada lembrete do slot com
+  `INSERT … ON CONFLICT (lembrete_id) DO UPDATE … WHERE lembretes_rotina_envios.ultimo_slot_em < excluded.ultimo_slot_em
+  RETURNING lembrete_id` (`:215-220`). Só sai o slot cujos ids voltaram **todos** no `RETURNING` (`:222`): a escrita
+  condicional é o que garante o "uma vez" (duas execuções juntas, ou o job expirado relançado pelo pg-boss 12 com o antigo
+  ainda rodando); a trava só serializa. A marca é gravada **antes** do envio: falha ou resultado incerto não repete.
+- **TTL 1800 s** (`TTL_PUSH_S`, `envio.ts:35`): depois de 30 min o serviço de push descarta o aviso não entregue.
+- **Resumo no log** ("lembretes de rotina processados"): `tenantId`, `enviados` (algum aparelho recebeu), `pulados`
+  (configuração inválida ou nenhum aparelho válido na hora do envio) e `falhas` (nenhum aparelho recebeu, sem nova
+  tentativa). Nada de endpoint, payload, texto ou nome de refeição (RNF-11).
+
+**Quem pode o quê.**
+
+| Quem | Pode | Onde |
+|---|---|---|
+| Equipe (sessão `nutri`) | Criar, editar (sem trocar o tipo), ligar/desligar (`ligado`) e apagar; ver a marca do paciente e a pausa geral (com a data), os aparelhos com notificação e o previsto para hoje | `equipe.ts`; sempre trava o paciente (`carregarPacienteParaEscrita`: recusa bloqueado e anonimizado) |
+| Paciente (sessão de paciente) | Desligar e religar cada lembrete (`desligado_pelo_paciente_em`) e "Pausar todos os lembretes" / "Retomar os lembretes" (`patients.lembretes_pausados_em`); não cria, não edita, não apaga | `paciente.ts`; só `new Date()` ou nulo, só quando o estado muda (UPDATE condicional) |
+| Worker | Gravar a marca de envio; apagar e limpar na anonimização | `envio.ts`, `lgpd.ts` |
+
+**"A nutricionista não religa" vale no banco** (autonomia do titular; decisão da revisão do plano), não só na tela:
+
+- Gatilho `lembretes_rotina_regras` (`app_lembretes_rotina_regras`, `drizzle/0119_rls_lembretes_rotina.sql:24-55`): `id`,
+  tenant, paciente, `tipo`, `criado_por` e `created_at` fixos para todos; a sessão de paciente só muda
+  `desligado_pelo_paciente_em` (e `updated_at`), com o relógio do banco (`clock_timestamp()`) ao desligar; a sessão `nutri`
+  muda a configuração mas **nunca** essa marca (nem para religar, nem para desligar em nome do paciente, nem ao criar);
+  público e conta não escrevem; worker e contexto vazio mudam a marca.
+- Gatilho `lembretes_rotina_sem_apagar` (`drizzle/0120_lembretes_rotina_sem_apagar.sql`): a equipe não apaga o lembrete
+  que o paciente desligou (senão apagaria e criaria outro igual, ligado); passam o worker, o contexto vazio e o paciente já
+  `bloqueado` (a exclusão atendida). `apagarLembrete` recusa antes, com "O paciente desligou este lembrete. Você pode
+  desligá-lo do seu lado, mas não apagá-lo.", e o painel esconde o "Apagar".
+- Gatilho `patients_lembretes_do_paciente` (`0119:84-114`): a pausa geral só pela sessão de paciente (relógio do banco ao
+  pausar) ou pelo worker/contexto vazio; a única exceção da sessão `nutri` é a limpeza no mesmo UPDATE que leva o paciente
+  a `bloqueado` (`atenderPedidoExclusao`). O `paciente_colunas` de `patients` ganhou `lembretes_pausados_em` em `livres`
+  (`0119:117-147`).
+- Regra de precisão (comentários em `src/db/schema/lembretes.ts` e `pacientes.ts`): a equipe nunca põe essas colunas num
+  `set()`; reenviar o valor lido perde os microssegundos do `clock_timestamp()` e o gatilho recusa com `42501`.
+
+**Painel** — seção "Lembretes no app" (`data-guia="lembretes-app"`) no fim da aba Plano alimentar
+(`src/app/painel/pacientes/[id]/plano-alimentar/lembretes/`: `secao.tsx`, `lista.tsx`, `form-lembrete.tsx`, `actions.ts`);
+não há aba nova (as 12 abas já não cabem a 1280 px).
+
+- Primeira visão (nenhum lembrete): "Sugestão — confira e salve", com água 08:00–20:00 a cada 2 h, todos os dias, e
+  refeições na hora, sem diário; só vale depois de "Salvar". A sugestão fica guardada no cliente (`ListaDeLembretes`):
+  cada cartão sai quando é salvo e o outro fica na tela com o que foi editado nele (o servidor manda `sugestao: null`
+  assim que existe um lembrete); a sugestão some quando os dois estão salvos. Depois: "Adicionar água", "Adicionar
+  refeições" (abrem com o item da sugestão; cada um só aparece sem o lembrete salvo e sem o cartão do mesmo tipo na
+  sugestão), "Adicionar suplemento" e "Adicionar lembrete livre" (no limite, "Limite de 5 suplementos." / "Limite de 5
+  lembretes livres.").
+- Cada linha: nome do tipo, resumo, interruptor da equipe (`role="switch"`, "Ligado"/"Desligado"), "Editar" e "Apagar"
+  (confirmação "Apagar este lembrete? O paciente deixa de recebê-lo."); "Desligado pelo paciente em {data}" e, no de
+  refeições, os avisos "{refeição} sem horário — não gera lembrete", "{refeição} fora do horário dos lembretes (6h às 22h)" e
+  "O paciente ainda não tem plano publicado: os avisos das refeições começam quando você publicar."
+- Rodapé: "Previsto para hoje: {n} lembretes" (ou "1 lembrete", "Nenhum lembrete previsto para hoje."), contando só o que
+  sairia (ligado pelas duas partes, sem pausa geral; não sabe dos aparelhos); "Este paciente ainda não ativou as
+  notificações no app. Os lembretes começam quando ele ativar." sem aparelho; o corte de hoje: "Acima do limite de 24 por
+  dia: alguns lembretes de água não serão enviados." (só água cortada) ou "…alguns lembretes não serão enviados.".
+  Cabeçalho: "Notificações: ativas em {n} aparelho(s)". Avisos de topo: "O paciente pausou todos os lembretes em {data}." e,
+  arquivado, "Paciente arquivado: os lembretes não são enviados." (continua editável). Bloqueado: só leitura.
+
+**Portal** — Eu › Lembretes (`/p/perfil/lembretes`, tela de detalhe de Eu com `CabecalhoDetalhe`, destino do push de
+suplemento e livre; §5.5.2):
+
+- Lista só os lembretes **ligados pela equipe** (o desligado por ela não aparece; o desligado pelo paciente aparece
+  "Desligado"), com o resumo ("Água: das 08:00 às 20:00, a cada 2 h · todos os dias", "Refeições: aviso na hora, nas
+  refeições do seu plano" — com o pedido do diário ligado, "Refeições: aviso 15 min antes e pedido de registro no diário
+  30 min depois, nas refeições do seu plano" (`rotuloDoDiarioNoPortal`) —, "Suplemento: 08:00 e 20:00 · seg a sex",
+  "Lembrete: 08:00 · todos os dias"), "Sua
+  nutricionista: {texto}" no suplemento e no livre, o interruptor e "Pausar todos os lembretes"/"Retomar os lembretes"
+  (o mesmo botão, o foco fica). Com a pausa: "Lembretes pausados. Você não vai receber avisos até retomar." no topo, e os
+  interruptores continuam usáveis. Sem nenhum: "Sua nutricionista ainda não configurou lembretes para você." (sem
+  redirecionar: o push antigo abre uma frase com sentido).
+- Pedido de notificações (`ativar-aviso.tsx`): "Ative as notificações para receber os lembretes da sua nutricionista."
+  quando dá para ativar; no iPhone fora da tela inicial, "Para receber os lembretes no iPhone, instale o app na tela
+  inicial." com os passos do `Instalar`.
+- Eu mostra a seção "Lembretes" com "Ver meus lembretes" enquanto houver lembrete ligado pela equipe
+  (`temLembretesNaTela`), mesmo que o paciente tenha desligado todos ou pausado — é o único caminho para religar. O
+  cartão de notificações de Hoje usa `temLembretes` (ligado pelas duas partes; a pausa não conta) e troca o texto para o
+  dos lembretes (`textoDoCartao`, `cartoes-do-aparelho.tsx`; a chave de dispensa continua `notificacoes`).
+
+**Auditoria.**
+
+- Escritas em `lembretes_rotina` (equipe e paciente) pelo gatilho `audit_row_change`, entidade `lembretes`, rótulo
+  "Lembretes no app" (`ENTIDADE_ROTULO`, `src/modules/plataforma/audit.ts:78`).
+- `lembretesDoPaciente` (painel, `equipe.ts:99`) e `meusLembretes` (portal, `paciente.ts:77`) chamam `auditRead` (entidade
+  `lembretes`, sem `entidadeId`) só quando devolvem algum lembrete. `temLembretes`, `temLembretesNaTela` e a leitura do
+  worker não chamam (só sim/não, ou conferência de estado sem devolver nada a uma usuária).
+- `lembretes_rotina_envios` fica **sem** gatilho, em `AUDIT_EXCEPTIONS`: com a marca na tabela auditada, cada push viraria
+  uma linha de `audit_log` (spec §5.5).
+
+**Classificação para a guarda (LGPD, Tarefa 7, NORMAS-03).** Como diz o comentário em `atenderPedidoExclusao`
+(`src/modules/pacientes/lgpd.ts:189-197`): "a configuração dos lembretes é ajuste do app, não prontuário. A conduta
+(plano alimentar, receita do suplemento) fica nos registros próprios (Res. CFN 594/2017; Res. CFN 656/2020, art. 3º, XI e
+XII). Por isso a equipe apaga de fato, e a exclusão atendida apaga na hora, como as notificações no aparelho e as
+conversas da IA Nutri […]; o `audit_log` guarda quem criou, alterou e excluiu, sem o conteúdo." O comentário da `0119`
+(`:6`) e o de `lembretesDoPaciente` dizem que a configuração "é parte da conduta" para justificar a **auditoria**. As duas
+leituras se somam: o nome do suplemento e o texto livre são escritos pela nutricionista sobre o paciente, então as escritas
+e as leituras são auditadas como qualquer escrita sobre o titular (regra 8); mas, para fins de **guarda**, a configuração
+não é prontuário — o registro clínico da conduta é o plano e a receita —, então não segue o prazo de guarda do
+prontuário e sai na hora.
+
+- **Exclusão atendida** (`atenderPedidoExclusao`): `lembretes_pausados_em` vai a nulo no mesmo UPDATE que leva o paciente a
+  `bloqueado` (`lgpd.ts:168`) e os lembretes são apagados (`:198`; as marcas em cascata) **depois** desse UPDATE (o
+  `lembretes_rotina_sem_apagar` só deixa a sessão `nutri` apagar o desligado pelo paciente com o titular `bloqueado`) e
+  **depois** da trava do tenant de `cancelarTarefas` (ordem paciente → tenant → linhas, porque o `marcar` do worker segura o
+  tenant `FOR SHARE` antes de gravar a marca; apagar antes faria um ciclo).
+- **Anonimização** (`anonimizarVencidos`, contexto `worker`): limpa a pausa (`lgpd.ts:565`) e apaga os lembretes gravados
+  depois do bloqueio (`:583`).
+- **Exportação** (`montarDados`, `src/modules/pacientes/exportacao-job.ts`): `paciente.lembretesPausadosEm` (`:113`) e a
+  chave nova `lembretesDeRotina` (`:181`: `tipo`, `config`, `texto`, `ligado`, `desligadoPeloPacienteEm`, `criadoEm`), nos
+  dois escopos (equipe e titular), sem a marca de envio nem quem criou. A chave `lembretes` continua sendo a das mensagens
+  das consultas (Plano 05).
+
 ---
 
 ## 5.4 Canais
@@ -656,7 +860,9 @@ usuário/senha, forma canônica, host só com rótulos LDH e o mesmo host para o
 **Resultado por dispositivo** (`webPushProvedor`): 404/410 → inscrição apagada; outro 4xx → definitivo; 429 e 5xx →
 nova tentativa; sem resposta HTTP → repete só se o pedido nem saiu (`pedidoNaoSaiu`), senão incerto. `enviarPush` envia
 a todos os dispositivos do vínculo: algum recebeu → `enviada`; algum incerto → `falhou` sem repetir. TTL até o início
-da consulta, no máximo 24 h e no mínimo 60 s.
+da consulta, no máximo 24 h e no mínimo 60 s. Desde o Plano 17, o laço por dispositivo e a limpeza das inscrições
+mortas ficam em `enviarAosDispositivos` (`src/modules/notificacoes/push-dispositivos.ts:44`), que `enviarPush` e os lembretes
+de rotina (§5.3.9, TTL fixo de 1800 s) usam; o resultado `passageira` vira `repetir` só no motor das notificações.
 
 **Texto neutro.** Nada de nome da nutricionista, do paciente, modalidade ou local (decisão do dono de 02/10/2026: a
 tela de bloqueio revelaria com quem a pessoa se consulta). Textos em `pushDaNotificacao` (`mensagens.ts`): lembretes
@@ -729,7 +935,7 @@ Nenhuma URL mudou (C-195): as telas que não são seção marcam a seção pelo 
 | Jornada | `/p/jornada` (nova) | `/p/evolucao`, `/p/agenda` | "Sua jornada" (ou "Sua jornada desde {mês}") |
 | Plano | `/p/plano` | `/p/compras`, `/p/conteudos` (G-D8 = a) | "Plano de hoje" |
 | Exames | `/p/exames` | — | "Meus exames" |
-| Eu | `/p/perfil` | `/p/documentos`, `/p/meus-dados`, `/p/ajuda` | "Eu" |
+| Eu | `/p/perfil` | `/p/documentos`, `/p/meus-dados`, `/p/ajuda` (as subpáginas de `/p/perfil`, como `/p/perfil/ia` e `/p/perfil/lembretes` do Plano 17, marcam Eu pelo prefixo, `secaoDe`) | "Eu" |
 
 - Fonte única: `SECOES_DO_PORTAL` (`src/app/p/navegacao.ts`). `secoesDoPortal({ exames })` tira "Exames" quando o
   consultório não recebe exames pelo app **e** o paciente não tem envio não cancelado (RN-192, G-D9 = a;
@@ -774,7 +980,8 @@ Nenhuma URL mudou (C-195): as telas que não são seção marcam a seção pelo 
 | `/p/agenda`, `/p/agenda/nova`, `/p/agenda/<id>` | `consultasDoPaciente`, `agendarComoPaciente`, ações de 5.1.6 | sem `auditRead` (P05 D10) |
 | `/p/conteudos`, `/p/conteudos/<id>` | `feedDeConteudos`, `conteudoDoPaciente` (`portal/conteudos.ts`) | sem `auditRead` (P07 D6) |
 | `/p/exames` | envio e lista dos exames enviados ([cap. 11](11-exames-enviados.md)) | `auditRead` (cap. 11) |
-| `/p/perfil` (Eu) | conta ("Conectado como"), consultório, documentos, notificações, instalar, privacidade, "Como usar o app", trocar de nutricionista, "Sair" | — |
+| `/p/perfil` (Eu) | conta ("Conectado como"), consultório, documentos, lembretes (Plano 17, só com lembrete ligado pela equipe, `temLembretesNaTela`), notificações, instalar, privacidade, "Como usar o app", trocar de nutricionista, "Sair" | — |
+| `/p/perfil/lembretes` (Plano 17; detalhe de Eu, destino do push de suplemento e de lembrete livre) | `meusLembretes`, `desligarMeuLembrete`, `pausarMeusLembretes` (`src/modules/lembretes/paciente.ts`; §5.3.9) | `auditRead` (entidade `lembretes`) só quando há lembrete; escritas pelo gatilho |
 | `/p/ajuda` (nova) | `GUIA_PORTAL` (`src/modules/ajuda/portal.ts`), "Ver o tour de novo" | — |
 | `/p/meus-dados/exportacoes/<id>` | destino do e-mail da exportação | — |
 | `/p/documentos` (Plano 10A; marca "Eu", com o item "Você tem {n} documentos novos" no mural e "Ver meus documentos" em Eu) | `documentosDoPaciente`, `confirmarRecebimentoNoPortal` (`documentos/portal.ts`) | lista sem `auditRead` (Plano 10A, D17); o PDF com `auditRead` |
@@ -783,7 +990,8 @@ Nenhuma URL mudou (C-195): as telas que não são seção marcam a seção pelo 
 APIs: `POST /api/p/acesso`, `POST /api/p/diario` (multipart; desde o Plano 16, também `refeicaoId` e `resposta`,
 §5.5.12), `POST`/`DELETE /api/p/push`, `GET /api/p/plano/pdf`, `GET /api/p/conteudos/<id>/pdf`,
 `GET /api/p/documentos/<id>/pdf` (Plano 10A: `auditRead` + recibo "aberto"), `GET /api/p/vinculo`, `GET /api/p/ping`
-(204, sem sessão). O Plano 16 não criou rota de API. Os documentos não ficam na cópia offline (o service worker só guarda
+(204, sem sessão). O Plano 16 não criou rota de API, nem o Plano 17 (as escritas de Eu › Lembretes são Server Actions,
+`src/app/p/(portal)/perfil/lembretes/actions.ts`). Os documentos não ficam na cópia offline (o service worker só guarda
 `/p/plano`; teste em `src/app/sw-regras.test.ts`, sem mudança no Plano 16).
 
 A leitura de dado de saúde pelo **próprio paciente** gera "Visualizou" com o ator = a conta do paciente (P06 D22).
@@ -931,7 +1139,8 @@ sequenceDiagram
   aparece quando o fuso do aparelho difere do do tenant (`src/app/p/quando-local.tsx`, RN-06).
 - Eu (antes "Perfil"; seções por assunto no Plano 16: Conta com "Conectado como {e-mail}", Consultório com o logo
   sobre fundo branco, Documentos, Notificações, Instalar o app, Privacidade, "Como usar o app" e "Sair"; "Trocar de
-  nutricionista" com 2+ vínculos). Privacidade abre com o texto da RN-214 ("Algumas informações do acompanhamento podem não
+  nutricionista" com 2+ vínculos; desde o Plano 17, "Lembretes" com "Ver meus lembretes" entre Documentos e Notificações,
+  só com lembrete ligado pela equipe, §5.3.9). Privacidade abre com o texto da RN-214 ("Algumas informações do acompanhamento podem não
   aparecer no app, a critério da sua nutricionista. Suas medidas, registros e documentos estão na cópia dos seus dados
   (Baixar meus dados)."), o mesmo para todo paciente. Desde o Plano 15, o bloco "IA Nutri" fica ao lado do de "Uso de inteligência
   artificial (IA)" da 14A, com a situação ("Você autorizou em …", "Você desativou em …"), "Desativar a IA Nutri e apagar
@@ -993,9 +1202,13 @@ flowchart LR
 - **Componentes:** `MuralLista` (`src/app/p/(portal)/inicio/mural-lista.tsx`, `<ol aria-label="Hoje">`; o primeiro item
   de refeição leva `data-guia="respostas"`), `ConfirmarNoMural` (confirmar presença na consulta; `role="status"` sempre
   montado), `CartoesDoAparelho` (ativar notificações e instalar, dispensáveis por 30 dias com a chave
-  `nd-cartao:<conta>:<cartão>`, apagadas no "Sair" e no `/entrar`, Desvio 9), `AtualizarAoVoltar` (`router.refresh()`
+  `nd-cartao:<conta>:<cartão>`, apagadas no "Sair" e no `/entrar`, Desvio 9; desde o Plano 17, com lembrete ligado pelas
+  duas partes — `temLembretes` —, o cartão de notificações diz "Ative as notificações para receber os lembretes da sua
+  nutricionista.", com a mesma chave de dispensa), `AtualizarAoVoltar` (`router.refresh()`
   quando a aba volta a ficar visível), `GuiaDoPortal` (§5.8.4) e a faixa com a `MiniJornada`.
-- **Nada em log** (regra 3, RNF-196): nem texto do diário, nem nome de refeição, nem medida; nenhum push novo (RN-209).
+- **Nada em log** (regra 3, RNF-196): nem texto do diário, nem nome de refeição, nem medida; nenhum push novo (RN-209). O
+  Plano 17 reabriu de propósito o push por horário de refeição (spec dos lembretes §1), num motor à parte, fora do mural
+  (§5.3.9).
 
 ### 5.5.12 Respostas no diário (Plano 16, US-192, RN-197, RN-198)
 
@@ -1006,6 +1219,7 @@ A resposta "Comi assim" / "Comi outra coisa" é um **registro do diário** com d
 |---|---|
 | `resposta text` | `null` (registro comum) ou `'como_no_plano'`/`'outra_coisa'` (`diary_entries_resposta_valida`) |
 | `refeicao_do_plano text` | presente se e só se `resposta` presente, 1 a 80 caracteres (`diary_entries_refeicao_do_plano`) |
+| `refeicao_slot text` (Plano 17, `drizzle/0121_diario_refeicao_slot.sql`, só `ADD COLUMN`) | anulável, sem CHECK: o mesmo rótulo `"{nome} · {HH:MM}"`, gravado por `registrarNoDiario` sempre que o registro vem de uma refeição do plano (`refeicaoId`), com ou sem resposta; só o worker dos lembretes a lê (`registradasNoDiario`, `src/modules/lembretes/envio.ts:114`); nunca exibida nem exportada (marcador técnico, fora do `dados.json`) |
 | `diary_entries_outra_coisa_tem_conteudo` | "Comi outra coisa" exige texto ou foto |
 | `diary_entries_tem_conteudo` (recriado) | texto, foto ou `resposta is not distinct from 'como_no_plano'` |
 
@@ -1406,6 +1620,12 @@ mudaram; comentário no arquivo). Nenhuma tela nova do painel: a IA mora em tela
 os guias novos `ia-nutri` (aba "IA Nutri" da ficha, antes do `prontuario`, cujo padrão casa qualquer aba) e `duvidas`
 (fila "Dúvidas dos pacientes"), na versão 1; `boas-vindas` na **v3** (o passo do menu cita "Dúvidas dos pacientes") e
 `configuracoes` na **v8** (o aditivo 1.2 e o passo `ia-nutri-secao`) — [§10.14.10](10-ia.md#101410-telas-textos-fixos-e-manual-guiado).
+Plano 17: guia `plano-alimentar` na **v2** (comentário `// Plano 17: a seção Lembretes no app`): o passo novo "Lembretes no
+app" (alvo `lembretes-app`, o `data-guia` do cartão da seção, depois de "Publicar") e a pergunta comum do limite ("Lembretes no
+app: cada paciente recebe no máximo 24 lembretes por dia, sempre entre 6h e 22h no fuso do consultório. …"); o item da IA do
+Plano 14B-2 continua sem ter subido a versão. Guia do portal `portal-novidades` na **v3** (Lembretes em Eu, §5.8.4). A seção
+mora numa aba que já tinha guia: nenhuma tela nova do painel, nada em `SEM_AJUDA` (`src/modules/ajuda/conteudo.test.ts`, caso
+"Plano 17: a seção \"Lembretes no app\" no guia do plano alimentar…").
 
 | Campo | Papel |
 |---|---|
@@ -1445,7 +1665,12 @@ O texto é **rascunho** até o dono e a Debby aprovarem (P08-08), sem dado de sa
   painel): id `portal-novidades`, versão **2** desde o Plano 15 (★ DO-6: a IA Nutri vai ao ar ligada pela nutricionista e as
   frases do mural, de Plano — "…e, quando liberada, a IA Nutri" — e dos dois pedidos de IA, um para os exames em Eu ›
   Privacidade e outro para a IA Nutri em Plano, mudaram para todos; a regra de privacidade é a mesma redação do rodapé do
-  mural, `MSG_MURAL.rodape`), título "Como usar o app", a ajuda da página `/p/ajuda` e 5 passos com os alvos
+  mural, `MSG_MURAL.rodape`) e **3** desde o Plano 17 (Tarefa 6: em "Perguntas comuns", "Se a sua nutricionista configurou
+  lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um." — com a ressalva, porque o guia é o mesmo para
+  todos os pacientes; o tour não mudou, os 5 alvos são os mesmos). **A subida para a v3 mostra "O manual do app foi
+  atualizado. Quer ver o que há de novo?" uma vez a todo paciente que já viu a v2** (`avisoDoGuia`, teste em
+  `src/modules/ajuda/portal.test.ts`), em qualquer consultório, tenha ou não lembretes (alternativa registrada no plano e não
+  escolhida: acrescentar o item sem subir a versão). Título "Como usar o app", a ajuda da página `/p/ajuda` e 5 passos com os alvos
   `faixa`, `mural`, `respostas`, `acoes` e `secao-eu` (`data-guia` na `Faixa`, no `main` de Hoje, no primeiro item de
   refeição do mural, na `BarraDeAcoes` e no link de Eu da `NavSecoes`). O passo "Responder à refeição" tem texto que
   independe do item (fora da janela de 90 min não há alvo). Ajuda, passos e aviso não falam de peso nem de IMC (teste em
@@ -1546,7 +1771,7 @@ A tabela completa de variáveis (todos os processos, validação e onde cada uma
 
 ### Jobs do worker (`src/worker/index.ts`, `src/jobs/queues.ts`)
 
-Filas deste capítulo: `notificacoes` (a cada minuto + envio imediato), `whatsapp-evento`, `agenda-tenant`,
+Filas deste capítulo: `notificacoes` (a cada minuto + envio imediato), `lembretes-rotina` (a cada minuto, Plano 17), `whatsapp-evento`, `agenda-tenant`,
 `agenda-limpeza` (04:30), `diario-foto`, `expirar-diario-foto` (a cada 15 min) e `email`. Gatilho, função, novas
 tentativas e payload de cada uma: [§6.2.3 Filas](06-worker-seguranca-operacao.md#623-filas).
 
@@ -1556,6 +1781,9 @@ tentativas e payload de cada uma: [§6.2.3 Filas](06-worker-seguranca-operacao.m
   nem chaves.
 - Cada notificação processada loga `tenantId`, id, canal, tipo, resultado, motivo e código de erro. Nunca texto,
   e-mail, número, endpoint ou link (RNF-11).
+- Lembretes de rotina (Plano 17): um log por tenant e execução, "lembretes de rotina processados", com `enviados`, `pulados` e
+  `falhas`; "lembretes de rotina com configuração inválida" com a contagem. Nunca o nome do suplemento, o texto livre ou o
+  nome da refeição.
 - Na tela da consulta do painel, `listarNotificacoesDaConsulta` mostra cada lembrete com a situação em texto
   (`situacaoDaNotificacao`: "Agendado para…", "Não enviado: {motivo}").
 
@@ -1617,3 +1845,32 @@ G foi acertada nos Desvios 5, 13, 14 e 16 e no CHECK de `diary_entries_tem_conte
     foco branco; o anel duplo ficou no backlog.
 19. **Sugestão de receita dentro da refeição** (Desvio 16, como a spec G diz; o texto do plano dizia "no `summary`"): 2
     toques para a próxima refeição (aberta) e pelo "Ver a refeição" do mural, 3 para as outras (G-D14 = a).
+
+Plano 17 (lembretes de rotina; spec `docs/superpowers/specs/2026-11-13-nutridebby-lembretes-de-rotina-design.md`, plano
+`docs/superpowers/plans/2026-11-13-nutridebby-17-lembretes-rotina.md`) × código, conferido em 17/11/2026 no branch
+`plano-17-lembretes-rotina` (§5.3.9):
+
+20. **Nome da refeição no push.** A spec (§5.1, §7) põe "{nome da refeição}" no push. O código usa só o rótulo da lista
+    fechada do diário (`refeicaoDoDiario`) e, fora dela, o texto genérico; na hora (antecedência 0) o texto é "Hora de:
+    {rótulo}" (NORMAS-DECISAO-1 da revisão do plano; `payloadDoSlot`, `src/modules/lembretes/envio.ts:42`). Spec emendada (§9,
+    17/11/2026).
+21. **Prioridade da fusão.** A spec (§5.2) lista "refeição > suplemento > livre > água" na fusão do mesmo minuto; o código
+    (e o plano) põe o pedido do diário entre o livre e a água (`PRIORIDADE`, `src/modules/lembretes/constantes.ts:26`).
+22. **Apagamento.** A spec (§5.5) diz que as duas tabelas "saem na anonimização". O código também as apaga na exclusão
+    atendida, e a equipe apaga de fato (NORMAS-03: ajuste do app, não prontuário; `src/modules/pacientes/lgpd.ts:189-198`),
+    salvo o lembrete que o paciente desligou (`0120`).
+23. **"A nutricionista não religa" no banco.** A spec (§5.3) e o plano (Tarefa 1) previam a regra no módulo e no gatilho de
+    colunas; a revisão da Tarefa 1 acrescentou a migration `0120` (`lembretes_rotina_sem_apagar`: a equipe não apaga o
+    lembrete desligado pelo paciente), que o plano não lista em "Estrutura de arquivos".
+24. **Seção "Lembretes" de Eu.** O plano (Tarefa 6) mostra a seção "só quando `temLembretes`". O código usa
+    `temLembretesNaTela` (lembrete ligado pela equipe, mesmo que o paciente tenha desligado todos ou pausado), para não
+    sumir o único caminho de religar (revisão T6-01, `src/modules/lembretes/paciente.ts:147`). O cartão de Hoje continua com
+    `temLembretes`.
+25. **Cor do interruptor.** O plano (Tarefa 6) cita `bg-destaque`; o código usa `bg-marca`/`border-marca` no ligado e
+    `campo` no desligado, nos dois interruptores (painel e portal), pelo contraste ≥ 3:1 no modo escuro (revisões das
+    Tarefas 5 e 6).
+26. **Aviso do corte.** A spec (§5.2) tem só "Acima do limite de 24 por dia: alguns lembretes de água não serão enviados.";
+    o código mostra essa frase quando só a água foi cortada e "Acima do limite de 24 por dia: alguns lembretes não serão
+    enviados." quando outro tipo também foi (`secao.tsx`).
+27. **Exportação.** A spec (§5.5) fala em "configuração" no `dados.json`; o código usa a chave nova `lembretesDeRotina` (a
+    `lembretes` já era das mensagens das consultas, Plano 05) e põe `lembretesPausadosEm` dentro de `paciente`.

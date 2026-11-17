@@ -436,7 +436,7 @@ describe('R1: web-push só no worker', () => {
     // o grafo anda de verdade: as rotas chegam ao motor de lembretes por agendar.ts e ao webhook do WhatsApp
     expect([...g.arquivos.keys()]).toEqual(expect.arrayContaining(['src/modules/notificacoes/agendar.ts', 'src/modules/notificacoes/whatsapp/webhook.ts']));
     expect(g.pacotes.has('pg-boss'), 'o grafo também registra pacotes').toBe(true);
-    for (const proibido of ['src/modules/notificacoes/push.ts', 'src/modules/notificacoes/enviar.ts', 'src/modules/portal/diario-foto-job.ts']) {
+    for (const proibido of ['src/modules/notificacoes/push.ts', 'src/modules/notificacoes/enviar.ts', 'src/modules/notificacoes/push-dispositivos.ts', 'src/modules/lembretes/envio.ts', 'src/modules/portal/diario-foto-job.ts']) {
       expect(g.arquivos.has(proibido), `${proibido} alcançado por: ${caminhoAte(g, proibido).join(' → ')}`).toBe(false);
     }
     expect(g.pacotes.get('web-push'), 'web-push importado (no grafo do Next) por').toBeUndefined();

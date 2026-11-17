@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { symmetricEncrypt } from 'better-auth/crypto';
-import { and, eq, inArray, like, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, like, sql } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { account, consents, iaNutriConsentimentos, iaNutriMensagens, iaNutriParticipacoes, mealPlans, patients, rateLimit, tenants, twoFactor, user } from '@/db/schema';
+import { account, consents, iaNutriConsentimentos, iaNutriMensagens, iaNutriParticipacoes, lembretesRotina, mealPlans, patients, rateLimit, tenants, twoFactor, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { stopBoss } from '@/jobs/boss';
@@ -247,6 +247,22 @@ if (!vigente) {
     db,
   ); // (d)
 }
+
+// Plano 17 (P17-08): as pacientes fixas do seed (as duas da IA Nutri e a MULTI) começam cada execução sem lembretes de
+// rotina e sem a pausa geral, como no banco novo do CI — no banco de dev reaproveitado, um lembrete deixado por uma
+// verificação manual punha a seção "Lembretes" em Eu e mudava o cartão de notificações de Hoje. O contexto `worker` apaga
+// também o que o paciente desligou (gatilho lembretes_rotina_sem_apagar, 0120) e limpa a pausa (0119); a marca de envio sai
+// pela FK em cascata. As pacientes criadas pelas specs são sempre novas (sem lembrete).
+await withTenant(
+  { tenantId: consultorio.id, role: 'worker' },
+  async (tx) => {
+    const fixas = await tx.select({ id: patients.id }).from(patients).where(inArray(patients.userId, [multiId, um.userId, dois.userId]));
+    const ids = fixas.map((f) => f.id);
+    await tx.delete(lembretesRotina).where(inArray(lembretesRotina.patientId, ids));
+    await tx.update(patients).set({ lembretesPausadosEm: null }).where(and(inArray(patients.id, ids), isNotNull(patients.lembretesPausadosEm)));
+  },
+  db,
+);
 
 await stopBoss(); // a publicação do plano enfileira o PDF
 await closeDb();

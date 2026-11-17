@@ -122,7 +122,7 @@ Layout no disco: `DATA_DIR/<tenantId>/<tipo>/<uuid>.<ext>` (`armazenamento.ts:96
 | `salvarArquivo(ctx, input)` | Única porta de gravação. Ver fluxo abaixo | `armazenamento.ts:64` |
 | `apagarArquivo(ctx, filtro, deps)` | Única porta de remoção: apaga `stored_files`, devolve os bytes à cota e remove do disco depois do commit (ou antes, com `removerAntesDoCommit`) | `armazenamento.ts:160` |
 | `nivelDeUso(bytes)` | `ok` / `aviso` (≥ 80%) / `esgotado` (≥ 100%) | `armazenamento.ts:38` |
-| `limparTmpOrfaos(dataDir, agora)` | Apaga `*.<pid>.tmp` com mais de 24 h; fila diária `limpar-tmp` às 04h | `armazenamento.ts:210`; `src/worker/index.ts:203` |
+| `limparTmpOrfaos(dataDir, agora)` | Apaga `*.<pid>.tmp` com mais de 24 h; fila diária `limpar-tmp` às 04h | `armazenamento.ts:210`; `src/worker/index.ts:211` |
 | `signFileUrl(caminho)` | URL `/api/arquivos?c=…&e=…&s=…`, HMAC-SHA256 com `FILE_URL_SECRET`, validade 300 s | `src/lib/signed-url.ts:16` |
 | `verifyFileUrl(params)` | Confere formato do caminho, assinatura (comparação em tempo constante) e validade | `src/lib/signed-url.ts:27` |
 
@@ -178,7 +178,7 @@ Servir arquivos (`src/app/api/arquivos/route.ts:21`):
 
 Como estender com segurança:
 
-1. Tipo novo de arquivo: acrescentar em `TipoDeArquivo`, no CHECK `stored_files_tipo_valido` (migration), em `TIPOS_DO_PACIENTE` se tiver dono, e no `MIME`/`CAMINHO_ARQUIVO` se a extensão for nova. Se o tipo tiver dono (paciente), confira também: o CHECK `stored_files_dono` (`drizzle/0071_stored_files_paciente.sql:7`, validado em `0072`), que exige `patient_id` exatamente para os tipos de paciente; a política `paciente_arquivos` (`0072`, refeita em `0085`), que decide o que o paciente enxerga; `anexosDoPaciente` (`src/modules/pacientes/lgpd.ts:290`), que apaga os arquivos na exclusão e na anonimização (LGPD), e a exportação (`exportacao-job.ts`), se o arquivo faz parte dos dados do titular. Se o arquivo for temporário (como `exportacao`), acrescente o `--exclude` do `rclone sync` de `data/` em `scripts/backup/nutri-backup.sh:118` (hoje só `/*/exportacao/**`), para não ir ao R2.
+1. Tipo novo de arquivo: acrescentar em `TipoDeArquivo`, no CHECK `stored_files_tipo_valido` (migration), em `TIPOS_DO_PACIENTE` se tiver dono, e no `MIME`/`CAMINHO_ARQUIVO` se a extensão for nova. Se o tipo tiver dono (paciente), confira também: o CHECK `stored_files_dono` (`drizzle/0071_stored_files_paciente.sql:7`, validado em `0072`), que exige `patient_id` exatamente para os tipos de paciente; a política `paciente_arquivos` (`0072`, refeita em `0085`), que decide o que o paciente enxerga; `anexosDoPaciente` (`src/modules/pacientes/lgpd.ts:304`), que apaga os arquivos na exclusão e na anonimização (LGPD), e a exportação (`exportacao-job.ts`), se o arquivo faz parte dos dados do titular. Se o arquivo for temporário (como `exportacao`), acrescente o `--exclude` do `rclone sync` de `data/` em `scripts/backup/nutri-backup.sh:118` (hoje só `/*/exportacao/**`), para não ir ao R2.
 2. Registro que aponta para o arquivo: gravar no `registrar` de `salvarArquivo` e apagar no `naMesmaTransacao` de `apagarArquivo`. Nunca em transação separada (regra 9 do CLAUDE.md; Plano 03, decisão "Arquivo e registro juntos").
 3. Respeitar a ordem de travas: dono em `antesDaReserva`/`naMesmaTransacao`, depois cota. Os documentos (Plano 10A) travam o paciente e o documento antes da cota em todo `salvarArquivo` que grava nele (`travarDocumentoAntesDaCota`, `src/modules/documentos/arquivos-do-preparo.ts`; ordem paciente → original → versão nova → tenant, cap. 09 §9.11.5).
 
@@ -190,7 +190,7 @@ passa por `anonimizarDocumentosDoPaciente`, [§9.4.4](09-documentos-assinados.md
 
 ### 4.1.4 Monitoramento de backup e disco (RNF-05, RNF-13)
 
-**Arquivo:** `src/modules/plataforma/monitoramento.ts`. Jobs em `src/worker/index.ts:123-141`.
+**Arquivo:** `src/modules/plataforma/monitoramento.ts`. Jobs em `src/worker/index.ts:131-149`.
 
 O backup roda no host (systemd às 03h, `scripts/backup/nutri-backup.sh`), não no worker (Plano 02, decisão "Onde roda o backup"; regra 10 do CLAUDE.md). O script grava `backup_runs`; o app só lê.
 
@@ -451,7 +451,8 @@ stateDiagram-v2
 
 O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:98-169`):
 
-1. `status = 'bloqueado'`, `bloqueado_em`, `anonimizar_apos`.
+1. `status = 'bloqueado'`, `bloqueado_em`, `anonimizar_apos`; desde o Plano 17, `lembretes_pausados_em` nulo no mesmo UPDATE
+   (a única limpeza que o gatilho `patients_lembretes_do_paciente` deixa à sessão `nutri`).
 2. Opt-in de WhatsApp apagado e opt-out gravado.
 3. Convites pendentes apagados.
 4. Consultas futuras canceladas pelo "sistema", sem aviso ao paciente (`cancelarFuturasPelaExclusao`; decisão do dono no fechamento do Plano 05).
@@ -459,7 +460,10 @@ O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:98-169`):
 6. `push_subscriptions` do vínculo apagadas (Plano 05, D14).
 7. Uso de conteúdo apagado (`apagarUsoDeConteudo`; Plano 07, D15).
 8. `access_events` apagados (`apagarAcessosDoTitular`; Plano 08, D13).
-9. `recordAudit('bloquear')` e job `exclusao-atendida`.
+9. Plano 17: lembretes de rotina apagados (`lgpd.ts:198`; as marcas de envio em cascata), depois do UPDATE do item 1 e da
+   trava do tenant de `cancelarTarefas` — a configuração é ajuste do app, não prontuário
+   ([§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17)).
+10. `recordAudit('bloquear')` e job `exclusao-atendida`.
 
 Prazo de guarda: `PRAZO_GUARDA_ANOS = 20` (`lgpd.ts:41`), contado do **último registro do prontuário**, que no pedido de exclusão é o próprio bloqueio: `anonimizar_apos` = hoje no fuso do consultório + 20 anos (`lgpd.ts:123-126`), mesmo para quem tem atendimento antigo (JUR-01, decisão do dono em 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"). Até 09/10/2026 contava do último `consultations.data`; a migration de dados `0110_prazo_guarda_bloqueio` recalculou quem já estava bloqueado e não anonimizado — data do bloqueio (`bloqueado_em` no fuso do tenant; sem ela, o `concluido_em` do pedido de exclusão atendido) + 20 anos, só para mais (`GREATEST`), com o gatilho de auditoria ligado (`set_config` por tenant; um "alterar" de ator nulo por paciente que mudou). O 20 está repetido na migration. P-01 (o número) segue pendente com CRN/advogado.
 
@@ -469,13 +473,13 @@ A anonimização de cada paciente (`lgpd.ts:372-428`):
 2. Trava o paciente; `app_anonimizar_aceites(id)` tira IP e conta dos aceites (migration 0065).
 3. `nome = 'Paciente anonimizado'`, e-mail `anonimo-<id>@anonimizado.invalid`, telefone, nascimento e `user_id` nulos.
 4. Se surgiu anexo novo nesse meio tempo, desfaz tudo (fica para o dia seguinte).
-5. Apaga push, uso de conteúdo e acessos gravados depois do bloqueio; limpa textos livres e destinos da agenda (`anonimizarAgenda`, `lgpd.ts:314`; Plano 05, D10).
+5. Apaga push, lembretes de rotina (Plano 17, com a pausa limpa no UPDATE do item 3), uso de conteúdo e acessos gravados depois do bloqueio; limpa textos livres e destinos da agenda (`anonimizarAgenda`, `lgpd.ts:314`; Plano 05, D10).
 6. Anonimiza a conta de login sem outro vínculo (Plano 06, D18).
 7. `recordAudit('anonimizar')`.
 
 Um tenant com erro não para os outros; o log leva só o tenant e o código do erro (RNF-11).
 
-Jobs: `retencao-lgpd` às 04h (`src/worker/index.ts:145`), que também chama `expirarExportacoesVencidas`; `exclusao-atendida` com 5 novas tentativas (`src/jobs/queues.ts:20`).
+Jobs: `retencao-lgpd` às 04h (`src/worker/index.ts:153`), que também chama `expirarExportacoesVencidas`; `exclusao-atendida` com 5 novas tentativas (`src/jobs/queues.ts:20`).
 
 Plano 10A: na anonimização, os documentos assinados saem **antes** do laço de anexos, por
 `anonimizarDocumentosDoPaciente` (`src/modules/documentos/lgpd-documentos.ts`; função `app_anonimizar_documentos` no
@@ -519,7 +523,7 @@ sequenceDiagram
 | `estadoDaExportacao(...)` | Estado para a página do link; entregar o link pronto audita `exportacoes` | `exportacao.ts:129` |
 | `exportacoesRecentes(...)` | Últimos 5 pedidos, auditados | `exportacao.ts:171` |
 | `linkDaExportacao(appUrl, pedido)` | Titular: `/p/meus-dados/exportacoes/<id>` (com o consultório); equipe: `/painel/pacientes/<id>/exportacoes/<id>` | `exportacao.ts:37` |
-| `montarDados(tx, patientId, now, fuso, escopo)` | `dados.json` com paciente, anamneses, antropometria, gasto energético, exames, atendimentos (só orientações), planos (rascunho só no escopo `equipe`), pedidos LGPD, consultas, lembretes, aceites, dispositivos push (sem endpoint), diário e conteúdos | `exportacao-job.ts:219` |
+| `montarDados(tx, patientId, now, fuso, escopo)` | `dados.json` com paciente, anamneses, antropometria, gasto energético, exames, atendimentos (só orientações), planos (rascunho só no escopo `equipe`), pedidos LGPD, consultas, lembretes (mensagens das consultas), aceites, dispositivos push (sem endpoint), lembretes de rotina (`lembretesDeRotina`, Plano 17: configuração, texto, `ligado` e a escolha do titular, sem a marca de envio; e `paciente.lembretesPausadosEm`, nos dois escopos), diário e conteúdos | `exportacao-job.ts:331` |
 | `gerarExportacao(data, deps)` | Job idempotente: só age sobre `pendente`; cota esgotada, anonimização no meio ou última tentativa → `falhou` | `exportacao-job.ts:474` |
 | `expirarExportacao` / `expirarExportacoesVencidas` | Apaga o ZIP e marca `expirada` na transação do arquivo; a varredura diária pega o que o job de +24 h não conseguiu | `exportacao-job.ts:716,627` |
 
@@ -712,7 +716,7 @@ stateDiagram-v2
 Consequência de D10: corrigir um "Meu alimento" não muda plano publicado; "Editar" cria o rascunho com os valores atuais.
 
 **Rascunho com IA e selo (Plano 14B-2, US-121, RN-117, RN-122; detalhe na [§10.13](10-ia.md#1013-ia-nutri--resumo-e-rascunho-plano-14b-2)).**
-Na página do plano do paciente (`src/app/painel/pacientes/[id]/plano-alimentar/page.tsx:27`), "Gerar rascunho com IA"
+Na página do plano do paciente (`src/app/painel/pacientes/[id]/plano-alimentar/page.tsx:28`), "Gerar rascunho com IA"
 aparece ao lado de "Criar plano" e "Criar a partir de modelo" quando a IA permite (`iaDoAssistente` com o uso
 `rascunho_plano`); sem permitir, o motivo aparece abaixo dos botões. A tela `/painel/pacientes/[id]/plano-alimentar/rascunho-ia`
 recebe as metas, acompanha a tarefa e mostra a prévia com os totais do mesmo `PainelTotais` do editor (`calculo.ts`;
@@ -753,7 +757,7 @@ Modelo não se publica: `publicarPlano` filtra por `patient_id` e devolve "não 
 5. Grava com `salvarArquivo(tipo 'plano_pdf', ['pdf'])`: `antesDaReserva` trava o paciente e desiste se ele foi bloqueado ou anonimizado; `registrar` grava `pdf_path` e `pronto`.
 6. Cota esgotada ou última tentativa → `falhou`; outros erros → nova tentativa do pg-boss.
 
-Rede de segurança: `expirarPdfsPendentes` a cada 15 min marca `falhou` o pendente há mais de 1 h, medido por `pdf_pedido_em` (`plano-pdf-job.ts:114,125`; `src/worker/index.ts:199`). Fila `plano-pdf`: 2 novas tentativas, 30 s com backoff, 120 s cada (`src/jobs/queues.ts:25`).
+Rede de segurança: `expirarPdfsPendentes` a cada 15 min marca `falhou` o pendente há mais de 1 h, medido por `pdf_pedido_em` (`plano-pdf-job.ts:114,125`; `src/worker/index.ts:207`). Fila `plano-pdf`: 2 novas tentativas, 30 s com backoff, 120 s cada (`src/jobs/queues.ts:25`).
 
 Download: o painel chama `signFileUrl(pdf_path)` (`src/app/painel/pacientes/[id]/plano-alimentar/[planId]/pdf-do-plano.tsx`); o portal, `src/app/api/p/plano/pdf/route.ts`.
 

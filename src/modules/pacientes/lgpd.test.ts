@@ -15,7 +15,7 @@ import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
-import { accessEvents, account, appointments, auditLog, consents, diaryEntries, exams, iaAutorizacoes, iaNutriConsentimentos, iaTarefas, iaUso, invites, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
+import { accessEvents, account, appointments, auditLog, consents, diaryEntries, exams, iaAutorizacoes, iaNutriConsentimentos, iaTarefas, iaUso, invites, lembretesRotina, lembretesRotinaEnvios, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { sealSecret } from '@/lib/crypto';
 import { reservar } from '@/modules/ia/cota';
@@ -99,6 +99,35 @@ const contagemDeConteudo = async (T: TenantDeTeste, patientId: string) =>
     )
   ).rows[0];
 
+/** Plano 17: os lembretes de rotina (e as marcas do último envio, STAFF_ONLY) e a pausa do paciente, lidos pela equipe. */
+const lembretesDe = async (T: TenantDeTeste, patientId: string) =>
+  withTenant(
+    T.ctx,
+    async (tx) => ({
+      lembretes: (await tx.select({ id: lembretesRotina.id }).from(lembretesRotina).where(eq(lembretesRotina.patientId, patientId))).length,
+      envios: (await tx.select({ id: lembretesRotinaEnvios.lembreteId }).from(lembretesRotinaEnvios).where(eq(lembretesRotinaEnvios.patientId, patientId))).length,
+      pausa: (await tx.select({ em: patients.lembretesPausadosEm }).from(patients).where(eq(patients.id, patientId)))[0].em,
+    }),
+    app.db,
+  );
+/** Plano 17: água (com a marca do envio, gravada pelo worker) e um livre do paciente. */
+const lembretesNoBanco = async (T: TenantDeTeste, patientId: string) => {
+  const [agua, livre] = await withTenant(
+    T.ctx,
+    (tx) =>
+      tx
+        .insert(lembretesRotina)
+        .values([
+          { tenantId: T.tenantId, patientId, tipo: 'agua', config: { inicio: '08:00', fim: '20:00', intervaloMin: 120, dias: [0, 1, 2, 3, 4, 5, 6] }, criadoPor: T.nutriId },
+          { tenantId: T.tenantId, patientId, tipo: 'livre', texto: 'Caminhar 20 minutos', config: { horarios: ['18:00'], dias: [1, 3, 5] }, criadoPor: T.nutriId },
+        ])
+        .returning(),
+    app.db,
+  );
+  await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.insert(lembretesRotinaEnvios).values({ lembreteId: agua.id, tenantId: T.tenantId, patientId, ultimoSlotEm: now }), app.db);
+  return { agua, livre };
+};
+
 describe('arquivar (US-018 "Arquivar", RN-08)', () => {
   it('arquiva (o prontuário fica), apaga o convite pendente e desarquiva; bloqueado não desarquiva', async () => {
     const T = await novoTenant(app.db);
@@ -130,6 +159,22 @@ describe('atender pedido de exclusão durante a guarda (US-018, RNF-08)', () => 
     // D15: sai das audiências de conteúdo (US-018), sem uso em conteúdo (RNF-08) — só ela
     expect(await contagemDeConteudo(T, ana.id)).toEqual({ v: 0, f: 0, a: 0 });
     expect(await contagemDeConteudo(T, bia.id)).toEqual({ v: 1, f: 1, a: 1 });
+  });
+
+  it('Plano 17: exclusão atendida apaga os lembretes e as marcas e limpa a pausa — também o lembrete que o paciente desligou; só os dele', async () => {
+    const T = await novoTenant(app.db);
+    const [ana, bia] = [await novoPaciente(app.db, T.ctx), await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' })];
+    const { livre } = await lembretesNoBanco(T, ana.id);
+    await lembretesNoBanco(T, bia.id);
+    const comoAna = ctxPaciente(T.tenantId, ana.id);
+    // o paciente desliga um lembrete (a equipe sozinha não o apagaria: gatilho lembretes_rotina_sem_apagar) e pausa todos
+    await withTenant(comoAna, (tx) => tx.update(lembretesRotina).set({ desligadoPeloPacienteEm: new Date() }).where(eq(lembretesRotina.id, livre.id)), app.db);
+    await withTenant(comoAna, (tx) => tx.update(patients).set({ lembretesPausadosEm: new Date() }).where(eq(patients.id, ana.id)), app.db);
+    expect(await lembretesDe(T, ana.id)).toMatchObject({ lembretes: 2, envios: 1, pausa: expect.any(Date) });
+    await atenderPedidoExclusao(T.ctx, T.tenant, ana.id, ana.nome, deps);
+    expect(await lembretesDe(T, ana.id)).toEqual({ lembretes: 0, envios: 0, pausa: null });
+    expect((await ler(T.ctx, ana.id)).status).toBe('bloqueado');
+    expect(await lembretesDe(T, bia.id)).toEqual({ lembretes: 2, envios: 1, pausa: null });
   });
 
   it('D13: o pedido atendido apaga os acessos do titular ao portal (access_events) — só os dele', async () => {
@@ -344,6 +389,32 @@ describe('fim do prazo de guarda (job diário de retenção)', () => {
     expect(restam.map((s) => s.patientId)).toEqual([outro.id]);
     expect(await contagemDeConteudo(T, vencido.id)).toEqual({ v: 0, f: 0, a: 0 });
     expect(await contagemDeConteudo(T, outro.id)).toEqual({ v: 1, f: 1, a: 1 });
+  });
+
+  it('Plano 17: a anonimização apaga os lembretes e as marcas e limpa a pausa (gravados depois do bloqueio); só os do titular', async () => {
+    const T = await novoTenant(app.db);
+    const vencido = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-01' });
+    const outro = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    await lembretesNoBanco(T, outro.id);
+    // gravados no contexto worker (a sessão nutri não grava a marca do paciente nem a pausa): sobra de antes do bloqueio
+    const worker = { tenantId: T.tenantId, role: 'worker' as const };
+    await withTenant(
+      worker,
+      async (tx) => {
+        const [l] = await tx
+          .insert(lembretesRotina)
+          .values({ tenantId: T.tenantId, patientId: vencido.id, tipo: 'suplemento', texto: 'Vitamina D', config: { horarios: ['08:00'], dias: [1] }, desligadoPeloPacienteEm: now, criadoPor: T.nutriId })
+          .returning();
+        await tx.insert(lembretesRotinaEnvios).values({ lembreteId: l.id, tenantId: T.tenantId, patientId: vencido.id, ultimoSlotEm: now });
+        await tx.update(patients).set({ lembretesPausadosEm: now }).where(eq(patients.id, vencido.id));
+      },
+      app.db,
+    );
+    expect(await lembretesDe(T, vencido.id)).toEqual({ lembretes: 1, envios: 1, pausa: now });
+    await anonimizarSo(T);
+    expect((await ler(T.ctx, vencido.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
+    expect(await lembretesDe(T, vencido.id)).toEqual({ lembretes: 0, envios: 0, pausa: null });
+    expect(await lembretesDe(T, outro.id)).toEqual({ lembretes: 2, envios: 1, pausa: null });
   });
 
   it('D13: a anonimização apaga os acessos ao portal gravados depois do bloqueio (só os do titular anonimizado)', async () => {

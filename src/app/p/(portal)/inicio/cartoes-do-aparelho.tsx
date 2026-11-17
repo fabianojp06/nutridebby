@@ -9,10 +9,16 @@ const CARTOES = {
   instalar: 'Instale o app na tela inicial.',
 } as const;
 type Cartao = keyof typeof CARTOES;
+const NOTIFICACOES_COM_LEMBRETES = 'Ative as notificações para receber os lembretes da sua nutricionista.';
+
+/** O texto (e o nome) do cartão. Plano 17: com lembretes ligados, o de notificações fala deles; a chave de dispensa não muda. */
+export function textoDoCartao(c: Cartao, comLembretes: boolean): string {
+  return c === 'notificacoes' && comLembretes ? NOTIFICACOES_COM_LEMBRETES : CARTOES[c];
+}
 const semAssinatura = () => () => {};
 
 /** Plano 16 (§4.3, RN-201): os cartões do aparelho no topo do mural, enquanto não feitos neste aparelho; "Agora não" esconde por 30 dias. */
-export function CartoesDoAparelho({ conta, dono, chavePublica }: { conta: string; dono: string; chavePublica: string | null }) {
+export function CartoesDoAparelho({ conta, dono, chavePublica, comLembretes }: { conta: string; dono: string; chavePublica: string | null; comLembretes: boolean }) {
   // o localStorage só existe no cliente: no servidor e na hidratação, nenhum cartão
   const noCliente = useSyncExternalStore(semAssinatura, () => true, () => false);
   const [fechados, setFechados] = useState<ReadonlySet<Cartao>>(() => new Set());
@@ -22,8 +28,8 @@ export function CartoesDoAparelho({ conta, dono, chavePublica }: { conta: string
   const moldura = (c: Cartao) =>
     function MolduraDoCartao(conteudo: ReactNode) {
       return (
-        <section aria-label={CARTOES[c]} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
-          <p>{CARTOES[c]}</p>
+        <section aria-label={textoDoCartao(c, comLembretes)} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
+          <p>{textoDoCartao(c, comLembretes)}</p>
           {conteudo}
           <button
             type="button"

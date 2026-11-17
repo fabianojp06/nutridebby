@@ -54,7 +54,7 @@ export const GUIAS: readonly Guia[] = [
   {
     id: 'plano-alimentar',
     // Plano 14B-2: item da IA sem subir a versão (depende da liberação, como no Plano 11)
-    versao: 1,
+    versao: 2, // Plano 17: a seção Lembretes no app
     padrao: new RegExp(`^/painel/pacientes/${ID}/plano-alimentar(/.*)?$`),
     titulo: 'Plano alimentar',
     ajuda: {
@@ -67,6 +67,7 @@ export const GUIAS: readonly Guia[] = [
             'Para mudar um plano publicado, use "Editar": uma versão nova é criada, e a publicada continua valendo até você publicar a nova.',
             'O PDF do plano fica pronto em alguns segundos depois de publicar.',
             '"Gerar rascunho com IA": informe a meta, os macronutrientes e as refeições; a IA escolhe alimentos da TACO e da sua tabela, e todas as contas são do sistema. O plano publicado leva o selo "Elaborado com apoio de IA e revisado pela nutricionista".',
+            'Lembretes no app: cada paciente recebe no máximo 24 lembretes por dia, sempre entre 6h e 22h no fuso do consultório. A tela não deixa salvar acima disso; se um plano novo passar do limite, os lembretes de menor prioridade (a água primeiro) ficam de fora naquele dia.',
           ],
         },
       ],
@@ -74,6 +75,7 @@ export const GUIAS: readonly Guia[] = [
     passos: [
       { alvo: 'editor-plano', titulo: 'Refeições e alimentos', texto: 'Cada refeição é um bloco. A busca de alimentos aceita parte do nome; a quantidade pode ser em gramas ou medida caseira.' },
       { alvo: 'publicar-plano', titulo: 'Publicar', texto: 'O paciente só vê o plano depois de publicado. Tudo o que você digita já fica salvo no rascunho.' },
+      { alvo: 'lembretes-app', titulo: 'Lembretes no app', texto: 'Configure água, avisos das refeições do plano, suplemento e lembrete livre. O paciente pode desligar qualquer um; o nome do suplemento e o texto livre aparecem só dentro do app.' },
     ],
   },
   {

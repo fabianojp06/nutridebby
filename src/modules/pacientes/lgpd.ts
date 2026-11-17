@@ -10,6 +10,7 @@ import {
   exams,
   iaAutorizacoes,
   iaTarefas,
+  lembretesRotina,
   mealPlans,
   notifications,
   patients,
@@ -96,7 +97,7 @@ const nomeParaConferir = (s: string) =>
 
 /**
  * US-018 "Pedido de exclusão durante o prazo de guarda": o prontuário clínico fica identificado e só
- * para consulta (status `bloqueado`); saem na hora os dados não obrigatórios (opt-ins, convites, inscrições de push) e
+ * para consulta (status `bloqueado`); saem na hora os dados não obrigatórios (opt-ins, convites, inscrições de push, lembretes de rotina) e
  * as consultas futuras (canceladas pelo "sistema", sem aviso ao paciente — fechamento do Plano 05).
  * `anonimizar_apos` = data do bloqueio (hoje no fuso do consultório) + PRAZO_GUARDA_ANOS — JUR-01 (decisão do dono,
  * 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"): o prazo conta do último registro do prontuário, e no pedido de
@@ -162,6 +163,9 @@ export async function atenderPedidoExclusao(
           whatsappOptinEm: null,
           whatsappOptinOrigem: null,
           whatsappOptoutEm: now,
+          // Plano 17: a pausa dos lembretes sai neste mesmo UPDATE que leva a `bloqueado` — a única limpeza que o gatilho
+          // patients_lembretes_do_paciente (0119) deixa à sessão `nutri`
+          lembretesPausadosEm: null,
           updatedAt: now,
         })
         .where(eq(patients.id, p.id));
@@ -182,6 +186,16 @@ export async function atenderPedidoExclusao(
       // estão em processamento falham no worker (RN-100 de novo: paciente bloqueado). Ordem de travas da cota (cota.ts):
       // paciente (já travado acima) → tenant (travado por cancelarTarefas) → tarefas → ia_uso → plataforma
       await cancelarTarefas(tx, { tenantId: ctx.tenantId, patientId: p.id, agora: now, por: ctx.actorUserId ?? null });
+      // Plano 17 (§5.5): a configuração dos lembretes é ajuste do app, não prontuário. A conduta (plano alimentar, receita do
+      // suplemento) fica nos registros próprios (Res. CFN 594/2017; Res. CFN 656/2020, art. 3º, XI e XII). Por isso a equipe
+      // apaga de fato, e a exclusão atendida apaga na hora, como as notificações no aparelho e as conversas da IA Nutri (termo
+      // do paciente 1.0, parágrafo "Algumas coisas saem logo: …", termo-paciente-textos.ts); o `audit_log` guarda quem criou,
+      // alterou e excluiu, sem o conteúdo. A marca do último envio (lembretes_rotina_envios) sai em cascata. Duas condições
+      // de ordem: (1) depois do UPDATE que leva a `bloqueado` — o gatilho lembretes_rotina_sem_apagar (0120) só deixa a
+      // sessão `nutri` apagar o lembrete que o paciente desligou com o titular já `bloqueado`; (2) depois da trava do tenant
+      // (cancelarTarefas, FOR NO KEY UPDATE) — ordem paciente → tenant → linhas, porque o `marcar` do worker dos lembretes
+      // segura o tenant FOR SHARE antes de gravar a marca (KEY SHARE no lembrete pela FK); apagar antes faria um ciclo.
+      await tx.delete(lembretesRotina).where(eq(lembretesRotina.patientId, p.id));
       await recordAudit(tx, {
         acao: 'bloquear',
         entidade: 'patients',
@@ -548,6 +562,7 @@ export async function anonimizarVencidos(
                 telefoneE164: null,
                 dataNascimento: null,
                 userId: null,
+                lembretesPausadosEm: null, // Plano 17: a pausa dos lembretes gravada depois do bloqueio (contexto worker)
                 anonimizadoEm: now,
                 updatedAt: now,
               })
@@ -563,6 +578,9 @@ export async function anonimizarVencidos(
             if (r.length && (await termosDeAutorizacaoRestantes(tx, id))) throw new Error('termo de autorização novo durante a anonimização');
             // rodada 1 (T13): inscrições de push gravadas depois do pedido de exclusão também saem (D14: só as do vínculo)
             if (r.length) await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, id));
+            // Plano 17 (§5.5): os lembretes de rotina gravados depois do bloqueio também saem (as marcas em cascata) — mesma
+            // classificação da exclusão atendida (ajuste do app, não prontuário; ver atenderPedidoExclusao)
+            if (r.length) await tx.delete(lembretesRotina).where(eq(lembretesRotina.patientId, id));
             // D15: alvo, visualização ou favorito de conteúdo gravados depois do bloqueio também saem (idempotente)
             if (r.length) await apagarUsoDeConteudo(tx, id);
             // D13: acessos ao portal gravados depois do bloqueio também saem

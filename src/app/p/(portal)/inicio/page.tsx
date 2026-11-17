@@ -8,6 +8,7 @@ import { requirePaciente } from '@/lib/paciente-session';
 import { GUIA_PORTAL } from '@/modules/ajuda/portal';
 import { configIA } from '@/modules/ia/modo';
 import { entradaDoPaciente } from '@/modules/ia/nutri-paciente/estado';
+import { temLembretes } from '@/modules/lembretes/paciente';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { lerGuia } from '@/modules/plataforma/preferencias';
 import { dataDaFaixa } from '@/modules/portal/datas-portal';
@@ -29,17 +30,19 @@ export const dynamic = 'force-dynamic';
  * transações curtas (D2; a faixa leva a mini-jornada, o aviso e a seção "Exames": faixaDeHoje, P08-13). O manual guiado do portal (T14, RN-212): o progresso é o da conta da sessão (`lerGuia` com o
  * `userId` de requirePaciente, CLAUDE.md regra 1); `?tour=portal-novidades` abre o tour ("Ver o tour de novo" de /p/ajuda).
  * Plano 15 (§7.8): o convite da IA Nutri, só com a entrada `decidir` (liberado pela nutricionista e ainda sem decisão).
+ * Plano 17 (Tarefa 6): com lembretes ligados (`temLembretes`), o cartão de notificações fala dos lembretes.
  */
 export default async function Hoje({ searchParams }: PageProps<'/p/inicio'>) {
   const acesso = await requirePaciente('/p/inicio');
   const { ctx, tenant, vinculo, data } = acesso;
   const agora = new Date();
   const hoje = hojeNoFuso(tenant.fuso, agora);
-  const [mural, { mini, jaUsava, exames }, progresso, entradaIaNutri, { tour }] = await Promise.all([
+  const [mural, { mini, jaUsava, exames }, progresso, entradaIaNutri, comLembretes, { tour }] = await Promise.all([
     muralDoPaciente(ctx, tenant, agora),
     faixaDeHoje(ctx, tenant, agora, hoje),
     lerGuia(data.user.id),
     entradaDoPaciente(ctx, tenant, configIA(getEnv())),
+    temLembretes(ctx),
     searchParams,
   ]);
   const moldura = molduraComExames(tenant, exames);
@@ -51,7 +54,7 @@ export default async function Hoje({ searchParams }: PageProps<'/p/inicio'>) {
       <main data-guia="mural" className="flex-1 space-y-4 p-4">
         <GuiaDoPortal progresso={progresso} abrir={tour === GUIA_PORTAL.id} jaUsava={jaUsava} />
         {entradaIaNutri === 'decidir' && <ConviteIaNutri dono={vinculo.patientId} />}
-        <CartoesDoAparelho conta={data.user.id} dono={vinculo.patientId} chavePublica={getEnv().VAPID_PUBLIC_KEY ?? null} />
+        <CartoesDoAparelho conta={data.user.id} dono={vinculo.patientId} chavePublica={getEnv().VAPID_PUBLIC_KEY ?? null} comLembretes={comLembretes} />
         <p>
           <Link id="ver-todo-diario" href="/p/diario" className="inline-flex min-h-11 items-center font-semibold text-link underline">{MSG_MURAL.verTodoDiario}</Link>
         </p>

@@ -74,6 +74,8 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   ia_nutri_pergunta: 'IA Nutri (conversa com o paciente)',
   ia_nutri_duvida: 'IA Nutri (conversa com o paciente)',
   ia_nutri_revogacao: 'IA Nutri (conversa com o paciente)',
+  // Plano 17 (§5.5): a configuração dos lembretes de rotina (gatilho de lembretes_rotina, 0119)
+  lembretes: 'Lembretes no app',
 };
 
 export type AccessHistoryItem = {

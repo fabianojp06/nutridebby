@@ -827,6 +827,34 @@
       "when": 1792026996404,
       "tag": "0117_ia_nutri_funcoes",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1794869687257,
+      "tag": "0118_lembretes_rotina",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1794869693568,
+      "tag": "0119_rls_lembretes_rotina",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1794870749676,
+      "tag": "0120_lembretes_rotina_sem_apagar",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1794879235584,
+      "tag": "0121_diario_refeicao_slot",
+      "breakpoints": true
     }
   ]
 }
