@@ -68,7 +68,10 @@ function paraSlots(r: LembreteRotinaRow, ativo: boolean): LembreteParaSlots {
 const lembretesDe = (tx: Tx, patientId: string) =>
   tx.select().from(lembretesRotina).where(eq(lembretesRotina.patientId, patientId)).orderBy(asc(lembretesRotina.createdAt), asc(lembretesRotina.id));
 
-/** Refeições do plano publicado (na ordem do plano), com o horário como o banco devolve; null sem plano publicado. */
+/**
+ * Refeições do plano publicado (na ordem do plano), com o horário como o banco devolve e os dias (Plano 19: o previsto
+ * para hoje e o teto contam cada refeição só nos dias dela); null sem plano publicado.
+ */
 async function refeicoesDoPlanoPublicado(tx: Tx, patientId: string): Promise<RefeicaoDoPlano[] | null> {
   const [plano] = await tx
     .select({ id: mealPlans.id })
@@ -77,13 +80,14 @@ async function refeicoesDoPlanoPublicado(tx: Tx, patientId: string): Promise<Ref
     .orderBy(desc(mealPlans.versao))
     .limit(1);
   if (!plano) return null;
-  return tx.select({ nome: meals.nome, horario: meals.horario }).from(meals).where(eq(meals.planId, plano.id)).orderBy(asc(meals.ordem));
+  return tx.select({ nome: meals.nome, horario: meals.horario, dias: meals.diasSemana }).from(meals).where(eq(meals.planId, plano.id)).orderBy(asc(meals.ordem));
 }
 
 /**
  * Visão da seção do painel. Lê pela sessão da equipe e registra a leitura (`auditRead`, entidade `lembretes`) quando
  * devolve lembretes — o nome do suplemento e o texto livre são parte da conduta. O previsto para hoje (no fuso do
- * tenant) conta só o que sairia: lembrete ligado pelas duas partes e sem pausa geral; os avisos das refeições sem
+ * tenant) conta só o que sairia: lembrete ligado pelas duas partes e sem pausa geral, e só as refeições de hoje (Plano
+ * 19); os avisos das refeições sem
  * horário ou fora da janela valem para o lembrete de refeições que existir, ligado ou não.
  */
 export async function lembretesDoPaciente(ctx: TenantContext, patientId: string, tenant: { fuso: string }, deps: { db?: Db; agora?: Date } = {}): Promise<VisaoDaEquipe> {

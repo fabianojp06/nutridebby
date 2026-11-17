@@ -1,4 +1,4 @@
-import type { MacrosPrescritos, MedidaCaseira, MedidaDoItem, NutrientesCongelados, ReferenciaCongelada } from '@/db/schema';
+import type { MacrosPrescritos, MedidaCaseira, MedidaDoItem, ReferenciaCongelada } from '@/db/schema';
 import type { Nutrientes100 } from '@/modules/alimentos/busca';
 import type { Fonte, SeloDaFonte } from '@/modules/alimentos/fontes';
 import type { MedidaDisponivel } from '@/modules/alimentos/medidas';
@@ -9,8 +9,8 @@ import type { DiaDaSemana } from './dias';
 
 /** Só tipos: o editor (cliente) importa daqui sem puxar banco. */
 export type StatusPlano = 'rascunho' | 'publicado' | 'arquivado';
-/** `NutrientesCongelados` é o formato gravado em `meal_items.nutrientes`; para ler, `lerCongelados` (RN-237). */
-export type { MacrosPrescritos, MedidaCaseira, MedidaDoItem, NutrientesCongelados };
+/** O formato gravado em `meal_items.nutrientes` fica no schema e só se lê por `lerCongelados` (RN-237, guarda em `congelados.test.ts`). */
+export type { MacrosPrescritos, MedidaCaseira, MedidaDoItem };
 /** RN-243 (Plano 19, D15): com alimentos e quantidades, ou texto livre por refeição. */
 export type ModoPlano = 'calculado' | 'livre';
 
