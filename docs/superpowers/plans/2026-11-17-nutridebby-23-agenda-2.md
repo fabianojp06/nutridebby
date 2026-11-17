@@ -694,6 +694,8 @@ Conferido com `git diff --name-only 6c3ee8f...HEAD` em cada worktree em 17/11/20
 
 ---
 
+**Componentes compartilhados com o Plano 22 (decisão da orquestradora, 17/11/2026, pedido 4):** os diálogos da T8 (`recusar-dialogo.tsx`) e da T10 (`autorizacao-dialogo.tsx`) usam o `Dialogo` compartilhado de `src/components/dialogo.tsx`, sem cópia. Quem entrar primeiro na `main` (o PR 1 do Plano 22, T2, ou o PR 3 deste plano) cria o componente com a interface da T2 do Plano 22; o outro reaproveita no rebase. O `focarTitulo` continua vindo do 20 PR 2 (`src/app/painel/financeiro/foco.ts`), sem cópia; se for preciso fora do Financeiro, move para `src/components/` no próprio PR, mantendo a exportação antiga como reexportação.
+
 ## Decisões
 
 ### Decisões da spec que este plano usa
