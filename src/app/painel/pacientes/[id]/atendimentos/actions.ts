@@ -20,14 +20,16 @@ function tratar(e: unknown, valores: Record<string, string>): AtendimentoState {
 export async function registrarAtendimentoAction(patientId: string, _prev: AtendimentoState, formData: FormData): Promise<AtendimentoState> {
   const { ctx, tenant } = await requireNutri(`/painel/pacientes/${patientId}/atendimentos`);
   const valores = valoresDo(formData);
-  let id: string;
+  let r: Awaited<ReturnType<typeof registrarAtendimento>>;
   try {
     // Plano 05: "Iniciar atendimento" pela agenda manda o id da consulta (só o registro usa)
-    id = await registrarAtendimento(ctx, tenant, patientId, { ...valores, appointmentId: String(formData.get('appointmentId') ?? '') });
+    r = await registrarAtendimento(ctx, tenant, patientId, { ...valores, appointmentId: String(formData.get('appointmentId') ?? '') });
   } catch (e) {
     return tratar(e, valores);
   }
-  redirect(`/painel/pacientes/${patientId}/atendimentos/${id}`);
+  // Plano 20 (RN-310): só com consulta ligada que passou a "Realizada" (cobranca não nula); o valor não vai na URL
+  if (r.cobranca) revalidatePath('/painel/financeiro', 'layout');
+  redirect(`/painel/pacientes/${patientId}/atendimentos/${r.id}${r.cobranca ? `?ok=atendimento&cobranca=${r.cobranca.tipo}` : ''}`);
 }
 
 export async function atualizarAtendimentoAction(patientId: string, id: string, _prev: AtendimentoState, formData: FormData): Promise<AtendimentoState> {

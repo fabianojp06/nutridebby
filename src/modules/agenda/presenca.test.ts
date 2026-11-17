@@ -11,6 +11,8 @@ import { MSG_AGENDA } from './constantes';
 import { buscarConsulta, ConsultaError } from './consultas';
 import { consultaParaIniciarAtendimento, contarPendenciasDePresenca, indicadoresDaAgenda, MSG_PRESENCA, novidadesDaAgenda, pendenciasDePresenca, registrarPresenca, textoTaxa } from './presenca';
 import { registrarAtendimento } from '@/modules/pacientes/atendimentos';
+import { listarCategorias, salvarConfiguracoes } from '@/modules/financeiro/configuracoes';
+import { editarLancamento } from '@/modules/financeiro/lancamentos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -142,5 +144,38 @@ describe('presença e falta (US-037, CS-03)', () => {
     for (const nao of [futura, cancelada, atendida]) expect(await pode(ana.id, nao)).toBeNull();
     expect(await pode(bia.id, agendada)).toBeNull(); // consulta de outro paciente
     expect(await pode(ana.id, 'nao-e-uuid')).toBeNull();
+  });
+});
+
+describe('Plano 20 (US-303, RN-310, RN-312): a presença devolve o resultado da cobrança', () => {
+  const owner = makeDb(inject('ownerDatabaseUrl'));
+  afterAll(() => owner.pool.end());
+  const deps = { db: app.db, now: agora };
+  const linhas = async (tenantId: string) =>
+    (await owner.pool.query('select to_jsonb(l) as r from fin_lancamentos l where tenant_id = $1', [tenantId])).rows.map((x) => x.r);
+
+  it('"Realizada" cria; a mesma situação devolve null sem tocar no Financeiro; "Faltou" com cobrança em aberto avisa; de volta a "Realizada", ja_existia e o valor ajustado fica', async () => {
+    const T = await novoTenant(app.db);
+    await salvarConfiguracoes(T.ctx, T.tenant, { saldoInicialEm: '2026-10-01', saldoInicial: '0', valorConsulta: '250,00' }, { db: app.db, agora });
+    const ana = await novoPaciente(app.db, T.ctx);
+    const c = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-19', '09:00'));
+    expect(await registrarPresenca(T.ctx, c, 'realizada', deps)).toEqual({ cobranca: { tipo: 'criada', valorCentavos: 25000 } });
+    const [l] = await linhas(T.tenantId);
+    expect(l).toMatchObject({ valor_centavos: 25000, vencimento: '2026-10-19', appointment_id: c, patient_id: ana.id });
+
+    expect(await registrarPresenca(T.ctx, c, 'realizada', deps)).toEqual({ cobranca: null });
+    expect(await linhas(T.tenantId)).toEqual([l]);
+
+    const consultas = (await listarCategorias(T.ctx, { db: app.db })).find((x) => x.chave === 'consultas')!.id;
+    await editarLancamento(T.ctx, T.tenant, l.id, { valor: '180,00', categoriaId: consultas, vencimento: '2026-10-19' }, { db: app.db, agora });
+    const ajustada = await linhas(T.tenantId);
+
+    expect(await registrarPresenca(T.ctx, c, 'faltou', deps)).toEqual({ cobranca: { tipo: 'aberta' } });
+    expect((await buscarConsulta(T.ctx, c, app.db))?.status).toBe('faltou');
+    expect(await linhas(T.tenantId)).toEqual(ajustada);
+
+    expect(await registrarPresenca(T.ctx, c, 'realizada', deps)).toEqual({ cobranca: { tipo: 'ja_existia' } });
+    expect(await linhas(T.tenantId)).toEqual(ajustada);
+    expect(ajustada[0].valor_centavos).toBe(18000);
   });
 });

@@ -1,8 +1,9 @@
 import { and, count, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { appointments, consultations } from '@/db/schema';
+import { appointments, consultations, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { formatarDecimal } from '@/lib/numero';
+import { aoCorrigirParaFaltou, cobrarConsultaRealizada, type ResultadoCobranca } from '@/modules/financeiro/cobranca';
 import { idValido } from '@/modules/pacientes/base';
 import { travarPacienteDaConsulta } from './cancelamento';
 import { MSG_AGENDA } from './constantes';
@@ -27,22 +28,33 @@ const temAtendimento = sql`exists (select 1 from ${consultations} where ${consul
  * US-037: depois do início, "realizada" ou "faltou" (pode corrigir). Cancelada não; "faltou" com atendimento ligado não.
  * Rodada 1: vale também para paciente bloqueado ou anonimizado — é o histórico da agenda, não edição do prontuário
  * (senão a pendência nunca sairia). Trava como o cancelamento da nutricionista: paciente (`FOR KEY SHARE`) → consulta.
+ * Plano 20 (RN-310, RN-312): a passagem a "realizada" cobra (`cobrarConsultaRealizada`) e a correção de "realizada" para
+ * "faltou" só lê a cobrança (`aoCorrigirParaFaltou`), na mesma transação; `cobranca` é nulo quando a situação não mudou
+ * ou quando "faltou" não corrige uma "realizada".
  */
-export async function registrarPresenca(ctx: TenantContext, id: string, situacao: SituacaoPresenca, deps: { db?: Db; now?: Date } = {}): Promise<void> {
+export async function registrarPresenca(
+  ctx: TenantContext,
+  id: string,
+  situacao: SituacaoPresenca,
+  deps: { db?: Db; now?: Date } = {},
+): Promise<{ cobranca: ResultadoCobranca | null }> {
   const agora = deps.now ?? new Date();
-  await withTenant(
+  return withTenant(
     ctx,
     async (tx) => {
       await travarPacienteDaConsulta(tx, id); // id inválido ou de outro tenant → ConsultaNaoEncontradaError
       const c = await lerConsultaParaEscrita(tx, id);
       if (c.status === 'cancelada') throw new ConsultaError({ geral: MSG_AGENDA.naoAlteravel });
       if (c.inicio.getTime() > agora.getTime()) throw new ConsultaError({ geral: MSG_PRESENCA.antesDoInicio });
-      if (c.status === situacao) return;
+      if (c.status === situacao) return { cobranca: null };
       if (situacao === 'faltou') {
         const [a] = await tx.select({ id: consultations.id }).from(consultations).where(eq(consultations.appointmentId, id)).limit(1);
         if (a) throw new ConsultaError({ geral: MSG_PRESENCA.temAtendimento });
       }
       await tx.update(appointments).set({ status: situacao, presencaEm: agora, updatedAt: agora }).where(eq(appointments.id, id));
+      if (situacao === 'faltou') return { cobranca: c.status === 'realizada' ? await aoCorrigirParaFaltou(tx, { consultaId: id }) : null };
+      const [t] = await tx.select({ fuso: tenants.fuso }).from(tenants).where(eq(tenants.id, ctx.tenantId));
+      return { cobranca: await cobrarConsultaRealizada(tx, { tenantId: ctx.tenantId, fuso: t.fuso, consulta: { id, patientId: c.patientId, inicio: c.inicio } }) };
     },
     deps.db ?? getDb(),
   );
