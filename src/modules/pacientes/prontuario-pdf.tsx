@@ -12,16 +12,14 @@ const s = StyleSheet.create({
   secao: { fontSize: 12, fontFamily: 'Helvetica-Bold', marginTop: 14, marginBottom: 4 },
   linha: { flexDirection: 'row', gap: 8 },
   rotulo: { fontFamily: 'Helvetica-Bold' },
-  rodape: {
-    position: 'absolute',
-    bottom: 20,
-    left: 36,
-    right: 36,
-    fontSize: 8,
-    color: '#555555',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
+  // `right: 84` deixa espaço para o número da página (36 + 48 de largura)
+  rodape: { position: 'absolute', bottom: 20, left: 36, right: 84, fontSize: 8, color: '#555555' },
+  // SUS-99: o número da página vai por `top`, fora do rodapé: o @react-pdf 4.9 quebra ("unsupported number") com um
+  // `render` em nó absoluto por `bottom` num documento de mais de ~10 páginas. A4 tem 841,89 pt de altura e a linha do
+  // rodapé tem 14 pt (o `lineHeight: 1.4` da página vale sobre os 10 pt dela e é herdado assim pelo texto de 8 pt): com
+  // `bottom: 20` ela começa em 841,89 − 20 − 14 = 807,89 pt, então `top: 808` põe o número na mesma linha do texto do
+  // rodapé (medido no PDF: linha de base 0,1 pt abaixo)
+  paginaN: { position: 'absolute', top: 808, right: 36, width: 48, textAlign: 'right', fontSize: 8, color: '#555555' },
 });
 
 const SEXO: Record<string, string> = { F: 'Feminino', M: 'Masculino' };
@@ -155,8 +153,8 @@ function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
 
         <View style={s.rodape} fixed>
           <Text>Dados exportados do NutriDebby (LGPD, art. 18)</Text>
-          <Text render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} />
         </View>
+        <Text style={s.paginaN} fixed render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} />
       </Page>
     </Document>
   );
