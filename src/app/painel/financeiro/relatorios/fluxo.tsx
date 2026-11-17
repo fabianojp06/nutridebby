@@ -14,7 +14,8 @@ const soma = (v: number[]) => v.reduce((a, b) => a + b, 0);
  * US-306: "Fluxo de caixa de {ano}" — jan a dez e "Total", com as linhas de saldo, uma por categoria, os totais e o
  * resultado. Tabela larga: rola dentro da própria região, focável pelo teclado (`role="region"` com o caption como nome,
  * contorno do foco para dentro, molde de `tabela-medidas.tsx`); a página nunca rola na horizontal. Valores com "R$" e o
- * "−" dos negativos (RN-326); números alinhados à direita, em algarismos tabulares.
+ * "−" dos negativos (RN-326); números alinhados à direita, em algarismos tabulares. O nome da linha (a categoria) quebra
+ * em palavras: "Contas de consumo (água, luz, internet, telefone)" numa linha só passava da tela de 360 px.
  */
 export function FluxoDeCaixa({ fluxo, captionId }: { fluxo: FluxoDoAno; captionId: string }) {
   // `chave`: o nome de uma categoria pode repetir entre entradas e saídas (único por tipo, RN-303)
@@ -43,7 +44,7 @@ export function FluxoDeCaixa({ fluxo, captionId }: { fluxo: FluxoDoAno; captionI
       tabIndex={0}
       className="overflow-x-auto p-2 focus-visible:outline-offset-[-3px]"
     >
-      <table className="min-w-full text-left text-sm tabular-nums [&_td]:whitespace-nowrap [&_td]:px-2 [&_td]:py-2 [&_td]:text-right [&_th]:whitespace-nowrap [&_th]:px-2 [&_th]:py-2 [&_thead_th]:text-right">
+      <table className="min-w-full text-left text-sm tabular-nums [&_td]:whitespace-nowrap [&_td]:px-2 [&_td]:py-2 [&_td]:text-right [&_th]:px-2 [&_th]:py-2 [&_thead_th]:whitespace-nowrap [&_thead_th]:text-right [&_tbody_th]:min-w-36">
         <caption id={captionId} className="sr-only">
           {R.fluxo(fluxo.ano)}
         </caption>
