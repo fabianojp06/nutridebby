@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 import { DESTINO_ROTULO, MSG_AUTORIZACAO, type UsoIA } from '@/modules/ia/constantes';
 import { NOME_IA_NUTRI, RETENCAO_DIAS, RISCO_REVOGADO_MAX_DIAS } from '@/modules/ia/nutri-paciente/constantes';
 import { DESCRICAO_DO_USO } from '@/modules/ia/textos-legais';
@@ -198,6 +199,8 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         // D22 (LGPD art. 18, § 4º, II: a razão da retenção): no molde da frase do consentimento da IA Nutri
         `Se houver uma mensagem com sinal de risco enviada à ${NOME_IA_NUTRI} que sua nutricionista ainda não leu, ela fica guardada até ser lida, por no máximo ${RISCO_REVOGADO_MAX_DIAS} dias, para a sua proteção. Depois disso, o texto é apagado e fica só o registro de que houve o aviso, até ${RETENCAO_DIAS} dias da mensagem.`,
         `Por obrigação legal (LGPD, art. 16, I), o prontuário clínico fica guardado de forma bloqueada, só para consulta da nutricionista, até ${msg.anonimizarApos}. Depois dessa data, seus dados de identificação são anonimizados.`,
+        // Plano 20 (US-307, spec §6.2; LGPD art. 18, § 4º, II: a razão da retenção, no molde da D22)
+        MSG_FINANCEIRO.lgpd.emailExclusaoAtendida,
         'Se tiver dúvidas, fale com a sua nutricionista.',
       ];
       return {
@@ -236,7 +239,8 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
       const subject = 'Seu pedido foi registrado';
       const linhas = [
         `Recebemos seu pedido de exclusão de dados. ${msg.nutri} tem até ${msg.prazo} para responder.`,
-        'Por obrigação legal, o prontuário clínico é guardado de forma bloqueada pelo prazo exigido; o resto é apagado quando o pedido for atendido. Você recebe outro e-mail nesse momento.',
+        // Plano 20 (US-307, spec §6.2): também os registros de pagamento das consultas
+        MSG_FINANCEIRO.lgpd.emailPedidoExclusao,
       ];
       return {
         subject,
