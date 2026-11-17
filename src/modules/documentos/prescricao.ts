@@ -80,6 +80,17 @@ export const TERMOS_NAO_VEGETAIS: readonly string[] = [
   'peptídeo',
   'ômega',
   'cloridrato',
+  // revisão final do PR 1: de origem animal, de síntese ou carotenoides isolados
+  'própolis',
+  'geleia real',
+  'quitosana',
+  'glucosamina',
+  'condroitina',
+  'inositol',
+  'ubiquinol',
+  'coenzima Q10',
+  'licopeno',
+  'luteína',
   // gêneros de probióticos e leveduras
   'Lactobacillus',
   'Lacticaseibacillus',
@@ -98,13 +109,18 @@ const formas = (termo: string): string[] => {
   if (t.endsWith('o')) base.push(`${t.slice(0, -1)}a`, `${t.slice(0, -1)}as`);
   return base;
 };
-const PALAVRAS_BARRADAS = new Set(TERMOS_NAO_VEGETAIS.flatMap(formas));
+const PALAVRAS_BARRADAS = new Set(TERMOS_NAO_VEGETAIS.filter((t) => !t.includes(' ')).flatMap(formas));
+/** Termos de mais de uma palavra ("geleia real", "coenzima Q10"): a sequência inteira de palavras, sem acento. */
+const EXPRESSOES_BARRADAS = TERMOS_NAO_VEGETAIS.filter((t) => t.includes(' ')).map((t) => ` ${semAcento(t)} `);
 
 /** RN-392: palavra inteira, sem acento e sem diferença de maiúsculas; "L-" no começo de palavra (L-teanina, L-carnitina). */
 export function temTermoNaoVegetal(texto: string): boolean {
   const t = semAcento(texto);
   if (/(?:^|[^a-z0-9])l-/.test(t)) return true;
-  return t.split(/[^a-z0-9]+/).some((p) => PALAVRAS_BARRADAS.has(p));
+  const palavras = t.split(/[^a-z0-9]+/).filter(Boolean);
+  if (palavras.some((p) => PALAVRAS_BARRADAS.has(p))) return true;
+  const corrido = ` ${palavras.join(' ')} `;
+  return EXPRESSOES_BARRADAS.some((e) => corrido.includes(e));
 }
 
 /**
@@ -186,16 +202,24 @@ const derivadoVegetal = z.object({
   padronizacao: opc(120),
   extracao: opc(120),
 });
-const fitoterapico = z.object({
-  tipo: z.literal('fitoterapico'),
-  ...botanica,
-  extracao: obrig('a forma ou meio de extração', 1, 120),
-  formaFarmaceutica: obrig('a forma farmacêutica', 1, 60),
-  dose: obrig('a dose', 1, 120),
-  via: escolha(VIAS),
-  posologia: obrig('a posologia', 1, 300),
-  padronizacao: opc(120),
-});
+/** Revisão final do PR 1: a vedação do art. 9º, II (Res. CFN 680/2021) vale também para o fitoterápico de uma planta
+ * só — a nomenclatura e a extração passam pela mesma conferência de apoio da fórmula (a padronização fica de fora). */
+const fitoterapico = z
+  .object({
+    tipo: z.literal('fitoterapico'),
+    ...botanica,
+    extracao: obrig('a forma ou meio de extração', 1, 120),
+    formaFarmaceutica: obrig('a forma farmacêutica', 1, 60),
+    dose: obrig('a dose', 1, 120),
+    via: escolha(VIAS),
+    posologia: obrig('a posologia', 1, 300),
+    padronizacao: opc(120),
+  })
+  .superRefine((f, c) => {
+    for (const campo of ['nomenclatura', 'extracao'] as const) {
+      if (temTermoNaoVegetal(f[campo])) c.addIssue({ code: 'custom', path: [campo], message: MSG_PRESCRICAO.naoVegetal });
+    }
+  });
 const item = z.discriminatedUnion('tipo', [suplemento, plantaCha, derivadoVegetal, fitoterapico], { message: MSG_PRESCRICAO.opcao });
 export type ItemPrescricao = z.output<typeof item>;
 

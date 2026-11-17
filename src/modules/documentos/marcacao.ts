@@ -4,7 +4,7 @@
  * componentes — **nunca** HTML: `<`, `>`, `&` e qualquer tag, link, imagem ou título ficam como texto nos trechos.
  *
  * - parágrafo: separado por linha em branco; uma quebra simples fica dentro do parágrafo (`\n` no texto);
- * - lista: linhas seguidas que começam com "- ";
+ * - lista: linhas seguidas que começam com "- "; a linha "- " sem texto é descartada (não vira item vazio);
  * - negrito: `**…**`, sem aninhar; asterisco solto, `**` sem par e `****` vazio ficam como estão.
  */
 export type Trecho = { texto: string; negrito: boolean };
@@ -61,8 +61,10 @@ export function lerMarcacao(texto: string): Bloco[] {
     };
     for (const linha of linhas) {
       if (ehItem(linha)) {
+        const texto = linha.slice(2).trim();
+        if (!texto) continue; // revisão final do PR 1: "- " sozinho não vira item vazio
         fecharParagrafo();
-        lista.push(trechos(linha.slice(2).trim()));
+        lista.push(trechos(texto));
       } else {
         fecharLista();
         paragrafo.push(linha);
