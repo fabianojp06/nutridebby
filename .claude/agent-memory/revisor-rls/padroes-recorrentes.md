@@ -408,3 +408,9 @@ Plano 20, T9 (LGPD do Financeiro, 17/11/2026) — limpa na lente banco. Pontos a
   aceitável só se nenhuma linha pode nascer depois do bloqueio (gatilho de INSERT recusa bloqueado) — conferir isso.
 - Limpeza LGPD nova chamada só pela imagem nova + função que exige `anonimizado_em` nulo: na volta atrás o texto fica e
   nada o tira depois. Pedir o registro no fechamento (§6.8.1).
+
+Plano 20, revisão final do PR 2 (17/11/2026):
+- GET de download que grava `exportar` em nome da sessão: cookie Lax vai junto em navegação de outro site e o HEAD
+  automático do Next chama o GET. Conferir guarda `Sec-Fetch-Site` (same-origin/none) antes do módulo e HEAD 405.
+- `onConflictDoNothing` + `return` cedo que pula efeito colateral (marca no tenant): idempotente demais — depois de uma
+  volta atrás o reaceite não regrava e o usuário fica preso. Conferir o caminho "linha já existe" de todo aceite.
