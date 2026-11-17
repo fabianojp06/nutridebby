@@ -119,7 +119,7 @@ function Campos({
             {bloqueado.descricao && (
               <>
                 <dt className="font-medium">{M.csv.colunas.descricao}</dt>
-                <dd>{bloqueado.descricao}</dd>
+                <dd className="min-w-0 wrap-break-word">{bloqueado.descricao}</dd>
               </>
             )}
           </dl>

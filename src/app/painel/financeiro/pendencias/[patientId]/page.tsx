@@ -67,9 +67,9 @@ export default async function PendenciasDoPaciente({
                 // a chave muda a cada envio: depois de receber, o painel aberto da linha fecha
                 <li key={`${l.id}-${marcador}`} className="space-y-1 border-t border-linha py-3 first:border-t-0">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                    <span>
+                    <span className="min-w-0 wrap-break-word">
                       {`${data} · ${l.categoria.nome}`}
-                      {l.descricao && <span className="block text-sm text-suave">{l.descricao}</span>}
+                      {l.descricao && <span className="block text-sm text-suave wrap-break-word">{l.descricao}</span>}
                     </span>
                     <span className="whitespace-nowrap font-medium">{`${valor} · ${M.situacoes[l.situacao]}`}</span>
                   </div>
