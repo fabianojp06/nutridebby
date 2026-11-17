@@ -15,7 +15,7 @@ import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
-import { accessEvents, account, appointments, auditLog, patientCadastro, consents, diaryEntries, exams, iaAutorizacoes, iaNutriConsentimentos, iaTarefas, iaUso, invites, lembretesRotina, lembretesRotinaEnvios, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
+import { accessEvents, account, appointments, auditLog, patientCadastro, consents, diaryEntries, examInterpretacoes, exams, examVersoes, iaAutorizacoes, iaNutriConsentimentos, iaTarefas, iaUso, invites, lembretesRotina, lembretesRotinaEnvios, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { sealSecret } from '@/lib/crypto';
 import { reservar } from '@/modules/ia/cota';
@@ -1040,5 +1040,71 @@ describe('Plano 18 — o cadastro complementar na LGPD (D18, RN-283)', () => {
     // a anonimização do tenant seguiu (e apagou a linha do vencido no caminho normal)
     expect((await ler(T.ctx, vencido.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
     expect(await cadastrosDe(T, vencido.id)).toEqual([]);
+  });
+});
+
+describe('Plano 22 — versões e notas do exame na LGPD (§13.3, /code-review do PR 1)', () => {
+  const worker = (T: TenantDeTeste) => ({ tenantId: T.tenantId, role: 'worker' as const });
+  /** Exame com uma versão anterior (justificativa) e uma nota de interpretação, gravados pela nutricionista. */
+  const exameComTextos = async (T: TenantDeTeste, patientId: string) =>
+    withTenant(
+      T.ctx,
+      async (tx) => {
+        const [e] = await tx.insert(exams).values({ tenantId: T.tenantId, patientId, data: '2026-08-01', titulo: 'Hemograma' }).returning({ id: exams.id });
+        await tx.execute(sql`insert into exam_versoes (tenant_id, patient_id, exam_id, versao, titulo, data, valores, justificativa, alterado_por, alterado_em)
+          values (${T.tenantId}, ${patientId}, ${e.id}, 1, 'Hemograma', '2026-08-01', '[]'::jsonb, 'Ana ligou do 11 91234-5678 corrigindo', ${T.nutriId}, now())`);
+        await tx.execute(sql`insert into exam_interpretacoes (tenant_id, patient_id, exam_id, versao, texto, criado_por, criado_em)
+          values (${T.tenantId}, ${patientId}, ${e.id}, 1, 'Ana relata jejum de 12 h', ${T.nutriId}, now())`);
+        return e.id;
+      },
+      app.db,
+    );
+  const textosDe = (T: TenantDeTeste, patientId: string) =>
+    withTenant(
+      T.ctx,
+      async (tx) => ({
+        versoes: (await tx.select({ j: examVersoes.justificativa, titulo: examVersoes.titulo }).from(examVersoes).where(eq(examVersoes.patientId, patientId))),
+        notas: (await tx.select({ t: examInterpretacoes.texto }).from(examInterpretacoes).where(eq(examInterpretacoes.patientId, patientId))),
+      }),
+      app.db,
+    );
+  const bloquearVencido = (T: TenantDeTeste, patientId: string) =>
+    withTenant(worker(T), (tx) => tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: now, anonimizarApos: '2026-09-01' }).where(eq(patients.id, patientId)), app.db);
+
+  it('a anonimização mantém os exames, as versões e as notas do titular, sem a justificativa e sem o texto; os do outro paciente ficam', async () => {
+    const T = await novoTenant(app.db);
+    const vencido = await novoPaciente(app.db, T.ctx);
+    const outro = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    await exameComTextos(T, vencido.id);
+    await exameComTextos(T, outro.id);
+    await bloquearVencido(T, vencido.id);
+    // controle positivo: os textos estão lá antes
+    expect(await textosDe(T, vencido.id)).toEqual({ versoes: [{ j: 'Ana ligou do 11 91234-5678 corrigindo', titulo: 'Hemograma' }], notas: [{ t: 'Ana relata jejum de 12 h' }] });
+
+    await anonimizarSo(T);
+
+    expect((await ler(T.ctx, vencido.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
+    expect(await textosDe(T, vencido.id)).toEqual({ versoes: [{ j: null, titulo: 'Hemograma' }], notas: [{ t: null }] });
+    expect(await textosDe(T, outro.id)).toEqual({ versoes: [{ j: 'Ana ligou do 11 91234-5678 corrigindo', titulo: 'Hemograma' }], notas: [{ t: 'Ana relata jejum de 12 h' }] });
+  });
+
+  it('app_anonimizar_exames_textos: só no contexto worker do próprio tenant e só com o titular já anonimizado (42501)', async () => {
+    const T = await novoTenant(app.db);
+    const outroT = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await exameComTextos(T, p.id);
+    const chamar = (ctx: Parameters<typeof withTenant>[0], tenant = T.tenantId) =>
+      withTenant(ctx, (tx) => tx.execute(sql`select app_anonimizar_exames_textos(${tenant}, ${p.id})`), app.db);
+    const negado = (e: unknown) => (e as { cause?: { code?: string } }).cause?.code === '42501' || (e as { code?: string }).code === '42501';
+    await expect(chamar(T.ctx)).rejects.toSatisfy(negado); // sessão nutri
+    await expect(chamar(worker(T))).rejects.toSatisfy(negado); // titular não anonimizado
+    await bloquearVencido(T, p.id);
+    await withTenant(worker(T), (tx) => tx.update(patients).set({ anonimizadoEm: now }).where(eq(patients.id, p.id)), app.db);
+    await expect(chamar(worker(outroT))).rejects.toSatisfy(negado); // contexto de outro tenant
+    await expect(chamar(worker(outroT), outroT.tenantId)).rejects.toSatisfy(negado); // o titular não é deste tenant
+    expect((await textosDe(T, p.id)).notas).toEqual([{ t: 'Ana relata jejum de 12 h' }]);
+    await chamar(worker(T));
+    await chamar(worker(T)); // idempotente
+    expect(await textosDe(T, p.id)).toEqual({ versoes: [{ j: null, titulo: 'Hemograma' }], notas: [{ t: null }] });
   });
 });

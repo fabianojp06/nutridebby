@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Dialogo, DialogoConfirmar } from './dialogo';
+import { aoFecharPeloNavegador, devolveFocoAoDesmontar } from './dialogo-fechar';
 
 const nada = () => undefined;
 /** Um <button type="button"> com o texto dado (e, se pedido, um atributo), em qualquer ordem de atributos. */
@@ -130,5 +131,23 @@ describe('Dialogo e DialogoConfirmar (src/components/dialogo.tsx)', () => {
     cancelar({ type: 'click' });
     confirmar({ type: 'click' });
     expect(chamadas).toEqual([[], []]);
+  });
+});
+
+/** /code-review do PR 1: as decisões do `close` que não veio da tela e da desmontagem com o diálogo aberto (sem DOM). */
+describe('Dialogo — fechamento pelo navegador e desmontagem (src/components/dialogo-fechar.ts)', () => {
+  it('ocupado com a tela mandando aberto (o segundo Esc do Chromium): reabre, sem aoFechar e sem mexer no foco', () => {
+    expect(aoFecharPeloNavegador({ ocupado: true, aberto: true })).toEqual({ reabrir: true, devolverFoco: false, avisar: false });
+  });
+  it('sem ocupado e com a tela mandando aberto (form method="dialog", Esc): devolve o foco e avisa aoFechar', () => {
+    expect(aoFecharPeloNavegador({ ocupado: false, aberto: true })).toEqual({ reabrir: false, devolverFoco: true, avisar: true });
+  });
+  it('a tela fechou (aberto falso), ocupado ou não: só devolve o foco — nem reabre nem avisa de novo', () => {
+    for (const ocupado of [true, false]) expect(aoFecharPeloNavegador({ ocupado, aberto: false })).toEqual({ reabrir: false, devolverFoco: true, avisar: false });
+  });
+  it('desmontado aberto e fora do DOM: devolve o foco; fechado, ou ainda no DOM (desmontagem simulada do Strict Mode), não', () => {
+    expect(devolveFocoAoDesmontar({ aberto: true, conectado: false })).toBe(true);
+    expect(devolveFocoAoDesmontar({ aberto: false, conectado: false })).toBe(false);
+    expect(devolveFocoAoDesmontar({ aberto: true, conectado: true })).toBe(false);
   });
 });

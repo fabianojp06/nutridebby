@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { Botao } from '@/components/ui/botao';
+import { aoFecharPeloNavegador, devolveFocoAoDesmontar } from './dialogo-fechar';
 
 /** O `[data-foco-inicial]` do próprio diálogo — nunca o de um diálogo aninhado dentro dele. */
 function focoInicialDe(d: HTMLDialogElement): HTMLElement | undefined {
@@ -24,9 +25,12 @@ function focoInicialDe(d: HTMLDialogElement): HTMLElement | undefined {
  *   fechado);
  * - `Esc` (evento `cancel`) chama `aoFechar` — quem abriu decide fechar (o diálogo é controlado por `aberto`);
  * - `ocupado` (a action em andamento): `Esc`, "Fechar" e "Cancelar" não fecham, e os botões do rodapé padrão e do
- *   `DialogoConfirmar` ficam `aria-disabled` (sem `disabled`, para o foco não sair do diálogo);
+ *   `DialogoConfirmar` ficam `aria-disabled` (sem `disabled`, para o foco não sair do diálogo). O segundo `Esc` do
+ *   Chromium fecha o modal sem `cancel` cancelável: o `onClose` reabre com `showModal()`, sem chamar `aoFechar`
+ *   (`aoFecharPeloNavegador`, src/components/dialogo-fechar.ts);
  * - ao fechar, o foco volta ao elemento que estava focado quando o diálogo abriu; se ele saiu do DOM (a linha removida)
- *   ou era o `body`, vai para o que `focoAoFechar` devolver (a tela indica o alvo: o título da lista, o botão vizinho);
+ *   ou era o `body`, vai para o que `focoAoFechar` devolver (a tela indica o alvo: o título da lista, o botão vizinho).
+ *   Vale também quando o pai desmonta o `<Dialogo>` aberto (o `close` não dispara; a limpeza do efeito devolve o foco);
  * - `rodape`: os botões; ausente → um botão "Fechar"; `null` → nenhum (quem tem formulário põe os botões no `<form>`,
  *   rolando com o corpo, ou no `rodape` com o atributo `form="<id do form>"` em cada botão).
  *
@@ -79,6 +83,23 @@ export function Dialogo({
     focoAoFecharAgora.current = focoAoFechar;
   }, [aoFechar, ocupado, focoAoFechar]);
 
+  /** O foco de volta (ao fechar ou ao desmontar aberto): o elemento que abriu, se ainda está no DOM; senão, `focoAoFechar`. */
+  const devolverFoco = useRef(() => {
+    const volta = anterior.current;
+    anterior.current = null;
+    const alvo = volta?.isConnected ? volta : (focoAoFecharAgora.current?.() ?? null);
+    alvo?.focus();
+  });
+
+  // Minor do /code-review do PR 1: o pai desmontou o <Dialogo> aberto — o `close` não dispara e o foco ficaria no `body`
+  useEffect(() => {
+    const d = ref.current;
+    const devolver = devolverFoco.current;
+    return () => {
+      if (devolveFocoAoDesmontar({ aberto: abertoAgora.current, conectado: d?.isConnected ?? false })) devolver();
+    };
+  }, []);
+
   useEffect(() => {
     abertoAgora.current = aberto;
     const d = ref.current;
@@ -109,12 +130,19 @@ export function Dialogo({
         e.preventDefault(); // Esc: quem controla `aberto` fecha (e o foco volta pelo onClose); ocupado, não fecha
         pedirFechar();
       }}
-      onClose={() => {
-        const volta = anterior.current;
-        anterior.current = null;
-        const alvo = volta?.isConnected ? volta : (focoAoFecharAgora.current?.() ?? null);
-        alvo?.focus();
-        if (abertoAgora.current) aoFecharAgora.current();
+      onClose={(e) => {
+        // ocupado: o fechamento que não veio da tela (o segundo Esc do Chromium) não fura a trava — reabre, sem aoFechar
+        const d = e.currentTarget;
+        const acao = aoFecharPeloNavegador({ ocupado: ocupadoAgora.current, aberto: abertoAgora.current });
+        if (acao.reabrir) {
+          if (d.isConnected && !d.open) {
+            d.showModal();
+            focoInicialDe(d)?.focus();
+          }
+          return;
+        }
+        if (acao.devolverFoco) devolverFoco.current();
+        if (acao.avisar) aoFecharAgora.current();
       }}
       className="m-auto max-h-[calc(100dvh-2rem)] w-[min(32rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-borda bg-cartao p-6 text-texto shadow-xl backdrop:bg-[rgb(0_0_0/0.55)] open:flex open:flex-col"
     >

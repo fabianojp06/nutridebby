@@ -115,7 +115,8 @@ const exameDoCatalogo = z.object({
     .optional()
     .transform((v) => (typeof v === 'string' && umaLinha(v) ? umaLinha(v) : null))
     .pipe(z.string().max(UNIDADE_MAX, E.unidade).nullable()),
-  sinonimos: z.unknown().optional().transform(linhas).pipe(z.array(z.string().max(NOME_MAX, E.nome)).max(SINONIMOS_MAX, E.sinonimos)),
+  // o limite (SINONIMOS_MAX) é conferido depois de tirar os repetidos e o igual ao nome (validarExameDoCatalogo; /code-review do PR 1)
+  sinonimos: z.unknown().optional().transform(linhas).pipe(z.array(z.string().max(NOME_MAX, E.nome))),
   componentes: z.unknown().optional().transform(linhas).pipe(z.array(z.string().max(NOME_MAX, E.nome)).max(COMPONENTES_MAX, E.painel)),
   faixas: z
     .unknown()
@@ -157,6 +158,7 @@ export function validarExameDoCatalogo(input: unknown): ExameDoCatalogoEntrada {
   });
 
   const e: Record<string, string> = {};
+  if (sinonimos.length > SINONIMOS_MAX) e.sinonimos = E.sinonimos;
   if (d.componentes.length) {
     const normalizados = d.componentes.map(normalizarNome);
     if (d.componentes.length < COMPONENTES_MIN) e.componentes = E.painel;

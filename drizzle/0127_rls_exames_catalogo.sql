@@ -108,3 +108,36 @@ CREATE TRIGGER exam_versoes_regras BEFORE INSERT ON exam_versoes FOR EACH ROW EX
 -- decide quais campos. As outras sessões (nutri, worker, publico, conta) seguem só com as políticas de antes.
 CREATE POLICY paciente_exame_liberado ON exams AS RESTRICTIVE FOR SELECT
   USING (app_current_role() IS DISTINCT FROM 'paciente' OR mostrar_no_app_em IS NOT NULL);
+--> statement-breakpoint
+-- Plano 22 (editado à mão): /code-review do PR 1 (LGPD, §13.3). A anonimização NÃO apaga os exames do titular (o prontuário
+-- fica: valores, data, título), então a cascata da FK não leva as filhas. A justificativa da versão anterior e o texto da
+-- nota de interpretação são texto livre (podem citar nome, telefone, terceiros): saem por esta função, chamada por
+-- anonimizarVencidos (src/modules/pacientes/lgpd.ts) na mesma transação, DEPOIS do UPDATE que grava anonimizado_em. As linhas
+-- ficam (versão, valores e autoria são o histórico do prontuário), só sem o texto livre. SECURITY DEFINER: o UPDATE é revogado
+-- de nutri_app_role (só de inclusão); a RLS forçada continua valendo para o dono (contexto worker do próprio tenant).
+-- Molde de app_anonimizar_documentos (0091) e app_anonimizar_consentimentos_ia_nutri (0117). Idempotente.
+CREATE OR REPLACE FUNCTION app_anonimizar_exames_textos(p_tenant uuid, p_patient uuid) RETURNS void
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_tenant uuid := public.app_current_tenant();
+BEGIN
+  IF v_tenant IS NULL OR v_tenant IS DISTINCT FROM p_tenant OR public.app_current_role() IS DISTINCT FROM 'worker' THEN
+    RAISE EXCEPTION 'app_anonimizar_exames_textos() só roda no contexto worker do próprio tenant' USING ERRCODE = '42501';
+  END IF;
+  PERFORM 1 FROM public.patients p
+    WHERE p.id = p_patient AND p.tenant_id = v_tenant AND p.anonimizado_em IS NOT NULL
+    FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'app_anonimizar_exames_textos(): paciente anonimizado não encontrado neste tenant' USING ERRCODE = '42501';
+  END IF;
+  UPDATE public.exam_versoes SET justificativa = NULL
+   WHERE tenant_id = v_tenant AND patient_id = p_patient AND justificativa IS NOT NULL;
+  UPDATE public.exam_interpretacoes SET texto = NULL
+   WHERE tenant_id = v_tenant AND patient_id = p_patient AND texto IS NOT NULL;
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_anonimizar_exames_textos(uuid, uuid) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_anonimizar_exames_textos(uuid, uuid) TO nutri_app_role;
