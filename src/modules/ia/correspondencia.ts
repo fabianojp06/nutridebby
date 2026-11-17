@@ -24,7 +24,8 @@ export const SINONIMOS: readonly (readonly string[])[] = [
 export function normalizarNome(s: string): string {
   return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
-const normUnidade = (u: string | null) => (u ?? '').normalize('NFC').trim().toLowerCase();
+/** Plano 22 (RN-380): exportada para a categoria do consultório comparar a unidade da linha com a do catálogo. */
+export const normUnidade = (u: string | null) => (u ?? '').normalize('NFC').trim().toLowerCase();
 
 function mesmoMarcador(a: string, b: string): boolean {
   if (a === b) return true;
