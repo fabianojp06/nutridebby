@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
+import { criarPacientePeloFormulario } from './pacientes-form';
 import { conexaoDoConsultorio, idDoTenant, lembreteDeWhatsappAgora, webhookAssinado } from './whatsapp';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
@@ -63,17 +64,8 @@ const SEGUNDA_LIVRE = somar(SEMANA_BLOQUEADA, 7);
 
 /** `whatsapp`: telefone ('(11) 9xxxx-xxxx') e a autorização de WhatsApp marcada. */
 async function novoPaciente(nome: string, email: string, whatsapp?: string): Promise<void> {
-  await nutri.goto('/painel/pacientes/novo');
-  await nutri.getByLabel('Nome').fill(nome);
-  await nutri.getByLabel('Data de nascimento').fill('1990-05-10');
-  await nutri.getByLabel('Feminino').check();
-  await nutri.getByLabel('E-mail').fill(email);
-  if (whatsapp) {
-    await nutri.getByLabel('Telefone (opcional)').fill(whatsapp);
-    await nutri.getByLabel('Paciente autorizou receber mensagens por WhatsApp').check();
-  }
-  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
-  await expect(nutri).toHaveURL(/\/painel\/pacientes\/[0-9a-f-]{36}$/);
+  // Plano 18 (RNF-263 g): pelo helper único do formulário (rótulos do cadastro em seções)
+  await criarPacientePeloFormulario(nutri, { nome, email, nascimento: '1990-05-10', telefone: whatsapp, whatsappAutorizado: Boolean(whatsapp) });
 }
 
 async function marcar(paciente: string, data: string, hora: string): Promise<void> {
@@ -317,11 +309,12 @@ test('convite por WhatsApp no cadastro: aviso sem link, com o e-mail mascarado; 
   await conexaoDoConsultorio(tenantId, 'conectada');
   await nutri.reload();
   await expect(nutri.getByText('O WhatsApp do consultório não está conectado; o convite vai só por e-mail.')).toHaveCount(0);
-  await nutri.getByLabel('Nome').fill(`Gabi Whats ${sufixo}`);
+  // Plano 18 (RNF-263 g): rótulos do cadastro em seções; exact, porque "Nome" casaria também "Nome social (opcional)"
+  await nutri.getByLabel('Nome completo', { exact: true }).fill(`Gabi Whats ${sufixo}`);
   await nutri.getByLabel('Data de nascimento').fill('1990-05-10');
   await nutri.getByLabel('Feminino').check();
   await nutri.getByLabel('E-mail').fill(email);
-  await nutri.getByLabel('Telefone (opcional)').fill(`(11) 9${oito.slice(0, 4)}-${oito.slice(4)}`);
+  await nutri.getByLabel('Celular / WhatsApp (opcional)').fill(`(11) 9${oito.slice(0, 4)}-${oito.slice(4)}`);
   // US-010 "WhatsApp sem autorização": a opção fica desabilitada, e diz por quê
   await expect(opcao()).toBeDisabled();
   await expect(opcao()).toHaveAccessibleDescription('Para enviar o convite por WhatsApp, informe o telefone e marque a autorização.');

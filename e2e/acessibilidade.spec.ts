@@ -4,6 +4,7 @@ import { contraste } from '@/lib/tema/contraste';
 import { emitirReceita, entrarComoDocs } from './documentos';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
+import { criarPacientePeloFormulario } from './pacientes-form';
 import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publicarPlanoDoDia } from './portal';
 
 // RNF-10 / RNF-09 (P06-10): WCAG 2.1 AA em todas as telas do PWA, no tamanho de um Android (projeto "celular").
@@ -577,14 +578,8 @@ test('documentos (Plano 10A): axe em /p/documentos, /v/<código> (válido e não
   test.setTimeout(180_000);
   // paciente sem o app (o convite não foi aceito): a receita assinada chega por um link no e-mail (RN-158)
   const email = `sem-app-${Date.now().toString(36)}@nutridebby.test`;
-  await docs.goto('/painel/pacientes/novo');
-  await docs.getByLabel('Nome').fill('Sara Sem App');
-  await docs.getByLabel('Data de nascimento').fill('1988-03-10');
-  await docs.getByLabel('Feminino').check();
-  await docs.getByLabel('E-mail').fill(email);
-  await docs.getByRole('button', { name: 'Cadastrar paciente' }).click();
-  await expect(docs).toHaveURL(/\/painel\/pacientes\/[0-9a-f-]{36}$/);
-  await emitirReceita(docs, new URL(docs.url()).pathname);
+  // Plano 18 (RNF-263 g): pelo helper único do formulário (rótulos do cadastro em seções)
+  await emitirReceita(docs, await criarPacientePeloFormulario(docs, { nome: 'Sara Sem App', email, nascimento: '1988-03-10' }));
   const aviso = await esperarEmail(email, { assunto: 'Você tem um novo documento' });
   const token = /\/documento\/([\w-]{92})/.exec(aviso.html)?.[1];
   expect(token, 'link do documento no e-mail').toBeTruthy();

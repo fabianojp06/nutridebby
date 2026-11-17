@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { fichaPelaBusca, SEMENTE_COMPLETA, SEMENTE_INCOMPLETA } from './cadastro';
 import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
 import { escolherTema, prepararTelasComId } from './painel';
@@ -106,6 +107,44 @@ test('Plano 18: a faixa de abas da ficha cabe a 1280 px sem "incomplete"; o cada
   } finally {
     await escolherTema(nutri, 'Igual ao aparelho');
   }
+});
+
+/**
+ * Plano 18 (RNF-261): o Início (com o cartão e o selo "No app"; com a nota "Cadastro incompleto"), o Perfil com o cadastro
+ * inteiro, a lista e a página "No app do paciente", a 1280 e a 360 px, claro e escuro. As pacientes do cadastro do seed
+ * (e2e/cadastro.ts): a completa tem conta, nome social, CPF e uma avaliação; a incompleta mostra a nota. Os estados abertos
+ * (menu da linha, diálogo Adicionar, CPF repetido) ficam no cadastro.spec e no ficha.spec.
+ */
+test('Plano 18: Início, Perfil, lista e "No app do paciente" a 1280 e 360 px, claro e escuro', async () => {
+  test.setTimeout(240_000);
+  const completa = await fichaPelaBusca(nutri, SEMENTE_COMPLETA.email, SEMENTE_COMPLETA.nomeSocial);
+  const incompleta = await fichaPelaBusca(nutri, SEMENTE_INCOMPLETA.email, SEMENTE_INCOMPLETA.nome);
+  const telas = [
+    { url: '/painel/pacientes', pronta: () => expect(nutri.getByRole('heading', { level: 1, name: 'Pacientes' })).toBeVisible() },
+    { url: completa, pronta: () => expect(nutri.getByRole('region', { name: 'No app do paciente' })).toBeVisible() },
+    { url: incompleta, pronta: () => expect(nutri.getByText('Cadastro incompleto: faltam estado civil e endereço.')).toBeVisible() },
+    { url: `${completa}/perfil`, pronta: () => expect(nutri.getByLabel('CPF (opcional)')).toHaveValue(SEMENTE_COMPLETA.cpf) },
+    { url: `${completa}/app`, pronta: () => expect(nutri.getByRole('heading', { name: 'No app do paciente' })).toBeVisible() },
+  ];
+  const falhas: string[] = [];
+  try {
+    for (const [largura, altura] of [[1280, 720], [360, 800]] as const) {
+      await nutri.setViewportSize({ width: largura, height: altura });
+      for (const tema of ['Claro', 'Escuro'] as const) {
+        await escolherTema(nutri, tema);
+        for (const t of telas) {
+          await nutri.goto(t.url);
+          await t.pronta();
+          await nutri.waitForLoadState('networkidle');
+          for (const v of await violacoes(nutri)) falhas.push(`${largura} px ${tema} ${t.url} — ${v}`);
+        }
+      }
+    }
+  } finally {
+    await nutri.setViewportSize({ width: 1280, height: 720 });
+    await escolherTema(nutri, 'Igual ao aparelho');
+  }
+  expect(falhas).toEqual([]);
 });
 
 /**

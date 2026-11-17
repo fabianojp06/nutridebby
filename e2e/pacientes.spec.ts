@@ -20,11 +20,12 @@ test.afterAll(async () => {
 });
 
 async function preencherCadastro(page: Page, dados: { nome: string; email: string; nascimento: string }) {
-  await page.getByLabel('Nome').fill(dados.nome);
+  // Plano 18 (RNF-263 g): rótulos do cadastro em seções; exact, porque "Nome" casaria também "Nome social (opcional)"
+  await page.getByLabel('Nome completo', { exact: true }).fill(dados.nome);
   await page.getByLabel('Data de nascimento').fill(dados.nascimento);
   await page.getByLabel('Feminino').check();
   await page.getByLabel('E-mail').fill(dados.email);
-  await page.getByLabel('Telefone (opcional)').fill('(11) 91234-5678');
+  await page.getByLabel('Celular / WhatsApp (opcional)').fill('(11) 91234-5678');
   await page.getByLabel('Paciente autorizou receber mensagens por WhatsApp').check();
 }
 
@@ -33,7 +34,7 @@ test('cadastra paciente adulto; menor de 18 e e-mail repetido são recusados (US
   await preencherCadastro(nutri, { nome: ANA.nome, email: ANA.email, nascimento: '2010-01-01' });
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
   await expect(nutri.locator('p[role="alert"]')).toHaveText('O sistema atende apenas pacientes a partir de 18 anos');
-  await expect(nutri.getByLabel('Nome')).toHaveValue(ANA.nome); // PF-N9: nada do que foi digitado se perde
+  await expect(nutri.getByLabel('Nome completo', { exact: true })).toHaveValue(ANA.nome); // PF-N9: nada do que foi digitado se perde
 
   await nutri.getByLabel('Data de nascimento').fill('1991-03-10');
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();

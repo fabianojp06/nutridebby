@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { entrarComo } from './helpers';
+import { criarPacientePeloFormulario } from './pacientes-form';
 
 // Plano 14B-1 (US-123): modelos sugeridos pela IA, com IA_PROVEDOR=sandbox (nenhuma chamada à API real). IP: 10.9.28.26
 // (bloco .26–.30 desta spec). Credenciais copiadas (importar o seed roda o seed), como nas outras specs.
@@ -42,14 +43,9 @@ test('US-123: pacote de Diabetes → marca → aprovar → aparece em "Criar a p
 
   // RN-125: em "Criar a partir de modelo", o aprovado aparece; o outro plano do pacote, sem aprovação, não
   const sufixo = Date.now().toString(36);
-  await nutri.goto('/painel/pacientes/novo');
-  await nutri.getByLabel('Nome').fill(`Paciente Modelos IA ${sufixo}`);
-  await nutri.getByLabel('Data de nascimento').fill('1991-03-10');
-  await nutri.getByLabel('Feminino').check();
-  await nutri.getByLabel('E-mail').fill(`modelos-ia-${sufixo}@nutridebby.test`);
-  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
+  // Plano 18 (RNF-263 g): pelo helper único do formulário (rótulos do cadastro em seções)
+  const prontuario = await criarPacientePeloFormulario(nutri, { nome: `Paciente Modelos IA ${sufixo}`, email: `modelos-ia-${sufixo}@nutridebby.test`, nascimento: '1991-03-10' });
   await expect(nutri.getByRole('heading', { level: 1, name: `Paciente Modelos IA ${sufixo}` })).toBeVisible();
-  const prontuario = new URL(nutri.url()).pathname;
   await nutri.goto(`${prontuario}/plano-alimentar`);
   const escolha = nutri.getByLabel('Modelo');
   await expect(escolha.locator(`option[value="${aprovado}"]`)).toHaveCount(1);
