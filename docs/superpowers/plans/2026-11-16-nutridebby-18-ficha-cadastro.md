@@ -560,3 +560,10 @@ T2 e T3 mexem em arquivos diferentes (abas/Perfil × layout/cabeçalho), salvo `
 Vale para **cada PR** (o PR 1 depois da Tarefa 4; o PR 2 depois da Tarefa 12c), uma revisão pesada por vez entre as sessões (`sessoes-paralelas.md` §7):
 
 Revisão final do branch (workflow, com `revisor-rls` — política sem conta, `semConta` do `no-app.ts`, `TxDePaciente`, gatilhos, listas do isolamento, auditoria do cabeçalho e do Perfil —, `normas-cfn-lgpd` — ordem dos nomes na impressão e no PDF, base legal, CPF, exportação, anonimização, máscara da IA e RN-109 —, `revisor-interface` — abas, diálogo, `<details>`, menu, região viva, formulário, textos exatos, guias —, `guardiao-manual` — manual técnico, CLAUDE.md, ajuda) → uma onda de correções → `/code-review high` no PR uma vez → correções Critical/Important (Minor no backlog) → re-revisão do diff das correções → `/security-review` (checklist reforçado: RLS e isolamento por paciente, `semConta`, LGPD, dados no log) → rebase na `main` atual (no PR 2, com a migration regenerada pela seção "Migration") e CI verde → merge **só com o OK do dono** (merge = deploy; no PR 2 a migration roda no boot; sem merge das 03h às 07h30 BRT). A sessão avisa a orquestradora a cada etapa (início, PR aberto, CI verde, revisão, pronto para merge) para o painel da onda.
+
+## Decisões da orquestradora (16/11/2026, com autorização do dono para seguir as recomendações)
+
+- **§15.2 aprovada:** D1 (tabela filha `patient_cadastro`) e D16 (contagem do "No app" no contexto de paciente) valem como escritas.
+- **Seção "Financeiro" no Início:** fica a opção (a). O PR 1 deste plano entrega o contrato estendido do registro (`leitura: { entidade }`, `verTodos`, `href` absoluto, grupo `outros`, `podeAdicionar`), com o `auditRead` feito por `inicio.ts`. O Plano 20 (T12) usa esse contrato.
+- **Trem de merge da onda 1:** 17 → 18 PR 1 → 20 PR 1 → 19 (código) → 18 PR 2 → 20 PR 2 → 20 PR 3 → 19 (seed, sozinho). Os itens do "No app" ficam com quem entrar depois.
+- **Faixa de IP do E2E:** cada plano usa a própria faixa (sufixo = número do plano). Antes, confira em `e2e/` como os IPs são gerados.
