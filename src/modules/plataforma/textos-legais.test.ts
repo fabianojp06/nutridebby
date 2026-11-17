@@ -12,7 +12,8 @@ import {
   TERMO_PACIENTE_VERSAO_DATA,
 } from '@/modules/pacientes/termo-paciente';
 import { TERMO_PACIENTE_PARAGRAFOS, TERMO_PACIENTE_TEXTOS } from '@/modules/pacientes/termo-paciente-textos';
-import { DPA_MUDOU, DPA_PARAGRAFOS, DPA_ROTULO, DPA_TERMO, DPA_TEXTOS, DPA_TITULO, DPA_VERSAO, DPA_VERSAO_DATA } from './dpa';
+import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
+import { DPA_MUDOU, DPA_O_QUE_MUDOU, DPA_PARAGRAFOS, DPA_ROTULO, DPA_TERMO, DPA_TEXTOS, DPA_TITULO, DPA_VERSAO, DPA_VERSAO_DATA } from './dpa';
 import { EMAIL_PRIVACIDADE } from './privacidade';
 
 /**
@@ -72,19 +73,46 @@ describe('Termo de Uso e Privacidade do paciente 1.0', () => {
   });
 });
 
-describe('Contrato de tratamento de dados (DPA) 1.0', () => {
-  it('versão 1.0, sem nada de provisório no que é mostrado, com a data no rodapé', () => {
-    expect(DPA_VERSAO).toBe('1.0');
-    expect(DPA_TERMO).toBe('dpa-1.0');
-    expect(DPA_VERSAO_DATA).toBe('2026-10-15');
+describe('Contrato de tratamento de dados (DPA) 1.1 (Plano 20, F-D17)', () => {
+  it('versão 1.1, sem nada de provisório no que é mostrado, com a data no rodapé', () => {
+    expect(DPA_VERSAO).toBe('1.1');
+    expect(DPA_TERMO).toBe('dpa-1.1');
+    // R-309: a data fica fixa no PR e é conferida (e ajustada, se o deploy mudar de dia) antes do merge
+    expect(DPA_VERSAO_DATA).toBe('2026-11-17');
     for (const t of [DPA_TITULO, DPA_ROTULO, ...DPA_PARAGRAFOS]) expect(t).not.toMatch(/provis/i);
-    expect(DPA_ROTULO).toBe('Li e aceito o contrato de tratamento de dados (DPA), versão 1.0');
-    expect(DPA_MUDOU).toBe(`O contrato de tratamento de dados mudou (versão 1.0, de ${DATA_DPA}). Leia e aceite para continuar usando o painel.`);
+    expect(DPA_ROTULO).toBe('Li e aceito o contrato de tratamento de dados (DPA), versão 1.1');
+    expect(DPA_MUDOU).toBe(`O contrato de tratamento de dados mudou (versão 1.1, de ${DATA_DPA}). Leia e aceite para continuar usando o painel.`);
     expect(DPA_PARAGRAFOS).toHaveLength(16);
-    expect(DPA_PARAGRAFOS.at(-1)).toBe(`Versão 1.0, de ${DATA_DPA}.`);
+    expect(DPA_PARAGRAFOS.at(-1)).toBe(`Versão 1.1, de ${DATA_DPA}.`);
     expect(DPA_PARAGRAFOS.join(' ')).not.toContain('{data}');
     // cláusulas numeradas de 1 a 15, na ordem (o aditivo de IA remete a elas)
     expect(DPA_PARAGRAFOS.slice(0, 15).map((p) => Number(p.split('.')[0]))).toEqual(Array.from({ length: 15 }, (_, i) => i + 1));
+  });
+
+  it('cláusula 2 cita os registros financeiros do consultório e o Financeiro; cláusula 5 anonimiza os registros de pagamento (§10)', () => {
+    const c2 = DPA_PARAGRAFOS[1];
+    expect(c2).toMatch(/^2\. Instruções\./);
+    expect(c2).toContain(
+      '(cadastro, anamnese, medidas, exames, planos, diário, documentos, registros de acesso e registros financeiros do consultório, inclusive os pagamentos dos pacientes)',
+    );
+    expect(c2).toContain(
+      '(prontuário, agenda, lembretes, app do paciente, página de agendamento, documentos assinados, conteúdos, financeiro do consultório e as funções que a CONTROLADORA ativar)',
+    );
+    const c5 = DPA_PARAGRAFOS[4];
+    expect(c5).toMatch(/^5\. Direitos dos titulares\./);
+    expect(c5.endsWith('depois, os anexos são apagados e o cadastro, os aceites, os documentos e os registros de pagamento são anonimizados.')).toBe(true);
+  });
+
+  it('só as cláusulas 2 e 5 e a linha da versão mudam da 1.0 para a 1.1', () => {
+    const v10 = DPA_TEXTOS['1.0'].paragrafos;
+    expect(v10).toHaveLength(DPA_PARAGRAFOS.length);
+    const mudaram = DPA_PARAGRAFOS.flatMap((p, i) => (p === v10[i] ? [] : [i]));
+    expect(mudaram).toEqual([1, 4, 15]);
+  });
+
+  it('o "O que mudou" de /painel/dpa é o texto da spec (o mesmo de MSG_FINANCEIRO.lgpd)', () => {
+    expect(DPA_O_QUE_MUDOU).toBe('O que mudou: o contrato passa a citar os registros financeiros do consultório, inclusive os pagamentos dos pacientes (Financeiro).');
+    expect(DPA_O_QUE_MUDOU).toBe(MSG_FINANCEIRO.lgpd.dpaOQueMudou);
   });
 
   it('a cláusula 8 lista os suboperadores em uso e remete a IA ao aditivo (o aditivo cita "as listadas no DPA")', () => {
@@ -113,18 +141,27 @@ describe('Contrato de tratamento de dados (DPA) 1.0', () => {
     expect(DPA_PARAGRAFOS[9]).toContain('o país onde cada suboperador trata os dados');
   });
 
-  it('o mapa guarda a 0.1 provisória e a 1.0 em vigor é a mostrada', () => {
-    expect(Object.keys(DPA_TEXTOS).sort()).toEqual(['0.1-provisorio', '1.0']);
+  it('o mapa guarda a 0.1 provisória e a 1.0 (congelada, com a data dela) e a 1.1 em vigor é a mostrada', () => {
+    expect(Object.keys(DPA_TEXTOS).sort()).toEqual(['0.1-provisorio', '1.0', '1.1']);
     expect(DPA_TEXTOS[DPA_VERSAO]).toEqual({ data: DPA_VERSAO_DATA, paragrafos: DPA_PARAGRAFOS });
     const antiga = DPA_TEXTOS['0.1-provisorio'];
     expect(antiga.data).toBe('2026-09-28');
     expect(antiga.paragrafos.at(-1)).toBe('Versão provisória 0.1, em revisão jurídica. Quando a versão definitiva for publicada, um novo aceite será pedido.');
     expect(antiga.paragrafos).toHaveLength(8);
+    // a 1.0 é o que quem aceitou nela leu: nem a data nem as cláusulas 2 e 5 acompanham a versão em vigor
+    const v10 = DPA_TEXTOS['1.0'];
+    expect(v10.data).toBe('2026-10-15');
+    expect(v10.paragrafos).toHaveLength(16);
+    expect(v10.paragrafos.at(-1)).toBe('Versão 1.0, de 15/10/2026.');
+    expect(v10.paragrafos[1]).toContain('(cadastro, anamnese, medidas, exames, planos, diário, documentos e registros de acesso)');
+    expect(v10.paragrafos[1]).toContain('(prontuário, agenda, lembretes, app do paciente, página de agendamento, documentos assinados, conteúdos e as funções que a CONTROLADORA ativar)');
+    expect(v10.paragrafos[4].endsWith('depois, os anexos são apagados e o cadastro, os aceites e os documentos são anonimizados.')).toBe(true);
+    expect(v10.paragrafos.join(' ')).not.toMatch(/financeiro|pagamento/i);
   });
 });
 
 describe('telas de aceite mostram o texto inteiro (P08-06)', () => {
-  // O termo 1.0 e o DPA 1.0 têm 16 parágrafos: numa caixa de altura fixa com rolagem própria, no celular, não dá para ler
+  // O termo 1.0 e o DPA 1.1 têm 16 parágrafos: numa caixa de altura fixa com rolagem própria, no celular, não dá para ler
   // o que se aceita (como em /p/termo, o texto fica na página).
   it.each([
     ['src/app/n/[slug]/agendar-form.tsx', 'termo-titulo'],

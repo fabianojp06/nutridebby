@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { revalidatePath } from 'next/cache';
 import { closeDb, getDb } from '@/db/client';
-import { tenants } from '@/db/schema';
+import { consents, tenants } from '@/db/schema';
 import { getAuth } from '@/lib/auth';
 import { registrarAceiteDpa } from '@/modules/plataforma/dpa';
 import { criarEEntrar } from '../../../test/sessao';
@@ -103,17 +103,19 @@ describe('aceitarDpaAction (T14)', () => {
     const n = await criarEEntrar(db, auth, { appRole: 'nutri', tenantId: t.id });
     req.headers = new Headers({ cookie: n.cookie });
     vi.mocked(revalidatePath).mockClear();
-    await expect(aceitarDpaAction({}, form({ dpa: 'on', versao: '1.0' }))).rejects.toThrow('redirect /painel');
+    await expect(aceitarDpaAction({}, form({ dpa: 'on', versao: '1.1' }))).rejects.toThrow('redirect /painel');
     expect(revalidatePath).toHaveBeenCalledWith('/painel', 'layout');
     const [depois] = await db.select({ dpaVersao: tenants.dpaVersao }).from(tenants).where(eq(tenants.id, t.id));
-    expect(depois.dpaVersao).not.toBeNull();
+    expect(depois.dpaVersao).toBe('1.1');
+    // US-309: o aceite fica em consents ("dpa-1.1")
+    expect((await db.select({ termo: consents.termoVersao }).from(consents).where(eq(consents.userId, n.id))).map((c) => c.termo)).toEqual(['dpa-1.1']);
   });
 
   it('P08-06: a página aberta com outra versão do DPA (deploy no meio) não grava aceite: pede para recarregar', async () => {
     const [t] = await db.insert(tenants).values({ slug: `dpa-${randomUUID().slice(0, 8)}`, nomeExibicao: 'DPA' }).returning();
     const n = await criarEEntrar(db, auth, { appRole: 'nutri', tenantId: t.id });
     req.headers = new Headers({ cookie: n.cookie });
-    expect(await aceitarDpaAction({}, form({ dpa: 'on', versao: '0.1-provisorio' }))).toEqual({
+    expect(await aceitarDpaAction({}, form({ dpa: 'on', versao: '1.0' }))).toEqual({
       erro: 'O texto mudou enquanto esta página estava aberta. Recarregue a página, leia a versão nova e aceite de novo.',
     });
     const [depois] = await db.select({ dpaVersao: tenants.dpaVersao }).from(tenants).where(eq(tenants.id, t.id));
