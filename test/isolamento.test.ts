@@ -25,7 +25,8 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   audit_log: (t, p) => sql`insert into audit_log (tenant_id, acao, entidade, patient_id) values (${t}, 'ler', 'isolamento', ${p})`,
   // 0080: o paciente só vê as do titular — a fábrica grava escopo titular para P2 ver as próprias linhas
   data_exports: (t, p) => sql`insert into data_exports (tenant_id, patient_id, escopo) values (${t}, ${p}, 'titular')`,
-  exams: (t, p) => sql`insert into exams (tenant_id, patient_id, data, titulo) values (${t}, ${p}, '2026-01-01', 'Iso')`,
+  // Plano 22 (§9.8): liberado, como meal_plans grava 'publicado' por causa da paciente_sem_rascunho — mantém a prova de leitura da sessão de paciente
+  exams: (t, p) => sql`insert into exams (tenant_id, patient_id, data, titulo, mostrar_no_app_em) values (${t}, ${p}, '2026-01-01', 'Iso', now())`,
   privacy_requests: (t, p) => sql`insert into privacy_requests (tenant_id, patient_id, tipo, prazo) values (${t}, ${p}, 'exclusao', '2026-01-16')`,
   stored_files: (t, p) =>
     sql`insert into stored_files (tenant_id, patient_id, tipo, caminho, bytes, mime) values (${t}, ${p}, 'exame', ${`${t}/exame/${randomUUID()}.png`}, 1, 'image/png')`,
@@ -182,11 +183,24 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
         select ${t}, 'entrada', c.id, 100, '2026-11-10', ${p}, coalesce(app_current_user(), gen_random_uuid()) from c`,
   // Plano 18: cpf nulo (com CPF fixo, a fábrica de P1 e P2 cairia em patient_cadastro_cpf_unico)
   patient_cadastro: (t, p) => sql`insert into patient_cadastro (tenant_id, patient_id, estado_civil) values (${t}, ${p}, 'casado')`,
+  // Plano 22 (spec §9.8): bibliotecas do consultório — nome único por consultório (sem diferença de maiúsculas): um por chamada
+  exames_catalogo: (t) => sql`insert into exames_catalogo (tenant_id, nome) values (${t}, 'Iso ' || gen_random_uuid()::text)`,
+  exames_modelos_solicitacao: (t) =>
+    sql`insert into exames_modelos_solicitacao (tenant_id, nome, exames) values (${t}, 'Iso ' || gen_random_uuid()::text, '[{"nome":"Iso"}]')`,
+  // a nota e a versão criam o exame-mãe (sem a marca do app) no mesmo comando (COM_MAE); o gatilho grava o autor da sessão
+  exam_interpretacoes: (t, p) =>
+    sql`with e as (insert into exams (tenant_id, patient_id, data, titulo) values (${t}, ${p}, '2026-01-01', 'Iso') returning id)
+        insert into exam_interpretacoes (tenant_id, patient_id, exam_id, versao, texto, criado_por) select ${t}, ${p}, e.id, 1, 'Iso', coalesce(app_current_user(), gen_random_uuid()) from e`,
+  exam_versoes: (t, p) =>
+    sql`with e as (insert into exams (tenant_id, patient_id, data, titulo) values (${t}, ${p}, '2026-01-01', 'Iso') returning id)
+        insert into exam_versoes (tenant_id, patient_id, exam_id, versao, titulo, data, valores, alterado_por)
+        select ${t}, ${p}, e.id, 1, 'Iso', '2026-01-01', '[]', coalesce(app_current_user(), gen_random_uuid()) from e`,
 };
 /** Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). */
 const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker' };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
-const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes', 'ia_nutri_consentimentos']);
+// Plano 22 (EP-D41): exam_interpretacoes e exam_versoes — UPDATE, DELETE e TRUNCATE revogados (rls_exames_catalogo)
+const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes', 'ia_nutri_consentimentos', 'exam_interpretacoes', 'exam_versoes']);
 /**
  * D9 (Plano 11): UPDATE permitido, DELETE negado à equipe — ia_tarefas pelo gatilho ia_tarefas_sem_apagar (só o worker
  * apaga, na anonimização) e ia_uso por REVOKE. O teste de DELETE do tenant B pula o DELETE e confere que nada sumiu.
@@ -374,6 +388,9 @@ const COM_MAE = new Set([
   // Plano 20: escolha registrada na spec §9.5 — a recusa dos negativos de INSERT vem da política de fin_categorias; a prova
   // da política da própria fin_lancamentos está em src/modules/financeiro/banco.test.ts
   'fin_lancamentos',
+  // Plano 22: a recusa dos negativos de INSERT vem de exams; prova própria em src/modules/exames/banco.test.ts
+  'exam_interpretacoes',
+  'exam_versoes',
 ]);
 /** violaRls, e a recusa veio da política da própria tabela `t` (não da mãe criada no CTE da fábrica). */
 const violaRlsDe = (t: string) => (e: unknown) => {
@@ -576,5 +593,44 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       expect(await contarPaciente(t, col, A, P1), t).toBe(antesP1); // owner confirma: as linhas de P1 seguem intactas
       if (apaga && (PACIENTE_ESCREVE[t]?.comandos ?? []).includes('delete')) expect(await contarPaciente(t, col, A, P2), t).toBe(0);
     }
+  });
+
+  it('Plano 22 (RN-385): a paciente P2 não vê o exame não liberado, vê o liberado e não vê exam_interpretacoes nem exam_versoes', async () => {
+    const nutri = { tenantId: A, role: 'nutri' as const, actorUserId: randomUUID() };
+    // um exame liberado e um não liberado de P2, com nota e versão (semeados como nutri)
+    const [liberado, naoLiberado] = await withTenant(
+      nutri,
+      async (tx) => {
+        const ins = async (marca: SQL) =>
+          (await tx.execute(sql`insert into exams (tenant_id, patient_id, data, titulo, mostrar_no_app_em) values (${A}, ${P2}, '2026-11-01', 'Iso 22', ${marca}) returning id`)).rows[0].id as string;
+        const ids = [await ins(sql`now()`), await ins(sql`null`)];
+        for (const e of ids) {
+          await tx.execute(sql`insert into exam_interpretacoes (tenant_id, patient_id, exam_id, versao, texto, criado_por) values (${A}, ${P2}, ${e}, 1, 'Iso', ${nutri.actorUserId})`);
+          await tx.execute(sql`insert into exam_versoes (tenant_id, patient_id, exam_id, versao, titulo, data, valores, alterado_por) values (${A}, ${P2}, ${e}, 1, 'Iso', '2026-11-01', '[]', ${nutri.actorUserId})`);
+        }
+        return ids;
+      },
+      app.db,
+    );
+    // controle positivo: a nutri vê os dois e as filhas deles
+    const daNutri = await withTenant(nutri, (tx) => tx.execute(sql`select id from exams where id in (${liberado}, ${naoLiberado})`), app.db);
+    expect(daNutri.rows).toHaveLength(2);
+    const filhasDaNutri = await withTenant(
+      nutri,
+      (tx) => tx.execute(sql`select (select count(*) from exam_interpretacoes where exam_id in (${liberado}, ${naoLiberado}))::int as n, (select count(*) from exam_versoes where exam_id in (${liberado}, ${naoLiberado}))::int as v`),
+      app.db,
+    );
+    expect(filhasDaNutri.rows[0]).toEqual({ n: 2, v: 2 });
+
+    await withTenant(
+      { tenantId: A, role: 'paciente', patientId: P2, actorUserId: randomUUID() },
+      async (tx) => {
+        const vistos = (await tx.execute(sql`select id from exams where id in (${liberado}, ${naoLiberado})`)).rows.map((r) => r.id);
+        expect(vistos).toEqual([liberado]);
+        expect((await tx.execute(sql`select 1 from exam_interpretacoes`)).rows).toEqual([]);
+        expect((await tx.execute(sql`select 1 from exam_versoes`)).rows).toEqual([]);
+      },
+      app.db,
+    );
   });
 });
