@@ -146,3 +146,15 @@ describe('Pagamentos pendentes de {nome} (US-304)', () => {
     await expect(detalhe('nao-e-id')).rejects.toThrow('notFound');
   });
 });
+
+describe('texto livre sem espaço não alarga a página a 360 px (revisão final do PR 2)', () => {
+  it('a descrição das cobranças do paciente com wrap-break-word, dentro do item flex com min-w-0', async () => {
+    const C = await cenario();
+    const CODIGO = '2379'.repeat(12);
+    await cobranca(C, somarDias(C.hoje, -1), { descricao: CODIGO });
+    const html = await detalhe(C.ana);
+    expect(new RegExp(`<span class="([^"]*)">${CODIGO}</span>`).exec(html)?.[1].split(' ')).toContain('wrap-break-word');
+    const item = new RegExp(`<span class="([^"]*)">[^<]*<span class="[^"]*">${CODIGO}</span></span>`).exec(html)?.[1].split(' ') ?? [];
+    expect(item).toEqual(expect.arrayContaining(['min-w-0', 'wrap-break-word']));
+  });
+});

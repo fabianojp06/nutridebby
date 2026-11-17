@@ -367,3 +367,33 @@ describe('/painel/financeiro/lancamentos/[id] (US-302)', () => {
     await expect(edicao('x')).rejects.toThrow('notFound');
   });
 });
+
+describe('texto livre sem espaço não alarga a página a 360 px (revisão final do PR 2)', () => {
+  // um código de barras de boleto colado na descrição: 48 dígitos, sem ponto de quebra
+  const CODIGO = '2379'.repeat(12);
+  const classes = (h: string, conteudo: string, tag: string) =>
+    new RegExp(`<${tag} class="([^"]*)">${conteudo}</${tag}>`).exec(h)?.[1].split(' ') ?? [];
+
+  it('a lista: a descrição com wrap-break-word, dentro do item flex com min-w-0', async () => {
+    const C = await cenario();
+    await entrada(C, { descricao: CODIGO });
+    const h = await lista();
+    expect(classes(h, CODIGO, 'span')).toContain('wrap-break-word');
+    const item = new RegExp(`<span class="([^"]*)">[^<]*<span class="[^"]*">${CODIGO}</span></span>`).exec(h)?.[1].split(' ') ?? [];
+    expect(item).toEqual(expect.arrayContaining(['min-w-0', 'wrap-break-word']));
+  });
+
+  it('a edição do bloqueado (paciente e descrição) e a leitura do cancelado (descrição e motivo): <dd> com min-w-0 e wrap-break-word', async () => {
+    const C = await cenario();
+    const { id } = await entrada(C, { descricao: CODIGO });
+    await bloquear(C, C.p);
+    const b = await edicao(id);
+    for (const conteudo of [CODIGO, 'Ana Souza']) expect(classes(b, conteudo, 'dd'), conteudo).toEqual(expect.arrayContaining(['min-w-0', 'wrap-break-word']));
+
+    const motivo = '0341'.repeat(12);
+    const outra = await saida(C, { descricao: CODIGO });
+    await cancelarLancamento(C.ctx, outra.id, motivo, { db: app.db });
+    const c = await edicao(outra.id);
+    for (const conteudo of [CODIGO, motivo]) expect(classes(c, conteudo, 'dd'), conteudo).toEqual(expect.arrayContaining(['min-w-0', 'wrap-break-word']));
+  });
+});

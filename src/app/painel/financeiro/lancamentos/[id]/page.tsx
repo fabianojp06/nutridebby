@@ -51,7 +51,7 @@ export default async function EditarLancamento({
         {l.paciente && (
           <>
             <dt className="font-medium">{M.csv.colunas.paciente}</dt>
-            <dd>{l.paciente.nome}</dd>
+            <dd className="min-w-0 wrap-break-word">{l.paciente.nome}</dd>
           </>
         )}
         <dt className="font-medium">{M.filtros.situacao}</dt>
@@ -99,13 +99,13 @@ export default async function EditarLancamento({
             {l.descricao && (
               <>
                 <dt className="font-medium">{M.csv.colunas.descricao}</dt>
-                <dd>{l.descricao}</dd>
+                <dd className="min-w-0 wrap-break-word">{l.descricao}</dd>
               </>
             )}
             {l.motivoCancelamento && (
               <>
                 <dt className="font-medium">{M.acoes.motivo}</dt>
-                <dd>{l.motivoCancelamento}</dd>
+                <dd className="min-w-0 wrap-break-word">{l.motivoCancelamento}</dd>
               </>
             )}
           </dl>

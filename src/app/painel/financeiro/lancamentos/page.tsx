@@ -140,11 +140,12 @@ function LinhaDoLancamento({
   return (
     <li className="space-y-1 border-t border-linha py-3 first:border-t-0">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <span>
+        {/* texto livre sem espaço (código de barras, Pix copia-e-cola) quebra em vez de alargar a página a 360 px */}
+        <span className="min-w-0 wrap-break-word">
           {[data, M.csv.tipos[l.tipo], l.paciente?.nome, l.categoria.nome]
             .filter(Boolean)
             .join(' · ')}
-          {l.descricao && <span className="block text-sm text-suave">{l.descricao}</span>}
+          {l.descricao && <span className="block text-sm text-suave wrap-break-word">{l.descricao}</span>}
         </span>
         <span className="whitespace-nowrap font-medium">{`${formatarReais(l.valorCentavos)} · ${M.situacoes[l.situacao]}`}</span>
       </div>
