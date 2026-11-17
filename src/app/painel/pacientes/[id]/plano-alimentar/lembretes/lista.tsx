@@ -67,8 +67,10 @@ function Interruptor({ patientId, l, anunciar }: { patientId: string; l: Lembret
           }
           className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full aria-disabled:opacity-60"
         >
-          <span aria-hidden="true" className={`flex h-6 w-11 items-center rounded-full border-2 p-0.5 transition-colors ${ligado ? 'border-destaque bg-destaque' : 'border-campo bg-cartao'}`}>
-            <span className={`size-4 rounded-full transition-transform ${ligado ? 'translate-x-5 bg-white' : 'bg-campo'}`} />
+          {/* tokens do modo (cores.test.ts): ligado na marca do modo (a clara no escuro; bg-destaque fica ~2,6:1 no cartão
+              escuro), botão do trilho na cor do cartão; desligado com borda e botão em `campo` — ≥ 3:1 nos dois (WCAG 1.4.11) */}
+          <span aria-hidden="true" className={`flex h-6 w-11 items-center rounded-full border-2 p-0.5 motion-safe:transition-colors ${ligado ? 'border-marca bg-marca' : 'border-campo bg-cartao'}`}>
+            <span className={`size-4 rounded-full motion-safe:transition-transform ${ligado ? 'translate-x-5 bg-cartao' : 'bg-campo'}`} />
           </span>
         </button>
         <span className="text-sm">{ligado ? 'Ligado' : 'Desligado'}</span>
