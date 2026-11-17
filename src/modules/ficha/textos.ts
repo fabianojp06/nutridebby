@@ -59,6 +59,16 @@ export const MSG_FICHA = {
   },
   dica: 'Antes do plano alimentar, registre a anamnese, a antropometria e o gasto energético.',
   fechar: 'Fechar',
+  /** Título (só para leitor de tela) do bloco das seções: os `<h3>` das seções ficam sob ele, não sob "Inteligência artificial". */
+  secoesTitulo: 'Registros do prontuário',
+  /** Cartão Resumo (RN-276, spec §8.3). */
+  resumo: {
+    titulo: 'Resumo',
+    aniversario: (diaEMes: string) => `Aniversário: ${diaEMes}`,
+    desde: (data: string) => `Paciente desde ${data}`,
+    planoPublicadoEm: (data: string) => `Plano alimentar publicado em ${data}`,
+    nenhumPlano: 'Nenhum plano publicado',
+  },
   /** Cabeçalho da ficha (spec §8.2, RN-275): a linha de medidas da última avaliação e o selo do peso oculto. */
   cabecalho: {
     ultimaAvaliacao: (data: string, medidas: string) => `Última avaliação em ${data}: ${medidas}`,

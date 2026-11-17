@@ -142,6 +142,34 @@ export const GUIAS: readonly Guia[] = [
     passos: [{ alvo: 'ia-nutri-aba', titulo: 'IA Nutri do paciente', texto: 'Libere a IA Nutri paciente por paciente. Depois, o paciente lê o texto e decide no app. Aqui você lê as conversas dele com a IA e registra a desativação quando ele pedir.' }],
   },
   {
+    // Plano 18 (§8.3): só o Início da ficha; antes do `prontuario`, que casa todas as abas (os passos novos só têm alvo aqui).
+    // Título "Início do paciente": "Início" é o do guia de boas-vindas (o manual completo lista um h2 por guia).
+    id: 'inicio-paciente',
+    versao: 1,
+    padrao: new RegExp(`^/painel/pacientes/${ID}$`),
+    titulo: 'Início do paciente',
+    ajuda: {
+      resumo: 'O Início reúne o que já foi feito com o paciente: o resumo, o botão "Adicionar" e uma seção para cada parte do acompanhamento, com os três registros mais recentes.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Use "Adicionar" para registrar anamnese, antropometria, gasto energético, exame, atendimento ou prescrição sem procurar a aba.',
+            'Abra uma seção para ver os registros mais recentes; "Ver todos" leva à aba com a lista completa.',
+            'O cadastro, o acesso ao app e as etiquetas ficam no Perfil.',
+          ],
+        },
+        { titulo: 'Perguntas comuns', itens: ['Paciente bloqueado por pedido de exclusão não tem o botão "Adicionar": o prontuário é só para consulta.'] },
+      ],
+    },
+    passos: [
+      { alvo: 'cabecalho-paciente', titulo: 'O paciente', texto: 'Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o paciente está arquivado ou bloqueado.' },
+      { alvo: 'abas-prontuario', titulo: 'Abas do prontuário', texto: 'Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento tem a sua aba.' },
+      { alvo: 'adicionar-prontuario', titulo: 'Adicionar', texto: 'Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.' },
+      { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes. O selo No app marca o que o paciente vê no app.' },
+    ],
+  },
+  {
     id: 'prontuario',
     // D20 (Plano 10A): sem "documentos" e sem subir a versão — a aba só aparece com o consultório liberado; ela fica descrita no guia `documentos`.
     // Plano 11: o item da IA entra nas perguntas comuns sem subir a versão, pelo mesmo motivo (a IA depende da liberação; os passos não mudam).

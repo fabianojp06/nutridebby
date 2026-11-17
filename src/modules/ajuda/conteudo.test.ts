@@ -169,6 +169,23 @@ describe('conteúdo do manual (P08-10)', () => {
     const passoAPasso = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens;
     expect(passoAPasso[0]).toMatch(/Início.*Perfil.*anamnese/);
   });
+  it('Plano 18 (§8.3): o guia "Início do paciente" casa só o Início da ficha, vem antes do prontuário e traz os passos da spec', () => {
+    const g = GUIAS.find((x) => x.id === 'inicio-paciente')!;
+    expect(g.titulo).toBe('Início do paciente');
+    expect(g.versao).toBe(1);
+    expect(guiaDaRota(`/painel/pacientes/${UUID}`)?.id).toBe('inicio-paciente');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil`)?.id).toBe('prontuario');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/app`)?.id).toBe('prontuario');
+    expect(GUIAS.findIndex((x) => x.id === 'inicio-paciente')).toBeLessThan(GUIAS.findIndex((x) => x.id === 'prontuario'));
+    expect(g.passos.map((p) => p.alvo)).toEqual(['cabecalho-paciente', 'abas-prontuario', 'adicionar-prontuario', 'secoes-inicio']);
+    const prontuario = GUIAS.find((x) => x.id === 'prontuario')!;
+    for (const alvo of ['cabecalho-paciente', 'abas-prontuario']) expect(g.passos.find((p) => p.alvo === alvo)?.texto).toBe(prontuario.passos.find((p) => p.alvo === alvo)?.texto);
+    expect(g.passos.find((p) => p.alvo === 'adicionar-prontuario')?.texto).toBe('Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.');
+    expect(g.passos.find((p) => p.alvo === 'secoes-inicio')?.texto).toBe('Cada seção mostra quantos registros há e os três mais recentes. O selo No app marca o que o paciente vê no app.');
+  });
+  it('nenhum título de guia repetido (o manual completo lista um h2 por guia; "Início" é o de boas-vindas)', () => {
+    expect(new Set(GUIAS.map((g) => g.titulo)).size).toBe(GUIAS.length);
+  });
   it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
     expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');
   });
