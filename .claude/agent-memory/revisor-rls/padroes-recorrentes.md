@@ -402,3 +402,9 @@ Plano 20 (testes de auditoria, 17/11/2026):
   fin_*): a RLS esconde tudo e a contagem volta 0 sempre. O `ownerDatabaseUrl` dos testes é o superusuário do Testcontainers
   (enxerga tudo). Conferir de qual pool vem cada `contar`/`leituras` e se há controle positivo com o mesmo helper.
   Achado: `configuracoes/actions.test.ts` (`contar` no app.pool para `fin_categorias`).
+
+Plano 20, T9 (LGPD do Financeiro, 17/11/2026) — limpa na lente banco. Pontos a conferir em tarefas iguais:
+- Chamada de função SQL de anonimização posta sob condição ("só se há linha") para contornar o `now` injetado dos testes:
+  aceitável só se nenhuma linha pode nascer depois do bloqueio (gatilho de INSERT recusa bloqueado) — conferir isso.
+- Limpeza LGPD nova chamada só pela imagem nova + função que exige `anonimizado_em` nulo: na volta atrás o texto fica e
+  nada o tira depois. Pedir o registro no fechamento (§6.8.1).
