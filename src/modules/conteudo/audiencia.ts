@@ -39,7 +39,7 @@ export function naAudienciaDaLinha(contentId: AnyColumn | SQL, visibilidade: Any
 /**
  * RN-12, exceção (US-054; ampliada pela RN-253 do Plano 19): libera, SÓ nesta transação (set_config local), a leitura
  * dos conteúdos do plano publicado do próprio paciente — a receita sugerida na refeição e o conteúdo publicado ligado
- * ao plano por `plano_conteudos` (política paciente_conteudo_visivel, 0083 e 0131). O nome ficou o de antes. Só "Meu
+ * ao plano por `plano_conteudos` (política paciente_conteudo_visivel, 0083 e 0133). O nome ficou o de antes. Só "Meu
  * plano" (`planoDoPaciente`, src/modules/portal/plano.ts), o conteúdo aberto pelo plano
  * (`conteudoDoPaciente(…, { doPlano: true })`) e o PDF dele (`caminhoDoPdfDoConteudo(…, { doPlano: true })`) chamam —
  * nunca o feed, a busca, os favoritos ou o registro de visualização (guarda em src/modules/portal/conteudos.test.ts).

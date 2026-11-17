@@ -869,6 +869,76 @@
       "when": 1794890410056,
       "tag": "0123_rls_financeiro",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1794895443827,
+      "tag": "0124_plano19_plano_alimentar_2",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1794895451456,
+      "tag": "0125_rls_referencias_nutrientes",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1794895453738,
+      "tag": "0126_rls_refeicoes_modelo",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1794895456403,
+      "tag": "0127_rls_refeicoes_modelo_itens",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1794895458535,
+      "tag": "0128_rls_listas_substituicao",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1794895460703,
+      "tag": "0129_rls_listas_substituicao_grupos",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1794895462879,
+      "tag": "0130_rls_listas_substituicao_itens",
+      "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1794895465007,
+      "tag": "0131_rls_plano_listas_substituicao",
+      "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1794895467327,
+      "tag": "0132_rls_plano_conteudos",
+      "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1794895469580,
+      "tag": "0133_plano19_fks_dias_conteudos",
+      "breakpoints": true
     }
   ]
 }
