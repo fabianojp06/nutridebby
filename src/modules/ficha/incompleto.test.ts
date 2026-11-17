@@ -6,6 +6,7 @@ import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../..
 import * as schema from '@/db/schema';
 import { auditLog, patientCadastro } from '@/db/schema';
 import { TenantContextError, withTenant } from '@/db/tenant';
+import { auditRead } from '@/modules/plataforma/audit';
 import { cadastroIncompleto, presencaDoCadastro, textoDoIncompleto, type PresencaDoCadastro } from './incompleto';
 
 // Plano 18 (D17, RN-269): a nota "Cadastro incompleto" do cartão Resumo — lista fechada de campos, só a PRESENÇA de cada
@@ -28,7 +29,13 @@ const RESTO = { identidadeGenero: 'mulher', estadoCivil: 'solteiro', escolaridad
 async function cadastro(T: TenantDeTeste, patientId: string, valores: Partial<typeof patientCadastro.$inferInsert>) {
   await withTenant(T.ctx, (tx) => tx.insert(patientCadastro).values({ tenantId: T.tenantId, patientId, ...valores }), app.db);
 }
-const trilha = async (T: TenantDeTeste) => (await app.db.select({ n: count() }).from(auditLog).where(eq(auditLog.tenantId, T.tenantId)))[0].n;
+// Conta dentro de withTenant: o nutri_app (NOBYPASSRLS) fora dele não vê linha nenhuma de audit_log (tenant_isolation),
+// e a contagem daria sempre 0.
+const trilha = async (T: TenantDeTeste) =>
+  (await withTenant(T.ctx, (tx) => tx.select({ n: count() }).from(auditLog).where(eq(auditLog.tenantId, T.tenantId)), app.db))[0].n;
+// Controle positivo: um auditRead explícito sobe a contagem (prova que `trilha` enxerga as linhas do tenant).
+const lerDeVerdade = (T: TenantDeTeste, patientId: string) =>
+  withTenant(T.ctx, (tx) => auditRead(tx, { entidade: 'patients', entidadeId: patientId, patientId }), app.db);
 
 describe('textoDoIncompleto (RN-269)', () => {
   it('completo: sem nota', () => {
@@ -107,6 +114,8 @@ describe('presencaDoCadastro (RN-269)', () => {
     const resto = colunas.replace(/"[a-z_]+"\."[a-z_0-9]+" is not null/g, '').replace(/\b(and|or)\b/g, '').replace(/[\s(),]/g, '');
     expect(resto).toBe('');
     expect(colunas).not.toMatch(/"cpf"|"nome_social"|"observacao"|"complemento"/);
+    await lerDeVerdade(T, p.id);
+    expect(await trilha(T)).toBe(antes + 1);
   });
 
   it('outro tenant: o cadastro de B não é lido pelo ctx de A (tudo ausente)', async () => {
@@ -125,9 +134,15 @@ describe('cadastroIncompleto (a nota do Início)', () => {
     const p = await novoPaciente(app.db, T.ctx, { telefoneE164: '+5511999990000' });
     const antes = await trilha(T);
     expect(await cadastroIncompleto(T.ctx, p.id, { db: app.db })).toBe('Cadastro incompleto: faltam 7 dados.');
-    await cadastro(T, p.id, { ...ENDERECO, ...RESTO });
-    expect(await cadastroIncompleto(T.ctx, p.id, { db: app.db })).toBeNull();
     expect(await trilha(T)).toBe(antes);
+    // o INSERT do cadastro grava o próprio "criar" (gatilho de auditoria): mede de novo depois dele
+    await cadastro(T, p.id, { ...ENDERECO, ...RESTO });
+    const depoisDoCadastro = await trilha(T);
+    expect(depoisDoCadastro).toBe(antes + 1);
+    expect(await cadastroIncompleto(T.ctx, p.id, { db: app.db })).toBeNull();
+    expect(await trilha(T)).toBe(depoisDoCadastro);
+    await lerDeVerdade(T, p.id);
+    expect(await trilha(T)).toBe(depoisDoCadastro + 1);
   });
 
   it('id malformado: nulo, sem consultar', async () => {
