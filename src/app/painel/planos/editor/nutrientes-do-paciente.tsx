@@ -129,9 +129,10 @@ function TodosOsNutrientes({ resumo, comPerfil }: { resumo: ResumoDeNutrientes; 
   if (resumo.tipo !== 'linhas') return <div className="mt-2"><Resumo resumo={resumo} /></div>;
   const celula = (l: LinhaDoNutriente) => (l.acimaDoMaximo ? `${l.total} — ${MSG_NUTRIENTES.acimaDoMaximo(l.maximo!)}` : l.total);
   return (
-    <div className="mt-2 overflow-x-auto">
+    // a tabela pode passar da largura no celular: a faixa rola e recebe o foco do teclado, com o contorno para dentro (D25)
+    <div role="region" aria-labelledby="todos-nutrientes-legenda" tabIndex={0} className="mt-2 overflow-x-auto p-2 focus-visible:outline-offset-[-3px]">
       <table className="text-sm">
-        <caption className="sr-only">Todos os nutrientes do dia</caption>
+        <caption id="todos-nutrientes-legenda" className="sr-only">Todos os nutrientes do dia</caption>
         <thead>
           <tr>
             <th scope="col" className="pr-3 text-left">Nutriente</th>

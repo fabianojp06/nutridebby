@@ -101,7 +101,7 @@ function DialogoSalvar({ refeicao, modo, aoFechar }: { refeicao: RefeicaoEstado;
       aria-labelledby={`${id}-titulo`}
       aria-describedby={`${id}-aviso`}
       onClose={() => aoFechar(salva.current)}
-      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-2xl border border-borda bg-cartao p-4 text-texto backdrop:bg-black/50"
+      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-2xl border border-borda bg-cartao p-4 text-texto backdrop:bg-[rgb(0_0_0/0.5)]"
     >
       <h2 id={`${id}-titulo`} className="font-titulo text-xl font-semibold">{MSG_MINHAS_REFEICOES.dialogo}</h2>
       <p id={`${id}-aviso`} className="mt-2 text-sm font-semibold text-aviso">{MSG_MINHAS_REFEICOES.aviso}</p>

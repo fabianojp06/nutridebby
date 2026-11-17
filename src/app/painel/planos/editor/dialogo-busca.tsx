@@ -125,7 +125,7 @@ export function DialogoBuscaAlimento({ destino, podeAdicionar, aoAdicionar, aoFe
       ref={dialogo}
       aria-labelledby={`${id}-titulo`}
       onClose={aoFechar}
-      className="m-auto max-h-[90vh] w-[min(48rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-borda bg-cartao p-4 text-texto backdrop:bg-black/50"
+      className="m-auto max-h-[90vh] w-[min(48rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-borda bg-cartao p-4 text-texto backdrop:bg-[rgb(0_0_0/0.5)]"
     >
       <div className="flex items-start justify-between gap-3">
         <h2 id={`${id}-titulo`} className="font-titulo text-xl font-semibold">{MSG_BUSCA.titulo}</h2>
@@ -150,7 +150,7 @@ export function DialogoBuscaAlimento({ destino, podeAdicionar, aoAdicionar, aoFe
               aria-describedby={desabilitada ? `${id}-sem-item` : undefined}
               tabIndex={aba === a ? 0 : -1}
               onClick={() => { if (!desabilitada) setAba(a); }}
-              className={`inline-flex min-h-11 items-center px-3 ${aba === a ? 'border-b-2 border-destaque font-semibold' : 'text-suave'} ${desabilitada ? 'cursor-not-allowed opacity-60' : ''}`}
+              className={`inline-flex min-h-11 items-center px-3 ${aba === a ? 'border-b-2 border-marca font-semibold' : 'text-suave'} ${desabilitada ? 'cursor-not-allowed opacity-60' : ''}`}
             >
               {MSG_BUSCA.abas[a]}
             </button>

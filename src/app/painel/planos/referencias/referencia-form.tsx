@@ -7,7 +7,8 @@ import { FONTE_REFERENCIA_MAX, MSG_REFERENCIAS, NOME_REFERENCIA_MAX, nomeDoCampo
 import type { ReferenciaState } from './actions';
 
 type Acao = (s: ReferenciaState, fd: FormData) => Promise<ReferenciaState>;
-const NUMERO = 'w-28 rounded-xl border border-campo bg-cartao p-2 text-texto';
+// os campos ficam na faixa com rolagem da tabela: o contorno do foco vai para dentro, senão é cortado (D25)
+const NUMERO = 'w-28 rounded-xl border border-campo bg-cartao p-2 text-texto focus-visible:outline-offset-[-3px]';
 
 /**
  * US-232 (RN-238): nome, fonte (obrigatória) e, por nutriente do catálogo, a meta e/ou o máximo do dia. Os erros ficam

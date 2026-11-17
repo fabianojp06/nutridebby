@@ -21,7 +21,7 @@ export function FiltroDias({ filtro, aoEscolher, legenda }: { filtro: FiltroDia;
             type="button"
             aria-pressed={filtro === d}
             onClick={() => aoEscolher(d)}
-            className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border px-3 ${filtro === d ? 'border-destaque bg-destaque font-semibold text-white' : 'border-campo bg-cartao text-texto hover:bg-linha'}`}
+            className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border px-3 ${filtro === d ? 'border-marca bg-destaque font-semibold text-white' : 'border-campo bg-cartao text-texto hover:bg-linha'}`}
           >
             {d === 'todos' ? 'Todos' : DIA_CURTO[d]}
           </button>
