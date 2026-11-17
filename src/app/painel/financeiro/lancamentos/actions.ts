@@ -76,13 +76,17 @@ function voltarALista(r: { mes: string; antesDoSaldo: boolean }, prev: Lancament
 }
 
 const ORIGEM = 'http://financeiro.invalid';
-const CAMINHO_DE_VOLTA =
-  /^\/painel\/financeiro\/lancamentos(?:\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/;
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+/** A lista, a edição de um lançamento ou "Pagamentos pendentes de {nome}" (receber no detalhe, US-304). */
+const CAMINHO_DE_VOLTA = new RegExp(
+  `^/painel/financeiro/(?:lancamentos(?:/${UUID})?|pendencias/${UUID})$`,
+);
 
 /**
  * Receber, desfazer e cancelar voltam à tela de onde vieram (a lista com os filtros, ou a edição), com o `ok=` e um envio
  * novo (§7: foco no h1 e a mensagem na região fixa, mesmo que a linha saia da lista). O `volta` do formulário só vale
- * se for a lista ou a edição de um lançamento, no mesmo site; da lista só ficam os filtros conhecidos. Senão, a lista.
+ * se for a lista, a edição de um lançamento ou as pendências de um paciente, no mesmo site; da lista só ficam os filtros
+ * conhecidos. Senão, a lista.
  */
 function destino(volta: string, ok: string, prev: LancamentoState): string {
   let u: URL | null = null;

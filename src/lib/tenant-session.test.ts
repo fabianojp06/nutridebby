@@ -3,7 +3,9 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
-import { criarEEntrar } from '../../test/sessao';
+import { novoTenant } from '../../test/pacientes';
+import { pacienteComConta } from '../../test/portal';
+import { criarEEntrar, entrar } from '../../test/sessao';
 import { getAuth } from './auth';
 
 const req = vi.hoisted(() => ({ headers: new Headers() }));
@@ -123,5 +125,21 @@ describe('requireApiNutri (F7)', () => {
     const r = await requireApiNutri(pedir(nutri.cookie));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(await r.response.json()).toEqual({ erro: 'Conta temporariamente indisponível' });
+  });
+
+  it('Plano 20 (T8): a recusa diz o motivo — sem sessão, DPA pendente ou papel — sem a rota ler o corpo', async () => {
+    const motivo = async (cookie?: string) => {
+      const r = await requireApiNutri(pedir(cookie));
+      return r.ok ? 'ok' : [r.motivo, r.response.status];
+    };
+    expect(await motivo()).toEqual(['sem_sessao', 401]);
+    const { tenant, nutri } = await nutriComTenant();
+    expect(await motivo(nutri.cookie)).toEqual(['dpa_pendente', 403]);
+    await registrarAceiteDpa(db, { userId: nutri.id, tenantId: tenant.id, ip: null });
+    expect(await motivo(nutri.cookie)).toBe('ok');
+    const { email } = await pacienteComConta(db, await novoTenant(db));
+    expect(await motivo(await entrar(getAuth(), email))).toEqual(['papel', 403]);
+    const admin = await criarEEntrar(db, getAuth(), { appRole: 'admin', twoFactorEnabled: true });
+    expect(await motivo(admin.cookie)).toEqual(['papel', 403]);
   });
 });

@@ -1,11 +1,11 @@
 import { and, asc, desc, eq, gte, isNotNull, isNull, lt, lte, or, sql, type Column, type SQL } from 'drizzle-orm';
-import { getDb, type Db } from '@/db/client';
+import { getDb, type Db, type Tx } from '@/db/client';
 import { finCategorias, finLancamentos, patients, type TipoLancamento } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { idValido } from '@/modules/pacientes/base';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { auditRead } from '@/modules/plataforma/audit';
-import { configuracaoNaTransacao } from './configuracoes';
+import { configuracaoNaTransacao, type Configuracao } from './configuracoes';
 import { exigirNutri } from './erros';
 import { naTela, selecionarNaTela } from './lancamentos';
 import { intervaloDoMes, mesDe, mesesDoAno, ultimos12Meses } from './meses';
@@ -118,111 +118,116 @@ export async function resumoDoMes(ctx: TenantContext, tenant: Tenant, deps: Deps
  */
 export async function fluxoDeCaixaDoAno(ctx: TenantContext, tenant: Tenant, ano: number, deps: Deps = {}): Promise<FluxoDoAno> {
   exigirNutri(ctx);
+  conferirAno(ano);
+  return withTenant(ctx, async (tx) => fluxoNaTransacao(tx, ctx.tenantId, ano, await configuracaoNaTransacao(tx)), deps.db ?? getDb());
+}
+
+/** RangeError fora de 2000 a 2100 (a rota e a tela conferem antes). */
+function conferirAno(ano: number): void {
   if (!Number.isInteger(ano) || ano < 2000 || ano > 2100) throw new RangeError('financeiro: ano fora da faixa');
+}
+
+/** `fluxoDeCaixaDoAno` na transação de quem chama (a tela de Relatórios e o CSV do fluxo, RNF-301), com a configuração já lida. */
+export async function fluxoNaTransacao(tx: Tx, tenantId: string, ano: number, config: Configuracao | null): Promise<FluxoDoAno> {
+  conferirAno(ano);
   const meses = mesesDoAno(ano);
   const de = `${ano}-01-01`;
   const ate = `${ano}-12-31`;
-  return withTenant(
-    ctx,
-    async (tx) => {
-      const config = await configuracaoNaTransacao(tx);
-      // left join: a categoria sem movimento no ano volta numa linha só, com mês nulo
-      const celulas = await tx
-        .select({
-          id: finCategorias.id,
-          tipo: finCategorias.tipo,
-          nome: finCategorias.nome,
-          arquivada: sql<boolean>`${finCategorias.arquivadaEm} is not null`,
-          mes: mesDoPagamento,
-          valor: somaTudo,
-        })
-        .from(finCategorias)
-        .leftJoin(
-          L,
-          and(eq(L.tenantId, finCategorias.tenantId), eq(L.categoriaId, finCategorias.id), ativo, pago, entre(L.pagoEm, de, ate)),
-        )
-        .where(eq(finCategorias.tenantId, ctx.tenantId))
-        .groupBy(finCategorias.id, mesDoPagamento)
-        .orderBy(asc(finCategorias.tipo), sql`${finCategorias.chave} is null`, sql`lower(${finCategorias.nome})`, asc(finCategorias.id));
+  // left join: a categoria sem movimento no ano volta numa linha só, com mês nulo
+  const celulas = await tx
+    .select({
+      id: finCategorias.id,
+      tipo: finCategorias.tipo,
+      nome: finCategorias.nome,
+      arquivada: sql<boolean>`${finCategorias.arquivadaEm} is not null`,
+      mes: mesDoPagamento,
+      valor: somaTudo,
+    })
+    .from(finCategorias)
+    .leftJoin(
+      L,
+      and(eq(L.tenantId, finCategorias.tenantId), eq(L.categoriaId, finCategorias.id), ativo, pago, entre(L.pagoEm, de, ate)),
+    )
+    .where(eq(finCategorias.tenantId, tenantId))
+    .groupBy(finCategorias.id, mesDoPagamento)
+    .orderBy(asc(finCategorias.tipo), sql`${finCategorias.chave} is null`, sql`lower(${finCategorias.nome})`, asc(finCategorias.id));
 
-      const linhas = new Map<string, LinhaFluxo & { tipo: TipoLancamento; arquivada: boolean; comMovimento: boolean }>();
-      for (const c of celulas) {
-        const linha = linhas.get(c.id) ?? { categoria: c.nome, valores: Array(12).fill(0), tipo: c.tipo, arquivada: c.arquivada, comMovimento: false };
-        linhas.set(c.id, linha);
-        if (c.mes) {
-          linha.valores[meses.indexOf(c.mes)] = centavos(c.valor);
-          linha.comMovimento = true;
-        }
-      }
-      const visiveis = [...linhas.values()].filter((l) => !l.arquivada || l.comMovimento);
-      const doTipo = (tipo: TipoLancamento) => visiveis.filter((l) => l.tipo === tipo).map(({ categoria, valores }) => ({ categoria, valores }));
-      const categoriasEntrada = doTipo('entrada');
-      const categoriasSaida = doTipo('saida');
-      const somaPorMes = (ls: LinhaFluxo[]) => meses.map((_, i) => ls.reduce((s, l) => s + l.valores[i], 0));
-      const totalEntradas = somaPorMes(categoriasEntrada);
-      const totalSaidas = somaPorMes(categoriasSaida);
-      const resultado = totalEntradas.map((e, i) => e - totalSaidas[i]);
+  const linhas = new Map<string, LinhaFluxo & { tipo: TipoLancamento; arquivada: boolean; comMovimento: boolean }>();
+  for (const c of celulas) {
+    const linha = linhas.get(c.id) ?? { categoria: c.nome, valores: Array(12).fill(0), tipo: c.tipo, arquivada: c.arquivada, comMovimento: false };
+    linhas.set(c.id, linha);
+    if (c.mes) {
+      linha.valores[meses.indexOf(c.mes)] = centavos(c.valor);
+      linha.comMovimento = true;
+    }
+  }
+  const visiveis = [...linhas.values()].filter((l) => !l.arquivada || l.comMovimento);
+  const doTipo = (tipo: TipoLancamento) => visiveis.filter((l) => l.tipo === tipo).map(({ categoria, valores }) => ({ categoria, valores }));
+  const categoriasEntrada = doTipo('entrada');
+  const categoriasSaida = doTipo('saida');
+  const somaPorMes = (ls: LinhaFluxo[]) => meses.map((_, i) => ls.reduce((s, l) => s + l.valores[i], 0));
+  const totalEntradas = somaPorMes(categoriasEntrada);
+  const totalSaidas = somaPorMes(categoriasSaida);
+  const resultado = totalEntradas.map((e, i) => e - totalSaidas[i]);
 
-      const saldoInicio: (number | null)[] = Array(12).fill(null);
-      const saldoFim: (number | null)[] = Array(12).fill(null);
-      if (config && config.saldoInicialEm <= ate) {
-        const mesDoSaldo = mesDe(config.saldoInicialEm);
-        const noAno = mesDoSaldo >= meses[0];
-        const fimDoMesDoSaldo = intervaloDoMes(mesDoSaldo).ate;
-        // antes do ano (saldo de um ano anterior) ou do mês do saldo até o fim dele (saldo neste ano); tudo no WHERE, para a
-        // faixa de pago_em ir pelo fin_lancamentos_pago_idx (RNF-301)
-        const [s] = await tx
-          .select({ movimento: somaMovimento })
-          .from(L)
-          .where(
-            and(eq(L.tenantId, ctx.tenantId), ativo, pago, gte(L.pagoEm, config.saldoInicialEm), noAno ? lte(L.pagoEm, fimDoMesDoSaldo) : lt(L.pagoEm, de)),
-          );
-        const base = config.saldoInicialCentavos + centavos(s.movimento);
-        // saldo de um ano anterior: `base` é o início de janeiro; neste ano: `base` é o fim do mês do saldo
-        let anterior: number | null = noAno ? null : base;
-        meses.forEach((mes, i) => {
-          if (mes < mesDoSaldo) return;
-          if (mes === mesDoSaldo) saldoFim[i] = base;
-          else {
-            saldoInicio[i] = anterior;
-            saldoFim[i] = anterior! + resultado[i];
-          }
-          anterior = saldoFim[i];
-        });
+  const saldoInicio: (number | null)[] = Array(12).fill(null);
+  const saldoFim: (number | null)[] = Array(12).fill(null);
+  if (config && config.saldoInicialEm <= ate) {
+    const mesDoSaldo = mesDe(config.saldoInicialEm);
+    const noAno = mesDoSaldo >= meses[0];
+    const fimDoMesDoSaldo = intervaloDoMes(mesDoSaldo).ate;
+    // antes do ano (saldo de um ano anterior) ou do mês do saldo até o fim dele (saldo neste ano); tudo no WHERE, para a
+    // faixa de pago_em ir pelo fin_lancamentos_pago_idx (RNF-301)
+    const [s] = await tx
+      .select({ movimento: somaMovimento })
+      .from(L)
+      .where(
+        and(eq(L.tenantId, tenantId), ativo, pago, gte(L.pagoEm, config.saldoInicialEm), noAno ? lte(L.pagoEm, fimDoMesDoSaldo) : lt(L.pagoEm, de)),
+      );
+    const base = config.saldoInicialCentavos + centavos(s.movimento);
+    // saldo de um ano anterior: `base` é o início de janeiro; neste ano: `base` é o fim do mês do saldo
+    let anterior: number | null = noAno ? null : base;
+    meses.forEach((mes, i) => {
+      if (mes < mesDoSaldo) return;
+      if (mes === mesDoSaldo) saldoFim[i] = base;
+      else {
+        saldoInicio[i] = anterior;
+        saldoFim[i] = anterior! + resultado[i];
       }
-      return {
-        ano,
-        meses,
-        categoriasEntrada,
-        categoriasSaida,
-        totalEntradas,
-        totalSaidas,
-        resultado,
-        saldoInicio,
-        saldoFim,
-        saldoDesde: config?.saldoInicialEm ?? null,
-      };
-    },
-    deps.db ?? getDb(),
-  );
+      anterior = saldoFim[i];
+    });
+  }
+  return {
+    ano,
+    meses,
+    categoriasEntrada,
+    categoriasSaida,
+    totalEntradas,
+    totalSaidas,
+    resultado,
+    saldoInicio,
+    saldoFim,
+    saldoDesde: config?.saldoInicialEm ?? null,
+  };
 }
 
 /** US-306 "Entradas e saídas nos últimos 12 meses": recebidos e pagos, não cancelados, do mês de hoje e dos 11 anteriores. */
 export async function entradasESaidas12Meses(ctx: TenantContext, tenant: Tenant, deps: Deps = {}): Promise<EntradasESaidasDoMes[]> {
   exigirNutri(ctx);
-  const meses = ultimos12Meses(hojeNoFuso(tenant.fuso, deps.agora ?? new Date()));
+  const hoje = hojeNoFuso(tenant.fuso, deps.agora ?? new Date());
+  return withTenant(ctx, (tx) => dozeMesesNaTransacao(tx, ctx.tenantId, hoje), deps.db ?? getDb());
+}
+
+/** `entradasESaidas12Meses` na transação de quem chama (a tela de Relatórios, RNF-301). */
+export async function dozeMesesNaTransacao(tx: Tx, tenantId: string, hoje: string): Promise<EntradasESaidasDoMes[]> {
+  const meses = ultimos12Meses(hoje);
   const de = `${meses[0]}-01`;
   const { ate } = intervaloDoMes(meses[11]);
-  const porMes = await withTenant(
-    ctx,
-    (tx) =>
-      tx
-        .select({ mes: mesDoPagamento, entradas: soma(entrada), saidas: soma(saida) })
-        .from(L)
-        .where(and(eq(L.tenantId, ctx.tenantId), ativo, pago, entre(L.pagoEm, de, ate)))
-        .groupBy(mesDoPagamento),
-    deps.db ?? getDb(),
-  );
+  const porMes = await tx
+    .select({ mes: mesDoPagamento, entradas: soma(entrada), saidas: soma(saida) })
+    .from(L)
+    .where(and(eq(L.tenantId, tenantId), ativo, pago, entre(L.pagoEm, de, ate)))
+    .groupBy(mesDoPagamento);
   const doMes = new Map(porMes.map((m) => [m.mes, m]));
   return meses.map((mes) => {
     const m = doMes.get(mes);
@@ -239,26 +244,26 @@ export async function entradasESaidas12Meses(ctx: TenantContext, tenant: Tenant,
 export async function pagamentosPendentes(ctx: TenantContext, tenant: Tenant, deps: Deps = {}): Promise<PagamentoPendente[]> {
   exigirNutri(ctx);
   const hoje = hojeNoFuso(tenant.fuso, deps.agora ?? new Date());
+  return withTenant(ctx, (tx) => pendentesNaTransacao(tx, ctx.tenantId, hoje), deps.db ?? getDb());
+}
+
+/** `pagamentosPendentes` na transação de quem chama (a tela "Pagamentos pendentes", RNF-301), também sem `auditRead`. */
+export async function pendentesNaTransacao(tx: Tx, tenantId: string, hoje: string): Promise<PagamentoPendente[]> {
   const maisAntiga = sql<string>`min(${L.vencimento})::text`;
-  const linhas = await withTenant(
-    ctx,
-    (tx) =>
-      tx
-        .select({
-          id: patients.id,
-          nome: patients.nome,
-          total: somaTudo,
-          quantidade: sql<number>`count(*)::int`,
-          maisAntiga,
-          emAtraso: sql<boolean>`bool_or(${L.vencimento} < ${hoje})`,
-        })
-        .from(L)
-        .innerJoin(patients, and(eq(patients.tenantId, L.tenantId), eq(patients.id, L.patientId)))
-        .where(and(eq(L.tenantId, ctx.tenantId), pendenteDoPaciente))
-        .groupBy(patients.id, patients.nome)
-        .orderBy(asc(maisAntiga), asc(patients.nome), asc(patients.id)),
-    deps.db ?? getDb(),
-  );
+  const linhas = await tx
+    .select({
+      id: patients.id,
+      nome: patients.nome,
+      total: somaTudo,
+      quantidade: sql<number>`count(*)::int`,
+      maisAntiga,
+      emAtraso: sql<boolean>`bool_or(${L.vencimento} < ${hoje})`,
+    })
+    .from(L)
+    .innerJoin(patients, and(eq(patients.tenantId, L.tenantId), eq(patients.id, L.patientId)))
+    .where(and(eq(L.tenantId, tenantId), pendenteDoPaciente))
+    .groupBy(patients.id, patients.nome)
+    .orderBy(asc(maisAntiga), asc(patients.nome), asc(patients.id));
   return linhas.map((p) => ({ paciente: { id: p.id, nome: p.nome }, total: centavos(p.total), quantidade: p.quantidade, maisAntiga: p.maisAntiga, emAtraso: p.emAtraso }));
 }
 

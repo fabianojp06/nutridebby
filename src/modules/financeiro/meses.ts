@@ -1,3 +1,5 @@
+import { dataValida } from '@/modules/pacientes/datas';
+
 /**
  * Calendário do Financeiro: dias 'AAAA-MM-DD' e meses 'AAAA-MM', já no fuso do consultório (RN-305/RN-306). Só aritmética
  * de calendário em UTC — nada de `Date` local, que mudaria com o fuso do servidor. Formato errado é erro de programação
@@ -58,4 +60,15 @@ export function diasEntre(de: string, ate: string): number {
   const [a1, m1, d1] = partesDoDia(de);
   const [a2, m2, d2] = partesDoDia(ate);
   return Math.round((Date.UTC(a2, m2 - 1, d2) - Date.UTC(a1, m1 - 1, d1)) / 86_400_000);
+}
+
+/** RN-321: o período do CSV dos lançamentos tem no máximo 366 dias, contando o primeiro e o último. */
+export const PERIODO_MAX_DIAS = 366;
+
+/**
+ * O período do CSV (US-306): "De" e "Até" datas que existem, "De" ≤ "Até" e no máximo 366 dias. Puro: o formulário confere
+ * antes de navegar e a rota confere de novo.
+ */
+export function periodoValido(de: string, ate: string): boolean {
+  return dataValida(de) && dataValida(ate) && de <= ate && diasEntre(de, ate) + 1 <= PERIODO_MAX_DIAS;
 }

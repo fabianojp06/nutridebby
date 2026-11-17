@@ -376,6 +376,27 @@ describe('receber, desfazer e cancelar (US-302)', () => {
     ).toBe(`${LISTA}/${id}`);
   });
 
+  it('Plano 20 (T8): receber no detalhe "Pagamentos pendentes de {nome}" volta para ele, sem outros parâmetros', async () => {
+    const C = await cenario();
+    const { id } = await gravada(C);
+    const pendencias = `/painel/financeiro/pendencias/${C.p}`;
+    const [caminho, q] = partes(
+      await destino(
+        receberLancamentoAction({}, formulario({ id, volta: `${pendencias}?ok=recebido&x=1`, pagoEm: C.hoje, forma: 'pix' })),
+      ),
+    );
+    expect([caminho, Object.keys(q).sort()]).toEqual([pendencias, ['envio', 'ok']]);
+    expect(q.ok).toBe('recebido');
+    const outro = await gravada(C);
+    expect(
+      partes(
+        await destino(
+          receberLancamentoAction({}, formulario({ id: outro.id, volta: '/painel/financeiro/pendencias/nao-e-id', pagoEm: C.hoje, forma: 'pix' })),
+        ),
+      )[0],
+    ).toBe(LISTA);
+  });
+
   it('receber com erro devolve os erros e o digitado; desfazer volta com ?ok=salvo e limpa a data', async () => {
     const C = await cenario();
     const { id } = await gravada(C);
