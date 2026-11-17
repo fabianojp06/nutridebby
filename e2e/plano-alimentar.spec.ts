@@ -229,8 +229,8 @@ test('editor: edição em outra aba mostra o aviso de conflito e o salvamento n�
   await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
 });
 
-test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o motivo; erro geral do servidor aparece na tela (US-022)', async () => {
-  const LIMITE = 'O plano pode ter até 15 refeições e 200 itens.';
+test('editor: limites de 50 refeições e 400 itens bloqueiam "Adicionar" com o motivo; erro geral do servidor aparece na tela (US-022)', async () => {
+  const LIMITE = 'O plano pode ter até 50 refeições e 400 itens.'; // RN-249 (Plano 19)
   // Paciente próprio: o plano do teste anterior segue como as próximas tarefas esperam
   await nutri.goto('/painel/pacientes/novo');
   await nutri.getByLabel('Nome').fill(`Paciente Limites ${sufixo}`);
@@ -246,15 +246,15 @@ test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o 
   const planoUrl = new URL(nutri.url()).pathname;
   const api = `/api/painel/planos/${planoUrl.split('/').pop()}`;
 
-  // 15 refeições e 200 itens chegam ao servidor pela própria API (a tela não deixa passar disso)
+  // 50 refeições e 400 itens (8 em cada) chegam ao servidor pela própria API (a tela não deixa passar disso)
   const atual = (await (await nutri.request.get(api)).json()) as { revisao: number; titulo: string };
   const chuchu = '00000000-0000-4000-8000-000000000112';
-  const refeicoes = Array.from({ length: 15 }, (_, k) => ({
+  const refeicoes = Array.from({ length: 50 }, (_, k) => ({
     id: randomUUID(),
     nome: `Refeição ${k + 1}`,
     horario: '',
     observacao: '',
-    itens: k === 0 ? Array.from({ length: 200 }, () => ({ id: randomUUID(), foodId: chuchu, quantidadeG: '10', medida: null, substituiItemId: null })) : [],
+    itens: Array.from({ length: 8 }, () => ({ id: randomUUID(), foodId: chuchu, quantidadeG: '10', medida: null, substituiItemId: null })),
   }));
   const r = await nutri.request.put(api, { data: { revisao: atual.revisao, envio: randomUUID(), titulo: atual.titulo, metaKcal: '', energyCalcId: null, mostrarCalorias: false, orientacoes: '', refeicoes } });
   expect(r.status()).toBe(200);
@@ -262,14 +262,14 @@ test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o 
   await nutri.reload();
   await expect(nutri.getByRole('button', { name: 'Adicionar refeição' })).toBeDisabled();
   await expect(nutri.locator('#limite-refeicoes')).toHaveText(LIMITE);
-  await expect(nutri.getByLabel(/^Adicionar alimento em/)).toHaveCount(0); // 200 itens: sem busca, com o motivo
+  await expect(nutri.getByLabel(/^Adicionar alimento em/)).toHaveCount(0); // 400 itens: sem busca, com o motivo
   const substituir = nutri.getByRole('button', { name: /^Adicionar substituição para/ }).first();
   await expect(substituir).toBeDisabled(); // a substituição também é item: no limite não abre a busca e aponta o motivo
   await expect(substituir).toHaveAccessibleDescription(LIMITE);
-  await expect(nutri.getByText(LIMITE)).toHaveCount(16); // 1 do botão + 1 em cada refeição
+  await expect(nutri.getByText(LIMITE)).toHaveCount(51); // 1 do botão + 1 em cada uma das 50 refeições
 
   nutri.once('dialog', (d) => void d.accept());
-  await nutri.getByRole('button', { name: 'Remover refeição' }).last().click(); // 14 refeições: volta a poder adicionar
+  await nutri.getByRole('button', { name: 'Remover refeição' }).last().click(); // 49 refeições e 392 itens: volta a poder adicionar
   await expect(nutri.getByRole('button', { name: 'Adicionar refeição' })).toBeEnabled();
   await expect(nutri.locator('#limite-refeicoes')).toHaveCount(0);
   await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
