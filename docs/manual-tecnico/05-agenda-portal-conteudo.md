@@ -561,12 +561,12 @@ não é disputado (spec §4, abordagem 2).
 
 | Peça | Arquivo | Papel |
 |---|---|---|
-| Limites, prioridades e textos | `src/modules/lembretes/constantes.ts` | Janela `06:00`–`22:00` (`JANELA_INICIO`/`JANELA_FIM`, `:10-13`), `TETO_POR_DIA = 24` (`:15`), `PRIORIDADE` (`:26`), `TEXTOS_PUSH` e `TITULO_PUSH` (`:32-42`), mensagens de validação e formatadores dos resumos. Sem banco: o painel e o portal (cliente) também importam |
-| Configuração | `src/modules/lembretes/config.ts` | Tipos por `tipo`, `validarLembrete` (`:117`, formulário da equipe), `validarConfig` (`:128`, o worker revalida o `config` de cada linha **sem** o texto) e `sugestaoInicial` (`:134`) |
-| Plano do dia | `src/modules/lembretes/slots.ts` | `planoDoDia` (`:118`) e `maiorDiaDaSemana` (`:129`), puros, sobre `calcular` (`:33`) |
-| Equipe | `src/modules/lembretes/equipe.ts` | `lembretesDoPaciente` (`:89`), `salvarLembrete` (`:141`), `ligarLembrete` (`:210`), `apagarLembrete` (`:226`) |
+| Limites, prioridades e textos | `src/modules/lembretes/constantes.ts` | Janela `06:00`–`22:00` (`JANELA_INICIO`/`JANELA_FIM`, `:16-17`), `TETO_POR_DIA = 24` (`:21`), `PRIORIDADE` (`:32`), `TEXTOS_PUSH` e `TITULO_PUSH` (`:32-42`), mensagens de validação e formatadores dos resumos. Sem banco: o painel e o portal (cliente) também importam |
+| Configuração | `src/modules/lembretes/config.ts` | Tipos por `tipo`, `validarLembrete` (`:121`, formulário da equipe), `validarConfig` (`:132`, o worker revalida o `config` de cada linha **sem** o texto) e `sugestaoInicial` (`:134`) |
+| Plano do dia | `src/modules/lembretes/slots.ts` | `planoDoDia` (`:126`) e `maiorDiaDaSemana` (`:138`), puros, sobre `calcular` (`:37`); desde o Plano 19, `RefeicaoDoPlano` (`:17`) traz os `dias` e a refeição de outro dia não gera slot |
+| Equipe | `src/modules/lembretes/equipe.ts` | `lembretesDoPaciente` (`:93`), `salvarLembrete` (`:145`), `ligarLembrete` (`:214`), `apagarLembrete` (`:230`) |
 | Paciente | `src/modules/lembretes/paciente.ts` | `meusLembretes` (`:57`), `desligarMeuLembrete` (`:89`), `pausarMeusLembretes` (`:110`), `temLembretes` (`:127`), `temLembretesNaTela` (`:147`) |
-| Envio | `src/modules/lembretes/envio.ts` | `processarLembretes` (`:278`), só no worker |
+| Envio | `src/modules/lembretes/envio.ts` | `processarLembretes` (`:284`), só no worker |
 | Dispositivos | `src/modules/notificacoes/push-dispositivos.ts` | `inscricoesDosPacientes` (`:23`) e `enviarAosDispositivos` (`:44`): o laço por dispositivo e a limpeza das inscrições mortas, extraídos de `enviarPush` (`enviar.ts`), que passou a usá-los. Só no worker (guarda de grafo em `push.test.ts`) |
 
 **Tipos e texto da tela de bloqueio** (título `NutriDebby`, `TEXTOS_PUSH`; o toque abre a tela com `?v=<tenantId>`,
@@ -616,7 +616,7 @@ do paciente como ativos (também os desligados pela equipe ou pelo paciente, com
 refeições do plano publicado. Por isso ligar e religar não conferem o teto. A publicação do plano **não** é barrada: se o
 plano novo passar do teto, o worker corta, e a seção do painel avisa.
 
-**O job `lembretes-rotina`** (cron `* * * * *` em `src/worker/index.ts:115`; fila em `src/jobs/queues.ts:41`:
+**O job `lembretes-rotina`** (cron `* * * * *` em `src/worker/index.ts:115`; fila em `src/jobs/queues.ts:47`:
 `retryLimit: 0`, expira em 120 s; um job por vez):
 
 ```mermaid
@@ -745,10 +745,20 @@ prontuário e sai na hora.
   tenant `FOR SHARE` antes de gravar a marca; apagar antes faria um ciclo).
 - **Anonimização** (`anonimizarVencidos`, contexto `worker`): limpa a pausa (`lgpd.ts:565`) e apaga os lembretes gravados
   depois do bloqueio (`:583`).
-- **Exportação** (`montarDados`, `src/modules/pacientes/exportacao-job.ts`): `paciente.lembretesPausadosEm` (`:113`) e a
-  chave nova `lembretesDeRotina` (`:181`: `tipo`, `config`, `texto`, `ligado`, `desligadoPeloPacienteEm`, `criadoEm`), nos
+- **Exportação** (`montarDados`, `src/modules/pacientes/exportacao-job.ts`): `paciente.lembretesPausadosEm` (`:126`) e a
+  chave nova `lembretesDeRotina` (`:217`: `tipo`, `config`, `texto`, `ligado`, `desligadoPeloPacienteEm`, `criadoEm`), nos
   dois escopos (equipe e titular), sem a marca de envio nem quem criou. A chave `lembretes` continua sendo a das mensagens
   das consultas (Plano 05).
+
+**Lembretes por dia (Plano 19, RN-247 f, CS-233, D28).** `DiaDaSemana` e `rotuloDosDias` passaram a morar em
+`src/modules/plano-alimentar/dias.ts` (reexportados por `lembretes/config.ts` e `lembretes/constantes.ts` para quem já
+importava). A leitura do worker traz `dias_semana` de cada refeição do plano publicado, e `planoDoDia` pula a refeição
+que não vale no dia (numa terça, sai o "Almoço" de seg–sex às 12:00 e não o de sáb–dom às 13:00); o "já registrou?" do
+pedido de registro no diário olha só as refeições de hoje (`registradasNoDiario`, `envio.ts:118`: o rótulo da
+"Colação" de sábado não cala a de terça); na tela da equipe, o previsto de hoje e o teto de 24 por dia contam as
+refeições de cada dia (seg–sex e sáb–dom não se somam). Os **avisos de horário** da equipe (refeição fora da janela das
+06:00 às 22:00, `refeicoesForaDaJanela`) continuam olhando o plano inteiro: a "Ceia" só de sábado às 22:30 aparece no
+aviso numa segunda (divergência #28).
 
 ---
 
@@ -1113,7 +1123,8 @@ sequenceDiagram
   avaliação para ver a evolução" — que diria que houve medição (RN-214; revisão final do Plano 16). Com série mas nada a
   comparar, continua o `MSG_POUCOS_DADOS`.
 - Lista de compras (RN-13, P06 D15): itens principais do plano publicado × dias (1 a 14, padrão 7), agrupados pelo
-  grupo do alimento (`listaDeCompras`). Arredonda a 1 casa antes de escolher g ou kg (`quantidadeTexto`: 999,99 g →
+  grupo do alimento (`listaDeCompras`). Desde o Plano 19 (RN-248), cada item conta só nos dias da janela em que a
+  refeição vale, a partir de hoje, e o texto livre fica fora (§5.5.15). Arredonda a 1 casa antes de escolher g ou kg (`quantidadeTexto`: 999,99 g →
   "1,0 kg"). A marcação "comprado" fica no `localStorage` com a chave `nd-compras:<id do plano>`
   (`src/app/p/(portal)/compras/marcacao.ts`) e é apagada no "Sair", no login e na troca de dono.
 - "Meu plano" (`planoDoPaciente`): a RLS só entrega plano não rascunho (`paciente_sem_rascunho`); liga
@@ -1121,7 +1132,8 @@ sequenceDiagram
   offline. Plano 16 (US-193): a página vira uma sanfona de refeições (`RefeicaoDetalhe`; o `summary` sem `flex`, para não
   perder o marcador), com "Cerca de {n} kcal" só com `mostrarCalorias`; refeições sem horário no fim (`proximaRefeicao`
   ignora refeição sem horário). A sugestão de receita fica dentro da refeição: 2 toques para a próxima (que já vem aberta)
-  e pelo "Ver a refeição" do mural, 3 para as outras (Desvio 16, G-D14 = a).
+  e pelo "Ver a refeição" do mural, 3 para as outras (Desvio 16, G-D14 = a). Plano 19: a página abre no dia de hoje,
+  com os outros dias em "Ver outros dias", o texto livre e "Ligado ao seu plano" (§5.5.15).
 
 ### 5.5.9 Pedidos do titular (US-046, P06 D16, D17)
 
@@ -1220,7 +1232,7 @@ A resposta "Comi assim" / "Comi outra coisa" é um **registro do diário** com d
 |---|---|
 | `resposta text` | `null` (registro comum) ou `'como_no_plano'`/`'outra_coisa'` (`diary_entries_resposta_valida`) |
 | `refeicao_do_plano text` | presente se e só se `resposta` presente, 1 a 80 caracteres (`diary_entries_refeicao_do_plano`) |
-| `refeicao_slot text` (Plano 17, `drizzle/0121_diario_refeicao_slot.sql`, só `ADD COLUMN`) | anulável, sem CHECK: o mesmo rótulo `"{nome} · {HH:MM}"`, gravado por `registrarNoDiario` sempre que o registro vem de uma refeição do plano (`refeicaoId`), com ou sem resposta; só o worker dos lembretes a lê (`registradasNoDiario`, `src/modules/lembretes/envio.ts:114`); nunca exibida nem exportada (marcador técnico, fora do `dados.json`) |
+| `refeicao_slot text` (Plano 17, `drizzle/0121_diario_refeicao_slot.sql`, só `ADD COLUMN`) | anulável, sem CHECK: o mesmo rótulo `"{nome} · {HH:MM}"`, gravado por `registrarNoDiario` sempre que o registro vem de uma refeição do plano (`refeicaoId`), com ou sem resposta; só o worker dos lembretes a lê (`registradasNoDiario`, `src/modules/lembretes/envio.ts:118`); nunca exibida nem exportada (marcador técnico, fora do `dados.json`) |
 | `diary_entries_outra_coisa_tem_conteudo` | "Comi outra coisa" exige texto ou foto |
 | `diary_entries_tem_conteudo` (recriado) | texto, foto ou `resposta is not distinct from 'como_no_plano'` |
 
@@ -1320,6 +1332,46 @@ O `diary_entries_tem_conteudo` usa `is not distinct from`, não `=` (desvio da T
 - **Voltar atrás:** a imagem anterior ao Plano 16 não lê a coluna e volta a mostrar peso e IMC a quem tem a opção ligada
   ([§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás); runbook `docs/operacao/app-paciente.md`, passo 7).
 
+### 5.5.15 Plano por dia e "Ligado ao seu plano" (Plano 19)
+
+O plano publicado pode ter refeições diferentes por dia da semana (`meals.dias_semana`,
+[§4.4.6](04-modulos-clinicos.md#446-editor-texto-livre-dias-da-semana-e-o-diálogo-de-busca-plano-19-rn-243-a-rn-247-us-234-a-us-236)),
+texto livre por refeição e listas, receitas e materiais ligados
+([§4.4.10](04-modulos-clinicos.md#4410-ligado-ao-plano-listas-receitas-e-materiais-plano-19-rn-252-rn-253-rn-256-us-239-d23-d24)).
+O dia é sempre o do **fuso do consultório** (`tenants.fuso`), pelas regras puras de `src/modules/portal/plano-regras.ts`
+(sem banco nem React; usadas pelo servidor e pelo componente cliente) e de `src/modules/plano-alimentar/dias.ts`.
+
+**Projeção fechada (RN-240, CS-232).** `planoDoPaciente(ctx, fuso, { agora })` (`src/modules/portal/plano.ts:92`) devolve
+só as chaves de `PlanoDoPaciente` (`plano.ts:50`): as refeições (com `dias` e `descricaoLivre`), os perfis de dia
+(`{ dias, titulo, totalKcal, refeicaoIds }`), `hoje`, `proxima`, o PDF, o selo de IA, as listas ligadas (nome,
+orientação, grupos e itens com quantidade e, só com "mostrar calorias", kcal) e os conteúdos ligados **publicados**
+(`{ id, titulo, tipo }`). Nunca micros, perfil de referência, nutrientes exibidos, ids de alimento nem `listaOrigemId`:
+a RLS deixa o paciente ler `plano_conteudos.titulo` qualquer que seja a situação do conteúdo, e quem esconde o
+despublicado e o excluído é a projeção. No modo livre, `mostrarCalorias` é falso (não há cálculo, RN-243). Teste das
+chaves e busca dos valores de micros na resposta em `src/modules/portal/plano.test.ts`. A leitura continua auditada
+como antes (`lerPlanoNaTransacao`; listas e conteúdos na mesma transação e no mesmo registro).
+
+| Onde | O que muda | Onde no código |
+|---|---|---|
+| Página Plano | O servidor entrega os 7 dias; o componente cliente `DiaDeHoje` (`src/app/p/(portal)/plano/dia-de-hoje.tsx:41`) decide o "hoje" pelo **relógio do aparelho** com o fuso do consultório recebido por prop, para a cópia offline (renovada a cada 24 h, válida por 30 dias) não congelar o dia do servidor. "Hoje ({dia abreviado})" abre o dia certo; os outros ficam em "Ver outros dias" (`min-h-11`). O total do dia é o do perfil, nunca a soma de todas as refeições. Dia sem refeição: "Seu plano não tem refeições para hoje.". Com um perfil só (tudo nos 7 dias), nada muda na tela (`umPerfilSo`) | `plano-regras.ts:10,59,64` |
+| Próxima refeição | A primeira de hoje a partir de agora; depois da última, a primeira do próximo dia com refeição: "Próxima, {daqui a…}" (menos de 24 h), "Próxima: amanhã às {hh:mm}" ou "Próxima: {dia} às {hh:mm}" | `proximaRefeicao`, `plano-regras.ts:46` |
+| Texto livre | A refeição mostra o texto com a voz da nutricionista, "Sua nutricionista:" (RN-254), sem kcal | `refeicao-detalhe.tsx` |
+| Refeição de outro dia | `/p/plano/refeicao/[id]` (link de lembrete ou da IA Nutri `?sobre=`) abre só para leitura: `valeHoje` falso esconde as três ações e mostra "Você responde a esta refeição no dia dela." | `src/app/p/(portal)/plano/refeicao/[id]/page.tsx:31` |
+| "Comi assim" | `refeicaoDoPlanoPublicado` só aceita a refeição que vale hoje; a de outro dia → "Esta refeição não é de hoje." (`MSG_DIARIO.refeicaoDeOutroDia`) e nada é gravado | `src/modules/portal/diario.ts:74-81` |
+| Hoje (mural) | Só as refeições de hoje (`refeicoesDoDia` com `diaDaSemanaNoFuso`); num dia sem refeição do plano, "Seu plano não tem refeições para hoje." no lugar do `nadaAgora` (`Mural.semRefeicaoHoje`) | `src/modules/portal/mural.ts:70`; `mural-regras.ts:211` |
+| Lista de compras (RN-248, RN-13 versão nova, D19) | Para N dias a partir de **hoje**, cada item principal entra uma vez por dia da janela em que a refeição vale (`vezesNaJanela`); refeição em texto livre não entra ("As refeições em texto livre não entram na lista."; plano sem nenhum alimento: "Este plano não tem alimentos com quantidade, então não há lista de compras."; janela sem refeição com alimento: "Nenhuma refeição com alimentos do seu plano cai nesses dias. Aumente o número de dias.", texto fora da spec) | `src/modules/portal/lista-compras.ts:52,62,93` |
+| "Ligado ao seu plano" | Seção da página Plano (só se há algo ligado): "Lista de substituição" inline (legível na cópia offline; a orientação com "Sua nutricionista:") e "Receitas e materiais do seu plano", com a dica fixa "Abrir precisa de internet." e links para `/p/conteudos/[id]?de=plano` | `src/app/p/(portal)/plano/page.tsx:88-95` |
+| Cópia offline | `versaoDaCopiaOffline` resume também os conteúdos ligados (id e título) e as listas: despublicar, excluir ou trocar muda a versão | `plano.ts:171` |
+
+**Conteúdo fora da audiência pelo plano.** A página do conteúdo aberta com `?de=plano` chama
+`conteudoDoPaciente(…, { doPlano: true })`, e a rota do PDF (`GET /api/p/conteudos/[id]/pdf?de=plano`,
+`src/app/api/p/conteudos/[id]/pdf/route.ts`) chama `caminhoDoPdfDoConteudo(…, { doPlano: true })`
+(`src/modules/portal/conteudos.ts:187`): as duas ligam `liberarReceitasDoPlano` e passam pela política ampliada
+(§5.6.5). Abrir pelo plano **não conta** em "Quem viu" (o registro de visualização nunca roda com a liberação). Sem
+`?de=plano`, o conteúdo fora da audiência dá 404, como antes.
+
+O guia do portal subiu para a **v4** (§5.8.4).
+
 ---
 
 ## 5.6 Conteúdos (Plano 07)
@@ -1364,7 +1416,7 @@ paciente** (`patient_tags`, que o paciente nunca vê); o filtro do feed usa os *
 ### 5.6.3 Receitas (RN-11, P07 D11, D12)
 
 `nutrientesPorPorcao` (`src/modules/conteudo/receita-calculo.ts`): Σ(nutriente de cada ingrediente) × porção ÷
-rendimento. Cada ingrediente pela RN-02. Alimento sem valor na TACO conta 0 e entra em `semValor` ("Sem valor na TACO").
+rendimento. Cada ingrediente pela RN-02. Alimento sem valor na tabela conta 0 e entra em `semValor` ("Sem valor na TACO"; desde o Plano 19, "Sem valor na {sigla}" pela fonte do ingrediente, que sai de `foods.fonte` e nunca de `tenant_id`, RN-230; a receita aceita alimento da USDA, `src/modules/conteudo/receitas.ts`).
 
 Decisão importante (P07 D11): os valores são **calculados na hora** a partir dos alimentos atuais, sem cópia congelada.
 Corrigir um "Meu alimento" muda a receita publicada. É o oposto do plano alimentar, que congela na publicação (RN-01).
@@ -1401,7 +1453,8 @@ responde 303 para a URL assinada de 5 min gerada no clique. Fora da audiência, 
 ### 5.6.5 Audiência no banco (RN-12, P07 D2)
 
 A sessão de paciente só vê conteúdo **publicado e da audiência dela**. Quem decide é a política `RESTRICTIVE`
-`paciente_conteudo_visivel` de `drizzle/0083_audiencia_conteudos.sql`:
+`paciente_conteudo_visivel`, criada na `drizzle/0083_audiencia_conteudos.sql` e refeita no Plano 19
+(`drizzle/0133_plano19_fks_dias_conteudos.sql`, `DROP`/`CREATE`, RN-253, D24):
 
 ```sql
 CREATE POLICY paciente_conteudo_visivel ON contents AS RESTRICTIVE FOR SELECT
@@ -1409,29 +1462,41 @@ CREATE POLICY paciente_conteudo_visivel ON contents AS RESTRICTIVE FOR SELECT
     app_current_role() IS DISTINCT FROM 'paciente'
     OR (status = 'publicado' AND (
       visibilidade = 'todos'
-      OR (visibilidade = 'pacientes' AND EXISTS (SELECT 1 FROM content_audience a
-           WHERE a.tenant_id = contents.tenant_id AND a.content_id = contents.id
-             AND a.patient_id = app_current_patient()))
+      OR (visibilidade = 'pacientes' AND EXISTS (
+        SELECT 1 FROM content_audience a
+         WHERE a.tenant_id = contents.tenant_id AND a.content_id = contents.id AND a.patient_id = app_current_patient()))
       OR (visibilidade = 'etiquetas' AND app_conteudo_por_etiqueta(contents.id))
-      OR (tipo = 'receita' AND current_setting('app.receitas_do_plano', true) = 'on' AND EXISTS (
-           SELECT 1 FROM meals m JOIN meal_plans pl ON pl.tenant_id = m.tenant_id AND pl.id = m.plan_id
-            WHERE m.tenant_id = contents.tenant_id AND m.recipe_content_id = contents.id
-              AND pl.status = 'publicado'))
+      OR (current_setting('app.receitas_do_plano', true) = 'on' AND (
+        (tipo = 'receita' AND EXISTS (
+          SELECT 1 FROM meals m JOIN meal_plans pl ON pl.tenant_id = m.tenant_id AND pl.id = m.plan_id
+           WHERE m.tenant_id = contents.tenant_id AND m.recipe_content_id = contents.id AND pl.status = 'publicado'))
+        OR EXISTS (
+          SELECT 1 FROM plano_conteudos pc JOIN meal_plans pl ON pl.tenant_id = pc.tenant_id AND pl.id = pc.plan_id
+           WHERE pc.tenant_id = contents.tenant_id AND pc.content_id = contents.id AND pl.status = 'publicado')
+      ))
     ))
   );
 ```
 
 - `app_conteudo_por_etiqueta` é `SECURITY DEFINER` e responde só sim/não (paciente ativo e não anonimizado com uma das
   etiquetas). `patient_tag_links` continua `staff_only`.
-- A subconsulta em `meals`/`meal_plans` roda com a RLS do paciente: só enxerga as refeições dele, de plano não rascunho.
-- **Exceção da RN-12** (receita sugerida no plano publicado do próprio paciente, US-054): só com
-  `app.receitas_do_plano = 'on'`, ligado por `liberarReceitasDoPlano(tx)` (`src/modules/conteudo/audiencia.ts`,
-  `set_config` local à transação). Só `planoDoPaciente` e `conteudoDoPaciente(…, { doPlano: true })` chamam. Nunca o
-  feed, a busca, os favoritos ou o registro de visualização (guarda em `src/modules/portal/conteudos.test.ts`).
+- As subconsultas em `meals`/`meal_plans` e em `plano_conteudos`/`meal_plans` rodam com a RLS do paciente: só enxergam
+  as linhas dele, de plano não rascunho (`paciente_sem_rascunho` também em `plano_conteudos`), e o `pl.status =
+  'publicado'` tira o arquivado. Conteúdo em rascunho ligado ao publicado, ou publicado ligado só a um plano arquivado,
+  não aparece nem com a liberação (testes em `src/db/plano19-banco.test.ts`).
+- **Exceção da RN-12** (receita sugerida no plano publicado do próprio paciente, US-054; desde o Plano 19, também
+  **qualquer conteúdo publicado ligado** por `plano_conteudos` ao plano publicado dele, RN-253): só com
+  `app.receitas_do_plano = 'on'`, ligado por `liberarReceitasDoPlano(tx)` (`src/modules/conteudo/audiencia.ts:47`,
+  `set_config` local à transação; o marcador e a função mantêm o nome, D24). Só três chamadores: `planoDoPaciente`,
+  `conteudoDoPaciente(…, { doPlano: true })` e, desde o Plano 19, `caminhoDoPdfDoConteudo(…, { doPlano: true })` (o PDF
+  da orientação aberta com `?de=plano`). Nunca o feed, a busca, os favoritos, o mural (`conteudosNovosNaTransacao`) ou o
+  registro de visualização (guarda em `src/modules/portal/conteudos.test.ts`, que exige as duas chamadas de
+  `conteudos.ts`, cada uma dentro da função certa). A regra 2 do `CLAUDE.md` cita os três chamadores.
 - Escrita: `paciente_conteudo_visto` (`content_views`) e `paciente_conteudo_favorito` (`content_favorites`) só aceitam
   conteúdo visível pela audiência e **com a liberação do plano desligada**.
 - As listas `CONTEUDO_POR_AUDIENCIA` e `ESCRITA_POR_AUDIENCIA` (`src/db/rls-guard.ts`) têm de bater com o banco
-  (guarda `findConteudoAudienciaViolations` no CI).
+  (guarda `findConteudoAudienciaViolations` no CI). Plano 19: `AUDIENCIA_EXIGE.contents` ganhou os trechos normalizados
+  `fromplano_conteudos` e `pl.status='publicado'::text` (edição no lugar, avisada à orquestradora).
 - Fora da sessão de paciente (aviso, métricas), a audiência é a condição SQL `naAudiencia`/`naAudienciaDaLinha`
   (`audiencia.ts`) sobre `patients` ativos e não anonimizados.
 
@@ -1609,9 +1674,9 @@ O portal segue o modo do aparelho, **sem botão**: `data-tema="sistema"` fixo (`
 
 ### 5.8.1 Conteúdo
 
-`src/modules/ajuda/conteudo.ts` exporta `GUIAS`: 18 guias tipados (`boas-vindas`, `pacientes`, `plano-alimentar`,
+`src/modules/ajuda/conteudo.ts` exporta `GUIAS`: 19 guias tipados (`boas-vindas`, `pacientes`, `plano-alimentar`,
 `documentos`, `ia-nutri`, `inicio-paciente`, `prontuario`, `agenda`, `horarios`, `exames-recebidos`, `duvidas`, `diarios`, `conteudos`, `alimentos`,
-`modelos`, `configuracoes`, `whatsapp` e `seguranca`; `exames-recebidos` do Plano 12, `ia-nutri` e `duvidas` do Plano 15, `inicio-paciente` do Plano 18). Plano 10A (D18): `documentos` (v1) antes do `prontuario`; `configuracoes` na v2 (seção "Dados para
+`modelos`, `configuracoes`, `whatsapp`, `seguranca` e `biblioteca-do-plano`; `exames-recebidos` do Plano 12, `ia-nutri` e `duvidas` do Plano 15, `inicio-paciente` do Plano 18, `biblioteca-do-plano` do Plano 19). Plano 10A (D18): `documentos` (v1) antes do `prontuario`; `configuracoes` na v2 (seção "Dados para
 documentos"); `seguranca` (v1) para `/conta/seguranca`, mostrado na própria tela num bloco "Como funciona"
 (`ajuda-seguranca.tsx`), porque a tela fica fora do layout do painel; o teste do manual passou a cobrir `src/app/conta`. Plano 11:
 `configuracoes` na v3 (seção de ajuda "Inteligência artificial (IA)", quatro itens; os passos do tour não mudaram — a
@@ -1653,6 +1718,18 @@ Plano 18, PR 1 (abas Início e Perfil, [§4.2.10](04-modulos-clinicos.md#4210-fi
 - **Teste do manual.** O teste dos nomes citados entre aspas passou a ler também `src/modules/ficha` (`TSX_FORA`), onde
   ficam os textos do Início (`MSG_FICHA`).
 
+Plano 19 (Plano alimentar 2; versões conferidas no código em `a7978a6`, 17/11/2026). Quem já viu a versão anterior de
+cada guia recebe de novo o aviso "Primeira vez aqui?" no painel e "O manual do app foi atualizado. Quer ver o que há de
+novo?" no app:
+
+| Guia | Versão | O que mudou | Onde |
+|---|---|---|---|
+| `plano-alimentar` | 2 → **3** | Passos "Como montar o plano" (alvo `modo-plano`) e "Dias da semana" (alvo `dias-refeicao`) entre "Refeições e alimentos" e "Publicar" (edição no lugar num arquivo disputado, avisada à orquestradora); a gaveta não cita texto livre, dias, "Ligado ao plano" nem os avisos da publicação (Minors das Tarefas 4, 7 e 9) | `src/modules/ajuda/conteudo.ts:57` |
+| `alimentos` | 1 → **2** | Resumo "As tabelas públicas de composição (TACO) e os alimentos que você cadastrar ("Meu alimento"), com as medidas caseiras." — a USDA entra no resumo com o seed (Tarefa 12, com `versao + 1`) | `conteudo.ts:292` |
+| `configuracoes` | 8 → **9** | Resumo com "a biblioteca do plano (minhas refeições, listas de substituição e perfis de referência)" | `conteudo.ts:314` |
+| `biblioteca-do-plano` | **1** (novo, o 19º guia) | `padrao` `^/painel/planos/(refeicoes\|listas\|referencias)(/.*)?$`; seções "Perfis de referência", "Minhas refeições" e "Listas de substituição" e três passos sem alvo (como os de `modelos`). Cobre as seis telas novas da biblioteca, então nada entrou em `SEM_AJUDA` | `conteudo.ts:396` |
+| `portal-novidades` (portal) | 3 → **4** | §5.8.4 | `src/modules/ajuda/portal.ts:19` |
+
 | Campo | Papel |
 |---|---|
 | `id` | Chave do progresso (regex `ID_GUIA`) |
@@ -1693,7 +1770,11 @@ O texto é **rascunho** até o dono e a Debby aprovarem (P08-08), sem dado de sa
   Privacidade e outro para a IA Nutri em Plano, mudaram para todos; a regra de privacidade é a mesma redação do rodapé do
   mural, `MSG_MURAL.rodape`) e **3** desde o Plano 17 (Tarefa 6: em "Perguntas comuns", "Se a sua nutricionista configurou
   lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um." — com a ressalva, porque o guia é o mesmo para
-  todos os pacientes; o tour não mudou, os 5 alvos são os mesmos). **A subida para a v3 mostra "O manual do app foi
+  todos os pacientes; o tour não mudou, os 5 alvos são os mesmos) e **4** desde o Plano 19 (Tarefa 10d: o item de Plano em
+"Onde fica cada coisa" passou a "Plano: as refeições de hoje (as dos outros dias em "Ver outros dias"), o PDF, a lista de
+compras, os conteúdos e, quando liberada, a {NOME_IA_NUTRI}." — edição no lugar — e, em "Perguntas comuns", "Quando a sua
+nutricionista ligar listas de substituição, receitas ou materiais ao seu plano, eles ficam em Plano, em "Ligado ao seu
+plano"."; o tour não mudou; a 4 chega pouco depois da 3, em deploys próximos). **A subida para a v3 mostra "O manual do app foi
   atualizado. Quer ver o que há de novo?" uma vez a todo paciente que já viu a v2** (`avisoDoGuia`, teste em
   `src/modules/ajuda/portal.test.ts`), em qualquer consultório, tenha ou não lembretes (alternativa registrada no plano e não
   escolhida: acrescentar o item sem subir a versão). Título "Como usar o app", a ajuda da página `/p/ajuda` e 5 passos com os alvos
@@ -1881,7 +1962,7 @@ Plano 17 (lembretes de rotina; spec `docs/superpowers/specs/2026-11-13-nutridebb
     {rótulo}" (NORMAS-DECISAO-1 da revisão do plano; `payloadDoSlot`, `src/modules/lembretes/envio.ts:42`). Spec emendada (§9,
     17/11/2026).
 21. **Prioridade da fusão.** A spec (§5.2) lista "refeição > suplemento > livre > água" na fusão do mesmo minuto; o código
-    (e o plano) põe o pedido do diário entre o livre e a água (`PRIORIDADE`, `src/modules/lembretes/constantes.ts:26`).
+    (e o plano) põe o pedido do diário entre o livre e a água (`PRIORIDADE`, `src/modules/lembretes/constantes.ts:32`).
 22. **Apagamento.** A spec (§5.5) diz que as duas tabelas "saem na anonimização". O código também as apaga na exclusão
     atendida, e a equipe apaga de fato (NORMAS-03: ajuste do app, não prontuário; `src/modules/pacientes/lgpd.ts:189-198`),
     salvo o lembrete que o paciente desligou (`0120`).
@@ -1900,3 +1981,18 @@ Plano 17 (lembretes de rotina; spec `docs/superpowers/specs/2026-11-13-nutridebb
     enviados." quando outro tipo também foi (`secao.tsx`).
 27. **Exportação.** A spec (§5.5) fala em "configuração" no `dados.json`; o código usa a chave nova `lembretesDeRotina` (a
     `lembretes` já era das mensagens das consultas, Plano 05) e põe `lembretesPausadosEm` dentro de `paciente`.
+
+Plano 19 (Plano alimentar 2, PR do código; conferido em `a7978a6`, 17/11/2026, antes do merge):
+
+28. **RN-247 (f): "os lembretes respeitam o dia".** Respeitam nos slots, no "já registrou?", no previsto de hoje e no teto
+    ao salvar; os avisos de horário da tela da equipe (`refeicoesForaDaJanela`) continuam olhando o plano inteiro, então a
+    refeição fora da janela de um só dia aparece no aviso todo dia (registrado no fechamento da Tarefa 10d; a spec não
+    trata os avisos).
+29. **RN-248: a janela da lista de compras sem nenhuma refeição com alimento.** A spec tem os dois textos do texto livre;
+    o código acrescenta "Nenhuma refeição com alimentos do seu plano cai nesses dias. Aumente o número de dias."
+    (`MSG_COMPRAS.semRefeicaoNosDias`, revisão da Tarefa 10a, "texto fora da spec, para aprovação"), em vez de uma lista
+    vazia sem texto.
+30. **RN-253 e a exportação: cópia de lista fora do formato.** `lerCopiaDaLista` (zod estrito) é usado também na
+    exportação do titular: uma cópia de `plano_listas_substituicao.conteudo` fora do formato derruba o ZIP inteiro
+    (Minor prioritário da Tarefa 10d, apontado por dois revisores; a exportação é obrigação legal). Hoje só o módulo
+    grava a cópia, no formato que o leitor confere. Vai ao backlog (P19-B).

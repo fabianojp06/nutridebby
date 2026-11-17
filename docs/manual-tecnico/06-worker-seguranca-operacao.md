@@ -69,10 +69,10 @@ Princípios que atravessam o capítulo:
 | Imagem | A mesma do app. O `ENTRYPOINT` escolhe o modo pelo 1º argumento ou por `APP_ROLE` | `Dockerfile:43`, `docker-entrypoint.sh:3` |
 | Comando | `node --import tsx src/worker/index.ts`, **sem** `DATABASE_URL_MIGRATOR` no ambiente (`env -u`) | `docker-entrypoint.sh:12-13` |
 | Dev | `pnpm worker` (`tsx --env-file-if-exists=.env.local src/worker/index.ts`) | `package.json:21` |
-| Variáveis | Validadas por `getWorkerEnv()` (Zod, `workerSchema`); falha rápido se faltar algo | `src/env.ts:229` e seguintes, `src/worker/index.ts:344` |
+| Variáveis | Validadas por `getWorkerEnv()` (Zod, `workerSchema`); falha rápido se faltar algo | `src/env.ts:229` e seguintes, `src/worker/index.ts:342` |
 | Role do banco | O mesmo da aplicação (`DATABASE_URL`, sem `BYPASSRLS`) | spec §4.1, linha 127 |
 | Schema da fila | `pgboss`, criado pelas migrations com dono = role da aplicação; o worker usa `createSchema: false` | `src/db/migrate.ts:80-81`, `src/worker/index.ts:67-72` |
-| Filas | Criadas **e atualizadas** a cada subida por `ensureQueues` (`createQueue` + `updateQueue`): o código é a fonte da verdade | `src/jobs/queues.ts:54-59` |
+| Filas | Criadas **e atualizadas** a cada subida por `ensureQueues` (`createQueue` + `updateQueue`): o código é a fonte da verdade | `src/jobs/queues.ts:60-59` |
 | Parada | `SIGTERM`/`SIGINT` ouvidos antes de iniciar (`rodarComSinais`): no ar → `boss.stop({ graceful: true, timeout: 30_000 })`, fecha o Sentry e o pool; ainda esperando o schema → corta a espera e fecha Sentry e pool; idempotente; sai com 128 + sinal (143/130, `CODIGO_DE_SAIDA`), nunca 0: o serviço usa `restart: on-failure` e, com 0, um sinal que não veio do Swarm deixava o worker parado (P15-05, 14 e 15/10/2026) | `src/worker/sinais.ts`, `src/worker/index.ts` |
 | Erro não tratado | O worker **não** usa a integração `OnUnhandledRejection` do Sentry: a rejeição derruba o processo e o Swarm o reinicia | `src/lib/sentry.ts:87-91,110` |
 
@@ -131,14 +131,14 @@ exportação ⇔ job `exportacao-paciente` (`src/modules/pacientes/exportacao.ts
 
 ### 6.2.3 Filas
 
-São **33 filas** (17 até o Plano 08, 3 do Plano 10A, 2 do Plano 11, 3 do Plano 12 — `exame-envio`, `exame-envio-limpar`
+São **34 filas** (17 até o Plano 08, 3 do Plano 10A, 2 do Plano 11, 3 do Plano 12 — `exame-envio`, `exame-envio-limpar`
 e `expirar-exame-envio`, descritas no [§11.2](11-exames-enviados.md#112-peças) —, 1 do Plano 14A, `ia-retirada`, 1 do
 Plano 14B-1, `ia-assistente`, e 5 do Plano 15 — `ia-paciente`, `expirar-ia-paciente`, `ia-nutri-risco`, `ia-nutri-revogacao`
-e `ia-nutri-retencao`, descritas no [§10.14.8](10-ia.md#10148-filas-e-varreduras-dp-6-dp-9-dp-10) —, e 1 do Plano 17,
-`lembretes-rotina`, descrita no [§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17)), todas em
+e `ia-nutri-retencao`, descritas no [§10.14.8](10-ia.md#10148-filas-e-varreduras-dp-6-dp-9-dp-10) —, 1 do Plano 17,
+`lembretes-rotina`, descrita no [§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17), e 1 do Plano 19, `plano-pdf-2`, a mesma geração do PDF do plano numa fila que só o worker novo registra, [§4.4.5](04-modulos-clinicos.md#445-pdf-do-plano-no-worker-us-026-plano-04-d13-d14)), todas em
 `QUEUES` (`src/jobs/queues.ts`) e todas registradas em `src/worker/index.ts` pelo `work` embrulhado (seção 6.2.7). A guarda
 `src/worker/sem-detalhe.test.ts` exige pelo menos 17 registros (`await work(`; o piso não subiu com os Planos 10A, 11, 12 e
-14A, 14B-1, 15 e 17, e hoje são 33 — uma por fila).
+14A, 14B-1, 15, 17 e 19; hoje são 33 chamadas no código para 34 filas, porque `plano-pdf` e `plano-pdf-2` são registradas num laço, `src/worker/index.ts:214`).
 
 Legenda das colunas de tentativa (opções do pg-boss 12, `package.json:39`): **retry** = `retryLimit` (número de
 **novas** tentativas, leitura da INT-02 no Plano 02, linha "Fila de e-mail"); **atraso** = `retryDelay` em segundos,
@@ -150,7 +150,7 @@ execução); **apaga** = `deleteAfterSeconds`.
 | `heartbeat` | cron `* * * * *` (`index.ts:81`) | Grava `system_heartbeat(name='worker')` (`recordHeartbeat`) | 0 / — / 60 / — | `{}` |
 | `email` | Produtor `enqueueEmail` (`src/email/queue.ts:14`) | Abre o selo, renderiza e envia (Resend ou Mailpit); ignora tenant suspenso (RN-15); `idempotencyKey` = id do job (`processEmailJob`, `src/email/job.ts`). O `aposEnviar`/`aoDesistir` da ciência do aviso de IA (Plano 11) saiu no Plano 14A (RN-128): um e-mail do tipo legado `aviso_ia` que esteja na fila no deploy termina `ignorado`, sem renderizar, enviar nem gravar (`TIPOS_LEGADOS`, `src/email/job.ts:9`; log só com o id do job, o tipo e o tenant). Tipos novos do Plano 14A: `autorizacao_ia` e `autorizacao_ia_confirmada` | 3 / 60↗ / 60 / 86 400 | `{ tenantId, selado }` |
 | `notificacoes` | cron `* * * * *` (`index.ts:108`) e produtor `dispararEnvio` (`src/modules/notificacoes/agendar.ts:199`) | Motor de lembretes RN-05: varre os tenants (ou um só) e envia e-mail, WhatsApp e push; até `LOTE_POR_EXECUCAO = 40` por execução (`enviar.ts:36`), WhatsApp a no máximo `WHATSAPP_POR_MINUTO = 8` por tenant (`enviar.ts:178`) | 0 / — / 300 / 3 600 | `{ tenantId? }` |
-| `lembretes-rotina` | cron `* * * * *` (`index.ts:115`) | Plano 17: lembretes de rotina por push (água, refeições, diário, suplemento, livre). Por tenant ativo: leitura em lote, o slot devido mais antigo de cada paciente (tolerância de 10 min), a marca gravada com upsert condicional sob `pg_advisory_xact_lock('lembretes-rotina', tenant)` e o envio depois do commit, até 10 em paralelo, TTL 1800 s; sem VAPID, nada sai (`processarLembretes`, `src/modules/lembretes/envio.ts:278`; §5.3.9). Sem retry: o estado fica em `lembretes_rotina_envios` e o slot perdido não volta | 0 / — / 120 / 3 600 | `{}` |
+| `lembretes-rotina` | cron `* * * * *` (`index.ts:115`) | Plano 17: lembretes de rotina por push (água, refeições, diário, suplemento, livre). Por tenant ativo: leitura em lote, o slot devido mais antigo de cada paciente (tolerância de 10 min), a marca gravada com upsert condicional sob `pg_advisory_xact_lock('lembretes-rotina', tenant)` e o envio depois do commit, até 10 em paralelo, TTL 1800 s; sem VAPID, nada sai (`processarLembretes`, `src/modules/lembretes/envio.ts:284`; §5.3.9). Sem retry: o estado fica em `lembretes_rotina_envios` e o slot perdido não volta | 0 / — / 120 / 3 600 | `{}` |
 | `agenda-tenant` | Produtor na suspensão/reativação (`src/modules/plataforma/suspensao.ts:11`) | Suspenso: pendentes viram `ignorada`/`tenant_suspenso`; reativado: lembretes de consultas futuras voltam (`ignorarPendentesDoTenant`, `reagendarTenantReativado`) | 3 / 60↗ / 300 / 86 400 | `{ tenantId, evento }` |
 | `whatsapp-evento` | Produtor na rota do webhook (`src/modules/notificacoes/whatsapp/webhook.ts:91`) | Conexão, status de entrega e resposta "1"/"2"; idempotente (`processarEventoWhatsapp`) | 3 / 30↗ / 60 / 86 400 | `{ selado }` |
 | `agenda-limpeza` | cron `30 4 * * *` (`index.ts:133`) | Apaga pedidos da página pública com mais de 24 h, contadores de limite com mais de 1 dia, `access_events` com mais de 400 dias (D13 do Plano 08) e, desde o Plano 10A, os códigos do link do documento vencidos há mais de 1 dia (`limparCodigosDeDocumentoVencidos`; campo `codigos` no log "limpeza da agenda pública", `index.ts:138-139`) | 2 / 600 / 300 / — | `{}` |
@@ -160,8 +160,9 @@ execução); **apaga** = `deleteAfterSeconds`.
 | `exportacao-paciente` | Produtor no pedido (`src/modules/pacientes/exportacao.ts:113`) | Gera o ZIP (JSON + PDF), marca "pronta", enfileira o e-mail e o `expirar-exportacao`, tudo na transação do arquivo (`gerarExportacao`) | 2 / 60↗ / 300 / 86 400 | `{ tenantId, exportId }` |
 | `expirar-exportacao` | Produtor com `startAfter` = 24 h (`exportacao-job.ts:585-586`) | Apaga o ZIP e marca "expirada" (`expirarExportacao`) | 3 / 300 / 120 / — | `{ tenantId, exportId }` |
 | `exclusao-atendida` | Produtor no atendimento do pedido (`src/modules/pacientes/lgpd.ts:172`) | Apaga as fotos do diário e só depois manda "pedido de exclusão atendido"; na última tentativa o aviso sai assim mesmo (`concluirExclusaoAtendida`) | 5 / 60↗ / 300 / 86 400 | `{ tenantId, patientId }` |
-| `plano-pdf` | Produtor na publicação (`src/modules/plano-alimentar/publicacao.ts:72,145`) | Gera o PDF do plano publicado (`gerarPdfDoPlano`) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, planId }` |
-| `diario-foto` | Produtor no envio do diário (`src/modules/portal/diario.ts:102`) | Converte para JPEG ≤ 1600 px sem EXIF/GPS e apaga o original (`converterFotoDoDiario`, RN-07) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, entryId }` |
+| `plano-pdf` | Desde o Plano 19, nenhum produtor no app novo: só os jobs que a imagem antiga enfileirou (janela do deploy, volta atrás) | Gera o PDF do plano publicado (`gerarPdfDoPlano`), o mesmo handler da `plano-pdf-2` (`FILAS_DO_PDF_DO_PLANO`, `src/worker/index.ts:207-214`) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, planId }` |
+| `plano-pdf-2` | Produtor na publicação e no "Gerar o PDF de novo" (`publicarPlano`, `pedirNovoPdf`, `src/modules/plano-alimentar/publicacao.ts:72,187`; `FILA_DO_PDF_DO_PLANO`, `src/jobs/queues.ts:106`) | Plano 19 (R-244): a mesma geração, numa fila que só o worker novo registra — o worker antigo geraria um PDF sem dias nem texto livre para um plano publicado no app novo e o marcaria `pronto` ([§4.4.5](04-modulos-clinicos.md#445-pdf-do-plano-no-worker-us-026-plano-04-d13-d14)); teste `src/worker/filas-plano-pdf.test.ts` | 2 / 30↗ / 120 / 86 400 | `{ tenantId, planId }` |
+| `diario-foto` | Produtor no envio do diário (`src/modules/portal/diario.ts:197`) | Converte para JPEG ≤ 1600 px sem EXIF/GPS e apaga o original (`converterFotoDoDiario`, RN-07) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, entryId }` |
 | `expirar-diario-foto` | cron `*/15 * * * *` (`index.ts:221`) | Foto "processando" há mais de 30 min sem job vivo → "falhou" e o original sai (`expirarFotosPendentes`) | 1 / 60 / 300 / — | `{}` |
 | `expirar-plano-pdf` | cron `*/15 * * * *` (`index.ts:225`) | PDF "pendente" há mais de 1 h → "falhou" (`expirarPdfsPendentes`) | 1 / 60 / 120 / — | `{}` |
 | `limpar-tmp` | cron `0 4 * * *` (`index.ts:324`) | Apaga `.tmp` órfãos de `salvarArquivo` com mais de 24 h (`limparTmpOrfaos`) | 1 / 600 / 300 / — | `{}` |
@@ -172,7 +173,7 @@ execução); **apaga** = `deleteAfterSeconds`.
 | `expirar-ia` | cron `*/15 * * * *` (`index.ts:258`) | `processando` há mais de 15 min → `falhou` (`interrompida`; estorno se nada saiu); `na_fila` há mais de 30 min → `falhou` com estorno; `pronta` vencida (7 dias) → `expirada`, conteúdo esvaziado (`expirarTarefasIA`, com o destino em uso). Desde o Plano 14A (D15), também cancela as tarefas ativas de paciente sem autorização vigente para o uso da tarefa ou criadas antes da última retirada (fila com estorno; `processando` com estorno ou incerta; pronta esvaziada); loga `varredura das tarefas de IA` só quando mexeu em algo, com `canceladas`. Desde o Plano 14B-1 (D20), no mesmo job e mesmo se a das tarefas falhar (`finally`), a varredura das gerações de modelos sugeridos (`expirarGeracoesIA`, `modelos-job.ts`): `processando` há mais de 15 min → `falhou` (`interrompida`; estorno se nada saiu, reserva incerta se saiu); `na_fila` há mais de 30 min → `falhou` com estorno; trava o tenant antes das gerações | 1 / 60 / 300 / — | `{}` |
 | `ia-retirada` | Produtor na retirada da autorização pelo paciente (`retirarNoApp`, `src/modules/ia/autorizacao.ts`; `retirarPeloLink`, `autorizacao-link.ts`), na mesma transação do evento `retirou` | Plano 14A (RN-108, D14): no contexto `worker`, trava o paciente, confere que a retirada é dele, relê a situação e cancela a fila (estorno) e as sugestões prontas (esvaziadas); com o paciente já autorizado de novo, só as tarefas criadas antes da retirada (`processarRetiradaIa`, `index.ts:270`); loga só o tenant e a contagem | 3 / 30↗ / 120 / 86 400 | `{ tenantId, patientId, retiradaId }` |
 | `ia-assistente` | Produtor no pedido de um pacote de modelos sugeridos (`pedirModelos`, `src/modules/ia/modelos-sugeridos.ts`, na transação que cria a geração e reserva US$ 1,00) e, desde o Plano 14B-2, no pedido do resumo e do rascunho (`criarTarefaDoAssistente`, `src/modules/ia/tarefas.ts:87`, chamada por `pedirResumo` e `pedirRascunhoIa`, na transação que cria a tarefa e reserva a cota) | Plano 14B-1 (D3): o roteador `processarJobAssistente` (`assistente-job.ts:15`) chama `processarGeracaoModelos` (`modelos-job.ts`): portão sem paciente, laço de ferramentas (até 24 voltas, 12 min e o teto da reserva) e a gravação dos 3 modelos juntos ([§10.12.4](10-ia.md#10124-pedido-fila-job-e-varredura-d3-d19-d20)). Plano 14B-2: com `tarefaId`, lê só o `tipo` da tarefa e chama `processarResumo` (`resumo-job.ts`: portão do paciente que monta o pedido pseudonimizado, uma chamada sem ferramentas) ou `processarRascunho` (`rascunho-job.ts`: portão do paciente e o laço de até 12 voltas com a autorização reconferida a cada volta); tarefa inexistente ou de outro tipo → ignorada ([§10.13](10-ia.md#1013-ia-nutri--resumo-e-rascunho-plano-14b-2)). Só a 1ª volta (ou a única chamada do resumo) repete (D4); `abortado` = sinal do pg-boss | 2 / 30↗ / 900 / 86 400 | `{ tenantId, geracaoId }` ou `{ tenantId, tarefaId }` |
-| `ia-paciente` | Produtor na pergunta do paciente à IA Nutri (`perguntar`, `src/modules/ia/nutri-paciente/conversa.ts`, na transação em que `app_ia_nutri_perguntar` grava a pergunta, com o `criar` de "Perguntou à IA") | Plano 15 (§4.2, RN-180): `processarPerguntaIaNutri` (`job.ts`): reconfere a RN-170 e reserva no escopo `paciente` → contexto na sessão de paciente → portão do envio → `gerar` sem ferramentas, 45 s → validação e releitura dos trechos → grava a resposta montada ou o texto fixo ([§10.14.1](10-ia.md#10141-o-fluxo-42-com-os-nomes-reais)). **Duas por vez** (`localConcurrency: 2`, `index.ts:294`) e no máximo 3 em andamento por consultório (DP-9); a nova tentativa só antes do envio | 1 / 5 / 120 / 86 400 | `{ tenantId, mensagemId }` |
+| `ia-paciente` | Produtor na pergunta do paciente à IA Nutri (`perguntar`, `src/modules/ia/nutri-paciente/conversa.ts`, na transação em que `app_ia_nutri_perguntar` grava a pergunta, com o `criar` de "Perguntou à IA") | Plano 15 (§4.2, RN-180): `processarPerguntaIaNutri` (`job.ts`): reconfere a RN-170 e reserva no escopo `paciente` → contexto na sessão de paciente → portão do envio → `gerar` sem ferramentas, 45 s → validação e releitura dos trechos → grava a resposta montada ou o texto fixo ([§10.14.1](10-ia.md#10141-o-fluxo-42-com-os-nomes-reais)). Plano 19: o contexto leva os dias de cada refeição e o dia de hoje, o texto livre e a lista de substituição ligada (`#L`), mascarados, e cabe na reserva por prioridade, com o marcador "(resumido: detalhes não incluídos)" no que fica de fora (R-239); instruções `conversa-2026-11-17` ([§10.14.3](10-ia.md#10143-o-que-vai-e-o-que-não-vai-ao-provedor-73-d9--a-pm-3)). **Duas por vez** (`localConcurrency: 2`, `index.ts:294`) e no máximo 3 em andamento por consultório (DP-9); a nova tentativa só antes do envio | 1 / 5 / 120 / 86 400 | `{ tenantId, mensagemId }` |
 | `expirar-ia-paciente` | cron `* * * * *` (`index.ts:301`) | Plano 15 (RN-180, DP-10): pergunta `na_fila`/`processando` há mais de 3 min → `falhou` (`interrompida`) com a resposta de texto fixo `falha`, estorno se não saiu e `incerto` se saiu; conciliação de `ia_uso` `reservado` de pergunta já `falhou`/`cancelada`; trava o paciente com `SKIP LOCKED` antes da mensagem (`expirarPerguntasIaNutri`, `varredura.ts`); loga `varredura da IA Nutri` só quando mexeu | 0 / — / 50 / — | `{}` |
 | `ia-nutri-risco` | Produtor na pergunta com sinal de risco (`perguntar`) e no job `ia-paciente` quando o modelo classifica `risco`, na mesma transação | Plano 15 (D10 = a, DP-6): o e-mail genérico `risco_ia_nutri` às nutricionistas, no máximo 1 a cada 15 min por tenant (`ia_nutri_risco_aviso_em`, tenant `FOR NO KEY UPDATE`); dentro da janela, um job adiado (`startAfter`, `singletonKey` = tenant, só se `findJobs` não achar outro pendente, R7) (`avisarRiscoIaNutri`, `risco-job.ts`) | 3 / 30↗ / 60 / 86 400 | `{ tenantId }` |
 | `ia-nutri-revogacao` | Produtor na revogação da IA Nutri (`desativarNoApp`, `desativarPelaNutri`, `consentimento.ts`), na transação de `app_ia_nutri_revogar` | Plano 15 (RN-182, D30): o estorno das reservas das perguntas canceladas pela revogação (a que saiu fica `incerto`), no contexto `worker`, paciente → tenant → mensagens → `ia_uso` (`processarRevogacaoIaNutri`, `revogacao-job.ts`, `index.ts:274`) | 3 / 30↗ / 120 / 86 400 | `{ tenantId, patientId, revogacaoId }` |
@@ -181,7 +182,7 @@ execução); **apaga** = `deleteAfterSeconds`.
 Ordem do dia (BRT): 03h backup no host → 04h `retencao-lgpd` e `limpar-tmp` → 04h15 `ia-nutri-retencao` (Plano 15) → 04h30 `agenda-limpeza` → 07h
 `monitor-backup`. A retenção roda **depois** do backup de propósito (comentário em `src/jobs/queues.ts:16`).
 
-**`notificacoes` não tem retry** (`src/jobs/queues.ts:35-37`; nem `lembretes-rotina`, `:38-41`): o estado fica na tabela `notifications`; o que falhou
+**`notificacoes` não tem retry** (`src/jobs/queues.ts:41-43`; nem `lembretes-rotina`, `:44-47`): o estado fica na tabela `notifications`; o que falhou
 volta como "pendente" com a próxima tentativa na varredura seguinte. É uma fila **serial** — um job por vez no worker
 (padrão `localConcurrency 1`; D16 do Plano 05, comentário em `src/worker/index.ts:107`).
 
@@ -264,7 +265,7 @@ Fonte: `src/email/queue.ts`, `src/email/job.ts`. Decisão: "Fila de e-mail" do P
 ### 6.2.6 Heartbeat
 
 - O job `heartbeat` roda a cada minuto e faz *upsert* em `system_heartbeat` (`src/worker/heartbeat.ts:7-12`). O worker
-  também bate uma vez ao subir (`src/worker/index.ts:330`).
+  também bate uma vez ao subir (`src/worker/index.ts:328`).
 - `/api/health` lê essa linha. Mais de 10 min sem batida (`HEARTBEAT_MAX_AGE_MS`, `heartbeat.ts:5`) = 503
   (seção 6.4.3).
 - A mesma tabela guarda a marca `alerta_disco` (último alerta de disco), usada para o limite de 1 alerta por 24 h
@@ -995,6 +996,25 @@ e onde fica o registro estão no [capítulo 8, Sustentação](08-sustentacao.md)
 | Travas do tenant na IA | Plano 11, revisão final | `FOR NO KEY UPDATE` (serializa com outros pedidos e com o `UPDATE tenants`, não com o `FOR KEY SHARE` das FKs e da auditoria) | `FOR UPDATE` (deadlock com o worker gravando a auditoria) |
 | Ciência do aviso de IA por e-mail | Plano 11, D5; decisão do dono A-D21 (07/10/2026) | Gravada no pós-envio, quando o Resend aceita; desfeita se o job desiste | Esperar o webhook de entrega do Resend (backlog P11-19) |
 
+
+**Voltar atrás depois do Plano 19 (plano alimentar 2).** As migrations `0124`–`0133` são só de expansão
+(`foods.fonte DEFAULT 'propria'` permanente; colunas novas com default; nenhuma coluna removida ou renomeada): a imagem
+anterior sobe contra o schema novo. Mas, enquanto ela estiver no ar:
+
+- **Dias da semana:** ela não lê `meals.dias_semana`, então mostra todas as refeições todo dia (no app, no mural, no
+  PDF e nos lembretes) e soma os dois "Almoço" (seg–sex e sáb–dom) no total do dia.
+- **Texto livre:** o plano em texto livre aparece **vazio** (ela não lê `meals.descricao_livre` nem `meal_plans.modo`).
+- **"Editar":** a cópia feita pela imagem anterior **perde** `dias_semana` (as refeições voltam aos 7 dias pelo default),
+  `descricao_livre` e as listas e conteúdos ligados (`plano_listas_substituicao`, `plano_conteudos`).
+- **Publicar:** um rascunho com `referencia_id` publicado na imagem antiga cai em **23514**
+  (`meal_plans_referencia_so_rascunho`), porque ela não zera o ponteiro.
+- **PDF:** os jobs `plano-pdf-2` enfileirados pelo app novo ficam **esperando o worker novo** (o antigo só registra
+  `plano-pdf`); o PDF fica `pendente` e a varredura `expirar-plano-pdf` o marca `falhou` depois de 1 h, com "Gerar o PDF
+  de novo".
+
+**Depois do seed da USDA (Tarefa 12, PR seguinte), não voltar abaixo do PR do código: corrigir para a frente** (passo 5),
+porque a imagem anterior decide a origem por `tenant_id`, rotula a USDA como "TACO" na tela e congela `origem: 'TACO'`
+no plano publicado (imutável), além de entregar a USDA às ferramentas da IA sem o filtro de fonte (spec D29, R-244).
 ---
 
 ## Divergências encontradas
