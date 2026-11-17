@@ -123,8 +123,11 @@ export async function atenderPedidoExclusao(
     ctx,
     async (tx) => {
       const p = await carregarPacienteParaEscrita(tx, patientId);
-      if (!nomeDigitado.trim() || nomeParaConferir(nomeDigitado) !== nomeParaConferir(p.nome))
-        throw new LgpdError(MSG_LGPD.confirmarNome);
+      if (!nomeDigitado.trim() || nomeParaConferir(nomeDigitado) !== nomeParaConferir(p.nome)) {
+        // Plano 18 (D7, RN-266): com nome social, o erro pede o nome de registro, como a instrução da Privacidade
+        const [c] = await tx.select({ nomeSocial: patientCadastro.nomeSocial }).from(patientCadastro).where(eq(patientCadastro.patientId, p.id));
+        throw new LgpdError(c?.nomeSocial ? MSG_LGPD.confirmarNomeDeRegistro(p.nome) : MSG_LGPD.confirmarNome);
+      }
       const hoje = hojeNoFuso(tenant.fuso, now);
       // JUR-01: o bloqueio é o último registro do prontuário — depois dele nada mais é registrado —, então o prazo de
       // guarda conta de hoje (a data do bloqueio no fuso do consultório), não da última consulta

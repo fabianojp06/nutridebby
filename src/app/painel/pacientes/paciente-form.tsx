@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState, type ReactNode, type SelectHTMLAttributes } from 'react';
 import { Campo } from '@/components/campo';
-import { ESCOLARIDADES, ESTADOS_CIVIS, IDENTIDADES_DE_GENERO, MSG_CADASTRO, tamanhoDoTexto, UFS, type Opcao } from '@/modules/pacientes/cadastro-textos';
+import { ESCOLARIDADES, ESTADOS_CIVIS, IDENTIDADES_DE_GENERO, MSG_CADASTRO, OBSERVACAO_MAXIMO, tamanhoDoTexto, UFS, type Opcao } from '@/modules/pacientes/cadastro-textos';
 import type { PacienteState } from './actions';
 import type { ValoresPaciente } from './valores';
 
@@ -218,8 +218,13 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
               aria-describedby={`observacao-aviso observacao-contador${e.observacao ? ' observacao-erro' : ''}`}
               className={CAMPO}
             />
-            {/* sem região viva: o contador é lido junto do campo (aria-describedby), sem anunciar a cada tecla */}
-            <p id="observacao-contador" className="text-sm text-suave">{MSG_CADASTRO.contadorObservacao(tamanhoDoTexto(observacao))}</p>
+            {/* sem região viva: o contador é lido junto do campo (aria-describedby), sem anunciar a cada tecla; acima do
+                limite, a mesma mensagem do servidor no lugar da contagem */}
+            {tamanhoDoTexto(observacao) > OBSERVACAO_MAXIMO ? (
+              <p id="observacao-contador" className="text-sm text-erro">{MSG_CADASTRO.observacaoMaximo}</p>
+            ) : (
+              <p id="observacao-contador" className="text-sm text-suave">{MSG_CADASTRO.contadorObservacao(tamanhoDoTexto(observacao))}</p>
+            )}
             {e.observacao && <p id="observacao-erro" role="alert" className="text-sm text-erro">{e.observacao}</p>}
           </div>
         </Secao>
@@ -229,7 +234,8 @@ export function PacienteForm({ acao, inicial, botao, emailBloqueado, somenteLeit
           {avisoDeErro}
         </p>
       )}
-      {state.ok && <p role="status">Cadastro salvo.</p>}
+      {/* região viva sempre montada (como `StatusDaLista`): vazia durante o envio, o texto entra depois e é anunciado */}
+      <p role="status">{state.ok && !pendente ? 'Cadastro salvo.' : ''}</p>
       {!somenteLeitura && <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">{botao}</button>}
     </form>
   );

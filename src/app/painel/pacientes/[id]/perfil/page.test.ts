@@ -191,7 +191,7 @@ describe('aba Perfil (Plano 18, D12)', () => {
     expect(html).toMatch(/<a [^>]*class="[^"]*\btext-link underline"[^>]*>Abrir o cadastro existente/);
     expect(html).not.toMatch(/<a [^>]*text-destaque/);
     // o aviso junto do botão (o erro do campo fica telas acima), focável pelo efeito que leva o foco ao primeiro erro
-    expect(html).toMatch(/<p role="alert" tabindex="-1" class="text-erro">Revise os campos marcados\.<\/p><button/);
+    expect(html).toMatch(/<p role="alert" tabindex="-1" class="text-erro">Revise os campos marcados\.<\/p><p role="status"><\/p><button/);
     // sem o outro (bloqueado): a mensagem, sem o link
     estado.atual = { ...(estado.atual as object), cpfExistenteId: undefined };
     const sem = await render();
@@ -203,7 +203,7 @@ describe('aba Perfil (Plano 18, D12)', () => {
     expect(await render()).not.toContain('Revise os campos marcados.');
     estado.atual = { erros: { geral: 'Paciente bloqueado.' }, valores: { ...VALORES_VAZIOS, nome: 'Ana Teste', email: 'ana@ex.com' } };
     const html = await render();
-    expect(html).toMatch(/<p role="alert" tabindex="-1" class="text-erro">Paciente bloqueado\.<\/p><button/);
+    expect(html).toMatch(/<p role="alert" tabindex="-1" class="text-erro">Paciente bloqueado\.<\/p><p role="status"><\/p><button/);
     expect(html).not.toContain('Revise os campos marcados.');
   });
 
@@ -213,6 +213,29 @@ describe('aba Perfil (Plano 18, D12)', () => {
     for (const id of ['nome', 'cpf', 'cep', 'telefone']) expect(html).toMatch(new RegExp(`<input id="${id}"[^>]*class="min-h-11 `));
     expect(html).toMatch(/<select id="estadoCivil"[^>]*class="min-h-11 /);
     expect(html).toMatch(/<div class="flex min-h-11 items-center gap-2"><input id="whatsappAutorizado"/);
+  });
+
+  it('§8.4: uma coluna só, na ordem da spec (sem a grade que punha o "Acesso ao app" ao lado do formulário)', async () => {
+    const html = await render();
+    expect(html).not.toContain('grid-cols-2');
+    expect(html).toMatch(/^<div class="max-w-xl space-y-8">/);
+  });
+
+  it('"Cadastro salvo." numa região viva sempre montada: vazia antes, o texto depois do Salvar', async () => {
+    const antes = await render();
+    expect(antes).toContain('<p role="status"></p><button');
+    expect(antes).not.toContain('Cadastro salvo.');
+    estado.atual = { ok: true };
+    expect(await render()).toContain('<p role="status">Cadastro salvo.</p><button');
+  });
+
+  it('Observação acima de 1.000 caracteres: o contador vira a mensagem do servidor, em erro, sem região viva', async () => {
+    cadastro = { cpf: null, nomeSocial: null, identidadeGenero: null, estadoCivil: null, escolaridade: null, ocupacao: null, nacionalidade: null, naturalidade: null, telefoneFixo: null, cep: null, logradouro: null, numero: null, complemento: null, bairro: null, cidade: null, uf: null, observacao: 'a'.repeat(1001) };
+    const html = await render();
+    expect(html).toContain('<p id="observacao-contador" class="text-sm text-erro">Use no máximo 1.000 caracteres</p>');
+    expect(html).not.toContain('de 1.000 caracteres');
+    cadastro = { ...cadastro, observacao: 'a'.repeat(1000) };
+    expect(await render()).toContain('<p id="observacao-contador" class="text-sm text-suave">1.000 de 1.000 caracteres</p>');
   });
 
   it('Plano 18 (§8.1): arquivado e bloqueado ficam "Sem acesso", mesmo com a senha criada', async () => {

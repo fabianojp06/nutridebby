@@ -14,7 +14,7 @@ import {
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { auditRead } from '@/modules/plataforma/audit';
 import { idValido, PacienteError } from './base';
-import { MSG_CADASTRO, normalizarQuebras, tamanhoDoTexto, type Escolaridade, type EstadoCivil, type IdentidadeDeGenero, type Uf } from './cadastro-textos';
+import { MSG_CADASTRO, normalizarQuebras, OBSERVACAO_MAXIMO, tamanhoDoTexto, type Escolaridade, type EstadoCivil, type IdentidadeDeGenero, type Uf } from './cadastro-textos';
 import { cpfValido, normalizarCpf } from './cpf';
 import { normalizarTelefone } from './telefone';
 
@@ -116,7 +116,7 @@ const REGRAS: Record<CampoDoCadastro, Regra> = {
   bairro: { tipo: 'texto', min: 2, max: 60 },
   cidade: { tipo: 'texto', min: 2, max: 60 },
   uf: { tipo: 'lista', valores: VALORES_UF, erro: MSG_CADASTRO.ufDaLista },
-  observacao: { tipo: 'texto', min: 1, max: 1000 },
+  observacao: { tipo: 'texto', min: 1, max: OBSERVACAO_MAXIMO },
 };
 
 function erroDaRegra(campo: CampoDoCadastro, r: Regra): string {

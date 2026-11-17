@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Plano 18 (D12, US-262 "Abas"; US-260, §8.4): o cadastro em seções (Dados gerais, Contato e endereço, Observação), o
- * acesso ao app e as etiquetas, nessa ordem. D20: o único lugar que lê os valores do cadastro complementar
+ * acesso ao app e as etiquetas, nessa ordem, numa coluna só. D20: o único lugar que lê os valores do cadastro complementar
  * (`cadastroDoPaciente`, leitura auditada como "Cadastro do paciente").
  */
 export default async function PerfilPage({ params }: PageProps<'/painel/pacientes/[id]/perfil'>) {
@@ -28,8 +28,9 @@ export default async function PerfilPage({ params }: PageProps<'/painel/paciente
   const conviteWhatsapp = textoDoConviteWhatsapp(conviteWa, tenant.fuso); // US-010
   const bloqueado = paciente.status === 'bloqueado';
   return (
-    <div className="grid gap-8 md:grid-cols-2">
-      <div className="max-w-xl space-y-3">
+    // uma coluna só: a ordem visual é a da spec (§8.4), o acesso ao app e as etiquetas depois do cadastro
+    <div className="max-w-xl space-y-8">
+      <div className="space-y-3">
         {bloqueado && <p role="status">{MSG_BLOQUEADO}</p>}
         <PacienteForm
           acao={atualizarPacienteAction.bind(null, paciente.id)}

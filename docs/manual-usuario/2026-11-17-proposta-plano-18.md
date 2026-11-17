@@ -98,8 +98,8 @@ Perguntas comuns:
 - **"CPF inválido. Confira os números."** O sistema confere os dígitos verificadores.
 - **"Revise os campos marcados."** aparece junto do botão quando algum campo tem erro; o cursor vai para o primeiro
   deles.
-- O CPF só aparece no Perfil e na cópia dos dados que o paciente pedir (LGPD). Não aparece na lista, no Início, no app,
-  nas mensagens nem no PDF do prontuário.
+- O CPF só aparece no Perfil e na cópia dos dados (LGPD), tanto na que o paciente pede pelo app quanto na que você pede
+  em Privacidade. Não aparece na lista, no Início, no app, nas mensagens nem no PDF do prontuário.
 - O agendamento pela página pública continua pedindo só os dados de antes; o resto você completa no Perfil.
 
 ### 2.2 Nome social

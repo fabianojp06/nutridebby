@@ -41,6 +41,17 @@ async function secoesComSelo(ctx: Parameters<typeof noAppDoPaciente>[0], secoes:
   return { secoes: comSelo, noApp };
 }
 
+/** RN-269: a nota "Cadastro incompleto" é acessória — se a leitura falhar, o Início não cai: fica sem a nota. */
+async function notaDoCadastro(ctx: Parameters<typeof cadastroIncompleto>[0], patientId: string): Promise<string | null> {
+  try {
+    return await cadastroIncompleto(ctx, patientId);
+  } catch (err) {
+    // no log, só o tipo do erro (nunca a mensagem nem dado do cadastro), como o No app acima
+    logger.warn({ erro: nomeDoErro(err) }, 'Nota do cadastro incompleto indisponível no Início');
+    return null;
+  }
+}
+
 /**
  * Aba Início (Plano 18, US-262, US-263): o aviso do paciente bloqueado, o botão Adicionar (nunca para bloqueado ou anonimizado; arquivado registra, como
  * cada aba), o cartão Resumo (RN-276), o cartão "No app do paciente" (D16, US-264), o bloco da IA (US-120) e as seções do
@@ -56,7 +67,7 @@ export default async function InicioPage({ params }: PageProps<'/painel/paciente
     iaDoAssistente(ctx, tenant, paciente, 'resumo_historico'),
     secoesDoInicio(ctx, tenant, paciente).then((s) => secoesComSelo(ctx, s, paciente.id)),
     cartaoResumo(ctx, tenant.fuso, paciente),
-    completavel ? cadastroIncompleto(ctx, paciente.id) : null,
+    completavel ? notaDoCadastro(ctx, paciente.id) : null,
   ]);
   const podeAdicionar = completavel;
   const grupos = podeAdicionar ? montarAdicionar(paciente.id, secoes) : [];

@@ -805,9 +805,10 @@ se outra migration entrar antes do merge, os números mudam.
 
 #### Cadastro complementar (`patient_cadastro`, D1, RN-260 a RN-265)
 
-Os campos da Res. CFN 594/2017 que não estavam em `patients` (CPF, nome social, identidade de gênero, estado civil,
-escolaridade, ocupação, nacionalidade, naturalidade, telefone fixo, endereço e observação) ficam numa tabela filha, uma
-linha por paciente ([§2.5.4](02-banco-de-dados.md#254-prontuário-pacientests); proteção na matriz da §2.5.1).
+Os campos de identificação da Res. CFN 594/2017 (art. 4º, § 1º, I) que não estavam em `patients` (nome social, a pedido;
+identidade de gênero, estado civil, escolaridade, ocupação, nacionalidade, naturalidade, telefone fixo e endereço) e
+mais o CPF e a observação, que a resolução não lista (decisão do produto: identificar sem engano e anotar o que o paciente
+pode receber na cópia dos dados), ficam numa tabela filha, uma linha por paciente ([§2.5.4](02-banco-de-dados.md#254-prontuário-pacientests); proteção na matriz da §2.5.1).
 
 | Peça | O que faz | Onde |
 |---|---|---|

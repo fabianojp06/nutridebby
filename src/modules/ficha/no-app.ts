@@ -78,7 +78,8 @@ function semAcesso(estado: 'arquivado' | 'bloqueado'): NoApp {
  * Nutri, a data do plano publicado e a lista de compras (a regra de `listaDoPlano`), os lembretes (sem texto nem config)
  * e as receitas sugeridas no plano publicado (D24: a contagem não liga a liberação das receitas do plano, que só o
  * "Meu plano" do portal liga). (2) Só com o paciente ativo, não anonimizado e com conta: no contexto do paciente sem login,
- * as contagens e os ids visíveis de cada seção com `noApp`, os conteúdos da biblioteca e o diário dos últimos 30 dias.
+ * reconferida ali a situação (arquivado, bloqueado ou anonimizado entre as transações → `semAcesso`), as contagens e os
+ * ids visíveis de cada seção com `noApp`, os conteúdos da biblioteca e o diário dos últimos 30 dias.
  * Só contagens e ids; nenhuma leitura de dado de saúde é registrada (nada é devolvido além de números e ids).
  */
 export async function noAppDoPaciente(
@@ -173,6 +174,9 @@ export async function noAppDoPaciente(
   const comAcesso = p.status === 'ativo' && Boolean(p.userId);
   const doApp = comAcesso
     ? await comoPaciente(db, ctx.tenantId, p.id, async (tx) => {
+        // a situação pode ter mudado entre as duas transações: reconferida aqui, antes de qualquer contagem
+        const [agoraP] = await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, p.id));
+        if (!agoraP || agoraP.status !== 'ativo' || agoraP.anonimizadoEm) return { fechado: agoraP?.status === 'arquivado' ? ('arquivado' as const) : ('bloqueado' as const) };
         const contagens: Record<string, number> = {};
         const visiveis: Record<string, string[]> = {};
         for (const s of SECOES_DA_FICHA) {
@@ -187,9 +191,10 @@ export async function noAppDoPaciente(
         const desde = new Date(agora.getTime() - DIAS_DO_DIARIO * 24 * 60 * 60 * 1000);
         const [d] = await tx.select({ n: count() }).from(diaryEntries).where(and(eq(diaryEntries.patientId, p.id), gte(diaryEntries.dataHora, desde)));
         contagens.diario30d = d?.n ?? 0;
-        return { contagens, visiveis };
+        return { fechado: null, contagens, visiveis };
       })
     : null;
+  if (doApp?.fechado) return semAcesso(doApp.fechado);
 
   const ls = doPainel.lembretes;
   return {

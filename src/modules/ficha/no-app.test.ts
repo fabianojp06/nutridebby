@@ -32,11 +32,15 @@ import { noAppDoPaciente } from './no-app';
 import { SECOES_DA_FICHA } from './secoes';
 
 // Quem abriu o contexto do paciente sem login (o `withTenant` de verdade, só anotando): para provar que ele não abre
-const aberturas = vi.hoisted(() => ({ semConta: [] as string[] }));
+// (e, com `antes`, o que muda no banco entre a transação da sessão `nutri` e a do paciente)
+const aberturas = vi.hoisted(() => ({ semConta: [] as string[], antes: null as null | (() => Promise<unknown>) }));
 vi.mock('@/db/tenant', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/db/tenant')>();
-  const withTenant: typeof real.withTenant = (ctx, fn, db) => {
-    if (ctx.semConta) aberturas.semConta.push(ctx.patientId ?? '');
+  const withTenant: typeof real.withTenant = async (ctx, fn, db) => {
+    if (ctx.semConta) {
+      aberturas.semConta.push(ctx.patientId ?? '');
+      if (aberturas.antes) await aberturas.antes();
+    }
     return real.withTenant(ctx, fn, db);
   };
   return { ...real, withTenant };
@@ -480,6 +484,28 @@ describe('noAppDoPaciente (Plano 18, D16, RN-281)', () => {
         expect(r, estado).toEqual({ acesso: { estado, ultimoAcesso: null, textoDoConvite: null }, ...NEUTRO });
       }
       expect(aberturas.semConta).toEqual([]);
+    });
+
+    it('arquivado ou anonimizado entre as transações: o contexto do paciente reconfere a situação e devolve sem acesso', async () => {
+      const T = await novoTenant(app.db);
+      const arq = await comTudo(T);
+      const ano = await comTudo(T);
+      try {
+        aberturas.antes = () => withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, arq.paciente.id)), app.db);
+        const r = await noAppDoPaciente(T.ctx, arq.paciente.id, { antropometria: [arq.avaliacao] }, { db: app.db, agora: AGORA });
+        expect(r).toEqual({ acesso: { estado: 'arquivado', ultimoAcesso: null, textoDoConvite: null }, ...NEUTRO });
+        aberturas.antes = () =>
+          dono.db.transaction(async (tx) => {
+            await tx.execute(sql`set local session_replication_role = replica`);
+            await tx.execute(sql`update patients set anonimizado_em = now() where id = ${ano.paciente.id}`);
+          });
+        const s = await noAppDoPaciente(T.ctx, ano.paciente.id, { antropometria: [ano.avaliacao] }, { db: app.db, agora: AGORA });
+        expect(s).toEqual({ acesso: { estado: 'bloqueado', ultimoAcesso: null, textoDoConvite: null }, ...NEUTRO });
+        // o contexto do paciente abriu (a mudança veio depois da primeira transação), e a reconferência fechou
+        expect(aberturas.semConta).toEqual([arq.paciente.id, ano.paciente.id]);
+      } finally {
+        aberturas.antes = null;
+      }
     });
   });
 

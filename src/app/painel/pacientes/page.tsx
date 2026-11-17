@@ -15,7 +15,7 @@ const ABAS = Object.entries(MSG_LISTA.abas) as [Exclude<AbaDaLista, 'bloqueados'
 const ORDENS = Object.entries(MSG_LISTA.ordens) as [OrdemDaLista, string][];
 /** Os mesmos selos do cabeçalho da ficha (`seloDoPaciente`), só para as situações que aparecem fora da aba Ativos. */
 const SELO: Record<PacienteNaLista['status'], string | null> = { ativo: null, arquivado: 'Arquivado', bloqueado: 'Bloqueado (pedido de exclusão)' };
-const CAMPO = 'rounded-xl border border-campo bg-cartao p-2 text-texto';
+const CAMPO = 'min-h-11 rounded-xl border border-campo bg-cartao p-2 text-texto';
 
 /**
  * Plano 18 (US-261, §8.1): abas Ativos/Inativos/Todos (`aria-current`) e "Ver bloqueados" (RN-270), "Ordenar por"

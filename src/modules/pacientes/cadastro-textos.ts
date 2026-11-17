@@ -148,3 +148,6 @@ export const normalizarQuebras = (s: string) => s.replace(/\r\n?/g, '\n');
  * esta mesma função.
  */
 export const tamanhoDoTexto = (s: string) => Array.from(normalizarQuebras(s).trim()).length;
+
+/** Limite da Observação (o servidor e o contador da tela). */
+export const OBSERVACAO_MAXIMO = 1000;

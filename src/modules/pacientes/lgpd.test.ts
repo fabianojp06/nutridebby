@@ -927,6 +927,19 @@ describe('Plano 18 — o cadastro complementar na LGPD (D18, RN-283)', () => {
   const anonimizarPelaImagemAntiga = (T: TenantDeTeste, patientId: string) =>
     withTenant(worker(T), (tx) => tx.update(patients).set({ nome: 'Paciente anonimizado', userId: null, anonimizadoEm: now, updatedAt: now }).where(eq(patients.id, patientId)), app.db);
 
+  it('pedido de exclusão com nome social: o nome errado (ou o social) recusa pedindo o nome de registro; sem nome social, a mensagem de sempre', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Registro' });
+    const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    await comCadastro(T, ana.id, null);
+    for (const digitado of ['Joana Silva', 'Outro nome'])
+      await expect(atenderPedidoExclusao(T.ctx, T.tenant, ana.id, digitado, deps)).rejects.toThrow(MSG_LGPD.confirmarNomeDeRegistro('Ana Registro'));
+    await expect(atenderPedidoExclusao(T.ctx, T.tenant, bia.id, 'Outro nome', deps)).rejects.toThrow(MSG_LGPD.confirmarNome);
+    // com o nome de registro, atende
+    await atenderPedidoExclusao(T.ctx, T.tenant, ana.id, 'Ana Registro', deps);
+    expect((await withTenant(T.ctx, (tx) => tx.select({ status: patients.status }).from(patients).where(eq(patients.id, ana.id)), app.db))[0].status).toBe('bloqueado');
+  });
+
   it('a anonimização apaga a linha do titular e grava o "excluir" de ator nulo; o cadastro de outro paciente fica', async () => {
     const T = await novoTenant(app.db);
     const vencido = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-01' });

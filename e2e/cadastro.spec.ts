@@ -378,6 +378,16 @@ test('impressão da ficha com nome social: o nome civil primeiro e "Nome social:
   }
 });
 
+test('Privacidade com nome social: o pedido de exclusão pede o nome de registro, mostrado na instrução (RN-266)', async () => {
+  await nutri.goto(`${completa}/privacidade`);
+  await expect(nutri.getByRole('heading', { name: 'Pedido de exclusão (LGPD, art. 18)' })).toBeVisible();
+  // a instrução é o rótulo do campo de confirmação; nada é enviado (a paciente da semente nunca é alterada aqui)
+  const campo = nutri.getByLabel(`Digite o nome de registro do paciente (${SEMENTE_COMPLETA.nome}) exatamente como está no cadastro para confirmar.`, { exact: true });
+  await expect(campo).toBeVisible();
+  await expect(campo).toHaveAttribute('id', 'confirmacao');
+  await expect(nutri.getByText('Digite o nome do paciente para confirmar', { exact: true })).toHaveCount(0);
+});
+
 for (const tema of ['Claro', 'Escuro'] as const) {
   test(`axe dos estados abertos (RNF-261): o menu da linha e o diálogo Adicionar, tema ${tema}`, async () => {
     await escolherTema(nutri, tema);

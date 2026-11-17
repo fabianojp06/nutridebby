@@ -15,6 +15,7 @@ const estado = vi.hoisted(() => ({
   chamadas: [] as unknown[][],
   incompleto: null as string | null,
   incompletoPedido: [] as string[],
+  incompletoFalha: null as Error | null,
   noApp: {} as NoApp,
   noAppPedidos: [] as unknown[][],
   noAppFalha: null as Error | null,
@@ -43,6 +44,7 @@ vi.mock('@/modules/ficha/resumo', async (importOriginal) => ({
 vi.mock('@/modules/ficha/incompleto', () => ({
   cadastroIncompleto: async (_ctx: unknown, id: string) => {
     estado.incompletoPedido.push(id);
+    if (estado.incompletoFalha) throw estado.incompletoFalha;
     return estado.incompleto;
   },
 }));
@@ -95,6 +97,7 @@ describe('aba Início (Plano 18)', () => {
     estado.chamadas = [];
     estado.incompleto = null;
     estado.incompletoPedido = [];
+    estado.incompletoFalha = null;
     estado.noAppPedidos = [];
     estado.noAppFalha = null;
     estado.avisos = [];
@@ -192,6 +195,19 @@ describe('aba Início (Plano 18)', () => {
       const html = await render();
       expect(html).not.toContain('Cadastro incompleto');
       expect(html).not.toContain('Completar no Perfil');
+    });
+
+    it('a leitura da nota falhou: o Início continua, sem a nota; no log só o tipo do erro', async () => {
+      estado.incompleto = 'Cadastro incompleto: faltam 6 dados.';
+      estado.incompletoFalha = new RangeError('falhou para Ana Teste, CPF 529.982.247-25');
+      const html = await render();
+      expect(html).not.toContain('Cadastro incompleto');
+      expect(html).not.toContain('Completar no Perfil');
+      // o resto do Início continua
+      expect(html).toMatch(/<h2[^>]*>Resumo<\/h2>/);
+      expect(html).toContain('data-guia="no-app-cartao"');
+      expect(estado.avisos).toEqual([[{ erro: 'RangeError' }, 'Nota do cadastro incompleto indisponível no Início']]);
+      expect(JSON.stringify(estado.avisos)).not.toMatch(/Ana|529/);
     });
 
     it('bloqueado ou anonimizado: sem nota (o Perfil é só para consulta) e sem consultar a presença', async () => {
