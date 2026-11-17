@@ -171,6 +171,8 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   const hrefLancamento = await nutri.getByRole('link', { name: new RegExp(`^Editar Entrada, ${paciente.nome}, `) }).first().getAttribute('href');
   const lancamento = new RegExp(`^/painel/financeiro/lancamentos/(${UUID})$`).exec(hrefLancamento ?? '');
   expect(lancamento, `link "Editar" do lançamento de ${paciente.nome}: ${hrefLancamento}`).not.toBeNull();
+  // Plano 22 (T3): um exame do catálogo e um modelo de solicitação, pelo caminho real da UI
+  const { exameCatalogo, modeloSolicitacao } = await bibliotecasDeExames(nutri, sufixo);
 
   return {
     paciente: p.split('/').pop()!,
@@ -196,5 +198,50 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
         .toBeGreaterThan(0);
       return idDoLink(nutri, '/painel/exames-recebidos', new RegExp(`/painel/exames-recebidos/(${UUID})$`));
     })(),
+    exameCatalogo,
+    modeloSolicitacao,
   };
+}
+
+/** O id do link com este nome na tela atual (a lista que acabou de abrir). */
+async function idPeloNome(page: Page, nome: string, padrao: RegExp): Promise<string> {
+  const href = (await page.getByRole('link', { name: nome, exact: true }).getAttribute('href')) ?? '';
+  const m = padrao.exec(href.split('?')[0]);
+  expect(m, `o link "${nome}" (${href}) não casa com ${padrao}`).not.toBeNull();
+  return m![1];
+}
+
+/**
+ * Plano 22 (T3): um exame do catálogo (com uma faixa) e um modelo de solicitação com ele, pelas telas de
+ * /painel/exames. Nomes com o sufixo da execução: o seed não apaga o catálogo, e o nome é único no consultório.
+ */
+export async function bibliotecasDeExames(nutri: Page, sufixo: string): Promise<{ exameCatalogo: string; modeloSolicitacao: string }> {
+  const nomeExame = `Ferritina axe ${sufixo}`;
+  await nutri.goto('/painel/exames/catalogo/novo');
+  await nutri.getByLabel('Nome', { exact: true }).fill(nomeExame);
+  await nutri.getByLabel('Unidade (opcional)').fill('ng/mL');
+  await nutri.getByRole('button', { name: 'Acrescentar faixa' }).click();
+  await nutri.getByLabel('Abaixo de').fill('15');
+  await nutri.getByLabel('Categoria').selectOption('Baixo');
+  await nutri.getByLabel('Fonte').fill('Laboratório X, 2026');
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri).toHaveURL(/\/painel\/exames\/catalogo\?ok=salvo/);
+  await expect(nutri.getByRole('status').filter({ hasText: 'Exame salvo.' })).toBeVisible();
+  const exameCatalogo = await idPeloNome(nutri, nomeExame, new RegExp(`/painel/exames/catalogo/(${UUID})$`));
+
+  await nutri.goto('/painel/exames/modelos/novo');
+  await nutri.getByLabel('Nome do modelo').fill(`Check-up axe ${sufixo}`);
+  await nutri.getByRole('button', { name: 'Adicionar do catálogo' }).click();
+  const dialogo = nutri.getByRole('dialog', { name: 'Buscar no catálogo' });
+  await dialogo.getByRole('searchbox', { name: 'Buscar no catálogo' }).fill(nomeExame);
+  await dialogo.getByLabel(nomeExame).check();
+  await dialogo.getByRole('button', { name: 'Adicionar 1 exame' }).click();
+  await expect(dialogo).toBeHidden();
+  await nutri.getByLabel('Adicionar exame fora do catálogo').fill('Ferro sérico');
+  await nutri.getByRole('button', { name: 'Adicionar', exact: true }).click();
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri).toHaveURL(/\/painel\/exames\/modelos\?ok=salvo/);
+  await expect(nutri.getByRole('status').filter({ hasText: 'Modelo salvo.' })).toBeVisible();
+  const modeloSolicitacao = await idPeloNome(nutri, `Check-up axe ${sufixo}`, new RegExp(`/painel/exames/modelos/(${UUID})$`));
+  return { exameCatalogo, modeloSolicitacao };
 }

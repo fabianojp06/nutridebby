@@ -6,6 +6,9 @@ export type IdsDoPainel = {
   duvida: string;
   /** Plano 20 (US-301): a entrada do paciente lançada pela tela "Nova entrada". */
   lancamento: string;
+  /** Plano 22 (T3): um exame do catálogo e um modelo de solicitação, criados pela UI. */
+  exameCatalogo: string;
+  modeloSolicitacao: string;
 };
 
 /**
@@ -75,4 +78,11 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/planos/modelos': () => '/painel/planos/modelos',
   '/painel/planos/modelos/[id]': (i) => `/painel/planos/modelos/${i.modeloPlano}`,
   '/painel/whatsapp': () => '/painel/whatsapp',
+  // Plano 22 (T3): catálogo de exames e modelos de solicitação (hub Configurações)
+  '/painel/exames/catalogo': () => '/painel/exames/catalogo',
+  '/painel/exames/catalogo/novo': () => '/painel/exames/catalogo/novo',
+  '/painel/exames/catalogo/[id]': (i) => `/painel/exames/catalogo/${i.exameCatalogo}`,
+  '/painel/exames/modelos': () => '/painel/exames/modelos',
+  '/painel/exames/modelos/novo': () => '/painel/exames/modelos/novo',
+  '/painel/exames/modelos/[id]': (i) => `/painel/exames/modelos/${i.modeloSolicitacao}`,
 };

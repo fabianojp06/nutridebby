@@ -356,11 +356,11 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'configuracoes',
-    versao: 8, // Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
+    versao: 9, // Plano 22: o cartão "Exames" (+1 sobre a main); 8 = Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
-      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança e o tema do painel.',
+      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança, exames do consultório e o tema do painel.',
       secoes: [
         { titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] },
         {
@@ -386,7 +386,8 @@ export const GUIAS: readonly Guia[] = [
       ],
     },
     passos: [
-      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório.' },
+      // Plano 22: o cartão "Exames" (catálogo e modelos de solicitação)
+      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório. Em "Exames" ficam o catálogo de exames, as suas faixas e os modelos de solicitação.' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
       { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas e dos pareceres. Mudar depois não altera documento já preparado.' },
       // Plano 14B: a seção só aparece com a IA ativa no consultório; sem ela, o passo abre no centro, sem destaque (como o de cima)
@@ -480,6 +481,43 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'financeiro-pendentes', titulo: 'Pagamentos pendentes', texto: 'As cobranças que os pacientes ainda não pagaram, uma linha por paciente, começando pela mais antiga. Clique em "Ver" para receber cada uma. Esta lista é só sua: nada é enviado ao paciente.' },
       { alvo: 'financeiro-relatorios', titulo: 'Relatórios', texto: 'O fluxo de caixa do ano, mês a mês, e as entradas e saídas dos últimos 12 meses. Só entram os lançamentos recebidos ou pagos. Troque o ano em "Ano".' },
       { alvo: 'financeiro-csv', titulo: 'CSV para o contador', texto: 'Escolha o período (até 12 meses) e clique em "Baixar CSV". Sem marcar "Incluir o nome dos pacientes", o arquivo sai sem os nomes e sem a descrição das entradas de pacientes.' },
+    ],
+  },
+  {
+    // Plano 22 (T3, US-370, US-376): rascunho para o revisor-interface e a Debby (PM-E12)
+    id: 'exames-do-consultorio',
+    versao: 1,
+    padrao: /^\/painel\/exames(\/.*)?$/,
+    titulo: 'Exames do consultório',
+    ajuda: {
+      resumo: 'O catálogo com os exames que você pede e lê, com as suas faixas e os modelos de nota, e os modelos de solicitação. Nada daqui aparece para o paciente.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Comece por "Nomes de exames para começar": marque os que você usa e toque em "Adicionar ao catálogo". Só o nome e os outros nomes entram; nenhuma unidade, faixa ou valor de referência vem junto.',
+            'Em "Novo exame", informe o nome, a unidade e os outros nomes (como o exame aparece em laudos diferentes).',
+            'Para pedidos como Hemograma completo, preencha "Exames que compõem este": ao lançar o resultado, cada exame da lista vira uma linha.',
+            'Em "Faixas do consultório", cadastre as faixas que você usa, sempre com a fonte. A categoria aparece ao lado do resultado, só no painel.',
+            'Em "Modelos de solicitação", monte listas de exames para pedir ou lançar de uma vez.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Excluir um exame do catálogo não muda exames lançados, modelos nem documentos: todos guardam uma cópia do nome.',
+            'Com faixas cadastradas, a unidade do exame não muda: remova as faixas antes de trocar a unidade.',
+            'Os modelos de nota e os modelos de solicitação são do consultório: retire dados do paciente antes de salvar.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'secoes-exames', titulo: 'Catálogo e modelos', texto: 'O Catálogo guarda os exames do consultório; os Modelos de solicitação, listas de exames para pedir de uma vez.' },
+      { alvo: 'nomes-para-comecar', titulo: 'Nomes para começar', texto: 'Marque os nomes que você usa e toque em "Adicionar ao catálogo". Só o nome entra; unidade e faixas são suas.' },
+      { alvo: 'novo-exame-catalogo', titulo: 'Novo exame', texto: 'Nome, unidade e outros nomes. Para um painel, preencha "Exames que compõem este".' },
+      { alvo: 'faixas-consultorio', titulo: 'Faixas do consultório', texto: 'Faixas que você define, com a fonte. Servem para mostrar uma categoria ao lado do resultado, só no painel.' },
+      { alvo: 'modelos-nota', titulo: 'Modelos de nota', texto: 'Textos seus para quando o resultado está abaixo ou acima da referência. Escreva fatores a investigar e encaminhamentos; não afirme doença.' },
     ],
   },
 ];

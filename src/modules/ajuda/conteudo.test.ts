@@ -10,7 +10,7 @@ const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
   .join('\n');
 
 // Rótulos que vêm de módulos (opções da agenda, filtros): citados no manual, desenhados fora do .tsx
-const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes', 'src/modules/ficha', 'src/modules/financeiro']
+const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes', 'src/modules/ficha', 'src/modules/financeiro', 'src/modules/exames']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.ts') && !d.name.endsWith('.test.ts')).map((d) => path.join(d.parentPath, d.name)))
   // Plano 16: os rótulos da resposta do diário ("Comeu como no plano") vêm de uma constante do portal (sem import de servidor)
   .concat(path.resolve('src/modules/portal/diario-constantes.ts'))
@@ -120,7 +120,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 15: o aditivo 1.2 e a IA Nutri em Configurações (versão 8, com o passo da subseção); a 1.2 não invalida autorização nenhuma', () => {
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
-    expect(config.versao).toBe(8);
+    expect(config.versao).toBeGreaterThanOrEqual(8); // 9 desde o Plano 22 (o cartão "Exames", abaixo)
     const ia = config.ajuda.secoes.find((s) => s.titulo === 'Inteligência artificial (IA)')!.itens;
     expect(ia).toContain(
       'O aditivo está na versão 1.2, que inclui o resumo do histórico, o rascunho de plano alimentar e a IA Nutri para pacientes. Quem aceitou a versão 1.1 continua usando a leitura de laudos, o resumo, o rascunho e os modelos; só a IA Nutri pede o aceite da 1.2 ("Aceitar a versão atual").',
@@ -266,5 +266,17 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(precisaDoGuia({}, g, ['concluido', 'dispensado'])).toBe(true);
     expect(precisaDoGuia({ [g.id]: { v: g.versao, estado: 'dispensado' } }, g, ['concluido', 'dispensado'])).toBe(false);
     expect(precisaDoGuia({ [g.id]: { v: g.versao - 1, estado: 'concluido' } }, g, ['concluido', 'dispensado'])).toBe(true);
+  });
+  it('Plano 22 (T3): o guia "exames-do-consultorio" cobre as telas de /painel/exames; "configuracoes" sobe (+1) e o passo dos cartões cita "Exames"', () => {
+    const g = GUIAS.find((x) => x.id === 'exames-do-consultorio')!;
+    expect(g.versao).toBe(1);
+    for (const r of ['/painel/exames/catalogo', '/painel/exames/catalogo/novo', `/painel/exames/catalogo/${UUID}`, '/painel/exames/modelos', '/painel/exames/modelos/novo', `/painel/exames/modelos/${UUID}`]) {
+      expect(guiaDaRota(r)?.id, r).toBe('exames-do-consultorio');
+    }
+    expect(guiaDaRota('/painel/exames-recebidos')?.id).toBe('exames-recebidos');
+    expect(g.passos.map((p) => p.alvo)).toEqual(['secoes-exames', 'nomes-para-comecar', 'novo-exame-catalogo', 'faixas-consultorio', 'modelos-nota']);
+    const config = GUIAS.find((x) => x.id === 'configuracoes')!;
+    expect(config.versao).toBe(9); // Plano 22: o cartão "Exames" (+1 sobre a main)
+    expect(config.passos.find((p) => p.alvo === 'cartoes-configuracoes')?.texto).toContain('"Exames"');
   });
 });

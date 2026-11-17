@@ -134,6 +134,19 @@ export const MSG_EXAMES = {
     adicionar: 'Adicionar ao catálogo',
     colunas: { exame: 'Exame', unidade: 'Unidade', faixas: 'Faixas', acao: 'Ação' },
     painel: (n: number) => `Painel (${exames(n)})`,
+    /** Texto novo (T3): retorno de "Adicionar ao catálogo" (a §6.2 não traz). Rascunho para a Debby. */
+    adicionados: (n: number) => (n === 1 ? '1 exame adicionado ao catálogo.' : `${n} exames adicionados ao catálogo.`),
+    /** Texto novo (T3): "Adicionar ao catálogo" sem nenhum nome marcado. Rascunho para a Debby. */
+    nenhumMarcado: 'Marque ao menos um nome.',
+    /** Texto novo (T3): o link de volta para o hub. */
+    voltar: 'Configurações',
+    /** Texto novo (T3): título do formulário de um exame novo (spec §4.1, h1). */
+    tituloNovo: 'Novo exame do catálogo',
+    /** Texto novo (T3): legenda da coluna "Faixas" sem faixa. */
+    semFaixas: 'Nenhuma',
+    /** Texto novo (T3): nome acessível do link de cada exame e do "Excluir" na lista. */
+    editarRotulo: (nome: string) => `Editar ${nome}`,
+    excluirRotulo: (nome: string) => `Excluir ${nome}`,
   },
   exameDoCatalogo: {
     nome: 'Nome',
@@ -164,6 +177,11 @@ export const MSG_EXAMES = {
     remover: 'Remover faixa',
     fonteDe: (fonte: string) => `Fonte: ${fonte}`,
     atualizadaEm: (data: string) => `atualizada em ${data}`,
+    /** Texto novo (T3): o grupo de cada faixa no formulário e o nome acessível de "Remover faixa". Rascunho para a Debby. */
+    rotuloFaixa: (n: number) => `Faixa ${n}`,
+    removerRotulo: (n: number) => `Remover faixa ${n}`,
+    /** Texto novo (T3): a opção vazia de "Categoria" (como "Grupo" em Alimentos). */
+    escolha: 'Escolha…',
   },
   modelosNota: {
     titulo: 'Modelos de nota de interpretação',
@@ -202,6 +220,8 @@ export const MSG_EXAMES = {
     sexo: 'Escolha Todos, Feminino ou Masculino.',
     /** Componente do painel repetido (RN-373): o mesmo texto da lista da solicitação (§6.2). */
     componenteRepetido: 'Este exame já está na lista.',
+    /** Texto novo (T3): o exame do catálogo foi excluído em outra aba (o mesmo texto da aba Exames). Rascunho para a Debby. */
+    naoEncontrado: 'Exame não encontrado.',
   },
   lancamento: {
     adicionarDoCatalogo: 'Adicionar do catálogo',
@@ -332,7 +352,20 @@ export const MSG_EXAMES = {
       semExames: 'Inclua ao menos um exame.',
       max: 'O modelo pode ter até 40 exames.',
       exameRepetido: 'Este exame já está na lista.',
+      /** O mesmo texto da solicitação (§6.2, "Solicitação: erros"). */
+      orientacoes: 'As orientações têm no máximo 1000 caracteres.',
+      /** Texto novo (T3): o modelo foi excluído em outra aba. Rascunho para a Debby. */
+      naoEncontrado: 'Modelo não encontrado.',
     },
+    /** Texto novo (T3): nomes acessíveis da lista e do formulário. */
+    editarRotulo: (nome: string) => `Editar o modelo ${nome}`,
+    excluirRotulo: (nome: string) => `Excluir o modelo ${nome}`,
+    confirmarExcluir: (nome: string) => `Excluir o modelo ${nome}? As solicitações já feitas não mudam.`,
+    tituloNovo: 'Novo modelo de solicitação',
+    removerRotulo: (nome: string) => `Remover ${nome}`,
+    nomeDoExame: 'Nome do exame',
+    adicionar: 'Adicionar',
+    examesN: (n: number) => (n === 1 ? '1 exame' : `${n} exames`),
   },
   /** Linha "Estados vazios e erros genéricos" (os de exames; "Nenhum item salvo." é de MSG_MODELOS, PR 4). */
   vazios: {
