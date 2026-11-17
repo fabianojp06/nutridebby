@@ -396,3 +396,9 @@ Plano 20, re-revisão do /code-review do PR 1 (17/11/2026):
 - Ramo `worker` de gatilho de anonimização guardado só por marcador local (`app.<x>_anonimizando`): o marcador pode ser
   ligado à mão; o gatilho tem de reconferir o prazo/estado da função e fixar datas pelo relógio do banco. Depois de barrar
   o pago, conferir o inverso: o em aberto anonimizado SEM cancelamento ainda passa (fica pendente para sempre).
+
+Plano 20 (testes de auditoria, 17/11/2026):
+- Asserção "nada gravado"/"0 linhas" contada pelo `app.pool`/`app.db` FORA de `withTenant` em tabela com RLS (audit_log,
+  fin_*): a RLS esconde tudo e a contagem volta 0 sempre. O `ownerDatabaseUrl` dos testes é o superusuário do Testcontainers
+  (enxerga tudo). Conferir de qual pool vem cada `contar`/`leituras` e se há controle positivo com o mesmo helper.
+  Achado: `configuracoes/actions.test.ts` (`contar` no app.pool para `fin_categorias`).
