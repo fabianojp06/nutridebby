@@ -8,6 +8,7 @@ import { estadoInicial, legendaDosDias, nomesAcessiveis, paraEnvio, reduzir, ref
 const plano: PlanoDoCliente = {
   id: 'p', patientId: 'pac', isTemplate: false, titulo: 'Plano', metaKcal: 2000, energyCalcId: null, status: 'rascunho', versao: 1, revisao: 0,
   publicadoEm: null, mostrarCalorias: false, orientacoes: '', modo: 'calculado', macrosPrescritos: null, pdfStatus: null, refeicoes: [], origemIa: null, iaOrigemEm: null,
+  referenciaId: null, referenciaCongelada: null, nutrientesExibidos: [], mostrarMicrosPdf: false,
 };
 const alimento = (k: number): AlimentoEncontrado => ({
   id: `f${k}`, nome: `Alimento ${k}`, nomeOriginal: null, grupo: 'Miscelâneas', fonte: 'propria', origem: 'Meu alimento', micros: {},

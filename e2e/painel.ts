@@ -158,6 +158,15 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   await expect(nutri).toHaveURL(/\/documentos\/[0-9a-f-]{36}$/);
   const documento = idDaUrl(nutri, new RegExp(`/documentos/(${UUID})$`));
 
+  // perfil de referência (Plano 19, US-232): "Novo perfil" abre a página [id] com `novo`; salvar vai para o id criado
+  await nutri.goto('/painel/planos/referencias/novo');
+  await nutri.getByLabel('Nome').fill(`Perfil axe ${sufixo}`);
+  await nutri.getByLabel('Fonte').fill('DRI/IOM 2006 — conferida pela nutricionista');
+  await nutri.getByLabel('Meta de Ferro (mg)').fill('18');
+  await nutri.getByRole('button', { name: 'Salvar perfil' }).click();
+  await expect(nutri).toHaveURL(new RegExp(`/painel/planos/referencias/${UUID}$`));
+  const referencia = idDaUrl(nutri, new RegExp(`/painel/planos/referencias/(${UUID})$`));
+
   return {
     paciente: p.split('/').pop()!,
     plano,
@@ -181,5 +190,6 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
         .toBeGreaterThan(0);
       return idDoLink(nutri, '/painel/exames-recebidos', new RegExp(`/painel/exames-recebidos/(${UUID})$`));
     })(),
+    referencia,
   };
 }

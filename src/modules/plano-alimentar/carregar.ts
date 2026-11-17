@@ -4,6 +4,7 @@ import { contents, foods, iaGeracoesModelos, mealItems, mealPlans, meals } from 
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { seloDaFonte, type Fonte } from '@/modules/alimentos/fontes';
 import { medidasDeVarios } from '@/modules/alimentos/medidas';
+import { ehChaveNutriente, microsDoCatalogo } from '@/modules/alimentos/nutrientes';
 import { idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
 import { lerCongelados, type Congelado } from './congelados';
@@ -37,7 +38,7 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
   if (!p) return null;
   const rs = await tx.select().from(meals).where(eq(meals.planId, p.id)).orderBy(asc(meals.ordem));
   const its = await tx
-    .select({ i: mealItems, f: { nome: foods.nome, fonte: foods.fonte, kcal: foods.kcal, proteinaG: foods.proteinaG, carboidratoG: foods.carboidratoG, lipidioG: foods.lipidioG, fibraG: foods.fibraG } })
+    .select({ i: mealItems, f: { nome: foods.nome, fonte: foods.fonte, kcal: foods.kcal, proteinaG: foods.proteinaG, carboidratoG: foods.carboidratoG, lipidioG: foods.lipidioG, fibraG: foods.fibraG, micros: foods.micros } })
     .from(mealItems)
     .innerJoin(foods, eq(foods.id, mealItems.foodId))
     .where(and(eq(mealItems.planId, p.id)))
@@ -81,6 +82,11 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
     orientacoes: p.orientacoes,
     modo: p.modo as ModoPlano,
     macrosPrescritos: p.macrosPrescritos ?? null,
+    // RN-238/RN-239: o perfil do rascunho ou modelo, ou a cópia do publicado; chave fora do catálogo não sai
+    referenciaId: p.referenciaId,
+    referenciaCongelada: p.referenciaCongelada ?? null,
+    nutrientesExibidos: p.nutrientesExibidos.filter(ehChaveNutriente),
+    mostrarMicrosPdf: p.mostrarMicrosPdf,
     pdfStatus: p.pdfStatus as PlanoCompleto['pdfStatus'],
     pdfPath: p.pdfPath,
     refeicoes: rs.map((r) => ({
@@ -96,7 +102,7 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
         .map(({ i, f }) => {
           // RN-230: no rascunho, valores e fonte do alimento (foods.fonte, nunca tenant_id); no publicado, a cópia
           // congelada, só por lerCongelados (RN-237). Publicado sem cópia não existe (a publicação confere as linhas).
-          const v = !editavel && i.nutrientes ? congeladoDoItem(i.nutrientes, f.fonte) : f;
+          const v = !editavel && i.nutrientes ? congeladoDoItem(i.nutrientes, f.fonte) : { ...f, micros: microsDoCatalogo(f.micros) };
           return {
             id: i.id,
             foodId: i.foodId,
@@ -104,6 +110,8 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
             fonte: v.fonte,
             origem: seloDaFonte(v.fonte),
             porCem: { kcal: v.kcal, proteinaG: v.proteinaG, carboidratoG: v.carboidratoG, lipidioG: v.lipidioG, fibraG: v.fibraG },
+            // RN-237: nulo no congelado de antes do Plano 19 ("Micronutrientes não registrados nesta versão do plano.")
+            micros: v.micros,
             medidas: medidas.get(i.foodId) ?? [],
             quantidadeG: i.quantidadeG,
             medida: i.medida ?? null,

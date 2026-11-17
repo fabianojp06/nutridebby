@@ -1,7 +1,9 @@
-import type { MacrosPrescritos, MedidaCaseira, MedidaDoItem, NutrientesCongelados } from '@/db/schema';
+import type { MacrosPrescritos, MedidaCaseira, MedidaDoItem, NutrientesCongelados, ReferenciaCongelada } from '@/db/schema';
 import type { Nutrientes100 } from '@/modules/alimentos/busca';
 import type { Fonte, SeloDaFonte } from '@/modules/alimentos/fontes';
 import type { MedidaDisponivel } from '@/modules/alimentos/medidas';
+import type { ChaveNutriente } from '@/modules/alimentos/nutrientes';
+import type { MicrosPorCem } from './calculo';
 import type { DiaDaSemana } from './dias';
 
 /** Só tipos: o editor (cliente) importa daqui sem puxar banco. */
@@ -20,6 +22,12 @@ export type ItemPlano = {
   /** O selo da fonte (`seloDaFonte`). */
   origem: SeloDaFonte;
   porCem: Nutrientes100;
+  /**
+   * RN-235/RN-237: micros por 100 g — no rascunho, os de `foods.micros`; no publicado, a cópia congelada. Nulo = plano
+   * publicado antes do Plano 19 ("Micronutrientes não registrados nesta versão do plano."). Só no painel: o portal
+   * projeta o plano com as chaves dele (RN-240).
+   */
+  micros: MicrosPorCem | null;
   /** Medidas disponíveis para trocar (só no rascunho; publicado = []). */
   medidas: MedidaDisponivel[];
   quantidadeG: number;
@@ -61,6 +69,14 @@ export type PlanoCompleto = {
   modo: ModoPlano;
   /** RN-244: distribuição de macros em % do VET (só no modo livre). */
   macrosPrescritos: MacrosPrescritos | null;
+  /** RN-238: perfil de referência do rascunho ou do modelo (a publicação zera; o publicado tem `referenciaCongelada`). */
+  referenciaId: string | null;
+  /** RN-238: a cópia do perfil feita na publicação (nula no rascunho e no publicado sem perfil). */
+  referenciaCongelada: ReferenciaCongelada | null;
+  /** RN-239: até 12 chaves do catálogo, mostradas em "Nutrientes do paciente". */
+  nutrientesExibidos: ChaveNutriente[];
+  /** RN-239 (D12): o PDF mostra os nutrientes escolhidos (só com `mostrarCalorias`). */
+  mostrarMicrosPdf: boolean;
   pdfStatus: 'pendente' | 'pronto' | 'falhou' | null;
   /** Caminho interno do arquivo: só no servidor (download por signFileUrl); nunca vai ao cliente (`PlanoDoCliente`). */
   pdfPath: string | null;
@@ -97,6 +113,10 @@ export type RascunhoEnviado = {
    */
   modo?: ModoPlano;
   macrosPrescritos?: { proteina: string | number; carboidrato: string | number; lipidio: string | number } | null;
+  /** RN-238/RN-239: ausentes = ficam como estão. `referenciaId` nulo = "Sem perfil". */
+  referenciaId?: string | null;
+  nutrientesExibidos?: string[];
+  mostrarMicrosPdf?: boolean;
   refeicoes: {
     id: string;
     nome: string;

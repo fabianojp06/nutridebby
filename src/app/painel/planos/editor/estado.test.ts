@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
-import { itensComoTexto, totalDoDia } from '@/modules/plano-alimentar/calculo';
+import { MSG_NUTRIENTES } from '@/modules/alimentos/nutrientes';
+import { itensComoTexto, totalDoDia, totalMicros } from '@/modules/plano-alimentar/calculo';
+import { refeicoesDoDia } from '@/modules/plano-alimentar/dias';
 import type { PlanoDoCliente } from '@/modules/plano-alimentar/tipos';
 import { MAX_ITENS, MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
 import {
-  errosSemCampo, estadoInicial, gramasDoItem, legendaDosDias, medidaDaOpcao, nomesAcessiveis, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesDoFiltro,
-  refeicoesParaCalculo, totaisDoFiltro, type EstadoEditor,
+  errosSemCampo, estadoInicial, gramasDoItem, legendaDosDias, medidaDaOpcao, nomesAcessiveis, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, podeEscolherNutriente, reduzir,
+  refeicoesDoFiltro, refeicoesParaCalculo, resumoDeNutrientes, textoDaLinha, totaisDoFiltro, type EstadoEditor,
 } from './estado';
 
 const plano: PlanoDoCliente = {
   id: 'p', patientId: 'pac', isTemplate: false, titulo: 'Plano alimentar', metaKcal: null, energyCalcId: null, status: 'rascunho', versao: 1, revisao: 0,
   publicadoEm: null, mostrarCalorias: false, orientacoes: '', modo: 'calculado', macrosPrescritos: null, pdfStatus: null, refeicoes: [], origemIa: null, iaOrigemEm: null,
+  referenciaId: null, referenciaCongelada: null, nutrientesExibidos: [], mostrarMicrosPdf: false,
 };
 const arroz: AlimentoEncontrado = {
   id: 'f-arroz', nome: 'Arroz, tipo 1, cozido', nomeOriginal: null, grupo: 'Cereais e derivados', fonte: 'taco', origem: 'TACO', micros: {},
@@ -54,7 +57,7 @@ describe('estado do editor (US-022)', () => {
     const comItem: PlanoDoCliente = {
       ...plano,
       refeicoes: [{ id: 'r1', nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: [0, 1, 2, 3, 4, 5, 6], descricaoLivre: null, itens: [
-        { id: 'i1', foodId: arroz.id, nome: arroz.nome, fonte: 'taco', origem: 'TACO', porCem: arroz.porCem, medidas: arroz.medidas, quantidadeG: 120, medida: { ...pires, qtd: 2 }, medidaCaseiraTxt: '2 pires pequenos', substituiItemId: null },
+        { id: 'i1', foodId: arroz.id, nome: arroz.nome, fonte: 'taco', origem: 'TACO', porCem: arroz.porCem, micros: {}, medidas: arroz.medidas, quantidadeG: 120, medida: { ...pires, qtd: 2 }, medidaCaseiraTxt: '2 pires pequenos', substituiItemId: null },
       ] }],
     };
     let e = estadoInicial(comItem);
@@ -229,6 +232,7 @@ describe('estado do editor (US-022)', () => {
     const plano: PlanoDoCliente = {
       id: 'p1', patientId: 'pa', isTemplate: false, titulo: 'Plano', metaKcal: null, energyCalcId: null, status: 'rascunho', versao: 1, revisao: 0,
       publicadoEm: null, mostrarCalorias: false, orientacoes: '', modo: 'calculado', macrosPrescritos: null, pdfStatus: null, origemIa: null, iaOrigemEm: null,
+      referenciaId: null, referenciaCongelada: null, nutrientesExibidos: [], mostrarMicrosPdf: false,
       refeicoes: [{ id: 'r1', nome: 'Café', horario: '07:00', observacao: '', diasSemana: [0, 1, 2, 3, 4, 5, 6], descricaoLivre: null, itens: [], receita: { id: 'c1', titulo: 'Panqueca', disponivel: false } }],
     };
     const e0 = estadoInicial(plano);
@@ -398,5 +402,88 @@ describe('Plano 19 — texto livre e dias da semana no editor (RN-243, RN-245, R
     expect(errosSemCampo(livre, erros, 6)).toEqual(['Escolha ao menos um dia da semana.']); // o Almoço de seg a sex não está na tela
     // no calculado não há caixa "O que comer" nem distribuição
     expect(errosSemCampo(semana(), erros)).toEqual(['Texto muito longo (até 2000 caracteres).', 'A soma de proteína, carboidrato e lipídio precisa dar 100%.']);
+  });
+});
+
+describe('Plano 19 — nutrientes do paciente no editor (US-233, RN-236, RN-239, RN-247 a)', () => {
+  const figado: AlimentoEncontrado = { ...proprio, id: 'f-figado', nome: 'Fígado', micros: { ferro_mg: 12.4, sodio_mg: 2600, calcio_mg: null } };
+  const ovo: AlimentoEncontrado = { ...proprio, id: 'f-ovo', nome: 'Ovo', micros: { ferro_mg: 5, sodio_mg: 100 } };
+  const PERFIL = { valores: { ferro_mg: { meta: 18, maximo: 45 }, sodio_mg: { maximo: 2300 }, calcio_mg: { meta: 1000 } } };
+  /** Almoço (seg a sex) com 100 g de fígado e uma substituição; Jantar (sáb e dom) com 100 g de ovo. */
+  const comDias = () =>
+    aplicar(
+      estadoInicial(plano),
+      { tipo: 'novaRefeicao', id: 'r1' },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'i1', alimento: figado },
+      { tipo: 'adicionarItem', refeicaoId: 'r1', id: 's1', alimento: ovo, substituiItemId: 'i1' },
+      { tipo: 'dia', id: 'r1', dia: 0, marcado: false },
+      { tipo: 'dia', id: 'r1', dia: 6, marcado: false },
+      { tipo: 'novaRefeicao', id: 'r2' },
+      { tipo: 'adicionarItem', refeicaoId: 'r2', id: 'i2', alimento: ovo },
+      ...([1, 2, 3, 4, 5] as const).map((dia) => ({ tipo: 'dia' as const, id: 'r2', dia, marcado: false })),
+    );
+
+  it('"Escolher perfil e nutrientes": "Ferro: 12,4 mg · meta 18 mg (69%)"; sem perfil, só o total; "Acima do máximo (2300 mg)" e os itens sem valor', () => {
+    const e = comDias();
+    const r = resumoDeNutrientes(e, 1, ['ferro_mg', 'calcio_mg', 'sodio_mg'], PERFIL);
+    if (r.tipo !== 'linhas') throw new Error(r.tipo);
+    const [ferro, calcio, sodio] = r.linhas;
+    expect(textoDaLinha(ferro)).toBe('Ferro: 12,4 mg · meta 18 mg (69%)');
+    expect(ferro).toMatchObject({ maximo: '45 mg', acimaDoMaximo: false, semValor: 0 });
+    expect(textoDaLinha(calcio)).toBe('Cálcio: 0,0 mg · meta 1000 mg (0%)');
+    expect(MSG_NUTRIENTES.semValorDe(calcio.semValor, calcio.nome)).toBe('1 item sem valor de cálcio'); // a substituição não conta (RN-02)
+    expect(MSG_NUTRIENTES.semValorDe(2, 'Ferro')).toBe('2 itens sem valor de ferro');
+    expect(textoDaLinha(sodio)).toBe('Sódio: 2600,0 mg');
+    expect(sodio).toMatchObject({ acimaDoMaximo: true, maximo: '2300 mg' });
+    expect(MSG_NUTRIENTES.acimaDoMaximo(sodio.maximo!)).toBe('Acima do máximo (2300 mg)');
+    const semPerfil = resumoDeNutrientes(e, 1, ['ferro_mg'], null);
+    expect(semPerfil.tipo === 'linhas' && textoDaLinha(semPerfil.linhas[0])).toBe('Ferro: 12,4 mg');
+  });
+
+  it('"Por dia": o resumo do dia escolhido no filtro é totalMicros das refeições do dia; em "Todos" com perfis de dia diferentes, "Escolha um dia para ver os detalhes."', () => {
+    const e = comDias();
+    for (const dia of [1, 6] as const) {
+      const r = resumoDeNutrientes(e, dia, ['ferro_mg'], null);
+      const esperado = totalMicros(refeicoesDoDia(refeicoesParaCalculo(e), dia), ['ferro_mg']).ferro_mg;
+      expect(r).toMatchObject({ tipo: 'linhas', linhas: [{ semValor: esperado.semValor }] });
+      expect(r.tipo === 'linhas' && r.linhas[0].total).toBe(dia === 1 ? '12,4 mg' : '5,0 mg');
+    }
+    expect(resumoDeNutrientes(e, 'todos', ['ferro_mg'], null)).toEqual({ tipo: 'escolhaUmDia' });
+    // um perfil de dia só: "Todos" mostra o total dele (nunca a soma de duas refeições de dias diferentes)
+    const soAlmoco = reduzir(e, { tipo: 'removerRefeicao', id: 'r2' });
+    expect(resumoDeNutrientes(soAlmoco, 'todos', ['ferro_mg'], null)).toMatchObject({ tipo: 'linhas', linhas: [{ total: '12,4 mg' }] });
+  });
+
+  it('o 13º nutriente é recusado ("Escolha até 12 nutrientes."); marcar segue a ordem do catálogo; perfil e caixa do PDF vão no envio', () => {
+    let e = estadoInicial(plano);
+    const chaves = ['zinco_mg', 'ferro_mg', 'calcio_mg', 'sodio_mg', 'magnesio_mg', 'manganes_mg', 'fosforo_mg', 'potassio_mg', 'cobre_mg', 'retinol_mcg', 'tiamina_mg', 'niacina_mg'] as const;
+    for (const chave of chaves) e = reduzir(e, { tipo: 'nutriente', chave, marcado: true });
+    expect(e.nutrientesExibidos).toHaveLength(12);
+    expect(e.nutrientesExibidos.slice(0, 3)).toEqual(['calcio_mg', 'magnesio_mg', 'manganes_mg']);
+    expect(podeEscolherNutriente(e)).toBe(false);
+    expect(reduzir(e, { tipo: 'nutriente', chave: 'vitamina_c_mg', marcado: true })).toBe(e); // nada muda, nada a salvar
+    expect(MSG_NUTRIENTES.limite).toBe('Escolha até 12 nutrientes.');
+    e = reduzir(e, { tipo: 'nutriente', chave: 'zinco_mg', marcado: false });
+    expect(podeEscolherNutriente(e)).toBe(true);
+    e = aplicar(e, { tipo: 'referencia', id: 'perfil-1' }, { tipo: 'mostrarMicrosPdf', valor: true });
+    expect(paraEnvio(e, 2)).toMatchObject({ referenciaId: 'perfil-1', nutrientesExibidos: e.nutrientesExibidos, mostrarMicrosPdf: true });
+    expect(paraEnvio(reduzir(e, { tipo: 'referencia', id: null }), 2).referenciaId).toBeNull();
+    // o erro do servidor tem lugar na seção (no calculado); no modo livre a seção some e o erro sobe para o topo
+    expect(errosSemCampo(e, { nutrientesExibidos: MSG_NUTRIENTES.limite })).toEqual([]);
+    expect(errosSemCampo(reduzir(e, { tipo: 'modo', modo: 'livre' }), { nutrientesExibidos: MSG_NUTRIENTES.limite })).toEqual([MSG_NUTRIENTES.limite]);
+  });
+
+  it('plano publicado em formato antigo (item sem micros na cópia): "Micronutrientes não registrados nesta versão do plano."', () => {
+    const publicado: PlanoDoCliente = {
+      ...plano,
+      status: 'publicado',
+      nutrientesExibidos: ['ferro_mg'],
+      refeicoes: [{ id: 'r1', nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: [0, 1, 2, 3, 4, 5, 6], descricaoLivre: null, itens: [
+        { id: 'i1', foodId: 'f', nome: 'Arroz', fonte: 'taco', origem: 'TACO', porCem: arroz.porCem, micros: null, medidas: [], quantidadeG: 100, medida: null, medidaCaseiraTxt: null, substituiItemId: null },
+      ] }],
+    };
+    const e = estadoInicial(publicado);
+    expect(resumoDeNutrientes(e, 'todos', e.nutrientesExibidos, null)).toEqual({ tipo: 'naoRegistrados' });
+    expect(MSG_NUTRIENTES.naoRegistrados).toBe('Micronutrientes não registrados nesta versão do plano.');
   });
 });

@@ -3,7 +3,7 @@
  * busca por nutriente). Uma chave nova é mudança de código com teste. Sem imports `@/`: o schema do Drizzle
  * (`src/db/schema/plano-alimentar.ts`, `NutrientesCongelados`) importa o tipo daqui com caminho relativo.
  */
-import { formatarDecimal } from '../../lib/numero';
+import { casasDecimais, formatarDecimal } from '../../lib/numero';
 import type { Fonte } from './fontes';
 
 export type UnidadeNutriente = 'g' | 'mg' | 'mcg' | '%';
@@ -69,12 +69,34 @@ export function formatarNutriente(chave: ChaveNutriente, valor: number): string 
   return `${formatarDecimal(valor, n.casas)}${SIMBOLO[n.unidade]}`;
 }
 
+/**
+ * RN-239: meta e máximo do perfil como foram digitados, sem zeros à direita e no máximo com as casas do catálogo
+ * ("18 mg", "0,9 mg", "400 µg"); o total do plano usa `formatarNutriente` ("12,4 mg").
+ */
+export function formatarReferencia(chave: ChaveNutriente, valor: number): string {
+  const n = POR_CHAVE.get(chave)!;
+  return `${formatarDecimal(valor, Math.min(casasDecimais(valor), n.casas))}${SIMBOLO[n.unidade]}`;
+}
+
 /** RN-259: textos dos micronutrientes do "Meu alimento" (US-231, §5 da spec). */
 export const MSG_NUTRIENTES = {
   secao: 'Micronutrientes (opcional)',
   faixa: 'Use um número de 0 a 100000.',
   /** Chave fora do catálogo ou micros fora do formato: o formulário nunca manda, só uma entrada adulterada. */
   desconhecido: 'Formulário inválido.',
+  /** US-233 (RN-239): a seção do editor do plano. */
+  doPaciente: 'Nutrientes do paciente',
+  perfil: 'Perfil de referência',
+  semPerfil: 'Sem perfil',
+  verTodos: 'Ver todos os nutrientes',
+  mostrarNoPdf: 'Mostrar no PDF os nutrientes escolhidos',
+  ligueCalorias: 'Ligue antes "Mostrar calorias ao paciente".',
+  limite: 'Escolha até 12 nutrientes.', // MAX_NUTRIENTES_EXIBIDOS
+  acimaDoMaximo: (valor: string) => `Acima do máximo (${valor})`,
+  /** RN-237: plano publicado antes do Plano 19 (o congelado não tem micros). */
+  naoRegistrados: 'Micronutrientes não registrados nesta versão do plano.',
+  /** RN-236: "2 itens sem valor de ferro"; 1 item: "1 item sem valor de ferro". */
+  semValorDe: (n: number, nome: string) => `${n} ${n === 1 ? 'item' : 'itens'} sem valor de ${nome.charAt(0).toLowerCase()}${nome.slice(1)}`,
 } as const;
 
 /** Unidade como a tela mostra no rótulo do campo ("Cálcio (mg)", "Vitamina D (µg)", "Umidade (%)"). */

@@ -390,6 +390,30 @@ export const GUIAS: readonly Guia[] = [
     },
     passos: [{ alvo: 'ativar-2fa', titulo: 'Ativar', texto: 'Confirme a senha, leia o QR Code com o aplicativo autenticador e digite o código de 6 dígitos.' }],
   },
+  {
+    // Plano 19 (§4.6): as telas da biblioteca do plano; criado com os perfis de referência (Tarefa 5) e completado com
+    // minhas refeições e listas de substituição nas tarefas seguintes. Passos sem alvo, como os de `modelos`
+    id: 'biblioteca-do-plano',
+    versao: 1,
+    padrao: /^\/painel\/planos\/(refeicoes|listas|referencias)(\/.*)?$/,
+    titulo: 'Biblioteca do plano',
+    ajuda: {
+      resumo: 'O que o consultório guarda para usar nos planos alimentares, como os perfis de referência. O paciente não vê a biblioteca: vê só o que fica no plano publicado.',
+      secoes: [
+        {
+          titulo: 'Perfis de referência',
+          itens: [
+            'A plataforma não traz valores de referência prontos: cadastre as metas e os máximos de nutrientes que você usa, sempre com a fonte (ex.: DRI/IOM 2006, IN 75/2020 da ANVISA).',
+            'No editor do plano, em Nutrientes do paciente, escolha o perfil e até 12 nutrientes para comparar o total do dia com a meta e o máximo.',
+            'Alterar ou excluir um perfil não muda os planos publicados: cada um guarda a cópia do perfil do dia da publicação. Os rascunhos e modelos que usavam um perfil excluído ficam sem perfil.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { titulo: 'Perfis de referência', texto: 'Cadastre as metas e os máximos de nutrientes que você usa, com a fonte. A plataforma não traz valores prontos: os perfis são do seu consultório.' },
+    ],
+  },
 ];
 
 export function guiaDaRota(caminho: string): Guia | null {

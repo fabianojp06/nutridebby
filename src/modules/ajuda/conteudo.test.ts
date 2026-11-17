@@ -220,4 +220,15 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(alvos.slice(editor, editor + 4)).toEqual(['editor-plano', 'modo-plano', 'dias-refeicao', 'publicar-plano']);
     expect(g.versao).toBe(3); // 2 = Plano 17 (Lembretes no app); 3 = Plano 19
   });
+
+  it('Plano 19 (Tarefa 5): guia novo "biblioteca-do-plano" (versão 1) nas telas da biblioteca; o passo dos perfis diz que a plataforma não traz valores prontos', () => {
+    for (const rota of ['/painel/planos/referencias', `/painel/planos/referencias/${UUID}`, '/painel/planos/referencias/novo', '/painel/planos/listas', `/painel/planos/listas/${UUID}`, '/painel/planos/refeicoes', `/painel/planos/refeicoes/${UUID}`])
+      expect(guiaDaRota(rota)?.id, rota).toBe('biblioteca-do-plano');
+    expect(guiaDaRota('/painel/planos/modelos')?.id).toBe('modelos');
+    expect(guiaDaRota('/painel/planos/referenciasx')).toBeNull();
+    const g = GUIAS.find((x) => x.id === 'biblioteca-do-plano')!;
+    expect(g.versao).toBe(1);
+    expect(g.passos.every((p) => p.alvo === undefined)).toBe(true);
+    expect(g.passos.find((p) => p.titulo === 'Perfis de referência')?.texto).toContain('A plataforma não traz valores prontos');
+  });
 });

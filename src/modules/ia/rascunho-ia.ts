@@ -5,6 +5,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
 import { seloDaFonte } from '@/modules/alimentos/fontes';
 import { textoMedida } from '@/modules/alimentos/medidas-constantes';
+import { microsDoCatalogo } from '@/modules/alimentos/nutrientes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { criarRascunhoTx, gravarConteudoRascunhoTx } from '@/modules/plano-alimentar/rascunho';
 import { TODOS_OS_DIAS } from '@/modules/plano-alimentar/dias';
@@ -136,7 +137,7 @@ export async function abrirRascunhoIa(ctx: TenantContext, patientId: string, tar
           return [
             {
               id: idDoItem(ii), foodId: f.id, nome: f.nome, fonte: f.fonte, origem: seloDaFonte(f.fonte), // RN-230: de foods.fonte
-              porCem: { kcal: f.kcal, proteinaG: f.proteinaG, carboidratoG: f.carboidratoG, lipidioG: f.lipidioG, fibraG: f.fibraG },
+              porCem: { kcal: f.kcal, proteinaG: f.proteinaG, carboidratoG: f.carboidratoG, lipidioG: f.lipidioG, fibraG: f.fibraG }, micros: microsDoCatalogo(f.micros),
               medidas: [], quantidadeG: i.quantidadeG, medida: i.medida, medidaCaseiraTxt: i.medida ? textoMedida(i.medida.qtd, i.medida) : null,
               substituiItemId: i.substitui === null ? null : idDoItem(i.substitui),
             },
@@ -158,6 +159,7 @@ export async function abrirRascunhoIa(ctx: TenantContext, patientId: string, tar
         plano: {
           id: t.id, patientId, isTemplate: false, titulo: r.plano.titulo, metaKcal: r.plano.metaKcal, energyCalcId: null, status: 'rascunho', versao: 0, revisao: 0,
           publicadoEm: null, mostrarCalorias: true, orientacoes: r.plano.orientacoes, modo: 'calculado', macrosPrescritos: null, pdfStatus: null, pdfPath: null, origemIa: null, iaOrigemEm: null, refeicoes,
+          referenciaId: null, referenciaCongelada: null, nutrientesExibidos: [], mostrarMicrosPdf: false,
         },
       };
     },

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { Aviso } from '@/components/ui/aviso';
 import { requireNutri } from '@/lib/tenant-session';
+import { referenciasParaPlano } from '@/modules/alimentos/referencias';
 import { listarReceitasPublicadas } from '@/modules/conteudo/receitas';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
@@ -35,6 +36,7 @@ export default async function ModeloPage({ params }: PageProps<'/painel/planos/m
           plano={paraCliente(modelo)}
           contexto={null}
           receitas={await listarReceitasPublicadas(ctx)}
+          perfis={await referenciasParaPlano(ctx)}
           acoes={
             <div className="flex flex-wrap items-center gap-4">
               {origem?.sugestao && <AprovarModelo acao={aprovarModeloPlanoAction.bind(null, modelo.id)} />}

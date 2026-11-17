@@ -16,6 +16,8 @@ const CARTOES = [
   { href: '/painel/planos/modelos', titulo: 'Modelos de plano', texto: 'Planos prontos para começar mais rápido.' },
   { href: '/painel/anamnese/modelos', titulo: 'Modelos de anamnese', texto: 'Perguntas da primeira consulta.' },
   { href: '/conta/seguranca', titulo: 'Segurança', texto: 'Senha e verificação em duas etapas.' },
+  // Plano 19 (§4.6, US-232): a biblioteca do plano
+  { href: '/painel/planos/referencias', titulo: 'Perfis de referência', texto: 'Metas de nutrientes, com a fonte, para comparar nos planos.' },
 ];
 
 /** D20: hub de Configurações. */

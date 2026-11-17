@@ -7,6 +7,8 @@ import {
 } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { gramasDaMedida, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos/medidas-constantes';
+import { ehChaveNutriente, MSG_NUTRIENTES, type ChaveNutriente } from '@/modules/alimentos/nutrientes';
+import { MAX_NUTRIENTES_EXIBIDOS } from '@/modules/alimentos/referencias-constantes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { lerDecimal, arredondar } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
@@ -88,6 +90,10 @@ type Validado = {
   /** Ausentes = ficam como estão (o modo e a distribuição gravados). */
   modo: ModoPlano | undefined;
   macrosPrescritos: MacrosPrescritos | null | undefined;
+  /** RN-238/RN-239: ausentes = ficam como estão. */
+  referenciaId: string | null | undefined;
+  nutrientesExibidos: ChaveNutriente[] | undefined;
+  mostrarMicrosPdf: boolean | undefined;
   refeicoes: RefeicaoValida[];
   itens: ItemValido[];
 };
@@ -140,6 +146,16 @@ function validar(entrada: unknown): Validado {
   if (o.modo !== undefined && !MODOS.includes(o.modo as ModoPlano)) throw new PlanoError({ geral: MSG_PLANO.invalido });
   const macrosPrescritos = lerMacros(o.macrosPrescritos);
   if (macrosPrescritos === false) erros.macrosPrescritos = MSG_TEXTO_LIVRE.macros;
+  // RN-238/RN-239: o editor nunca manda id fora do formato, chave fora do catálogo ou repetida (só entrada adulterada)
+  if (o.referenciaId !== undefined && o.referenciaId !== null && !idValido(o.referenciaId)) throw new PlanoError({ geral: MSG_PLANO.invalido });
+  if (o.mostrarMicrosPdf !== undefined && typeof o.mostrarMicrosPdf !== 'boolean') throw new PlanoError({ geral: MSG_PLANO.invalido });
+  let nutrientesExibidos: ChaveNutriente[] | undefined;
+  if (o.nutrientesExibidos !== undefined) {
+    const n = o.nutrientesExibidos;
+    if (!Array.isArray(n) || !n.every(ehChaveNutriente) || new Set(n).size !== n.length) throw new PlanoError({ geral: MSG_PLANO.invalido });
+    if (n.length > MAX_NUTRIENTES_EXIBIDOS) erros.nutrientesExibidos = MSG_NUTRIENTES.limite; // antes do CHECK meal_plans_nutrientes_exibidos_limite
+    nutrientesExibidos = n;
+  }
   const refeicoesEntrada = o.refeicoes as Record<string, unknown>[];
   const totalItens = refeicoesEntrada.reduce((n, r) => n + (Array.isArray(r?.itens) ? r.itens.length : 0), 0);
   if (refeicoesEntrada.length > MAX_REFEICOES || totalItens > MAX_ITENS) throw new PlanoError({ geral: MSG_PLANO.limite });
@@ -224,6 +240,9 @@ function validar(entrada: unknown): Validado {
     orientacoes,
     modo: o.modo as ModoPlano | undefined,
     macrosPrescritos: macrosPrescritos === false ? undefined : macrosPrescritos,
+    referenciaId: o.referenciaId as string | null | undefined,
+    nutrientesExibidos,
+    mostrarMicrosPdf: o.mostrarMicrosPdf as boolean | undefined,
     refeicoes,
     itens,
   };
@@ -253,6 +272,14 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         const [antes] = await tx.select({ patientId: mealPlans.patientId }).from(mealPlans).where(eq(mealPlans.id, planId));
         if (!antes) throw new PlanoNaoEncontradoError();
         if (antes.patientId) await carregarPacienteParaEscrita(tx, antes.patientId);
+        // RN-238 (D30): perfil que não existe mais (excluído numa outra aba) ou de outro consultório (RLS) = "Sem perfil".
+        // FOR KEY SHARE antes de travar o plano: uma exclusão do perfil em curso termina antes (e a linha não aparece) ou
+        // espera este COMMIT e então solta o ponteiro (SET NULL) — sem 23503 na FK nem o ciclo plano ↔ perfil
+        let referenciaVisivel: string | null | undefined = v.referenciaId;
+        if (v.referenciaId) {
+          const [r] = await tx.select({ id: referenciasNutrientes.id }).from(referenciasNutrientes).where(eq(referenciasNutrientes.id, v.referenciaId)).for('key share');
+          referenciaVisivel = r?.id ?? null;
+        }
         const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId)).for('update');
         if (!p) throw new PlanoNaoEncontradoError(); // descartado entre a leitura e a trava
         if (p.status !== 'rascunho') throw new PlanoNaoEditavelError();
@@ -362,6 +389,9 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
             orientacoes: v.orientacoes,
             modo,
             macrosPrescritos,
+            referenciaId: referenciaVisivel !== undefined ? referenciaVisivel : p.referenciaId,
+            nutrientesExibidos: v.nutrientesExibidos ?? p.nutrientesExibidos,
+            mostrarMicrosPdf: v.mostrarMicrosPdf ?? p.mostrarMicrosPdf,
             revisao: p.revisao + 1,
             ultimoEnvio: v.envio,
             updatedAt: now,

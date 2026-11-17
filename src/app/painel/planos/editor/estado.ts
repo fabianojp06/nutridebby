@@ -1,9 +1,11 @@
 import { formatarDecimal, casasDecimais, lerDecimal } from '@/lib/numero';
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { gramasDaMedida, gramasDaMedidaTexto, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos/medidas-constantes';
-import { itensComoTexto, lerQuantidade, totalDoDia, totaisDoDia, ZERO, type ItemCalculo, type Nutrientes } from '@/modules/plano-alimentar/calculo';
+import { formatarNutriente, formatarReferencia, NUTRIENTES, type ChaveNutriente } from '@/modules/alimentos/nutrientes';
+import { MAX_NUTRIENTES_EXIBIDOS, type ReferenciaParaPlano } from '@/modules/alimentos/referencias-constantes';
+import { itensComoTexto, lerQuantidade, totalDoDia, totaisDoDia, totalMicros, ZERO, type ItemComMicros, type Nutrientes } from '@/modules/plano-alimentar/calculo';
 import { MAX_ITENS, MAX_REFEICOES, MSG_DIAS } from '@/modules/plano-alimentar/constantes';
-import { diasSemRefeicao, ORDEM_DIAS, perfisDeDia, rotuloDosDias, TODOS_OS_DIAS, valeNoDia, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
+import { diasSemRefeicao, ORDEM_DIAS, perfisDeDia, refeicoesDoDia, rotuloDosDias, TODOS_OS_DIAS, valeNoDia, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
 import type { ItemPlano, ModoPlano, PlanoDoCliente, RascunhoEnviado, ReceitaDaRefeicao } from '@/modules/plano-alimentar/tipos';
 
 /** Estado local do editor: textos como a nutricionista digitou; números só na hora de calcular e enviar. */
@@ -24,6 +26,10 @@ export type EstadoEditor = {
   orientacoes: string;
   modo: ModoPlano;
   macros: MacrosTexto;
+  /** RN-238/RN-239: o perfil escolhido ("Sem perfil" = null), os nutrientes do resumo (ordem do catálogo) e o PDF. */
+  referenciaId: string | null;
+  nutrientesExibidos: ChaveNutriente[];
+  mostrarMicrosPdf: boolean;
   refeicoes: RefeicaoEstado[];
 };
 /** O filtro de dias do editor (RN-247 a): "Todos" ou um dia. Estado da tela, não do plano (não é edição). */
@@ -39,6 +45,9 @@ export type Acao =
   | { tipo: 'orientacoes'; valor: string }
   | { tipo: 'modo'; modo: ModoPlano }
   | { tipo: 'macro'; campo: keyof MacrosTexto; valor: string }
+  | { tipo: 'referencia'; id: string | null }
+  | { tipo: 'nutriente'; chave: ChaveNutriente; marcado: boolean }
+  | { tipo: 'mostrarMicrosPdf'; valor: boolean }
   | { tipo: 'novaRefeicao'; id: string }
   | { tipo: 'refeicao'; id: string; campo: 'nome' | 'horario' | 'observacao' | 'descricao'; valor: string }
   | { tipo: 'dia'; id: string; dia: DiaDaSemana; marcado: boolean }
@@ -55,6 +64,9 @@ export type Acao =
 export const totalDeItens = (e: EstadoEditor): number => e.refeicoes.reduce((n, r) => n + r.itens.length, 0);
 export const podeAdicionarRefeicao = (e: EstadoEditor): boolean => e.refeicoes.length < MAX_REFEICOES;
 export const podeAdicionarItem = (e: EstadoEditor): boolean => totalDeItens(e) < MAX_ITENS;
+/** RN-239: até 12 nutrientes no resumo; o 13º é recusado ("Escolha até 12 nutrientes."). */
+export const podeEscolherNutriente = (e: EstadoEditor): boolean => e.nutrientesExibidos.length < MAX_NUTRIENTES_EXIBIDOS;
+const ORDEM_NUTRIENTE = new Map<string, number>(NUTRIENTES.map((n, k) => [n.chave, k]));
 
 const numTexto = (n: number) => formatarDecimal(n, casasDecimais(n));
 
@@ -69,6 +81,9 @@ export function estadoInicial(p: PlanoDoCliente): EstadoEditor {
     macros: p.macrosPrescritos
       ? { proteina: String(p.macrosPrescritos.proteina), carboidrato: String(p.macrosPrescritos.carboidrato), lipidio: String(p.macrosPrescritos.lipidio) }
       : SEM_MACROS,
+    referenciaId: p.referenciaId,
+    nutrientesExibidos: [...p.nutrientesExibidos],
+    mostrarMicrosPdf: p.mostrarMicrosPdf,
     refeicoes: p.refeicoes.map((r) => ({
       id: r.id,
       nome: r.nome,
@@ -84,6 +99,7 @@ export function estadoInicial(p: PlanoDoCliente): EstadoEditor {
         fonte: i.fonte,
         origem: i.origem,
         porCem: i.porCem,
+        micros: i.micros,
         medidas: i.medidas,
         substituiItemId: i.substituiItemId,
         quantidadeTexto: numTexto(i.quantidadeG),
@@ -154,6 +170,16 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
       return trocarModo(e, a.modo);
     case 'macro':
       return { ...e, macros: { ...e.macros, [a.campo]: a.valor } };
+    case 'referencia':
+      return e.referenciaId === a.id ? e : { ...e, referenciaId: a.id };
+    case 'nutriente': {
+      if (e.nutrientesExibidos.includes(a.chave) === a.marcado) return e;
+      if (!a.marcado) return { ...e, nutrientesExibidos: e.nutrientesExibidos.filter((c) => c !== a.chave) };
+      if (!podeEscolherNutriente(e)) return e; // o 13º não entra (o servidor também recusa)
+      return { ...e, nutrientesExibidos: [...e.nutrientesExibidos, a.chave].sort((x, y) => ORDEM_NUTRIENTE.get(x)! - ORDEM_NUTRIENTE.get(y)!) };
+    }
+    case 'mostrarMicrosPdf':
+      return { ...e, mostrarMicrosPdf: a.valor };
     case 'novaRefeicao':
       if (!podeAdicionarRefeicao(e)) return e;
       return {
@@ -182,6 +208,7 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
         fonte: a.alimento.fonte,
         origem: a.alimento.origem,
         porCem: a.alimento.porCem,
+        micros: a.alimento.micros,
         medidas: a.alimento.medidas,
         substituiItemId: a.substituiItemId ?? null,
         medida: m ? { nome: m.nome, plural: m.plural, gramas: m.gramas } : null,
@@ -285,6 +312,7 @@ function moverNaRefeicao(its: ItemEstado[], itemId: string, direcao: -1 | 1): It
 export function errosSemCampo(e: EstadoEditor, erros: Record<string, string>, filtro: FiltroDia = 'todos', fixadas: ReadonlySet<string> = NENHUMA): string[] {
   const campos = new Set(['titulo', 'metaKcal', 'orientacoes']);
   if (e.modo === 'livre') campos.add('macrosPrescritos');
+  else campos.add('nutrientesExibidos'); // RN-243: a seção "Nutrientes do paciente" some no modo livre
   // Plano 19: a refeição escondida pelo filtro de dias não tem campo na tela (a fixada continua na tela)
   for (const r of refeicoesDoFiltro(e, filtro, fixadas)) {
     for (const c of ['nome', 'horario', 'observacao', 'receita', 'dias']) campos.add(`refeicao:${r.id}:${c}`);
@@ -294,11 +322,11 @@ export function errosSemCampo(e: EstadoEditor, erros: Record<string, string>, fi
   return [...new Set(Object.entries(erros).filter(([chave]) => !campos.has(chave)).map(([, msg]) => msg))];
 }
 
-export const refeicoesParaCalculo = (e: EstadoEditor): { id: string; diasSemana: DiaDaSemana[]; itens: ItemCalculo[] }[] =>
+export const refeicoesParaCalculo = (e: EstadoEditor): { id: string; diasSemana: DiaDaSemana[]; itens: ItemComMicros[] }[] =>
   e.refeicoes.map((r) => ({
     id: r.id,
     diasSemana: r.diasSemana,
-    itens: r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, substituiItemId: i.substituiItemId })),
+    itens: r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, micros: i.micros, substituiItemId: i.substituiItemId })),
   }));
 
 const NENHUMA: ReadonlySet<string> = new Set();
@@ -326,6 +354,65 @@ export function totaisDoFiltro(e: EstadoEditor, filtro: FiltroDia): { total: Nut
   if (perfis.length <= 1) return { total: perfis.length ? totalDoDia(perfis[0].refeicoes) : ZERO, perfis: [] };
   return { total: ZERO, perfis: perfis.map((p) => ({ rotulo: rotuloDosDias(p.dias), total: totalDoDia(p.refeicoes) })) };
 }
+
+/** Uma linha de "Nutrientes do paciente" (RN-239): o total do dia e, com perfil, a meta e o máximo, já formatados. */
+export type LinhaDoNutriente = {
+  chave: ChaveNutriente;
+  nome: string;
+  /** "12,4 mg" (RN-235). */
+  total: string;
+  /** "18 mg" e "69%"; nulos sem perfil ou sem meta (a porcentagem também com meta 0). */
+  meta: string | null;
+  porcentagem: string | null;
+  maximo: string | null;
+  /** O total passou do máximo do perfil: a tela diz "Acima do máximo ({máximo})" em texto (RN-02, WCAG 1.4.1). */
+  acimaDoMaximo: boolean;
+  /** Itens principais sem o valor na fonte ("2 itens sem valor de ferro", RN-236). */
+  semValor: number;
+};
+
+/**
+ * US-233: o resumo "Nutrientes do paciente". `naoRegistrados`: plano publicado antes do Plano 19 (item sem micros na
+ * cópia, RN-237). Por dia (RN-247 a): num dia, as refeições que valem nele (`totalMicros(refeicoesDoDia(…))`); em
+ * "Todos", com um perfil de dia só, as dele; com perfis diferentes, `escolhaUmDia` (nunca a soma de todas as refeições).
+ */
+export type ResumoDeNutrientes = { tipo: 'naoRegistrados' } | { tipo: 'escolhaUmDia' } | { tipo: 'linhas'; linhas: LinhaDoNutriente[] };
+
+export function resumoDeNutrientes(e: EstadoEditor, filtro: FiltroDia, chaves: readonly ChaveNutriente[], perfil: Pick<ReferenciaParaPlano, 'valores'> | null): ResumoDeNutrientes {
+  if (e.refeicoes.some((r) => r.itens.some((i) => i.micros === null))) return { tipo: 'naoRegistrados' };
+  const calc = refeicoesParaCalculo(e);
+  let doDia: typeof calc;
+  if (filtro !== 'todos') doDia = refeicoesDoDia(calc, filtro);
+  else {
+    const perfis = perfisDeDia(calc);
+    if (perfis.length > 1) return { tipo: 'escolhaUmDia' };
+    doDia = perfis[0]?.refeicoes ?? [];
+  }
+  const totais = totalMicros(doDia, chaves);
+  const nome = new Map(NUTRIENTES.map((n) => [n.chave as string, n.nome]));
+  return {
+    tipo: 'linhas',
+    linhas: chaves.map((c) => {
+      const { total, semValor } = totais[c];
+      const v = perfil?.valores[c];
+      const meta = typeof v?.meta === 'number' ? v.meta : null;
+      const maximo = typeof v?.maximo === 'number' ? v.maximo : null;
+      return {
+        chave: c,
+        nome: nome.get(c)!,
+        total: formatarNutriente(c, total),
+        meta: meta === null ? null : formatarReferencia(c, meta),
+        porcentagem: meta === null || meta === 0 ? null : `${Math.round((total / meta) * 100)}%`,
+        maximo: maximo === null ? null : formatarReferencia(c, maximo),
+        acimaDoMaximo: maximo !== null && total > maximo,
+        semValor,
+      };
+    }),
+  };
+}
+
+/** "Ferro: 12,4 mg · meta 18 mg (69%)" (US-233); sem perfil, só o total. */
+export const textoDaLinha = (l: LinhaDoNutriente): string => `${l.nome}: ${l.total}${l.meta === null ? '' : ` · meta ${l.meta}${l.porcentagem === null ? '' : ` (${l.porcentagem})`}`}`;
 
 /** kcal da legenda com o milhar, como no exemplo da spec ("seg a sex: 1.820 kcal"). */
 const kcalComMilhar = (n: number): string => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(Math.round(n));
@@ -373,6 +460,9 @@ export function paraEnvio(e: EstadoEditor, revisao: number): RascunhoEnviado {
     modo: e.modo,
     // RN-244: os três vazios = sem distribuição; o servidor confere a soma
     macrosPrescritos: e.modo === 'livre' && Object.values(e.macros).some((v) => v.trim() !== '') ? { ...e.macros } : null,
+    referenciaId: e.referenciaId,
+    nutrientesExibidos: [...e.nutrientesExibidos],
+    mostrarMicrosPdf: e.mostrarMicrosPdf,
     refeicoes: e.refeicoes.map((r) => ({
       id: r.id,
       nome: r.nome,

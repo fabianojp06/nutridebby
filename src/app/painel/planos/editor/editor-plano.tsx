@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { BuscaAlimento, Selo } from '@/app/painel/alimentos/busca-alimento';
 import { textoMedida } from '@/modules/alimentos/medidas-constantes';
+import type { ReferenciaParaPlano } from '@/modules/alimentos/referencias-constantes';
 import { MSG_RECEITA } from '@/modules/conteudo/constantes';
 import type { ReceitaParaPlano } from '@/modules/conteudo/receitas';
 import { diferencaKcalDoItem, kcalTexto, nutrientesDoItem, totalDosItens } from '@/modules/plano-alimentar/calculo';
@@ -19,11 +20,21 @@ import {
 } from './estado';
 import { FiltroDias } from './filtro-dias';
 import { filtroQueMostra } from './navegacao';
+import { NutrientesDoPaciente } from './nutrientes-do-paciente';
 import { PainelTotais } from './painel-totais';
 import { SalvamentoContext } from './salvamento-contexto';
 import { useSalvamento } from './use-salvamento';
 
-type Props = { plano: PlanoDoCliente; contexto: ContextoPaciente | null; somenteLeitura?: boolean; acoes?: ReactNode; /** US-054: receitas publicadas para sugerir. */ receitas?: ReceitaParaPlano[] };
+type Props = {
+  plano: PlanoDoCliente;
+  contexto: ContextoPaciente | null;
+  somenteLeitura?: boolean;
+  acoes?: ReactNode;
+  /** US-054: receitas publicadas para sugerir. */
+  receitas?: ReceitaParaPlano[];
+  /** US-233 (RN-238): os perfis de referência do consultório para "Nutrientes do paciente" (o publicado usa a cópia). */
+  perfis?: ReferenciaParaPlano[];
+};
 
 const novoId = () => crypto.randomUUID(); // D8: gerado no evento, nunca no render
 /** Somente leitura: versão publicada ou arquivada, ou rascunho de paciente bloqueado. */
@@ -58,7 +69,7 @@ export function EditorPlano(props: Props) {
   return <Editor key={geracao} {...props} aoDesatualizar={aoDesatualizar} />;
 }
 
-function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [], aoDesatualizar }: Props & { aoDesatualizar: (revisao: number) => void }) {
+function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [], perfis = [], aoDesatualizar }: Props & { aoDesatualizar: (revisao: number) => void }) {
   // `edicoes` conta as ações: é o que dispara o salvamento (D7). Contador dentro do estado do reducer, que segue puro.
   const [{ estado, edicoes }, despachar] = useReducer(
     (s: { estado: EstadoEditor; edicoes: number }, a: Acao) => {
@@ -222,6 +233,19 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
       <FiltroDias filtro={filtro} aoEscolher={escolherFiltro} legenda={legenda} />
 
       {!livre && <PainelTotais total={totais.total} perfis={totais.perfis} meta={meta} pesoKg={contexto?.pesoKg ?? null} mostrarGkg={comPaciente} />}
+      {/* US-233 (RN-243): some no modo livre; no publicado, o perfil é a cópia congelada (RN-238) */}
+      {!livre && (
+        <NutrientesDoPaciente
+          estado={estado}
+          filtro={filtro}
+          perfis={perfis}
+          congelado={plano.status === 'rascunho' ? undefined : plano.referenciaCongelada}
+          comPaciente={comPaciente}
+          somenteLeitura={somenteLeitura}
+          despachar={despachar}
+          erro={erro('nutrientesExibidos')}
+        />
+      )}
 
       {filtro !== 'todos' && visiveis.length === 0 && <p className="text-suave">{MSG_DIAS.semRefeicoes(DIA_CURTO[filtro])}</p>}
       {visiveis.map((r) => (
