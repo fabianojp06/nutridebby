@@ -387,8 +387,12 @@ cobrança (inclusive "Faltou"); h2 com `tabIndex={-1}` que recebe o foco depois 
   `recusaDeOrigem` (`navegacao.ts`) só segue com `Sec-Fetch-Site` `same-origin` (o link e o formulário de Relatórios)
   ou `none` (endereço digitado); `cross-site` ou `same-site` → 303 para Relatórios, sem ler nem gravar. Sem o cabeçalho
   (Safari antes do 16.4, proxies; `/code-review` do PR #55): segue só se `Origin` — ou, sem ele, `Referer` — tiver a
-  origem do APP_URL (o critério de `src/app/sair/route.ts`); senão, 303 para `?erro=origem`, e Relatórios mostra
-  `MSG_FINANCEIRO.csv.erroOrigem` (`role="alert"`) junto do botão "Baixar CSV". As duas rotas exportam `HEAD` com 405 (`semHead`):
+  origem do APP_URL (o critério de `src/app/sair/route.ts`); senão, 303 para `ERRO_DE_ORIGEM[csv]` (`?erro=origem` no
+  CSV dos lançamentos, `?erro=origem&csv=fluxo` no do fluxo de caixa), e Relatórios mostra `MSG_FINANCEIRO.csv.erroOrigem`
+  (`AlertaDoCsv`, `role="alert"`) junto do controle que causou o erro — o botão "Baixar CSV" do formulário ou o link
+  "Baixar CSV" do cartão do fluxo —, ligado a ele por `aria-describedby`, e leva o foco a esse controle na montagem (a
+  página chega do zero, no topo; o leitor de tela lê o controle e a mensagem). Com `?erro=periodo`, o foco vai para o
+  "Até", que traz o erro. Testes em `relatorios/page.test.ts`. As duas rotas exportam `HEAD` com 405 (`semHead`):
   o HEAD automático do Next chamaria o GET. Testes em `src/app/api/painel/financeiro/csv.test.ts`.
 - **Formato** (`csv.ts`): UTF-8 com BOM, `;`, CRLF, datas `dd/mm/aaaa`, valores com vírgula e sem "R$" ("-750,00" no
   resultado negativo). Lançamentos: "Vencimento;Pagamento;Tipo;Categoria;Descrição;[Paciente;]Forma de pagamento;Valor;Situação",

@@ -1,16 +1,18 @@
 'use client';
 
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Campo } from '@/components/campo';
-import { Aviso } from '@/components/ui/aviso';
 import { Botao } from '@/components/ui/botao';
 import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 import { periodoValido } from '@/modules/financeiro/meses';
 import { dataValida } from '@/modules/pacientes/datas';
+import { AlertaDoCsv } from './alerta-do-csv';
 
 const C = MSG_FINANCEIRO.csv;
 const E = MSG_FINANCEIRO.erros;
 type Erros = { de?: string; ate?: string };
+const ID_BOTAO = 'csv-baixar';
+const ID_ERRO_ORIGEM = 'csv-erro-origem';
 
 /** Data que não existe → "Data inválida." no próprio campo; período invertido ou longo → o erro da §6.2 junto do "Até". */
 function errosDoPeriodo(de: string, ate: string): Erros {
@@ -23,8 +25,10 @@ function errosDoPeriodo(de: string, ate: string): Erros {
  * US-306 / §4.1: o CSV dos lançamentos é uma navegação GET (o navegador baixa o anexo e a página fica), não `fetch`. O
  * formulário confere o período antes de navegar ("De" ≤ "Até", até 366 dias) e, se não der, mostra o erro em
  * `role="alert"` junto do campo e leva o foco a ele, sem sair de Relatórios. A rota confere de novo e, se recusar, volta
- * com `?erro=periodo` (`erroDoServidor`). "Incluir o nome dos pacientes" desmarcado não vai na URL (`pacientes` = 0).
- * `?erro=origem` (`erroDeOrigem`: a rota não conseguiu confirmar que o pedido veio de Relatórios) → alerta junto do botão.
+ * com `?erro=periodo` (`erroDoServidor`: o erro junto do "Até", que recebe o foco na montagem — a página chega do zero, no
+ * topo). "Incluir o nome dos pacientes" desmarcado não vai na URL (`pacientes` = 0). `?erro=origem` sem `csv=fluxo`
+ * (`erroDeOrigem`: a rota não conseguiu confirmar que o pedido veio de Relatórios) → `AlertaDoCsv` junto do botão, ligado
+ * a ele por `aria-describedby`, e o foco no botão.
  */
 export function BaixarCsv({
   de,
@@ -39,6 +43,9 @@ export function BaixarCsv({
 }) {
   const [erros, setErros] = useState<Erros>(erroDoServidor ? { ate: E.periodoLongo } : {});
   const form = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (erroDoServidor) form.current?.querySelector<HTMLElement>('#csv-ate')?.focus();
+  }, [erroDoServidor]);
   function conferir(e: FormEvent<HTMLFormElement>) {
     const fd = new FormData(e.currentTarget);
     const novos = errosDoPeriodo(String(fd.get('de') ?? ''), String(fd.get('ate') ?? ''));
@@ -79,11 +86,13 @@ export function BaixarCsv({
         </p>
       </div>
       {erroDeOrigem && (
-        <div className="max-w-2xl">
-          <Aviso tipo="erro">{C.erroOrigem}</Aviso>
-        </div>
+        <AlertaDoCsv id={ID_ERRO_ORIGEM} controle={ID_BOTAO}>
+          {C.erroOrigem}
+        </AlertaDoCsv>
       )}
-      <Botao>{C.baixar}</Botao>
+      <Botao id={ID_BOTAO} aria-describedby={erroDeOrigem ? ID_ERRO_ORIGEM : undefined}>
+        {C.baixar}
+      </Botao>
     </form>
   );
 }

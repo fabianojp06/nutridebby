@@ -118,13 +118,40 @@ describe('Relatórios (US-306)', () => {
     expect(com).toMatch(/<p id="csv-ate-erro" role="alert"[^>]*>Escolha um período de até 12 meses.<\/p>/);
   });
 
-  it('?erro=origem (a rota não confirmou a origem do download): o alerta junto do "Baixar CSV", sem marcar o período', async () => {
+  it('?erro=origem (a rota não confirmou a origem do CSV dos lançamentos): o alerta junto do "Baixar CSV", ligado a ele, sem marcar o período', async () => {
     await cenario();
     const html = await render({ erro: 'origem' });
-    expect(html).toContain(`<p role="alert" class="rounded-2xl border border-erro bg-erro-fundo p-3 text-erro">${M.csv.erroOrigem}</p>`);
+    expect(html).toContain(
+      `<div id="csv-erro-origem" class="max-w-2xl"><p role="alert" class="rounded-2xl border border-erro bg-erro-fundo p-3 text-erro">${M.csv.erroOrigem}</p></div>`,
+    );
+    expect(html).toMatch(/<button[^>]*id="csv-baixar"[^>]*aria-describedby="csv-erro-origem"[^>]*>Baixar CSV<\/button>/);
+    // no cartão do CSV dos lançamentos (depois do fluxo), antes do botão; o link do fluxo sem descrição
+    expect(html.indexOf(M.csv.erroOrigem)).toBeGreaterThan(html.indexOf('id="csv-titulo"'));
     expect(html.indexOf(M.csv.erroOrigem)).toBeLessThan(html.indexOf('Baixar CSV</button>'));
+    expect(html.split(M.csv.erroOrigem)).toHaveLength(2);
+    expect(html).toMatch(/<a id="fluxo-csv" href="[^"]*" class=/);
     expect(html).not.toContain('aria-invalid="true"');
-    expect(await render()).not.toContain(M.csv.erroOrigem);
+    const sem = await render();
+    expect(sem).not.toContain(M.csv.erroOrigem);
+    expect(sem).toMatch(/<button[^>]*id="csv-baixar"[^>]*>Baixar CSV<\/button>/);
+    expect(sem).not.toContain('aria-describedby="csv-erro-origem"');
+  });
+
+  it('?erro=origem&csv=fluxo (o do link do fluxo de caixa): o alerta no cartão do fluxo, ligado ao link; o formulário sem alerta', async () => {
+    const C = await cenario();
+    const html = await render({ erro: 'origem', csv: 'fluxo' });
+    expect(html).toContain(
+      `<div id="fluxo-csv-erro-origem" class="max-w-2xl"><p role="alert" class="rounded-2xl border border-erro bg-erro-fundo p-3 text-erro">${M.csv.erroOrigem}</p></div>`,
+    );
+    expect(html).toContain(`<a id="fluxo-csv" href="/api/painel/financeiro/fluxo-de-caixa.csv?ano=${C.ano}" aria-describedby="fluxo-csv-erro-origem"`);
+    // dentro do cartão do fluxo (antes da tabela dele), uma vez só; o botão do formulário sem descrição
+    expect(html.indexOf(M.csv.erroOrigem)).toBeGreaterThan(html.indexOf('id="fluxo-titulo"'));
+    expect(html.indexOf(M.csv.erroOrigem)).toBeLessThan(html.indexOf('id="fluxo-caption"'));
+    expect(html.split(M.csv.erroOrigem)).toHaveLength(2);
+    expect(html).not.toContain('id="csv-erro-origem"');
+    expect(html).not.toContain('aria-describedby="csv-erro-origem"');
+    // csv= sem erro=origem não mostra nada
+    expect(await render({ csv: 'fluxo' })).not.toContain(M.csv.erroOrigem);
   });
 
   it('sem configuração: o primeiro acesso (RN-301), sem tabelas', async () => {

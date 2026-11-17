@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   const acesso = await requireApiNutri(req);
   if (!acesso.ok) return recusaNaNavegacao(acesso);
-  const origem = recusaDeOrigem(req);
+  const origem = recusaDeOrigem(req, 'fluxo');
   if (origem) return origem;
   const texto = new URL(req.url).searchParams.get('ano') ?? '';
   const ano = Number(texto);
