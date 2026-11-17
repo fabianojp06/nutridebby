@@ -114,7 +114,7 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
                   return (
                     <tr key={p.id} className="border-t border-linha">
                       <td className="px-2 py-1">
-                        <Link href={`/painel/pacientes/${p.id}`} className="text-link underline">{nome}</Link>
+                        <Link href={`/painel/pacientes/${p.id}`} className="text-link underline focus-visible:outline-offset-[-3px]">{nome}</Link>
                         {selo && <> <Selo>{selo}</Selo></>}
                       </td>
                       <td className="px-2 py-1 whitespace-nowrap">{p.dataNascimento ? `${idadeEm(p.dataNascimento, hoje)} anos` : 'Completar cadastro'}</td>

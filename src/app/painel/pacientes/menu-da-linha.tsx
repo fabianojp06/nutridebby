@@ -123,7 +123,7 @@ export function MenuDaLinha({ id, nome, status, campos }: { id: string; nome: st
         aria-controls={painelId}
         aria-label={MSG_LISTA.acoesDe(nome)}
         onClick={() => (aberto ? fechar(true) : setAberto(true))}
-        className={classeDoBotao('secundario')}
+        className={`${classeDoBotao('secundario')} focus-visible:outline-offset-[-3px]`}
       >
         {MSG_LISTA.acoes}{' '}
         {/* seta em SVG, não em texto: o axe deixa o "▾" em "incomplete" no color-contrast (nonBmp), como a seta do Início */}
