@@ -10,11 +10,13 @@ import type { Guia } from './conteudo';
  * ar ligada pela nutricionista e o guia muda para todos — mural, privacidade e "Onde fica cada coisa" (emendas à spec G,
  * C-191, C-192, C-197, RN-193, RN-194, RN-209; os textos já dizem "quando liberada"). Versão 3 (Plano 17, Tarefa 6): os
  * lembretes de rotina em "Perguntas comuns" (com a ressalva "se a sua nutricionista configurou": o guia é o mesmo para
- * todos); o tour não muda. A subida mostra "O manual do app foi atualizado" uma vez a quem já viu a versão 2.
+ * todos); o tour não muda. A subida mostra "O manual do app foi atualizado" uma vez a quem já viu a versão 2. Versão 4
+ * (Plano 19, Tarefa 10d): a página Plano com os dias ("Ver outros dias") e "Ligado ao seu plano" em "Perguntas comuns",
+ * com a ressalva "quando a sua nutricionista ligar" (o guia é o mesmo para todos); o tour não muda.
  */
 export const GUIA_PORTAL: Guia = {
   id: 'portal-novidades',
-  versao: 3,
+  versao: 4,
   padrao: /^\/p\/inicio$/,
   titulo: 'Como usar o app',
   ajuda: {
@@ -26,7 +28,8 @@ export const GUIA_PORTAL: Guia = {
           'Hoje: o que importa no dia — a próxima refeição, o que você registrou, os comentários da sua nutricionista e os avisos do consultório. O diário completo fica em "Ver todo o diário".',
           // RN-203/RN-214: igual para todos e sem a palavra "peso" (quem tem o peso oculto não pode ler aqui que ele existe)
           'Jornada: suas consultas, as medidas e as orientações de cada atendimento, "Todas as medidas" e "Minhas consultas".',
-          `Plano: as refeições do dia, o PDF, a lista de compras, os conteúdos e, quando liberada, a ${NOME_IA_NUTRI}.`,
+          // Plano 19 (RN-247 c): a página Plano abre no dia de hoje; os outros dias ficam em "Ver outros dias"
+          `Plano: as refeições de hoje (as dos outros dias em "Ver outros dias"), o PDF, a lista de compras, os conteúdos e, quando liberada, a ${NOME_IA_NUTRI}.`,
           'Exames: enviar um exame e acompanhar os que você enviou (quando o consultório recebe exames pelo app).',
           'Eu: sua conta, documentos, notificações, privacidade, este manual e o Sair.',
         ],
@@ -42,6 +45,8 @@ export const GUIA_PORTAL: Guia = {
           `Se o seu consultório usar IA, você pode receber dois pedidos separados: um para os exames (em Eu › Privacidade) e outro para a ${NOME_IA_NUTRI} (em Plano). Cada um é opcional. Recusar ou retirar não muda nada no seu atendimento.`,
           // Plano 17: depende da nutricionista ter configurado (o guia é o mesmo para todos os pacientes)
           'Se a sua nutricionista configurou lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um.',
+          // Plano 19 (RN-252, RN-253): depende da nutricionista ter ligado (o guia é o mesmo para todos os pacientes)
+          'Quando a sua nutricionista ligar listas de substituição, receitas ou materiais ao seu plano, eles ficam em Plano, em "Ligado ao seu plano".',
         ],
       },
     ],

@@ -116,7 +116,7 @@ export function MuralLista({ mural, fuso }: { mural: Mural; fuso: string }) {
       {/* decide pelo dia, não pelo mural todo: com itens só em "Dias anteriores" (toda manhã de quem já usa o app), Hoje
           ainda diz o texto da spec (§4.3) em vez de ficar em branco */}
       {mural.hoje.length === 0 ? (
-        <p>{mural.semPlano ? MSG_MURAL.vazio : MSG_MURAL.nadaAgora}</p>
+        <p>{mural.semPlano ? MSG_MURAL.vazio : mural.semRefeicaoHoje ? MSG_MURAL.semRefeicaoHoje : MSG_MURAL.nadaAgora}</p>
       ) : (
         <ol aria-label="Hoje" className="space-y-2">
           {mural.hoje.map((i) => <Item key={i.chave} item={i} fuso={fuso} guia={i.chave === primeiraRefeicao} />)}

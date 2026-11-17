@@ -13,3 +13,4 @@ Gravado pelo controlador em 12/10/2026: este agente roda sem Write/Bash e não c
 
 **Why:** evita refazer a busca a cada revisão e deixa claro o que é fonte oficial e o que não é.
 **How to apply:** citar a fonte com o grau de confiança; antes de afirmar texto literal do 856/2026, tentar o texto oficial (DOU/CFN). Ver [[pendencias-consulta-crn3]].
+- Res. CFN 594/2017, art. 4º, § 1º, VIII: prescrição dietética com data, horário, VET, consistência, macro e micronutrientes mais importantes, fracionamento, doses, incluindo volume e gramatura, 'conforme o caso'. Conferido em 17/11/2026 em https://cfn.org.br/wp-content/uploads/resolucoes/Res_594_2017.htm (Plano 19, revisão da Tarefa 2: itensComoTexto sem gramatura quando há medida caseira, US-235).

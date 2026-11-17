@@ -134,10 +134,13 @@ describe('comporMural (RN-193 a RN-201)', () => {
     // o último registro (e44) é de 06/10 20:00: nenhum de ontem nem de hoje
     expect(m.anteriores.map((d) => d.rotulo)).toEqual(['Qui, 1 out', 'Sex, 2 out', 'Sáb, 3 out', 'Dom, 4 out', 'Seg, 5 out', 'Ter, 6 out']);
     expect(m.hoje).toEqual([]);
-    expect(comporMural(vazio(), AGORA, SP)).toEqual({ primeiroNome: 'Marina', hoje: [], anteriores: [], vazio: true, semPlano: true });
+    expect(comporMural(vazio(), AGORA, SP)).toEqual({ primeiroNome: 'Marina', hoje: [], anteriores: [], vazio: true, semPlano: true, semRefeicaoHoje: false });
     // plano publicado e nada para agora (05:00, primeira refeição às 08:00): vazio, mas NÃO "sem plano" (o texto não diz que ela não publicou)
     const cedo = comporMural({ ...vazio(), plano: { publicadoEm: sp('2026-09-20T10:00'), refeicoes: [{ id: 'r-cafe', nome: 'Café da manhã', horario: '08:00', itens: [{ nome: 'Pão' }] }] } }, sp('2026-10-08T05:00'), SP);
     expect(cedo).toMatchObject({ vazio: true, semPlano: false });
+    expect(cedo.semRefeicaoHoje).toBe(false); // há refeição hoje, só não é hora
+    // Plano 19 (RN-247 b): plano publicado sem refeição que vale hoje (muralDoPaciente já filtra pelo dia)
+    expect(comporMural({ ...vazio(), plano: { publicadoEm: sp('2026-09-20T10:00'), refeicoes: [] } }, sp('2026-10-08T05:00'), SP)).toMatchObject({ vazio: true, semPlano: false, semRefeicaoHoje: true });
   });
 
   it('virada do dia (Review Focus 3): às 23:30, a refeição das 00:30 é a de hoje (já passou), nunca a "próxima" de amanhã; o registro de ontem às 23:59 fica em "Ontem"', () => {

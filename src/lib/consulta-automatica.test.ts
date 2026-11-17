@@ -14,6 +14,7 @@ const PASTAS = ['src/app/painel', 'src/app/admin', 'src/app/conta', 'src/compone
 const USO_DA_PESSOA: Record<string, string> = {
   'src/app/painel/planos/editor/use-salvamento.ts': 'salvamento automático: só envia uma edição feita pela pessoa (e a repete sem rede)',
   'src/app/painel/alimentos/busca-alimento.tsx': 'espera de digitação da busca: só consulta depois de a pessoa digitar',
+  'src/app/painel/planos/editor/dialogo-busca.tsx': 'espera de digitação do diálogo "Buscar alimento": só consulta depois de a pessoa abrir o diálogo e digitar ou escolher um critério',
   'src/components/vigia-sessao.tsx': 'o próprio relógio da sessão: o GET usa lerSessaoApi (não renova) e o POST é o uso real na tela',
   'src/components/portal/comi-assim.tsx': 'o "Comi assim" só envia depois do toque da pessoa (o prazo de 10 s do Desfazer, RN-198)',
 };

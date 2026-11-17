@@ -15,3 +15,7 @@ porque acontece em toda retificação em que a nutricionista não preencheu o mo
 **How to apply:** em editor novo, procurar as chaves que o servidor só devolve no preparo e ver se a mensagem aparece perto do
 botão (no aviso do `Preparar`) ou se o foco vai ao campo. Texto da spec repetido no aviso não conta como texto novo. Ver
 [[react19-reset-formulario]] e [[mensagem-sucesso-desmontada]].
+
+**Recorrência (Plano 19 T8, 17/11):** `lista-form.tsx` (lista de substituição, até 20 grupos × 30 itens) põe os erros de `nome`, `orientacao` e de cada grupo ao lado do campo, no topo/meio de uma página longa, e só `geral` junto do botão "Salvar lista"; sem foco no primeiro erro. O padrão veio do `referencia-form.tsx` (T5) e foi copiado. Em formulário de lista longa, exigir foco no primeiro campo inválido (efeito sobre `state.erros`) ou resumo perto do botão.
+
+**Recorrência (Plano 19, revisão final 17/11):** o fix da T8 (`useFocoNoPrimeiroErro`) ficou só em `lista-form` e `refeicao-form`; `referencia-form.tsx` (38 nutrientes, botão no fim) e `alimento-form.tsx` (micros) seguem sem foco no primeiro erro. Quando um fix de padrão sai numa tarefa, grep os formulários irmãos que originaram o padrão.

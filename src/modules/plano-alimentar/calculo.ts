@@ -1,7 +1,9 @@
 import { arredondar, casasDecimais, formatarDecimal, lerDecimal } from '@/lib/numero';
 import type { Nutrientes100 } from '@/modules/alimentos/busca';
 import { gramasDaMedidaTexto } from '@/modules/alimentos/medidas-constantes';
-import { QUANTIDADE_MAX, QUANTIDADE_MIN } from './constantes';
+import type { ChaveNutriente } from '@/modules/alimentos/nutrientes';
+import { MAX_TEXTO, QUANTIDADE_MAX, QUANTIDADE_MIN } from './constantes';
+import { refeicoesDoDia, type DiaDaSemana } from './dias';
 
 /** RN-02. Sem banco e sem React: o editor (cliente), o servidor e o PDF usam a mesma conta. */
 export type Nutrientes = { kcal: number; proteinaG: number; carboidratoG: number; lipidioG: number; fibraG: number };
@@ -29,7 +31,8 @@ export function nutrientesDoItem(porCem: Nutrientes100, gramas: number): Nutrien
   return { ...out, semValor };
 }
 
-const somar = (a: Nutrientes, b: Nutrientes): Nutrientes => ({
+/** Soma de dois totais com o arredondamento da RN-02 (o editor soma os totais de cada refeição guardados, PM-PA9). */
+export const somarNutrientes = (a: Nutrientes, b: Nutrientes): Nutrientes => ({
   kcal: arredondar(a.kcal + b.kcal, 6),
   proteinaG: arredondar(a.proteinaG + b.proteinaG, 6),
   carboidratoG: arredondar(a.carboidratoG + b.carboidratoG, 6),
@@ -44,12 +47,49 @@ export function totalDosItens(itens: ItemCalculo[]): Nutrientes {
     if (i.substituiItemId !== null || i.quantidadeG === null) continue;
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { semValor, ...n } = nutrientesDoItem(i.porCem, i.quantidadeG);
-    t = somar(t, n);
+    t = somarNutrientes(t, n);
   }
   return t;
 }
 
-export const totalDoDia = (refeicoes: { itens: ItemCalculo[] }[]): Nutrientes => refeicoes.reduce((t, r) => somar(t, totalDosItens(r.itens)), ZERO);
+export const totalDoDia = (refeicoes: { itens: ItemCalculo[] }[]): Nutrientes => refeicoes.reduce((t, r) => somarNutrientes(t, totalDosItens(r.itens)), ZERO);
+
+/** RN-247: o total de um dia é o das refeições que valem nele (o perfil do dia), nunca a soma de todas. */
+export const totaisDoDia = (refeicoes: { diasSemana: readonly number[]; itens: ItemCalculo[] }[], dia: DiaDaSemana): Nutrientes => totalDoDia(refeicoesDoDia(refeicoes, dia));
+
+/** RN-235: micros por 100 g do alimento (`foods.micros`, ou a cópia congelada); `null`/ausente = sem valor na fonte. */
+export type MicrosPorCem = Partial<Record<ChaveNutriente, number | null>>;
+export type ItemComMicros = ItemCalculo & { micros: MicrosPorCem | null };
+
+/** RN-236: micro do item = valor por 100 g × gramas / 100; as chaves sem valor ficam fora. */
+export function microsDoItem(i: { quantidadeG: number; micros: MicrosPorCem | null }): Partial<Record<ChaveNutriente, number>> {
+  const out: Partial<Record<ChaveNutriente, number>> = {};
+  if (!i.micros) return out;
+  for (const [k, v] of Object.entries(i.micros) as [ChaveNutriente, number | null | undefined][]) {
+    if (typeof v === 'number') out[k] = arredondar((v * i.quantidadeG) / 100, 6);
+  }
+  return out;
+}
+
+/**
+ * RN-236: soma de cada nutriente pedido com a regra da RN-02 (só itens principais com quantidade válida); item sem o
+ * valor conta 0 e entra em `semValor` ("{n} itens sem valor de {nutriente}"). Para um dia, passe `refeicoesDoDia(…)`.
+ */
+export function totalMicros<C extends ChaveNutriente>(refeicoes: { itens: ItemComMicros[] }[], chaves: readonly C[]): Record<C, { total: number; semValor: number }> {
+  const out = Object.fromEntries(chaves.map((c) => [c, { total: 0, semValor: 0 }])) as Record<C, { total: number; semValor: number }>;
+  for (const r of refeicoes) {
+    for (const i of r.itens) {
+      if (i.substituiItemId !== null || i.quantidadeG === null) continue;
+      const m = microsDoItem({ quantidadeG: i.quantidadeG, micros: i.micros });
+      for (const c of chaves) {
+        const v = m[c];
+        if (v === undefined) out[c].semValor += 1;
+        else out[c].total = arredondar(out[c].total + v, 6);
+      }
+    }
+  }
+  return out;
+}
 
 export type Faixa = 'verde' | 'amarelo' | 'vermelho';
 const ROTULO: Record<Faixa, string> = { verde: 'Dentro da meta', amarelo: 'Atenção', vermelho: 'Fora da meta' };
@@ -100,3 +140,24 @@ export const diferencaKcalDoItem = (sub: NutrientesDoItem, principal: Nutrientes
 /** Quantidade do item como o paciente lê (PDF e portal): medida caseira com os gramas, ou só os gramas ("12,5 g"). */
 export const quantidadeDoItem = (i: { quantidadeG: number; medidaCaseiraTxt: string | null }): string =>
   i.medidaCaseiraTxt ? `${i.medidaCaseiraTxt} (${gramasDaMedidaTexto(i.quantidadeG)})` : gramasDaMedidaTexto(i.quantidadeG);
+
+/**
+ * RN-245: os itens da refeição em texto, para a troca para texto livre (Tarefa 7) e a minha refeição carregada num plano
+ * livre (Tarefa 8): `"{nome} — {quantidade}"` dos principais unidos por "; ", cada substituição como
+ * `" (ou {nome} — {quantidade})"` logo depois do seu principal, cortado em 2000 caracteres (`MAX_TEXTO`, o CHECK
+ * `meals_descricao_livre_tamanho`). A quantidade é a de `quantidadeDoItem`: a medida caseira com os gramas quando há
+ * ("4 colheres de sopa (100 g)", volume e gramatura — decisão da orquestradora, 17/11/2026, Res. CFN 594/2017, art. 4º,
+ * § 1º, VIII), senão os gramas ("90,5 g"). `quantidadeG` nulo (o editor com a quantidade em erro): `medidaCaseiraTxt` vai como
+ * está (o que foi digitado, "abc g"), sem gramas inventados.
+ */
+export function itensComoTexto(itens: { id: string; nome: string; quantidadeG: number | null; medidaCaseiraTxt: string | null; substituiItemId: string | null }[]): string {
+  const parte = (i: (typeof itens)[number]) =>
+    `${i.nome} — ${i.quantidadeG === null ? (i.medidaCaseiraTxt ?? '') : quantidadeDoItem({ quantidadeG: i.quantidadeG, medidaCaseiraTxt: i.medidaCaseiraTxt })}`;
+  const texto = itens
+    .filter((i) => i.substituiItemId === null)
+    .map((p) => parte(p) + itens.filter((s) => s.substituiItemId === p.id).map((s) => ` (ou ${parte(s)})`).join(''))
+    .join('; ');
+  const cortado = texto.slice(0, MAX_TEXTO);
+  // não deixar meio caractere (par substituto do UTF-16, ex.: emoji no nome do "Meu alimento") no fim
+  return /[\uD800-\uDBFF]$/.test(cortado) ? cortado.slice(0, -1) : cortado;
+}

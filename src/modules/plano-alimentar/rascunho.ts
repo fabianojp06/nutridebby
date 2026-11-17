@@ -2,16 +2,23 @@ import { and, eq, inArray, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { deadlockDetectado, fkViolation, uniqueViolation } from '@/db/errors';
-import { contents, energyCalcs, foods, mealItems, mealPlans, meals, type MedidaDoItem } from '@/db/schema';
+import {
+  contents, energyCalcs, foods, mealItems, mealPlans, meals, planoConteudos, planoListasSubstituicao, referenciasNutrientes, type MacrosPrescritos, type MealPlanRow, type MedidaDoItem,
+} from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { gramasDaMedida, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos/medidas-constantes';
+import { textoMedida } from '@/modules/alimentos/medidas-constantes';
+import { ehChaveNutriente, MSG_NUTRIENTES, type ChaveNutriente } from '@/modules/alimentos/nutrientes';
+import { MAX_NUTRIENTES_EXIBIDOS } from '@/modules/alimentos/referencias-constantes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { lerDecimal, arredondar } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
 import type { ItemIa, RefeicaoIa } from '@/modules/ia/plano-ia';
-import { lerQuantidade } from './calculo';
-import { MAX_ENVIOS_INCERTOS, MAX_ITENS, MAX_REFEICOES, MAX_TEXTO, META_MAX, META_MIN, MSG_PLANO } from './constantes';
+import { itensComoTexto } from './calculo';
+import { MAX_ENVIOS_INCERTOS, MAX_ITENS, MAX_REFEICOES, MAX_TEXTO, META_MAX, META_MIN, MSG_DIAS, MSG_PLANO, MSG_TEXTO_LIVRE } from './constantes';
+import { TODOS_OS_DIAS, type DiaDaSemana } from './dias';
 import { ConflitoRevisaoError, PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
+import { lerCamposDoItem } from './item-entrada';
+import type { ModoPlano } from './tipos';
 
 type Deps = { db?: Db; now?: Date };
 
@@ -53,6 +60,7 @@ export async function criarRascunhoTx(
     .insert(mealPlans)
     .values({
       tenantId, patientId, titulo: o.titulo ?? 'Plano alimentar', metaKcal: o.metaKcal ?? null, orientacoes: o.orientacoes ?? '', iaOrigemEm: o.iaOrigemEm ?? null,
+      modo: 'calculado', // RN-243: o rascunho da IA ("Usar como rascunho") é sempre com alimentos e quantidades
       versao: await proximaVersao(tx, patientId),
     })
     .returning({ id: mealPlans.id });
@@ -60,18 +68,62 @@ export async function criarRascunhoTx(
 }
 
 type ItemValido = { id: string; mealId: string; foodId: string; quantidadeG: number; medida: MedidaDoItem | null; medidaCaseiraTxt: string | null; substituiItemId: string | null; ordem: number };
-type RefeicaoValida = { id: string; nome: string; horario: string | null; observacao: string; ordem: number; recipeContentId: string | null };
-type Validado = { revisao: number; envio: string; enviosIncertos: string[]; titulo: string; metaKcal: number | null; energyCalcId: string | null; mostrarCalorias: boolean; orientacoes: string; refeicoes: RefeicaoValida[]; itens: ItemValido[] };
+/** Plano 19: `diasSemana`/`descricaoLivre` ausentes (`undefined`) = ficam como estão no banco (editor de antes do Plano 19). */
+type RefeicaoValida = {
+  id: string;
+  nome: string;
+  horario: string | null;
+  observacao: string;
+  ordem: number;
+  recipeContentId: string | null;
+  diasSemana: DiaDaSemana[] | undefined;
+  descricaoLivre: string | null | undefined;
+};
+type Validado = {
+  revisao: number;
+  envio: string;
+  enviosIncertos: string[];
+  titulo: string;
+  metaKcal: number | null;
+  energyCalcId: string | null;
+  mostrarCalorias: boolean;
+  orientacoes: string;
+  /** Ausentes = ficam como estão (o modo e a distribuição gravados). */
+  modo: ModoPlano | undefined;
+  macrosPrescritos: MacrosPrescritos | null | undefined;
+  /** RN-238/RN-239: ausentes = ficam como estão. */
+  referenciaId: string | null | undefined;
+  nutrientesExibidos: ChaveNutriente[] | undefined;
+  mostrarMicrosPdf: boolean | undefined;
+  refeicoes: RefeicaoValida[];
+  itens: ItemValido[];
+};
 
 const HORARIO = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** D7: chave de idempotência de cada PUT (uuid do cliente) e as dos envios sem resposta confirmada. */
 const chavesSchema = z.object({ envio: z.uuid(), enviosIncertos: z.array(z.uuid()).max(MAX_ENVIOS_INCERTOS).optional() });
-const medidaSchema = z.object({
-  nome: z.string().trim().min(1).max(60),
-  plural: z.string().trim().min(1).max(60),
-  gramas: z.number().min(0.1).max(5000),
-  qtd: z.number().gt(0).max(QTD_MEDIDA_MAX),
-});
+
+const MODOS: readonly ModoPlano[] = ['calculado', 'livre'];
+
+/**
+ * RN-244: proteína, carboidrato e lipídio em % do VET, inteiros de 0 a 100 que somam 100. Os três vazios = sem
+ * distribuição (null); `undefined` = não veio (fica a gravada); fora do formato = `false`.
+ */
+function lerMacros(m: unknown): MacrosPrescritos | null | undefined | false {
+  if (m === undefined || m === null) return m;
+  if (typeof m !== 'object' || Array.isArray(m)) return false;
+  const o = m as Record<string, unknown>;
+  const v = [o.proteina, o.carboidrato, o.lipidio].map(lerDecimal);
+  if (v.every((x) => x === null)) return null;
+  if (v.some((x) => x === null || !Number.isInteger(x) || x < 0 || x > 100) || v.reduce<number>((a, x) => a + x!, 0) !== 100) return false;
+  return { proteina: v[0]!, carboidrato: v[1]!, lipidio: v[2]! };
+}
+
+/** RN-246: 0 (domingo) a 6, sem repetir; devolvidos em ordem (o CHECK `meals_dias_validos` exige). Fora do formato → null. */
+function lerDias(d: unknown): DiaDaSemana[] | null {
+  if (!Array.isArray(d) || d.some((x) => !Number.isInteger(x) || x < 0 || x > 6) || new Set(d).size !== d.length) return null;
+  return [...(d as DiaDaSemana[])].sort((a, b) => a - b);
+}
 
 /** Validação completa antes de tocar no banco: erro por campo (chaves `item:<id>:…`), nunca gravação parcial. */
 function validar(entrada: unknown): Validado {
@@ -86,6 +138,19 @@ function validar(entrada: unknown): Validado {
   if (metaN !== null && (Number.isNaN(metaN) || metaN < META_MIN || metaN > META_MAX)) erros.metaKcal = MSG_PLANO.meta;
   const orientacoes = typeof o.orientacoes === 'string' ? o.orientacoes.trim() : '';
   if (orientacoes.length > MAX_TEXTO) erros.orientacoes = MSG_PLANO.texto;
+  if (o.modo !== undefined && !MODOS.includes(o.modo as ModoPlano)) throw new PlanoError({ geral: MSG_PLANO.invalido });
+  const macrosPrescritos = lerMacros(o.macrosPrescritos);
+  if (macrosPrescritos === false) erros.macrosPrescritos = MSG_TEXTO_LIVRE.macros;
+  // RN-238/RN-239: o editor nunca manda id fora do formato, chave fora do catálogo ou repetida (só entrada adulterada)
+  if (o.referenciaId !== undefined && o.referenciaId !== null && !idValido(o.referenciaId)) throw new PlanoError({ geral: MSG_PLANO.invalido });
+  if (o.mostrarMicrosPdf !== undefined && typeof o.mostrarMicrosPdf !== 'boolean') throw new PlanoError({ geral: MSG_PLANO.invalido });
+  let nutrientesExibidos: ChaveNutriente[] | undefined;
+  if (o.nutrientesExibidos !== undefined) {
+    const n = o.nutrientesExibidos;
+    if (!Array.isArray(n) || !n.every(ehChaveNutriente) || new Set(n).size !== n.length) throw new PlanoError({ geral: MSG_PLANO.invalido });
+    if (n.length > MAX_NUTRIENTES_EXIBIDOS) erros.nutrientesExibidos = MSG_NUTRIENTES.limite; // antes do CHECK meal_plans_nutrientes_exibidos_limite
+    nutrientesExibidos = n;
+  }
   const refeicoesEntrada = o.refeicoes as Record<string, unknown>[];
   const totalItens = refeicoesEntrada.reduce((n, r) => n + (Array.isArray(r?.itens) ? r.itens.length : 0), 0);
   if (refeicoesEntrada.length > MAX_REFEICOES || totalItens > MAX_ITENS) throw new PlanoError({ geral: MSG_PLANO.limite });
@@ -105,37 +170,35 @@ function validar(entrada: unknown): Validado {
     if (observacao.length > MAX_TEXTO) erros[`${chave}:observacao`] = MSG_PLANO.texto;
     const receita = r.recipeContentId ?? null;
     if (receita !== null && !idValido(receita)) erros[`${chave}:receita`] = MSG_PLANO.receita;
-    refeicoes.push({ id: r.id as string, nome, horario: horario || null, observacao, ordem, recipeContentId: idValido(receita) ? receita : null });
+    let diasSemana: DiaDaSemana[] | undefined;
+    if (r.diasSemana !== undefined) {
+      const dias = lerDias(r.diasSemana);
+      if (!dias) throw new PlanoError({ geral: MSG_PLANO.invalido });
+      // antes do CHECK meals_dias_validos: o erro fica no campo, e nada é gravado
+      if (!dias.length) erros[`${chave}:dias`] = MSG_DIAS.nenhum;
+      diasSemana = dias;
+    }
+    let descricaoLivre: string | null | undefined;
+    if (r.descricaoLivre !== undefined) {
+      if (r.descricaoLivre !== null && typeof r.descricaoLivre !== 'string') throw new PlanoError({ geral: MSG_PLANO.invalido });
+      const texto = typeof r.descricaoLivre === 'string' ? r.descricaoLivre.trim() : '';
+      if (texto.length > MAX_TEXTO) erros[`${chave}:descricaoLivre`] = MSG_PLANO.texto;
+      descricaoLivre = texto || null; // RN-243: o rascunho aceita a refeição sem texto; a publicação, não
+    }
+    refeicoes.push({ id: r.id as string, nome, horario: horario || null, observacao, ordem, recipeContentId: idValido(receita) ? receita : null, diasSemana, descricaoLivre });
     const lista = (Array.isArray(r.itens) ? r.itens : []) as Record<string, unknown>[];
     const principais = new Set(lista.filter((i) => i?.substituiItemId === null || i?.substituiItemId === undefined).map((i) => i?.id));
     lista.forEach((i, ordemItem) => {
       if (!novoId(i?.id)) throw new PlanoError({ geral: MSG_PLANO.invalido });
-      const ci = `item:${i.id}`;
-      if (!idValido(i.foodId)) erros[`${ci}:foodId`] = MSG_PLANO.alimento;
-      let medida: MedidaDoItem | null = null;
-      let gramas: number | null;
-      if (i.medida !== null && i.medida !== undefined) {
-        const m = medidaSchema.safeParse(i.medida);
-        if (!m.success) {
-          erros[`${ci}:medida`] = MSG_PLANO.quantidade;
-          gramas = null;
-        } else {
-          medida = m.data;
-          gramas = lerQuantidade(gramasDaMedida(m.data.qtd, m.data.gramas));
-        }
-      } else {
-        // a coluna é numeric(7,2): com 3 ou mais casas, o valor gravado nunca bateria com o enviado (UPDATE e audit_log a cada salvamento)
-        const g = lerQuantidade(i.quantidadeG);
-        gramas = g === null ? null : arredondar(g, 2);
-      }
-      if (gramas === null && !erros[`${ci}:medida`]) erros[`${ci}:quantidadeG`] = MSG_PLANO.quantidade;
+      // a mesma leitura da biblioteca (`item-entrada.ts`); o item com erro segue na lista (o PlanoError sai no fim, com todos os erros)
+      const { chave: ci, foodId, quantidadeG, medida } = lerCamposDoItem(i, erros);
       const sub = i.substituiItemId ?? null;
       if (sub !== null && (sub === i.id || !principais.has(sub))) erros[`${ci}:substituiItemId`] = MSG_PLANO.substituicao;
       itens.push({
         id: i.id as string,
         mealId: r.id as string,
-        foodId: i.foodId as string,
-        quantidadeG: gramas ?? 0,
+        foodId,
+        quantidadeG: quantidadeG ?? 0,
         medida,
         medidaCaseiraTxt: medida ? textoMedida(medida.qtd, medida) : null,
         substituiItemId: sub as string | null,
@@ -153,6 +216,11 @@ function validar(entrada: unknown): Validado {
     energyCalcId: idValido(o.energyCalcId) ? o.energyCalcId : null,
     mostrarCalorias: o.mostrarCalorias === true,
     orientacoes,
+    modo: o.modo as ModoPlano | undefined,
+    macrosPrescritos: macrosPrescritos === false ? undefined : macrosPrescritos,
+    referenciaId: o.referenciaId as string | null | undefined,
+    nutrientesExibidos,
+    mostrarMicrosPdf: o.mostrarMicrosPdf as boolean | undefined,
     refeicoes,
     itens,
   };
@@ -182,6 +250,14 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         const [antes] = await tx.select({ patientId: mealPlans.patientId }).from(mealPlans).where(eq(mealPlans.id, planId));
         if (!antes) throw new PlanoNaoEncontradoError();
         if (antes.patientId) await carregarPacienteParaEscrita(tx, antes.patientId);
+        // RN-238 (D30): perfil que não existe mais (excluído numa outra aba) ou de outro consultório (RLS) = "Sem perfil".
+        // FOR KEY SHARE antes de travar o plano: uma exclusão do perfil em curso termina antes (e a linha não aparece) ou
+        // espera este COMMIT e então solta o ponteiro (SET NULL) — sem 23503 na FK nem o ciclo plano ↔ perfil
+        let referenciaVisivel: string | null | undefined = v.referenciaId;
+        if (v.referenciaId) {
+          const [r] = await tx.select({ id: referenciasNutrientes.id }).from(referenciasNutrientes).where(eq(referenciasNutrientes.id, v.referenciaId)).for('key share');
+          referenciaVisivel = r?.id ?? null;
+        }
         const [p] = await tx.select().from(mealPlans).where(eq(mealPlans.id, planId)).for('update');
         if (!p) throw new PlanoNaoEncontradoError(); // descartado entre a leitura e a trava
         if (p.status !== 'rascunho') throw new PlanoNaoEditavelError();
@@ -190,6 +266,10 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         // tela passaria mais (todos com N < revisão). Logo, `ultimo_envio` na lista ⇒ todo commit desde N é desta tela.
         const repeticao = p.revisao > v.revisao && p.ultimoEnvio !== null && v.enviosIncertos.includes(p.ultimoEnvio);
         if (p.revisao !== v.revisao && !repeticao) throw new ConflitoRevisaoError();
+        // RN-243: no modo livre a refeição tem texto, não alimentos; no calculado, nem texto nem distribuição prescrita
+        const modo = v.modo ?? (p.modo as ModoPlano);
+        if (modo === 'livre' && v.itens.length) throw new PlanoError({ geral: MSG_PLANO.invalido });
+        const macrosPrescritos = modo === 'livre' ? (v.macrosPrescritos !== undefined ? v.macrosPrescritos : (p.macrosPrescritos ?? null)) : null;
 
         if (v.energyCalcId) {
           // o cálculo precisa ser do mesmo paciente (modelo não tem paciente nem cálculo)
@@ -227,6 +307,9 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
           if (Object.keys(ruins).length) throw new PlanoError(ruins);
         }
         const itensAtuais = new Map((await tx.select().from(mealItems).where(eq(mealItems.planId, planId))).map((i) => [i.id, i]));
+        // RN-245: na troca calculado → livre, os alimentos saem; refeição que veio sem texto ganha os alimentos gravados
+        // como texto (o editor manda o texto que já mostrou, feito pela mesma itensComoTexto) — nenhum alimento some calado
+        const textoDosItens = p.modo === 'calculado' && modo === 'livre' ? await itensGravadosComoTexto(tx, [...itensAtuais.values()]) : new Map<string, string>();
         const novasRefeicoes = new Set(v.refeicoes.map((r) => r.id));
         const novosItens = new Map(v.itens.map((i) => [i.id, i]));
 
@@ -244,9 +327,18 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
         const refeicoesNovas: (typeof meals.$inferInsert)[] = [];
         for (const r of v.refeicoes) {
           const atual = refeicoesAtuais.get(r.id);
-          const dados = { nome: r.nome, horario: r.horario, observacao: r.observacao, ordem: r.ordem, recipeContentId: r.recipeContentId };
+          const dados = {
+            nome: r.nome, horario: r.horario, observacao: r.observacao, ordem: r.ordem, recipeContentId: r.recipeContentId,
+            diasSemana: r.diasSemana ?? (atual?.diasSemana as DiaDaSemana[] | undefined) ?? [...TODOS_OS_DIAS],
+            descricaoLivre: modo === 'livre' ? (r.descricaoLivre !== undefined ? r.descricaoLivre : (atual?.descricaoLivre ?? textoDosItens.get(r.id) ?? null)) : null,
+          };
           if (!atual) refeicoesNovas.push({ id: r.id, tenantId: ctx.tenantId, patientId: p.patientId, planId, ...dados });
-          else if (!iguais({ nome: atual.nome, horario: atual.horario?.slice(0, 5) ?? null, observacao: atual.observacao, ordem: atual.ordem, recipeContentId: atual.recipeContentId }, dados))
+          else if (
+            !iguais(
+              { nome: atual.nome, horario: atual.horario?.slice(0, 5) ?? null, observacao: atual.observacao, ordem: atual.ordem, recipeContentId: atual.recipeContentId, diasSemana: atual.diasSemana, descricaoLivre: atual.descricaoLivre },
+              dados,
+            )
+          )
             await tx.update(meals).set({ ...dados, updatedAt: now }).where(eq(meals.id, r.id));
         }
         if (refeicoesNovas.length) await tx.insert(meals).values(refeicoesNovas);
@@ -273,6 +365,11 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
             energyCalcId: v.energyCalcId,
             mostrarCalorias: v.mostrarCalorias,
             orientacoes: v.orientacoes,
+            modo,
+            macrosPrescritos,
+            referenciaId: referenciaVisivel !== undefined ? referenciaVisivel : p.referenciaId,
+            nutrientesExibidos: v.nutrientesExibidos ?? p.nutrientesExibidos,
+            mostrarMicrosPdf: v.mostrarMicrosPdf ?? p.mostrarMicrosPdf,
             revisao: p.revisao + 1,
             ultimoEnvio: v.envio,
             updatedAt: now,
@@ -295,11 +392,48 @@ export async function salvarRascunho(ctx: TenantContext, planId: string, entrada
   }
 }
 
+/** RN-245: o texto (`itensComoTexto`) dos itens gravados de cada refeição, na ordem gravada; refeição sem itens fica fora. */
+async function itensGravadosComoTexto(tx: Tx, itens: (typeof mealItems.$inferSelect)[]): Promise<Map<string, string>> {
+  if (!itens.length) return new Map();
+  const nomes = new Map((await tx.select({ id: foods.id, nome: foods.nome }).from(foods).where(inArray(foods.id, [...new Set(itens.map((i) => i.foodId))]))).map((f) => [f.id, f.nome]));
+  const porRefeicao = new Map<string, (typeof mealItems.$inferSelect)[]>();
+  for (const i of [...itens].sort((a, b) => a.ordem - b.ordem)) {
+    const lista = porRefeicao.get(i.mealId);
+    if (lista) lista.push(i);
+    else porRefeicao.set(i.mealId, [i]);
+  }
+  return new Map(
+    [...porRefeicao].map(([mealId, its]) => [
+      mealId,
+      itensComoTexto(its.map((i) => ({ id: i.id, nome: nomes.get(i.foodId) ?? '', quantidadeG: i.quantidadeG, medidaCaseiraTxt: i.medidaCaseiraTxt, substituiItemId: i.substituiItemId }))),
+    ]),
+  );
+}
+
+/**
+ * RN-256: o que as cópias do plano ("Editar", "Salvar como modelo", "Criar a partir de modelo") levam do cabeçalho além do
+ * que cada uma já levava; `referencia_congelada` não (é da publicação). O perfil é o do rascunho ou modelo; de um
+ * publicado ou arquivado (sem `referencia_id`, RN-238), o da cópia congelada, se o perfil ainda existe e é visível (RLS
+ * da sessão). FOR KEY SHARE: uma exclusão do perfil em curso termina antes (e a linha não aparece) ou espera este COMMIT
+ * (e então solta o ponteiro da cópia nova, ON DELETE SET NULL) — sem 23503 na FK do INSERT.
+ */
+export async function cabecalhoDaCopia(tx: Tx, p: MealPlanRow) {
+  let referenciaId = p.referenciaId;
+  const congelada = p.referenciaCongelada?.id;
+  if (!referenciaId && idValido(congelada)) {
+    const [r] = await tx.select({ id: referenciasNutrientes.id }).from(referenciasNutrientes).where(eq(referenciasNutrientes.id, congelada)).for('key share');
+    referenciaId = r?.id ?? null;
+  }
+  return { modo: p.modo, nutrientesExibidos: p.nutrientesExibidos, macrosPrescritos: p.macrosPrescritos, mostrarMicrosPdf: p.mostrarMicrosPdf, referenciaId };
+}
+
 /**
  * Copia refeições e itens (ids novos) de um plano para outro: modelos (Tarefa 9) e "Editar" (Tarefa 10).
  * A origem fica travada FOR SHARE antes das leituras (um salvamento automático em curso, FOR UPDATE, termina antes:
  * refeições e itens saem da mesma versão). Paciente e tenant das linhas novas vêm do plano de destino no banco.
  * Quem trava o paciente o faz antes de chamar (paciente → tenant → plano, como no salvamento e na publicação).
+ * Plano 19 (RN-256): também os dias e o texto livre de cada refeição, as listas de substituição ligadas (a mesma cópia
+ * congelada, sem reler a biblioteca) e as receitas e materiais ligados. O cabeçalho (modo, perfil…) é de quem chama.
  */
 export async function copiarConteudo(tx: Tx, origemId: string, destinoId: string): Promise<void> {
   const [origem] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(eq(mealPlans.id, origemId)).for('share');
@@ -311,7 +445,10 @@ export async function copiarConteudo(tx: Tx, origemId: string, destinoId: string
   const novoIdItem = new Map(its.map((i) => [i.id, crypto.randomUUID()]));
   if (rs.length)
     await tx.insert(meals).values(
-      rs.map((r) => ({ id: novoIdRefeicao.get(r.id)!, tenantId: destino.tenantId, patientId: destino.patientId, planId: destino.id, nome: r.nome, horario: r.horario, ordem: r.ordem, observacao: r.observacao, recipeContentId: r.recipeContentId })),
+      rs.map((r) => ({
+        id: novoIdRefeicao.get(r.id)!, tenantId: destino.tenantId, patientId: destino.patientId, planId: destino.id, nome: r.nome, horario: r.horario, ordem: r.ordem,
+        observacao: r.observacao, recipeContentId: r.recipeContentId, diasSemana: r.diasSemana, descricaoLivre: r.descricaoLivre,
+      })),
     );
   const linha = (i: (typeof its)[number]) => ({
     id: novoIdItem.get(i.id)!,
@@ -331,6 +468,31 @@ export async function copiarConteudo(tx: Tx, origemId: string, destinoId: string
   const subs = its.filter((i) => i.substituiItemId).map(linha);
   if (principais.length) await tx.insert(mealItems).values(principais);
   if (subs.length) await tx.insert(mealItems).values(subs);
+  await copiarLigados(tx, origemId, destino);
+}
+
+/** RN-252/RN-253: as ligações do plano (listas copiadas e conteúdos), com a mesma ordem e a mesma data da cópia. */
+async function copiarLigados(tx: Tx, origemId: string, destino: { id: string; tenantId: string; patientId: string | null }): Promise<void> {
+  const listas = await tx.select().from(planoListasSubstituicao).where(eq(planoListasSubstituicao.planId, origemId));
+  if (listas.length)
+    await tx.insert(planoListasSubstituicao).values(
+      listas.map((l) => ({
+        tenantId: destino.tenantId, patientId: destino.patientId, planId: destino.id, listaOrigemId: l.listaOrigemId, nome: l.nome, orientacao: l.orientacao,
+        conteudo: l.conteudo, copiadaEm: l.copiadaEm, ordem: l.ordem,
+      })),
+    );
+  const ligados = await tx.select().from(planoConteudos).where(eq(planoConteudos.planId, origemId));
+  if (!ligados.length) return;
+  // FOR SHARE, no molde da receita sugerida em salvarRascunho: uma exclusão do conteúdo em curso termina antes (a
+  // leitura espera e não acha a linha) e as que chegarem depois esperam este COMMIT — sem 23503 na FK do INSERT. O
+  // conteúdo que saiu fica como a exclusão o deixaria (ON DELETE SET NULL): sem `content_id`, com o título copiado.
+  const ids = [...new Set(ligados.flatMap((c) => (c.contentId ? [c.contentId] : [])))];
+  const existem = new Set(ids.length ? (await tx.select({ id: contents.id }).from(contents).where(inArray(contents.id, ids)).for('share')).map((c) => c.id) : []);
+  await tx.insert(planoConteudos).values(
+    ligados.map((c) => ({
+      tenantId: destino.tenantId, patientId: destino.patientId, planId: destino.id, contentId: c.contentId && existem.has(c.contentId) ? c.contentId : null, titulo: c.titulo, ordem: c.ordem,
+    })),
+  );
 }
 
 /**
@@ -352,7 +514,8 @@ export async function gravarConteudoRascunhoTx(tx: Tx, tenantId: string, patient
       continue;
     }
     const mealId = crypto.randomUUID();
-    await tx.insert(meals).values({ id: mealId, tenantId, patientId, planId, nome: r.nome, horario: r.horario, ordem, observacao: '' });
+    // RN-246: a refeição sugerida pela IA vale todos os dias (a saída da IA não traz dias)
+    await tx.insert(meals).values({ id: mealId, tenantId, patientId, planId, nome: r.nome, horario: r.horario, ordem, observacao: '', diasSemana: [...TODOS_OS_DIAS] });
     const novoId = new Map<number, string>();
     const linha = (i: ItemIa, idx: number, o: number, principal: string | null) => {
       const id = crypto.randomUUID();

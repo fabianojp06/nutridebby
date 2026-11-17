@@ -75,7 +75,7 @@ os valores marcados "10A" abaixo. **Atualização do Plano 11** (`2efa27b`, PR #
 | Opção | Valor | Por quê |
 |---|---|---|
 | `include` | `src/**/*.test.ts`, `test/**/*.test.ts` | Testes ficam ao lado do código; `test/` guarda os transversais |
-| `exclude` | Com `CI`, também os `*.tempo.test.ts` | Os **testes que medem tempo** (p95 da busca, RNF-01, em `busca.tempo.test.ts`; tempo linear do SVG em `logo.tempo.test.ts`) rodam no CI depois da suíte, sozinhos: `pnpm test:tempo` (`VITEST_SO_TEMPO=1`, só esses arquivos, `fileParallelism: false`). Ao lado dos outros workers, a cota de 4 vCPU do runner pausa o grupo e o teste mede a pausa (CI do PR #34: p95 de 434 e 575 ms com o `acesso.test.ts` ao lado; 46–78 ms sozinho). Local: `pnpm test` roda tudo |
+| `exclude` | Com `CI`, também os `*.tempo.test.ts` | Os **testes que medem tempo** (p95 da busca, RNF-01, em `busca.tempo.test.ts`; tempo linear do SVG em `logo.tempo.test.ts`; desde o Plano 19, a busca por nutriente e os equivalentes em `busca.tempo.test.ts`, p95 ≤ 500 ms, e o recálculo por tecla do editor com 50 refeições e 400 itens em `src/app/painel/planos/editor/estado.tempo.test.ts`, p95 < 16 ms) rodam no CI depois da suíte, sozinhos: `pnpm test:tempo` (`VITEST_SO_TEMPO=1`, só esses arquivos, `fileParallelism: false`). Ao lado dos outros workers, a cota de 4 vCPU do runner pausa o grupo e o teste mede a pausa (CI do PR #34: p95 de 434 e 575 ms com o `acesso.test.ts` ao lado; 46–78 ms sozinho). Local: `pnpm test` roda tudo |
 | `globalSetup` | `test/global-setup.ts` | Sobe **um** Postgres para a suíte inteira |
 | `setupFiles` | `test/setup.ts` | Variáveis de ambiente de teste em cada arquivo |
 | `hookTimeout` | 120 s | Subir o container e rodar todas as migrations leva tempo |
@@ -213,7 +213,7 @@ o porquê.
 
 **Por que a guarda confere a expressão e não só o nome.** Uma política `paciente_sem_delete USING (true)` tem o nome
 e o comando certos e não nega nada. A guarda normaliza o texto que o Postgres guarda e compara com a negação
-esperada (`normalizarExpressao` e `NEGA_PACIENTE`, `rls-guard.ts:207-208`; débito B-5 do Plano 06). O mesmo vale para a audiência: uma
+esperada (`normalizarExpressao` e `NEGA_PACIENTE`, `rls-guard.ts:218-219`; débito B-5 do Plano 06). O mesmo vale para a audiência: uma
 `paciente_conteudo_visivel USING (true)` mostraria ao paciente todo conteúdo do tenant (`AUDIENCIA_EXIGE`,
 `HERDA_DE_CONTENTS`, R11 do Plano 07). Os testes "B-5" e "R11" de `src/db/rls-guard.test.ts` (`:170` e `:204`)
 provam que essas armadilhas quebram o CI.
@@ -246,35 +246,35 @@ falhar tanto se uma política negar tudo quanto se liberar tudo (PF-F3).
 
 | Peça | Linha | O que é |
 |---|---|---|
-| `FABRICAS` | `:24` | Tabela → função `(tenantId, patientId) => SQL` que grava uma linha. Fábrica que precisa de linha-mãe cria a mãe **no mesmo comando** (CTE), ex.: `consultation_notes`, `meal_items`, `recipe_ingredients` |
-| `PAPEL_DA_FABRICA` | `:174` | Plano 17: papel do `beforeAll` quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão); `lembretes_rotina_envios` é semeada como `worker` (o gatilho `lembretes_rotina_envios_do_worker` recusa a equipe) |
-| `SO_INSERE` | `:176` | Tabelas append-only (`audit_log` e, desde o Plano 10A, `signed_document_receipts`; depois `ia_autorizacoes`, Plano 14A, e `ia_nutri_consentimentos`, Plano 15): UPDATE/DELETE já são negados por permissão |
-| `SEM_DELETE`, `DELETE_REVOGADO` | `:185`, `:191` | Plano 11 (D9): em `ia_tarefas` e `ia_uso` o DELETE da equipe é negado (gatilho `ia_tarefas_sem_apagar`; `REVOKE` em `ia_uso`): o teste do tenant B pula o DELETE e confere que nada sumiu; em `ia_uso` a recusa vem da permissão, antes da RLS, para qualquer contexto (inclusive `publico`; R4 do pre-flight) |
-| `IMUTAVEIS` | `:203` | Plano 10A (D19): `signed_documents`, `signed_document_notes`, `document_access_codes`; Plano 11 (revisão final): `ia_tarefas`; depois `exam_submissions` (Plano 12), `ia_geracoes_modelos` (14B-1), `ia_nutri_mensagens` (15), `lembretes_rotina` e `lembretes_rotina_envios` (17) — o gatilho recusa mudar `tenant_id`/`patient_id` com `42501` antes do `WITH CHECK` da RLS (mensagem própria, não "row-level security") |
-| `SO_APAGA` | `:219` | Plano 10A: em `signed_documents` o DELETE de B só apaga rascunhos (os emitidos ficam, pelo gatilho); em `patients`, só os pacientes sem documento nem recibo (FK `NO ACTION`). Um paciente a mais por tenant, sem documento, faz o filtro casar |
-| `ULTIMAS` | `:236` | Apagadas por último no teste de DELETE, porque as filhas têm FK `NO ACTION`/`RESTRICT` para elas (`foods`), ou cascata que zeraria linhas de B que o teste ainda conta (`contents`, `recipes`); desde o Plano 10A, `signed_documents` e `stored_files` (FKs `NO ACTION` dos PDFs); desde o Plano 17, `lembretes_rotina` (apagar antes zeraria em cascata as marcas de B); `patients` é sempre a última |
-| `COLUNA_TITULAR` | `:305` | Em `patients` o titular é a coluna `id` |
-| `SEM_DELETE_DO_PACIENTE` | `:307` | O paciente nunca é apagado (arquiva, bloqueia, anonimiza) |
-| `UPDATE_DO_PACIENTE` | `:362` | O único UPDATE que a sessão de paciente consegue na própria linha de `data_exports` (`pendente → falhou`); depois `exam_submissions` (Plano 12), `ia_nutri_mensagens` (15) e `lembretes_rotina` (`desligado_pelo_paciente_em = now()`, 17) |
+| `FABRICAS` | `:24` | Tabela → função `(tenantId, patientId) => SQL` que grava uma linha. Fábrica que precisa de linha-mãe cria a mãe **no mesmo comando** (CTE), ex.: `consultation_notes`, `meal_items`, `recipe_ingredients`. Plano 19: as oito tabelas novas; `plano_listas_substituicao` e `plano_conteudos` criam a `meal_plans` mãe com status `arquivado` (rascunho deixaria a paciente sem linhas, `paciente_sem_rascunho`; publicado bateria no índice de um publicado) e `plano_conteudos.content_id` fica nulo (FK anulável de fora, regra 9) |
+| `PAPEL_DA_FABRICA` | `:212` | Plano 17: papel do `beforeAll` quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão); `lembretes_rotina_envios` é semeada como `worker` (o gatilho `lembretes_rotina_envios_do_worker` recusa a equipe) |
+| `SO_INSERE` | `:214` | Tabelas append-only (`audit_log` e, desde o Plano 10A, `signed_document_receipts`; depois `ia_autorizacoes`, Plano 14A, e `ia_nutri_consentimentos`, Plano 15): UPDATE/DELETE já são negados por permissão |
+| `SEM_DELETE`, `DELETE_REVOGADO` | `:224`, `:231` | Plano 11 (D9): em `ia_tarefas` e `ia_uso` o DELETE da equipe é negado (gatilho `ia_tarefas_sem_apagar`; `REVOKE` em `ia_uso`): o teste do tenant B pula o DELETE e confere que nada sumiu; em `ia_uso` a recusa vem da permissão, antes da RLS, para qualquer contexto (inclusive `publico`; R4 do pre-flight) |
+| `IMUTAVEIS` | `:243` | Plano 10A (D19): `signed_documents`, `signed_document_notes`, `document_access_codes`; Plano 11 (revisão final): `ia_tarefas`; depois `exam_submissions` (Plano 12), `ia_geracoes_modelos` (14B-1), `ia_nutri_mensagens` (15), `lembretes_rotina` e `lembretes_rotina_envios` (17) — o gatilho recusa mudar `tenant_id`/`patient_id` com `42501` antes do `WITH CHECK` da RLS (mensagem própria, não "row-level security") |
+| `SO_APAGA` | `:261` | Plano 10A: em `signed_documents` o DELETE de B só apaga rascunhos (os emitidos ficam, pelo gatilho); em `patients`, só os pacientes sem documento nem recibo (FK `NO ACTION`). Um paciente a mais por tenant, sem documento, faz o filtro casar |
+| `ULTIMAS` | `:283` | Apagadas por último no teste de DELETE, porque as filhas têm FK `NO ACTION`/`RESTRICT` para elas (`foods`), ou cascata que zeraria linhas de B que o teste ainda conta (`contents`, `recipes`); desde o Plano 10A, `signed_documents` e `stored_files` (FKs `NO ACTION` dos PDFs); desde o Plano 17, `lembretes_rotina` (apagar antes zeraria em cascata as marcas de B); `patients` é sempre a última; desde o Plano 19, no fim, `listas_substituicao_grupos`, `listas_substituicao` e `refeicoes_modelo` (a cascata zeraria as linhas de B das filhas antes da contagem) |
+| `COLUNA_TITULAR` | `:352` | Em `patients` o titular é a coluna `id` |
+| `SEM_DELETE_DO_PACIENTE` | `:354` | O paciente nunca é apagado (arquiva, bloqueia, anonimiza) |
+| `UPDATE_DO_PACIENTE` | `:417` | O único UPDATE que a sessão de paciente consegue na própria linha de `data_exports` (`pendente → falhou`); depois `exam_submissions` (Plano 12), `ia_nutri_mensagens` (15) e `lembretes_rotina` (`desligado_pelo_paciente_em = now()`, 17) |
 
-**O que cada caso prova (`describe` em `:375`):**
+**O que cada caso prova (`describe` em `:430`):**
 
 | Caso | Prova |
 |---|---|
-| "toda tabela com tenant_id tem fábrica neste teste" (`:376`) | Tabela nova sem fábrica quebra o CI |
-| WITH CHECK do tenant (`:381`) | B não grava linha com o `tenant_id` de A nem move a própria linha para A |
-| WITH CHECK do paciente (`:394`) | P2 não grava linha de P1 nem move a própria para P1 |
-| D1 (`:415`) | Fora de `PACIENTE_ESCREVE`, P2 não cria nem a própria linha |
-| `staff_only` (`:424`) | A sessão de paciente não vê nem grava nada nessas tabelas |
-| `publico` (`:437`) | O visitante só lê e grava o que `PUBLICO_LIBERADO` declara |
-| `conta` (`:458`) | Sem tenant, a conta do paciente não vê nem grava nada (só `patients` da própria conta) |
-| Leitura, alteração e exclusão de B (`:469`) | B só vê e só altera as próprias linhas; as de A ficam intactas (contagem feita com o dono) |
-| Leitura, alteração e exclusão de P2 (`:519`) | P2 só vê e altera as próprias linhas; as de P1 ficam intactas |
+| "toda tabela com tenant_id tem fábrica neste teste" (`:431`) | Tabela nova sem fábrica quebra o CI |
+| WITH CHECK do tenant (`:436`) | B não grava linha com o `tenant_id` de A nem move a própria linha para A |
+| WITH CHECK do paciente (`:449`) | P2 não grava linha de P1 nem move a própria para P1 |
+| D1 (`:470`) | Fora de `PACIENTE_ESCREVE`, P2 não cria nem a própria linha |
+| `staff_only` (`:479`) | A sessão de paciente não vê nem grava nada nessas tabelas |
+| `publico` (`:492`) | O visitante só lê e grava o que `PUBLICO_LIBERADO` declara |
+| `conta` (`:513`) | Sem tenant, a conta do paciente não vê nem grava nada (só `patients` da própria conta) |
+| Leitura, alteração e exclusão de B (`:524`) | B só vê e só altera as próprias linhas; as de A ficam intactas (contagem feita com o dono) |
+| Leitura, alteração e exclusão de P2 (`:574`) | P2 só vê e altera as próprias linhas; as de P1 ficam intactas |
 
 O teste distingue a recusa da RLS (`violaRls`: código `42501` e mensagem de *row-level security*) de outro erro
 qualquer. Uma FK quebrada não conta como isolamento. Desde o Plano 11 (revisão da T1), nos testes negativos de escrita a
 recusa tem de vir da política **da própria tabela** (`violaRlsDe`: a mensagem cita `for table "<tabela>"`); só as
-fábricas de `COM_MAE` (`:331`; desde o Plano 17, também `lembretes_rotina_envios`, que cria o lembrete-mãe no mesmo comando), que criam a mãe no mesmo comando, aceitam a recusa da mãe. Tabela nova não entra em
+fábricas de `COM_MAE` (`:378`; desde o Plano 17, também `lembretes_rotina_envios`, que cria o lembrete-mãe no mesmo comando), que criam a mãe no mesmo comando, aceitam a recusa da mãe. Tabela nova não entra em
 `COM_MAE`: a fábrica grava só a própria tabela, como a de `ia_tarefas` (`exam_id` nulo, status `falhou`).
 
 ### 7.4.3 Guardas de código (leitura do fonte)
@@ -285,8 +285,8 @@ fábricas de `COM_MAE` (`:331`; desde o Plano 17, também `lembretes_rotina_envi
 | `semConta` em lista fechada | `src/db/sem-conta-guarda.test.ts` | `semConta: true` só nos arquivos de `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:35`) |
 | Ações e APIs do painel fora da sessão certa | `src/app/painel/acoes-de-paciente.test.ts`, `src/app/api/painel/acesso-negado.test.ts` | Toda função exportada de todo arquivo `actions.ts` de `src/app/painel` e `src/app/admin` (`acoesDe`, `acoes-de-paciente.test.ts:31-35`), chamada por paciente, volta ao portal; por nutricionista, as do admin voltam ao painel; toda rota de `/api/painel` responde 403 a paciente e a admin. Ação `'use server'` fora de um `actions.ts` (em `page.tsx` ou outro arquivo) **não** é conferida |
 | Origem nas rotas de escrita com cookie (P09-01) | `src/app/api/mesma-origem-rotas.test.ts` | Toda rota de `src/app/api/{painel,p,documento}` (lista lida do disco) chamada em `POST`/`PUT`/`PATCH`/`DELETE` sem cookie e com `Origin: https://evil.example` responde 403: a origem é conferida antes da sessão (uma rota que lesse a sessão primeiro daria 401). Fora, de propósito: `/api/auth`, `/api/n`, `/api/webhooks`, `/api/csp-relatorio`, `/api/erro-cliente` |
-| Liberação das receitas do plano | `src/modules/portal/conteudos.test.ts`, caso "guarda: só 'Meu plano' e o detalhe pelo cartão…" (`:151`) | `liberarReceitasDoPlano` só em `planoDoPaciente` e `conteudoDoPaciente(…, { doPlano: true })` |
-| PDF e ZIP só no worker | `src/modules/pacientes/exportacao.test.ts:1023` | Nada do grafo do Next (`src/app`, `proxy`, `instrumentation`, `next.config`) alcança `exportacao-job`, os PDFs (inclusive `documento-pdf.tsx`, `documento-pdf-job.ts` e `digitalizada-job.tsx`, Plano 10A) ou o `@react-pdf` |
+| Liberação das receitas e conteúdos do plano | `src/modules/portal/conteudos.test.ts`, caso "guarda: só "Meu plano", o detalhe aberto pelo plano e o PDF dele ligam a liberação dos conteúdos do plano (o feed nunca)" (`:179`) | `liberarReceitasDoPlano` só em `planoDoPaciente`, `conteudoDoPaciente` e, desde o Plano 19, `caminhoDoPdfDoConteudo`, uma chamada dentro de cada função certa; nunca no feed, na busca, nos favoritos, na visualização nem no mural (`conteudosNovosNaTransacao`) |
+| PDF e ZIP só no worker | `src/modules/pacientes/exportacao.test.ts:1095` | Nada do grafo do Next (`src/app`, `proxy`, `instrumentation`, `next.config`) alcança `exportacao-job`, os PDFs (inclusive `documento-pdf.tsx`, `documento-pdf-job.ts` e `digitalizada-job.tsx`, Plano 10A) ou o `@react-pdf` |
 | Assinatura sem sessão (Plano 10A, D23) | `src/modules/documentos/registrar-assinatura.test.ts`, caso "D23…" | `registrar-assinatura.ts` (importado pelo worker) não puxa o Better Auth, `confirmar-2fa` nem `tenant-session`, nem pelos imports dos imports |
 | Verificação pública por um arquivo só (Plano 10A) | `src/modules/documentos/verificacao.test.ts` | Nenhum arquivo de `src` além de `verificacao.ts` (e do schema) cita `document_verifications` (`RLS_EXCEPTIONS`) |
 | Listas sem conteúdo (Plano 10A, D17) | `src/modules/documentos/documentos.test.ts`, `portal.test.ts` | As listas do painel e do portal só devolvem tipo, data, situação, assinatura e recibos, nunca itens, orientações ou justificativa (não chamam `auditRead`) |
@@ -299,13 +299,18 @@ fábricas de `COM_MAE` (`:331`; desde o Plano 17, também `lembretes_rotina_envi
 | Registro de seções da ficha (Plano 18, D14) | `src/modules/ficha/registro.test.ts` | Ordem da RN-278, com as seções do Plano 18 primeiro e as de outros planos no fim; ids únicos; um arquivo por seção em `src/modules/ficha/secoes/`. Nenhum desses arquivos cita `auditRead`/`recordAudit`, o contexto de paciente sem login, `liberarReceitasDoPlano`, `import()` ou `require`; os imports ficam na lista fechada `IMPORTS_PERMITIDOS`. Todo destino do Adicionar é `href` (relativo sem `/` ou absoluto em `/painel/`) ou uma `ChaveDeAcao`; `verTodos` é absoluto em `/painel/`; nenhuma das 8 seções declara `leitura` |
 | Cabeçalho da ficha por um caminho só (Plano 18, D13) | `src/modules/ficha/cabecalho-fonte.test.ts` | `carregarCabecalho` é `cache(async (patientId: string)` e usa o `ctx` de `carregarProntuario`; em `src/app`, só `prontuario.ts` cita `lerCabecalho`; o layout lê só por `carregarCabecalho`. Uma chamada a mais gravaria outra linha "Visualizou" de antropometria |
 | Links do Início sem pré-carga (Plano 18) | `src/app/painel/pacientes/[id]/inicio/secao.test.ts`, `adicionar.test.ts` | Todo `<Link>` de `secao.tsx` e do diálogo Adicionar tem `prefetch={false}`: as páginas de destino gravam `auditRead` |
+| Regras do plano puras (Plano 19, RNF-235) | `src/modules/plano-alimentar/calculo-grafo.test.ts` | `calculo.ts`, `dias.ts`, `congelados.ts`, `nutrientes.ts` e `fontes.ts` não alcançam `src/db/` nem `drizzle-orm`, `pg`, `react`, `react-dom` ou `next` (`import type` não conta) |
+| Leitor único dos congelados (Plano 19, RN-237) | `src/modules/plano-alimentar/congelados.test.ts`, bloco "guarda dos congelados…" | Quem lê `.nutrientes` de `meal_items` é um leitor conhecido e importa `lerCongelados`; `NutrientesCongelados` só no schema, na publicação e em `congelados.ts` |
+| TBCA desligada (Plano 19, RN-232) | `src/modules/alimentos/fontes.test.ts` | Nenhuma migration nem seed insere `tbca` com `TBCA_AUTORIZADA = false` (só INSERT: Minor da Tarefa 2) |
+| PDF do plano na fila nova (Plano 19, R-244) | `src/worker/filas-plano-pdf.test.ts` | O app enfileira só em `plano-pdf-2` e o worker registra `plano-pdf` e `plano-pdf-2` com o mesmo handler |
+| Projeção do plano no app (Plano 19, RN-240, CS-232) | `src/modules/portal/plano.test.ts`, caso "CS-232: projeção fechada do Plano, do mural e da lista de compras…" (`:179`) | As chaves de `planoDoPaciente`, do mural e da lista de compras são fechadas; nenhum valor de micro nem do perfil na resposta; o título de conteúdo despublicado ou excluído não sai |
 | `web-push` só no worker | `src/modules/notificacoes/push.test.ts:434` | Nada do grafo do Next alcança `push.ts`, `enviar.ts`, `web-push` nem `heic-decode` |
 | Sentry | `src/lib/sentry-guarda.test.ts` | `Sentry.init` só em `src/lib/sentry.ts`; nenhum SDK de navegador, Replay ou tracing; `@sentry/node` fora de componente de cliente |
 | Erro de job sem detalhe | `src/worker/sem-detalhe.test.ts` | Todo job registra por `workSemDetalhe`; nenhum `boss.work(` direto em `src/worker/index.ts` |
 | Axe em toda tela | `src/app/painel/rotas-axe.test.ts:8` | `ROTAS_DO_PAINEL` tem exatamente um caminho por `page.tsx` de `src/app/painel` (Plano 08, D25) |
 | Imagem Docker | `src/app/painel/rotas-axe.test.ts:19` | Todo arquivo de `e2e/` importado por `src/` volta ao contexto do build no `.dockerignore` |
 | Visual V2 | `src/app/painel/cores.test.ts`, `cabecalho.test.ts`, `navegacao.test.ts` | Sem cor fixa nas telas da nutricionista (D24), foco visível, cabeçalho desenhado só pelo layout (D20); todo `page.tsx` do painel chama `requireNutri(` ou `carregarProntuario(` (`cabecalho.test.ts:49-51`, conferência de texto) |
-| Manual guiado | `src/modules/ajuda/conteudo.test.ts:51,54` | Todo nome de botão citado no manual existe numa tela (desde o Plano 10A, também em `src/app/conta`); toda página de `src/app/painel` e `src/app/conta` tem guia ou está em `SEM_AJUDA`; o guia `prontuario` não cita a aba Documentos (D20). Plano 18: `TSX_FORA` lê também `src/modules/ficha` (os textos do Início em `MSG_FICHA`), nenhum título de guia se repete e o `inicio-paciente` vem antes do `prontuario` |
+| Manual guiado | `src/modules/ajuda/conteudo.test.ts:53,54` | Todo nome de botão citado no manual existe numa tela (desde o Plano 10A, também em `src/app/conta`); toda página de `src/app/painel` e `src/app/conta` tem guia ou está em `SEM_AJUDA`; o guia `prontuario` não cita a aba Documentos (D20). Plano 18: `TSX_FORA` lê também `src/modules/ficha` (os textos do Início em `MSG_FICHA`), nenhum título de guia se repete e o `inicio-paciente` vem antes do `prontuario` |
 | Workflows no runner próprio (12/10/2026) | `test/runner-proprio.test.ts` | Nenhum workflow com `pull_request_target`, `workflow_run` ou `issue_comment`; todo `runs-on` é `ubuntu-latest` ou `[self-hosted, nutri-ci]`; os jobs `mudancas`, `quality`, `test`, `e2e` e `image` do `ci.yml` no runner próprio; nenhum job fora do `ubuntu-latest` com `secrets`, permissão de escrita ou `EASYPANEL` (texto bruto); `decidir` e `publish` hospedados, `publish` com `packages: write`; emergência só na `main` com `PUBLICAR-SEM-CI`, e o job `confirmar` falha no contrário. Alarme contra engano, não barreira ([§7.7](#77-pipeline-do-ci-e-deploy)) |
 | Variáveis | `src/env.test.ts` | Validação de cada variável por processo (chaves de teste do Turnstile recusadas em produção fora de `localhost`, `AUTH_SECRET` ≥ 32, `DATABASE_URL_MIGRATOR` nunca exposta ao app…) |
 
@@ -334,7 +339,7 @@ que o CI cobra; "nenhuma" quer dizer que só a revisão pega o esquecimento.
 | 2 | Aba do prontuário (`/painel/pacientes/[id]/…`): use `carregarProntuario(id)` (`src/app/painel/pacientes/[id]/prontuario.ts:13`) em vez de `requireNutri` + `buscarPaciente`. Ela chama `requireNutri`, faz **uma** leitura auditada do paciente por requisição (o `cache` do React divide a leitura entre o layout e a página) e dá 404 a paciente de outro tenant ou id malformado. Desde o Plano 18, o layout também lê a última avaliação por `carregarCabecalho` (`prontuario.ts:25`, um `auditRead` de antropometria por execução): a aba nova nunca chama `lerCabecalho`. A faixa tem 13 abas e uma 14ª não cabe a 1280 px (R-266) | `page.tsx` da aba | `cabecalho.test.ts:49-51`; `src/modules/ficha/cabecalho-fonte.test.ts` |
 | 3 | Server Action só num arquivo `actions.ts`, e toda função exportada começa pela guarda (`requireNutri`; no admin, `requireUser(['admin'])`). Não declare `'use server'` dentro de `page.tsx` nem em outro arquivo | `actions.ts` | `acoes-de-paciente.test.ts` (só lê arquivos `actions.ts`) |
 | 4 | Rota em `/api/painel/*`: `requireApiNutri(req)` (`tenant-session.ts:37`); escrita: `mesmaOrigem(req)` antes da sessão (`src/lib/mesma-origem.ts:9`) | `route.ts` | `src/app/api/painel/acesso-negado.test.ts` (sessão), `src/app/api/mesma-origem-rotas.test.ts` (origem) |
-| 5 | Entrada em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts:12`) | `e2e/painel-rotas.ts` | `rotas-axe.test.ts:8` |
+| 5 | Entrada em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts:18`) | `e2e/painel-rotas.ts` | `rotas-axe.test.ts:8` |
 | 6 | Tela com `[id]`: campo novo em `IdsDoPainel` (`e2e/painel-rotas.ts:2`) e a criação do registro pela UI em `prepararTelasComId` (`e2e/painel.ts:73`) | `e2e/` | `pnpm typecheck` (o `tsconfig.json` inclui `e2e/`): campo usado em `ROTAS_DO_PAINEL` e não devolvido por `prepararTelasComId` não compila |
 | 7 | Cores só por token (sem `bg-white`, `text-gray-…`); sem cabeçalho próprio (o layout desenha) | `.tsx` | `cores.test.ts`, `cabecalho.test.ts` |
 | 8 | Se a tela é um destino: item em `ITENS_DO_MENU` (6 itens, `src/app/painel/navegacao.ts:2`) ou cartão no hub de Configurações (`DO_HUB`, `navegacao.ts:12`) | `navegacao.ts` | `navegacao.test.ts:10` fixa os 6 itens: item novo no menu exige decisão (P08 D20) |
@@ -368,7 +373,7 @@ por tela (ex.: `src/app/p/(portal)/plano/page.test.ts`), não como varredura. O 
 | `workers` (`:12`) | 2 no CI; local, o padrão do Playwright | No runner próprio, o contêiner do job enxerga 8 núcleos numa cota de 4: o padrão (metade dos núcleos vistos) daria 4 workers e estouraria prazos. 2, como no runner hospedado de 4 vCPU |
 | `trace` | `retain-on-failure` | O CI sobe `playwright-report` quando falha (`ci.yml`, último passo do job `e2e`) |
 | `webServer[0]` | `next start` na porta da `baseURL` | E2E roda o **build de produção**, não o `next dev` |
-| `webServer[1]` | `pnpm worker`, espera `worker iniciado` no stdout (`src/worker/index.ts:218`) | E-mails e lembretes são enviados pelo worker |
+| `webServer[1]` | `pnpm worker`, espera `worker iniciado` no stdout (`src/worker/index.ts:216`) | E-mails e lembretes são enviados pelo worker |
 
 **Projetos:**
 

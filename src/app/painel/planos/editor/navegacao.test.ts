@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { comoSair, ehNavegacaoInterna, haAlteracaoNaoSalva } from './navegacao';
+import { comoSair, ehNavegacaoInterna, filtroQueMostra, haAlteracaoNaoSalva } from './navegacao';
 import type { StatusSalvamento } from './use-salvamento';
 
 const AQUI = 'https://app.nutridebby.test/painel/pacientes/p1/plano-alimentar/v1';
@@ -61,5 +61,34 @@ describe('como "Sair" trata a edição do editor (US-022: nunca perder edição 
     }
     expect(comoSair('salvando', { ...tudoCerto, falhou: true, edicaoEsperando: true })).toBe('confirmar'); // editou de novo depois da falha
     expect(comoSair('salvando', { ...tudoCerto, parado: true })).toBe('confirmar');
+  });
+});
+
+describe('link de erro para um campo escondido pelo filtro de dias (Plano 19, RN-247)', () => {
+  const ALMOCO = '11111111-1111-4111-8111-111111111111';
+  const CEIA = '22222222-2222-4222-8222-222222222222';
+  const ITEM = '33333333-3333-4333-8333-333333333333';
+  const refeicoes = [
+    { id: ALMOCO, diasSemana: [1, 2, 3, 4, 5], itens: [{ id: ITEM }] },
+    { id: CEIA, diasSemana: [] as number[], itens: [] },
+  ];
+
+  it('campo de refeição (ou de item) fora do dia escolhido: o filtro volta para "Todos"', () => {
+    expect(filtroQueMostra(`${ALMOCO}-descricao`, refeicoes, 6)).toBe('todos');
+    expect(filtroQueMostra(`${CEIA}-dias`, refeicoes, 1)).toBe('todos'); // sem dia nenhum, só aparece em "Todos"
+    expect(filtroQueMostra(`${ITEM}-g`, refeicoes, 0)).toBe('todos');
+  });
+
+  it('campo que já está na tela ou que não é de refeição: o filtro fica como está', () => {
+    expect(filtroQueMostra(`${ALMOCO}-horario`, refeicoes, 1)).toBe(1);
+    expect(filtroQueMostra(`${ALMOCO}-dias`, refeicoes, 'todos')).toBe('todos');
+    expect(filtroQueMostra('macros', refeicoes, 6)).toBe(6);
+    expect(filtroQueMostra('titulo', refeicoes, 3)).toBe(3);
+    expect(filtroQueMostra('44444444-4444-4444-8444-444444444444-nome', refeicoes, 3)).toBe(3); // refeição que saiu da tela
+  });
+
+  it('refeição fixada na tela (dias mexidos com o filtro): o campo já aparece, o filtro fica', () => {
+    expect(filtroQueMostra(`${CEIA}-dias`, refeicoes, 1, new Set([CEIA]))).toBe(1);
+    expect(filtroQueMostra(`${ALMOCO}-descricao`, refeicoes, 6, new Set([CEIA]))).toBe('todos'); // outra refeição fixada não conta
   });
 });

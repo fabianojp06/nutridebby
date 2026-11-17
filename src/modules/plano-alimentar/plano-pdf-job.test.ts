@@ -5,13 +5,17 @@ import { eq } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import sharp from 'sharp';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
+import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
-import { paginasDoPdf, textoDoPdf } from '../../../test/pdf';
+import { paginasDoPdf, textoDoPdf, textosPorPagina } from '../../../test/pdf';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { patients, storedFiles, tenants } from '@/db/schema';
+import { contents, patients, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
+import { duplicarComoMeu } from '@/modules/alimentos/alimentos';
+import { FONTES, MSG_FONTES, seloDaFonte } from '@/modules/alimentos/fontes';
+import { MSG_NUTRIENTES } from '@/modules/alimentos/nutrientes';
 import { idTaco } from '@/modules/alimentos/taco';
 import { carregarPacienteParaEscrita, PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { anexosDoPaciente, anonimizarVencidos } from '@/modules/pacientes/lgpd';
@@ -23,8 +27,10 @@ import { PdfEmPreparoError, PlanoNaoEncontradoError } from './erros';
 import { renderizarPlano } from './plano-pdf';
 import { expirarPdfsPendentes, gerarPdfDoPlano } from './plano-pdf-job';
 import { editarPublicado, pedirNovoPdf, publicarPlano } from './publicacao';
+import { ligarConteudo, ligarLista } from './ligados';
+import { salvarLista } from './listas';
 import { criarRascunho, criarRascunhoTx, salvarRascunho } from './rascunho';
-import type { CorpoSalvamento, PlanoCompleto } from './tipos';
+import type { CorpoSalvamento, ItemPlano, ListaLigada, PlanoCompleto } from './tipos';
 
 // Rodada 2 da T13: a varredura da anonimização (listarTenantsParaVarredura) só passa pelos tenants deste arquivo — os
 // arquivos de teste rodam em paralelo no mesmo banco, cada um com o seu dataDir (implementação real por baixo)
@@ -101,7 +107,7 @@ describe('PDF do plano (US-026)', () => {
       'Debby Silva', 'CRN-3 12345', 'Paciente: Ana Souza', 'Data: 01/10/2026', 'Plano de Ana',
       'Café da manhã · 07:30', 'Almoço · 12:00', 'Pão, trigo, francês', '50 g',
       'Arroz, tipo 1, cozido', '4 colheres de sopa cheias (100 g)', 'ou Tapioca, com manteiga', 'Prato colorido',
-      'Beber 2 litros de água por dia.', 'TACO 4', 'NEPA/UNICAMP',
+      'Beber 2 litros de água por dia.', 'TACO 4', 'NEPA/UNICAMP', 'Todos os dias', '2 refeições por dia',
     ]) expect(texto, t).toContain(t);
     expect(texto.indexOf('Café da manhã')).toBeLessThan(texto.indexOf('Almoço')); // por horário
     expect(texto).not.toContain('kcal');
@@ -168,14 +174,17 @@ describe('PDF do plano (US-026)', () => {
 
   it('refeição maior que a página continua na página seguinte: nenhum item ou observação fica de fora', async () => {
     const itens = Array.from({ length: 60 }, (_, k) => ({
-      id: randomUUID(), foodId: idTaco(1 + k), nome: `Alimento número ${k + 1}`, origem: 'TACO' as const,
-      porCem: { kcal: 100, proteinaG: 1, carboidratoG: 1, lipidioG: 1, fibraG: 1 }, medidas: [],
+      id: randomUUID(), foodId: idTaco(1 + k), nome: `Alimento número ${k + 1}`, fonte: 'taco' as const, origem: 'TACO' as const,
+      porCem: { kcal: 100, proteinaG: 1, carboidratoG: 1, lipidioG: 1, fibraG: 1 }, micros: {}, medidas: [],
       quantidadeG: 100, medida: null, medidaCaseiraTxt: null, substituiItemId: null,
     }));
     const plano: PlanoCompleto = {
       id: randomUUID(), patientId: randomUUID(), isTemplate: false, titulo: 'Plano grande', metaKcal: null, energyCalcId: null, status: 'publicado',
-      versao: 1, revisao: 1, publicadoEm: now.toISOString(), mostrarCalorias: false, orientacoes: '', pdfStatus: 'pendente', pdfPath: null,
-      refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: 'Observação no fim do almoço', itens }],
+      versao: 1, revisao: 1, publicadoEm: now.toISOString(), mostrarCalorias: false, orientacoes: '', modo: 'calculado', macrosPrescritos: null, pdfStatus: 'pendente', pdfPath: null,
+      referenciaId: null, referenciaCongelada: null, nutrientesExibidos: [], mostrarMicrosPdf: false,
+      refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: 'Observação no fim do almoço', diasSemana: [0, 1, 2, 3, 4, 5, 6], descricaoLivre: null, itens }],
+      listas: [],
+      conteudos: [],
       origemIa: null,
       iaOrigemEm: null,
     };
@@ -230,7 +239,7 @@ describe('PDF do plano (US-026)', () => {
     // "Gerar o PDF de novo": volta a pendente e enfileira
     await pedirNovoPdf(T3.ctx, c.p.id, c.id, deps);
     expect((await carregarPlano(T3.ctx, c.id, app.db))?.pdfStatus).toBe('pendente');
-    const n = await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf' and data->>'planId' = $1`, [c.id]);
+    const n = await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf-2' and data->>'planId' = $1`, [c.id]);
     expect(n.rows[0].n).toBe(2); // o da publicação + o do pedido novo
   });
 
@@ -296,7 +305,7 @@ describe('PDF do plano (US-026)', () => {
     await owner.pool.query(`update meal_plans set pdf_status = 'falhou' where id = $1`, [id]);
     await expect(pedirNovoPdf(outro.ctx, p.id, id, deps)).rejects.toThrow(PlanoNaoEncontradoError); // RLS: outro tenant
     expect((await owner.pool.query(`select pdf_status from meal_plans where id = $1`, [id])).rows[0].pdf_status).toBe('falhou');
-    const n = await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf' and data->>'planId' = $1`, [id]);
+    const n = await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf-2' and data->>'planId' = $1`, [id]);
     expect(n.rows[0].n).toBe(1); // só o da publicação
   });
 
@@ -308,7 +317,7 @@ describe('PDF do plano (US-026)', () => {
     await expect(pedirNovoPdf(T.ctx, bia.id, id, deps)).rejects.toBeInstanceOf(PlanoNaoEncontradoError);
     await expect(pedirNovoPdf(T.ctx, 'nao-e-um-id', id, deps)).rejects.toBeInstanceOf(PlanoNaoEncontradoError);
     expect((await owner.pool.query(`select pdf_status from meal_plans where id = $1`, [id])).rows[0].pdf_status).toBe('falhou');
-    const n = await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf' and data->>'planId' = $1`, [id]);
+    const n = await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf-2' and data->>'planId' = $1`, [id]);
     expect(n.rows[0].n).toBe(1); // só o da publicação
   });
 
@@ -324,7 +333,7 @@ describe('PDF do plano (US-026)', () => {
   it('paciente bloqueado (pedido de exclusão, US-018): "Gerar o PDF de novo" é recusado e o job não grava PDF novo', async () => {
     const bloquear = (t: TenantDeTeste, patientId: string) =>
       withTenant(t.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, patientId)), app.db);
-    const jobs = async (planId: string) => (await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf' and data->>'planId' = $1`, [planId])).rows[0].n;
+    const jobs = async (planId: string) => (await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf-2' and data->>'planId' = $1`, [planId])).rows[0].n;
     const status = async (planId: string) => (await owner.pool.query(`select pdf_status, pdf_path from meal_plans where id = $1`, [planId])).rows[0];
 
     const T = await novoTenant(app.db);
@@ -396,5 +405,264 @@ describe('PDF do plano (US-026)', () => {
     expect((await linha(v2)).pdf_status).toBe('falhou');
     expect((await linha(v1)).pdf_status).toBe('pendente');
     expect(await job(T, v1)).toBe('pronto'); // nenhum pendente com data de 1999 sobra para outras varreduras
+  });
+});
+
+/** Item do plano publicado (a cópia congelada), para os testes do render sem banco: 100 g, macros 1 g por 100 g. */
+const itemPdf = (nome: string, kcal: number | null, extra: Partial<ItemPlano> = {}): ItemPlano => ({
+  id: randomUUID(), foodId: randomUUID(), nome, fonte: 'taco', origem: 'TACO',
+  porCem: { kcal, proteinaG: 1, carboidratoG: 1, lipidioG: 1, fibraG: 1 }, micros: {}, medidas: [],
+  quantidadeG: 100, medida: null, medidaCaseiraTxt: null, substituiItemId: null, ...extra,
+});
+const TODOS: PlanoCompleto['refeicoes'][number]['diasSemana'] = [0, 1, 2, 3, 4, 5, 6];
+const planoPdf = (extra: Partial<PlanoCompleto> = {}): PlanoCompleto => ({
+  id: randomUUID(), patientId: randomUUID(), isTemplate: false, titulo: 'Plano de Ana', metaKcal: null, energyCalcId: null, status: 'publicado',
+  versao: 1, revisao: 1, publicadoEm: now.toISOString(), mostrarCalorias: false, orientacoes: '', modo: 'calculado', macrosPrescritos: null,
+  pdfStatus: 'pendente', pdfPath: null, referenciaId: null, referenciaCongelada: null, nutrientesExibidos: [], mostrarMicrosPdf: false,
+  refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: TODOS, descricaoLivre: null, itens: [itemPdf('Arroz, tipo 1, cozido', 128)] }],
+  listas: [], conteudos: [], origemIa: null, iaOrigemEm: null, ...extra,
+});
+const listaPdf = (itens: ListaLigada['grupos'][number]['itens']): ListaLigada => ({
+  id: randomUUID(), listaOrigemId: null, nome: 'Trocas do dia a dia', orientacao: 'Troque um item do grupo por outro do mesmo grupo.', copiadaEm: now.toISOString(),
+  grupos: [{ nome: 'Carboidratos', itens }],
+});
+const itemDaListaPdf = (nome: string, extra: Partial<ListaLigada['grupos'][number]['itens'][number]> = {}): ListaLigada['grupos'][number]['itens'][number] => ({
+  nome, quantidadeG: 50, medidaCaseiraTxt: null, fonte: 'taco', fonteVersao: FONTES.taco.versao, fonteOrigem: null,
+  porCem: { kcal: 300, proteinaG: 1, carboidratoG: 1, lipidioG: 1, fibraG: 1 }, ...extra,
+});
+/** O texto do PDF com os glifos de 0x80 a 0x9f do WinAnsi ("—", "•") lidos como tais (`textoDoPdf` lê latin1). */
+const textoWinAnsi = (pdf: Buffer) => new TextDecoder('windows-1252').decode(Buffer.from(textoDoPdf(pdf), 'latin1'));
+const textoDe = async (plano: PlanoCompleto) =>
+  textoWinAnsi(await renderizarPlano({ plano, nutricionista: { nome: 'Debby Silva', crn: null }, paciente: 'Ana Souza', data: '01/10/2026', cor: '#047857', logo: null }));
+const PERFIL = { id: randomUUID(), nome: 'Mulher 19 a 50 anos', fonte: 'DRI/IOM 2006 — conferida pela nutricionista', valores: { ferro_mg: { meta: 18, maximo: 45 } } };
+
+describe('PDF do plano no Plano 19 (P19-10b): dias, texto livre, nutrientes, ligados e fontes', () => {
+  it('rodapé (RN-233) e número da página dentro da página A4 em todas as páginas (y entre 0 e 841,89; número na linha da última citação)', async () => {
+    const A4 = 841.89;
+    const itens = Array.from({ length: 70 }, (_, k) => itemPdf(`Alimento número ${k + 1}`, 100, { fonte: k % 2 ? 'usda' : 'taco', origem: seloDaFonte(k % 2 ? 'usda' : 'taco') }));
+    const pdf = await renderizarPlano({
+      plano: planoPdf({ refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: TODOS, descricaoLivre: null, itens }] }),
+      nutricionista: { nome: 'Debby Silva', crn: null }, paciente: 'Ana Souza', data: '01/10/2026', cor: '#047857', logo: null,
+    });
+    const paginas = textosPorPagina(pdf);
+    expect(paginas.length).toBe(paginasDoPdf(pdf));
+    expect(paginas.length).toBeGreaterThanOrEqual(2);
+    for (const [i, textos] of paginas.entries()) {
+      const fontes = textos.find((t) => t.texto.startsWith('Fontes:'));
+      const numero = textos.find((t) => t.texto === `${i + 1}/${paginas.length}`);
+      expect(fontes, `"Fontes:" na página ${i + 1}`).toBeDefined();
+      expect(numero, `número da página ${i + 1}`).toBeDefined();
+      for (const t of [fontes!, numero!]) {
+        expect(t.y, `${t.texto} na página ${i + 1}`).toBeGreaterThan(0);
+        expect(t.y, `${t.texto} na página ${i + 1}`).toBeLessThan(A4);
+      }
+      // o rodapé é o último bloco de baixo: "Fontes:" acima do número, e o número na linha da última citação (≤ 1 pt)
+      expect(fontes!.y).toBeGreaterThan(numero!.y);
+      const ultimaDoRodape = Math.min(...textos.filter((t) => t !== numero && t.x < numero!.x && t.y < fontes!.y + 1).map((t) => t.y));
+      expect(Math.abs(numero!.y - ultimaDoRodape), `número da página ${i + 1} na linha da última citação`).toBeLessThan(1);
+    }
+  });
+
+  it('RN-247 (g): um bloco por perfil de dia, com o título por extenso, "{n} refeições por dia" e o total do dia — nunca a soma dos perfis', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { id } = await criarRascunho(T.ctx, p.id, deps);
+    const it = (foodId: string, g: string) => ({ id: randomUUID(), foodId, quantidadeG: g, medida: null, substituiItemId: null });
+    await salvarRascunho(T.ctx, id, {
+      revisao: 0, envio: randomUUID(), titulo: 'Por dia', metaKcal: '', mostrarCalorias: true, orientacoes: '',
+      refeicoes: [
+        { id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: [1, 2, 3, 4, 5], itens: [it(idTaco(3), '100')] }, // arroz 128 kcal
+        { id: randomUUID(), nome: 'Almoço de fim de semana', horario: '12:30', observacao: '', diasSemana: [6, 0], itens: [it(idTaco(3), '200')] }, // 256 kcal
+        { id: randomUUID(), nome: 'Café da manhã', horario: '07:30', observacao: '', diasSemana: [0, 1, 2, 3, 4, 5, 6], itens: [it(idTaco(53), '50')] }, // pão 150 kcal
+      ],
+    }, deps);
+    await publicarPlano(T.ctx, p.id, id, deps);
+    let pdf: Buffer | null = null;
+    expect(await job(T, id, { renderizar: async (d) => (pdf = await renderizarPlano(d)) })).toBe('pronto');
+    const texto = textoWinAnsi(pdf!);
+    const em = (t: string) => {
+      expect(texto, t).toContain(t);
+      return texto.indexOf(t);
+    };
+    // seg a sex: café + almoço (150 + 128); sáb e dom: café + almoço de fim de semana (150 + 256)
+    const ordem = [em('Segunda a sexta'), em('Total do dia: 278 kcal'), em('Café da manhã · 07:30'), em('Almoço · 12:00'), em('Sábado e domingo'), em('Total do dia: 406 kcal'), em('Almoço de fim de semana · 12:30')];
+    expect(ordem).toEqual([...ordem].sort((a, b) => a - b));
+    expect(texto.match(/2 refeições por dia/g)).toHaveLength(2);
+    expect(texto.match(/Café da manhã · 07:30/g)).toHaveLength(2); // a refeição dos 7 dias aparece nos dois perfis
+    expect(texto).not.toContain('534 kcal'); // a soma de todas as refeições não é o total de dia nenhum
+    expect(texto.indexOf('Sábado e domingo')).toBeLessThan(texto.lastIndexOf('Café da manhã · 07:30'));
+  });
+
+  it('RN-249 (PM-PA9): 50 refeições e 400 itens com observação, em dois perfis, viram um PDF de muitas páginas sem erro (o número da página não quebra o @react-pdf)', async () => {
+    const refeicoes = Array.from({ length: 50 }, (_, r) => ({
+      id: randomUUID(), nome: `Refeição ${r + 1}`, horario: `${String(5 + (r % 18)).padStart(2, '0')}:${String(r).padStart(2, '0')}`, observacao: 'Observação da refeição',
+      diasSemana: r % 2 ? [1, 2, 3, 4, 5] : [6, 0], descricaoLivre: null,
+      itens: Array.from({ length: 8 }, (_, i) => itemPdf(`Alimento ${r * 8 + i + 1}`, 100, { medidaCaseiraTxt: '2 colheres de sopa cheias' })),
+    })) as PlanoCompleto['refeicoes'];
+    const avisos = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const pdf = await renderizarPlano({ plano: planoPdf({ refeicoes, mostrarCalorias: true }), nutricionista: { nome: 'Debby Silva', crn: null }, paciente: 'Ana Souza', data: '01/10/2026', cor: '#047857', logo: null });
+      expect(paginasDoPdf(pdf)).toBeGreaterThanOrEqual(10); // com o número da página por `bottom`, "unsupported number" a partir de ~10 páginas
+      const texto = textoWinAnsi(pdf);
+      expect(texto).toContain('Alimento 400');
+      expect(texto).toContain('25 refeições por dia');
+      expect(avisos).not.toHaveBeenCalled();
+    } finally {
+      avisos.mockRestore();
+    }
+  });
+
+  it('um perfil só: "Todos os dias" e "1 refeição por dia"', async () => {
+    const texto = await textoDe(planoPdf());
+    expect(texto).toContain('Todos os dias');
+    expect(texto).toContain('1 refeição por dia');
+  });
+
+  it('RN-233: rodapé "Fontes:" com as fontes usadas, uma por linha — item da USDA, "Meu alimento" duplicado da USDA (fonteOrigem) e item de lista — e o aviso da tradução', async () => {
+    const usda = 'U.S. Department of Agriculture, Agricultural Research Service. FoodData Central';
+    const pelaOrigem = await textoDe(planoPdf({
+      refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: TODOS, descricaoLivre: null, itens: [
+        itemPdf('Arroz, tipo 1, cozido', 128),
+        itemPdf('Couve da casa', 36, { fonte: 'propria', origem: 'Meu alimento', fonteOrigem: 'usda' }),
+      ] }],
+    }));
+    for (const t of ['Fontes:', FONTES.taco.citacao, usda, MSG_FONTES.traduzidoNoPdf]) expect(pelaOrigem, t).toContain(t);
+    expect(pelaOrigem.indexOf('Fontes:')).toBeLessThan(pelaOrigem.indexOf(FONTES.taco.citacao));
+    expect(pelaOrigem.indexOf(FONTES.taco.citacao)).toBeLessThan(pelaOrigem.indexOf(usda)); // ordem do catálogo
+
+    const doItem = await textoDe(planoPdf({ refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: TODOS, descricaoLivre: null, itens: [itemPdf('Couve-de-bruxelas, cozida', 36, { fonte: 'usda', origem: 'USDA (EUA)' })] }] }));
+    expect(doItem).toContain(usda);
+    expect(doItem).toContain(MSG_FONTES.traduzidoNoPdf);
+    expect(doItem).not.toContain(FONTES.taco.citacao); // só as fontes usadas
+
+    const daLista = await textoDe(planoPdf({ listas: [listaPdf([itemDaListaPdf('Quinoa, cozida', { fonte: 'usda', fonteVersao: FONTES.usda.versao })])] }));
+    for (const t of [FONTES.taco.citacao, usda, MSG_FONTES.traduzidoNoPdf]) expect(daLista, t).toContain(t);
+
+    const soTaco = await textoDe(planoPdf());
+    expect(soTaco).toContain('Fontes:');
+    expect(soTaco).toContain(FONTES.taco.citacao);
+    expect(soTaco).not.toContain('USDA');
+    expect(soTaco).not.toContain(MSG_FONTES.traduzidoNoPdf);
+
+    const soProprio = await textoDe(planoPdf({ refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: TODOS, descricaoLivre: null, itens: [itemPdf('Pão da casa', 250, { fonte: 'propria', origem: 'Meu alimento' })] }] }));
+    expect(soProprio).not.toContain('Fontes:'); // "Meu alimento" sem tabela de origem não cita fonte
+  });
+
+  it('RN-233: o "Meu alimento" duplicado da TACO leva a fonte de origem no congelado e o rodapé cita a TACO', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { id: meu } = await duplicarComoMeu(T.ctx, idTaco(3), deps);
+    const { id } = await criarRascunho(T.ctx, p.id, deps);
+    await salvarRascunho(T.ctx, id, {
+      revisao: 0, envio: randomUUID(), titulo: 'Meu arroz', metaKcal: '', mostrarCalorias: false, orientacoes: '',
+      refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', itens: [{ id: randomUUID(), foodId: meu, quantidadeG: '100', medida: null, substituiItemId: null }] }],
+    }, deps);
+    await publicarPlano(T.ctx, p.id, id, deps);
+    expect((await carregarPlano(T.ctx, id, app.db))!.refeicoes[0].itens[0]).toMatchObject({ fonte: 'propria', fonteOrigem: 'taco' });
+    let pdf: Buffer | null = null;
+    expect(await job(T, id, { renderizar: async (d) => (pdf = await renderizarPlano(d)) })).toBe('pronto');
+    const texto = textoWinAnsi(pdf!);
+    expect(texto).toContain('Fontes:');
+    expect(texto).toContain(FONTES.taco.citacao);
+  });
+
+  it('RN-239 (D12): nutrientes escolhidos e referência só com "Mostrar no PDF os nutrientes escolhidos" e "Mostrar calorias ao paciente"; formato antigo → "Micronutrientes não registrados nesta versão do plano."', async () => {
+    const comFerro = (ferro: number | null) => [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: TODOS, descricaoLivre: null, itens: [itemPdf('Feijão, carioca, cozido', 76, { micros: ferro === null ? null : { ferro_mg: ferro } })] }];
+    const base = { nutrientesExibidos: ['ferro_mg' as const], referenciaCongelada: PERFIL, refeicoes: comFerro(12.4) };
+
+    const marcado = await textoDe(planoPdf({ ...base, mostrarCalorias: true, mostrarMicrosPdf: true }));
+    expect(marcado).toContain('Nutrientes: Ferro 12,4 mg (meta 18 mg)');
+    expect(marcado).toContain('Referência: Mulher 19 a 50 anos — DRI/IOM 2006 — conferida pela nutricionista');
+    expect(marcado).not.toContain(MSG_NUTRIENTES.naoRegistrados);
+    expect(marcado.indexOf('Referência:')).toBeLessThan(marcado.indexOf('Todos os dias')); // no topo, antes dos dias
+
+    const acima = await textoDe(planoPdf({ ...base, refeicoes: comFerro(50), mostrarCalorias: true, mostrarMicrosPdf: true }));
+    expect(acima).toContain('Ferro 50,0 mg (meta 18 mg; Acima do máximo (45 mg))');
+    // a borda: 45,04 mg aparece "45,0 mg" e não passa do máximo de 45 mg (passouDoMaximo, o mesmo critério do editor)
+    const naBorda = await textoDe(planoPdf({ ...base, refeicoes: comFerro(45.04), mostrarCalorias: true, mostrarMicrosPdf: true }));
+    expect(naBorda).toContain('Ferro 45,0 mg (meta 18 mg)');
+    expect(naBorda).not.toContain('Acima do máximo');
+
+    const semPerfil = await textoDe(planoPdf({ ...base, referenciaCongelada: null, mostrarCalorias: true, mostrarMicrosPdf: true }));
+    expect(semPerfil).toContain('Nutrientes: Ferro 12,4 mg');
+    expect(semPerfil).not.toContain('meta 18');
+    expect(semPerfil).not.toContain('Referência:');
+
+    for (const [rotulo, extra] of [
+      ['só a caixa do PDF', { mostrarCalorias: false, mostrarMicrosPdf: true }],
+      ['só as calorias', { mostrarCalorias: true, mostrarMicrosPdf: false }],
+      ['texto livre', { modo: 'livre' as const, mostrarCalorias: true, mostrarMicrosPdf: true, refeicoes: comFerro(12.4).map((r) => ({ ...r, itens: [], descricaoLivre: 'Feijão com arroz' })) }],
+    ] as const) {
+      const texto = await textoDe(planoPdf({ ...base, ...extra }));
+      expect(texto, rotulo).not.toContain('Nutrientes:');
+      expect(texto, rotulo).not.toContain('Referência:');
+      expect(texto, rotulo).not.toContain('Ferro');
+      expect(texto, rotulo).not.toContain(MSG_NUTRIENTES.naoRegistrados);
+    }
+
+    // publicado antes do Plano 19: a cópia não tem micros
+    const antigo = await textoDe(planoPdf({ ...base, referenciaCongelada: null, refeicoes: comFerro(null), mostrarCalorias: true, mostrarMicrosPdf: true }));
+    expect(antigo).toContain(MSG_NUTRIENTES.naoRegistrados);
+    expect(antigo).not.toContain('Nutrientes:');
+    expect(await textoDe(planoPdf({ ...base, referenciaCongelada: null, refeicoes: comFerro(null), mostrarCalorias: true }))).not.toContain(MSG_NUTRIENTES.naoRegistrados);
+  });
+
+  it('RN-243/RN-244: texto livre — o texto de cada refeição, a meta e a distribuição; nenhuma energia calculada (refeição, dia, lista), mesmo com "Mostrar calorias"', async () => {
+    const texto = await textoDe(planoPdf({
+      modo: 'livre', mostrarCalorias: true, metaKcal: 2000, macrosPrescritos: { proteina: 20, carboidrato: 50, lipidio: 30 },
+      refeicoes: [
+        { id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: 'Mastigue devagar', diasSemana: [1, 2, 3, 4, 5], descricaoLivre: 'Arroz, feijão e salada à vontade', itens: [] },
+        { id: randomUUID(), nome: 'Jantar', horario: '19:00', observacao: '', diasSemana: TODOS, descricaoLivre: 'Sopa de legumes', itens: [] },
+      ],
+      listas: [listaPdf([itemDaListaPdf('Pão, trigo, francês')])],
+    }));
+    for (const t of ['Arroz, feijão e salada à vontade', 'Sopa de legumes', 'Mastigue devagar', 'Meta: 2000 kcal', 'Distribuição prescrita: Proteína 20% · Carboidrato 50% · Lipídio 30%', 'Segunda a sexta', '2 refeições por dia', 'Sábado e domingo', '1 refeição por dia', 'Pão, trigo, francês — 50 g'])
+      expect(texto, t).toContain(t);
+    expect(texto.replace('Meta: 2000 kcal', '')).not.toContain('kcal'); // a meta é a prescrição; nada calculado (RN-243)
+    expect(texto).not.toContain('Total do dia');
+    expect(texto).not.toContain('Proteína: '); // os totais de macros também não
+  });
+
+  it('RN-252/RN-253: "Lista de substituição" e os conteúdos ligados no fim — só os publicados; energia da lista só com "Mostrar calorias"', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { id } = await criarRascunho(T.ctx, p.id, deps);
+    await salvarRascunho(T.ctx, id, conteudo(true), deps);
+    const dono = { planId: id, patientId: p.id };
+    const { id: listaId } = await salvarLista(T.ctx, null, {
+      nome: 'Trocas do dia a dia', orientacao: 'Troque um item do grupo por outro do mesmo grupo.',
+      grupos: [{ id: randomUUID(), nome: 'Carboidratos — 1 porção', itens: [{ id: randomUUID(), foodId: idTaco(551), quantidadeG: '40', medida: null }] }],
+    }, deps);
+    await ligarLista(T.ctx, dono, listaId, deps);
+    const fica = await novoConteudo(app.db, T, { titulo: 'Como ler rótulos' });
+    const sai = await novoConteudo(app.db, T, { titulo: 'Guia de lanches' });
+    await ligarConteudo(T.ctx, dono, fica.id, deps);
+    await ligarConteudo(T.ctx, dono, sai.id, deps);
+    await publicarPlano(T.ctx, p.id, id, deps);
+    // despublicado depois da publicação do plano: o worker enxerga a ligação, o PDF não o lista (como a exportação)
+    await withTenant(T.ctx, (tx) => tx.update(contents).set({ status: 'rascunho', publicadoEm: null }).where(eq(contents.id, sai.id)), app.db);
+    let pdf: Buffer | null = null;
+    expect(await job(T, id, { renderizar: async (d) => (pdf = await renderizarPlano(d)) })).toBe('pronto');
+    const texto = textoWinAnsi(pdf!);
+    const em = (t: string) => {
+      expect(texto, t).toContain(t);
+      return texto.indexOf(t);
+    };
+    expect(texto.match(/— 40 g · 139 kcal/g)).toHaveLength(2); // a tapioca da substituição no café e a da lista
+    const ordem = [em('Beber 2 litros de água por dia.'), em('Lista de substituição'), em('Trocas do dia a dia'), em('Troque um item do grupo por outro do mesmo grupo.'), em('Carboidratos — 1 porção'), texto.lastIndexOf('— 40 g · 139 kcal'), em('Receitas e materiais do seu plano'), em('Orientação: Como ler rótulos')];
+    expect(ordem).toEqual([...ordem].sort((a, b) => a - b));
+    expect(texto).not.toContain('Guia de lanches');
+
+    // sem "Mostrar calorias": a lista sem energia; conteúdo excluído ou não publicado: nada da seção
+    const semCalorias = await textoDe(planoPdf({
+      listas: [listaPdf([itemDaListaPdf('Pão, trigo, francês')])],
+      conteudos: [
+        { id: randomUUID(), contentId: null, titulo: 'Receita apagada', tipo: null, situacao: 'excluido' },
+        { id: randomUUID(), contentId: randomUUID(), titulo: 'Ainda em rascunho', tipo: 'receita', situacao: 'nao_publicado' },
+      ],
+    }));
+    expect(semCalorias).toContain('Pão, trigo, francês — 50 g');
+    expect(semCalorias).not.toContain('kcal');
+    for (const t of ['Receitas e materiais do seu plano', 'Receita apagada', 'Ainda em rascunho']) expect(semCalorias, t).not.toContain(t);
   });
 });

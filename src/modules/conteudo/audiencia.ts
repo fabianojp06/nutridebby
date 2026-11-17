@@ -37,9 +37,11 @@ export function naAudienciaDaLinha(contentId: AnyColumn | SQL, visibilidade: Any
 }
 
 /**
- * RN-12, exceção (US-054): libera, SÓ nesta transação (set_config local), a leitura das receitas sugeridas no plano
- * publicado do próprio paciente (política paciente_conteudo_visivel, 0083). Só "Meu plano" (`planoDoPaciente`,
- * src/modules/portal/plano.ts) e a receita aberta pelo cartão (`conteudoDoPaciente(…, { doPlano: true })`) chamam —
+ * RN-12, exceção (US-054; ampliada pela RN-253 do Plano 19): libera, SÓ nesta transação (set_config local), a leitura
+ * dos conteúdos do plano publicado do próprio paciente — a receita sugerida na refeição e o conteúdo publicado ligado
+ * ao plano por `plano_conteudos` (política paciente_conteudo_visivel, 0083 e 0133). O nome ficou o de antes. Só "Meu
+ * plano" (`planoDoPaciente`, src/modules/portal/plano.ts), o conteúdo aberto pelo plano
+ * (`conteudoDoPaciente(…, { doPlano: true })`) e o PDF dele (`caminhoDoPdfDoConteudo(…, { doPlano: true })`) chamam —
  * nunca o feed, a busca, os favoritos ou o registro de visualização (guarda em src/modules/portal/conteudos.test.ts).
  */
 export const liberarReceitasDoPlano = (tx: Tx) => tx.execute(sql`select set_config('app.receitas_do_plano', 'on', true)`);

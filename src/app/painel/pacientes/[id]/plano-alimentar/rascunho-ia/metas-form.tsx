@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { Botao, classeDoBotao } from '@/components/ui/botao';
 import { MSG_RASCUNHO_IA } from '@/modules/ia/constantes';
-import { MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
+import { MAX_REFEICOES_RASCUNHO_IA, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { MetasState } from './actions';
 
 /** = MAX_RESTRICOES de `rascunho-dados.ts` (o servidor confere; aquele arquivo lê o banco e não entra no cliente). */
@@ -114,16 +114,19 @@ export function MetasForm({ acao, inicial }: { acao: Acao; inicial: { metaKcal: 
         <button
           ref={acrescentar}
           type="button"
-          disabled={refeicoes.length >= MAX_REFEICOES}
+          disabled={refeicoes.length >= MAX_REFEICOES_RASCUNHO_IA}
+          aria-describedby={refeicoes.length >= MAX_REFEICOES_RASCUNHO_IA ? 'limite-rascunho-ia' : undefined}
           className={classeDoBotao('secundario')}
           onClick={() => {
             const chave = `${prefixo}-${proxima.current++}`;
             focar.current = chave;
-            setRefeicoes((rs) => (rs.length >= MAX_REFEICOES ? rs : [...rs, { chave, nome: '', horario: '' }]));
+            setRefeicoes((rs) => (rs.length >= MAX_REFEICOES_RASCUNHO_IA ? rs : [...rs, { chave, nome: '', horario: '' }]));
           }}
         >
           Acrescentar refeição
         </button>
+        {/* RN-249 (Plano 19): o rascunho da IA fica em 15 refeições, mesmo com o editor indo a 50 */}
+        {refeicoes.length >= MAX_REFEICOES_RASCUNHO_IA && <p id="limite-rascunho-ia" className="text-sm text-suave">{MSG_PLANO.limiteRascunhoIa}</p>}
         {erro('refeicoes') && <p id="refeicoes-erro" role="alert" className="text-sm text-erro">{erro('refeicoes')}</p>}
       </fieldset>
       <div className="space-y-1">

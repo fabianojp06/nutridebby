@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
+import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { geracaoNoBanco } from '../../../test/ia';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
-import { auditLog, mealItems, mealPlans, meals, patients } from '@/db/schema';
+import { auditLog, mealItems, mealPlans, meals, patients, planoConteudos, planoListasSubstituicao, referenciasNutrientes } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { idTaco } from '@/modules/alimentos/taco';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
@@ -271,5 +272,49 @@ describe('modelos sugeridos pela IA (US-123, RN-125, RN-126)', () => {
     ]);
     expect(MSG_MODELO_IA.aprovadoEm('10/10/2026')).toBe(MSG_MODELOS_IA.aprovadoEm('10/10/2026'));
     expect(MSG_MODELO_IA.descartados(3)).toBe(MSG_MODELOS_IA.descartados(3));
+  });
+});
+
+describe('Plano 19 — cópias do plano (RN-256)', () => {
+  it('salvarComoModelo e criarDeModelo copiam modo, dias, texto, distribuição, nutrientes, perfil, listas e conteúdos ligados (cópia, sem reler a biblioteca)', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const bia = await novoPaciente(app.db, T.ctx);
+    const { id } = await criarRascunho(T.ctx, ana.id, deps);
+    const almoco = { id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: 'Sem fritura', descricaoLivre: 'Arroz, feijão e salada.', diasSemana: [1, 2, 3, 4, 5], itens: [] };
+    await salvarRascunho(T.ctx, id, { ...conteudo(0), modo: 'livre', macrosPrescritos: { proteina: 20, carboidrato: 50, lipidio: 30 }, refeicoes: [almoco] }, deps);
+    const material = await novoConteudo(app.db, T, { titulo: 'Como montar o prato' });
+    // o formato da cópia (RN-252, `lerCopiaDaLista` em ligados.ts)
+    const conteudoDaLista = {
+      grupos: [{ nome: 'Carboidratos', itens: [{ nome: 'Arroz, tipo 1, cozido', quantidadeG: 100, medidaCaseiraTxt: null, fonte: 'taco', fonteVersao: '4ª ed., 2011', fonteOrigem: null, porCem: { kcal: 128, proteinaG: 2.5, carboidratoG: 28.1, lipidioG: 0.2, fibraG: 1.6 } }] }],
+    };
+    const perfil = await withTenant(
+      T.ctx,
+      async (tx) => {
+        const [r] = await tx.insert(referenciasNutrientes).values({ tenantId: T.tenantId, nome: 'Adulto', fonte: 'DRI 2019', valores: { ferro_mg: { meta: 8 } } }).returning();
+        await tx.update(mealPlans).set({ referenciaId: r.id, nutrientesExibidos: ['ferro_mg'], mostrarMicrosPdf: true }).where(eq(mealPlans.id, id));
+        await tx.insert(planoListasSubstituicao).values({ tenantId: T.tenantId, patientId: ana.id, planId: id, listaOrigemId: randomUUID(), nome: 'Trocas', conteudo: conteudoDaLista, ordem: 0 });
+        await tx.insert(planoConteudos).values({ tenantId: T.tenantId, patientId: ana.id, planId: id, contentId: material.id, titulo: 'Como montar o prato', ordem: 0 });
+        return r;
+      },
+      app.db,
+    );
+    const cabecalho = async (planId: string) =>
+      (await withTenant(T.ctx, (tx) => tx.select({ modo: mealPlans.modo, macros: mealPlans.macrosPrescritos, ref: mealPlans.referenciaId, exibidos: mealPlans.nutrientesExibidos, pdf: mealPlans.mostrarMicrosPdf }).from(mealPlans).where(eq(mealPlans.id, planId)), app.db))[0];
+    const ligados = async (planId: string) => ({
+      listas: await withTenant(T.ctx, (tx) => tx.select({ nome: planoListasSubstituicao.nome, conteudo: planoListasSubstituicao.conteudo, patientId: planoListasSubstituicao.patientId }).from(planoListasSubstituicao).where(eq(planoListasSubstituicao.planId, planId)), app.db),
+      conteudos: await withTenant(T.ctx, (tx) => tx.select({ contentId: planoConteudos.contentId, titulo: planoConteudos.titulo, patientId: planoConteudos.patientId }).from(planoConteudos).where(eq(planoConteudos.planId, planId)), app.db),
+    });
+    const esperado = { modo: 'livre', macros: { proteina: 20, carboidrato: 50, lipidio: 30 }, ref: perfil.id, exibidos: ['ferro_mg'], pdf: true };
+
+    const { id: modelo } = await salvarComoModelo(T.ctx, id, 'Semana em texto', deps);
+    expect(await cabecalho(modelo)).toEqual(esperado);
+    expect(await carregarPlano(T.ctx, modelo, app.db)).toMatchObject({ refeicoes: [{ observacao: 'Sem fritura', descricaoLivre: 'Arroz, feijão e salada.', diasSemana: [1, 2, 3, 4, 5] }] });
+    expect(await ligados(modelo)).toEqual({ listas: [{ nome: 'Trocas', conteudo: conteudoDaLista, patientId: null }], conteudos: [{ contentId: material.id, titulo: 'Como montar o prato', patientId: null }] });
+
+    const { id: deBia } = await criarDeModelo(T.ctx, modelo, bia.id, deps);
+    expect(await cabecalho(deBia)).toEqual(esperado);
+    expect(await carregarPlano(T.ctx, deBia, app.db)).toMatchObject({ patientId: bia.id, refeicoes: [{ descricaoLivre: 'Arroz, feijão e salada.', diasSemana: [1, 2, 3, 4, 5] }] });
+    expect(await ligados(deBia)).toEqual({ listas: [{ nome: 'Trocas', conteudo: conteudoDaLista, patientId: bia.id }], conteudos: [{ contentId: material.id, titulo: 'Como montar o prato', patientId: bia.id }] });
   });
 });

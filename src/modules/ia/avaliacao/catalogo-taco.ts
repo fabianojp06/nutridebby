@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { lerAba } from '../../../../scripts/seeds/planilhas';
 import { BUSCA_LIMITE, palavrasDaBusca, type AlimentoEncontrado } from '@/modules/alimentos/busca';
+import { seloDaFonte } from '@/modules/alimentos/fontes';
 import { converterTaco, idTaco, TACO_FONTE } from '@/modules/alimentos/taco';
 import type { BuscaAlimentos } from '../ferramentas-alimentos';
 
@@ -20,8 +21,11 @@ function carregar() {
       id: idTaco(r.tacoId),
       nome: r.nome,
       grupo: r.grupo,
-      origem: 'TACO' as const,
+      nomeOriginal: null,
+      fonte: 'taco' as const, // só a TACO, como a busca de produção da IA (RN-234)
+      origem: seloDaFonte('taco'),
       porCem: { kcal: r.kcal, proteinaG: r.proteinaG, carboidratoG: r.carboidratoG, lipidioG: r.lipidioG, fibraG: r.fibraG },
+      micros: r.micros,
       medidas: [],
     },
     chave: semAcento(r.nome),

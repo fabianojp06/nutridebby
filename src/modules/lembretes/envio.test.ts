@@ -268,6 +268,35 @@ describe('refeições do plano (Review Focus 2) e textos da tela de bloqueio', (
     expect(push.enviados.filter((e) => e.endpoint === registrou.inscricao.endpoint).map((e) => e.payload.corpo)).toEqual(['Hora da sua refeição']);
   });
 
+  it('Plano 19 (RN-247 f, CS-233): numa terça, sai o Almoço de seg–sex (12:00); o de sáb–dom (13:00) não sai', async () => {
+    const { T, p } = await cenario();
+    await lembrete(T, p.id, refeicoes(0));
+    await comPlano(T, p.id, [
+      { nome: 'Almoço', horario: '12:00', dias: [1, 2, 3, 4, 5] },
+      { nome: 'Almoço', horario: '13:00', dias: [0, 6] },
+      { nome: 'Lanche da tarde', horario: '16:00', dias: [6] },
+    ]);
+    const push = pushFalso();
+    for (const h of ['12:00', '13:00', '16:00']) await rodar(T, as(h, 10), push);
+    expect(push.enviados.map((e) => e.payload.corpo)).toEqual(['Hora de: Almoço']);
+    expect((await marcas(T))[0].ultimoSlotEm).toEqual(as('12:00'));
+  });
+
+  it('Plano 19: o "já registrou?" do diário olha só as refeições de hoje (o registro da Colação de sábado não cala a de terça)', async () => {
+    const { T, p, userId } = await cenario();
+    await lembrete(T, p.id, refeicoes(0, 30));
+    await comPlano(T, p.id, [
+      { nome: 'Colação', horario: '10:00', dias: [1, 2, 3, 4, 5] },
+      { nome: 'Colação', horario: '09:30', dias: [0, 6] },
+    ]);
+    // a resposta "como no plano" gravou o rótulo da Colação de sábado (09:30): hoje (terça) não vale
+    await noDiario(T, p.id, userId, { refeicao: 'Outro', refeicaoDoPlano: 'Colação · 09:30', dataHora: as('09:40') });
+    const push = pushFalso();
+    await rodar(T, as('10:00', 10), push);
+    await rodar(T, as('10:30', 10), push);
+    expect(push.enviados.map((e) => e.payload.corpo)).toEqual(['Hora da sua refeição', 'Registre sua refeição no diário']);
+  });
+
   it('Review Focus 1: o dia do diário é o do tenant — em America/Manaus, o Almoço das 23:30 do dia 16 (03:30Z do 17) não conta para o 17', async () => {
     const M = 'America/Manaus';
     const { T, p, userId } = await cenario({ fuso: M });

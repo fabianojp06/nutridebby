@@ -1,21 +1,20 @@
 import Link from 'next/link';
 import { getEnv } from '@/env';
 import { requirePaciente } from '@/lib/paciente-session';
-import { partesNoFuso } from '@/modules/agenda/fuso';
-import { daquiA } from '@/modules/portal/datas-portal';
-import { rotuloDaRefeicao } from '@/modules/portal/diario-constantes';
 import { configIA } from '@/modules/ia/modo';
 import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
 import { entradaDoPaciente } from '@/modules/ia/nutri-paciente/estado';
 import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
-import { MSG_PLANO_PACIENTE, planoDoPaciente, versaoDaCopiaOffline } from '@/modules/portal/plano';
+import { ROTULO_TIPO_CONTEUDO } from '@/modules/conteudo/constantes';
+import { MSG_PLANO_PACIENTE, planoDoPaciente, versaoDaCopiaOffline, type PlanoDoPaciente } from '@/modules/portal/plano';
+import { agoraNoFuso, MSG_PLANO_DIAS } from '@/modules/portal/plano-regras';
 import { Faixa } from '@/components/portal/faixa';
 import { MSG_G } from '@/components/portal/textos';
 import { GuardarPlano } from '../../plano-guardado';
 import { molduraDaSecao } from '../../moldura';
 import { AbrirRefeicaoDaUrl } from './abrir-refeicao-da-url';
 import { AvisoIaNutri } from './aviso-ia-nutri';
-import { RefeicaoDetalhe } from './refeicao-detalhe';
+import { DiaDeHoje } from './dia-de-hoje';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,27 +29,24 @@ const PILULA = 'inline-flex min-h-11 items-center rounded-full border border-bor
  * conversa, decidir, texto_mudou ou indisponível. /p/plano é a cópia offline (D6 do Plano 06): o link pode ficar na cópia
  * depois de um bloqueio até ela se renovar — o toque mostra "A IA Nutri não está disponível no momento." (US-170, "link
  * antigo"). `?ia-nutri=indisponivel` (só esse valor) = o aceite recusado pelo bloqueio, o consultório desligado ou a pausa.
+ * Plano 19 (RN-247 c, RN-252, RN-253): os dias ("Hoje ({dia})" e "Ver outros dias", decididos no aparelho por `DiaDeHoje`)
+ * e "Ligado ao seu plano" — a lista de substituição inline (legível na cópia offline) e as receitas e materiais, que abrem
+ * pelo plano (`?de=plano`) e precisam de internet (só /p/plano é guardada).
  */
 export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) {
   const acesso = await requirePaciente('/p/plano');
   const { ctx, tenant, vinculo } = acesso;
   const moldura = await molduraDaSecao(acesso);
-  const [plano, entrada] = await Promise.all([planoDoPaciente(ctx, tenant.fuso), entradaDoPaciente(ctx, tenant, configIA(getEnv()))]);
+  const agora = new Date();
+  const [plano, entrada] = await Promise.all([planoDoPaciente(ctx, tenant.fuso, { agora }), entradaDoPaciente(ctx, tenant, configIA(getEnv()))]);
   const comIaNutri = entrada === 'conversa' || entrada === 'decidir' || entrada === 'texto_mudou' || entrada === 'indisponivel';
   const { pdf, 'ia-nutri': iaNutri } = await searchParams;
-  const agora = new Date();
-  const minutosAgora = partesNoFuso(agora, tenant.fuso).minutos;
-  const minutosAte = (horario: string) => {
-    const [h, m] = horario.split(':').map(Number);
-    const ate = h * 60 + m - minutosAgora;
-    return ate >= 0 ? ate : ate + 24 * 60; // a "próxima" depois da última do dia é a primeira de amanhã
-  };
   return (
     <>
       <Faixa {...moldura} atual="/p/plano" titulo={MSG_G.titulos.plano} />
       <main className="space-y-6 p-4">
-        {/* D6: plano novo = id novo (e US-054: sugestões de receita mudaram = versão nova); o service worker só busca de
-            novo se a versão ou o dono mudarem, ou 1 vez por dia */}
+        {/* D6: plano novo = id novo (e US-054/RN-253: sugestões de receita ou conteúdos ligados mudaram = versão nova); o
+            service worker só busca de novo se a versão ou o dono mudarem, ou 1 vez por dia */}
         <GuardarPlano dono={vinculo.patientId} versao={versaoDaCopiaOffline(plano)} />
         <AbrirRefeicaoDaUrl />
         {iaNutri === 'indisponivel' && <AvisoIaNutri texto={MSG_IA_NUTRI.naoDisponivel} />}
@@ -61,7 +57,6 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
             <h2 className="font-portal-titulo text-xl font-bold">{plano.titulo}</h2>
             {/* RN-117 / art. 37 (A-D13): o selo nasce com o plano publicado (id novo), então a cópia offline (D6) já muda de versão */}
             {plano.seloIa && <p className="text-sm text-suave">{MSG_PLANO.seloIa}</p>}
-            {plano.totalKcal && <p>{`Total do dia: ${plano.totalKcal}`}</p>}
             {pdf === 'preparando' && <p role="status">{MSG_PLANO_PACIENTE.pdfPreparando}</p>}
             <p className="flex flex-wrap gap-2">
               {plano.pdf !== 'indisponivel' && (
@@ -73,34 +68,81 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
               {/* Plano 15 (§4.2): a conversa mora em Plano */}
               {comIaNutri && <Link href="/p/plano/ia" className={PILULA}>{MSG_IA_NUTRI.linkPlano}</Link>}
             </p>
-            <ol className="space-y-3">
-              {plano.refeicoes.map((r) => {
-                const proxima = r.id === plano.proximaRefeicaoId;
-                return (
-                  <li key={r.id}>
-                    <details id={`ref-${r.id}`} open={proxima} className={proxima ? 'rounded-2xl border-2 border-p-marco bg-cartao ring-2 ring-p-marco-texto' : 'rounded-2xl border border-borda bg-cartao'}>
-                      {/* sem flex/grid no summary: ele perde o display: list-item e o marcador ▶/▼ que diz que a refeição abre (molde ajuda-seguranca.tsx); h3 direto no summary (o modelo de conteúdo admite um título) */}
-                      <summary className="min-h-11 cursor-pointer p-3">
-                        <h3 className="inline font-portal-titulo text-lg font-bold">{rotuloDaRefeicao(r.nome, r.horario)}</h3>
-                        {proxima && r.horario && <span className="ml-3 inline-block rounded-full bg-p-marco px-2 text-sm font-semibold text-p-marco-texto">{`Próxima, ${daquiA(minutosAte(r.horario))}`}</span>}
-                      </summary>
-                      <div className="px-3 pb-3">
-                        <RefeicaoDetalhe refeicao={r} respondida={false} perguntarSobre={comIaNutri} />
-                      </div>
-                    </details>
-                  </li>
-                );
-              })}
-            </ol>
+            <DiaDeHoje refeicoes={plano.refeicoes} perfis={plano.perfis} fuso={tenant.fuso} agoraDoServidor={agoraNoFuso(agora, tenant.fuso)} perguntarSobre={comIaNutri} />
             {plano.orientacoes && (
               <section aria-labelledby="orientacoes-plano" className="rounded-2xl bg-p-clara p-3">
                 <h2 id="orientacoes-plano" className="font-semibold">Orientações do plano</h2>
                 <p className="whitespace-pre-line wrap-break-word">{plano.orientacoes}</p>
               </section>
             )}
+            <LigadoAoPlano plano={plano} />
           </>
         )}
       </main>
     </>
+  );
+}
+
+/**
+ * RN-252/RN-253 (US-239): "Ligado ao seu plano" — as listas de substituição (cópia do plano publicado, energia só com
+ * "mostrar calorias") e as receitas e materiais publicados ligados. Os textos da nutricionista (orientação da lista) com a
+ * voz dela (RN-254) e a quebra de linha da página (um link longo não faz a página rolar na horizontal).
+ */
+function LigadoAoPlano({ plano }: { plano: PlanoDoPaciente }) {
+  if (!plano.listas.length && !plano.conteudos.length) return null;
+  return (
+    <section aria-labelledby="ligado-ao-plano" className="space-y-4">
+      <h2 id="ligado-ao-plano" className="font-portal-titulo text-xl font-bold">{MSG_PLANO_DIAS.ligado}</h2>
+      {plano.listas.length > 0 && (
+        <section aria-labelledby="ligado-listas" className="space-y-3">
+          <h3 id="ligado-listas" className="font-semibold">{MSG_PLANO_DIAS.lista}</h3>
+          {plano.listas.map((l, li) => (
+            <details key={li} className="rounded-2xl border border-borda bg-cartao">
+              <summary className="min-h-11 cursor-pointer p-3">
+                <h4 className="inline font-semibold wrap-break-word">{l.nome}</h4>
+              </summary>
+              <div className="space-y-3 px-3 pb-3">
+                {l.orientacao && (
+                  <div className="rounded-2xl bg-p-clara p-3">
+                    <p className="text-sm font-semibold">{MSG_PLANO_DIAS.suaNutricionista}</p>
+                    <p className="whitespace-pre-line wrap-break-word">{l.orientacao}</p>
+                  </div>
+                )}
+                {l.grupos.map((g, gi) => (
+                  <div key={gi} className="space-y-1">
+                    <h5 className="font-semibold wrap-break-word">{g.nome}</h5>
+                    <ul className="divide-y divide-borda">
+                      {g.itens.map((i, ii) => (
+                        <li key={ii} className="flex justify-between gap-3 py-2">
+                          <span className="wrap-break-word">{i.nome}</span>
+                          <span className="text-right font-semibold">{`${i.quantidade}${i.kcal ? ` · ${i.kcal}` : ''}`}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </details>
+          ))}
+        </section>
+      )}
+      {plano.conteudos.length > 0 && (
+        <section aria-labelledby="ligado-conteudos" className="space-y-2">
+          <h3 id="ligado-conteudos" className="font-semibold">{MSG_PLANO_DIAS.conteudos}</h3>
+          <p className="text-sm text-suave">{MSG_PLANO_DIAS.precisaInternet}</p>
+          <ul className="space-y-1">
+            {plano.conteudos.map((c) => (
+              <li key={c.id}>
+                {/* ?de=plano: o conteúdo fora da audiência só abre por aqui (RN-12, exceção ampliada — RN-253) */}
+                <Link href={`/p/conteudos/${c.id}?de=plano`} className="inline-flex min-h-11 items-center gap-2 text-link underline">
+                  <span className="wrap-break-word">{c.titulo}</span>
+                  <span className="text-sm text-suave">{`(${ROTULO_TIPO_CONTEUDO[c.tipo]})`}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </section>
   );
 }

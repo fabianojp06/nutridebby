@@ -2,9 +2,9 @@ import { CATEGORIAS_CONVERSA, TIPOS_RESPOSTA, type CategoriaConversa, type Motiv
 import { perguntaComCondicao } from './termos-sensiveis';
 import { TEXTO_DA_CATEGORIA, type CodigoTextoFixo } from './textos';
 
-/** RN-175: os prefixos de índice aceitos em cada tipo de resposta. */
-const PREFIXOS: Record<TipoResposta, readonly string[]> = {
-  quantidade: ['#I', '#S'], substituicao: ['#S'], horario: ['#R'], refeicao: ['#R'], orientacao: ['#O', '#A'],
+/** RN-175: os prefixos de índice aceitos em cada tipo de resposta (Plano 19, RN-255: a troca também pela lista, #L). */
+export const PREFIXOS: Record<TipoResposta, readonly string[]> = {
+  quantidade: ['#I', '#S'], substituicao: ['#S', '#L'], horario: ['#R'], refeicao: ['#R'], orientacao: ['#O', '#A'],
 };
 export type SaidaValidada =
   | { ok: true; tipo: TipoResposta; fontes: string[] }

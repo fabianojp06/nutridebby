@@ -1,15 +1,26 @@
 import { eq, sql } from 'drizzle-orm';
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { apagarPublicos, inserirPublicos } from '../../../test/alimentos-publicos';
 import { makeDb } from '../../../test/db';
 import { novoConteudo } from '../../../test/conteudos';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { contents } from '@/db/schema';
+import { contents, recipeIngredients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { trocarPdf } from '@/modules/conteudo/arquivos';
+import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import { caminhoDoPdfDoConteudo, conteudoDoPaciente, feedDeConteudos, marcarFavorito, mensagemDoFeedVazio, registrarVisualizacao } from './conteudos';
 
 const app = makeDb(inject('appDatabaseUrl'));
-afterAll(() => app.pool.end());
+const owner = makeDb(inject('ownerDatabaseUrl'));
+let usda: string;
+beforeAll(async () => {
+  [usda] = await inserirPublicos(owner.pool, [{ nome: 'Mirtilo, cru', nomeOriginal: 'Blueberries, raw', grupo: 'Frutas e derivados', kcal: null, carboidratoG: 14.5, micros: { vitamina_k_mcg: 19.3 } }]);
+});
+afterAll(async () => {
+  await apagarPublicos(owner.pool, [usda]);
+  await app.pool.end();
+  await owner.pool.end();
+});
 
 async function cenario() {
   const T = await novoTenant(app.db);
@@ -101,6 +112,21 @@ describe('aba "Conteúdos" (US-055)', () => {
     expect(c.soPeloPlano).toBe(false);
   });
 
+  it('RN-230: ingrediente da USDA na receita do portal — a fonte vem de foods.fonte ("Sem valor na USDA"), sem micros (CS-232)', async () => {
+    const { T, ctxAna } = await cenario();
+    const r = await novoConteudo(app.db, T, { tipo: 'receita', titulo: 'Panqueca com mirtilo', receita: { rendimento: 500, porcao: 100, ingredientes: [{ foodId: '00000000-0000-4000-8000-000000000003', g: 400 }, { foodId: usda, g: 100 }] } });
+    try {
+      const c = (await conteudoDoPaciente(ctxAna, r.id, app.db))!;
+      const [arroz, mirtilo] = c.receita!.ingredientes;
+      expect([arroz.fonte, arroz.origem, mirtilo.fonte, mirtilo.origem]).toEqual(['taco', 'TACO', 'usda', 'USDA (EUA)']);
+      expect(mirtilo.porCem.kcal).toBeNull();
+      expect(MSG_PLANO.semValor(mirtilo.fonte)).toBe('Sem valor na USDA');
+      expect(JSON.stringify(c)).not.toMatch(/micros|vitamina_k/);
+    } finally {
+      await withTenant(T.ctx, (tx) => tx.delete(recipeIngredients).where(eq(recipeIngredients.foodId, usda)), app.db);
+    }
+  });
+
   it('D2: orientação em rascunho com PDF e conteúdo de outro tenant — nem detalhe, nem PDF, nem visualização ou favorito', async () => {
     const { T, ana, ctxAna } = await cenario();
     const pdf = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(100)]);
@@ -109,6 +135,7 @@ describe('aba "Conteúdos" (US-055)', () => {
     expect(await withTenant(T.ctx, (tx) => tx.select({ p: contents.pdfPath }).from(contents).where(eq(contents.id, rascunho.id)), app.db)).toEqual([{ p: expect.any(String) }]);
     expect(await conteudoDoPaciente(ctxAna, rascunho.id, app.db)).toBeNull();
     expect(await caminhoDoPdfDoConteudo(ctxAna, rascunho.id, app.db)).toBeNull();
+    expect(await caminhoDoPdfDoConteudo(ctxAna, rascunho.id, app.db, { doPlano: true })).toBeNull(); // RN-253: o caminho do plano não abre rascunho
     expect(await registrarVisualizacao(ctxAna, rascunho.id, app.db)).toBe(false);
     expect(await marcarFavorito(ctxAna, rascunho.id, true, app.db)).toBe(false);
     const U = await novoTenant(app.db);
@@ -116,6 +143,7 @@ describe('aba "Conteúdos" (US-055)', () => {
     await trocarPdf(U.ctx, deFora.id, pdf, { db: app.db });
     expect(await conteudoDoPaciente(ctxAna, deFora.id, app.db, { doPlano: true })).toBeNull();
     expect(await caminhoDoPdfDoConteudo(ctxAna, deFora.id, app.db)).toBeNull();
+    expect(await caminhoDoPdfDoConteudo(ctxAna, deFora.id, app.db, { doPlano: true })).toBeNull();
     expect(await registrarVisualizacao(ctxAna, deFora.id, app.db)).toBe(false);
     expect(await marcarFavorito(ctxAna, deFora.id, true, app.db)).toBe(false);
   });
@@ -148,7 +176,7 @@ describe('aba "Conteúdos" (US-055)', () => {
     expect(await conteudoDoPaciente(ctxAna, r.id, app.db, { doPlano: true })).toMatchObject({ id: r.id, soPeloPlano: false });
   });
 
-  it('guarda: só "Meu plano" e o detalhe pelo cartão ligam a liberação das receitas do plano (o feed nunca)', async () => {
+  it('guarda: só "Meu plano", o detalhe aberto pelo plano e o PDF dele ligam a liberação dos conteúdos do plano (o feed nunca)', async () => {
     const { readdir, readFile } = await import('node:fs/promises');
     const fontes = (await readdir('src', { recursive: true })).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));
     // critério amplo: qualquer menção ao nome da função ou ao parâmetro — pega import com alias, `.then(liberar…)`,
@@ -160,21 +188,26 @@ describe('aba "Conteúdos" (US-055)', () => {
       if (/\bliberarReceitasDoPlano\b|receitas_do_plano/.test(await readFile(`src/${f}`, 'utf8'))) usam.push(f);
     }
     expect(usam.sort()).toEqual(['modules/conteudo/audiencia.ts', 'modules/portal/conteudos.ts', 'modules/portal/plano.ts']);
-    // em cada chamador: o import sem alias e UMA chamada, dentro da função certa
+    // em cada chamador: o import sem alias e UMA chamada em cada função certa (RN-253: em conteudos.ts, duas — o texto
+    // e o PDF aberto pelo plano); feed, busca, favoritos, visualização e o "Novo conteúdo" do Hoje nunca ligam
     const semComentarios = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    for (const [arquivo, funcao] of [
-      ['modules/portal/conteudos.ts', 'conteudoDoPaciente'],
-      ['modules/portal/plano.ts', 'planoDoPaciente'],
+    const CHAMADA = 'await liberarReceitasDoPlano(tx);';
+    const corpoDe = (codigo: string, funcao: string) => {
+      const inicio = codigo.indexOf(`export async function ${funcao}(`);
+      expect(inicio, funcao).toBeGreaterThanOrEqual(0);
+      const fim = codigo.indexOf('\nexport ', inicio + 1);
+      return codigo.slice(inicio, fim < 0 ? undefined : fim);
+    };
+    for (const [arquivo, funcoes, nunca] of [
+      ['modules/portal/conteudos.ts', ['conteudoDoPaciente', 'caminhoDoPdfDoConteudo'], ['feedDeConteudos', 'registrarVisualizacao', 'marcarFavorito', 'conteudosNovosNaTransacao']],
+      ['modules/portal/plano.ts', ['planoDoPaciente'], []],
     ] as const) {
       const codigo = semComentarios(await readFile(`src/${arquivo}`, 'utf8'));
-      expect(codigo.match(/\bliberarReceitasDoPlano\b/g), arquivo).toHaveLength(2); // o import e a chamada
+      expect(codigo.match(/\bliberarReceitasDoPlano\b/g), arquivo).toHaveLength(funcoes.length + 1); // o import e as chamadas
       expect(codigo, arquivo).toContain("import { liberarReceitasDoPlano } from '@/modules/conteudo/audiencia';");
-      expect(codigo.match(/await liberarReceitasDoPlano\(tx\);/g), arquivo).toHaveLength(1);
-      const inicio = codigo.indexOf(`export async function ${funcao}(`);
-      const fim = codigo.indexOf('\nexport ', inicio + 1);
-      const chamada = codigo.indexOf('await liberarReceitasDoPlano(tx);');
-      expect(inicio, arquivo).toBeGreaterThanOrEqual(0);
-      expect(chamada > inicio && (fim < 0 || chamada < fim), `${arquivo}: a chamada fica dentro de ${funcao}`).toBe(true);
+      expect(codigo.split(CHAMADA).length - 1, arquivo).toBe(funcoes.length);
+      for (const f of funcoes) expect(corpoDe(codigo, f).split(CHAMADA).length - 1, `${arquivo}: uma chamada dentro de ${f}`).toBe(1);
+      for (const f of nunca) expect(corpoDe(codigo, f), `${arquivo}: ${f} nunca liga`).not.toContain('liberarReceitasDoPlano');
     }
   });
 });

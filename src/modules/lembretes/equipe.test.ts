@@ -271,6 +271,34 @@ describe('refeições do plano publicado', () => {
     expect(await ver()).toMatchObject({ previstoHoje: 0, refeicoesForaDaJanela: ['Ceia'] });
   });
 
+  it('Plano 19 (RN-247 f): o previsto para hoje (segunda) conta só as refeições de hoje', async () => {
+    const { T, p, salvar, ver } = await cenario();
+    await planoPublicado(app.db, T, p.id, {
+      refeicoes: [
+        { nome: 'Café da manhã', horario: '07:00' },
+        { nome: 'Almoço', horario: '12:30', dias: [1, 2, 3, 4, 5] },
+        { nome: 'Almoço', horario: '13:30', dias: [0, 6] },
+        { nome: 'Ceia', horario: '22:30', dias: [6] },
+      ],
+    });
+    await salvar(refeicoes({ diarioDepoisMin: 30 }));
+    // 07:00, 07:30, 12:30, 13:00; o Almoço das 13:30 e a Ceia são do fim de semana — o aviso da Ceia é do plano e continua
+    expect(await ver()).toMatchObject({ previstoHoje: 4, refeicoesForaDaJanela: ['Ceia'] });
+  });
+
+  it('Plano 19: o teto ao salvar conta as refeições de cada dia (seg–sex e sáb–dom não se somam)', async () => {
+    const { T, p, salvar } = await cenario();
+    await planoPublicado(app.db, T, p.id, {
+      refeicoes: [
+        ...['07:15', '12:15', '19:15'].map((horario) => ({ nome: 'Refeição', horario, dias: [1, 2, 3, 4, 5] })),
+        ...['08:15', '13:15', '20:15'].map((horario) => ({ nome: 'Refeição', horario, dias: [0, 6] })),
+      ],
+    });
+    await salvar(refeicoes({ diarioDepoisMin: 30 })); // 6 por dia (somados, 12)
+    await salvar(AGUA_17); // 23 por dia (somados, 29)
+    expect(await errosDe(salvar(comHorarios('suplemento', ['06:30', '07:30'])))).toEqual({ geral: MSG_TETO }); // 25
+  });
+
   it('as refeições do plano contam no teto ao salvar', async () => {
     const { T, p, salvar } = await cenario();
     await planoPublicado(app.db, T, p.id, {

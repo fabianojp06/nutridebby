@@ -118,6 +118,12 @@ export const STAFF_ONLY: Record<string, string> = {
   fin_configuracoes: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
   fin_categorias: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
   fin_lancamentos: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
+  referencias_nutrientes: 'Plano 19: biblioteca do consultório; o paciente nunca vê o perfil de referência',
+  refeicoes_modelo: 'Plano 19: biblioteca do consultório; o paciente nunca vê',
+  refeicoes_modelo_itens: 'Plano 19: biblioteca do consultório; o paciente nunca vê',
+  listas_substituicao: 'Plano 19: biblioteca do consultório; o paciente nunca vê',
+  listas_substituicao_grupos: 'Plano 19: biblioteca do consultório; o paciente nunca vê',
+  listas_substituicao_itens: 'Plano 19: biblioteca do consultório; o paciente nunca vê',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
@@ -243,7 +249,7 @@ export async function findPacienteEscritaViolations(db: Pool | PoolClient): Prom
  * RESTRICTIVE `paciente_conteudo_visivel` (FOR SELECT, migration 0083). Tabela nova de conteúdo entra aqui.
  */
 export const CONTEUDO_POR_AUDIENCIA: Record<string, string> = {
-  contents: 'publicado e da audiência do paciente (todos, etiqueta via app_conteudo_por_etiqueta, pacientes) ou, só com liberarReceitasDoPlano, receita do plano publicado dele',
+  contents: 'publicado e da audiência do paciente (todos, etiqueta via app_conteudo_por_etiqueta, pacientes) ou, só com liberarReceitasDoPlano, receita do plano ou conteúdo ligado ao plano publicado dele',
   recipes: 'herda de contents',
   recipe_ingredients: 'herda de contents',
 };
@@ -254,7 +260,7 @@ export const CONTEUDO_POR_AUDIENCIA: Record<string, string> = {
  * as outras herdam de `contents` por EXISTS.
  */
 const AUDIENCIA_EXIGE: Record<string, string[]> = {
-  contents: [NEGA_PACIENTE, "status='publicado'::text", 'app_current_patient', 'app_conteudo_por_etiqueta', 'app.receitas_do_plano'],
+  contents: [NEGA_PACIENTE, "status='publicado'::text", 'app_current_patient', 'app_conteudo_por_etiqueta', 'app.receitas_do_plano', 'fromplano_conteudos', "pl.status='publicado'::text"],
 };
 /** As filhas herdam de `contents` ligando a linha: sem `c.id = <tabela>.content_id`, o EXISTS vê qualquer conteúdo visível. */
 const ligaAoConteudo = (t: string) => [`c.id=${t}.content_id`, `c.tenant_id=${t}.tenant_id`];

@@ -10,7 +10,11 @@ import { JANELA_FIM_MIN, JANELA_INICIO_MIN, PRIORIDADE, TETO_POR_DIA } from './c
 export type TipoSlot = 'refeicao' | 'diario' | 'suplemento' | 'livre' | 'agua';
 /** `validoDesde`: o worker passa o `updated_at` do lembrete — slot anterior a ele não sai (lembrete salvo às 10:03 não envia a água das 10:00). */
 export type LembreteParaSlots = { id: string; ativo: boolean; validoDesde?: Date } & SemTexto<LembreteNovo>; // LembreteNovo com texto continua atribuível
-export type RefeicaoDoPlano = { nome: string; horario: string | null }; // 'HH:MM' ou 'HH:MM:SS' ou null
+/**
+ * `horario`: 'HH:MM', 'HH:MM:SS' (coluna `time`) ou null. Plano 19 (RN-247 f, D28): `dias` = `meals.dias_semana`
+ * (0 = domingo); a refeição só gera slot nos dias dela.
+ */
+export type RefeicaoDoPlano = { nome: string; horario: string | null; dias: readonly number[] };
 /** `refeicao`: nome da refeição do plano nos slots `refeicao` e `diario`; null nos outros. */
 export type Slot = { em: Date; tipo: TipoSlot; lembreteIds: string[]; refeicao: string | null };
 
@@ -64,6 +68,8 @@ function calcular(e: Entrada, previsao: boolean): Resultado {
           }
           const h = minutosDe(hora);
           if (!naJanela(h - antecedenciaMin)) foraDaJanela.add(r.nome);
+          // Plano 19 (RN-247 f): os avisos acima são do plano (a seção da equipe os mostra em qualquer dia); o slot, só no dia da refeição
+          if (!r.dias.includes(dia)) return;
           add(h - antecedenciaMin, 'refeicao', r.nome, ordem);
           // o diário já registrado sai antes da janela, da fusão e do teto: não derruba a água do mesmo minuto
           if (diarioDepoisMin !== null && !noDiario.has(r.nome)) add(h + diarioDepoisMin, 'diario', r.nome, ordem);
@@ -110,10 +116,12 @@ function calcular(e: Entrada, previsao: boolean): Resultado {
 }
 
 /**
- * Slots do dia `data` (no fuso), ordenados por `em`: gera os de cada lembrete `ativo`, descarta os anteriores a
+ * Slots do dia `data` (no fuso), ordenados por `em`: gera os de cada lembrete `ativo` (a refeição do plano só no dia
+ * dela, `dias` — Plano 19), descarta os anteriores a
  * `validoDesde` e os `diario` das refeições em `refeicoesNoDiario`, depois os fora da janela 06:00–22:00, funde os do
  * mesmo minuto e corta acima de 24 pelos de menor prioridade (refeição > suplemento > livre > diário > água).
- * `refeicoesSemHorario` e `refeicoesForaDaJanela` (a refeição cujo aviso cai fora da janela) só com um lembrete de refeições ativo.
+ * `refeicoesSemHorario` e `refeicoesForaDaJanela` (a refeição cujo aviso cai fora da janela) só com um lembrete de refeições ativo;
+ * valem para todas as refeições do plano, também as que não são do dia (são avisos da configuração, não do envio).
  */
 export function planoDoDia(e: Entrada): Resultado {
   return calcular(e, false);
@@ -124,7 +132,8 @@ const SEGUNDA_DE_REFERENCIA = '2026-06-08';
 
 /**
  * Maior total de avisos (antes do teto) entre os 7 dias da semana — o teto ao salvar (Tarefa 3). É previsão, não o envio
- * de hoje: ignora `validoDesde` e `refeicoesNoDiario`.
+ * de hoje: ignora `validoDesde` e `refeicoesNoDiario`. Cada dia conta só as refeições dele (Plano 19: seg–sex e sáb–dom
+ * não se somam).
  */
 export function maiorDiaDaSemana(e: Omit<Parameters<typeof planoDoDia>[0], 'data'>): number {
   let maior = 0;

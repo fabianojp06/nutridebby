@@ -3,10 +3,14 @@ import { notFound } from 'next/navigation';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { Aviso } from '@/components/ui/aviso';
 import { requireNutri } from '@/lib/tenant-session';
+import { referenciasParaPlano } from '@/modules/alimentos/referencias';
 import { listarReceitasPublicadas } from '@/modules/conteudo/receitas';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
 import { MSG_MODELO_IA } from '@/modules/plano-alimentar/constantes';
+import { conteudosParaLigar } from '@/modules/plano-alimentar/ligados';
+import { listarListas } from '@/modules/plano-alimentar/listas';
+import { listarMinhasRefeicoes } from '@/modules/plano-alimentar/refeicoes-modelo';
 import { EditorPlano } from '../../editor/editor-plano';
 import { aprovarModeloPlanoAction, excluirModeloAction } from '../actions';
 import { AprovarModelo } from '../aprovar-modelo';
@@ -19,6 +23,14 @@ export default async function ModeloPage({ params }: PageProps<'/painel/planos/m
   const modelo = await carregarPlano(ctx, id);
   if (!modelo || !modelo.isTemplate) notFound();
   const origem = modelo.origemIa; // US-123: modelo sugerido pela IA
+  // leituras independentes em paralelo (code review do PR #57)
+  const [receitas, perfis, minhasRefeicoes, listas, conteudos] = await Promise.all([
+    listarReceitasPublicadas(ctx),
+    referenciasParaPlano(ctx),
+    listarMinhasRefeicoes(ctx),
+    listarListas(ctx),
+    conteudosParaLigar(ctx),
+  ]);
   return (
     <>
       <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
@@ -34,7 +46,11 @@ export default async function ModeloPage({ params }: PageProps<'/painel/planos/m
         <EditorPlano
           plano={paraCliente(modelo)}
           contexto={null}
-          receitas={await listarReceitasPublicadas(ctx)}
+          receitas={receitas}
+          perfis={perfis}
+          minhasRefeicoes={minhasRefeicoes}
+          fuso={tenant.fuso}
+          ligaveis={{ listas, conteudos }}
           acoes={
             <div className="flex flex-wrap items-center gap-4">
               {origem?.sugestao && <AprovarModelo acao={aprovarModeloPlanoAction.bind(null, modelo.id)} />}

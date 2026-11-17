@@ -7,7 +7,7 @@ import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base'
 import { auditRead } from '@/modules/plataforma/audit';
 import { MSG_MODELO_IA, MSG_PLANO } from './constantes';
 import { PlanoError, PlanoNaoEncontradoError } from './erros';
-import { copiarConteudo, proximaVersao } from './rascunho';
+import { cabecalhoDaCopia, copiarConteudo, proximaVersao } from './rascunho';
 
 type Deps = { db?: Db };
 
@@ -92,7 +92,9 @@ export async function aprovarModeloPlano(ctx: TenantContext, id: string, deps: D
 }
 
 /**
- * US-024 "Salvar plano como modelo": copia refeições e itens para um modelo novo (sem paciente).
+ * US-024 "Salvar plano como modelo": copia refeições e itens para um modelo novo (sem paciente). Plano 19 (RN-256): também
+ * o modo, os dias, o texto livre, a distribuição, os nutrientes escolhidos, o perfil e as ligações; as observações e o
+ * texto livre vão junto (RNF-08), e a tela avisa para retirar dados do paciente.
  * Plano de paciente bloqueado ou anonimizado (US-018) não vira modelo: o prontuário dele é só para consulta.
  * Travas na ordem do salvamento e da publicação: paciente → plano.
  */
@@ -112,7 +114,7 @@ export async function salvarComoModelo(ctx: TenantContext, planId: string, titul
       if (p.patientId) await auditRead(tx, { entidade: 'plano_alimentar', entidadeId: p.id, patientId: p.patientId }); // copiar lê o plano do paciente
       const [m] = await tx
         .insert(mealPlans)
-        .values({ tenantId: ctx.tenantId, isTemplate: true, titulo: t, metaKcal: p.metaKcal, orientacoes: p.orientacoes, origemPlanId: p.id })
+        .values({ tenantId: ctx.tenantId, isTemplate: true, titulo: t, metaKcal: p.metaKcal, orientacoes: p.orientacoes, origemPlanId: p.id, ...(await cabecalhoDaCopia(tx, p)) })
         .returning({ id: mealPlans.id });
       await copiarConteudo(tx, p.id, m.id);
       return m;
@@ -135,7 +137,11 @@ export async function criarDeModelo(ctx: TenantContext, modeloId: string, patien
       if (existe) throw new PlanoError({ geral: MSG_PLANO.rascunhoExiste });
       const [p] = await tx
         .insert(mealPlans)
-        .values({ tenantId: ctx.tenantId, patientId, titulo: m.titulo, metaKcal: m.metaKcal, orientacoes: m.orientacoes, origemPlanId: m.id, versao: await proximaVersao(tx, patientId) })
+        .values({
+          tenantId: ctx.tenantId, patientId, titulo: m.titulo, metaKcal: m.metaKcal, orientacoes: m.orientacoes, origemPlanId: m.id,
+          ...(await cabecalhoDaCopia(tx, m)), // RN-256 (Plano 19)
+          versao: await proximaVersao(tx, patientId),
+        })
         .returning({ id: mealPlans.id });
       await copiarConteudo(tx, m.id, p.id);
       return p;

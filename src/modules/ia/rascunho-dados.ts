@@ -4,7 +4,7 @@ import { anamneses, type AnamneseRow, type PatientRow } from '@/db/schema';
 import { lerDecimal } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
 import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
-import { MAX_REFEICOES, META_MAX, META_MIN, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
+import { MAX_REFEICOES_RASCUNHO_IA, META_MAX, META_MIN, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { Categoria } from './campos-enviados';
 import { MSG_RASCUNHO_IA } from './constantes';
 import { respostasMascaradas, textoLivre, type AlvoDaMascara } from './pseudonimizar';
@@ -40,8 +40,9 @@ export function validarMetas(bruto: unknown): { ok: true; metas: MetasDoRascunho
   if (pr === null || ca === null || li === null || Math.abs(pr + ca + li - 100) > 0.01) erros.macros = MSG_RASCUNHO_IA.soma;
   const rs = Array.isArray(o.refeicoes) ? (o.refeicoes as unknown[]) : [];
   if (!rs.length) erros.refeicoes = MSG_RASCUNHO_IA.semRefeicao;
-  if (rs.length > MAX_REFEICOES) erros.refeicoes = MSG_PLANO.limite;
-  const refeicoes = rs.slice(0, MAX_REFEICOES).map((bruta, i) => {
+  // RN-249 (Plano 19): o rascunho da IA fica em 15 refeições e 200 itens (o editor vai a 50 e 400)
+  if (rs.length > MAX_REFEICOES_RASCUNHO_IA) erros.refeicoes = MSG_PLANO.limiteRascunhoIa;
+  const refeicoes = rs.slice(0, MAX_REFEICOES_RASCUNHO_IA).map((bruta, i) => {
     const r = (bruta !== null && typeof bruta === 'object' ? bruta : {}) as Record<string, unknown>;
     const nome = normalizarTexto(r.nome);
     const horario = typeof r.horario === 'string' ? r.horario.trim() : '';

@@ -13,3 +13,4 @@ export * from './ia-nutri';
 export * from './exames-enviados';
 export * from './lembretes';
 export * from './financeiro';
+export * from './biblioteca-plano';

@@ -3,9 +3,11 @@
  * antes de salvar, e o worker revalida cada linha (`validarConfig`, sem o texto, que ele nem lê) antes de `planoDoDia`.
  */
 import { HORA_HHMM, minutosDe } from '@/modules/agenda/horarios';
+import type { DiaDaSemana } from '@/modules/plano-alimentar/dias';
 import { ANTECEDENCIAS, DIARIO_DEPOIS, INTERVALOS_AGUA, JANELA_FIM_MIN, JANELA_INICIO_MIN, MAX_HORARIOS, MSG_LEMBRETES as M, TEXTO_MAX } from './constantes';
 
-export type DiaDaSemana = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0 = domingo
+/** Plano 19 (D28): `DiaDaSemana` num lugar só (`plano-alimentar/dias.ts`, 0 = domingo); reexportado para quem já importa daqui. */
+export type { DiaDaSemana };
 export type ConfigAgua = { inicio: string; fim: string; intervaloMin: 60 | 90 | 120 | 180 | 240; dias: DiaDaSemana[] };
 export type ConfigRefeicoes = { antecedenciaMin: 0 | 15 | 30; diarioDepoisMin: 30 | 60 | null };
 export type ConfigHorarios = { horarios: string[]; dias: DiaDaSemana[] }; // suplemento e livre

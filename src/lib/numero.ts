@@ -19,7 +19,18 @@ export function arredondar(v: number, casas = 0): number {
 
 /** Vírgula decimal (RNF-12), sem separador de milhar ("2008 kcal", como a spec escreve). */
 export function formatarDecimal(v: number, casas: number): string {
-  return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas, useGrouping: false }).format(arredondar(v, casas));
+  return formatoDecimal(casas).format(arredondar(v, casas));
+}
+
+/** Um `Intl.NumberFormat` por número de casas: criar um a cada chamada custa ~30 µs (PM-PA9: 400 itens no editor). */
+const FORMATOS_DECIMAIS = new Map<number, Intl.NumberFormat>();
+function formatoDecimal(casas: number): Intl.NumberFormat {
+  let f = FORMATOS_DECIMAIS.get(casas);
+  if (!f) {
+    f = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas, useGrouping: false });
+    FORMATOS_DECIMAIS.set(casas, f);
+  }
+  return f;
 }
 
 /** Casas que o valor digitado tinha (até 6): não arredonda nem cai em notação exponencial. */

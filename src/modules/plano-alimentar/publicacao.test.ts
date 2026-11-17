@@ -2,24 +2,28 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import { afterAll, describe, expect, inject, it } from 'vitest';
+import { apagarPublicos, inserirPublicos } from '../../../test/alimentos-publicos';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
-import { mealItems, mealPlans, notifications, patients } from '@/db/schema';
+import { foods, mealItems, mealPlans, notifications, patients, referenciasNutrientes } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
-import { criarAlimento, editarAlimento, excluirAlimento } from '@/modules/alimentos/alimentos';
+import { criarAlimento, duplicarComoMeu, editarAlimento, excluirAlimento } from '@/modules/alimentos/alimentos';
 import { MSG_ALIMENTO } from '@/modules/alimentos/alimentos-constantes';
+import { FONTES, temMarcador } from '@/modules/alimentos/fontes';
 import { idTaco } from '@/modules/alimentos/taco';
 import { carregarPacienteParaEscrita, PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { carregarPlano } from './carregar';
-import { MSG_PLANO } from './constantes';
+import { lerCongelados } from './congelados';
+import { MSG_PLANO, MSG_TEXTO_LIVRE } from './constantes';
 import { PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
 import { criarDeModelo, criarModelo, salvarComoModelo } from './modelos';
-import { editarPublicado, publicarPlano } from './publicacao';
-import { criarRascunho, criarRascunhoTx, salvarRascunho } from './rascunho';
+import { editarPublicado, exigirVersaoDasTabelas, pedirNovoPdf, publicarPlano } from './publicacao';
+import { criarRascunho, criarRascunhoTx, descartarRascunho, salvarRascunho } from './rascunho';
+import type { CorpoSalvamento } from './tipos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -45,8 +49,10 @@ async function publicado(T: TenantDeTeste, itens = [item(idTaco(3))]) {
   return { p, id };
 }
 
-const jobsDoPlano = async (planId: string) =>
-  Number((await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf' and data->>'planId' = $1`, [planId])).rows[0].n);
+/** R-244: o app novo enfileira o PDF só na fila nova (`plano-pdf-2`), que o worker antigo não conhece. */
+const jobsNaFila = async (fila: string, planId: string) =>
+  Number((await owner.pool.query(`select count(*)::int as n from pgboss.job where name = $1 and data->>'planId' = $2`, [fila, planId])).rows[0].n);
+const jobsDoPlano = (planId: string) => jobsNaFila('plano-pdf-2', planId);
 
 describe('publicação e versionamento (US-025, RN-01)', () => {
   it('"Primeira publicação": status publicado, versão 1, PDF pendente e job na fila na mesma transação', async () => {
@@ -54,6 +60,17 @@ describe('publicação e versionamento (US-025, RN-01)', () => {
     const { id } = await publicado(T);
     expect(await carregarPlano(T.ctx, id, app.db)).toMatchObject({ status: 'publicado', versao: 1, publicadoEm: '2026-10-01T15:00:00.000Z', pdfStatus: 'pendente', pdfPath: null });
     expect(await jobsDoPlano(id)).toBe(1);
+  });
+
+  it('R-244: publicarPlano e "Gerar o PDF de novo" (pedirNovoPdf) enfileiram em `plano-pdf-2`, nunca na fila que o worker antigo consome', async () => {
+    const T = await novoTenant(app.db);
+    const { p, id } = await publicado(T);
+    expect(await jobsNaFila('plano-pdf-2', id)).toBe(1);
+    expect(await jobsNaFila('plano-pdf', id)).toBe(0);
+    await owner.pool.query(`update meal_plans set pdf_status = 'falhou' where id = $1`, [id]);
+    await pedirNovoPdf(T.ctx, p.id, id, deps);
+    expect(await jobsNaFila('plano-pdf-2', id)).toBe(2);
+    expect(await jobsNaFila('plano-pdf', id)).toBe(0);
   });
 
   it('"Nova versão arquiva a anterior": Editar cria o rascunho v2, a v1 segue publicada; publicar a v2 arquiva a v1', async () => {
@@ -244,5 +261,149 @@ describe('publicação e versionamento (US-025, RN-01)', () => {
     const r = await Promise.all([editarPublicado(T.ctx, p.id, v1, deps), editarPublicado(T.ctx, p.id, v1, deps)]);
     expect(r[0].id).toBe(r[1].id);
     expect(r.filter((x) => x.criado)).toHaveLength(1);
+  });
+});
+
+describe('Plano 19 — publicação: congelação, perfil e avisos em dois passos (RN-237, RN-238, RN-244, RN-246, D31)', () => {
+  const VET = 'Registre o VET, a distribuição de macro e micronutrientes e as quantidades da prescrição no plano ou no atendimento.';
+  const refeicao = (o: Partial<CorpoSalvamento['refeicoes'][number]> = {}): CorpoSalvamento['refeicoes'][number] => ({
+    id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', itens: [], ...o,
+  });
+  const livre = (revisao: number, refeicoes: CorpoSalvamento['refeicoes'], extra: Partial<CorpoSalvamento> = {}): CorpoSalvamento => ({
+    revisao, envio: randomUUID(), titulo: 'Plano em texto', metaKcal: '1800', mostrarCalorias: false, orientacoes: '', modo: 'livre', refeicoes, ...extra,
+  });
+  const novoPerfil = (T: TenantDeTeste, nome = 'Mulher 19 a 50 anos') =>
+    withTenant(
+      T.ctx,
+      async (tx) =>
+        (await tx.insert(referenciasNutrientes).values({ tenantId: T.tenantId, nome, fonte: 'DRI/IOM 2006 — conferida pela nutricionista', valores: { ferro_mg: { meta: 18, maximo: 45 } } }).returning())[0],
+      app.db,
+    );
+  const usarPerfil = (T: TenantDeTeste, planId: string, referenciaId: string, extra: Partial<typeof mealPlans.$inferInsert> = {}) =>
+    withTenant(T.ctx, (tx) => tx.update(mealPlans).set({ referenciaId, ...extra }).where(eq(mealPlans.id, planId)), app.db);
+  const linhaDoPlano = async (T: TenantDeTeste, planId: string) => (await withTenant(T.ctx, (tx) => tx.select().from(mealPlans).where(eq(mealPlans.id, planId)), app.db))[0];
+  const rascunhoCom = async (T: TenantDeTeste, c: (revisao: number) => CorpoSalvamento) => {
+    const p = await novoPaciente(app.db, T.ctx);
+    const { id } = await criarRascunho(T.ctx, p.id, deps);
+    await salvarRascunho(T.ctx, id, c(0), deps);
+    return { p, id };
+  };
+
+  it('congela fonte, versão, fonte de origem e micros de cada item; o perfil vai para referencia_congelada e referencia_id fica nulo; editar o perfil depois não muda o publicado', async () => {
+    const T = await novoTenant(app.db);
+    const { id: meuArroz } = await duplicarComoMeu(T.ctx, idTaco(3), deps);
+    const perfil = await novoPerfil(T);
+    const { p, id } = await rascunhoCom(T, (r) => corpo(r, [item(idTaco(3)), item(meuArroz)]));
+    await usarPerfil(T, id, perfil.id);
+    expect(await publicarPlano(T.ctx, p.id, id, deps)).toEqual({ versao: 1 });
+
+    const [taco] = await withTenant(T.ctx, (tx) => tx.select({ micros: foods.micros }).from(foods).where(eq(foods.id, idTaco(3))), app.db);
+    const itens = await withTenant(T.ctx, (tx) => tx.select({ foodId: mealItems.foodId, n: mealItems.nutrientes }).from(mealItems).where(eq(mealItems.planId, id)), app.db);
+    const doAlimento = (f: string) => itens.find((i) => i.foodId === f)!.n;
+    expect(doAlimento(idTaco(3))).toMatchObject({ origem: 'TACO', fonte: 'taco', fonteVersao: FONTES.taco.versao, fonteOrigem: null, micros: taco.micros });
+    expect(Object.keys(taco.micros).length).toBeGreaterThan(0);
+    expect(doAlimento(meuArroz)).toMatchObject({ origem: 'Meu alimento', fonte: 'propria', fonteVersao: null, fonteOrigem: 'taco', micros: taco.micros });
+    expect(lerCongelados(doAlimento(meuArroz))).toMatchObject({ fonte: 'propria', fonteOrigem: 'taco' });
+
+    const pub = await linhaDoPlano(T, id);
+    expect(pub).toMatchObject({ referenciaId: null, referenciaCongelada: { id: perfil.id, nome: 'Mulher 19 a 50 anos', fonte: 'DRI/IOM 2006 — conferida pela nutricionista', valores: { ferro_mg: { meta: 18, maximo: 45 } } } });
+    await withTenant(T.ctx, (tx) => tx.update(referenciasNutrientes).set({ nome: 'Outro nome', valores: { ferro_mg: { meta: 8 } } }).where(eq(referenciasNutrientes.id, perfil.id)), app.db);
+    expect((await linhaDoPlano(T, id)).referenciaCongelada).toEqual(pub.referenciaCongelada);
+  });
+
+  it('"Editar" um publicado em texto livre: rascunho livre com os textos, os dias, a distribuição e os nutrientes; o perfil volta se ainda existe, excluído fica "Sem perfil"', async () => {
+    const T = await novoTenant(app.db);
+    const perfil = await novoPerfil(T);
+    const semana = refeicao({ descricaoLivre: 'Arroz, feijão e salada.', diasSemana: [1, 2, 3, 4, 5] });
+    const fds = refeicao({ horario: '13:00', descricaoLivre: 'Livre, com salada.', diasSemana: [0, 6] });
+    const { p, id: v1 } = await rascunhoCom(T, (r) => livre(r, [semana, fds], { macrosPrescritos: { proteina: 20, carboidrato: 50, lipidio: 30 } }));
+    await usarPerfil(T, v1, perfil.id, { nutrientesExibidos: ['ferro_mg', 'calcio_mg'], mostrarMicrosPdf: true });
+    expect(await publicarPlano(T.ctx, p.id, v1, deps)).toEqual({ versao: 1 });
+
+    const { id: v2 } = await editarPublicado(T.ctx, p.id, v1, deps);
+    expect(await carregarPlano(T.ctx, v2, app.db)).toMatchObject({
+      status: 'rascunho', modo: 'livre', metaKcal: 1800, macrosPrescritos: { proteina: 20, carboidrato: 50, lipidio: 30 },
+      refeicoes: [
+        { descricaoLivre: 'Arroz, feijão e salada.', diasSemana: [1, 2, 3, 4, 5], itens: [] },
+        { descricaoLivre: 'Livre, com salada.', diasSemana: [0, 6], itens: [] },
+      ],
+    });
+    expect(await linhaDoPlano(T, v2)).toMatchObject({ referenciaId: perfil.id, referenciaCongelada: null, nutrientesExibidos: ['ferro_mg', 'calcio_mg'], mostrarMicrosPdf: true });
+
+    await descartarRascunho(T.ctx, p.id, v2, deps);
+    await withTenant(T.ctx, (tx) => tx.delete(referenciasNutrientes).where(eq(referenciasNutrientes.id, perfil.id)), app.db);
+    expect((await linhaDoPlano(T, v1)).referenciaCongelada).toMatchObject({ id: perfil.id }); // o publicado mantém a cópia
+    const { id: v3 } = await editarPublicado(T.ctx, p.id, v1, deps);
+    expect(await linhaDoPlano(T, v3)).toMatchObject({ referenciaId: null, modo: 'livre' });
+  });
+
+  it('D31: modo livre sem "Meta (kcal)" → o aviso do VET e nada publicado; com o aviso confirmado, publica', async () => {
+    const T = await novoTenant(app.db);
+    const { p, id } = await rascunhoCom(T, (r) => livre(r, [refeicao({ descricaoLivre: 'Prato feito' })], { metaKcal: '' }));
+    expect(await publicarPlano(T.ctx, p.id, id, deps)).toEqual({ avisos: [VET] });
+    expect(MSG_TEXTO_LIVRE.semVet).toBe(VET);
+    expect(await linhaDoPlano(T, id)).toMatchObject({ status: 'rascunho', publicadoEm: null, pdfStatus: null });
+    expect(await jobsDoPlano(id)).toBe(0);
+    expect(await publicarPlano(T.ctx, p.id, id, deps, { confirmarAvisos: ['outro aviso'] })).toEqual({ avisos: [VET] });
+    expect(await publicarPlano(T.ctx, p.id, id, deps, { confirmarAvisos: [VET] })).toEqual({ versao: 1 });
+    expect(await linhaDoPlano(T, id)).toMatchObject({ status: 'publicado' });
+    expect(await jobsDoPlano(id)).toBe(1);
+  });
+
+  it('D31 (RN-246): dia sem refeição é aviso, na ordem seg…dom; o calculado sem meta não avisa; um aviso novo depois da confirmação volta a aparecer', async () => {
+    const T = await novoTenant(app.db);
+    const semDomingo = (r: number) => ({ ...corpo(r), metaKcal: '', refeicoes: [{ ...corpo(r).refeicoes[0], diasSemana: [1, 2, 3, 4, 5, 6] }] });
+    const a = await rascunhoCom(T, semDomingo);
+    expect(await publicarPlano(T.ctx, a.p.id, a.id, deps)).toEqual({ avisos: ['Domingo não tem refeições.'] });
+
+    const semFds = (r: number) => ({ ...corpo(r), refeicoes: [{ ...corpo(r).refeicoes[0], diasSemana: [1, 2, 3, 4, 5] }] });
+    const b = await rascunhoCom(T, semFds);
+    expect(await publicarPlano(T.ctx, b.p.id, b.id, deps)).toEqual({ avisos: ['Sábado e domingo não têm refeições.'] });
+    // confirmou "Domingo…" numa tela velha, mas agora faltam sábado e domingo: volta o aviso novo, nada publicado
+    expect(await publicarPlano(T.ctx, b.p.id, b.id, deps, { confirmarAvisos: ['Domingo não tem refeições.'] })).toEqual({ avisos: ['Sábado e domingo não têm refeições.'] });
+    expect(await publicarPlano(T.ctx, b.p.id, b.id, deps, { confirmarAvisos: ['Sábado e domingo não têm refeições.'] })).toEqual({ versao: 1 });
+
+    // os dois avisos juntos: o do VET primeiro
+    const c = await rascunhoCom(T, (r) => livre(r, [refeicao({ descricaoLivre: 'Prato feito', diasSemana: [1, 2, 3, 4, 5, 6] })], { metaKcal: '' }));
+    expect(await publicarPlano(T.ctx, c.p.id, c.id, deps)).toEqual({ avisos: [VET, 'Domingo não tem refeições.'] });
+  });
+
+  it('RN-244: no modo livre, refeição sem texto é erro no campo ("A refeição "Almoço" está sem texto."), sem refeição e sem horário também', async () => {
+    const T = await novoTenant(app.db);
+    const almoco = refeicao({ nome: 'Almoço' });
+    const { p, id } = await rascunhoCom(T, (r) => livre(r, [refeicao({ nome: 'Café', horario: '07:00', descricaoLivre: 'Pão e café' }), almoco]));
+    await expect(publicarPlano(T.ctx, p.id, id, deps)).rejects.toEqual(new PlanoError({ [`refeicao:${almoco.id}:descricaoLivre`]: 'A refeição "Almoço" está sem texto.' }));
+    await salvarRascunho(T.ctx, id, livre(1, [{ ...almoco, horario: '', descricaoLivre: 'Prato feito' }]), deps);
+    await expect(publicarPlano(T.ctx, p.id, id, deps)).rejects.toEqual(new PlanoError({ geral: MSG_PLANO.publicarHorario }));
+    await salvarRascunho(T.ctx, id, livre(2, []), deps);
+    await expect(publicarPlano(T.ctx, p.id, id, deps)).rejects.toEqual(new PlanoError({ geral: MSG_TEXTO_LIVRE.publicarVazio }));
+    expect((await linhaDoPlano(T, id)).status).toBe('rascunho');
+  });
+
+  it('code review do PR #57 (RN-237): versão da tabela com marcador → "A versão da tabela da USDA…"; a regra pura vale para item e cópia da lista', () => {
+    const comMarcador = { ...FONTES, taco: { ...FONTES.taco, versao: 'TACO {ano}' } };
+    const doItem = (fonte: 'taco' | 'propria') => ({ refeicoes: [{ itens: [{ fonte }] }], listas: [] }) as unknown as Parameters<typeof exigirVersaoDasTabelas>[0];
+    expect(() => exigirVersaoDasTabelas(doItem('taco'), comMarcador)).toThrow(new PlanoError({ geral: MSG_PLANO.publicarSemVersao }));
+    expect(() => exigirVersaoDasTabelas(doItem('propria'), comMarcador)).not.toThrow();
+    expect(() => exigirVersaoDasTabelas(doItem('taco'))).not.toThrow();
+    const daLista = (fonteVersao: string | null) =>
+      ({ refeicoes: [], listas: [{ grupos: [{ itens: [{ fonteVersao }] }] }] }) as unknown as Parameters<typeof exigirVersaoDasTabelas>[0];
+    expect(() => exigirVersaoDasTabelas(daLista('FoodData Central {ano}'))).toThrow(new PlanoError({ geral: MSG_PLANO.publicarSemVersao }));
+    expect(() => exigirVersaoDasTabelas(daLista(FONTES.taco.versao))).not.toThrow();
+    expect(() => exigirVersaoDasTabelas(daLista(null))).not.toThrow();
+    expect(MSG_PLANO.publicarSemVersao).toBe('A versão da tabela da USDA ainda não foi registrada. Tire os alimentos da USDA para publicar.');
+  });
+
+  it.skipIf(!temMarcador(FONTES.usda.versao))('code review do PR #57 (RN-01): com "{ano}" em FONTES.usda, plano com alimento da USDA não é publicado e fica rascunho', async () => {
+    const T = await novoTenant(app.db);
+    const [usda] = await inserirPublicos(owner.pool, [{ nome: 'Quinoa, cozida', nomeOriginal: 'Quinoa, cooked', kcal: 120 }]);
+    const { p, id } = await rascunhoCom(T, (r) => corpo(r, [item(idTaco(3)), item(usda)]));
+    try {
+      await expect(publicarPlano(T.ctx, p.id, id, deps)).rejects.toEqual(new PlanoError({ geral: MSG_PLANO.publicarSemVersao }));
+      expect((await linhaDoPlano(T, id)).status).toBe('rascunho');
+    } finally {
+      await descartarRascunho(T.ctx, p.id, id, deps); // a FK RESTRICT de meal_items prenderia a linha pública de teste
+      await apagarPublicos(owner.pool, [usda]);
+    }
   });
 });

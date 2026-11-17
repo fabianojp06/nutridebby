@@ -123,7 +123,7 @@ Layout no disco: `DATA_DIR/<tenantId>/<tipo>/<uuid>.<ext>` (`armazenamento.ts:96
 | `salvarArquivo(ctx, input)` | Única porta de gravação. Ver fluxo abaixo | `armazenamento.ts:64` |
 | `apagarArquivo(ctx, filtro, deps)` | Única porta de remoção: apaga `stored_files`, devolve os bytes à cota e remove do disco depois do commit (ou antes, com `removerAntesDoCommit`) | `armazenamento.ts:160` |
 | `nivelDeUso(bytes)` | `ok` / `aviso` (≥ 80%) / `esgotado` (≥ 100%) | `armazenamento.ts:38` |
-| `limparTmpOrfaos(dataDir, agora)` | Apaga `*.<pid>.tmp` com mais de 24 h; fila diária `limpar-tmp` às 04h | `armazenamento.ts:210`; `src/worker/index.ts:211` |
+| `limparTmpOrfaos(dataDir, agora)` | Apaga `*.<pid>.tmp` com mais de 24 h; fila diária `limpar-tmp` às 04h | `armazenamento.ts:210`; `src/worker/index.ts:322` |
 | `signFileUrl(caminho)` | URL `/api/arquivos?c=…&e=…&s=…`, HMAC-SHA256 com `FILE_URL_SECRET`, validade 300 s | `src/lib/signed-url.ts:16` |
 | `verifyFileUrl(params)` | Confere formato do caminho, assinatura (comparação em tempo constante) e validade | `src/lib/signed-url.ts:27` |
 
@@ -556,6 +556,15 @@ avaliação, `enviadaEm`/`destino` só da pergunta que saiu, data e situação d
 revogação fica de fora. No escopo da equipe, a pergunta com risco de quem desativou a IA Nutri vai sem o texto (D22: lida
 uma vez, pela fila "Dúvidas dos pacientes"; [§10.14.7](10-ia.md#10147-retenção-exclusão-anonimização-e-exportação-rn-181-d8--180-dias-d22-76-133)).
 
+Plano 19 (RN-257, `planosParaExportacao`): cada plano leva também `modo`, `macrosPrescritos`, `referencia` (a cópia
+congelada do perfil, só de publicado e arquivado), `nutrientesExibidos`, em cada refeição `diasSemana` (rótulo por
+extenso e números) e `descricaoLivre`, em cada item `fonte` e `micros` congelados (lidos por `lerCongelados`; congelado
+fora do formato → os dados atuais, `congeladoDe`), `listasSubstituicao` (as cópias, por `lerCopiaDaLista`) e
+`conteudosLigados` (tipo e título; no escopo `titular`, só o conteúdo que ainda existe e está publicado; na `equipe`,
+todos, o excluído como "{título} (excluído)"). A biblioteca do consultório não entra. Uma cópia de lista fora do formato
+derruba o ZIP inteiro (Minor da Tarefa 10d, backlog P19-B1). Os micros vão ao titular (LGPD art. 18, II), ao contrário
+do app (RN-240).
+
 Validade do link: 24 h (`EXPORTACAO_VALIDADE_MS`, `exportacao.ts:14`). O ZIP não vai para o backup de `/data` (Plano 03, decisão do dono).
 
 ### 4.2.10 Ficha do paciente: Início, Perfil, cabeçalho e registro de seções (Plano 18, PR 1)
@@ -761,21 +770,27 @@ ordem, os ids, um arquivo por seção, nenhum `auditRead`, a lista fechada de im
 
 ## 4.3 Alimentos
 
+Desde o Plano 19 (Plano alimentar 2, RN-230 a RN-242), `foods` guarda a **fonte** de cada alimento (`taco`, `usda`,
+`tbca` ou `propria`), o catálogo de micronutrientes é único e a busca ganha filtros, a busca por nutriente e os
+equivalentes. A USDA tem o lugar pronto, mas **nenhuma linha `usda`** existe neste PR: o seed entra num PR seguinte,
+depois do deploy do código que conhece `foods.fonte` (Tarefa 12, spec D29). A TBCA tem o lugar pronto e a carga
+desligada até a autorização dos coordenadores (RN-232, D7).
+
 ### 4.3.1 TACO 4ª ed. e seed (INT-04, US-020)
 
-**Arquivos:** `src/modules/alimentos/taco.ts`, `grupos.ts`, `seeds/taco-4ed.csv`, `drizzle/0039_seed_taco.sql`.
+**Arquivos:** `src/modules/alimentos/taco.ts`, `grupos.ts`, `fontes.ts`, `seeds/taco-4ed.csv`, `drizzle/0039_seed_taco.sql`.
 
-**Tabela:** `foods` (`tenant_id` nulo = TACO; preenchido = "Meu alimento"). Valores por 100 g em `numeric(7,2)`; `micros jsonb`; `medidas_caseiras jsonb`; `taco_id smallint UNIQUE`.
+**Tabela:** `foods` (`tenant_id` nulo = tabela pública, só leitura; preenchido = "Meu alimento"). Valores por 100 g em `numeric(7,2)`; `micros jsonb`; `medidas_caseiras jsonb`; `taco_id smallint UNIQUE`. Plano 19: `fonte` (`DEFAULT 'propria'` permanente, spec I-2: a imagem antiga grava sem `fonte`), `fonte_ref` (o código na tabela de origem: número da TACO, `fdc_id` da USDA; nulo no "Meu alimento"; único por fonte) e `nome_original` (o nome em inglês da USDA). As linhas da TACO ganharam `fonte = 'taco'` e `fonte_ref = taco_id` na própria migration (§4.3.5).
 
 | Item | Detalhe | Onde |
 |---|---|---|
-| Fonte | Planilha original `seeds/fontes/Taco_4a_edicao_2011.xls`, aba "CMVCol taco3", sha256 fixado; o teste `taco-fonte.test.ts` refaz CSV e migration e compara | `TACO_FONTE`, `taco.ts:4` |
+| Fonte | Planilha original `seeds/fontes/Taco_4a_edicao_2011.xls`, aba "CMVCol taco3", sha256 fixado; o teste `taco-fonte.test.ts` refaz CSV e migration e compara | `TACO_FONTE`, `taco.ts:5` |
 | Quantidade | 597 alimentos (`seeds/taco-4ed.csv`: 598 linhas com cabeçalho) | `seeds/taco-4ed.csv` |
-| Ids | Determinísticos: `00000000-0000-4000-8000-<taco_id com 12 dígitos>` | `idTaco`, `taco.ts:44`; Plano 04, D2 |
-| Valores especiais | `Tr` → 0; `NA`, `*` e vazio → `NULL`; erro de digitação do alimento 373 corrigido | `valor`, `taco.ts:49`; `CORRECOES`, `taco.ts:27`; Plano 04, D4 |
-| Grupos | Os 15 grupos da TACO, também CHECK `foods_grupo_valido` | `GRUPOS_TACO`, `grupos.ts:2` |
-| Citação | "TACO 4ª ed. — NEPA/UNICAMP" na tela e no rodapé do PDF | `FONTE_TACO_TEXTO`, `taco.ts:13` |
-| Imutabilidade | RLS `tenant_isolation` (escrita só das próprias linhas) + `taco_leitura` (`FOR SELECT USING (tenant_id IS NULL)`) | `drizzle/0040_rls_alimentos.sql`; Plano 04, D1 |
+| Ids | Determinísticos: `00000000-0000-4000-8000-<taco_id com 12 dígitos>` | `idTaco`, `taco.ts`; Plano 04, D2 |
+| Valores especiais | `Tr` → 0; `NA`, `*` e vazio → `NULL`; erro de digitação do alimento 373 corrigido | `valor`, `CORRECOES`, `taco.ts`; Plano 04, D4 |
+| Grupos | Os 15 grupos da TACO, também CHECK `foods_grupo_valido` (a USDA será mapeada para eles, D4) | `GRUPOS_TACO`, `grupos.ts:2` |
+| Citação | "TACO 4ª ed. — NEPA/UNICAMP" na tela e no rodapé do PDF. Desde o Plano 19 mora em `FONTES.taco.citacao`; `FONTE_TACO_TEXTO` é só a reexportação, para quem já importava | `fontes.ts:34`; `taco.ts:14` |
+| Imutabilidade | RLS `tenant_isolation` (escrita só das próprias linhas) + `taco_leitura` (`FOR SELECT USING (tenant_id IS NULL)`), que já cobre USDA e TBCA. **Nenhuma política de escrita em `tenant_id` nulo**: a correção de dados públicos é sempre o molde NO FORCE/FORCE da `0042` | `drizzle/0040_rls_alimentos.sql`; Plano 04, D1; spec 19 §9.1 |
 
 ### 4.3.2 Medidas caseiras (US-020, Plano 04, D5)
 
@@ -786,67 +801,127 @@ ordem, os ids, um arquivo por seção, nenhum `auditRead`, a lista fechada de im
 - `cadastrarMedida(ctx, foodId, input)`: nome e plural 2–60; recusa nome igual ao de uma medida IBGE do mesmo alimento (o seletor mostraria dois rótulos iguais) (`medidas.ts:85`).
 - `excluirMedida` (`medidas.ts:121`).
 - Texto do item: `textoMedida(qtd, m)` — singular abaixo de 2 ("1,5 colher de sopa cheia"), plural a partir de 2 (`medidas-constantes.ts:16`). Gramas: `gramasDaMedida(qtd, gramas)` com 2 casas (`medidas-constantes.ts:22`). Até 100 medidas por item (`QTD_MEDIDA_MAX`).
+- A USDA não traz medidas caseiras (spec 19, D5): ficam os gramas e as medidas do consultório.
 
-### 4.3.3 Busca (US-020, Plano 04, D6)
+### 4.3.3 Busca por nome (US-020, Plano 04, D6; RN-230)
 
-`buscarAlimentos(ctx, termo)` (`busca.ts:31`):
+`buscarAlimentos(ctx, termo, db?, { fontes?, grupo? })` (`busca.ts:89`):
 
-- Até 6 palavras de até 60 caracteres (`palavrasDaBusca`, `busca.ts:13`); menos de 2 caracteres úteis → lista vazia.
-- Cada palavra vira `app_unaccent(lower(nome)) LIKE '%palavra%'`, com `%`, `_` e `\` escapados.
-- Ordem: começa com a 1ª palavra → `similarity` (pg_trgm) → nome mais curto → nome.
-- Até 20 resultados (`BUSCA_LIMITE`), com selo `TACO`/`Meu alimento`, valores por 100 g e medidas.
-- Índice: GIN `gin_trgm_ops` em `app_unaccent(lower(nome))`; `app_unaccent` é um wrapper `IMMUTABLE` porque `unaccent` é `STABLE` e não entra em índice (`drizzle/0040_rls_alimentos.sql:1-5`).
+- Até 6 palavras de até 60 caracteres (`palavrasDaBusca`, `busca.ts:36`); menos de 2 caracteres úteis → lista vazia.
+- Cada palavra vira `app_unaccent(lower(nome)) LIKE '%palavra%'`, com `%`, `_` e `\` escapados. Plano 19: o alimento também é achado quando **todas** as palavras estão no `nome_original` (o nome em inglês da USDA; nas outras fontes a coluna é nula e o `or` fica só com o nome).
+- Ordem: começa com a 1ª palavra (no nome ou no original) → fonte brasileira ou própria antes da USDA (`fonte = 'usda'` por último) → `similarity` (pg_trgm, a maior entre nome e original) → nome mais curto → nome.
+- Filtros (Plano 19, diálogo "Buscar alimento"): `fontes` e `grupo`. `fontesPermitidas` (`busca.ts:50`) tira a TBCA de toda busca enquanto `TBCA_AUTORIZADA` for `false`, mesmo pedida no filtro.
+- Até 20 resultados (`BUSCA_LIMITE`), com `fonte`, o selo (`seloDaFonte`: "TACO", "USDA (EUA)", "TBCA", "Meu alimento"), `nomeOriginal`, valores por 100 g, micros do catálogo e medidas (`comoEncontrado`, `busca.ts:69`).
+- Índices: GIN `gin_trgm_ops` em `app_unaccent(lower(nome))` (`app_unaccent` é um wrapper `IMMUTABLE`, porque `unaccent` é `STABLE` e não entra em índice, `drizzle/0040_rls_alimentos.sql:1-5`) e `foods_grupo_idx (grupo)` (Plano 19). O índice de trigramas de `nome_original` entra com o seed da USDA, depois do INSERT (Tarefa 12, RNF-230).
+- Rota `GET /api/painel/alimentos` (`src/app/api/painel/alimentos/route.ts`): `q`, `fonte` (pode repetir) e `grupo`; com `nutriente` e `direcao` vira a busca por nutriente (§4.3.8). Parâmetro inválido → 400 "Pedido inválido." (texto fora da spec).
+- A IA da nutricionista chama a mesma busca com `fontes: FONTES_DA_IA` = `['taco', 'propria']` (`src/modules/ia/ferramentas-alimentos.ts:23`; RN-234, D8): as ferramentas nunca devolvem USDA nem TBCA (RN-116 e RN-126 continuam).
 
-Meta da spec: "feijao carioca" entre os 5 primeiros em ≤ 300 ms.
+Meta da spec: "feijao carioca" entre os 5 primeiros em ≤ 300 ms; com a USDA, p95 ≤ 300 ms por nome e ≤ 500 ms por nutriente e equivalentes (CS-231, `busca.tempo.test.ts`; medido sem o seed em 17/11/2026, a medição com o seed é da Tarefa 12).
 
-### 4.3.4 Alimentos próprios (US-021)
+### 4.3.4 Alimentos próprios (US-021, US-231)
 
 **Arquivo:** `alimentos.ts`.
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `carregarAlimento` | Detalhe com aviso de valores incompletos | `alimentos.ts:55` |
-| `criarAlimento` / `editarAlimento` | Nome 2–120, grupo da TACO, os 5 valores obrigatórios (energia 0–900, demais 0–100 g). TACO não é editável: "Alimentos da TACO não podem ser alterados. Use "Duplicar como meu alimento"." | `alimentos.ts:69,82` |
-| `excluirAlimento` | Só do próprio tenant; FK `RESTRICT` de `meal_items` e de `recipe_ingredients` vira "Este alimento está em um plano ou receita e não pode ser excluído." | `alimentos.ts:96`; `MSG_ALIMENTO.emUso` |
-| `duplicarComoMeu` | Copia nome, grupo, valores (sem valor → 0), micros e medidas IBGE; grava `origem_food_id`; devolve `incompleto` | `alimentos.ts:114` |
+| `carregarAlimento` | Detalhe com `fonte`, selo, `nomeOriginal`, `fonteOrigem` (a tabela pública de onde o "Meu alimento" foi duplicado) e o aviso de valores incompletos ("A {sigla} não tem todos os valores deste alimento: confira os campos com 0.", `MSG_ALIMENTO.incompleto`) | `alimentos.ts:94` |
+| `fontesCarregadas` | As tabelas públicas com linha no banco (`SELECT DISTINCT fonte`), passadas por `fontesVisiveis` (sem TBCA não autorizada): a lista de citações da tela de alimentos e o filtro do diálogo | `alimentos.ts:122` |
+| `criarAlimento` / `editarAlimento` | Nome 2–120, grupo da TACO, os 5 valores obrigatórios (energia 0–**1000**, demais 0–100 g; `KCAL_MAX`, spec 19 D6). Plano 19 (US-231): `micros`, cada chave do catálogo com 0 a 100000 por 100 g (`validarMicros`; erro "Use um número de 0 a 100000." ao lado do campo, `micros.<chave>`); chave fora do catálogo → "Formulário inválido." (`MSG_NUTRIENTES.desconhecido`, texto fora da spec: o formulário nunca manda, só uma entrada adulterada); na edição, `micros` ausente mantém o que está gravado. Tabela pública não é editável: "Alimentos de tabelas públicas (TACO, USDA) não podem ser alterados. Use "Duplicar como meu alimento"." (`MSG_ALIMENTO.taco`, `exigirProprio`) | `alimentos.ts:127,140` |
+| `excluirAlimento` | Só do próprio tenant; as FKs `RESTRICT` de `meal_items`, `recipe_ingredients` e, desde o Plano 19, `refeicoes_modelo_itens` e `listas_substituicao_itens` viram "Este alimento está em uso (plano, receita, minha refeição ou lista de substituição) e não pode ser excluído." (`MSG_ALIMENTO.emUso`, RN-258) | `alimentos.ts:154` |
+| `duplicarComoMeu` | Copia nome, grupo, valores (sem valor → 0), micros e medidas do seed; grava `origem_food_id` (de onde sai o `fonteOrigem` do congelado e do rodapé do PDF, RN-233); devolve `incompleto` | `alimentos.ts:172` |
 
-CHECKs no banco (`src/db/schema/alimentos.ts`): `foods_origem_valida` (TACO ⇔ `taco_id`), `foods_proprio_completo` (alimento próprio sem nulo), `foods_valores_faixa`, `foods_nome_tamanho`.
+Telas (`src/app/painel/alimentos/`): o selo da fonte em cada resultado e na página do alimento; "Nome traduzido automaticamente do inglês." e o nome original quando a fonte é USDA (`MSG_FONTES.traduzido`); "Sem valor na {sigla}" (`semValorNa`: "Sem valor na TACO", "Sem valor na USDA"; no "Meu alimento", "Sem valor") no lugar do "Sem valor na TACO" fixo; a página `[id]/editar` dá 404 para alimento de tabela pública (decisão por `fonte !== 'propria'`); a seção "Micronutrientes (opcional)" do formulário com um campo por chave do catálogo (`campos-micros.ts`).
+
+CHECKs no banco (`src/db/schema/alimentos.ts`): `foods_origem_valida` refeito no Plano 19 (`(tenant_id is null) = (fonte <> 'propria') and (fonte = 'propria') = (fonte_ref is null) and (taco_id is not null) = (fonte = 'taco')`), `foods_fonte_valida`, `foods_fonte_ref_tamanho` (1–40), `foods_nome_original_valido` (só `usda`, 2–200), `foods_proprio_completo` (alimento próprio sem nulo), `foods_valores_faixa` (kcal 0–1000), `foods_nome_tamanho`; UNIQUE `foods_fonte_ref_unique (fonte, fonte_ref)`.
+
+### 4.3.5 Fontes de alimento (Plano 19, RN-230 a RN-233, D1, D7, D29)
+
+**Arquivo:** `src/modules/alimentos/fontes.ts` (sem imports `@/`: o schema importa daqui com caminho relativo para o CHECK).
+
+| Peça | O que é | Onde |
+|---|---|---|
+| `FONTES_DE_ALIMENTO` | `['taco', 'usda', 'tbca', 'propria']`; `Fonte`, `FontePublica` | `fontes.ts:6` |
+| `TBCA_AUTORIZADA` | `false`. Enquanto for, nenhuma linha `tbca` entra (guarda em `fontes.test.ts` sobre `drizzle/*.sql` e `seeds/`, só para INSERT — Minor da Tarefa 2) e o filtro e o selo não mostram a TBCA | `fontes.ts:16` |
+| `FONTES` | Selo, sigla, citação e versão de cada tabela pública. TACO "TACO 4ª ed. — NEPA/UNICAMP", versão "4ª ed., 2011"; USDA com o marcador `{ano}` no lugar do ano (preenchido na Tarefa 12, com o sha256 dos arquivos de origem); TBCA com a citação publicada em tbca.net.br e `{data}` | `fontes.ts:33` |
+| `seloDaFonte`, `semValorNa`, `textoDaCitacao`, `fontesVisiveis` | Selo ("TACO", "USDA (EUA)", "TBCA", "Meu alimento"); "Sem valor na {sigla}"; "Fonte: {citação}." sem ponto repetido; fontes carregadas na ordem do catálogo, sem TBCA não autorizada | `fontes.ts:57,76,70,81` |
+| `MSG_FONTES` | "Nome traduzido automaticamente do inglês." e, no rodapé do PDF, "Nomes de alimentos da USDA traduzidos do inglês." | `fontes.ts:62` |
+
+**Migration só de expansão.** A `0124` (gerada e editada à mão, comentário `-- Plano 19 (editado à mão)`) acrescenta as colunas, faz o preenchimento entre `ALTER TABLE "foods" NO FORCE ROW LEVEL SECURITY` e `FORCE` (`UPDATE "foods" SET "fonte" = 'taco', "fonte_ref" = "taco_id"::text WHERE "tenant_id" IS NULL`, `drizzle/0124_plano19_plano_alimentar_2.sql:124-126`) e só depois cria os CHECKs novos. Sem o NO FORCE, o migrator `NOBYPASSRLS` não veria linha nenhuma. `src/db/migrate-owner.test.ts` confere, com o migrator sem superusuário, que a contagem por `fonte` dá só `taco` (a mesma de `taco_id is not null`), nenhuma `usda`/`tbca` e `relforcerowsecurity` ainda `true`.
+
+**Por que o seed da USDA vai num PR seguinte (D29).** Na janela do deploy e na volta atrás, a imagem antiga decide a origem por `tenant_id`: rotularia a USDA como "TACO" no plano publicado (imutável) e a entregaria às ferramentas da IA sem filtro. O PR do código traz o lugar, os textos e os testes; o seed (Tarefa 12: `scripts/usda/preparar-seed.ts`, `seeds/usda-*.csv`, migration custom `seed_usda` com NO FORCE/FORCE e o índice de trigramas de `nome_original` depois do INSERT) só depois do código no ar. Depois do seed, a volta atrás nunca vai abaixo do PR do código ([§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás)).
+
+### 4.3.6 Catálogo de micronutrientes (Plano 19, RN-235, US-231, D9)
+
+**Arquivo:** `src/modules/alimentos/nutrientes.ts` (sem imports `@/`).
+
+- `NUTRIENTES` (`nutrientes.ts:20`): 31 chaves, cada uma com nome, unidade (`g`, `mg`, `mcg`, `%`), casas e as fontes que trazem o valor. As 20 da TACO vêm primeiro, na ordem de `CAMPOS_MICRO` (`taco.ts`, colunas da planilha, que não mudaram: o hash da INT-04 depende delas); depois as 11 que só a USDA traz (`vitamina_d_mcg`, `vitamina_b12_mcg`, `folato_dfe_mcg`, `vitamina_e_mg`, `vitamina_k_mcg`, `selenio_mcg`, `acucares_g`, `gordura_saturada_g`, `gordura_mono_g`, `gordura_poli_g`, `gordura_trans_g`). Chave nova = mudança de código com teste.
+- `formatarNutriente` ("120,0 mg", "2 µg", "68,2%": g e mg com 1 casa, mcg sem casa e símbolo "µg", vírgula decimal) e `formatarReferencia` (meta e máximo do perfil como digitados, sem zeros à direita) (`nutrientes.ts:67,76`).
+- `microsDoCatalogo` (leitura tolerante: só chaves do catálogo, número ou `null`) e `microsValidos` (gravação: 0 a `MICRO_MAX` = 100000 por 100 g, devolve a primeira chave errada) (`nutrientes.ts:111,126`).
+- `MSG_NUTRIENTES` (`nutrientes.ts:82`): "Micronutrientes (opcional)", "Nutrientes do paciente", "Perfil de referência", "Sem perfil", "Ver todos os nutrientes", "Mostrar no PDF os nutrientes escolhidos", "Ligue antes "Mostrar calorias ao paciente".", "Escolha até 12 nutrientes.", "Acima do máximo ({valor})", "Micronutrientes não registrados nesta versão do plano." e "{n} itens sem valor de {nutriente}".
+
+Micronutrientes **nunca** chegam às telas do app do paciente, ao payload RSC nem à cópia offline (RN-240, CS-232); o PDF marcado e a exportação do titular os mantêm (§4.4.6, §4.4.8).
+
+### 4.3.7 Perfis de referência (Plano 19, RN-238, US-232, D11, D30)
+
+**Arquivos:** `src/modules/alimentos/referencias.ts`, `referencias-constantes.ts`; telas `src/app/painel/planos/referencias/` (lista, `[id]` com `novo` para o formulário vazio). **Tabela:** `referencias_nutrientes` 🔒 (`staff_only`, sem paciente, sem gatilho de auditoria).
+
+| Função | O que faz | Onde |
+|---|---|---|
+| `listarReferencias` / `referenciasParaPlano` / `carregarReferencia` | Lista ("{n} nutrientes"), os perfis para o editor do plano, um perfil | `referencias.ts:76,82,88` |
+| `salvarReferencia(ctx, id \| null, entrada)` | Nome 1–80 único no consultório ("Já existe um perfil com este nome.", texto fora da spec), fonte 2–300 **obrigatória**, por chave do catálogo `meta` e/ou `maximo` (0 a 100000; "A meta não pode passar do máximo.", texto fora da spec), ao menos um nutriente | `referencias.ts:98` |
+| `excluirReferencia` | Apaga o perfil; a FK `meal_plans_referencia_fk` (`ON DELETE SET NULL (referencia_id)`, `0133`) solta só rascunhos e modelos. Confirmação: "Excluir este perfil? Os rascunhos e modelos que o usam ficam sem perfil; os planos publicados mantêm a cópia." | `referencias.ts:126` |
+
+A plataforma não traz perfil pronto: a lista vazia diz "Nenhum perfil cadastrado. A plataforma não traz valores de referência prontos: cadastre os que você usa, com a fonte." (DRI com copyright, D11; os VDR da ANVISA ficam como pendência ★ P19-★1). **A publicação zera `referencia_id`** e guarda o perfil em `meal_plans.referencia_congelada` (`{ id, nome, fonte, valores }`; CHECKs `meal_plans_referencia_so_rascunho` e `meal_plans_referencia_congelada_publicada`), então excluir um perfil nunca reescreve plano publicado nem gera "alterar" no Histórico de quem só tem plano publicado (D30; teste com contagem dentro do `withTenant` e controle positivo em `plano19-banco.test.ts` e `referencias.test.ts`). "Editar" um publicado volta a apontar para `referencia_congelada.id` se o perfil ainda existir (`cabecalhoDaCopia`, `src/modules/plano-alimentar/rascunho.ts:420`).
+
+### 4.3.8 Busca por nutriente e equivalentes (Plano 19, RN-241, RN-242, US-234, D13, D14)
+
+**Arquivos:** `src/modules/alimentos/busca-avancada.ts`, `busca-avancada-constantes.ts`; rotas `GET /api/painel/alimentos?nutriente=…&direcao=…` e `GET /api/painel/alimentos/equivalentes` (`foodId`, `quantidadeG`, `igualarPor`, `fonte`; alimento que o consultório não vê = 404 "Alimento não encontrado."); tela: o diálogo "Buscar alimento" do editor (§4.4.6).
+
+- **`buscarPorNutriente(ctx, { chave, direcao, grupo?, fontes? })`** (`busca-avancada.ts:41`): critério = chave do catálogo ou macro (`kcal`, `proteinaG`, `carboidratoG`, `lipidioG`, `fibraG`); `rico` = maior primeiro, `pobre` = menor primeiro; só quem tem o valor; até 20, desempate por nome. Critério na tela "Ordenado por {nutriente} em 100 g (maior primeiro)." / "(menor primeiro)." (`criterioDoNutriente`). A IA não usa esta busca.
+- **`equivalentes(ctx, { foodId, quantidadeG, igualarPor, fontes? })`** (`busca-avancada.ts:75`): candidatos do **mesmo grupo**, outro alimento, com o valor do critério > 0; quantidade = `quantidade_ref × valor_ref ÷ valor_cand`, arredondada a 1 g, só entre 0,1 e 5000 g (`nullif` protege a divisão). Por energia (padrão): ordem pela soma das diferenças absolutas de proteína, carboidrato e lipídio na quantidade sugerida. Por um nutriente: só quem fica com a energia a ±10% da referência (`TOLERANCIA_ENERGIA`), ordem pela menor diferença de energia. Até 20. `null` = a referência não existe ou o tenant não a vê (RLS).
+- Toda resposta traz o critério escrito e o aviso "Sugestão: confira antes de usar." — o diálogo só mostra o aviso quando há resultado. Textos em `MSG_BUSCA` (`busca-avancada-constantes.ts:92`).
+
 
 ---
 
 ## 4.4 Plano alimentar
 
-**Arquivos:** `src/modules/plano-alimentar/` (`calculo.ts`, `meta.ts`, `rascunho.ts`, `publicacao.ts`, `modelos.ts`, `carregar.ts`, `plano-pdf-job.ts`, `plano-pdf.tsx`, `constantes.ts`, `erros.ts`, `tipos.ts`). API: `src/app/api/painel/planos/[id]/route.ts` (GET/PUT), `…/[id]/pdf/route.ts`, `…/[id]/revisao/route.ts`. Editor: `src/app/painel/planos/editor/`.
+**Arquivos:** `src/modules/plano-alimentar/` (`calculo.ts`, `meta.ts`, `rascunho.ts`, `publicacao.ts`, `modelos.ts`, `carregar.ts`, `plano-pdf-job.ts`, `plano-pdf.tsx`, `constantes.ts`, `erros.ts`, `tipos.ts`; Plano 19: `dias.ts`, `congelados.ts`, `tipos-de-refeicao.ts`, `item-entrada.ts`, `biblioteca.ts`, `biblioteca-constantes.ts`, `refeicoes-modelo.ts`, `listas.ts`, `ligados.ts`). API: `src/app/api/painel/planos/[id]/route.ts` (GET/PUT), `…/[id]/pdf/route.ts`, `…/[id]/revisao/route.ts`. Editor: `src/app/painel/planos/editor/` (Plano 19: `dialogo-busca.tsx`, `filtro-dias.tsx`, `nutrientes-do-paciente.tsx`, `minhas-refeicoes.tsx`, `ligado-ao-plano.tsx`, `ligados-actions.ts`), usado em `[planId]/page.tsx` e em `planos/modelos/[id]/page.tsx`. Biblioteca: `src/app/painel/planos/{refeicoes,listas,referencias}/`.
 
 **Tabelas:**
 
 | Tabela | Pontos-chave |
 |---|---|
-| `meal_plans` 🔒 | `patient_id` nulo = modelo (`is_template`); `status` `rascunho`/`publicado`/`arquivado`; `versao`; `revisao` e `ultimo_envio` (D7); `meta_kcal` 500–10000; `energy_calc_id` sem FK; `pdf_path`, `pdf_status`, `pdf_pedido_em`; índices únicos parciais "1 publicado" e "1 rascunho" por paciente (RN-01, D11); Plano 14B-2: `ia_origem_em` (o plano nasceu de "Usar como rascunho"; só em plano de paciente, CHECK `meal_plans_ia_origem_so_paciente`) |
-| `meals` 🔒 | `tenant_id`, `patient_id`, `plan_id`; nome 1–60; `horario time`; `ordem`; `recipe_content_id` (US-054) |
-| `meal_items` 🔒 | `food_id` FK `RESTRICT`; `quantidade_g numeric(7,2)` 0,1–5000; `medida jsonb` (cópia); `medida_caseira_txt`; `substitui_item_id` (FK para o principal da mesma refeição, cascade); `nutrientes jsonb` (cópia congelada na publicação) |
+| `meal_plans` 🔒 | `patient_id` nulo = modelo (`is_template`); `status` `rascunho`/`publicado`/`arquivado`; `versao`; `revisao` e `ultimo_envio` (D7); `meta_kcal` 500–10000; `energy_calc_id` sem FK; `pdf_path`, `pdf_status`, `pdf_pedido_em`; índices únicos parciais "1 publicado" e "1 rascunho" por paciente (RN-01, D11); Plano 14B-2: `ia_origem_em` (o plano nasceu de "Usar como rascunho"; só em plano de paciente, CHECK `meal_plans_ia_origem_so_paciente`); Plano 19: `modo` (`calculado`/`livre`), `referencia_id` (só no rascunho, FK `SET NULL (referencia_id)`), `nutrientes_exibidos` (até 12), `referencia_congelada` (só fora do rascunho), `macros_prescritos` (só no modo livre), `mostrar_micros_pdf` |
+| `meals` 🔒 | `tenant_id`, `patient_id`, `plan_id`; nome 1–60; `horario time`; `ordem`; `recipe_content_id` (US-054); Plano 19: `dias_semana smallint[]` (padrão os 7 dias, CHECK `meals_dias_validos` com `app_dias_semana_validos`) e `descricao_livre` (até 2000) |
+| `meal_items` 🔒 | `food_id` FK `RESTRICT`; `quantidade_g numeric(7,2)` 0,1–5000; `medida jsonb` (cópia); `medida_caseira_txt`; `substitui_item_id` (FK para o principal da mesma refeição, cascade); `nutrientes jsonb` (cópia congelada na publicação; formato novo do Plano 19 na §4.4.8) |
+| `plano_listas_substituicao` 🔒 (Plano 19) | Cópia congelada da lista de substituição ligada ao plano: `nome`, `orientacao`, `conteudo jsonb` (grupos e itens, até 512 KB, CHECK `plano_listas_substituicao_conteudo_valido`), `lista_origem_id` sem FK, `copiada_em`, `ordem`; FKs compostas para `meal_plans` em cascata; auditada (`plano_alimentar`) |
+| `plano_conteudos` 🔒 (Plano 19) | Receita, orientação ou vídeo ligado ao plano: `content_id` (FK composta `ON DELETE SET NULL (content_id)`), `titulo` copiado (1–120), `ordem`; UNIQUE `(plan_id, content_id)`; auditada (`plano_alimentar`) |
 
-Política `paciente_sem_rascunho` (RESTRICTIVE) nas três tabelas: sessão de paciente nunca vê nem grava rascunho (`drizzle/0045_rls_planos_alimentares.sql`; Plano 04, D12).
+Política `paciente_sem_rascunho` (RESTRICTIVE) nas três tabelas: sessão de paciente nunca vê nem grava rascunho (`drizzle/0045_rls_planos_alimentares.sql`; Plano 04, D12). O Plano 19 pôs a mesma política nas duas ligações (`drizzle/0131_rls_plano_listas_substituicao.sql`, `0132_rls_plano_conteudos.sql`): a lista e o conteúdo ligados a um rascunho nunca chegam ao paciente.
 
 ### 4.4.1 Cálculo RN-02 compartilhado
 
-`calculo.ts` não importa banco nem React: o editor (navegador), o servidor e o PDF usam a mesma conta (`calculo.ts:6`).
+`calculo.ts` não importa banco nem React: o editor (navegador), o servidor e o PDF usam a mesma conta. Desde o Plano 19, `calculo-grafo.test.ts` garante pelo grafo de imports que `calculo.ts`, `dias.ts`, `congelados.ts`, `nutrientes.ts` e `fontes.ts` não alcançam `src/db/` nem `drizzle-orm`, `pg`, `react`, `react-dom` ou `next` (`import type` não conta; RNF-235).
 
 | Função | Regra | Onde |
 |---|---|---|
-| `lerQuantidade(v)` | Gramas em [0,1; 5000]; senão `null` | `calculo.ts:14` |
-| `nutrientesDoItem(porCem, g)` | `valor_por_100g × g / 100`, 6 casas; valor nulo na TACO conta 0 e entra em `semValor` (sem `NaN`) | `calculo.ts:21` |
-| `totalDosItens(itens)` | Soma só itens principais (`substituiItemId` nulo) com quantidade válida | `calculo.ts:41` |
-| `totalDoDia(refeicoes)` | Soma das refeições | `calculo.ts:52` |
-| `indicadorMeta(kcal, meta)` | \|desvio\| ≤ 5% verde "Dentro da meta"; ≤ 10% amarelo "Atenção"; > 10% vermelho "Fora da meta"; texto com sinal e até 1 casa ("+7,5%") | `calculo.ts:60` |
-| `distribuicaoMacros(total, pesoKg)` | g, g/kg (peso da última antropometria; sem peso, `null`) e % do VET com 4/4/9 kcal/g | `calculo.ts:72` |
-| `kcalTexto`, `gTexto` | kcal inteiro; gramas com 1 casa | `calculo.ts:82-83` |
-| `diferencaKcalDoItem(sub, principal)` | Diferença da substituição só se os **dois** lados têm kcal na TACO | `calculo.ts:97` |
-| `quantidadeDoItem(i)` | "4 colheres de sopa cheias (100 g)" ou só "12,5 g" | `calculo.ts:101` |
+| `lerQuantidade(v)` | Gramas em [0,1; 5000]; senão `null` | `calculo.ts:16` |
+| `nutrientesDoItem(porCem, g)` | `valor_por_100g × g / 100`, 6 casas; valor nulo na tabela conta 0 e entra em `semValor` (sem `NaN`) | `calculo.ts:23` |
+| `totalDosItens(itens)` | Soma só itens principais (`substituiItemId` nulo) com quantidade válida | `calculo.ts:44` |
+| `totalDoDia(refeicoes)` | Soma das refeições recebidas | `calculo.ts:55` |
+| `totaisDoDia(refeicoes, dia)` | Plano 19 (RN-247): o total do **dia** = `totalDoDia` só das refeições que valem nele (`refeicoesDoDia`); nunca a soma de dois "Almoço" de perfis diferentes | `calculo.ts:58` |
+| `microsDoItem(i)`, `totalMicros(refeicoes, chaves)` | Plano 19 (RN-236): micro do item = `valor_por_100g × g / 100`; total só de itens principais; item sem o valor conta 0 e entra em `semValor` ("{n} itens sem valor de {nutriente}") | `calculo.ts:65,78` |
+| `indicadorMeta(kcal, meta)` | \|desvio\| ≤ 5% verde "Dentro da meta"; ≤ 10% amarelo "Atenção"; > 10% vermelho "Fora da meta"; texto com sinal e até 1 casa ("+7,5%") | `calculo.ts:100` |
+| `distribuicaoMacros(total, pesoKg)` | g, g/kg (peso da última antropometria; sem peso, `null`) e % do VET com 4/4/9 kcal/g | `calculo.ts:112` |
+| `kcalTexto`, `gTexto` | kcal inteiro; gramas com 1 casa | `calculo.ts:122-123` |
+| `diferencaKcalDoItem(sub, principal)` | Diferença da substituição só se os **dois** lados têm kcal na tabela | `calculo.ts:137` |
+| `quantidadeDoItem(i)` | "4 colheres de sopa cheias (100 g)" ou só "12,5 g" | `calculo.ts:141` |
+| `itensComoTexto(itens)` | Plano 19 (RN-245): os itens em texto para a troca para texto livre e para a minha refeição carregada num plano livre: `"{nome} — {quantidade}"` dos principais unidos por "; ", cada substituição como `" (ou {nome} — {quantidade})"`, cortado em 2000 caracteres sem meio caractere UTF-16. A quantidade é a de `quantidadeDoItem`: a medida caseira **com os gramas** quando há ("4 colheres de sopa (100 g)"), senão os gramas — decidido em 17/11/2026, ver a divergência #17 | `calculo.ts:152` |
 
 `contextoDoPaciente(ctx, patientId, fuso)` (`meta.ts:12`) junta o peso para g/kg (Plano 04, D15) e os cálculos de GET para "Usar como meta do plano". As duas leituras já são auditadas.
 
-Limites (`constantes.ts`): até 15 refeições e 200 itens por plano; textos até 2000; até 20 envios incertos.
+Limites (`constantes.ts:9-16`): desde o Plano 19 (RN-249, D18), até **50 refeições e 400 itens** por plano no editor e no salvamento (`MAX_REFEICOES`, `MAX_ITENS`; "O plano pode ter até 50 refeições e 400 itens."); todo o caminho da IA fica em **15 e 200** (`MAX_REFEICOES_RASCUNHO_IA`, `MAX_ITENS_RASCUNHO_IA`; "O rascunho da IA pode ter até 15 refeições e 200 itens.", usados em `rascunho-dados.ts`, `plano-ia.ts`, `ferramentas-alimentos.ts` e `metas-form.tsx`); textos até 2000; até 20 envios incertos. O recálculo por tecla do editor com 50 refeições e 400 itens ficou em p95 3,06 ms (`estado.tempo.test.ts`, meta < 16 ms, PM-PA9).
 
 ### 4.4.2 Rascunho, salvamento por diferença e trava de revisão (Plano 04, D7, D8, D11)
 
@@ -875,20 +950,21 @@ sequenceDiagram
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `criarRascunho(ctx, patientId)` | Um rascunho por paciente: devolve o existente ou cria com `proximaVersao` (desde o Plano 14B-2, por `criarRascunhoTx`) | `rascunho.ts:25` |
-| `criarRascunhoTx(tx, tenantId, patientId, { titulo?, metaKcal?, orientacoes?, iaOrigemEm? })` | Plano 14B-2 (RN-122): o rascunho novo dentro da transação de quem chama (que já travou o paciente e conferiu que não há rascunho, D11), com a versão seguinte; `iaOrigemEm` = a marca do "Usar como rascunho" (§10.13.3) | `rascunho.ts:46` |
-| `proximaVersao(tx, patientId)` | `max(versao) + 1` contando publicadas, arquivadas e rascunho | `rascunho.ts:19` |
-| `validar(entrada)` (privada) | Ids gerados no cliente, únicos no corpo (D8); medida `{nome, plural, gramas, qtd}`; quantidade arredondada a 2 casas; substituição só para principal da mesma refeição; meta 500–10000; horário `HH:MM`. Erros por chave `item:<id>:campo` e `refeicao:<id>:campo`; nada é gravado com erro | `rascunho.ts:77` |
-| `salvarRascunho(ctx, planId, entrada)` | Ver diagrama | `rascunho.ts:173` |
-| `gravarConteudoRascunhoTx(tx, tenantId, patientId, planId, refeicoes)` | Plano 14B-1: grava as refeições e os itens sugeridos pela IA num plano vazio (modelos, com `patientId` nulo, e, desde o Plano 14B-2, o rascunho do paciente); alimento que sumiu do catálogo sai e é contado (`foraDoCatalogo`); devolve `{ itens, foraDoCatalogo }` | `rascunho.ts:343` |
-| `copiarConteudo(tx, origem, destino)` | Copia refeições e itens com ids novos; origem travada `FOR SHARE`; `nutrientes = null` (a cópia volta aos valores atuais) | `rascunho.ts:304` |
-| `descartarRascunho(ctx, patientId, planId)` | Só o rascunho do paciente da URL; paciente bloqueado não descarta | `rascunho.ts:379` |
+| `criarRascunho(ctx, patientId)` | Um rascunho por paciente: devolve o existente ou cria com `proximaVersao` (desde o Plano 14B-2, por `criarRascunhoTx`) | `rascunho.ts:32` |
+| `criarRascunhoTx(tx, tenantId, patientId, { titulo?, metaKcal?, orientacoes?, iaOrigemEm? })` | Plano 14B-2 (RN-122): o rascunho novo dentro da transação de quem chama (que já travou o paciente e conferiu que não há rascunho, D11), com a versão seguinte; `iaOrigemEm` = a marca do "Usar como rascunho" (§10.13.3). Plano 19: sempre `modo = 'calculado'` e os 7 dias (RN-234) | `rascunho.ts:53` |
+| `proximaVersao(tx, patientId)` | `max(versao) + 1` contando publicadas, arquivadas e rascunho | `rascunho.ts:26` |
+| `validar(entrada)` (privada) | Ids gerados no cliente, únicos no corpo (D8); medida `{nome, plural, gramas, qtd}`; quantidade arredondada a 2 casas; substituição só para principal da mesma refeição; meta 500–10000; horário `HH:MM`. Erros por chave `item:<id>:campo` e `refeicao:<id>:campo`; nada é gravado com erro. Plano 19: `modo`, `macrosPrescritos` (inteiros de 0 a 100 que somam 100: "A soma de proteína, carboidrato e lipídio precisa dar 100%."), `referenciaId`, `nutrientesExibidos` (até 12, chaves do catálogo), `mostrarMicrosPdf` e, por refeição, `diasSemana` ("Escolha ao menos um dia da semana.", `refeicao:<id>:dias`) e `descricaoLivre`; campo novo ausente no corpo fica como está no banco | `rascunho.ts:129` |
+| `salvarRascunho(ctx, planId, entrada)` | Ver diagrama. Plano 19: o perfil só se visível na sessão (`FOR KEY SHARE`); modo livre com itens no corpo é recusado; na troca calculado → livre, os itens gravados viram o texto de cada refeição (`itensComoTexto`) e saem; no calculado, `descricao_livre` e `macros_prescritos` ficam nulos (RN-243) | `rascunho.ts:241` |
+| `gravarConteudoRascunhoTx(tx, tenantId, patientId, planId, refeicoes)` | Plano 14B-1: grava as refeições e os itens sugeridos pela IA num plano vazio (modelos, com `patientId` nulo, e, desde o Plano 14B-2, o rascunho do paciente); alimento que sumiu do catálogo sai e é contado (`foraDoCatalogo`); devolve `{ itens, foraDoCatalogo }` | `rascunho.ts:505` |
+| `copiarConteudo(tx, origem, destino)` | Copia refeições e itens com ids novos; origem travada `FOR SHARE`; `nutrientes = null` (a cópia volta aos valores atuais). Plano 19 (RN-256): também `dias_semana` e `descricao_livre` de cada refeição, as cópias de `plano_listas_substituicao` (o mesmo `conteudo`, sem reler a biblioteca) e as linhas de `plano_conteudos` | `rascunho.ts:438` |
+| `cabecalhoDaCopia(tx, plano)` | Plano 19 (RN-256): o cabeçalho que "Editar", `salvarComoModelo` e `criarDeModelo` copiam — `modo`, `nutrientes_exibidos`, `macros_prescritos`, `mostrar_micros_pdf` e o perfil (`referencia_id`, ou o `referencia_congelada.id` se o perfil ainda existir); `referencia_congelada` nunca é copiada | `rascunho.ts:420` |
+| `descartarRascunho(ctx, patientId, planId)` | Só o rascunho do paciente da URL; paciente bloqueado não descarta | `rascunho.ts:542` |
 
-Por que a gravação é por diferença: o gatilho de auditoria grava uma linha por linha alterada. Regravar tudo a cada salvamento poria dezenas de linhas no "Histórico de acessos" a cada 2 s (D7). `canonico`/`iguais` comparam ignorando a ordem das chaves do `jsonb` (`rascunho.ts:162-164`).
+Por que a gravação é por diferença: o gatilho de auditoria grava uma linha por linha alterada. Regravar tudo a cada salvamento poria dezenas de linhas no "Histórico de acessos" a cada 2 s (D7). `canonico`/`iguais` comparam ignorando a ordem das chaves do `jsonb` (`rascunho.ts:230-232`).
 
-Repetição segura (`rascunho.ts:188-192`): um envio cuja resposta se perdeu chega com revisão antiga. Ele é aceito se `ultimo_envio` estiver em `enviosIncertos` da mesma tela. Como o corpo é o rascunho inteiro e a gravação é por diferença, reaplicar não desfaz nada.
+Repetição segura (`rascunho.ts:267`): um envio cuja resposta se perdeu chega com revisão antiga. Ele é aceito se `ultimo_envio` estiver em `enviosIncertos` da mesma tela. Como o corpo é o rascunho inteiro e a gravação é por diferença, reaplicar não desfaz nada.
 
-Erros mapeados pela rota (`src/app/api/painel/planos/[id]/route.ts`): 422 `PlanoError`; 409 `conflito`/`bloqueado`/`nao_editavel`; 404 não encontrado. Deadlock vira `PlanoError` "Recarregue a página" (`rascunho.ts:293`).
+Erros mapeados pela rota (`src/app/api/painel/planos/[id]/route.ts`): 422 `PlanoError`; 409 `conflito`/`bloqueado`/`nao_editavel`; 404 não encontrado. Deadlock vira `PlanoError` "Não foi possível salvar estes dados. Recarregue a página." (`rascunho.ts:390`).
 
 ### 4.4.3 Publicação com versão (RN-01, US-025, Plano 04, D10)
 
@@ -904,21 +980,22 @@ stateDiagram-v2
     end note
 ```
 
-`publicarPlano(ctx, patientId, planId)` (`publicacao.ts:37`), numa transação, travas paciente → plano:
+`publicarPlano(ctx, patientId, planId, deps?, { confirmarAvisos? })` (`publicacao.ts:72`), numa transação, travas paciente → plano:
 
-1. Exige ao menos uma refeição com alimento, horário em todas e item principal em cada refeição (`exigirPublicavel`, `publicacao.ts:19`).
-2. Arquiva o publicado anterior.
-3. Congela `nutrientes` de cada item com um `UPDATE … FROM foods` (nome, origem e os 5 valores por 100 g). Se o número de linhas congeladas difere do número de itens, aborta (`publicacao.ts:58-67`).
-4. `status = 'publicado'`, `publicado_em`, `pdf_status = 'pendente'`, `pdf_pedido_em`.
-5. Enfileira `plano-pdf` e grava o aviso ao paciente (`avisarPlanoNovo`, Plano 06) na mesma transação.
+1. Exige o publicável (`exigirPublicavel`, `publicacao.ts:22`). Calculado: ao menos uma refeição com alimento, horário em todas e item principal em cada refeição. Livre (Plano 19, RN-244): ao menos uma refeição ("Inclua pelo menos uma refeição para publicar.", texto fora da spec), horário em todas e texto em todas ("A refeição "{nome}" está sem texto.", com a chave `refeicao:<id>:descricaoLivre`, que o botão mostra como link para a caixa "O que comer"). O dia de cada refeição o CHECK `meals_dias_validos` já garante.
+2. **Avisos em dois passos (D31, Plano 19).** `avisosDaPublicacao` (`publicacao.ts:39`): no modo livre sem `meta_kcal`, "Registre o VET, a distribuição de macro e micronutrientes e as quantidades da prescrição no plano ou no atendimento." (RN-244); dia sem refeição, "{Dia} não tem refeições." / "Sábado e domingo não têm refeições." (RN-246, `diasSemRefeicao`). Com algum aviso fora de `confirmarAvisos`, **nada é publicado** e a função devolve `{ avisos }`; o `BotaoPublicar` (`src/app/painel/pacientes/[id]/plano-alimentar/botao-publicar.tsx:20`, componente próprio, sem mudar `BotaoAcao`) mostra-os em `role="alert"` com "Publicar mesmo assim", que manda os avisos que mostrou — um aviso novo, de uma edição feita depois, volta a aparecer. O `confirm` de sempre continua no primeiro toque.
+3. Lê o perfil de referência (sem trava: a exclusão do perfil trava na ordem contrária) e arquiva o publicado anterior.
+4. Congela `nutrientes` de cada item com um `UPDATE … FROM foods` (desde o Plano 19, no formato novo da §4.4.8: nome, `origem` (o selo, para leitores antigos), `fonte` de `foods.fonte` — nunca de `tenant_id` —, `fonteVersao`, `fonteOrigem` do "Meu alimento" duplicado, os 5 valores e `micros`). Se o número de linhas congeladas difere do número de itens, aborta.
+5. `status = 'publicado'`, `publicado_em`, `pdf_status = 'pendente'`, `pdf_pedido_em`, **`referencia_id = null`** e `referencia_congelada` (RN-238, D30).
+6. Enfileira o PDF em **`plano-pdf-2`** (`FILA_DO_PDF_DO_PLANO`, `src/jobs/queues.ts:106`; R-244, §4.4.5) e grava o aviso ao paciente (`avisarPlanoNovo`, Plano 06) na mesma transação.
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `editarPublicado(ctx, patientId, planId)` | Só a versão **publicada** gera rascunho (`versao + 1`, `origem_plan_id`); se já há rascunho, devolve o existente; versão arquivada → "Esta versão não está mais publicada. Recarregue a página."; desde o Plano 14B-2 copia `ia_origem_em` (a versão nova de um plano feito com apoio da IA continua com o selo, RN-117, `:110`) | `publicacao.ts:86` |
-| `pedirNovoPdf(...)` | Só de `falhou` volta a `pendente` com job; `pendente` → `PdfEmPreparoError`; `pronto` → nada; paciente bloqueado não ganha PDF novo | `publicacao.ts:128` |
-| `lerPlanoNaTransacao(tx, planId, opts)` | Rascunho/modelo: valores atuais dos alimentos (e medidas, se for o editor). Publicado/arquivado: a cópia congelada. Audita `plano_alimentar` quando há paciente | `carregar.ts:17` |
-| `paraCliente(p)` | Remove o caminho interno do PDF antes de mandar ao navegador | `carregar.ts:98` |
-| `statusDoPdf`, `revisaoDoPlano`, `listarPlanosDoPaciente` | Estado do PDF (para o painel atualizar sem recarregar e auditar de novo), revisão atual, versões | `carregar.ts:115,126,134` |
+| `editarPublicado(ctx, patientId, planId)` | Só a versão **publicada** gera rascunho (`versao + 1`, `origem_plan_id`); se já há rascunho, devolve o existente; versão arquivada → "Esta versão não está mais publicada. Recarregue a página."; desde o Plano 14B-2 copia `ia_origem_em` (a versão nova de um plano feito com apoio da IA continua com o selo, RN-117); desde o Plano 19, o cabeçalho de `cabecalhoDaCopia` e o conteúdo de `copiarConteudo` (RN-256: um plano em texto livre vira rascunho em texto livre, com as listas e conteúdos ligados) | `publicacao.ts:144` |
+| `pedirNovoPdf(...)` | Só de `falhou` volta a `pendente` com job; `pendente` → `PdfEmPreparoError`; `pronto` → nada; paciente bloqueado não ganha PDF novo; desde o Plano 19, enfileira em `plano-pdf-2` | `publicacao.ts:187` |
+| `lerPlanoNaTransacao(tx, planId, opts)` | Rascunho/modelo: valores atuais dos alimentos (e medidas, se for o editor). Publicado/arquivado: a cópia congelada, lida só por `lerCongelados` (`congeladoDoItem`, `carregar.ts:22`). Desde o Plano 19 traz também `modo`, `macrosPrescritos`, `nutrientesExibidos`, `referenciaCongelada`, os dias e o texto livre de cada refeição, os micros de cada item e as listas e conteúdos ligados (`ligadosNaTransacao`, na mesma transação e no mesmo registro de auditoria). Audita `plano_alimentar` quando há paciente | `carregar.ts:36` |
+| `paraCliente(p)` | Remove o caminho interno do PDF antes de mandar ao navegador | `carregar.ts:137` |
+| `statusDoPdf`, `revisaoDoPlano`, `listarPlanosDoPaciente` | Estado do PDF (para o painel atualizar sem recarregar e auditar de novo), revisão atual, versões | `carregar.ts:154,165,173` |
 
 Consequência de D10: corrigir um "Meu alimento" não muda plano publicado; "Editar" cria o rascunho com os valores atuais.
 
@@ -927,11 +1004,11 @@ Na página do plano do paciente (`src/app/painel/pacientes/[id]/plano-alimentar/
 aparece ao lado de "Criar plano" e "Criar a partir de modelo" quando a IA permite (`iaDoAssistente` com o uso
 `rascunho_plano`); sem permitir, o motivo aparece abaixo dos botões. A tela `/painel/pacientes/[id]/plano-alimentar/rascunho-ia`
 recebe as metas, acompanha a tarefa e mostra a prévia com os totais do mesmo `PainelTotais` do editor (`calculo.ts`;
-nenhum número do modelo). "Usar como rascunho" (`usarComoRascunho`, `src/modules/ia/rascunho-ia.ts:173`) cria o
+nenhum número do modelo). "Usar como rascunho" (`usarComoRascunho`, `src/modules/ia/rascunho-ia.ts:178`) cria o
 rascunho por `criarRascunhoTx` + `gravarConteudoRascunhoTx` na mesma transação que marca a tarefa aplicada (com
 "Substituir" quando já há rascunho) e abre o editor com "Rascunho criado. Revise antes de publicar.". O editor do
 paciente mostra "Criado com apoio de IA" (`MSG_PLANO.marcaIa`, `[planId]/page.tsx:38`) quando há `iaOrigemEm`
-(`PlanoCompleto.iaOrigemEm`, `carregar.ts:93`); publicado, o PDF (`plano-pdf.tsx:52`) e o app (`/p/plano`,
+(`PlanoCompleto.iaOrigemEm`, `carregar.ts`); publicado, o PDF (`plano-pdf.tsx`) e o app (`/p/plano`,
 `PlanoDoPaciente.seloIa`) mostram "Elaborado com apoio de IA e revisado pela nutricionista" (`MSG_PLANO.seloIa`).
 `salvarComoModelo` e `criarDeModelo` não levam a marca (o `INSERT` deles é explícito; teste em `publicacao.test.ts`).
 
@@ -945,11 +1022,11 @@ paciente mostra "Criado com apoio de IA" (`MSG_PLANO.marcaIa`, `[planId]/page.ts
 | `listarModelos(ctx)` | Com contagem de refeições; Plano 14B-1: `sugestaoIa` (origem IA sem aprovação) e `aprovadoEm` | `modelos.ts:30` |
 | `listarModelosUsaveis(ctx)` | Plano 14B-1 (RN-125): só os próprios e os sugeridos **aprovados** — "Criar a partir de modelo" na página do plano do paciente | `modelos.ts:53` |
 | `aprovarModeloPlano(ctx, id)` | Plano 14B-1: "Aprovar modelo" com o modelo travado; grava `aprovado_por` (= `actorUserId`) e `aprovado_em`; sem origem IA → `PlanoNaoEncontradoError` | `modelos.ts:74` |
-| `salvarComoModelo(ctx, planId, titulo)` | Copia refeições e itens; audita a leitura do plano do paciente; paciente bloqueado não gera modelo | `modelos.ts:99` |
-| `criarDeModelo(ctx, modeloId, patientId)` | Rascunho novo do paciente; recusa se já houver rascunho ("Já existe um rascunho para este paciente.") e, desde o Plano 14B-1, o sugerido pela IA sem aprovação ("Aprove o modelo antes de usá-lo com pacientes."); o plano criado não leva marca de IA | `modelos.ts:124` |
-| `excluirModelo(ctx, id)` | Apaga o modelo | `modelos.ts:146` |
+| `salvarComoModelo(ctx, planId, titulo)` | Copia refeições e itens; audita a leitura do plano do paciente; paciente bloqueado não gera modelo. Plano 19 (RN-256): leva o cabeçalho (`cabecalhoDaCopia`), os dias, o texto livre e as ligações; a tela mostra "Observações e textos das refeições vão para o modelo. Retire dados do paciente antes de salvar." (`MSG_PLANO.modeloComTextos`, `salvar-como-modelo.tsx`) | `modelos.ts:101` |
+| `criarDeModelo(ctx, modeloId, patientId)` | Rascunho novo do paciente; recusa se já houver rascunho ("Já existe um rascunho para este paciente.") e, desde o Plano 14B-1, o sugerido pela IA sem aprovação ("Aprove o modelo antes de usá-lo com pacientes."); o plano criado não leva marca de IA; desde o Plano 19, copia cabeçalho, dias, texto livre e ligações (RN-256) | `modelos.ts:127` |
+| `excluirModelo(ctx, id)` | Apaga o modelo | `modelos.ts:153` |
 
-Modelo não se publica: `publicarPlano` filtra por `patient_id` e devolve "não encontrado" (`publicacao.ts:44-45`). Modelos não mostram g/kg (D15).
+Modelo não se publica: `publicarPlano` filtra por `patient_id` e devolve "não encontrado" (`doPaciente`, `publicacao.ts:58`). Modelos não mostram g/kg (D15).
 
 **Modelos sugeridos pela IA (Plano 14B-1, US-123).** O pacote de uma área traz 2 modelos de plano, gravados pelo worker na mesma transação (`ia_geracao_id`, título prefixado pela área, conteúdo por `gravarConteudoRascunhoTx` em `rascunho.ts`, com `patientId` nulo). `carregarPlano` devolve `origemIa` (`{ sugestao, aprovadoEm, descartados }`, `carregar.ts`; `PlanoCompleto.origemIa` em `tipos.ts`). Na lista (`/painel/planos/modelos`), a marca "Sugestão da IA — revise" (texto, não só cor) ou "Aprovado em {data}"; na página do modelo, a faixa ("Modelo sugerido por inteligência artificial. Revise alimentos, quantidades e textos antes de aprovar. Depois de aprovado, o modelo é seu."), "{n} itens sugeridos foram descartados por serem inválidos." e "Aprovar modelo" (com confirmação; `AprovarModelo`, `aprovarModeloPlanoAction`). O modelo continua editável no editor antes e depois da aprovação. Textos em `MSG_MODELO_IA` (`constantes.ts`). Gatilho `app_modelo_ia_origem` e CHECKs no [§10.12.3](10-ia.md#10123-banco-d18-migrations-0111-e-0112).
 
@@ -959,21 +1036,136 @@ Modelo não se publica: `publicarPlano` filtra por `patient_id` e devolve "não 
 
 1. Tenant suspenso → `falhou` (RN-15).
 2. Só age com `pdf_status = 'pendente'` em plano publicado ou arquivado (idempotente).
-3. Lê o plano congelado sem auditar (o worker não é usuário).
-4. Renderiza com `renderizarPlano` (`plano-pdf.tsx:98`): Helvetica/WinAnsi, cor `tenant.corPrimaria ?? COR_PADRAO` e logo lido do disco (D14: `getTenantBrand` é `server-only`), CRN, data de publicação no fuso, kcal só com `mostrar_calorias`, citação da TACO.
+3. Lê o plano congelado sem auditar (o worker não é usuário), por `lerPlanoNaTransacao` (e, nele, `lerCongelados`).
+4. Renderiza com `renderizarPlano` (`plano-pdf.tsx:219`): Helvetica/WinAnsi, cor `tenant.corPrimaria ?? COR_PADRAO` e logo lido do disco (D14: `getTenantBrand` é `server-only`), CRN, data de publicação no fuso, kcal só com `mostrar_calorias`. Plano 19: **um bloco por perfil de dia** (título por extenso, "{n} refeições por dia", as refeições e o total do dia com `mostrar_calorias`; RN-247 g); no modo livre, o texto de cada refeição e, quando preenchidas, "Meta: {VET} kcal" e "Distribuição prescrita: Proteína {p}% · Carboidrato {c}% · Lipídio {l}%" (`plano-pdf.tsx:160-162`, ruling da Tarefa 10b, Res. CFN 594, art. 4º, § 1º, VIII); os nutrientes escolhidos e "Referência: {nome} — {fonte}" só com `mostrar_micros_pdf` **e** `mostrar_calorias` (`comMicros`, `plano-pdf.tsx:133`), ou "Micronutrientes não registrados nesta versão do plano." no plano publicado antes do deploy; a seção "Lista de substituição" (orientação, grupos e itens com gramas e medida; energia só com `mostrar_calorias`) e, no fim, os conteúdos ligados **publicados** (tipo e título); o rodapé "Fontes:" com só as tabelas usadas (itens congelados, `fonteOrigem` e itens das listas), uma por linha, e "Nomes de alimentos da USDA traduzidos do inglês." quando há USDA (RN-233). O número da página fica em `top: 810` (o `bottom` quebrava acima de ~10 páginas no `@react-pdf`, Tarefa 10b; o mesmo padrão no `prontuario-pdf.tsx` virou o SUS-99).
 5. Grava com `salvarArquivo(tipo 'plano_pdf', ['pdf'])`: `antesDaReserva` trava o paciente e desiste se ele foi bloqueado ou anonimizado; `registrar` grava `pdf_path` e `pronto`.
 6. Cota esgotada ou última tentativa → `falhou`; outros erros → nova tentativa do pg-boss.
 
-Rede de segurança: `expirarPdfsPendentes` a cada 15 min marca `falhou` o pendente há mais de 1 h, medido por `pdf_pedido_em` (`plano-pdf-job.ts:114,125`; `src/worker/index.ts:207`). Fila `plano-pdf`: 2 novas tentativas, 30 s com backoff, 120 s cada (`src/jobs/queues.ts:25`).
+**Duas filas, um handler (Plano 19, R-244).** `publicarPlano` e `pedirNovoPdf` enfileiram só em `plano-pdf-2` (`FILA_DO_PDF_DO_PLANO`, `src/jobs/queues.ts:106`), que só o worker novo registra; o worker novo consome `plano-pdf` e `plano-pdf-2` com o mesmo handler (`FILAS_DO_PDF_DO_PLANO`, `queues.ts:108`; `src/worker/index.ts:207-215`; teste `src/worker/filas-plano-pdf.test.ts`). Motivo: o worker antigo, de pé durante o boot do app novo e na volta atrás, geraria para um plano publicado no app novo um PDF sem dias nem texto livre, marcado `pronto` até a próxima publicação. As duas filas: 2 novas tentativas, 30 s com backoff, 120 s cada (`queues.ts:25,31`). Medição PM-PA9: 50 refeições e 400 itens em 0,66–0,81 s (12 páginas); 5 listas 20 × 30 e 10 conteúdos em 1,7–1,9 s (64 páginas).
+
+Rede de segurança: `expirarPdfsPendentes` a cada 15 min marca `falhou` o pendente há mais de 1 h, medido por `pdf_pedido_em` (`plano-pdf-job.ts:114,125`; `src/worker/index.ts:223`).
 
 Download: o painel chama `signFileUrl(pdf_path)` (`src/app/painel/pacientes/[id]/plano-alimentar/[planId]/pdf-do-plano.tsx`); o portal, `src/app/api/p/plano/pdf/route.ts`.
+
+### 4.4.6 Editor: texto livre, dias da semana e o diálogo de busca (Plano 19, RN-243 a RN-247, US-234 a US-236)
+
+**Modo do plano (RN-243 a RN-245, D15, D16).** `meal_plans.modo` = `calculado` (alimentos e quantidades) ou `livre`
+(um texto por refeição, `meals.descricao_livre`, 1 a 2000 caracteres para publicar). No editor, "Como montar o plano"
+com "Com alimentos e quantidades" e "Texto livre por refeição"; no livre, a caixa "O que comer" de cada refeição, a
+"Distribuição prescrita (opcional)" (proteína, carboidrato e lipídio em %, que somam 100) e somem as caixas "Mostrar
+calorias ao paciente" e "Mostrar no PDF os nutrientes escolhidos" e a seção "Nutrientes do paciente". A troca é só no
+rascunho, com `confirm` quando há o que perder ("Os alimentos de cada refeição viram texto e saem do plano.
+Continuar?" / "O texto das refeições será apagado. Continuar?", `MSG_TEXTO_LIVRE`, `constantes.ts:53`); calculado →
+livre usa `itensComoTexto` (§4.4.1), livre → calculado apaga o texto e a distribuição. Rascunho em texto livre aceita
+caixa vazia; a publicação, não (§4.4.3). Abaixo do rótulo da observação, do texto livre e da orientação da lista
+ligada, "Aparece para o paciente no app." (RN-254, `aria-describedby`).
+
+**Dias da semana (RN-246, D17, D28).** `meals.dias_semana` (0 = domingo … 6 = sábado, ordem crescente, 1 a 7 dias,
+padrão os 7). Tudo o que é dia mora em `src/modules/plano-alimentar/dias.ts`, o único lugar de `DiaDaSemana`
+(`dias.ts:7`; os lembretes do Plano 17 passaram a importar daqui, §5.3.9):
+
+| Função | O que faz | Onde |
+|---|---|---|
+| `ORDEM_DIAS`, `DIA_CURTO`, `DIA_EXTENSO`, `TODOS_OS_DIAS` | seg…dom (`[1,2,3,4,5,6,0]`); "seg"…"dom"; "Segunda"…"Domingo" | `dias.ts:10-15` |
+| `rotuloDosDias(d)` | Abreviado: "todos os dias", "seg a sex", "sáb e dom" ou a lista "seg, qua e sex" (cartões e legenda do editor; mesma saída do rótulo do Plano 17) | `dias.ts:24` |
+| `rotuloDosDiasPorExtenso(d)` | "Todos os dias", "Segunda a sexta", "Sábado e domingo", "Segunda, quarta e sexta" (títulos dos perfis no PDF, no portal e na exportação) | `dias.ts:32` |
+| `diaDaSemanaNoFuso(agora, fuso)` | O dia no fuso do consultório (`partesNoFuso`/`diaDaSemana` de `agenda/fuso.ts`, que o plano não edita) | `dias.ts:40` |
+| `valeNoDia`, `refeicoesDoDia` | A refeição vale no dia? As refeições do dia | `dias.ts:44,49` |
+| `perfisDeDia(refeicoes)` | Os dias com exatamente o mesmo conjunto de refeições, juntos ("Segunda a sexta" + "Sábado e domingo"); plano com tudo nos 7 dias = um perfil só, e as telas ficam como antes | `dias.ts:60` |
+| `diasSemRefeicao(refeicoes)` | Os dias sem refeição, para o aviso da publicação | `dias.ts:74` |
+
+No editor (`filtro-dias.tsx:13`): o filtro "Dias" com "Todos" e os 7 dias (botões de alternância com `aria-pressed`) e a
+legenda com o total de energia de cada perfil ("{dias}: sem refeições" no dia vazio). Com um dia escolhido, os totais,
+o indicador da meta e os nutrientes do paciente são **daquele dia** (`totaisDoDia`); em "Todos" com perfis diferentes,
+o painel mostra a tabela dos perfis e "Escolha um dia para ver os detalhes.". A refeição que perde o dia do filtro
+fica na tela até o filtro mudar, com "Não vale em {dia}. Sai desta lista quando você trocar o filtro." (texto fora da
+spec, `MSG_DIAS.foraDoFiltro`; revisão da Tarefa 7). Os nomes acessíveis levam os dias quando o nome da refeição se
+repete ("Horário de Almoço (seg a sex)", "Dias de {refeição}", RNF-232). O guia `plano-alimentar` (v3) ganhou os
+passos "Como montar o plano" (`modo-plano`) e "Dias da semana" (`dias-refeicao`).
+
+**Diálogo "Buscar alimento" (D13, US-234; `dialogo-busca.tsx:64`).** O combobox inline continua; dentro de cada
+refeição, "Mais opções de busca" abre o `<dialog>` nativo com aquela refeição como destino e três abas (padrão ARIA,
+setas do teclado): **Lista** (nome, com filtros "Fonte" — Todas, TACO, USDA (EUA), Meus alimentos — e "Grupo"),
+**Nutrientes** (`buscarPorNutriente`: "Nutriente", "Ordem" com "Rico em"/"Pobre em") e **Equivalentes**
+(`equivalentes`, "Igualar por"; aberta pelo botão geral fica `aria-disabled` com "Para ver equivalentes, toque em
+"Equivalentes" num item do plano."). Cada resultado tem "Ver nutrientes" ("Valores em 100 g", o catálogo inteiro) e
+"Adicionar" (o diálogo continua aberto e anuncia "Adicionado a {refeição}."); "Equivalentes de {item}" abre o diálogo
+na aba Equivalentes e o escolhido entra como **substituição** do item ("Adicionar como substituição"). Rodapé: "Não
+encontrou? Cadastrar meu alimento" em outra aba "(abre em outra aba)". A contagem de resultados é anunciada em
+`role="status"`. Textos fora da spec: os rótulos "Nome do alimento", "Nutriente", "Ordem", "Referência: " e "Valores
+em 100 g" e a contagem de resultados.
+
+### 4.4.7 Nutrientes do paciente (Plano 19, RN-239, US-233)
+
+Seção "Nutrientes do paciente" do editor (`nutrientes-do-paciente.tsx:33`), só no modo calculado: "Perfil de
+referência" (os perfis do consultório, §4.3.7, ou "Sem perfil"), "Escolher nutrientes ({n} de 12)" (até 12 chaves,
+`meal_plans.nutrientes_exibidos`; "Escolha até 12 nutrientes.") e a tabela "Nutriente" × total do dia (do dia do
+filtro), com perfil "meta {x} ({%})" e "Acima do máximo ({y})" em texto (WCAG 1.4.1); "Ver todos os nutrientes" mostra
+o catálogo inteiro. "Mostrar no PDF os nutrientes escolhidos" (`mostrar_micros_pdf`) só tem efeito com "Mostrar
+calorias ao paciente" ("Ligue antes "Mostrar calorias ao paciente"."). No publicado, a tabela usa a cópia congelada
+(`referencia_congelada` e os micros de cada item); publicado antes do Plano 19 mostra "Micronutrientes não registrados
+nesta versão do plano.". Nada disso vai ao app do paciente (RN-240).
+
+### 4.4.8 Congelados no formato novo e `lerCongelados` (Plano 19, RN-237, D10)
+
+Cada `meal_items.nutrientes` publicado depois do deploy tem `{ nome, origem, fonte, fonteVersao, fonteOrigem, kcal,
+proteinaG, carboidratoG, lipidioG, fibraG, micros }` (`NutrientesCongelados`, `src/db/schema/plano-alimentar.ts`;
+`origem` = o selo, mantido para os leitores antigos). Nenhum plano publicado é reescrito pela migration.
+
+`lerCongelados(n)` (`src/modules/plano-alimentar/congelados.ts:42`) é o **único leitor** de `meal_items.nutrientes`:
+aceita o formato antigo (sem `fonte`, a fonte sai de `origem`: `'TACO'` → `taco`, `'Meu alimento'` → `propria`, correto
+só porque nenhuma linha `usda` existe enquanto a imagem antiga pode publicar, D29) e o novo; chave de micro fora do
+catálogo e valor que não é número saem; `micros` nulo = plano publicado antes do Plano 19. A mensagem de erro nunca
+leva o conteúdo (regra 3). Leitores: `carregar.ts` (editor, PDF, portal e IA Nutri pelo `lerPlanoNaTransacao`),
+`portal/lista-compras.ts`, `pacientes/exportacao-job.ts` e `ia/resumo-dados.ts`. A guarda "lerCongelados é o único
+leitor de meal_items.nutrientes" (`congelados.test.ts`, Tarefa 10d) quebra se outro arquivo ler `.nutrientes` de
+`meal_items` sem passar por ela.
+
+### 4.4.9 Biblioteca: minhas refeições e listas de substituição (Plano 19, RN-250, RN-251, US-237, US-238, D21, D22)
+
+Seis tabelas do consultório, todas `staff_only` e sem gatilho de auditoria (não são dado de paciente):
+`referencias_nutrientes` (§4.3.7), `refeicoes_modelo` + `refeicoes_modelo_itens` e `listas_substituicao` +
+`listas_substituicao_grupos` + `listas_substituicao_itens` (`src/db/schema/biblioteca-plano.ts`). Telas sem item no
+menu (D27): três cartões novos em Configurações ("Perfis de referência", "Minhas refeições", "Listas de substituição",
+`src/app/painel/configuracoes/page.tsx:20-22`) e o guia novo `biblioteca-do-plano` (v1, `conteudo.ts:396`).
+
+| Peça | O que faz | Onde |
+|---|---|---|
+| `salvarComoMinhaRefeicao` | "Salvar como minha refeição" no editor (diálogo "Salvar refeição"): nome 1–60, tipo de `TIPOS_DE_REFEICAO` (`tipos-de-refeicao.ts:5`: "Café da manhã" … "Outra"), horário opcional, itens (até 40) ou texto; a observação **só** com "Incluir a observação" (LGPD art. 6º, III); aviso "Confira o nome e os itens: retire dados do paciente antes de salvar."; até 200 por consultório | `refeicoes-modelo.ts:129` |
+| `alterarMinhaRefeicao`, `excluirMinhaRefeicao`, `listarMinhasRefeicoes`, `carregarMinhaRefeicao` | Página `/painel/planos/refeicoes` (filtro por tipo, "Cerca de {kcal} kcal" com os valores atuais) e `/painel/planos/refeicoes/[id]`; excluir não muda planos | `refeicoes-modelo.ts:155,180,222,231` |
+| `refeicaoParaPlano(ctx, id, modo)` | "Carregar minha refeição": ids novos, os 7 dias, horário e observação salvos, valores atuais; num plano livre os itens viram texto (`itensComoTexto`); refeição em texto livre num plano calculado → "Esta refeição é em texto livre: carregue-a num plano em texto livre." O editor grava pelo salvamento de sempre | `refeicoes-modelo.ts:243` |
+| `salvarLista`, `excluirLista`, `listarListas`, `carregarLista` | `/painel/planos/listas` e `/painel/planos/listas/[id]` (`novo` = "Nova lista"): nome 1–80 único ("Já existe uma lista com este nome."), orientação até 1000, até 20 grupos (nome 1–60) × 30 itens (quantidade 0,1–5000 g, medida caseira opcional), até 100 listas; "Sugerir equivalentes" usa o primeiro item do grupo (RN-242) | `listas.ts:99,132,139,154` |
+| `alimentosInvisiveis`, `travarConsultorio` | RN-258: a FK `food_id` (RESTRICT) não passa pela RLS, então cada alimento é conferido **visível** antes de gravar; os limites por consultório contam com o tenant travado `FOR NO KEY UPDATE` (nunca `FOR UPDATE`: o KEY SHARE das FKs) | `biblioteca.ts:26,38` |
+
+### 4.4.10 Ligado ao plano: listas, receitas e materiais (Plano 19, RN-252, RN-253, RN-256, US-239, D23, D24)
+
+Seção "Ligado ao plano" do editor (`ligado-ao-plano.tsx:36`, actions em `ligados-actions.ts`), só no rascunho (de
+paciente ou modelo), com o plano travado (os limites de 5 listas e 10 conteúdos sem TOCTOU; a publicação nunca vê a
+ligação pela metade):
+
+| Função | O que faz | Onde |
+|---|---|---|
+| `ligarLista` | "Ligar lista de substituição": grava em `plano_listas_substituicao` uma **cópia** (grupos e itens com nome, gramas, medida, fonte, `fonteVersao`, `fonteOrigem` e valores por 100 g); a mesma lista de novo devolve a cópia que já está; a 6ª → "O plano pode ter até 5 listas e 10 receitas ou materiais." | `ligados.ts:159` |
+| `atualizarDaBiblioteca` | Troca a cópia pela lista de hoje; some se a lista de origem foi excluída ("A lista de origem foi excluída.") | `ligados.ts:185` |
+| `ligarConteudo` / `desligarConteudo` | Receita, orientação ou vídeo em qualquer situação, com o título copiado; o editor mostra "Publicado", "Não publicado — o paciente não vê" ou "{título} (excluído)" | `ligados.ts:221,252` |
+| `lerCopiaDaLista` | O formato de `conteudo` conferido na leitura (zod; chave de fora não sai) | `ligados.ts:57` |
+| `ligadosNaTransacao` | Listas e conteúdos do plano, lidos na transação de `lerPlanoNaTransacao` | `ligados.ts:82` |
+
+Cada lista mostra "Cópia de {data}. Mudanças na biblioteca não alteram este plano." Sucessos anunciados em
+`role="status"` ("Lista ligada.", "Lista atualizada da biblioteca.", "Receita ou material ligado.", textos fora da
+spec). As escritas são auditadas pelo gatilho (entidade `plano_alimentar`). O paciente vê o que está ligado ao plano
+**publicado** ([§5.5.15](05-agenda-portal-conteudo.md#5515-plano-por-dia-e-ligado-ao-seu-plano-plano-19)); o conteúdo
+fora da audiência abre pela exceção ampliada da RN-12
+([§5.6.5](05-agenda-portal-conteudo.md#565-audiência-no-banco-rn-12-p07-d2)). Excluir um conteúdo ligado anula
+`content_id` pela FK `SET NULL`, e o gatilho grava "alterar Plano alimentar" no Histórico de acessos de cada paciente
+com o conteúdo ligado, inclusive em plano publicado (aceito, como a RN-238 registrou para o perfil; divergência #19).
 
 ---
 
 ## 4.5 Jobs do worker deste capítulo
 
 Filas usadas pelos módulos deste capítulo: `monitor-backup`, `monitor-disco`, `retencao-lgpd`, `exclusao-atendida`,
-`exportacao-paciente`, `expirar-exportacao`, `plano-pdf`, `expirar-plano-pdf` e `limpar-tmp`
+`exportacao-paciente`, `expirar-exportacao`, `plano-pdf`, `plano-pdf-2` (Plano 19, §4.4.5), `expirar-plano-pdf` e `limpar-tmp`
 (`src/jobs/queues.ts`, `src/worker/index.ts`). Gatilho, função, novas tentativas, expiração e payload de cada uma
 estão na tabela única de [§6.2.3 Filas](06-worker-seguranca-operacao.md#623-filas). Todas as agendas em `America/Sao_Paulo`.
 
@@ -987,8 +1179,12 @@ estão na tabela única de [§6.2.3 Filas](06-worker-seguranca-operacao.md#623-f
 | Tabela que o paciente nunca vê | Também `app_enable_staff_only` e `STAFF_ONLY` em `src/db/rls-guard.ts`; nunca incluir na exportação |
 | Escrita no prontuário | Começar por `carregarPacienteParaEscrita` (bloqueado vira só leitura) |
 | Nova fórmula | Função pura em `formulas.ts`, sem arredondar; arredondar só na exibição com `kcal`; acrescentar o caso de teste do Apêndice A em `formulas.test.ts` |
-| Mudar o cálculo do plano | Só em `calculo.ts` (editor, servidor e PDF compartilham); o plano publicado lê `nutrientes` congelados |
-| Novo campo do plano | Validar em `validar` de `rascunho.ts`, comparar em `iguais`, copiar em `copiarConteudo`/`editarPublicado` e exportar em `planosParaExportacao` |
+| Mudar o cálculo do plano | Só em `calculo.ts` (editor, servidor e PDF compartilham; `calculo-grafo.test.ts` barra banco e React); o plano publicado lê `nutrientes` congelados, só por `lerCongelados` (§4.4.8) |
+| Novo campo do plano | Validar em `validar` de `rascunho.ts`, comparar em `iguais`, copiar em `copiarConteudo` (refeição/itens/ligações) ou `cabecalhoDaCopia` (cabeçalho: "Editar", `salvarComoModelo`, `criarDeModelo`) e exportar em `planosParaExportacao`; se o portal mostra, acrescentar à projeção fechada de `planoDoPaciente` e ao teste das chaves (RN-240) |
+| Novo leitor do dia da semana | Usar `dias.ts` (`valeNoDia`, `refeicoesDoDia`, `perfisDeDia`, `totaisDoDia`) com o dia no fuso do consultório (`diaDaSemanaNoFuso`); total do dia sempre por perfil, nunca a soma de todas as refeições (RN-247, R-236) |
+| Nova fonte de alimento ou carga de tabela pública | Valor em `FONTES_DE_ALIMENTO` e `FONTES` (`fontes.ts`); dados só por migration com o molde NO FORCE/FORCE da `0042`, **nunca** política de escrita em `foods` com `tenant_id` nulo; contagem por `fonte` em `migrate-owner.test.ts`; conferir `FONTES_DA_IA` (RN-116/RN-234) e o rótulo dos leitores antigos (§6.8.1) |
+| Nova chave de micronutriente | Entrada em `NUTRIENTES` (`nutrientes.ts`) com teste; `CAMPOS_MICRO` da TACO não muda (hash da INT-04) |
+| Nova tabela da biblioteca do consultório | `app_enable_tenant_rls` + `app_enable_staff_only` e `STAFF_ONLY`; `food_id` conferido visível (`alimentosInvisiveis`); limite por consultório com `travarConsultorio` (`FOR NO KEY UPDATE`) |
 | Ampliar medidas IBGE (E-08) | Editar `seeds/medidas-ibge.csv` e gerar migration nova com `pnpm seed:medidas` |
 | Seção nova no Início da ficha (Plano 18, D14) | Um arquivo em `src/modules/ficha/secoes/` e **uma** linha no fim de `SECOES_DA_FICHA`; rótulos genéricos, sem conteúdo clínico; nunca `auditRead` no arquivo (dado auditado: `leitura: { entidade }`, gravado por `inicio.ts`); `disponivel` monótona no total; imports só da lista fechada de `registro.test.ts`. Passo a passo na [§4.2.10](#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1) |
 
@@ -1003,7 +1199,7 @@ Spec × código (o código foi descrito acima; a spec deve ser corrigida ou a de
 3. **§9.1 "UI … Recharts".** Não há Recharts no `package.json`; os gráficos são SVG de servidor (`ui/grafico-linha.tsx`; Plano 03, "Gráficos").
 4. **§7 `anamnesis_templates`.** A spec lista só `nome` e `schema`; o código tem também `padrao` (índice único parcial) e `arquivado_em`. A US-012 diz que o modelo padrão existe "ao criar a conta"; o código o cria na primeira listagem (`garantirModeloPadrao`, `anamnese.ts:36`) — efeito igual para a usuária, momento diferente.
 5. **§7 `exams.arquivo_path`.** A spec trata como campo livre; o código tem FK para `stored_files.caminho` com `ON DELETE SET NULL` e CHECK `exams_arquivo_do_tenant` (desvio do Plano 03 não refletido na §7).
-6. **US-021, cenário "Alimento em uso".** O cenário diz "Este alimento está em um plano e não pode ser excluído."; o código diz "Este alimento está em um plano ou receita e não pode ser excluído." (`alimentos-constantes.ts`, `MSG_ALIMENTO.emUso`; Plano 07, D12). A nota do Plano 07 (`…-historias.md:1367`) já traz o texto novo; o cenário original não foi corrigido.
+6. **US-021, cenário "Alimento em uso".** O cenário diz "Este alimento está em um plano e não pode ser excluído."; o código diz "Este alimento está em um plano ou receita e não pode ser excluído." (`alimentos-constantes.ts`, `MSG_ALIMENTO.emUso`; Plano 07, D12). A nota do Plano 07 (`…-historias.md:1367`) já traz o texto novo; o cenário original não foi corrigido. **Plano 19 (RN-258):** o texto mudou de novo, para "Este alimento está em uso (plano, receita, minha refeição ou lista de substituição) e não pode ser excluído.", porque somaram-se as FKs `RESTRICT` de `refeicoes_modelo_itens` e `listas_substituicao_itens`; está na tabela de textos do Plano 19 das histórias (v1.15), mas o cenário da US-021 continua com o texto original.
 7. **US-018, cenário "Exportar": "dados.json (todas as tabelas de P)".** O código exclui as tabelas `staff_only` (notas privadas, etiquetas) e o motivo de cancelamento escrito pela nutricionista (`exportacao-job.ts:107,129,215`). É decisão do Plano 03 ("Conteúdo da exportação") e está na US-046, mas o texto da US-018 não diz.
 8. **US-018 "anonimizar_apos = última consulta + prazo".** **Resolvida (JUR-01, 09/10/2026):** o prazo passou a contar da data do bloqueio, o último registro do prontuário (`lgpd.ts:123-126`; migration `0110`), e a US-018 foi corrigida. Antes, o código contava da última data de atendimento registrado (`max(consultations.data)`).
 
@@ -1026,7 +1222,7 @@ Plano 18, PR 1 (ficha: Início, Perfil, cabeçalho e registro de seções; confe
 13. **RN-277: `resumo(tx, patientId)`.** O código usa `resumo(tx, patientId, fuso)` (`src/modules/ficha/tipos.ts:55`):
     o fuso do tenant converte os instantes no dia (`diaNoFuso`, `secoes/comum.ts:12`, RN-06).
 14. **Spec §8.3: o passo `secoes-inicio` do guia `inicio-paciente` termina com "O selo No app marca o que o paciente vê
-    no app."** A v1 sai sem essa frase (`src/modules/ajuda/conteudo.ts:170`), porque o selo só existe a partir da
+    no app."** A v1 sai sem essa frase (`src/modules/ajuda/conteudo.ts:172`), porque o selo só existe a partir da
     Tarefa 9 (PR 2), que leva o guia à v2. O teste "Plano 18 (§8.3)…" de `conteudo.test.ts` garante que nenhum texto do
     guia cite "No app". Pendência do PR 2, não erro.
 15. **Spec §8.3: no Início, a nota "Cadastro incompleto" (RN-269), o cartão "No app do paciente" e "Peso e IMC ocultos no
@@ -1034,3 +1230,47 @@ Plano 18, PR 1 (ficha: Início, Perfil, cabeçalho e registro de seções; confe
 16. **`CLAUDE.md`, regra 8: a lista das leituras que não chamam `auditRead`.** A regra ainda não cita as seções e o
     cartão Resumo do Início (sem trilha), nem a leitura auditada da última antropometria no cabeçalho
     (`carregarCabecalho`). A anotação entra no fechamento do plano (Tarefa 12c).
+
+Plano 19 (Plano alimentar 2, PR do código; conferido no branch `plano-19-plano-alimentar-2` em `a7978a6`, 17/11/2026,
+antes do merge; o seed da USDA é do PR seguinte):
+
+17. **RN-245 e US-235: o texto de um item com medida caseira — decidido.** O exemplo da spec era "Arroz — 4 colheres
+    de sopa", sem os gramas. Decisão da orquestradora (17/11/2026, Res. CFN 594/2017, art. 4º, § 1º, VIII: doses "em
+    volume e gramatura"): `itensComoTexto` (`calculo.ts:152`) usa `quantidadeDoItem`, como o resto do sistema — com
+    medida caseira, "4 colheres de sopa (100 g)"; sem medida, os gramas ("90,5 g"). Spec (US-235 e RN-245) atualizada
+    no code review do PR #57 (P19-16).
+18. **R-239: "se passar do orçamento, o limite volta a ser discutido".** A medição da Tarefa 10c passou do orçamento
+    da IA Nutri (50/400 com 5 listas cheias: até 442 mil tokens contra a reserva de 40 mil). Em vez de rediscutir os
+    limites (D18) ou subir o teto, o contexto passou a caber **por prioridade** com um marcador explícito
+    ([§10.14.3](10-ia.md#10143-o-que-vai-e-o-que-não-vai-ao-provedor-73-d9--a-pm-3)); ruling da Tarefa 10c, aceito pela
+    orquestradora com duas condições (15/200 entra inteiro, por teste; o texto do marcador revisado pelo
+    `normas-cfn-lgpd`, sem Critical/Important). A spec ainda diz que o limite seria rediscutido.
+19. **Excluir um conteúdo ligado grava "alterar" no Histórico.** A FK `plano_conteudos_conteudo_fk` (`ON DELETE SET
+    NULL (content_id)`, `0133`) muda a linha da ligação, e o gatilho de auditoria grava "alterar Plano alimentar" no
+    Histórico de acessos de cada paciente com o conteúdo ligado, **inclusive em plano publicado**. Aceito, como a
+    RN-238 registrou para o perfil (que, ao contrário, nunca toca publicado: a publicação zera `referencia_id`). A spec
+    não diz.
+20. **RN-244 e US-235: o PDF do plano em texto livre.** A spec fala do aviso sem VET; o PDF mostra também "Meta: {VET}
+    kcal" e "Distribuição prescrita: Proteína {p}% · Carboidrato {c}% · Lipídio {l}%" quando preenchidas
+    (`plano-pdf.tsx:160-162`; ruling da Tarefa 10b, Res. CFN 594, art. 4º, § 1º, VIII). A RN-244 não cita o PDF.
+21. **RN-259: textos novos fora da spec.** No código e ainda fora da §6.1 da spec 19: "Inclua pelo menos uma refeição
+    para publicar." (`MSG_TEXTO_LIVRE.publicarVazio`); "Já existe um perfil com este nome.", "A meta não pode passar do
+    máximo.", "Perfil salvo.", "Perfil não encontrado.", "Escolher nutrientes ({n} de 12)", "Salvar perfil" e "Voltar
+    aos perfis"; no diálogo de busca, "Nome do alimento", "Nutriente", "Escolha um nutriente…", "Ordem",
+    "Referência: ", "Valores em 100 g", "{n} alimentos encontrados." / "1 alimento encontrado." e, na rota, "Pedido
+    inválido."; "Formulário inválido." (micro fora do catálogo, `MSG_NUTRIENTES.desconhecido`); "Não vale em {dia}. Sai
+    desta lista quando você trocar o filtro." (`MSG_DIAS.foraDoFiltro`); os erros e confirmações de `MSG_MINHAS_REFEICOES`
+    e `MSG_LISTAS` marcados "Sem texto na spec" e os sucessos "Lista ligada.", "Lista atualizada da biblioteca.",
+    "Receita ou material ligado."; no app, "Nenhuma refeição com alimentos do seu plano cai nesses dias. Aumente o número
+    de dias." (`MSG_COMPRAS.semRefeicaoNosDias`). Todos entraram na tabela de textos das histórias do MVP (v1.15) e
+    esperam a revisão da Debby.
+22. **Spec §4.6: o cartão "Alimentos" diz "TACO, USDA e os seus alimentos."** Ainda "Tabela TACO e os seus alimentos."
+    (`src/app/painel/configuracoes/page.tsx:15`), e o resumo do guia `alimentos` (v2) não cita a USDA: os dois mudam
+    na Tarefa 12, com o seed (o cartão não pode prometer o que não está carregado). Pendência, não erro.
+23. **`FONTES.usda` com o marcador `{ano}`.** A citação e a versão da USDA (`fontes.ts:19`) só ganham o ano e o
+    sha256 na Tarefa 12; nenhuma linha `usda` existe até lá, então nenhuma tela nem PDF mostra o marcador. A guarda de
+    que o marcador sai fica para a Tarefa 12 (Minor da Tarefa 2).
+24. **Spec §13: a contagem "No app do paciente" do Plano 18 inclui `plano_conteudos` e a lista ligada.** Como o PR do
+    código do 19 entra antes do 18 PR 2, a contagem ficou com a sessão do Plano 18 (decisão da orquestradora,
+    16/11/2026), usando a mesma projeção de `planoDoPaciente` (o paciente lê o `titulo` de `plano_conteudos` mesmo com
+    o conteúdo despublicado, RN-240, então a contagem nunca usa a RLS do paciente sozinha). Pendência do 18.

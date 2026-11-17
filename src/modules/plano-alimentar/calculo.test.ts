@@ -1,6 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import type { Nutrientes100 } from '@/modules/alimentos/busca';
-import { diferencaKcal, diferencaKcalDoItem, distribuicaoMacros, gTexto, indicadorMeta, kcalTexto, lerQuantidade, nutrientesDoItem, totalDoDia, totalDosItens, type ItemCalculo } from './calculo';
+import {
+  diferencaKcal,
+  diferencaKcalDoItem,
+  distribuicaoMacros,
+  gTexto,
+  indicadorMeta,
+  itensComoTexto,
+  kcalTexto,
+  lerQuantidade,
+  microsDoItem,
+  nutrientesDoItem,
+  totaisDoDia,
+  totalDoDia,
+  totalDosItens,
+  totalMicros,
+  type ItemCalculo,
+  type ItemComMicros,
+  type MicrosPorCem,
+} from './calculo';
+import { refeicoesDoDia } from './dias';
 
 const porCem = (kcal: number | null, p: number | null = 0, c: number | null = 0, l: number | null = 0, f: number | null = 0): Nutrientes100 => ({ kcal, proteinaG: p, carboidratoG: c, lipidioG: l, fibraG: f });
 const item = (id: string, g: number | null, pc = porCem(100), sub: string | null = null): ItemCalculo => ({ id, quantidadeG: g, porCem: pc, substituiItemId: sub });
@@ -85,5 +104,85 @@ describe('distribuição de macros e exibição', () => {
     const t0 = performance.now();
     for (let k = 0; k < 100; k++) totalDoDia(refeicoes);
     expect((performance.now() - t0) / 100).toBeLessThan(5);
+  });
+});
+
+const itemM = (id: string, g: number | null, micros: MicrosPorCem | null, sub: string | null = null): ItemComMicros => ({ ...item(id, g, porCem(100), sub), micros });
+
+describe('RN-236: micros do item e do dia (só itens principais, contando os sem valor)', () => {
+  it('microsDoItem: valor por 100 g × gramas / 100; sem valor fica fora', () => {
+    expect(microsDoItem({ quantidadeG: 150, micros: { calcio_mg: 120, ferro_mg: null, vitamina_b12_mcg: 0.4 } })).toEqual({ calcio_mg: 180, vitamina_b12_mcg: 0.6 });
+    expect(microsDoItem({ quantidadeG: 150, micros: null })).toEqual({});
+  });
+
+  it('totalMicros ignora substituições e quantidade inválida e conta semValor (micros nulo ou chave sem valor)', () => {
+    const refeicoes = [
+      { itens: [itemM('leite', 200, { calcio_mg: 123 }), itemM('iogurte', 170, { calcio_mg: 1000 }, 'leite'), itemM('pao', 50, { calcio_mg: null, ferro_mg: 2 })] },
+      { itens: [itemM('arroz', 100, { calcio_mg: 4 }), itemM('feijao', 100, null), itemM('sal', null, { calcio_mg: 1000 })] },
+    ];
+    expect(totalMicros(refeicoes, ['calcio_mg', 'ferro_mg', 'vitamina_d_mcg'])).toEqual({
+      calcio_mg: { total: 250, semValor: 2 }, // 246 (leite) + 4 (arroz); pão e feijão sem valor
+      ferro_mg: { total: 1, semValor: 3 },
+      vitamina_d_mcg: { total: 0, semValor: 4 },
+    });
+    expect(totalMicros([], ['calcio_mg'])).toEqual({ calcio_mg: { total: 0, semValor: 0 } });
+  });
+
+  it('totalMicros de um dia: refeicoesDoDia antes', () => {
+    const r = [
+      { diasSemana: [1, 2, 3, 4, 5], itens: [itemM('a', 100, { ferro_mg: 1 })] },
+      { diasSemana: [0, 6], itens: [itemM('b', 100, { ferro_mg: 5 })] },
+    ];
+    expect(totalMicros(refeicoesDoDia(r, 6), ['ferro_mg']).ferro_mg).toEqual({ total: 5, semValor: 0 });
+  });
+});
+
+describe('RN-247: total do dia por perfil (nunca a soma de dois "Almoço")', () => {
+  it('totaisDoDia com "Almoço" seg–sex e "Almoço" sáb–dom: no sábado soma só o de sáb–dom', () => {
+    const refeicoes = [
+      { diasSemana: [0, 1, 2, 3, 4, 5, 6], itens: [item('cafe', 100, porCem(50))] },
+      { diasSemana: [1, 2, 3, 4, 5], itens: [item('almoco-semana', 100, porCem(600))] },
+      { diasSemana: [0, 6], itens: [item('almoco-fim', 100, porCem(800))] },
+    ];
+    expect(totaisDoDia(refeicoes, 6).kcal).toBe(850);
+    expect(totaisDoDia(refeicoes, 2).kcal).toBe(650);
+    expect(totaisDoDia([{ diasSemana: [1], itens: [item('a', 100, porCem(50))] }], 0).kcal).toBe(0);
+  });
+});
+
+describe('RN-245: itens como texto (troca para texto livre e minha refeição num plano livre)', () => {
+  const it_ = (id: string, nome: string, quantidadeG: number | null, medidaCaseiraTxt: string | null, substituiItemId: string | null = null) => ({ id, nome, quantidadeG, medidaCaseiraTxt, substituiItemId });
+
+  it('principais unidos por "; ", substituições "(ou …)" depois do principal; com medida caseira, a medida e os gramas (Res. CFN 594/2017, art. 4º, § 1º, VIII)', () => {
+    const itens = [
+      it_('arroz', 'Arroz branco, cozido', 100, '4 colheres de sopa'),
+      it_('feijao', 'Feijão carioca, cozido', 86, '1 concha média'),
+      it_('macarrao', 'Macarrão, cozido', 110, '1 escumadeira', 'arroz'),
+      it_('lentilha', 'Lentilha, cozida', 90.5, null, 'feijao'),
+      it_('grao', 'Grão-de-bico, cozido', 80, null, 'feijao'),
+    ];
+    expect(itensComoTexto(itens)).toBe(
+      'Arroz branco, cozido — 4 colheres de sopa (100 g) (ou Macarrão, cozido — 1 escumadeira (110 g)); Feijão carioca, cozido — 1 concha média (86 g) (ou Lentilha, cozida — 90,5 g) (ou Grão-de-bico, cozido — 80 g)',
+    );
+  });
+
+  it('sem medida caseira, só os gramas; sem itens, texto vazio', () => {
+    expect(itensComoTexto([it_('a', 'Arroz branco, cozido', 100, '4 colheres de sopa'), it_('b', 'Azeite', 5, null)])).toBe('Arroz branco, cozido — 4 colheres de sopa (100 g); Azeite — 5 g');
+    expect(itensComoTexto([])).toBe('');
+    // quantidade em erro no editor (nula): o texto digitado como está, sem gramas inventados
+    expect(itensComoTexto([it_('a', 'Feijão', null, 'abc g')])).toBe('Feijão — abc g');
+  });
+
+  it('corta em 2000 caracteres', () => {
+    const itens = Array.from({ length: 100 }, (_, i) => it_(`i${i}`, `Alimento de nome bem comprido número ${i}`, 100, null));
+    const t = itensComoTexto(itens);
+    expect(t).toHaveLength(2000);
+    expect(t.startsWith('Alimento de nome bem comprido número 0 — 100 g; Alimento')).toBe(true);
+    // com medida caseira (o texto fica mais longo com os gramas): o corte continua em 2000
+    const comMedida = itensComoTexto(Array.from({ length: 100 }, (_, i) => it_(`m${i}`, `Alimento ${i}`, 100, '4 colheres de sopa')));
+    expect(comMedida).toHaveLength(2000);
+    expect(comMedida.startsWith('Alimento 0 — 4 colheres de sopa (100 g); Alimento 1 — 4 colheres de sopa (100 g); ')).toBe(true);
+    // o corte não deixa meio emoji (par substituto do UTF-16) no fim
+    expect(itensComoTexto([it_('a', `${'x'.repeat(1999)}🍎`, 100, null)])).toBe('x'.repeat(1999));
   });
 });

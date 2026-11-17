@@ -3,9 +3,12 @@ import { getDb, type Db } from '@/db/client';
 import { foods, iaTarefas, mealPlans, patients, tenants, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
+import { seloDaFonte } from '@/modules/alimentos/fontes';
 import { textoMedida } from '@/modules/alimentos/medidas-constantes';
+import { microsDoCatalogo } from '@/modules/alimentos/nutrientes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { criarRascunhoTx, gravarConteudoRascunhoTx } from '@/modules/plano-alimentar/rascunho';
+import { TODOS_OS_DIAS } from '@/modules/plano-alimentar/dias';
 import type { ItemPlano, PlanoCompleto, RefeicaoPlano } from '@/modules/plano-alimentar/tipos';
 import { auditRead } from '@/modules/plataforma/audit';
 import { autorizacaoDaTarefa, autorizacaoDoPaciente, motivoDoPaciente } from './autorizacao';
@@ -133,8 +136,8 @@ export async function abrirRascunhoIa(ctx: TenantContext, patientId: string, tar
           if (!f || (i.substitui !== null && !principais.has(i.substitui))) return [];
           return [
             {
-              id: idDoItem(ii), foodId: f.id, nome: f.nome, origem: f.tenantId === null ? ('TACO' as const) : ('Meu alimento' as const),
-              porCem: { kcal: f.kcal, proteinaG: f.proteinaG, carboidratoG: f.carboidratoG, lipidioG: f.lipidioG, fibraG: f.fibraG },
+              id: idDoItem(ii), foodId: f.id, nome: f.nome, fonte: f.fonte, origem: seloDaFonte(f.fonte), // RN-230: de foods.fonte
+              porCem: { kcal: f.kcal, proteinaG: f.proteinaG, carboidratoG: f.carboidratoG, lipidioG: f.lipidioG, fibraG: f.fibraG }, micros: microsDoCatalogo(f.micros),
               medidas: [], quantidadeG: i.quantidadeG, medida: i.medida, medidaCaseiraTxt: i.medida ? textoMedida(i.medida.qtd, i.medida) : null,
               substituiItemId: i.substitui === null ? null : idDoItem(i.substitui),
             },
@@ -145,7 +148,8 @@ export async function abrirRascunhoIa(ctx: TenantContext, patientId: string, tar
           return;
         }
         foraDoCatalogo += x.itens.length - itens.length;
-        refeicoes.push({ id: `${t.id}-${ir}`, nome: x.nome, horario: x.horario, observacao: '', itens });
+        // RN-246: como gravarConteudoRascunhoTx, a refeição sugerida vale todos os dias
+        refeicoes.push({ id: `${t.id}-${ir}`, nome: x.nome, horario: x.horario, observacao: '', diasSemana: [...TODOS_OS_DIAS], descricaoLivre: null, itens });
       });
       await auditRead(tx, { entidade: 'ia', entidadeId: t.id, patientId });
       return {
@@ -154,7 +158,8 @@ export async function abrirRascunhoIa(ctx: TenantContext, patientId: string, tar
         foraDoCatalogo,
         plano: {
           id: t.id, patientId, isTemplate: false, titulo: r.plano.titulo, metaKcal: r.plano.metaKcal, energyCalcId: null, status: 'rascunho', versao: 0, revisao: 0,
-          publicadoEm: null, mostrarCalorias: true, orientacoes: r.plano.orientacoes, pdfStatus: null, pdfPath: null, origemIa: null, iaOrigemEm: null, refeicoes,
+          publicadoEm: null, mostrarCalorias: true, orientacoes: r.plano.orientacoes, modo: 'calculado', macrosPrescritos: null, pdfStatus: null, pdfPath: null, origemIa: null, iaOrigemEm: null, refeicoes,
+          referenciaId: null, referenciaCongelada: null, nutrientesExibidos: [], mostrarMicrosPdf: false, listas: [], conteudos: [],
         },
       };
     },

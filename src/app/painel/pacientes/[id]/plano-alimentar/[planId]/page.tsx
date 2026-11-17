@@ -3,15 +3,20 @@ import { notFound } from 'next/navigation';
 import { EditorPlano } from '@/app/painel/planos/editor/editor-plano';
 import { salvarComoModeloAction } from '@/app/painel/planos/modelos/actions';
 import { SalvarComoModelo } from '@/app/painel/planos/salvar-como-modelo';
+import { referenciasParaPlano } from '@/modules/alimentos/referencias';
 import { listarReceitasPublicadas } from '@/modules/conteudo/receitas';
 import { MSG_RASCUNHO_IA } from '@/modules/ia/constantes';
 import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
 import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
 import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
+import { conteudosParaLigar } from '@/modules/plano-alimentar/ligados';
+import { listarListas } from '@/modules/plano-alimentar/listas';
 import { contextoDoPaciente } from '@/modules/plano-alimentar/meta';
+import { listarMinhasRefeicoes } from '@/modules/plano-alimentar/refeicoes-modelo';
 import { carregarProntuario } from '../../prontuario';
 import { descartarRascunhoAction, editarPublicadoAction, publicarAction } from '../actions';
 import { BotaoAcao } from '../botao-acao';
+import { BotaoPublicar } from '../botao-publicar';
 import { PdfDoPlano } from './pdf-do-plano';
 import { Aviso } from '@/components/ui/aviso';
 
@@ -27,7 +32,15 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
   // paciente bloqueado (US-018): o prontuário é só para consulta, como nas outras abas; o servidor também recusa
   const bloqueado = paciente.status === 'bloqueado';
   const editavel = rascunho && !bloqueado;
-  const contexto = await contextoDoPaciente(ctx, paciente.id, tenant.fuso);
+  // leituras independentes em paralelo (code review do PR #57); as do editor só no rascunho editável
+  const [contexto, receitas, perfis, minhasRefeicoes, listas, conteudos] = await Promise.all([
+    contextoDoPaciente(ctx, paciente.id, tenant.fuso),
+    listarReceitasPublicadas(ctx),
+    referenciasParaPlano(ctx),
+    editavel ? listarMinhasRefeicoes(ctx) : undefined,
+    editavel ? listarListas(ctx) : undefined,
+    editavel ? conteudosParaLigar(ctx) : undefined,
+  ]);
   // "Usar como rascunho" (US-121, D15): quantos itens ficaram de fora porque o alimento saiu do catálogo
   const foraDoCatalogo = typeof fora === 'string' && /^\d{1,3}$/.test(fora) ? Number(fora) : 0;
   return (
@@ -47,12 +60,16 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
       <EditorPlano
         plano={paraCliente(plano)}
         contexto={contexto}
-        receitas={await listarReceitasPublicadas(ctx)}
+        receitas={receitas}
         somenteLeitura={!editavel}
+        perfis={perfis}
+        minhasRefeicoes={minhasRefeicoes}
+        fuso={tenant.fuso}
+        ligaveis={listas && conteudos ? { listas, conteudos } : undefined}
         acoes={
           <div className="flex flex-wrap items-start gap-4">
             {editavel && (
-              <span data-guia="publicar-plano"><BotaoAcao acao={publicarAction.bind(null, paciente.id, plano.id)} rotulo="Publicar" confirmar="Publicar esta versão para o paciente? A versão publicada hoje será arquivada." exigirSalvo /></span>
+              <span data-guia="publicar-plano"><BotaoPublicar acao={publicarAction.bind(null, paciente.id, plano.id)} /></span>
             )}
             {plano.status === 'publicado' && !bloqueado && <BotaoAcao acao={editarPublicadoAction.bind(null, paciente.id, plano.id)} rotulo="Editar" principal={false} />}
             {!rascunho && <PdfDoPlano plano={plano} patientId={paciente.id} bloqueado={bloqueado} />}

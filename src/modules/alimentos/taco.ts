@@ -1,3 +1,4 @@
+import { FONTES } from './fontes';
 import { GRUPOS_TACO } from './grupos';
 
 /** INT-04: de onde vem o seed e para onde vai. O teste taco-fonte confere o sha256 e refaz CSV e migration. */
@@ -9,8 +10,8 @@ export const TACO_FONTE = {
   migration: 'drizzle/0039_seed_taco.sql',
 } as const;
 
-/** Citação obrigatória (tela de alimentos e rodapé do PDF). */
-export const FONTE_TACO_TEXTO = 'TACO 4ª ed. — NEPA/UNICAMP';
+/** Citação obrigatória (tela de alimentos e rodapé do PDF). Plano 19 (RN-233): mora em `FONTES.taco`; fica aqui para quem já importa. */
+export const FONTE_TACO_TEXTO = FONTES.taco.citacao;
 
 /** Coluna de cada nutriente na aba "CMVCol taco3" (0 = número, 1 = nome, 13 = número repetido). */
 const COL_MACRO = { kcal: 3, proteinaG: 5, lipidioG: 6, carboidratoG: 8, fibraG: 9 } as const;

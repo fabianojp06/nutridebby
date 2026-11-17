@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Plano 16 (US-193, RN-213): a refeição aberta. Fora do plano publicado do paciente (ou id inválido) → 404. Plano 15 (§7.8):
- * "Perguntar sobre esta refeição" com a entrada da IA Nutri, como na sanfona do Plano.
+ * "Perguntar sobre esta refeição" com a entrada da IA Nutri, como na sanfona do Plano. Plano 19 (RN-247 e): a refeição que
+ * não vale hoje no fuso do consultório (link de lembrete, da IA Nutri ou de "Ver outros dias") abre só para leitura.
  */
 export default async function Refeicao({ params }: PageProps<'/p/plano/refeicao/[id]'>) {
   const { id } = await params;
@@ -23,10 +24,11 @@ export default async function Refeicao({ params }: PageProps<'/p/plano/refeicao/
   if (!idValido(id)) notFound();
   const plano = await planoDoPaciente(ctx, tenant.fuso);
   const refeicao = plano?.refeicoes.find((r) => r.id === id);
-  if (!refeicao) notFound();
+  if (!plano || !refeicao) notFound();
   const rotulo = rotuloDaRefeicao(refeicao.nome, refeicao.horario);
   const [respostas, entrada] = await Promise.all([respostasDeHoje(ctx, tenant.fuso), entradaDoPaciente(ctx, tenant, configIA(getEnv()))]);
   const respondida = respostas.has(rotulo);
+  const valeHoje = refeicao.dias.includes(plano.hoje);
   const perguntarSobre = entrada === 'conversa' || entrada === 'decidir' || entrada === 'texto_mudou' || entrada === 'indisponivel';
   const resumo = resumoDaRefeicao(refeicao.itens);
   return (
@@ -37,7 +39,7 @@ export default async function Refeicao({ params }: PageProps<'/p/plano/refeicao/
           <span className="inline-flex rounded-full bg-p-marco px-3 py-1 text-sm font-semibold text-p-marco-texto">{rotulo}</span>
         </p>
         {resumo && <h2 className="font-portal-titulo text-xl font-bold">{resumo.charAt(0).toLocaleUpperCase('pt-BR') + resumo.slice(1)}</h2>}
-        <RefeicaoDetalhe refeicao={refeicao} respondida={respondida} perguntarSobre={perguntarSobre} />
+        <RefeicaoDetalhe refeicao={refeicao} respondida={respondida} perguntarSobre={perguntarSobre} valeHoje={valeHoje} />
       </main>
     </>
   );

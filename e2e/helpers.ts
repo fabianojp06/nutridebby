@@ -54,3 +54,15 @@ export async function fecharTourDeBoasVindas(page: Page): Promise<void> {
   await page.keyboard.press('Escape');
   await expect(tour).toBeHidden();
 }
+
+/**
+ * Plano 19: apaga pela tela uma linha da biblioteca que o E2E criou (lista de substituição, minha refeição) — o consultório
+ * do E2E tem limite (100 listas, 200 minhas refeições) e cada execução não pode deixar a biblioteca crescer. Abre a página
+ * da linha, usa o "Excluir" (com a confirmação do navegador) e espera a volta à lista.
+ */
+export async function excluirPelaTela(page: Page, caminho: string, volta: RegExp): Promise<void> {
+  await page.goto(caminho);
+  page.once('dialog', (d) => void d.accept());
+  await page.getByRole('button', { name: 'Excluir', exact: true }).click();
+  await expect(page).toHaveURL(volta);
+}

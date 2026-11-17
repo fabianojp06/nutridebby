@@ -3,8 +3,14 @@
  * Aqui ficam só limites, prioridades, textos do push, mensagens de validação e formatadores; os rótulos de botão e de
  * campo ficam nos `.tsx` das seções (Tarefas 5 e 6).
  */
-import type { ConfigAgua, ConfigRefeicoes, DiaDaSemana } from './config';
+import type { ConfigAgua, ConfigRefeicoes } from './config';
 import type { TipoSlot } from './slots';
+
+/**
+ * Plano 19 (D28): os rótulos de dias num lugar só (`plano-alimentar/dias.ts`, com as mesmas saídas: "todos os dias",
+ * "seg a sex", "sáb e dom", "seg, qua e sex"); reexportado para as seções do Plano 17 que já importam daqui.
+ */
+export { rotuloDosDias } from '@/modules/plano-alimentar/dias';
 
 /** §5.2: janela permitida no fuso do tenant (minutos desde 00:00); o slot das 22:00 vale. */
 export const JANELA_INICIO = '06:00';
@@ -64,20 +70,8 @@ export function rotuloDoIntervalo(min: ConfigAgua['intervaloMin']): string {
   return ROTULO_INTERVALO[min];
 }
 
-/** Semana na ordem seg…dom (0 = domingo). */
-const ORDEM_DIAS: DiaDaSemana[] = [1, 2, 3, 4, 5, 6, 0];
-const DIA_CURTO: Record<DiaDaSemana, string> = { 0: 'dom', 1: 'seg', 2: 'ter', 3: 'qua', 4: 'qui', 5: 'sex', 6: 'sáb' };
-
 /** "a", "a e b", "a, b e c". */
 const emLista = (nomes: string[]): string => (nomes.length <= 1 ? (nomes[0] ?? '') : `${nomes.slice(0, -1).join(', ')} e ${nomes.at(-1)}`);
-
-/** "todos os dias", "seg a sex", "sáb e dom" ou a lista em ordem seg…dom ("seg, qua e sex"). */
-export function rotuloDosDias(dias: DiaDaSemana[]): string {
-  const presentes = ORDEM_DIAS.filter((d) => dias.includes(d));
-  if (presentes.length === 7) return 'todos os dias';
-  if (presentes.length === 5 && presentes.every((d) => d >= 1 && d <= 5)) return 'seg a sex';
-  return emLista(presentes.map((d) => DIA_CURTO[d]));
-}
 
 /** Horários de suplemento/livre (HH:MM) em ordem: "08:00 e 20:00" (resumo do portal, Tarefa 6). */
 export function rotuloDosHorarios(horarios: string[]): string {

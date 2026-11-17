@@ -8,6 +8,7 @@ import { inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { novosNoPortalNaTransacao } from '@/modules/documentos/portal';
 import { situacaoParaPaciente } from '@/modules/pacientes/exames-enviados-constantes';
 import { lerPlanoNaTransacao } from '@/modules/plano-alimentar/carregar';
+import { diaDaSemanaNoFuso, refeicoesDoDia } from '@/modules/plano-alimentar/dias';
 import { auditRead } from '@/modules/plataforma/audit';
 import { conteudosNovosNaTransacao } from './conteudos';
 import { paraRegistro } from './diario';
@@ -33,8 +34,9 @@ export async function muralDoPaciente(ctx: TenantContext, tenant: TenantAgenda, 
       const [p] = await tx.select({ nome: patients.nome }).from(patients).where(eq(patients.id, patientId));
 
       const [publicado] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(and(eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'publicado')));
-      // auditRead do plano dentro (D22), só se há plano; sem a liberação das receitas (o mural não mostra receita)
-      const plano = publicado ? await lerPlanoNaTransacao(tx, publicado.id, { comMedidas: false }) : null;
+      // auditRead do plano dentro (D22), só se há plano; sem a liberação das receitas (o mural não mostra receita) e sem
+      // as listas e os conteúdos ligados (o mural só mostra as refeições do dia)
+      const plano = publicado ? await lerPlanoNaTransacao(tx, publicado.id, { comMedidas: false, comLigados: false }) : null;
 
       const diario = await tx
         .select()
@@ -65,7 +67,13 @@ export async function muralDoPaciente(ctx: TenantContext, tenant: TenantAgenda, 
         plano: plano
           ? {
               publicadoEm: plano.publicadoEm ? new Date(plano.publicadoEm) : null,
-              refeicoes: plano.refeicoes.map((r) => ({ id: r.id, nome: r.nome, horario: r.horario, itens: r.itens.filter((i) => i.substituiItemId === null).map((i) => ({ nome: i.nome })) })),
+              // RN-247 (b) / CS-233: só as refeições que valem hoje no fuso do consultório (projeção fechada, RN-240)
+              refeicoes: refeicoesDoDia(plano.refeicoes, diaDaSemanaNoFuso(agora, tenant.fuso)).map((r) => ({
+                id: r.id,
+                nome: r.nome,
+                horario: r.horario,
+                itens: r.itens.filter((i) => i.substituiItemId === null).map((i) => ({ nome: i.nome })),
+              })),
             }
           : null,
         diario: diario.map((e) => {

@@ -334,3 +334,57 @@ Plano 20, T1 (Financeiro, 17/11/2026):
   (ex.: prazo `anonimizar_apos` vencido) não vale no gatilho. Conferir se o gatilho repete as pré-condições da função.
 - Função SQL com `now()` do banco × módulo com `now` injetado (anonimizarVencidos): a função recusa onde o módulo aceita
   (testes com data fixa); avisar a tarefa que liga a chamada.
+
+Plano 19, T3 (fontes de alimento, 17/11/2026):
+- Linhas públicas de teste (foods sem tenant, molde NO FORCE…FORCE) no banco ÚNICO do Vitest: conferir todo teste que conta
+  `tenant_id is null`/agrupa por fonte (foods-rls, plano19-banco, medidas-fonte); migrate-owner.test usa container próprio.
+- Filtro "a IA só recebe X" mora no parâmetro da busca (`buscaDoTenant`): conferir todos os chamadores de buscarAlimentos e
+  a projeção explícita do executarFerramenta (campos novos do tipo, ex. micros, não vão ao modelo).
+
+Plano 19, T4 (cópias do plano, 17/11/2026):
+- Cópia que trava a ORIGEM FOR SHARE e depois INSERE com o mesmo ponteiro (referencia_id) → a verificação da FK pede
+  KEY SHARE na mãe; a exclusão da mãe trava a mãe e o SET NULL espera a origem → deadlock. A análise "sem 23503" costuma
+  cobrir só o ramo com trava explícita. Conferir todo INSERT que copia ponteiro de FK com SET NULL de uma linha travada.
+- (T5, 17/11) Esse ciclo ficou como Minor adiado na T4 (progress.md do SDD); antes de reabrir achado de trava/ciclo, ler
+  `.superpowers/sdd/<plano>/progress.md` (triagem dos Minors) e só citar como já registrado.
+
+Plano 19, T8 (biblioteca: minhas refeições e listas, 17/11/2026): limpa na lente (withTenant, visibilidade do food_id,
+tenant NO KEY UPDATE antes da contagem). Padrão menor: `catch` com `fkViolation(e) !== null` genérico mapeando QUALQUER
+FK para "alimento excluído" (mãe apagada em paralelo também cai nele) — conferir o nome da constraint.
+
+Plano 19, T9 (ligado ao plano, 17/11/2026): limpa na lente (policy 0131 exige plano 'publicado' + RLS de paciente em
+plano_conteudos; travas paciente → plano → conteúdo FOR SHARE, sem ciclo; apagarArquivo só NO KEY UPDATE no tenant).
+Padrão a vigiar: leitor genérico (`lerPlanoNaTransacao`) que ganha campo novo (título copiado de conteúdo, situação lida
+com a RLS de quem chama) — no worker e na sessão de paciente sem liberação o objeto carrega título de conteúdo não
+publicado; conferir a projeção fechada de cada leitor (portal, IA Nutri, PDF) nas tarefas dos leitores.
+
+Plano 19, T10b (PDF do plano + fila nova, 17/11/2026): limpa na lente. Fila nova para isolar worker antigo/novo: conferir
+que o PRODUTOR do app também cria a fila (getBoss → ensureQueues; senão o send do app novo antes do worker novo recusa e
+desfaz a publicação), que nenhum `boss.send('<fila velha>')` sobrou (grep) e que a varredura de pendentes cobre a volta atrás.
+
+Plano 19, T10c (IA Nutri com dias, texto livre e lista, 17/11/2026): limpa na lente. O que conferir quando o contexto da
+IA ganha fonte nova: (1) a tabela nova é legível na sessão de paciente `semConta` (RLS de paciente + `paciente_sem_rascunho`)
+senão some calado; (2) o índice novo resolve só dentro do plano publicado relido (id da LIGAÇÃO, não da origem da biblioteca);
+(3) projeção fechada sem micros/perfil/materiais e `mascarar` em todo texto livre novo (nome de lista/grupo/orientação);
+(4) `fontes` em `ia_nutri_mensagens` é jsonb sem CHECK de formato (índice novo não quebra gravação); texto ≤ 24.000 (CHECK).
+
+Plano 19, T10d (exportação RN-257, lembretes por dia, guarda dos congelados, 17/11/2026): limpa na lente. A vigiar:
+- Exportação que "não cai por linha ruim" num campo (try/catch no congelado) mas usa parse que lança noutro campo novo
+  (`lerCopiaDaLista` → zod `parse`): conferir que a tolerância é a mesma em todos os leitores jsonb novos do dados.json.
+- Guarda de fonte "único leitor da coluna X" por regex do nome da tabela no arquivo: não pega quem recebe a linha tipada
+  de outro módulo e lê `.coluna` sem citar a tabela. Aceitável como Minor; citar se aparecer helper que devolve a linha crua.
+
+Plano 19, T11 (seeds do E2E e da carga, 17/11/2026):
+- Seed "idempotente" que reencontra o recurso pelo nome/título sem conferir o estado (conteúdo criado e não publicado
+  numa execução interrompida) e o liga assim mesmo: o teste seguinte audita um estado diferente do pretendido. Conferir
+  se a busca de reaproveitamento filtra o estado esperado.
+Plano 19, revisão final do branch (lente banco, 17/11/2026): limpa. Roteiro que bastou: (1) política recriada (DROP/CREATE)
+comparada linha a linha com a anterior (0083 × 0133); (2) CHECK novo × INSERT/UPDATE da imagem antiga lido no código da
+base (`git show <base>:arquivo`), não no atual; (3) preenchimento em tabela FORCE RLS com migrator NOBYPASSRLS só no molde
+NO FORCE/FORCE + teste em migrate-owner.test.ts; (4) `when` do journal crescente; (5) leitores de coluna "o paciente não vê"
+(referencia_congelada) procurados por grep fora do painel — a RLS é por linha, a coluna só some pela projeção.
+
+Plano 19, revisão final (lente plano-modulos, 17/11/2026): limpa (publicação zera referencia_id e congela fonte/versão/
+fonteOrigem/micros/perfil; ligados com plano FOR UPDATE + lista/conteúdo FOR SHARE; limites com tenant NO KEY UPDATE;
+food_id conferido por RLS). Antes de acusar 23503 numa cópia de ponteiro, conferir se a coluna TEM FK
+(`plano_listas_substituicao.lista_origem_id` não tem: cópia de lista excluída não quebra).

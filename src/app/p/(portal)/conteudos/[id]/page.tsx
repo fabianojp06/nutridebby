@@ -20,7 +20,8 @@ const g = (n: number) => formatarDecimal(n, casasDecimais(n));
 export default async function ConteudoDoPaciente({ params, searchParams }: PageProps<'/p/conteudos/[id]'>) {
   const { id } = await params;
   const { ctx } = await requirePaciente(`/p/conteudos/${id}`);
-  // US-054: o cartão "Sugestão de receita" de "Meu plano" abre com ?de=plano — só aí a receita fora da audiência abre
+  // US-054 e RN-253: o cartão "Sugestão de receita" e "Ligado ao seu plano" abrem com ?de=plano — só aí a receita do
+  // plano ou o conteúdo ligado ao plano publicado, fora da audiência, abre
   const doPlano = (await searchParams).de === 'plano';
   const c = await conteudoDoPaciente(ctx, id, undefined, { doPlano });
   if (!c) notFound();
@@ -50,8 +51,8 @@ export default async function ConteudoDoPaciente({ params, searchParams }: PageP
                 {c.receita.ingredientes.map((i, k) => (
                   <li key={k}>
                     {`${i.nome} — ${quantidadeDoItem(i)}`}
-                    {/* D11 / RN-02: sem valor na TACO conta 0 na porção — a tela avisa */}
-                    {i.porCem.kcal === null && <span className="ml-2 text-sm text-suave">{MSG_PLANO.semValor}</span>}
+                    {/* D11 / RN-02: sem valor na tabela conta 0 na porção — a tela avisa, pela fonte do ingrediente (RN-230) */}
+                    {i.porCem.kcal === null && <span className="ml-2 text-sm text-suave">{MSG_PLANO.semValor(i.fonte)}</span>}
                   </li>
                 ))}
               </ul>
@@ -71,8 +72,9 @@ export default async function ConteudoDoPaciente({ params, searchParams }: PageP
         {c.tipo === 'orientacao' && (
           <Markdown texto={c.corpoMd} className="space-y-3 [&_a]:underline [&_h2]:text-lg [&_h2]:font-semibold [&_ol]:ml-5 [&_ol]:list-decimal [&_ul]:ml-5 [&_ul]:list-disc" />
         )}
+        {/* RN-253: aberto só pelo plano, o PDF também (sem ?de=plano a rota dá 404 para a orientação fora da audiência) */}
         {c.temPdf && (
-          <a href={`/api/p/conteudos/${c.id}/pdf`} className="inline-flex min-h-11 items-center rounded-xl border border-borda bg-cartao px-4">
+          <a href={`/api/p/conteudos/${c.id}/pdf${c.soPeloPlano ? '?de=plano' : ''}`} className="inline-flex min-h-11 items-center rounded-xl border border-borda bg-cartao px-4">
             {MSG_PORTAL_CONTEUDO.baixarPdf}
           </a>
         )}

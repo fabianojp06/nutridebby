@@ -15,16 +15,20 @@ import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { caminhoAte, grafoDeImports, raizesDoNext } from '../../../test/grafo-de-imports';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { planoPublicado } from '../../../test/plano';
 import { pacienteComConta } from '../../../test/portal';
 import { textoDoPdf } from '../../../test/pdf';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
 import * as schema from '@/db/schema';
-import { auditLog, consents, dataExports, diaryEntries, exams, iaNutriConsentimentos, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
+import { auditLog, consents, dataExports, diaryEntries, exams, foods, iaNutriConsentimentos, notifications, patients, planoListasSubstituicao, pushSubscriptions, referenciasNutrientes, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
 import { DESTINO_ROTULO } from '@/modules/ia/constantes';
 import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
 import { TEXTOS_FIXOS } from '@/modules/ia/nutri-paciente/textos';
+import { despublicarConteudo, excluirConteudo } from '@/modules/conteudo/conteudos';
+import { ligarConteudo, ligarLista } from '@/modules/plano-alimentar/ligados';
+import { salvarLista } from '@/modules/plano-alimentar/listas';
 import { editarPublicado, publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { COTA_BYTES, salvarArquivo } from '@/modules/plataforma/armazenamento';
@@ -213,7 +217,9 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(dados.exames[0].valores[0]).toMatchObject({ nome: 'Glicemia de jejum', valor: 95 });
     expect(dados.planos).toEqual([
       { versao: 1, status: 'rascunho', titulo: 'Plano alimentar', publicadoEm: null, metaKcal: null, orientacoes: '',
-        refeicoes: [{ nome: 'Almoço', horario: '12:00', observacao: '', sugestaoDeReceita: null, itens: [{ alimento: 'Arroz, tipo 1, cozido', quantidadeG: 100, medida: null, substituiDe: null }] }] },
+        modo: 'calculado', macrosPrescritos: null, referencia: null, nutrientesExibidos: [], listasSubstituicao: [], conteudosLigados: [],
+        refeicoes: [{ nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: { rotulo: 'Todos os dias', numeros: [0, 1, 2, 3, 4, 5, 6] }, descricaoLivre: null, sugestaoDeReceita: null,
+          itens: [{ alimento: 'Arroz, tipo 1, cozido', quantidadeG: 100, medida: null, substituiDe: null, fonte: 'taco', micros: null }] }] },
     ]);
     expect(dados.consultas).toEqual([
       { inicio: '2026-09-15T12:00:00.000Z', fim: '2026-09-15T13:00:00.000Z', modalidade: 'presencial', status: 'cancelada', origem: 'nutri', canceladoPor: 'nutri', motivoCancelamento: null },
@@ -831,10 +837,94 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(consultas.filter((q) => /from "meal_items"/.test(q))).toHaveLength(1);
     expect(dados.planos.map((x) => [x.versao, x.status])).toEqual([[1, 'arquivado'], [2, 'arquivado'], [3, 'publicado'], [4, 'rascunho']]);
     for (const pl of dados.planos)
-      expect(pl.refeicoes).toEqual([{ nome: 'Almoço', horario: '12:00', observacao: '', sugestaoDeReceita: null, itens: [
-        { alimento: 'Arroz, tipo 1, cozido', quantidadeG: 100, medida: null, substituiDe: null },
-        { alimento: 'Arroz, tipo 1, cozido', quantidadeG: 80, medida: null, substituiDe: 'Arroz, tipo 1, cozido' },
+      expect(pl.refeicoes).toEqual([{ nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: { rotulo: 'Todos os dias', numeros: [0, 1, 2, 3, 4, 5, 6] }, descricaoLivre: null, sugestaoDeReceita: null, itens: [
+        { alimento: 'Arroz, tipo 1, cozido', quantidadeG: 100, medida: null, substituiDe: null, fonte: 'taco', micros: pl.status === 'rascunho' ? null : expect.any(Object) },
+        { alimento: 'Arroz, tipo 1, cozido', quantidadeG: 80, medida: null, substituiDe: 'Arroz, tipo 1, cozido', fonte: 'taco', micros: pl.status === 'rascunho' ? null : expect.any(Object) },
       ] }]);
+  });
+
+  it('RN-257 (Plano 19): modo, macros, perfil congelado, nutrientes exibidos, dias, texto livre, fonte e micros dos itens, listas e conteúdos ligados — o titular só recebe conteúdo ligado que existe e está publicado', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const perfil = await withTenant(
+      T.ctx,
+      async (tx) => (await tx.insert(referenciasNutrientes).values({ tenantId: T.tenantId, nome: 'Mulher 19 a 50 anos', fonte: 'DRI/IOM 2006', valores: { ferro_mg: { meta: 18, maximo: 45 } } }).returning())[0],
+      app.db,
+    );
+    const item = () => ({ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null, substituiItemId: null });
+    const { id: planId } = await criarRascunho(T.ctx, p.id, { db: app.db });
+    await salvarRascunho(T.ctx, planId, {
+      revisao: 0, envio: randomUUID(), titulo: 'Plano alimentar', metaKcal: '2000', mostrarCalorias: false, orientacoes: '',
+      referenciaId: perfil.id, nutrientesExibidos: ['ferro_mg', 'calcio_mg'],
+      refeicoes: [
+        { id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: [1, 2, 3, 4, 5], itens: [item()] },
+        { id: randomUUID(), nome: 'Almoço', horario: '13:00', observacao: '', diasSemana: [0, 6], itens: [item()] },
+      ],
+    }, { db: app.db });
+    const dono = { planId, patientId: p.id };
+    const { id: listaId } = await salvarLista(T.ctx, null, { nome: 'Trocas do dia a dia', orientacao: 'Troque um item por outro do mesmo grupo.', grupos: [{ id: randomUUID(), nome: 'Carboidratos', itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null }] }] }, { db: app.db });
+    const lista = await ligarLista(T.ctx, dono, listaId, { db: app.db, now });
+    const prato = await novoConteudo(app.db, T, { titulo: 'Como montar o prato' });
+    const velho = await novoConteudo(app.db, T, { titulo: 'Material antigo' });
+    const despublicado = await novoConteudo(app.db, T, { tipo: 'receita', titulo: 'Panqueca de aveia' });
+    const emPreparo = await novoConteudo(app.db, T, { tipo: 'receita', titulo: 'Bolo em preparo', status: 'rascunho' });
+    for (const c of [prato, velho, despublicado, emPreparo]) await ligarConteudo(T.ctx, dono, c.id, { db: app.db });
+    await publicarPlano(T.ctx, p.id, planId, deps);
+    await excluirConteudo(T.ctx, velho.id, { db: app.db });
+    await despublicarConteudo(T.ctx, despublicado.id, { db: app.db });
+
+    const [taco] = await withTenant(T.ctx, (tx) => tx.select({ micros: foods.micros }).from(foods).where(eq(foods.id, idTaco(3))), app.db);
+    expect(Object.keys(taco.micros).length).toBeGreaterThan(0);
+    const itemExportado = { alimento: 'Arroz, tipo 1, cozido', quantidadeG: 100, medida: null, substituiDe: null, fonte: 'taco', micros: taco.micros };
+    const comum = {
+      versao: 1, status: 'publicado', titulo: 'Plano alimentar', publicadoEm: expect.any(String), metaKcal: 2000, orientacoes: '',
+      modo: 'calculado', macrosPrescritos: null, nutrientesExibidos: ['ferro_mg', 'calcio_mg'],
+      referencia: { nome: 'Mulher 19 a 50 anos', fonte: 'DRI/IOM 2006', valores: { ferro_mg: { meta: 18, maximo: 45 } } },
+      refeicoes: [
+        { nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: { rotulo: 'Segunda a sexta', numeros: [1, 2, 3, 4, 5] }, descricaoLivre: null, sugestaoDeReceita: null, itens: [itemExportado] },
+        { nome: 'Almoço', horario: '13:00', observacao: '', diasSemana: { rotulo: 'Sábado e domingo', numeros: [0, 6] }, descricaoLivre: null, sugestaoDeReceita: null, itens: [itemExportado] },
+      ],
+      listasSubstituicao: [{ nome: 'Trocas do dia a dia', orientacao: 'Troque um item por outro do mesmo grupo.', copiadaEm: now.toISOString(), grupos: lista.grupos }],
+    };
+    const equipe = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'equipe'), app.db);
+    const titular = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(equipe.dados.planos).toEqual([
+      { ...comum, conteudosLigados: [
+        { tipo: 'orientacao', titulo: 'Como montar o prato' },
+        { tipo: null, titulo: 'Material antigo (excluído)' },
+        { tipo: 'receita', titulo: 'Panqueca de aveia' },
+        { tipo: 'receita', titulo: 'Bolo em preparo' },
+      ] },
+    ]);
+    // o titular: só o conteúdo que existe e está publicado (o excluído, o despublicado e o rascunho ficam fora)
+    expect(titular.dados.planos).toEqual([{ ...comum, conteudosLigados: [{ tipo: 'orientacao', titulo: 'Como montar o prato' }] }]);
+    expect(JSON.stringify(titular.dados)).not.toMatch(/Material antigo|Panqueca de aveia|Bolo em preparo/);
+  });
+
+  it('RN-257: cópia da lista ligada fora do formato não derruba a exportação (sai com nome, orientação e data, sem grupos)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { id: planId } = await criarRascunho(T.ctx, p.id, { db: app.db });
+    await salvarRascunho(T.ctx, planId, {
+      revisao: 0, envio: randomUUID(), titulo: 'Plano alimentar', metaKcal: '2000', mostrarCalorias: false, orientacoes: '',
+      refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: [0, 1, 2, 3, 4, 5, 6], itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null, substituiItemId: null }] }],
+    }, { db: app.db });
+    const { id: listaId } = await salvarLista(T.ctx, null, { nome: 'Trocas', orientacao: 'Troque no mesmo grupo.', grupos: [{ id: randomUUID(), nome: 'Carboidratos', itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null }] }] }, { db: app.db });
+    await ligarLista(T.ctx, { planId, patientId: p.id }, listaId, { db: app.db, now });
+    await publicarPlano(T.ctx, p.id, planId, deps);
+    // a cópia estragada (objeto, para passar o CHECK da tabela, mas fora do esquema de lerCopiaDaLista)
+    await dono.db.update(planoListasSubstituicao).set({ conteudo: { grupos: 'estragado' } }).where(eq(planoListasSubstituicao.planId, planId));
+
+    const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(dados.planos[0].listasSubstituicao).toEqual([{ nome: 'Trocas', orientacao: 'Troque no mesmo grupo.', copiadaEm: now.toISOString(), grupos: [] }]);
+  });
+
+  it('RN-257: o plano em texto livre leva a descrição de cada refeição e os dias', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await planoPublicado(app.db, T, p.id, { modo: 'livre', refeicoes: [{ nome: 'Almoço', horario: '12:00', dias: [1, 3, 5], descricaoLivre: 'Arroz, feijão e salada.', itens: [] }] });
+    const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(dados.planos[0]).toMatchObject({ modo: 'livre', referencia: null, refeicoes: [{ diasSemana: { rotulo: 'Segunda, quarta e sexta', numeros: [1, 3, 5] }, descricaoLivre: 'Arroz, feijão e salada.', itens: [] }] });
   });
 
   it('US-046: pedida pelo titular, o e-mail vai para a conta dele com o link do portal; diário (texto e foto) no ZIP', async () => {

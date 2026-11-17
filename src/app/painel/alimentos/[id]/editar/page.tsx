@@ -6,6 +6,7 @@ import { carregarAlimento } from '@/modules/alimentos/alimentos';
 import { MSG_ALIMENTO } from '@/modules/alimentos/alimentos-constantes';
 import { editarAlimentoAction } from '../../actions';
 import { AlimentoForm } from '../../alimento-form';
+import { valoresDosMicros } from '../../campos-micros';
 import { Aviso } from '@/components/ui/aviso';
 
 export const dynamic = 'force-dynamic';
@@ -17,16 +18,19 @@ export default async function EditarAlimentoPage({ params, searchParams }: PageP
   const { incompleto } = await searchParams;
   const { ctx } = await requireNutri(`/painel/alimentos/${id}/editar`);
   const a = await carregarAlimento(ctx, id);
-  if (!a || a.origem === 'TACO') notFound();
+  if (!a || a.fonte !== 'propria') notFound(); // RN-230: tabela pública não se edita (pela fonte, nunca pelo tenant_id)
   return (
     <>
       <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
         <Link href={`/painel/alimentos/${a.id}`} className="text-sm underline">Voltar</Link>
         <h1 className="font-titulo text-2xl font-semibold">Editar meu alimento</h1>
-        {incompleto === '1' && <Aviso tipo="aviso">{MSG_ALIMENTO.incompleto}</Aviso>}
+        {incompleto === '1' && a.fonteOrigem && <Aviso tipo="aviso">{MSG_ALIMENTO.incompleto(a.fonteOrigem)}</Aviso>}
         <AlimentoForm
           acao={editarAlimentoAction.bind(null, a.id)}
-          inicial={{ nome: a.nome, grupo: a.grupo, kcal: txt(a.porCem.kcal), proteinaG: txt(a.porCem.proteinaG), carboidratoG: txt(a.porCem.carboidratoG), lipidioG: txt(a.porCem.lipidioG), fibraG: txt(a.porCem.fibraG) }}
+          inicial={{
+            nome: a.nome, grupo: a.grupo, kcal: txt(a.porCem.kcal), proteinaG: txt(a.porCem.proteinaG), carboidratoG: txt(a.porCem.carboidratoG), lipidioG: txt(a.porCem.lipidioG), fibraG: txt(a.porCem.fibraG),
+            ...valoresDosMicros(a.micros),
+          }}
           rotuloBotao="Salvar alterações"
         />
       </main>

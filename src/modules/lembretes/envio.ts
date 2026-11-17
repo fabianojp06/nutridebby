@@ -15,7 +15,7 @@ import { diaryEntries, lembretesRotina, lembretesRotinaEnvios, mealPlans, meals,
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { logger, nomeDoErro } from '@/lib/logger';
 import { urlDoApp } from '@/lib/url-do-app';
-import { inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
+import { diaDaSemana, inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { enviarAosDispositivos, inscricoesDosPacientes, type InscricaoComId } from '@/modules/notificacoes/push-dispositivos';
 import type { ProvedorPush } from '@/modules/notificacoes/push';
 import { buscarTenant, getTenantStatus, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
@@ -80,7 +80,10 @@ type Leitura = {
   noDiario: Map<string, string[]>;
 };
 
-/** Refeições do plano publicado mais recente de cada paciente, na ordem do plano (o horário como o banco devolve). */
+/**
+ * Refeições do plano publicado mais recente de cada paciente, na ordem do plano (o horário como o banco devolve), com os
+ * dias de cada uma (Plano 19, RN-247 f: `planoDoDia` pula a refeição que não é do dia).
+ */
 async function refeicoesDosPlanos(tx: Tx, patientIds: string[]): Promise<Map<string, RefeicaoDoPlano[]>> {
   const porPaciente = new Map<string, RefeicaoDoPlano[]>();
   if (!patientIds.length) return porPaciente;
@@ -96,19 +99,20 @@ async function refeicoesDosPlanos(tx: Tx, patientIds: string[]): Promise<Map<str
   if (!vigente.size) return porPaciente;
   const doPlano = new Map([...vigente].map(([patientId, p]) => [p.id, patientId]));
   const linhas = await tx
-    .select({ planId: meals.planId, nome: meals.nome, horario: meals.horario })
+    .select({ planId: meals.planId, nome: meals.nome, horario: meals.horario, dias: meals.diasSemana })
     .from(meals)
     .where(inArray(meals.planId, [...doPlano.keys()]))
     .orderBy(asc(meals.ordem));
   for (const patientId of vigente.keys()) porPaciente.set(patientId, []);
-  for (const r of linhas) porPaciente.get(doPlano.get(r.planId)!)!.push({ nome: r.nome, horario: r.horario });
+  for (const r of linhas) porPaciente.get(doPlano.get(r.planId)!)!.push({ nome: r.nome, horario: r.horario, dias: r.dias });
   return porPaciente;
 }
 
 /**
  * §5.1/§5.2: refeição do plano já registrada hoje (no dia local do tenant, como `diaDe` do diário) — pela refeição do plano
  * escolhida no registro (`refeicao_slot`, gravado com ou sem resposta), pela cópia da resposta (`refeicao_do_plano`) ou,
- * quando o nome está na lista fechada, pela refeição do registro. Conferência de estado do worker: nada volta a uma
+ * quando o nome está na lista fechada, pela refeição do registro. Só as refeições de hoje (Plano 19: o rótulo de uma
+ * refeição de outro dia, com o mesmo nome, não cala a de hoje). Conferência de estado do worker: nada volta a uma
  * usuária, então sem `auditRead`; só `patient_id`, `refeicao`, `refeicao_do_plano` e `refeicao_slot` (nunca `texto`).
  */
 async function registradasNoDiario(tx: Tx, refeicoes: Map<string, RefeicaoDoPlano[]>, patientIds: string[], hoje: string, fuso: string): Promise<Map<string, string[]>> {
@@ -119,11 +123,12 @@ async function registradasNoDiario(tx: Tx, refeicoes: Map<string, RefeicaoDoPlan
     .select({ patientId: diaryEntries.patientId, refeicao: diaryEntries.refeicao, refeicaoDoPlano: diaryEntries.refeicaoDoPlano, refeicaoSlot: diaryEntries.refeicaoSlot })
     .from(diaryEntries)
     .where(and(inArray(diaryEntries.patientId, alvo), gte(diaryEntries.dataHora, inicioDoDia(hoje, fuso)), lt(diaryEntries.dataHora, inicioDoDia(somarDias(hoje, 1), fuso))));
+  const dia = diaDaSemana(hoje);
   for (const patientId of alvo) {
     const doPaciente = registros.filter((r) => r.patientId === patientId);
     if (!doPaciente.length) continue;
     const registradas = refeicoes.get(patientId)!.filter((r) => {
-      if (!r.horario) return false; // sem horário não há slot
+      if (!r.horario || !r.dias.includes(dia)) return false; // sem horário ou de outro dia não há slot
       const rotulo = rotuloDaRefeicao(r.nome, r.horario.slice(0, 5));
       const daLista = refeicaoDoDiario(r.nome);
       return doPaciente.some((d) => d.refeicaoSlot === rotulo || d.refeicaoDoPlano === rotulo || (daLista !== 'Outro' && d.refeicao === daLista));

@@ -1,6 +1,8 @@
 /**
  * P08-03 (D5): 50 consultórios × 300 pacientes ativos com conta (RNF-02), agenda do mês, acessos de 30 dias,
- * 100 conteúdos por consultório (Plano 07) e as sessões dos usuários virtuais do k6. SÓ na pilha de carga:
+ * 100 conteúdos por consultório (Plano 07), um plano de 50 refeições por consultório (Plano 19, RN-249: segunda a sexta e
+ * sábado e domingo, com a lista de substituição e a orientação ligadas) e as sessões dos usuários virtuais do k6. SÓ na
+ * pilha de carga:
  * lê o .env.carga (o da pilha) e troca o host `db:5432` dele por 127.0.0.1:54339; recusa qualquer outro banco.
  * O .env.carga inteiro vale aqui: o e-mail e os avisos que a semente enfileira saem cifrados com a ENCRYPTION_KEY da
  * pilha (o worker dela decifra) e o produtor do pg-boss (`getBoss`) abre o banco por DATABASE_URL.
@@ -21,6 +23,8 @@ import { hashPassword } from '@/lib/password.server';
 import { agendarLembretes } from '@/modules/notificacoes/agendar';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
 import { revisaoDoPlano } from '@/modules/plano-alimentar/carregar';
+import { ligarConteudo, ligarLista } from '@/modules/plano-alimentar/ligados';
+import { salvarLista } from '@/modules/plano-alimentar/listas';
 import { publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
@@ -41,7 +45,7 @@ process.env.DATABASE_URL = URL_DB; // getBoss() (avisos e envios enfileirados na
 
 const TENANTS = Number(process.env.CARGA_TENANTS ?? 50);
 const PACIENTES = Number(process.env.CARGA_PACIENTES ?? 300);
-const SESSOES_POR_TENANT = 6; // 300 pacientes com sessão no total: os VUs do k6 se revezam entre eles
+const SESSOES_POR_TENANT = 6; // 300 pacientes com sessão no total (+ 50 com o plano de 50 refeições, Plano 19): os VUs do k6 se revezam entre eles
 const pool = new Pool({ connectionString: URL_DB, max: 8 });
 const db = drizzle({ client: pool, schema });
 // trustedProxies vazio: o `entrar` sorteia o IP em x-forwarded-for (limite de 5 logins por IP em 15 min)
@@ -126,6 +130,44 @@ for (let t = 0; t < TENANTS; t++) {
     planos.push({ id: planId, paciente: x.id });
     // B-8: uma inscrição de push sintética (formato do Zod de push-inscricao.ts) já gravada, para o
     // POST /api/p/push?sincronizar=1 do k6 percorrer o app_soltar_endpoint_push com 50 tenants e responder 204
+    const inscricao: Inscricao = {
+      endpoint: `https://fcm.googleapis.com/fcm/send/carga-${randomUUID()}`,
+      keys: { p256dh: randomBytes(65).toString('base64url'), auth: randomBytes(16).toString('base64url') },
+    };
+    const ctxPaciente: TenantContext = { tenantId: tn.id, role: 'paciente', patientId: x.id, actorUserId: x.userId, ip: '127.0.0.1' };
+    await withTenant(ctxPaciente, (tx) => tx.insert(pushSubscriptions).values({ tenantId: tn.id, patientId: x.id, endpoint: inscricao.endpoint, p256dh: inscricao.keys.p256dh, auth: inscricao.keys.auth, userAgent: 'k6' }), db);
+    sessoes.pacientes.push({ cookie: await entrar(auth, x.email), conteudo: conteudos[sessoes.pacientes.length % conteudos.length], inscricao });
+  }
+  // Plano 19 (RN-249, PM-PA9): mais um paciente com sessão, o seguinte aos de cima (sem plano até aqui), com o plano no
+  // limite do editor — 50 refeições (25 de segunda a sexta e 25 de sábado e domingo, os 6 alimentos em cada uma: 300
+  // itens) — e a lista de substituição e a orientação (fora da audiência dele) ligadas. Os planos de cima não mudam. A
+  // semente cria consultórios novos a cada rodada: a lista (nome único no consultório) e o conteúdo nunca repetem.
+  {
+    const x = ids[SESSOES_POR_TENANT];
+    const { id: listaId } = await salvarLista(ctx, null, {
+      nome: 'Trocas do dia a dia', orientacao: 'Troque um alimento por outro do mesmo grupo.',
+      grupos: [{ id: randomUUID(), nome: 'Carboidratos — 1 porção', itens: alimentos.map((foodId) => ({ id: randomUUID(), foodId, quantidadeG: '100', medida: null })) }],
+    }, { db });
+    const orientacao = await novoConteudo(db, T, { titulo: 'Como montar o prato', visibilidade: 'pacientes', pacientes: [ids[0].id] });
+    const { id: planId } = await criarRascunho(ctx, x.id, { db });
+    const revisao = (await revisaoDoPlano(ctx, planId, x.id, db)) ?? 0;
+    const NOMES = ['Café da manhã', 'Lanche da manhã', 'Almoço', 'Lanche da tarde', 'Jantar'];
+    await salvarRascunho(ctx, planId, {
+      revisao, envio: randomUUID(), titulo: 'Plano de carga (50 refeições)', metaKcal: '1800', mostrarCalorias: true, orientacoes: '',
+      refeicoes: Array.from({ length: 50 }, (_, k) => ({
+        id: randomUUID(),
+        nome: `${NOMES[k % NOMES.length]} ${Math.floor(k / 2) + 1}`,
+        horario: `${String(6 + (Math.floor(k / 2) % 17)).padStart(2, '0')}:${k % 2 ? '30' : '00'}`,
+        observacao: '',
+        diasSemana: k % 2 ? [0, 6] : [1, 2, 3, 4, 5],
+        itens: alimentos.map((foodId) => ({ id: randomUUID(), foodId, quantidadeG: '100', medida: null, substituiItemId: null })),
+      })),
+    }, { db });
+    await ligarLista(ctx, { planId, patientId: x.id }, listaId, { db });
+    await ligarConteudo(ctx, { planId, patientId: x.id }, orientacao.id, { db });
+    const publicacao = await publicarPlano(ctx, x.id, planId, { db, boss });
+    if (publicacao.avisos) throw new Error(`plano de 50 refeições não publicado: ${publicacao.avisos.join(' ')}`);
+    planos.push({ id: planId, paciente: x.id });
     const inscricao: Inscricao = {
       endpoint: `https://fcm.googleapis.com/fcm/send/carga-${randomUUID()}`,
       keys: { p256dh: randomBytes(65).toString('base64url'), auth: randomBytes(16).toString('base64url') },

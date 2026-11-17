@@ -83,6 +83,12 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   await nutri.getByLabel('Nome do modelo').fill(`Modelo axe ${sufixo}`);
   await nutri.getByRole('button', { name: 'Salvar como modelo' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Modelo salvo.' })).toBeVisible();
+  // minha refeição (Plano 19, US-237): nasce só pelo editor, "Salvar como minha refeição" do Almoço do rascunho
+  await nutri.getByRole('button', { name: /^Salvar como minha refeição/ }).first().click();
+  const salvarRefeicao = nutri.getByRole('dialog', { name: 'Salvar refeição' });
+  await salvarRefeicao.getByLabel('Nome').fill(`Almoço axe ${sufixo}`);
+  await salvarRefeicao.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Refeição salva em Minhas refeições.' })).toBeVisible();
 
   // semana ≥ 2 (portal.spec usa 0, acessibilidade.spec 1) e variável por execução: o seed não apaga consultas, e repetir o
   // mesmo dia e hora da execução anterior dá "Conflito com a consulta de …"
@@ -158,6 +164,28 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   await expect(nutri).toHaveURL(/\/documentos\/[0-9a-f-]{36}$/);
   const documento = idDaUrl(nutri, new RegExp(`/documentos/(${UUID})$`));
 
+  // perfil de referência (Plano 19, US-232): "Novo perfil" abre a página [id] com `novo`; salvar vai para o id criado
+  await nutri.goto('/painel/planos/referencias/novo');
+  await nutri.getByLabel('Nome').fill(`Perfil axe ${sufixo}`);
+  await nutri.getByLabel('Fonte').fill('DRI/IOM 2006 — conferida pela nutricionista');
+  await nutri.getByLabel('Meta de Ferro (mg)').fill('18');
+  await nutri.getByRole('button', { name: 'Salvar perfil' }).click();
+  await expect(nutri).toHaveURL(new RegExp(`/painel/planos/referencias/${UUID}$`));
+  const referencia = idDaUrl(nutri, new RegExp(`/painel/planos/referencias/(${UUID})$`));
+
+  // lista de substituição (Plano 19, US-238): "Nova lista" abre a página [id] com `novo`; salvar vai para o id criado
+  await nutri.goto('/painel/planos/listas');
+  await nutri.getByRole('link', { name: 'Nova lista' }).click();
+  await expect(nutri).toHaveURL(/\/painel\/planos\/listas\/novo$/);
+  await nutri.getByLabel('Nome', { exact: true }).fill(`Lista axe ${sufixo}`);
+  await nutri.getByRole('button', { name: 'Adicionar grupo' }).click();
+  await nutri.getByLabel('Nome do grupo 1').fill('Carboidratos — 1 porção');
+  await nutri.getByLabel('Adicionar alimento em Carboidratos — 1 porção').fill('chuchu cozido');
+  await nutri.getByRole('option', { name: /Chuchu, cozido/ }).click();
+  await nutri.getByRole('button', { name: 'Salvar lista' }).click();
+  await expect(nutri).toHaveURL(new RegExp(`/painel/planos/listas/${UUID}$`));
+  const lista = idDaUrl(nutri, new RegExp(`/painel/planos/listas/(${UUID})$`));
+
   return {
     paciente: p.split('/').pop()!,
     plano,
@@ -181,5 +209,13 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
         .toBeGreaterThan(0);
       return idDoLink(nutri, '/painel/exames-recebidos', new RegExp(`/painel/exames-recebidos/(${UUID})$`));
     })(),
+    referencia,
+    minhaRefeicao: await (async () => {
+      // pelo nome desta execução (não o primeiro da lista): o afterAll do acessibilidade-painel apaga esta, não outra
+      await nutri.goto('/painel/planos/refeicoes');
+      const href = await nutri.getByRole('link', { name: `Almoço axe ${sufixo}`, exact: true }).getAttribute('href');
+      return new RegExp(`/painel/planos/refeicoes/(${UUID})$`).exec(href ?? '')![1];
+    })(),
+    lista,
   };
 }

@@ -22,8 +22,11 @@ const refeicoes = (c: Partial<ConfigRefeicoes> = {}, id = 'ref'): LembreteParaSl
 });
 const horarios = (tipo: 'suplemento' | 'livre', c: Partial<ConfigHorarios>, id: string): LembreteParaSlots => ({ id, ativo: true, tipo, config: { horarios: ['08:00'], dias: TODOS, ...c } });
 
-const plano = (lembretes: LembreteParaSlots[], refs: RefeicaoDoPlano[] = [], extra: { data?: string; fuso?: string; refeicoesNoDiario?: string[] } = {}) =>
-  planoDoDia({ lembretes, refeicoes: refs, data: extra.data ?? SEGUNDA, fuso: extra.fuso ?? SP, refeicoesNoDiario: extra.refeicoesNoDiario });
+/** Refeição do plano do teste: sem `dias`, vale nos 7 (o padrão de `meals.dias_semana`). */
+type Ref = Omit<RefeicaoDoPlano, 'dias'> & { dias?: RefeicaoDoPlano['dias'] };
+const comDias = (refs: Ref[]): RefeicaoDoPlano[] => refs.map((r) => ({ dias: TODOS, ...r }));
+const plano = (lembretes: LembreteParaSlots[], refs: Ref[] = [], extra: { data?: string; fuso?: string; refeicoesNoDiario?: string[] } = {}) =>
+  planoDoDia({ lembretes, refeicoes: comDias(refs), data: extra.data ?? SEGUNDA, fuso: extra.fuso ?? SP, refeicoesNoDiario: extra.refeicoesNoDiario });
 const horas = (r: ReturnType<typeof planoDoDia>, fuso = SP) => r.slots.map((s) => `${partesNoFuso(s.em, fuso).hora} ${s.tipo}`);
 
 describe('planoDoDia', () => {
@@ -146,6 +149,33 @@ describe('planoDoDia', () => {
     expect(plano([sup], [], { data: SEGUNDA }).slots).toHaveLength(1);
   });
 
+  it('Plano 19 (RN-247 f, CS-233): refeição só de seg a sex não gera slot (nem o do diário) no sábado', () => {
+    const l = [refeicoes({ diarioDepoisMin: 30 })];
+    const refs: Ref[] = [{ nome: 'Lanche da tarde', horario: '16:00', dias: [1, 2, 3, 4, 5] }];
+    expect(plano(l, refs, { data: SABADO }).slots).toEqual([]);
+    expect(horas(plano(l, refs, { data: SEGUNDA }))).toEqual(['16:00 refeicao', '16:30 diario']);
+  });
+
+  it('Plano 19: dois "Almoço" (seg–sex 12:00 e sáb–dom 13:00) geram um slot por dia, o do dia', () => {
+    const refs: Ref[] = [
+      { nome: 'Almoço', horario: '12:00', dias: [1, 2, 3, 4, 5] },
+      { nome: 'Almoço', horario: '13:00', dias: [0, 6] },
+    ];
+    expect(horas(plano([refeicoes()], refs, { data: SEGUNDA }))).toEqual(['12:00 refeicao']);
+    expect(horas(plano([refeicoes()], refs, { data: SABADO }))).toEqual(['13:00 refeicao']);
+    expect(horas(plano([refeicoes()], refs, { data: '2026-11-22' /* domingo */ }))).toEqual(['13:00 refeicao']);
+  });
+
+  it('Plano 19: os avisos de horário são do plano, não só do dia (refeição de fim de semana sem horário avisa na segunda)', () => {
+    const r = plano([refeicoes()], [
+      { nome: 'Brunch', horario: null, dias: [0, 6] },
+      { nome: 'Ceia', horario: '22:30', dias: [6] },
+    ]);
+    expect(r.slots).toEqual([]);
+    expect(r.refeicoesSemHorario).toEqual(['Brunch']);
+    expect(r.refeicoesForaDaJanela).toEqual(['Ceia']);
+  });
+
   it('lembrete com texto (LembreteNovo) continua atribuível e o texto não vai ao slot', () => {
     const comTexto = { id: 'l', ativo: true, tipo: 'livre' as const, config: { horarios: ['09:00'], dias: TODOS }, texto: 'Tomar sol' };
     const r = plano([comTexto]);
@@ -159,11 +189,19 @@ describe('maiorDiaDaSemana', () => {
     expect(maiorDiaDaSemana({ lembretes: l, refeicoes: [], fuso: SP })).toBe(7);
     const muitos = [agua({ inicio: '06:00', fim: '22:00', intervaloMin: 60 }), refeicoes({ diarioDepoisMin: 60 })];
     const refs = ['07:30', '10:30', '12:30', '15:30', '18:30', '20:30'].map((horario, i) => ({ nome: `R${i}`, horario }));
-    expect(maiorDiaDaSemana({ lembretes: muitos, refeicoes: refs, fuso: SP })).toBe(29);
+    expect(maiorDiaDaSemana({ lembretes: muitos, refeicoes: comDias(refs), fuso: SP })).toBe(29);
+  });
+
+  it('Plano 19: o teto conta só as refeições de cada dia (seg–sex e sáb–dom não se somam)', () => {
+    const l = [agua({ inicio: '06:00', fim: '22:00', intervaloMin: 60 }), refeicoes({ diarioDepoisMin: 30 })];
+    const semana = ['07:15', '12:15', '19:15'].map((horario) => ({ nome: 'Refeição', horario, dias: [1, 2, 3, 4, 5] as RefeicaoDoPlano['dias'] }));
+    const fds = ['08:15', '13:15', '20:15'].map((horario) => ({ nome: 'Refeição', horario, dias: [0, 6] as RefeicaoDoPlano['dias'] }));
+    // 17 águas + 3 refeições + 3 diários = 23 por dia (somadas, seriam 29)
+    expect(maiorDiaDaSemana({ lembretes: l, refeicoes: [...semana, ...fds], fuso: SP })).toBe(23);
   });
 
   it('ignora validoDesde e refeicoesNoDiario (é previsão, não o envio de hoje)', () => {
     const l = [{ ...agua(), validoDesde: new Date('2100-01-01T00:00:00Z') }, refeicoes({ diarioDepoisMin: 30 })];
-    expect(maiorDiaDaSemana({ lembretes: l, refeicoes: [{ nome: 'Almoço', horario: '12:15' }], fuso: SP, refeicoesNoDiario: ['Almoço'] })).toBe(9);
+    expect(maiorDiaDaSemana({ lembretes: l, refeicoes: comDias([{ nome: 'Almoço', horario: '12:15' }]), fuso: SP, refeicoesNoDiario: ['Almoço'] })).toBe(9);
   });
 });

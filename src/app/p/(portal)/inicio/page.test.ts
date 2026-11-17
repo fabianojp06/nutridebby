@@ -16,7 +16,8 @@ vi.mock('@/app/p/moldura', () => ({
     return { marca: { nome: 'Consultório Debby', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] };
   },
 }));
-vi.mock('@/modules/portal/mural', () => ({ muralDoPaciente: async () => ({ primeiroNome: 'Marina', vazio: true, semPlano: true, hoje: [], anteriores: [] }) }));
+const mural = vi.hoisted(() => ({ semPlano: true, semRefeicaoHoje: false }));
+vi.mock('@/modules/portal/mural', () => ({ muralDoPaciente: async () => ({ primeiroNome: 'Marina', vazio: true, semPlano: mural.semPlano, semRefeicaoHoje: mural.semRefeicaoHoje, hoje: [], anteriores: [] }) }));
 const estado = vi.hoisted(() => ({ jaUsava: true, exames: false, guia: {} as Record<string, unknown> }));
 vi.mock('@/modules/portal/hoje', () => ({
   faixaDeHoje: async () => ({
@@ -53,6 +54,8 @@ describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
     estado.guia = {};
     ia.entrada = 'nenhuma';
     lembretes.tem = false;
+    mural.semPlano = true;
+    mural.semRefeicaoHoje = false;
   });
   it('faixa com "Olá, Marina", a mini-jornada (link para Jornada, nome acessível que contém o texto visível), o rodapé fixo, "Ver todo o diário" e a barra de ações', async () => {
     const html = await pagina();
@@ -119,6 +122,16 @@ describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
       ia.entrada = e;
       expect(await pagina(), e).not.toContain('[convite IA Nutri');
     }
+  });
+
+  it('Plano 19 (RN-247 b): o mural do dia — plano publicado sem refeição hoje diz "Seu plano não tem refeições para hoje.", não "Nada para agora…"', async () => {
+    mural.semPlano = false;
+    mural.semRefeicaoHoje = true;
+    const html = await pagina();
+    expect(html).toContain('Seu plano não tem refeições para hoje.');
+    expect(html).not.toContain(MSG_MURAL.nadaAgora);
+    mural.semRefeicaoHoje = false;
+    expect(await pagina()).toContain(MSG_MURAL.nadaAgora);
   });
 
   it('Plano 17 (Tarefa 6): passa `comLembretes` (temLembretes) aos cartões do aparelho', async () => {

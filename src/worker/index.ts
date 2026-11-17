@@ -6,7 +6,7 @@ import { transportFromEnv } from '@/email/transport';
 import type { EmailJobData } from '@/email/types';
 import { getWorkerEnv, type WorkerEnv } from '@/env';
 import { useBoss } from '@/jobs/boss';
-import { ensureQueues } from '@/jobs/queues';
+import { ensureQueues, FILAS_DO_PDF_DO_PLANO } from '@/jobs/queues';
 import { encryptionKey, openSecret } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
 import { encerrarSentry, iniciarSentry } from '@/lib/sentry';
@@ -49,7 +49,7 @@ import {
   verificarDisco,
 } from '@/modules/plataforma/monitoramento';
 import { tenantIsActive } from '@/modules/plataforma/tenant-status';
-import { expirarPdfsPendentes, gerarPdfDoPlano } from '@/modules/plano-alimentar/plano-pdf-job';
+import { expirarPdfsPendentes, gerarPdfDoPlano, type DadosJobPdf } from '@/modules/plano-alimentar/plano-pdf-job';
 import { limparAcessosAntigos } from '@/modules/portal/acesso';
 import { converterFotoDoDiario, expirarFotosPendentes, type DadosFotoDiario } from '@/modules/portal/diario-foto-job';
 import { recordHeartbeat } from './heartbeat';
@@ -202,18 +202,16 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
     await concluirExclusaoAtendida(job.data, { db: getDb(), dataDir: env.DATA_DIR, boss, ultimaTentativa: job.retryCount >= job.retryLimit });
   });
 
-  // US-026: PDF do plano alimentar na publicação (≤ 30 s) e limpeza diária dos .tmp órfãos de /data
-  await work(
-    'plano-pdf',
-    { includeMetadata: true },
-    async ([job]: JobWithMetadata<{ tenantId: string; planId: string }>[]) => {
-      await gerarPdfDoPlano(job.data, {
-        db: getDb(),
-        dataDir: env.DATA_DIR,
-        ultimaTentativa: job.retryCount >= job.retryLimit,
-      });
-    },
-  );
+  // US-026: PDF do plano alimentar na publicação (≤ 30 s). R-244 (Plano 19): o app novo enfileira em `plano-pdf-2`, que
+  // só este worker registra; `plano-pdf` continua consumida (jobs do app antigo na janela do deploy), com o mesmo handler
+  const pdfDoPlano = async ([job]: JobWithMetadata<DadosJobPdf>[]) => {
+    await gerarPdfDoPlano(job.data, {
+      db: getDb(),
+      dataDir: env.DATA_DIR,
+      ultimaTentativa: job.retryCount >= job.retryLimit,
+    });
+  };
+  for (const fila of FILAS_DO_PDF_DO_PLANO) await work(fila, { includeMetadata: true }, pdfDoPlano);
   // US-042 / RN-07: foto do diário convertida no worker (sharp + heic-decode)
   await work('diario-foto', { includeMetadata: true }, async ([job]: JobWithMetadata<DadosFotoDiario>[]) => {
     await converterFotoDoDiario(job.data, { db: getDb(), dataDir: env.DATA_DIR, ultimaTentativa: job.retryCount >= job.retryLimit });

@@ -1,10 +1,10 @@
 import { formatarData } from '@/modules/pacientes/datas';
-import { kcalTexto, nutrientesDoItem, quantidadeDoItem } from '@/modules/plano-alimentar/calculo';
+import { TODOS_OS_DIAS, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
 import type { ModeloIA, RegiaoIA } from '../constantes';
 import { ATENDIMENTOS_NO_CONTEXTO, CATEGORIAS_CONVERSA, PRAZO_CONVERSA_MS, type CategoriaConversa, type TipoResposta } from '../nutri-paciente/constantes';
-import { corpoDaConversa, type FonteDoContexto } from '../nutri-paciente/contexto';
+import { contextoDoPlano, trechoDoPlano, turnoDaConversa, type FonteDoContexto, type PlanoDoContexto } from '../nutri-paciente/contexto';
 import { ESFORCO_CONVERSA, PROMPT_VERSAO_CONVERSA, SCHEMA_CONVERSA, SISTEMA_CONVERSA } from '../nutri-paciente/instrucoes';
-import { conferirTermos, type Trecho } from '../nutri-paciente/montar-resposta';
+import { conferirTermos, cortarParaCaber, type Trecho } from '../nutri-paciente/montar-resposta';
 import { detectarRisco } from '../nutri-paciente/sinais-risco';
 import { validarSaida } from '../nutri-paciente/validar-resposta';
 import { custoMaximoMicroUsd, custoMicroUsd, MAX_TOKENS_CONVERSA, TOKENS_INSTRUCOES_TETO, tokensDeBytes } from '../precos';
@@ -15,94 +15,133 @@ import { CONVERSAS_FICTICIAS, type BlocoDaAvaliacao, type MensagemDeAvaliacao, t
 /**
  * RN-184 (Plano 15, T13; D5, D35): a avaliação manual da conversa — para cada modelo, cada mensagem do conjunto fictício
  * passa pelo MESMO caminho do worker sem banco: o filtro de risco (`detectarRisco`, barrada = texto fixo, custo zero), o
- * turno montado por `corpoDaConversa` (a função de `montarContexto`, T9) sobre o contexto do plano fictício no formato de
- * `contexto.ts`, o pedido do job (`gerar`, SISTEMA_CONVERSA, schema, esforço low, sem ferramentas, 45 s), `validarSaida`
- * e a conferência dos termos sobre os trechos (`conferirTermos`) — e é conferida contra o gabarito. Soma tokens, tempo e
+ * turno montado por `turnoDaConversa` (a função de `montarContexto`: o plano no orçamento da reserva, R-239) sobre o plano
+ * fictício convertido no formato que `contexto.ts` lê, o pedido do job (`gerar`, SISTEMA_CONVERSA, schema, esforço low,
+ * sem ferramentas, 45 s), `validarSaida` e a conferência dos termos sobre os trechos montados por `trechoDoPlano` (o de
+ * `relerTrechos`, cortado por `cortarParaCaber`) — e é conferida contra o gabarito. Plano 19 (PM-PA15): dias, texto livre e
+ * lista de substituição entram pelo mesmo caminho. Soma tokens, tempo e
  * custo, para antes do teto (o gasto real até ali + o máximo da próxima chamada, com 10% de folga, como `avaliar.ts`) e
  * devolve SÓ métricas e ids do conjunto: nenhum texto de mensagem, de plano ou de resposta. A avaliação não liga nada: o
  * dono lê as metas e o desempate da D5. Só o script `pnpm ia:avaliar` e os testes importam (guarda de grafo do Next).
  */
-type FonteFicticia = Pick<FonteDoContexto, 'indice' | 'tipo'>;
-type Onde =
-  | { tipo: 'refeicao'; refeicao: number }
-  | { tipo: 'item' | 'substituicao'; refeicao: number; porcao: PorcaoFicticia }
-  | { tipo: 'orientacao_plano' }
-  | { tipo: 'orientacao_atendimento'; data: string; texto: string };
-type PlanoIndexado = { dados: { plano: unknown; orientacoes: unknown }; fontes: FonteFicticia[]; onde: Map<string, Onde> };
-
-const kcalDa = (p: PorcaoFicticia, mostrar: boolean): string | null => {
-  if (!mostrar) return null;
-  const porCem = { kcal: p.alimento.kcalPor100g, proteinaG: null, carboidratoG: null, lipidioG: null, fibraG: null };
-  const n = nutrientesDoItem(porCem, p.gramas);
-  return n.semValor.includes('kcal') ? null : `${kcalTexto(n.kcal)} kcal`; // kcalDo (portal/plano.ts)
+type Indexado = {
+  /** O plano fictício no formato que `contextoDoPlano` lê (o mesmo do publicado relido). */
+  doContexto: PlanoDoContexto;
+  /** As orientações dos atendimentos no formato do contexto (#A1 a mais recente) e as fontes delas. */
+  orientacoes: { indice: string; data: string; texto: string }[];
+  fontesDosAtendimentos: FonteDoContexto[];
+  /** O texto da tela de cada atendimento citado (sem máscara), pela id da fonte. */
+  atendimentos: Map<string, { data: string; texto: string }>;
 };
-const quantidadeDa = (p: PorcaoFicticia): string => quantidadeDoItem({ quantidadeG: p.gramas, medidaCaseiraTxt: p.medida ?? null });
 
-function indexar(plano: PlanoFicticio): PlanoIndexado {
-  const alvo = plano.paciente;
-  const fontes: FonteFicticia[] = [];
-  const onde = new Map<string, Onde>();
-  const marcar = (indice: string, tipo: FonteFicticia['tipo'], o: Onde) => {
-    fontes.push({ indice, tipo });
-    onde.set(indice, o);
-  };
-  let nI = 0;
-  let nS = 0;
-  // como montarContexto: por refeição, #R, os itens (#I) e depois as substituições (#S), com contadores do plano inteiro
-  const refeicoes = plano.refeicoes.map((r, k) => {
-    const indice = `#R${k + 1}`;
-    marcar(indice, 'refeicao', { tipo: 'refeicao', refeicao: k });
-    const itens = r.itens.map((i) => {
-      const ii = `#I${++nI}`;
-      marcar(ii, 'item', { tipo: 'item', refeicao: k, porcao: i });
-      return { indice: ii, alimento: mascarar(i.alimento.nome, alvo), quantidade: quantidadeDa(i), kcal: kcalDa(i, plano.mostrarCalorias) };
-    });
-    const substituicoes = r.itens.flatMap((i, j) =>
-      (i.substituicoes ?? []).map((s) => {
-        const is = `#S${++nS}`;
-        marcar(is, 'substituicao', { tipo: 'substituicao', refeicao: k, porcao: s });
-        return { indice: is, substitui: itens[j].indice, alimento: mascarar(s.alimento.nome, alvo), quantidade: quantidadeDa(s), kcal: kcalDa(s, plano.mostrarCalorias) };
-      }),
-    );
-    return { indice, nome: mascarar(r.nome, alvo), horario: r.horario || null, observacao: r.observacao ? mascarar(r.observacao, alvo) : null, itens, substituicoes };
+const porCemDe = (a: PorcaoFicticia['alimento']) => ({ kcal: a.kcalPor100g, proteinaG: null, carboidratoG: null, lipidioG: null, fibraG: null });
+
+/**
+ * Plano 19 (PM-PA15): o fictício vira o plano que o contexto lê — ids locais, os itens principais e depois as
+ * substituições de cada um (#S), os dias de cada refeição (padrão: os 7), o texto livre e as listas ligadas — para a
+ * avaliação passar pelas MESMAS funções do job (`turnoDaConversa`, `trechoDoPlano`), sem um formato espelhado aqui.
+ */
+function paraPlanoDoContexto(plano: PlanoFicticio): PlanoDoContexto {
+  let n = 0;
+  const item = (p: PorcaoFicticia, substitui: string | null) => ({
+    id: `i${++n}`,
+    nome: p.alimento.nome,
+    quantidadeG: p.gramas,
+    medidaCaseiraTxt: p.medida ?? null,
+    porCem: porCemDe(p.alimento),
+    substituiItemId: substitui,
   });
-  const orientacoesPlano = plano.orientacoes ? [{ indice: '#O1', texto: mascarar(plano.orientacoes, alvo) }] : [];
-  if (plano.orientacoes) marcar('#O1', 'orientacao_plano', { tipo: 'orientacao_plano' });
-  const atendimentos = plano.atendimentos
+  return {
+    id: `plano-${plano.numero}`,
+    modo: plano.modo ?? 'calculado',
+    mostrarCalorias: plano.mostrarCalorias,
+    orientacoes: plano.orientacoes,
+    refeicoes: plano.refeicoes.map((r, k) => {
+      const principais = r.itens.map((i) => ({ i, linha: item(i, null) }));
+      const substituicoes = principais.flatMap(({ i, linha }) => (i.substituicoes ?? []).map((s) => item(s, linha.id)));
+      return {
+        id: `r${k + 1}`,
+        nome: r.nome,
+        horario: r.horario,
+        observacao: r.observacao ?? '',
+        diasSemana: [...(r.dias ?? TODOS_OS_DIAS)],
+        descricaoLivre: r.texto ?? null,
+        itens: [...principais.map((x) => x.linha), ...substituicoes],
+      };
+    }),
+    listas: (plano.listas ?? []).map((l, k) => ({
+      id: `lista-${k + 1}`,
+      nome: l.nome,
+      orientacao: l.orientacao,
+      grupos: l.grupos.map((g) => ({
+        nome: g.nome,
+        itens: g.itens.map((p) => ({ nome: p.alimento.nome, quantidadeG: p.gramas, medidaCaseiraTxt: p.medida ?? null, porCem: porCemDe(p.alimento) })),
+      })),
+    })),
+  };
+}
+
+function indexar(plano: PlanoFicticio): Indexado {
+  const alvo = plano.paciente;
+  const atendimentos = new Map<string, { data: string; texto: string }>();
+  const fontesDosAtendimentos: FonteDoContexto[] = [];
+  // como montarContexto: as 5 orientações mais recentes, #A1 a mais nova
+  const orientacoes = plano.atendimentos
     .filter((a) => a.texto)
     .toSorted((a, b) => b.data.localeCompare(a.data))
     .slice(0, ATENDIMENTOS_NO_CONTEXTO)
     .map((a, k) => {
-      marcar(`#A${k + 1}`, 'orientacao_atendimento', { tipo: 'orientacao_atendimento', data: a.data, texto: a.texto });
-      return { indice: `#A${k + 1}`, data: a.data, texto: mascarar(a.texto, alvo) };
+      const indice = `#A${k + 1}`;
+      fontesDosAtendimentos.push({ indice, tipo: 'orientacao_atendimento', id: `atendimento-${k + 1}` });
+      atendimentos.set(`atendimento-${k + 1}`, a);
+      return { indice, data: a.data, texto: mascarar(a.texto, alvo) };
     });
-  return { dados: { plano: { refeicoes, orientacoes: orientacoesPlano }, orientacoes: atendimentos }, fontes, onde };
+  return { doContexto: paraPlanoDoContexto(plano), orientacoes, fontesDosAtendimentos, atendimentos };
+}
+
+/** O dia de hoje do fictício (padrão: segunda), para os casos de dia da semana. */
+const hojeDo = (plano: PlanoFicticio): DiaDaSemana => plano.hoje ?? 1;
+
+/** O turno da mensagem como o job monta (`turnoDaConversa`: plano no orçamento, atendimentos, sem histórico, a pergunta mascarada). */
+function turnoDa(plano: PlanoFicticio, ix: Indexado, texto: string) {
+  return turnoDaConversa({
+    plano: ix.doContexto,
+    alvo: plano.paciente,
+    hoje: hojeDo(plano),
+    orientacoes: ix.orientacoes,
+    fontesDosAtendimentos: ix.fontesDosAtendimentos,
+    historico: [],
+    pergunta: mascarar(texto, plano.paciente),
+  });
+}
+
+/**
+ * O turno que a avaliação manda para a mensagem (plano no orçamento da reserva, R-239): os índices enviados e se o plano
+ * foi resumido. Para o teste conferir o gabarito contra o que o modelo de fato vê.
+ */
+export function turnoDaAvaliacao(plano: PlanoFicticio, texto: string): { fontes: FonteDoContexto[]; resumido: boolean } {
+  const { fontes, resumido } = turnoDa(plano, indexar(plano), texto);
+  return { fontes, resumido };
 }
 
 /** O contexto do plano fictício no formato de `montarContexto` (`dados.plano`, `dados.orientacoes` e os índices), sem banco. */
-export function dadosDoPlanoFicticio(plano: PlanoFicticio): { dados: { plano: unknown; orientacoes: unknown }; fontes: FonteFicticia[] } {
-  const { dados, fontes } = indexar(plano);
-  return { dados, fontes };
+export function dadosDoPlanoFicticio(plano: PlanoFicticio): { dados: { plano: unknown; orientacoes: unknown }; fontes: FonteDoContexto[] } {
+  const ix = indexar(plano);
+  const doPlano = contextoDoPlano(ix.doContexto, plano.paciente, hojeDo(plano));
+  return { dados: { plano: doPlano.plano, orientacoes: ix.orientacoes }, fontes: [...doPlano.fontes, ...ix.fontesDosAtendimentos] };
 }
 
-/** Os trechos citados como `relerTrechos` (contexto.ts) os monta — o texto da tela, sem máscara — para `conferirTermos`. */
-function trechosDoPlano(plano: PlanoFicticio, ix: PlanoIndexado, citados: readonly string[], tipo: TipoResposta): Trecho[] {
-  const textoDa = (p: PorcaoFicticia) => {
-    const kcal = kcalDa(p, plano.mostrarCalorias);
-    return `${p.alimento.nome} — ${quantidadeDa(p)}${kcal ? ` · ${kcal}` : ''}`;
-  };
-  return citados.map((indice): Trecho => {
-    const o = ix.onde.get(indice)!;
-    if (o.tipo === 'orientacao_atendimento') return { indice, fonte: `Atendimento de ${formatarData(o.data)} — orientações`, texto: o.texto };
-    if (o.tipo === 'orientacao_plano') return { indice, fonte: 'Orientações do plano', texto: plano.orientacoes };
-    const r = plano.refeicoes[o.refeicao];
-    if (o.tipo === 'refeicao') {
-      return tipo === 'horario'
-        ? { indice, fonte: `${r.nome} — horário`, texto: `${r.nome}: ${r.horario || 'sem horário marcado'}` }
-        : { indice, fonte: `${r.nome} — itens`, texto: `${r.nome}${r.horario ? ` (${r.horario})` : ''}: ${r.itens.map(textoDa).join('; ')}${r.observacao ? `. ${r.observacao}` : ''}` };
-    }
-    return { indice, fonte: `${r.nome} — ${o.tipo === 'substituicao' ? 'substituições' : 'itens'}`, texto: textoDa(o.porcao) };
-  });
+/** Os trechos citados como `relerTrechos` (contexto.ts) os monta — o texto da tela, sem máscara, cortado para caber — para `conferirTermos`. */
+function trechosDoPlano(ix: Indexado, fontes: readonly FonteDoContexto[], citados: readonly string[], tipo: TipoResposta): Trecho[] | null {
+  const trechos: Trecho[] = [];
+  for (const indice of citados) {
+    const f = fontes.find((x) => x.indice === indice)!;
+    const a = f.tipo === 'orientacao_atendimento' ? ix.atendimentos.get(f.id) : undefined;
+    const t = a ? { indice, fonte: `Atendimento de ${formatarData(a.data)} — orientações`, texto: a.texto } : trechoDoPlano(ix.doContexto, f, tipo);
+    if (!t) return null;
+    trechos.push(t);
+  }
+  return cortarParaCaber(tipo, trechos);
 }
 
 /** A saída crua do modelo, só quando está exatamente no schema (as três chaves e a categoria da lista fechada). */
@@ -317,7 +356,10 @@ export async function avaliarConversa(o: {
     for (const msg of mensagens) {
       const plano = planos.find((p) => p.numero === msg.plano)!;
       const ix = indexados.get(msg.plano)!;
-      const enviados = new Set(ix.fontes.map((f) => f.indice));
+      // DP-8: o corpo exato que o job manda (`turnoDaConversa`: o plano no orçamento da reserva, sem histórico — cada
+      // pergunta abre uma sessão — e a pergunta pela máscara de produção); o teto da chamada pelos bytes, como o portão
+      const turno = turnoDa(plano, ix, msg.texto);
+      const enviados = new Set(turno.fontes.map((f) => f.indice));
       // RN-174: o filtro determinístico antes de tudo — barrada, nada sai e não custa nada
       if (detectarRisco(msg.texto)) {
         m.mensagens++;
@@ -325,10 +367,8 @@ export async function avaliarConversa(o: {
         conferir(m, msg, { barrada: true, bruta: null, montada: false, textoFixoDeRisco: true, enviados });
         continue;
       }
-      // DP-8: o corpo exato que o job manda (contexto do plano, sem histórico — cada pergunta abre uma sessão — e a pergunta
-      // pela máscara de produção); o teto da chamada pelos bytes, como o portão do envio
-      const corpo = corpoDaConversa(ix.dados, ix.fontes, [], mascarar(msg.texto, plano.paciente));
-      const maximoDaChamada = custoMaximoMicroUsd(modelo, geo, tokensDeBytes(Buffer.byteLength(corpo) + Buffer.byteLength(SISTEMA_CONVERSA)) + TOKENS_INSTRUCOES_TETO, MAX_TOKENS_CONVERSA);
+      const corpo = turno.corpo;
+      const maximoDaChamada = custoMaximoMicroUsd(modelo, geo, tokensDeBytes(turno.bytes) + TOKENS_INSTRUCOES_TETO, MAX_TOKENS_CONVERSA);
       if (gastoReal + Math.ceil(maximoDaChamada * 1.1) > o.tetoMicroUsd) {
         parou = true;
         break;
@@ -377,7 +417,8 @@ export async function avaliarConversa(o: {
       // o que a tela mostraria: validarSaida com a pergunta crua (como o job), e a resposta montada só com os termos
       // sensíveis da pergunta nos trechos citados (RN-176, D25)
       const v = validarSaida(r.texto, { enviados, pergunta: msg.texto });
-      const montada = v.ok && conferirTermos(msg.texto, trechosDoPlano(plano, ix, v.fontes, v.tipo));
+      const trechos = v.ok ? trechosDoPlano(ix, turno.fontes, v.fontes, v.tipo) : null;
+      const montada = v.ok && trechos !== null && conferirTermos(msg.texto, trechos);
       conferir(m, msg, { barrada: false, bruta, montada, textoFixoDeRisco: !v.ok && v.risco, enviados });
     }
     fecharMetricas(m, entradas, saidas, tempos, custos, mensagens.length);

@@ -1,8 +1,9 @@
 import { defaultExclude } from 'vitest/config';
 
 /**
- * Testes que medem tempo (`*.tempo.test.ts`: p95 da busca, RNF-01; tempo linear do SVG do logo). No CI eles saem da
- * suíte paralela e rodam depois, sozinhos (`pnpm test:tempo`): no runner próprio a cota de 4 vCPU pausa o grupo inteiro
+ * Testes que medem tempo (`*.tempo.test.ts`: p95 da busca, RNF-01; tempo linear do SVG do logo; recálculo do editor do
+ * plano por tecla com 50 refeições, PM-PA9). No CI eles saem da suíte paralela e rodam depois, sozinhos
+ * (`pnpm test:tempo`): no runner próprio a cota de 4 vCPU pausa o grupo inteiro
  * quando os workers a esgotam, e um teste de tempo ao lado de um arquivo pesado mede a pausa, não o código (CI do PR #34:
  * p95 de 434 e 575 ms com a varredura de `limparAcessosAntigos` ao lado; 46–78 ms sozinho). Fora do CI, `pnpm test` roda tudo.
  */

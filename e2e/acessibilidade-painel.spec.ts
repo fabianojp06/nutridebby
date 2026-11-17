@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { vigiarCsp } from './csp';
-import { entrarComo } from './helpers';
+import { entrarComo, excluirPelaTela } from './helpers';
 import { escolherTema, prepararTelasComId } from './painel';
 import { ROTAS_DO_PAINEL, type IdsDoPainel } from './painel-rotas';
 import { avaliar, pacienteNoPortal } from './portal';
@@ -28,6 +28,9 @@ test.beforeAll(async ({ browser }) => {
   rotas = [...Object.values(ROTAS_DO_PAINEL).map((f) => f(ids)), '/conta/seguranca'];
 });
 test.afterAll(async () => {
+  // Plano 19: a lista e a minha refeição do preparo saem pela tela (limites de 100 listas e 200 minhas refeições do consultório)
+  if (ids?.lista) await excluirPelaTela(nutri, `/painel/planos/listas/${ids.lista}`, /\/painel\/planos\/listas$/);
+  if (ids?.minhaRefeicao) await excluirPelaTela(nutri, `/painel/planos/refeicoes/${ids.minhaRefeicao}`, /\/painel\/planos\/refeicoes$/);
   await escolherTema(nutri, 'Igual ao aparelho'); // o seed e as outras specs esperam o padrão
   await nutri?.context().close();
 });
@@ -73,6 +76,69 @@ test('estados abertos também passam: menu da conta, aviso de erro de formulári
   await nutri.goto('/painel/pacientes/novo');
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click(); // vazio: erros por campo (role="alert")
   expect(await violacoes(nutri)).toEqual([]);
+});
+
+/**
+ * Plano 19 (RNF-232): os estados do editor fora das rotas, nos três modos — o diálogo "Buscar alimento" aberto em cada aba
+ * (Lista, Nutrientes e Equivalentes, aberto por "Equivalentes de {item}"), o editor com o filtro de um dia sem refeição e o
+ * aviso de publicação ("Sábado e domingo não têm refeições." com "Publicar mesmo assim"). No rascunho (versão 2) que o
+ * preparo deixa: o almoço passa a valer só de segunda a sexta; o aviso aparece e nada é publicado.
+ */
+test('Plano 19: o diálogo "Buscar alimento" em cada aba, o filtro de dia e o aviso de publicação, nos três modos', async () => {
+  test.setTimeout(240_000);
+  await nutri.goto(`/painel/pacientes/${ids.paciente}/plano-alimentar`);
+  await nutri.getByRole('link', { name: /^Continuar o rascunho/ }).click();
+  await expect(nutri).toHaveURL(/\/plano-alimentar\/[0-9a-f-]{36}$/);
+  const editor = new URL(nutri.url()).pathname;
+  const dias = nutri.getByRole('group', { name: 'Dias de Almoço' });
+  for (const d of ['sáb', 'dom']) await dias.getByRole('checkbox', { name: d, exact: true }).uncheck();
+  await expect(nutri.locator('#filtro-dias-legenda')).toContainText('sáb e dom: sem refeições');
+  await expect(nutri.getByRole('status').filter({ hasText: /^Salvo/ })).toBeVisible({ timeout: 10_000 });
+  nutri.on('dialog', (d) => void d.accept()); // a confirmação do "Publicar"
+  const falhas: string[] = [];
+  try {
+    for (const [tema, aparelho] of [['Claro', 'light'], ['Escuro', 'light'], ['Igual ao aparelho', 'dark']] as const) {
+      await escolherTema(nutri, tema);
+      await nutri.emulateMedia({ colorScheme: aparelho });
+      await nutri.goto(editor);
+      await nutri.waitForLoadState('networkidle'); // o botão abre o diálogo pelo React (hidratado antes do clique)
+      // o diálogo, aberto pelo item: começa em "Equivalentes" e passa pelas três abas
+      await nutri.getByRole('button', { name: 'Equivalentes de Chuchu, cozido' }).click();
+      const dialogo = nutri.getByRole('dialog', { name: 'Buscar alimento' });
+      await expect(dialogo).toBeVisible();
+      for (const aba of ['Equivalentes', 'Lista', 'Nutrientes'] as const) {
+        await dialogo.getByRole('tab', { name: aba }).click();
+        await expect(dialogo.getByRole('tab', { name: aba })).toHaveAttribute('aria-selected', 'true');
+        if (aba === 'Lista') {
+          await dialogo.getByLabel('Nome do alimento').fill('chuchu');
+          await expect(dialogo.getByRole('status').filter({ hasText: /encontrado/ })).toBeVisible();
+        }
+        if (aba === 'Nutrientes') {
+          // com um nutriente escolhido, o axe confere também a lista de resultados (critério, valores em 100 g, "Adicionar")
+          await dialogo.getByLabel('Nutriente', { exact: true }).selectOption({ label: 'Sódio' });
+          await expect(dialogo.getByRole('tabpanel', { name: 'Nutrientes' }).getByRole('status').filter({ hasText: /encontrado/ })).toBeVisible();
+        }
+        await nutri.waitForLoadState('networkidle');
+        for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`${tema} diálogo, aba ${aba} — ${v}`);
+      }
+      await nutri.keyboard.press('Escape');
+      await expect(dialogo).toBeHidden();
+      // o filtro de um dia sem refeição (sábado)
+      await nutri.getByRole('button', { name: 'sáb', exact: true }).click();
+      await expect(nutri.getByText('sáb: sem refeições', { exact: true })).toBeVisible();
+      for (const v of await violacoes(nutri)) falhas.push(`${tema} editor com o filtro "sáb" — ${v}`);
+      await nutri.getByRole('button', { name: 'Todos', exact: true }).click();
+      // o aviso de publicação (D31): nada é publicado sem "Publicar mesmo assim"
+      await nutri.getByRole('button', { name: 'Publicar', exact: true }).click();
+      await expect(nutri.getByRole('alert').filter({ hasText: 'Sábado e domingo não têm refeições.' })).toBeVisible();
+      await expect(nutri.getByRole('button', { name: 'Publicar mesmo assim' })).toBeVisible();
+      for (const v of await violacoes(nutri)) falhas.push(`${tema} aviso de publicação — ${v}`);
+    }
+  } finally {
+    nutri.removeAllListeners('dialog');
+    await nutri.emulateMedia({ colorScheme: 'light' });
+  }
+  expect(falhas).toEqual([]);
 });
 
 /**

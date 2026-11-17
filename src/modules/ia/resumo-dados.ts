@@ -4,6 +4,7 @@ import type { Tx } from '@/db/client';
 import { anamneses, anthropometry, consultationNotes, consultations, diaryEntries, energyCalcs, exams, mealItems, mealPlans, meals, type PatientRow } from '@/db/schema';
 import { arredondar, casasDecimais, formatarDecimal } from '@/lib/numero';
 import { formatarData, hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
+import { lerCongelados } from '@/modules/plano-alimentar/congelados';
 import type { Categoria } from './campos-enviados';
 import { mascarar, respostasMascaradas, textoLivre, type AlvoDaMascara } from './pseudonimizar';
 import type { Fonte, LinhaDadosUsados } from './tipos';
@@ -128,14 +129,17 @@ export async function montarPedidoDoResumo(tx: Tx, p: PatientRow, o: { notasPriv
     const rs = await tx.select().from(meals).where(eq(meals.planId, pub.id)).orderBy(meals.ordem);
     const its = await tx.select().from(mealItems).where(eq(mealItems.planId, pub.id)).orderBy(mealItems.ordem);
     const publicadoEm = diaNoFuso(pub.publicadoEm ?? pub.updatedAt);
-    // sem o título do plano (texto livre que não é preciso); só os itens principais (as substituições ficam de fora)
+    // sem o título do plano (texto livre que não é preciso); só os itens principais (as substituições ficam de fora).
+    // Plano 19 (D26, RN-109: nada novo sai): o nome do item pelo leitor único dos congelados (RN-237); a refeição em texto
+    // livre vai sem itens e SEM o texto (`descricao_livre` nunca sai); dias, lista de substituição, materiais, micros e
+    // perfil de referência também não
     dados.plano = {
       indice: indice(`plano publicado em ${formatarData(publicadoEm)}`, 'meal_plans', pub.id, pub.updatedAt),
       publicado_em: publicadoEm,
       refeicoes: rs.map((r) => ({
         nome: textoLivre(r.nome, alvo),
         horario: r.horario?.slice(0, 5) ?? null,
-        itens: its.filter((i) => i.mealId === r.id && !i.substituiItemId).map((i) => ({ alimento: i.nutrientes?.nome ?? null, gramas: i.quantidadeG })),
+        itens: its.filter((i) => i.mealId === r.id && !i.substituiItemId).map((i) => ({ alimento: nomeCongelado(i.nutrientes), gramas: i.quantidadeG })),
       })),
       orientacoes: textoLivre(pub.orientacoes, alvo),
     };
@@ -163,6 +167,16 @@ export async function montarPedidoDoResumo(tx: Tx, p: PatientRow, o: { notasPriv
     .update([...marcas.sort(), `nasc:${p.dataNascimento ?? ''}`, `sexo:${p.sexo ?? ''}`, `notas:${o.notasPrivadas}`].join('\n'))
     .digest('hex');
   return { dados, fontes, tabela: tabelaDadosUsados(ant, exs), carimbo, bytes: Buffer.byteLength(JSON.stringify(dados), 'utf8'), vazio };
+}
+
+/** O nome congelado na publicação (RN-237, só por `lerCongelados`); congelado ausente ou fora do formato → null (como antes). */
+function nomeCongelado(n: unknown): string | null {
+  if (n === null || n === undefined) return null;
+  try {
+    return lerCongelados(n).nome || null;
+  } catch {
+    return null;
+  }
 }
 
 const sinal = (d: number) => (d > 0 ? '+' : d < 0 ? '−' : '');

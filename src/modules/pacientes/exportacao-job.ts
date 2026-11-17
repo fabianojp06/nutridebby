@@ -25,10 +25,15 @@ import {
   meals,
   notifications,
   patients,
+  planoConteudos,
+  planoListasSubstituicao,
   privacyRequests,
   pushSubscriptions,
   storedFiles,
   user,
+  type MacrosPrescritos,
+  type PlanoConteudoRow,
+  type ValoresDaReferencia,
 } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
@@ -47,7 +52,15 @@ import {
   listarTenantsParaVarredura,
   tenantIsActive,
 } from '@/modules/plataforma/tenant-status';
+import type { Fonte } from '@/modules/alimentos/fontes';
+import type { TipoConteudo } from '@/modules/conteudo/constantes';
 import { conteudosDoTitular, type ConteudosDoTitular } from '@/modules/conteudo/titular';
+import { MSG_LIGADOS } from '@/modules/plano-alimentar/biblioteca-constantes';
+import type { MicrosPorCem } from '@/modules/plano-alimentar/calculo';
+import { lerCongelados, type Congelado } from '@/modules/plano-alimentar/congelados';
+import { rotuloDosDiasPorExtenso, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
+import { gruposDaCopia } from '@/modules/plano-alimentar/ligados';
+import type { GrupoDaListaLigada } from '@/modules/plano-alimentar/tipos';
 import { DESTINO_ROTULO, ROTULO_DESTINO_LEGADO, type DestinoIA } from '@/modules/ia/constantes';
 import { iaNutriParaExportacao, type IaNutriExportado } from '@/modules/ia/nutri-paciente/lgpd';
 import { documentosParaExportacao, type DocumentoExportado } from '@/modules/documentos/lgpd-documentos';
@@ -156,14 +169,37 @@ export type DadosExportacao = {
     publicadoEm: string | null;
     metaKcal: number | null;
     orientacoes: string;
+    /** Plano 19 (RN-257; RN-243): `calculado` (alimentos e quantidades) ou `livre` (texto por refeição). */
+    modo: string;
+    /** RN-244: a distribuição de macros do plano, em % do VET (só no modo livre). */
+    macrosPrescritos: MacrosPrescritos | null;
+    /** RN-238: a cópia do perfil de referência feita na publicação (só publicado/arquivado; nula sem perfil). */
+    referencia: { nome: string; fonte: string; valores: ValoresDaReferencia } | null;
+    /** RN-239: as chaves dos nutrientes mostrados em "Nutrientes do paciente". */
+    nutrientesExibidos: string[];
     refeicoes: {
       nome: string;
       horario: string;
       observacao: string;
+      /** RN-246: os dias em que a refeição vale — o rótulo ("Segunda a sexta") e os números (0 = domingo … 6 = sábado). */
+      diasSemana: { rotulo: string; numeros: number[] };
+      /** RN-243: o texto da refeição no plano em texto livre (nulo no calculado). */
+      descricaoLivre: string | null;
       /** US-054 (Plano 07): o título da receita sugerida na refeição (null sem sugestão ou se o conteúdo não existe mais). */
       sugestaoDeReceita: string | null;
-      itens: { alimento: string; quantidadeG: number; medida: string | null; substituiDe: string | null }[];
+      /**
+       * RN-257: `fonte` e `micros` (por 100 g) como congelados na publicação (RN-237); no rascunho, a fonte atual do
+       * alimento e `micros` nulo (nada congelado). `micros` nulo no publicado = plano publicado antes do Plano 19.
+       */
+      itens: { alimento: string; quantidadeG: number; medida: string | null; substituiDe: string | null; fonte: Fonte; micros: MicrosPorCem | null }[];
     }[];
+    /** RN-252: as listas de substituição ligadas (as cópias feitas na ligação). */
+    listasSubstituicao: { nome: string; orientacao: string; copiadaEm: string; grupos: GrupoDaListaLigada[] }[];
+    /**
+     * RN-253: receitas e materiais ligados (tipo e título). No escopo `titular`, só o conteúdo que ainda existe e está
+     * publicado (como a sugestão de receita); na `equipe`, todos — o excluído como "{título} (excluído)", com tipo nulo.
+     */
+    conteudosLigados: { tipo: TipoConteudo | null; titulo: string }[];
   }[];
   pedidosLgpd: { tipo: string; status: string; prazo: string; concluidoEm: string | null }[];
   /**
@@ -269,34 +305,67 @@ const texto = (tipo: string, v: string | string[]) =>
   Array.isArray(v) ? v.join(', ') : tipo === 'sim_nao' ? ({ sim: 'Sim', nao: 'Não' }[v] ?? v) : v;
 const NOME_FORMULA = Object.fromEntries(FORMULAS_TMB.map((f) => [f.id, f.nome]));
 
+/** RN-237: o item congelado, só por `lerCongelados`; congelado fora do formato → null (a exportação sai com os dados atuais). */
+function congeladoDe(n: unknown): Congelado | null {
+  if (n === null || n === undefined) return null;
+  try {
+    return lerCongelados(n);
+  } catch {
+    return null;
+  }
+}
+
+type ConteudoAtual = { titulo: string; tipo: string; status: string };
+
 /**
- * D04-1: todas as versões do plano em 4 consultas fixas — planos, refeições, itens e os títulos das receitas (antes, uma
- * leitura completa por versão). Publicado/arquivado com os nomes congelados na publicação (D10 do Plano 04); o rascunho
- * com os atuais. Mesma forma de antes, mais a sugestão de receita da refeição (o título, se ainda existir — D13; para o
- * titular, só se estiver publicada).
+ * RN-253/RN-257: a ligação como sai no dados.json. O titular recebe só o conteúdo que ainda existe e está publicado (P-16 b,
+ * como a sugestão de receita: o título de um conteúdo despublicado — talvez renomeado como rascunho interno — não vai ao
+ * titular); a equipe recebe todos, e o excluído (`content_id` nulo pelo SET NULL) com o título copiado "(excluído)".
+ */
+function conteudoLigado(c: PlanoConteudoRow, atual: ConteudoAtual | undefined, escopo: EscopoExportacao): { tipo: TipoConteudo | null; titulo: string } | null {
+  if (!c.contentId || !atual) return escopo === 'titular' ? null : { tipo: null, titulo: c.contentId ? c.titulo : MSG_LIGADOS.excluido(c.titulo) };
+  if (escopo === 'titular' && atual.status !== 'publicado') return null;
+  return { tipo: atual.tipo as TipoConteudo, titulo: atual.titulo };
+}
+
+/**
+ * D04-1: todas as versões do plano em 6 consultas fixas — planos, refeições, itens, listas ligadas, conteúdos ligados e os
+ * títulos dos conteúdos (receitas da refeição e ligados) — em vez de uma leitura completa por versão. Publicado/arquivado
+ * com os nomes, a fonte e os micros congelados na publicação (D10 do Plano 04, RN-237, só por `lerCongelados`); o
+ * rascunho com os atuais. Mais a sugestão de receita da refeição (o título, se ainda existir — D13; para o titular, só se
+ * estiver publicada) e, no Plano 19 (RN-257), modo, macros, perfil congelado, nutrientes exibidos, dias, texto livre,
+ * listas e conteúdos ligados.
  */
 async function planosParaExportacao(tx: Tx, ids: string[], escopo: EscopoExportacao): Promise<DadosExportacao['planos']> {
   if (!ids.length) return [];
   const ps = await tx.select().from(mealPlans).where(inArray(mealPlans.id, ids)).orderBy(asc(mealPlans.versao));
   const rs = await tx.select().from(meals).where(inArray(meals.planId, ids)).orderBy(asc(meals.ordem));
   const its = await tx
-    .select({ i: mealItems, nome: foods.nome })
+    .select({ i: mealItems, nome: foods.nome, fonte: foods.fonte })
     .from(mealItems)
     .innerJoin(foods, eq(foods.id, mealItems.foodId))
     .where(inArray(mealItems.planId, ids))
     .orderBy(asc(mealItems.ordem));
-  const idsReceita = [...new Set(rs.flatMap((r) => (r.recipeContentId ? [r.recipeContentId] : [])))];
-  // P-16 b / D13: o titular vê a sugestão só da receita publicada, como no portal (o cartão some) — o título de uma
-  // receita despublicada (e talvez renomeada como rascunho interno) não vai para o dados.json dele; a equipe vê todas
-  const titulos = new Map(
-    idsReceita.length
-      ? (await tx.select({ id: contents.id, titulo: contents.titulo, status: contents.status }).from(contents).where(inArray(contents.id, idsReceita)))
-          .filter((c) => escopo !== 'titular' || c.status === 'publicado')
-          .map((c) => [c.id, c.titulo])
+  const ls = await tx.select().from(planoListasSubstituicao).where(inArray(planoListasSubstituicao.planId, ids)).orderBy(asc(planoListasSubstituicao.ordem), asc(planoListasSubstituicao.createdAt));
+  const cs = await tx.select().from(planoConteudos).where(inArray(planoConteudos.planId, ids)).orderBy(asc(planoConteudos.ordem), asc(planoConteudos.createdAt));
+  const idsConteudo = [...new Set([...rs.flatMap((r) => (r.recipeContentId ? [r.recipeContentId] : [])), ...cs.flatMap((c) => (c.contentId ? [c.contentId] : []))])];
+  const atuais = new Map<string, ConteudoAtual>(
+    idsConteudo.length
+      ? (await tx.select({ id: contents.id, titulo: contents.titulo, tipo: contents.tipo, status: contents.status }).from(contents).where(inArray(contents.id, idsConteudo))).map((c) => [c.id, c])
       : [],
   );
+  // P-16 b / D13: o titular vê a sugestão só da receita publicada, como no portal (o cartão some) — o título de uma
+  // receita despublicada (e talvez renomeada como rascunho interno) não vai para o dados.json dele; a equipe vê todas
+  const tituloDaReceita = (id: string): string | null => {
+    const c = atuais.get(id);
+    return c && (escopo !== 'titular' || c.status === 'publicado') ? c.titulo : null;
+  };
+  // publicado/arquivado: a cópia congelada; o rascunho não tem (os valores atuais do alimento)
+  const rascunhos = new Set(ps.filter((p) => p.status === 'rascunho').map((p) => p.id));
+  const congelados = new Map(its.map((x) => [x.i.id, rascunhos.has(x.i.planId) ? null : congeladoDe(x.i.nutrientes)]));
+  const nomeDo = (x: (typeof its)[number]) => congelados.get(x.i.id)?.nome || x.nome;
   return ps.map((p) => {
-    const nomeDo = (x: (typeof its)[number]) => (p.status !== 'rascunho' && x.i.nutrientes ? x.i.nutrientes.nome : x.nome);
+    const ref = rascunhos.has(p.id) ? null : p.referenciaCongelada;
     return {
       versao: p.versao,
       status: p.status,
@@ -304,6 +373,10 @@ async function planosParaExportacao(tx: Tx, ids: string[], escopo: EscopoExporta
       publicadoEm: p.publicadoEm?.toISOString() ?? null,
       metaKcal: p.metaKcal,
       orientacoes: p.orientacoes,
+      modo: p.modo,
+      macrosPrescritos: p.macrosPrescritos ?? null,
+      referencia: ref ? { nome: ref.nome, fonte: ref.fonte, valores: ref.valores } : null,
+      nutrientesExibidos: p.nutrientesExibidos,
       refeicoes: rs
         .filter((r) => r.planId === p.id)
         .map((r) => {
@@ -312,13 +385,27 @@ async function planosParaExportacao(tx: Tx, ids: string[], escopo: EscopoExporta
             nome: r.nome,
             horario: r.horario ? r.horario.slice(0, 5) : '',
             observacao: r.observacao,
-            sugestaoDeReceita: r.recipeContentId ? (titulos.get(r.recipeContentId) ?? null) : null,
+            diasSemana: { rotulo: rotuloDosDiasPorExtenso(r.diasSemana as DiaDaSemana[]), numeros: [...r.diasSemana].sort((a, b) => a - b) },
+            descricaoLivre: r.descricaoLivre,
+            sugestaoDeReceita: r.recipeContentId ? tituloDaReceita(r.recipeContentId) : null,
             itens: itens.map((x) => {
               const principal = x.i.substituiItemId ? itens.find((y) => y.i.id === x.i.substituiItemId) : undefined;
-              return { alimento: nomeDo(x), quantidadeG: x.i.quantidadeG, medida: x.i.medidaCaseiraTxt, substituiDe: principal ? nomeDo(principal) : null };
+              const c = congelados.get(x.i.id);
+              return {
+                alimento: nomeDo(x),
+                quantidadeG: x.i.quantidadeG,
+                medida: x.i.medidaCaseiraTxt,
+                substituiDe: principal ? nomeDo(principal) : null,
+                fonte: c?.fonte ?? x.fonte,
+                micros: c?.micros ?? null,
+              };
             }),
           };
         }),
+      listasSubstituicao: ls
+        .filter((l) => l.planId === p.id)
+        .map((l) => ({ nome: l.nome, orientacao: l.orientacao, copiadaEm: l.copiadaEm.toISOString(), grupos: gruposDaCopia(l.conteudo) })),
+      conteudosLigados: cs.filter((c) => c.planId === p.id).flatMap((c) => conteudoLigado(c, c.contentId ? atuais.get(c.contentId) : undefined, escopo) ?? []),
     };
   });
 }

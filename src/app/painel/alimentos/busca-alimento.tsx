@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useId, useRef, useState } from 'react';
 import { formatarDecimal } from '@/lib/numero';
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
+import { MSG_FONTES, seloDaFonte, semValorNa, type Fonte } from '@/modules/alimentos/fontes';
 
 const hrefDe = (a: AlimentoEncontrado) => `/painel/alimentos/${a.id}`;
-const kcalTexto = (a: AlimentoEncontrado) => (a.porCem.kcal === null ? 'Sem valor na TACO' : `${formatarDecimal(a.porCem.kcal, 0)} kcal/100 g`);
+/** RN-230: "Sem valor na {sigla}" pela fonte do alimento. */
+export const kcalPorCemTexto = (a: AlimentoEncontrado) => (a.porCem.kcal === null ? semValorNa(a.fonte) : `${formatarDecimal(a.porCem.kcal, 0)} kcal/100 g`);
 
 /**
  * US-020: campo de busca com lista de resultados (setas, Enter e Esc). Sem `aoEscolher`, cada resultado é link
@@ -96,13 +98,13 @@ export function BuscaAlimento({ aoEscolher, rotulo = 'Buscar alimento' }: { aoEs
           <li key={a.id} id={`${id}-${a.id}`} role="option" aria-selected={i === ativo} className={i === ativo ? 'bg-ok-fundo' : ''}>
             {aoEscolher ? (
               <button type="button" onClick={() => escolher(a)} className="flex w-full items-center justify-between gap-2 p-2 text-left">
-                <span>{a.nome}</span>
-                <span className="text-sm text-suave">{kcalTexto(a)} · <Selo origem={a.origem} /></span>
+                <NomeDoAlimento a={a} />
+                <span className="text-sm text-suave">{kcalPorCemTexto(a)} · <Selo fonte={a.fonte} /></span>
               </button>
             ) : (
               <Link href={hrefDe(a)} className="flex items-center justify-between gap-2 p-2">
-                <span>{a.nome}</span>
-                <span className="text-sm text-suave">{kcalTexto(a)} · <Selo origem={a.origem} /></span>
+                <NomeDoAlimento a={a} />
+                <span className="text-sm text-suave">{kcalPorCemTexto(a)} · <Selo fonte={a.fonte} /></span>
               </Link>
             )}
           </li>
@@ -112,7 +114,18 @@ export function BuscaAlimento({ aoEscolher, rotulo = 'Buscar alimento' }: { aoEs
   );
 }
 
-/** "Origem visível" (US-020): selo com texto, não só cor. */
-export function Selo({ origem }: { origem: 'TACO' | 'Meu alimento' }) {
-  return <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${origem === 'TACO' ? 'bg-linha text-texto' : 'bg-ok-fundo text-ok'}`}>{origem}</span>;
+/** US-230: o nome traduzido, o original em inglês em texto menor e o aviso da tradução, visível (só na USDA). */
+export function NomeDoAlimento({ a }: { a: Pick<AlimentoEncontrado, 'nome' | 'nomeOriginal' | 'fonte'> }) {
+  return (
+    <span>
+      {a.nome}
+      {a.nomeOriginal && <span lang="en" className="block text-sm text-suave">{a.nomeOriginal}</span>}
+      {a.fonte === 'usda' && <span className="block text-xs text-suave">{MSG_FONTES.traduzido}</span>}
+    </span>
+  );
+}
+
+/** "Origem visível" (US-020, RN-230): selo da fonte com texto, não só cor; "Meu alimento" em verde, as tabelas públicas em cinza. */
+export function Selo({ fonte }: { fonte: Fonte }) {
+  return <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${fonte === 'propria' ? 'bg-ok-fundo text-ok' : 'bg-linha text-texto'}`}>{seloDaFonte(fonte)}</span>;
 }

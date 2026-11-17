@@ -44,5 +44,7 @@ export const MSG_DIARIO = {
   ocupado: 'Tente novamente em alguns instantes.',
   formulario: 'Formulário inválido.',
   refeicaoNaoEncontrada: 'Refeição não encontrada no seu plano.',
+  /** Plano 19 (RN-247 e): a resposta a uma refeição que não vale hoje no fuso do consultório. */
+  refeicaoDeOutroDia: 'Esta refeição não é de hoje.',
   registrado: 'Registrado no diário.',
 } as const;

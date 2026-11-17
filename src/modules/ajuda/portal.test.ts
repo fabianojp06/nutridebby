@@ -12,11 +12,11 @@ const FONTES = ['src/app/p', 'src/components/portal']
   .join('\n');
 
 describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
-  it('id no formato do progresso e fora dos guias do painel; versão 3 (Plano 17: os lembretes em "Perguntas comuns"); 5 passos com "1 de 5"', () => {
+  it('id no formato do progresso e fora dos guias do painel; versão 4 (Plano 19: a página Plano com os dias e "Ligado ao seu plano"); 5 passos com "1 de 5"', () => {
     expect(GUIA_PORTAL.id).toBe('portal-novidades');
     expect(GUIA_PORTAL.id).toMatch(ID_GUIA);
     expect(GUIAS.map((g) => g.id)).not.toContain(GUIA_PORTAL.id);
-    expect(GUIA_PORTAL.versao).toBe(3);
+    expect(GUIA_PORTAL.versao).toBe(4);
     expect(GUIA_PORTAL.passos).toHaveLength(5);
   });
   it('todo alvo do tour existe numa tela do portal (data-guia); a faixa, o mural, as respostas, as ações e a seção Eu', () => {
@@ -42,7 +42,7 @@ describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
       'Se o seu consultório usar IA, você pode receber dois pedidos separados: um para os exames (em Eu › Privacidade) e outro para a IA Nutri (em Plano). Cada um é opcional. Recusar ou retirar não muda nada no seu atendimento.',
     );
     const onde = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Onde fica cada coisa')?.itens ?? [];
-    expect(onde).toContain('Plano: as refeições do dia, o PDF, a lista de compras, os conteúdos e, quando liberada, a IA Nutri.');
+    expect(onde).toContain('Plano: as refeições de hoje (as dos outros dias em "Ver outros dias"), o PDF, a lista de compras, os conteúdos e, quando liberada, a IA Nutri.');
     const tudo = JSON.stringify(GUIA_PORTAL);
     expect(tudo).not.toContain('canal de conversa');
     expect(tudo).not.toContain('o pedido de autorização aparece em Eu');
@@ -58,13 +58,22 @@ describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
     expect(avisoDoGuia({}, true)).toBe(AVISO_PORTAL.pergunta); // já usava o app e nunca viu o guia (Plano 16, G-D17)
     expect(avisoDoGuia({}, false)).toBe(AVISO_PORTAL.boasVindas);
     expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 2, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 17: a versão 2 já é anterior
-    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 3, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 3, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 19: a versão 3 já é anterior
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 4, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
     expect(avisoDoGuia({ outro: { v: 1, estado: 'visto' } }, false)).toBe(AVISO_PORTAL.boasVindas); // o progresso de outro guia não conta
   });
 
   it('Plano 17 (Tarefa 6): os lembretes em "Perguntas comuns", com a ressalva de que dependem da nutricionista; o tour não muda', () => {
     const itens = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')?.itens ?? [];
     expect(itens).toContain('Se a sua nutricionista configurou lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um.');
+    expect(GUIA_PORTAL.passos.map((p) => p.alvo)).toEqual(['faixa', 'mural', 'respostas', 'acoes', 'secao-eu']);
+  });
+
+  it('Plano 19 (Tarefa 10d): a página Plano com os dias e "Ligado ao seu plano" com a ressalva de que depende da nutricionista; o tour não muda', () => {
+    const onde = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Onde fica cada coisa')?.itens ?? [];
+    expect(onde.find((i) => i.startsWith('Plano:'))).toContain('"Ver outros dias"');
+    const itens = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')?.itens ?? [];
+    expect(itens).toContain('Quando a sua nutricionista ligar listas de substituição, receitas ou materiais ao seu plano, eles ficam em Plano, em "Ligado ao seu plano".');
     expect(GUIA_PORTAL.passos.map((p) => p.alvo)).toEqual(['faixa', 'mural', 'respostas', 'acoes', 'secao-eu']);
   });
 });

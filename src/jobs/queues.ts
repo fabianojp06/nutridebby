@@ -23,6 +23,12 @@ export const QUEUES = {
   'expirar-exportacao': { retryLimit: 3, retryDelay: 300, expireInSeconds: 120 },
   /** US-026: PDF do plano gerado pelo worker na publicação (≤ 30 s). Payload { tenantId, planId }. */
   'plano-pdf': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
+  /**
+   * Plano 19 (R-244): a mesma geração, numa fila que só o worker novo registra. O worker antigo, de pé até o novo subir
+   * (e na volta atrás), geraria para um plano publicado no app novo um PDF sem dias nem texto livre, marcado `pronto`
+   * até a próxima publicação. O app novo enfileira só aqui; o worker novo consome as duas (`FILAS_DO_PDF_DO_PLANO`).
+   */
+  'plano-pdf-2': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
   // US-042 / RN-07: foto do diário convertida (JPEG ≤ 1600 px, sem EXIF/GPS) e original apagado. Payload { tenantId, entryId }.
   'diario-foto': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
   // US-042: foto parada há mais de 30 min sem job vivo (worker caiu na última tentativa, banco fora) → "falhou" e o original
@@ -95,6 +101,11 @@ export const QUEUES = {
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;
+
+/** R-244: onde a publicação e "Gerar o PDF de novo" enfileiram o PDF do plano. */
+export const FILA_DO_PDF_DO_PLANO = 'plano-pdf-2' satisfies QueueName;
+/** R-244: o worker novo consome as duas com o mesmo handler (`plano-pdf`: jobs do app antigo na janela do deploy). */
+export const FILAS_DO_PDF_DO_PLANO = ['plano-pdf', FILA_DO_PDF_DO_PLANO] as const satisfies readonly QueueName[];
 
 export async function ensureQueues(boss: PgBoss): Promise<void> {
   for (const [name, options] of Object.entries(QUEUES)) {

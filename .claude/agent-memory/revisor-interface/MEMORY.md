@@ -22,3 +22,8 @@
 - [Entrada some pelo estado da tela](feedback_entrada-some-pelo-estado-da-tela.md) — seção de Eu condicionada a "algum ativo" some quando o paciente desliga tudo
 - [Cartões irmãos somem no revalidate](feedback_cartoes-irmaos-somem-no-revalidate.md) — sugestão inicial some inteira quando um cartão salva; resumo do portal omite push de diário
 - [Tela movida e mensagens órfãs](feedback_tela-movida-e-mensagens-orfas.md) — aba movida (Resumo→Perfil): mensagem "no cadastro" sem link; E2E de "cada seção" parcial
+- [Limite mudado, E2E literal esquecido](feedback_constante-de-limite-e-e2e-literal.md) — MAX_REFEICOES/MSG de limite: grep e2e/ pelo número e texto antigos; aviso da action fica velho
+- [Filtro esconde o que edita](feedback_filtro-esconde-o-que-edita.md) — filtro de dia some o cartão ao desmarcar o dia; link de erro por hash não repete; vazio sem role=status
+- [Painel que fecha e sucesso mudo](feedback_painel-que-fecha-e-sucesso-mudo.md) — ação imediata: foco cai no body ao fechar o painel; sem role=status no sucesso
+- [Lista derivada vazia sem texto](feedback_lista-derivada-vazia-sem-texto.md) — filtro/janela válido com resultado vazio: só a dica de rodapé aparece (compras do 19)
+- [Axe não prova foco do diálogo](feedback_axe-nao-prova-foco-do-dialogo.md) — diálogo/abas só com axe; sem toBeFocused/setas; teto rígido de INP no E2E

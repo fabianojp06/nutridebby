@@ -6,7 +6,7 @@ const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
 
 const sufixo = Date.now().toString(36);
-const VALORES = 'Valores por 100 g: energia entre 0 e 900 kcal; os demais entre 0 e 100 g';
+const VALORES = 'Valores por 100 g: energia entre 0 e 1000 kcal; os demais entre 0 e 100 g';
 const BLOQUEADO = 'Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.';
 let nutri: Page;
 
@@ -20,7 +20,7 @@ test.afterAll(async () => {
 
 test('busca tolerante a acento com selo de origem e fonte citada (US-020)', async () => {
   await nutri.goto('/painel/alimentos');
-  await expect(nutri.getByText('Fonte: TACO 4ª ed. — NEPA/UNICAMP. Valores por 100 g.')).toBeVisible();
+  await expect(nutri.getByText('Fonte: TACO 4ª ed. — NEPA/UNICAMP.', { exact: true })).toBeVisible(); // RN-233: uma citação por fonte carregada
   await nutri.getByLabel('Buscar alimento').fill('feijao carioca');
   const opcao = nutri.getByRole('option', { name: /Feijão, carioca, cozido/ });
   await expect(opcao).toBeVisible();
@@ -54,13 +54,13 @@ test('busca: "Nenhum alimento encontrado.", Esc fecha a lista e Enter abre o ali
 test('meu alimento: cadastro com selo, TACO só com "Duplicar como meu alimento", medida caseira (US-021, US-020)', async () => {
   await nutri.goto('/painel/alimentos/novo');
   await nutri.getByLabel('Nome').fill('x');
-  await nutri.getByLabel('Energia (kcal)').fill('901');
+  await nutri.getByLabel('Energia (kcal)').fill('1001');
   await nutri.getByRole('button', { name: 'Salvar alimento' }).click();
   await expect(nutri.getByText('Informe o nome do alimento (2 a 120 caracteres)')).toBeVisible();
   await expect(nutri.getByText('Escolha o grupo do alimento')).toBeVisible();
   await expect(nutri.getByText(VALORES).first()).toBeVisible();
   await expect(nutri.getByLabel('Nome')).toHaveValue('x'); // o que foi digitado não se perde
-  await expect(nutri.getByLabel('Energia (kcal)')).toHaveValue('901');
+  await expect(nutri.getByLabel('Energia (kcal)')).toHaveValue('1001');
   // o grupo escolhido também sobrevive ao erro de outro campo (o <select> não volta para "Escolha…")
   await nutri.getByLabel('Grupo').selectOption('Frutas e derivados');
   await nutri.getByRole('button', { name: 'Salvar alimento' }).click();
@@ -116,7 +116,7 @@ test('duplicar alimento da TACO sem valor abre a edição com aviso; editar e ex
   await expect(nutri.getByLabel('Grupo')).toHaveValue('Leite e derivados'); // veio da cópia
   await nutri.getByLabel('Nome').fill(`Leite da casa ${sufixo}`);
   await nutri.getByLabel('Grupo').selectOption('Bebidas (alcoólicas e não alcoólicas)');
-  await nutri.getByLabel('Energia (kcal)').fill('901'); // erro em outro campo: o grupo trocado não pode voltar ao antigo
+  await nutri.getByLabel('Energia (kcal)').fill('1001'); // erro em outro campo: o grupo trocado não pode voltar ao antigo
   await nutri.getByRole('button', { name: 'Salvar alterações' }).click();
   await expect(nutri.getByText(VALORES).first()).toBeVisible();
   await expect(nutri.getByLabel('Grupo')).toHaveValue('Bebidas (alcoólicas e não alcoólicas)');
@@ -229,8 +229,11 @@ test('editor: edição em outra aba mostra o aviso de conflito e o salvamento n�
   await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });
 });
 
-test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o motivo; erro geral do servidor aparece na tela (US-022)', async () => {
-  const LIMITE = 'O plano pode ter até 15 refeições e 200 itens.';
+test('editor: limites de 50 refeições e 400 itens bloqueiam "Adicionar" com o motivo; erro geral do servidor aparece na tela (US-022)', async () => {
+  // a tela com 50 refeições e 400 itens leva ~1 s por ação com os workers do E2E em paralelo: os 30 s padrão acabavam na
+  // última asserção (Plano 19, P19-11)
+  test.setTimeout(90_000);
+  const LIMITE = 'O plano pode ter até 50 refeições e 400 itens.'; // RN-249 (Plano 19)
   // Paciente próprio: o plano do teste anterior segue como as próximas tarefas esperam
   await nutri.goto('/painel/pacientes/novo');
   await nutri.getByLabel('Nome').fill(`Paciente Limites ${sufixo}`);
@@ -246,15 +249,15 @@ test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o 
   const planoUrl = new URL(nutri.url()).pathname;
   const api = `/api/painel/planos/${planoUrl.split('/').pop()}`;
 
-  // 15 refeições e 200 itens chegam ao servidor pela própria API (a tela não deixa passar disso)
+  // 50 refeições e 400 itens (8 em cada) chegam ao servidor pela própria API (a tela não deixa passar disso)
   const atual = (await (await nutri.request.get(api)).json()) as { revisao: number; titulo: string };
   const chuchu = '00000000-0000-4000-8000-000000000112';
-  const refeicoes = Array.from({ length: 15 }, (_, k) => ({
+  const refeicoes = Array.from({ length: 50 }, (_, k) => ({
     id: randomUUID(),
     nome: `Refeição ${k + 1}`,
     horario: '',
     observacao: '',
-    itens: k === 0 ? Array.from({ length: 200 }, () => ({ id: randomUUID(), foodId: chuchu, quantidadeG: '10', medida: null, substituiItemId: null })) : [],
+    itens: Array.from({ length: 8 }, () => ({ id: randomUUID(), foodId: chuchu, quantidadeG: '10', medida: null, substituiItemId: null })),
   }));
   const r = await nutri.request.put(api, { data: { revisao: atual.revisao, envio: randomUUID(), titulo: atual.titulo, metaKcal: '', energyCalcId: null, mostrarCalorias: false, orientacoes: '', refeicoes } });
   expect(r.status()).toBe(200);
@@ -262,14 +265,14 @@ test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o 
   await nutri.reload();
   await expect(nutri.getByRole('button', { name: 'Adicionar refeição' })).toBeDisabled();
   await expect(nutri.locator('#limite-refeicoes')).toHaveText(LIMITE);
-  await expect(nutri.getByLabel(/^Adicionar alimento em/)).toHaveCount(0); // 200 itens: sem busca, com o motivo
+  await expect(nutri.getByLabel(/^Adicionar alimento em/)).toHaveCount(0); // 400 itens: sem busca, com o motivo
   const substituir = nutri.getByRole('button', { name: /^Adicionar substituição para/ }).first();
   await expect(substituir).toBeDisabled(); // a substituição também é item: no limite não abre a busca e aponta o motivo
   await expect(substituir).toHaveAccessibleDescription(LIMITE);
-  await expect(nutri.getByText(LIMITE)).toHaveCount(16); // 1 do botão + 1 em cada refeição
+  await expect(nutri.getByText(LIMITE)).toHaveCount(51); // 1 do botão + 1 em cada uma das 50 refeições
 
   nutri.once('dialog', (d) => void d.accept());
-  await nutri.getByRole('button', { name: 'Remover refeição' }).last().click(); // 14 refeições: volta a poder adicionar
+  await nutri.getByRole('button', { name: 'Remover refeição' }).last().click(); // 49 refeições e 392 itens: volta a poder adicionar
   await expect(nutri.getByRole('button', { name: 'Adicionar refeição' })).toBeEnabled();
   await expect(nutri.locator('#limite-refeicoes')).toHaveCount(0);
   await expect(nutri.getByRole('status').filter({ hasText: 'Salvo' })).toBeVisible({ timeout: 5000 });

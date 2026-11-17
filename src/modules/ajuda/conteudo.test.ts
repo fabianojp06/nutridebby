@@ -14,6 +14,8 @@ const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/doc
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.ts') && !d.name.endsWith('.test.ts')).map((d) => path.join(d.parentPath, d.name)))
   // Plano 16: os rótulos da resposta do diário ("Comeu como no plano") vêm de uma constante do portal (sem import de servidor)
   .concat(path.resolve('src/modules/portal/diario-constantes.ts'))
+  // Plano 19: os selos ("Meu alimento", "USDA (EUA)") saem de seloDaFonte (fontes.ts), não de um literal no .tsx
+  .concat(path.resolve('src/modules/alimentos/fontes.ts'))
   .map((f) => readFileSync(f, 'utf8'))
   .join('\n');
 
@@ -108,7 +110,7 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(itens('plano-alimentar')).toContain(
       '"Gerar rascunho com IA": informe a meta, os macronutrientes e as refeições; a IA escolhe alimentos da TACO e da sua tabela, e todas as contas são do sistema. O plano publicado leva o selo "Elaborado com apoio de IA e revisado pela nutricionista".',
     );
-    expect(GUIAS.find((x) => x.id === 'plano-alimentar')!.versao).toBe(2); // 2 desde o Plano 17 (a seção Lembretes no app, abaixo)
+    expect(GUIAS.find((x) => x.id === 'plano-alimentar')!.versao).toBe(3); // 2 = Plano 17 (a seção Lembretes no app, abaixo); 3 = Plano 19 (passos do modo e dos dias, abaixo)
     // as telas novas ficam no guia do prontuário e no do plano alimentar
     expect(guiaDaRota(`/painel/pacientes/${UUID}/resumo-ia`)?.id).toBe('prontuario');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/plano-alimentar/rascunho-ia`)?.id).toBe('plano-alimentar');
@@ -120,7 +122,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 15: o aditivo 1.2 e a IA Nutri em Configurações (versão 8, com o passo da subseção); a 1.2 não invalida autorização nenhuma', () => {
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
-    expect(config.versao).toBe(8);
+    expect(config.versao).toBe(9); // 9 = Plano 19 (a biblioteca do plano no resumo, abaixo); a 8 foi a do Plano 15
     const ia = config.ajuda.secoes.find((s) => s.titulo === 'Inteligência artificial (IA)')!.itens;
     expect(ia).toContain(
       'O aditivo está na versão 1.2, que inclui o resumo do histórico, o rascunho de plano alimentar e a IA Nutri para pacientes. Quem aceitou a versão 1.1 continua usando a leitura de laudos, o resumo, o rascunho e os modelos; só a IA Nutri pede o aceite da 1.2 ("Aceitar a versão atual").',
@@ -142,10 +144,10 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota(`/painel/pacientes/${UUID}/ia-nutri-x`)?.id).toBe('prontuario');
     expect(GUIAS.find((x) => x.id === 'duvidas')!.passos.map((p) => p.alvo)).toEqual(['fila-duvidas']);
   });
-  it('Plano 17: a seção "Lembretes no app" no guia do plano alimentar (versão 2, passo depois de Publicar e o limite nas perguntas comuns)', () => {
+  it('Plano 17: a seção "Lembretes no app" no guia do plano alimentar (versão 2, 3 com o Plano 19; passo depois de Publicar e o limite nas perguntas comuns)', () => {
     const g = GUIAS.find((x) => x.id === 'plano-alimentar')!;
-    expect(g.versao).toBe(2);
-    expect(g.passos.map((p) => p.alvo)).toEqual(['editor-plano', 'publicar-plano', 'lembretes-app']);
+    expect(g.versao).toBe(3);
+    expect(g.passos.map((p) => p.alvo)).toEqual(['editor-plano', 'modo-plano', 'dias-refeicao', 'publicar-plano', 'lembretes-app']);
     expect(g.passos.find((p) => p.alvo === 'lembretes-app')).toEqual({
       alvo: 'lembretes-app',
       titulo: 'Lembretes no app',
@@ -195,6 +197,12 @@ describe('conteúdo do manual (P08-10)', () => {
   it('nenhum título de guia repetido (o manual completo lista um h2 por guia; "Início" é o de boas-vindas)', () => {
     expect(new Set(GUIAS.map((g) => g.titulo)).size).toBe(GUIAS.length);
   });
+  it('Plano 19 (Tarefa 3): guia "Alimentos" na versão 2, resumo com as tabelas públicas (sem "A tabela TACO")', () => {
+    const g = GUIAS.find((x) => x.id === 'alimentos')!;
+    expect(g.versao).toBe(2);
+    expect(g.ajuda.resumo).toBe('As tabelas públicas de composição (TACO) e os alimentos que você cadastrar ("Meu alimento"), com as medidas caseiras.');
+    expect(g.ajuda.resumo).not.toContain('A tabela TACO');
+  });
   it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
     expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');
   });
@@ -203,5 +211,37 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(precisaDoGuia({}, g, ['concluido', 'dispensado'])).toBe(true);
     expect(precisaDoGuia({ [g.id]: { v: g.versao, estado: 'dispensado' } }, g, ['concluido', 'dispensado'])).toBe(false);
     expect(precisaDoGuia({ [g.id]: { v: g.versao - 1, estado: 'concluido' } }, g, ['concluido', 'dispensado'])).toBe(true);
+  });
+
+  it('Plano 19: os passos do modo e dos dias entre o editor e "Publicar", com a versão nova', () => {
+    const g = GUIAS.find((x) => x.id === 'plano-alimentar')!;
+    const alvos = g.passos.map((p) => p.alvo);
+    const editor = alvos.indexOf('editor-plano');
+    expect(alvos.slice(editor, editor + 4)).toEqual(['editor-plano', 'modo-plano', 'dias-refeicao', 'publicar-plano']);
+    expect(g.versao).toBe(3); // 2 = Plano 17 (Lembretes no app); 3 = Plano 19
+  });
+
+  it('Plano 19 (Tarefa 5): guia novo "biblioteca-do-plano" (versão 1) nas telas da biblioteca; o passo dos perfis diz que a plataforma não traz valores prontos', () => {
+    for (const rota of ['/painel/planos/referencias', `/painel/planos/referencias/${UUID}`, '/painel/planos/referencias/novo', '/painel/planos/listas', `/painel/planos/listas/${UUID}`, '/painel/planos/refeicoes', `/painel/planos/refeicoes/${UUID}`])
+      expect(guiaDaRota(rota)?.id, rota).toBe('biblioteca-do-plano');
+    expect(guiaDaRota('/painel/planos/modelos')?.id).toBe('modelos');
+    expect(guiaDaRota('/painel/planos/referenciasx')).toBeNull();
+    const g = GUIAS.find((x) => x.id === 'biblioteca-do-plano')!;
+    expect(g.versao).toBe(1);
+    expect(g.passos.every((p) => p.alvo === undefined)).toBe(true);
+    expect(g.passos.find((p) => p.titulo === 'Perfis de referência')?.texto).toContain('A plataforma não traz valores prontos');
+  });
+
+  it('Plano 19 (Tarefa 8): minhas refeições e listas no guia da biblioteca (ainda versão 1, no mesmo PR) e Configurações na versão 9 com a biblioteca no resumo', () => {
+    const g = GUIAS.find((x) => x.id === 'biblioteca-do-plano')!;
+    expect(g.versao).toBe(1);
+    expect(g.passos.map((p) => p.titulo)).toEqual(['Perfis de referência', 'Minhas refeições', 'Listas de substituição']);
+    expect(g.ajuda.secoes.map((s) => s.titulo)).toEqual(['Perfis de referência', 'Minhas refeições', 'Listas de substituição']);
+    const textos = [...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)].join(' ');
+    expect(textos).toContain('"Incluir a observação"');
+    expect(textos).toContain('"Sugerir equivalentes"');
+    const config = GUIAS.find((x) => x.id === 'configuracoes')!;
+    expect(config.versao).toBe(9);
+    expect(config.ajuda.resumo).toContain('a biblioteca do plano (minhas refeições, listas de substituição e perfis de referência)');
   });
 });

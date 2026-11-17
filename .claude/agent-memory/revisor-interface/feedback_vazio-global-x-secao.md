@@ -9,3 +9,5 @@ Confira se a condição do texto de vazio é a mesma da lista que a pessoa vê.
 **Why:** na T10 do Plano 16 (08/10/2026), `Mural.vazio` era `ordenados.length === 0`, contando também os dias anteriores. O `MuralLista` mostrava o "Nada para agora…" só com `vazio`. Com itens de ontem e nada hoje, "Hoje" ficava sem nenhum texto, e esse é o estado de toda manhã de quem já usa o app. O brief e os testes cobriam só o mural inteiro vazio.
 
 **How to apply:** em tela com seção recolhida mais seção principal (histórico + hoje, anteriores + próximos), monte mentalmente o caso "só a outra seção tem itens". Ver [[mensagem-sucesso-desmontada]].
+
+**Recorrência (Plano 19 T8, 17/11):** `/painel/planos/refeicoes` mostra o vazio global ("Nenhuma refeição salva. Use ...") também quando o filtro por tipo não acha nada, mesmo com refeições de outros tipos. Texto de vazio com filtro ativo precisa de variante própria ("Nenhuma refeição deste tipo.").

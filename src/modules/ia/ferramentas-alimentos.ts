@@ -2,8 +2,9 @@ import { z } from 'zod';
 import type { Db } from '@/db/client';
 import { arredondar } from '@/lib/numero';
 import { buscarAlimentos, type AlimentoEncontrado } from '@/modules/alimentos/busca';
+import type { Fonte } from '@/modules/alimentos/fontes';
 import { distribuicaoMacros, indicadorMeta, totalDoDia, type ItemCalculo } from '@/modules/plano-alimentar/calculo';
-import { MAX_ITENS, MAX_REFEICOES, QUANTIDADE_MAX, QUANTIDADE_MIN } from '@/modules/plano-alimentar/constantes';
+import { MAX_ITENS_RASCUNHO_IA, MAX_REFEICOES_RASCUNHO_IA, QUANTIDADE_MAX, QUANTIDADE_MIN } from '@/modules/plano-alimentar/constantes';
 import type { ChamadaFerramenta, FerramentaIA } from './provedor';
 
 /**
@@ -14,11 +15,16 @@ import type { ChamadaFerramenta, FerramentaIA } from './provedor';
 export type BuscaAlimentos = (termo: string) => Promise<AlimentoEncontrado[]>;
 export type CatalogoDaTarefa = { readonly porLocal: Map<string, AlimentoEncontrado>; readonly localDe: Map<string, string> };
 export const novoCatalogo = (): CatalogoDaTarefa => ({ porLocal: new Map(), localDe: new Map() });
-/** Produção: a busca de sempre (TACO + alimentos do tenant), no contexto worker do tenant da tarefa. */
+/**
+ * Produção: a busca de sempre, no contexto worker do tenant da tarefa, só com a TACO e os alimentos do consultório (RN-234,
+ * Review Focus 5): as ferramentas da IA nunca devolvem alimento da USDA (nem da TBCA). O "Meu alimento" duplicado de uma
+ * tabela pública é próprio e entra.
+ */
+export const FONTES_DA_IA = ['taco', 'propria'] as const satisfies readonly Fonte[];
 export const buscaDoTenant =
   (tenantId: string, db: Db): BuscaAlimentos =>
   (termo) =>
-    buscarAlimentos({ tenantId, role: 'worker' }, termo, db);
+    buscarAlimentos({ tenantId, role: 'worker' }, termo, db, { fontes: FONTES_DA_IA });
 
 const MEDIDAS_POR_ALIMENTO = 5;
 
@@ -73,8 +79,8 @@ const buscaSchema = z.object({ termo: z.string().min(1).max(120) });
 const calculoSchema = z.object({
   meta_kcal: z.number().nullable(),
   refeicoes: z
-    .array(z.object({ itens: z.array(z.object({ alimento: z.string().max(10), gramas: z.number() })).max(MAX_ITENS) }))
-    .max(MAX_REFEICOES),
+    .array(z.object({ itens: z.array(z.object({ alimento: z.string().max(10), gramas: z.number() })).max(MAX_ITENS_RASCUNHO_IA) }))
+    .max(MAX_REFEICOES_RASCUNHO_IA), // RN-249: o caminho da IA fica em 15 refeições e 200 itens
 });
 
 function localDe(cat: CatalogoDaTarefa, a: AlimentoEncontrado): string {
