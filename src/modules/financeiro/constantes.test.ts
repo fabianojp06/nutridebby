@@ -121,6 +121,15 @@ describe('MSG_FINANCEIRO', () => {
     expect(M.lgpd.dpaOQueMudou).toBe('O que mudou: o contrato passa a citar os registros financeiros do consultório, inclusive os pagamentos dos pacientes (Financeiro).');
   });
 
+  it('o retorno das ações na lista de categorias (região de status; texto fora da §6.2, aguarda o dono)', () => {
+    const F = M.configuracoes.feito;
+    expect(F.criada('Contador')).toBe('Categoria Contador criada.');
+    expect(F.renomeada('Anúncios')).toBe('Categoria renomeada para Anúncios.');
+    expect(F.arquivada('Divulgação')).toBe('Categoria Divulgação arquivada.');
+    expect(F.reativada('Divulgação')).toBe('Categoria Divulgação reativada.');
+    expect(F.excluida('Divulgação')).toBe('Categoria Divulgação excluída.');
+  });
+
   it('nenhum texto vazio nem com espaço sobrando', () => {
     const textos: string[] = [];
     const juntar = (v: unknown) => {

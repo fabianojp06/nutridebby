@@ -14,8 +14,17 @@ function daLista<T extends Record<string, string>>(lista: T, chave: string | str
 }
 
 /**
+ * `?envio=<n>` que a action põe junto do `?ok=` (muda a cada salvamento): só dígitos, usado como chave e marcador, nunca
+ * como texto na tela.
+ */
+export function marcadorDoEnvio(envio: string | string[] | undefined): string {
+  return typeof envio === 'string' && /^\d{1,20}$/.test(envio) ? envio : '';
+}
+
+/**
  * O topo de toda tela do Financeiro (§4.1, §7): h1 com `tabIndex={-1}` (recebe o foco com `ok=`), a navegação interna, as
- * ações da tela e a região de mensagens sempre montada (`?ok=` e `?aviso=`).
+ * ações da tela e a região de mensagens sempre montada (`?ok=` e `?aviso=`; o `?envio=` faz cada salvamento focar o h1 e
+ * anunciar de novo, mesmo com a URL anterior igual a menos dele).
  */
 export function TopoDoFinanceiro({ titulo, parametros, acoes }: { titulo: string; parametros: ParametrosDaUrl; acoes?: ReactNode }) {
   const sucesso = daLista(MSG_FINANCEIRO.ok, parametros.ok);
@@ -27,7 +36,7 @@ export function TopoDoFinanceiro({ titulo, parametros, acoes }: { titulo: string
       </h1>
       <SecoesDoFinanceiro />
       {acoes && <div className="flex flex-wrap justify-end gap-2">{acoes}</div>}
-      <Mensagens texto={sucesso || aviso} tipo={sucesso ? 'ok' : 'aviso'} focar={!!sucesso} />
+      <Mensagens texto={sucesso || aviso} tipo={sucesso ? 'ok' : 'aviso'} focar={!!sucesso} marcador={marcadorDoEnvio(parametros.envio)} />
     </>
   );
 }

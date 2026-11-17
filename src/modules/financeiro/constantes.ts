@@ -295,6 +295,17 @@ export const MSG_FINANCEIRO = {
     excluir: 'Excluir',
     arquivada: 'Arquivada',
     salvar: 'Salvar',
+    /**
+     * Depois de cada ação na lista de categorias, na região `role="status"` da seção (§7: região viva sempre montada, fora
+     * das linhas). Fora da §6.2 (rodada de correção da T5): aguardam a aprovação do dono, como os outros textos novos.
+     */
+    feito: {
+      criada: (nome: string) => `Categoria ${nome} criada.`,
+      renomeada: (nome: string) => `Categoria renomeada para ${nome}.`,
+      arquivada: (nome: string) => `Categoria ${nome} arquivada.`,
+      reativada: (nome: string) => `Categoria ${nome} reativada.`,
+      excluida: (nome: string) => `Categoria ${nome} excluída.`,
+    },
   },
   errosCategoria: {
     nomeRepetido: 'Já existe uma categoria com este nome.',

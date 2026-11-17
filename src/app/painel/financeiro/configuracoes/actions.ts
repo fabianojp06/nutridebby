@@ -32,7 +32,11 @@ const proximoEnvio = (prev: { envio?: number }) => Math.max(Date.now(), (prev.en
 /** Saldo, valor da consulta e categorias aparecem no Resumo e nos formulários de todo o Financeiro. */
 const revalidar = () => revalidatePath('/painel/financeiro', 'layout');
 
-/** US-300. O consultório e a usuária são os da sessão (nunca do formulário); salvou → `?ok=config` (foco no h1, §7). */
+/**
+ * US-300. O consultório e a usuária são os da sessão (nunca do formulário); salvou → `?ok=config&envio=<n>` (foco no h1 e
+ * "Configurações salvas.", §7). O `envio` muda a cada salvamento: salvar de novo já em `?ok=config` volta à mesma URL sem
+ * ele, e nem o foco iria ao h1, nem a região de status anunciaria, nem o formulário descartaria um erro anterior (`key`).
+ */
 export async function salvarConfiguracoesAction(prev: ConfiguracaoState, fd: FormData): Promise<ConfiguracaoState> {
   const { ctx, tenant } = await requireNutri(CAMINHO);
   const valores = Object.fromEntries(CAMPOS.map((c) => [c, texto(fd, c)])) as Record<CampoDaConfiguracao, string>;
@@ -43,7 +47,7 @@ export async function salvarConfiguracoesAction(prev: ConfiguracaoState, fd: For
     throw e;
   }
   revalidar();
-  redirect(`${CAMINHO}?ok=config`);
+  redirect(`${CAMINHO}?ok=config&envio=${proximoEnvio(prev)}`);
 }
 
 /** "Nova categoria" (RN-303) no tipo da lista. */
