@@ -38,6 +38,10 @@ const ia = vi.hoisted(() => ({ entrada: 'nenhuma' }));
 vi.mock('@/modules/ia/nutri-paciente/estado', () => ({ entradaDoPaciente: async () => ia.entrada }));
 // o cartão só existe no cliente (o "Agora não" fica no aparelho): o marcador mostra se a página o põe e com qual vínculo
 vi.mock('./convite-ia-nutri', () => ({ ConviteIaNutri: ({ dono }: { dono: string }) => `[convite IA Nutri de ${dono}]` }));
+// Plano 17 (Tarefa 6): os cartões do aparelho também só existem no cliente — o marcador mostra o que a página passou
+const lembretes = vi.hoisted(() => ({ tem: false }));
+vi.mock('@/modules/lembretes/paciente', () => ({ temLembretes: async () => lembretes.tem }));
+vi.mock('./cartoes-do-aparelho', () => ({ CartoesDoAparelho: ({ dono, comLembretes }: { dono: string; comLembretes: boolean }) => `[cartões do aparelho de ${dono}, comLembretes=${comLembretes}]` }));
 const { default: Hoje } = await import('./page');
 
 const pagina = async (busca: Record<string, string> = {}) => renderToStaticMarkup(await Hoje({ searchParams: Promise.resolve(busca) } as never));
@@ -48,6 +52,7 @@ describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
     estado.exames = false;
     estado.guia = {};
     ia.entrada = 'nenhuma';
+    lembretes.tem = false;
   });
   it('faixa com "Olá, Marina", a mini-jornada (link para Jornada, nome acessível que contém o texto visível), o rodapé fixo, "Ver todo o diário" e a barra de ações', async () => {
     const html = await pagina();
@@ -115,5 +120,17 @@ describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
       expect(await pagina(), e).not.toContain('[convite IA Nutri');
     }
   });
-});
 
+  it('Plano 17 (Tarefa 6): passa `comLembretes` (temLembretes) aos cartões do aparelho', async () => {
+    expect(await pagina()).toContain('[cartões do aparelho de p1, comLembretes=false]');
+    lembretes.tem = true;
+    expect(await pagina()).toContain('[cartões do aparelho de p1, comLembretes=true]');
+  });
+
+  it('Plano 17 (Tarefa 6): com lembretes, o cartão de notificações fala dos lembretes (texto e nome do cartão); a chave de dispensa continua `notificacoes`', async () => {
+    const { textoDoCartao } = await vi.importActual<typeof import('./cartoes-do-aparelho')>('./cartoes-do-aparelho');
+    expect(textoDoCartao('notificacoes', false)).toBe('Ative as notificações para saber quando houver novidades.');
+    expect(textoDoCartao('notificacoes', true)).toBe('Ative as notificações para receber os lembretes da sua nutricionista.');
+    expect(textoDoCartao('instalar', true)).toBe('Instale o app na tela inicial.');
+  });
+});

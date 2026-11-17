@@ -68,13 +68,20 @@ export function rotuloDoIntervalo(min: ConfigAgua['intervaloMin']): string {
 const ORDEM_DIAS: DiaDaSemana[] = [1, 2, 3, 4, 5, 6, 0];
 const DIA_CURTO: Record<DiaDaSemana, string> = { 0: 'dom', 1: 'seg', 2: 'ter', 3: 'qua', 4: 'qui', 5: 'sex', 6: 'sáb' };
 
+/** "a", "a e b", "a, b e c". */
+const emLista = (nomes: string[]): string => (nomes.length <= 1 ? (nomes[0] ?? '') : `${nomes.slice(0, -1).join(', ')} e ${nomes.at(-1)}`);
+
 /** "todos os dias", "seg a sex", "sáb e dom" ou a lista em ordem seg…dom ("seg, qua e sex"). */
 export function rotuloDosDias(dias: DiaDaSemana[]): string {
   const presentes = ORDEM_DIAS.filter((d) => dias.includes(d));
   if (presentes.length === 7) return 'todos os dias';
   if (presentes.length === 5 && presentes.every((d) => d >= 1 && d <= 5)) return 'seg a sex';
-  const nomes = presentes.map((d) => DIA_CURTO[d]);
-  return nomes.length <= 1 ? (nomes[0] ?? '') : `${nomes.slice(0, -1).join(', ')} e ${nomes.at(-1)}`;
+  return emLista(presentes.map((d) => DIA_CURTO[d]));
+}
+
+/** Horários de suplemento/livre (HH:MM) em ordem: "08:00 e 20:00" (resumo do portal, Tarefa 6). */
+export function rotuloDosHorarios(horarios: string[]): string {
+  return emLista([...horarios].sort());
 }
 
 export function rotuloDaAntecedencia(min: ConfigRefeicoes['antecedenciaMin']): string {

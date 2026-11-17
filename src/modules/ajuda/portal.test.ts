@@ -12,11 +12,11 @@ const FONTES = ['src/app/p', 'src/components/portal']
   .join('\n');
 
 describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
-  it('id no formato do progresso e fora dos guias do painel; versão 2 (Plano 15, ★ DO-6); 5 passos com "1 de 5"', () => {
+  it('id no formato do progresso e fora dos guias do painel; versão 3 (Plano 17: os lembretes em "Perguntas comuns"); 5 passos com "1 de 5"', () => {
     expect(GUIA_PORTAL.id).toBe('portal-novidades');
     expect(GUIA_PORTAL.id).toMatch(ID_GUIA);
     expect(GUIAS.map((g) => g.id)).not.toContain(GUIA_PORTAL.id);
-    expect(GUIA_PORTAL.versao).toBe(2);
+    expect(GUIA_PORTAL.versao).toBe(3);
     expect(GUIA_PORTAL.passos).toHaveLength(5);
   });
   it('todo alvo do tour existe numa tela do portal (data-guia); a faixa, o mural, as respostas, as ações e a seção Eu', () => {
@@ -57,7 +57,14 @@ describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
     }
     expect(avisoDoGuia({}, true)).toBe(AVISO_PORTAL.pergunta); // já usava o app e nunca viu o guia (Plano 16, G-D17)
     expect(avisoDoGuia({}, false)).toBe(AVISO_PORTAL.boasVindas);
-    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 2, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 2, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 17: a versão 2 já é anterior
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 3, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
     expect(avisoDoGuia({ outro: { v: 1, estado: 'visto' } }, false)).toBe(AVISO_PORTAL.boasVindas); // o progresso de outro guia não conta
+  });
+
+  it('Plano 17 (Tarefa 6): os lembretes em "Perguntas comuns", com a ressalva de que dependem da nutricionista; o tour não muda', () => {
+    const itens = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')?.itens ?? [];
+    expect(itens).toContain('Se a sua nutricionista configurou lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um.');
+    expect(GUIA_PORTAL.passos.map((p) => p.alvo)).toEqual(['faixa', 'mural', 'respostas', 'acoes', 'secao-eu']);
   });
 });

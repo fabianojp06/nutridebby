@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rotuloDaAntecedencia, rotuloDoDiario, rotuloDoIntervalo, rotuloDosDias, TEXTOS_PUSH, TITULO_PUSH } from './constantes';
+import { rotuloDaAntecedencia, rotuloDoDiario, rotuloDoIntervalo, rotuloDosDias, rotuloDosHorarios, TEXTOS_PUSH, TITULO_PUSH } from './constantes';
 
 describe('formatadores dos lembretes (painel e portal)', () => {
   it('rotuloDoIntervalo', () => {
@@ -19,6 +19,12 @@ describe('formatadores dos lembretes (painel e portal)', () => {
     expect(rotuloDosDias([0, 1, 2, 3, 4, 5])).toBe('seg, ter, qua, qui, sex e dom');
     expect(rotuloDosDias([1, 2, 3, 4, 5, 6])).toBe('seg, ter, qua, qui, sex e sáb');
     expect(rotuloDosDias([3])).toBe('qua');
+  });
+
+  it('rotuloDosHorarios (portal, Tarefa 6): em ordem, "a, b e c"', () => {
+    expect(rotuloDosHorarios(['08:00'])).toBe('08:00');
+    expect(rotuloDosHorarios(['20:00', '08:00'])).toBe('08:00 e 20:00');
+    expect(rotuloDosHorarios(['12:00', '08:00', '20:00', '16:00'])).toBe('08:00, 12:00, 16:00 e 20:00');
   });
 
   it('rotuloDaAntecedencia', () => {

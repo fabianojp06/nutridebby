@@ -8,11 +8,13 @@ import type { Guia } from './conteudo';
  * do painel; este só abre em Hoje. Texto RASCUNHO até a Debby revisar (G-D10 ★). Sobe a versão quando o texto mudar de
  * verdade (o aviso volta uma vez, com `avisoDoGuia`). Versão 2 (Plano 15, ★ DO-6 ajustada à DO-1 = não): a IA Nutri vai ao
  * ar ligada pela nutricionista e o guia muda para todos — mural, privacidade e "Onde fica cada coisa" (emendas à spec G,
- * C-191, C-192, C-197, RN-193, RN-194, RN-209; os textos já dizem "quando liberada").
+ * C-191, C-192, C-197, RN-193, RN-194, RN-209; os textos já dizem "quando liberada"). Versão 3 (Plano 17, Tarefa 6): os
+ * lembretes de rotina em "Perguntas comuns" (com a ressalva "se a sua nutricionista configurou": o guia é o mesmo para
+ * todos); o tour não muda. A subida mostra "O manual do app foi atualizado" uma vez a quem já viu a versão 2.
  */
 export const GUIA_PORTAL: Guia = {
   id: 'portal-novidades',
-  versao: 2,
+  versao: 3,
   padrao: /^\/p\/inicio$/,
   titulo: 'Como usar o app',
   ajuda: {
@@ -38,6 +40,8 @@ export const GUIA_PORTAL: Guia = {
           'Sem internet, o app mostra a última versão do seu plano.',
           // Plano 14A (desvio 11) e Plano 15 (§7.8): dois pedidos separados — a autorização dos exames e o consentimento da IA Nutri
           `Se o seu consultório usar IA, você pode receber dois pedidos separados: um para os exames (em Eu › Privacidade) e outro para a ${NOME_IA_NUTRI} (em Plano). Cada um é opcional. Recusar ou retirar não muda nada no seu atendimento.`,
+          // Plano 17: depende da nutricionista ter configurado (o guia é o mesmo para todos os pacientes)
+          'Se a sua nutricionista configurou lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um.',
         ],
       },
     ],

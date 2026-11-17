@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-const estado = vi.hoisted(() => ({ vinculos: 2, documentos: true }));
+const estado = vi.hoisted(() => ({ vinculos: 2, documentos: true, lembretes: true }));
 const blocoIa = vi.hoisted(() => ({ valor: null as null | { situacao: { tipo: string; em?: Date; versao?: string }; podeDecidir: boolean } }));
 const blocoNutri = vi.hoisted(() => ({ valor: null as null | { situacao: string; podeDecidir: boolean; podeDesativar: boolean; temConversa: boolean }, retorno: {} as { ok?: string } }));
 // o retorno da desativação (useActionState) simulado: no servidor o estado é o inicial
@@ -25,6 +25,8 @@ vi.mock('@/app/p/moldura', () => ({ molduraDaSecao: async () => ({ marca: { nome
 vi.mock('@/modules/portal/perfil', () => ({ situacaoDoWhatsapp: async () => ({ ativo: false }) }));
 vi.mock('@/modules/ia/autorizacao', () => ({ blocoIaDoApp: async () => blocoIa.valor }));
 vi.mock('@/modules/ia/nutri-paciente/estado', () => ({ blocoIaNutriDoApp: async () => blocoNutri.valor }));
+// Plano 17 (Tarefa 6): a seção Lembretes só com algum lembrete ligado pelas duas partes (temLembretes)
+vi.mock('@/modules/lembretes/paciente', () => ({ temLembretes: async () => estado.lembretes }));
 vi.mock('./actions', () => ({ meusDadosAction: async () => ({}), exclusaoAction: async () => ({}), whatsappAction: async () => ({}), retirarIaAction: async () => ({}), desativarIaNutriAction: async () => ({}) }));
 // no servidor o Instalar não renderiza nada (o estado vem do navegador): o marcador deixa a posição da seção conferida
 vi.mock('./instalar-no-eu', () => ({ InstalarNoEu: () => 'Instalar o app' }));
@@ -32,10 +34,10 @@ const { default: Eu } = await import('./page');
 const eu = (busca: Record<string, string> = {}) => Eu({ searchParams: Promise.resolve(busca) } as never);
 
 describe('/p/perfil — Eu (US-197, molde D-Assuntos)', () => {
-  it('na ordem da spec: conta, consultório e "Trocar de nutricionista", meus documentos, notificações, instalar, privacidade com a RN-214, "Como usar o app" e o Sair no fim', async () => {
+  it('na ordem da spec: conta, consultório e "Trocar de nutricionista", meus documentos, lembretes, notificações, instalar, privacidade com a RN-214, "Como usar o app" e o Sair no fim', async () => {
     blocoIa.valor = null;
     const html = renderToStaticMarkup(await eu());
-    const ordem = ['Conectado como marina@ex.com.', 'Consultório Debby', 'Trocar de nutricionista', 'Meus documentos', 'Notificações', 'Instalar o app', 'Privacidade', 'Como usar o app', '>Sair<'];
+    const ordem = ['Conectado como marina@ex.com.', 'Consultório Debby', 'Trocar de nutricionista', 'Meus documentos', '>Lembretes<', 'Ver meus lembretes', 'Notificações', 'Instalar o app', 'Privacidade', 'Como usar o app', '>Sair<'];
     const corpo = html.slice(html.indexOf('<main')); // a faixa também diz o nome do consultório
     const posicoes = ordem.map((t) => corpo.indexOf(t));
     expect(posicoes.every((p) => p >= 0), String(posicoes)).toBe(true);
@@ -44,6 +46,20 @@ describe('/p/perfil — Eu (US-197, molde D-Assuntos)', () => {
     expect(html).toMatch(/<a[^>]*href="\/p\/ajuda"[^>]*>Como usar o app<\/a>/);
     expect(html).not.toMatch(/peso/i); // RN-214: nenhuma tela diz que o peso está oculto
   });
+  it('Plano 17: a seção Lembretes (h2 e o link para /p/perfil/lembretes) só com temLembretes', async () => {
+    blocoIa.valor = null;
+    let html = renderToStaticMarkup(await eu());
+    expect(html).toMatch(/<section aria-labelledby="eu-lembretes" class="[^"]*"><h2 id="eu-lembretes"[^>]*>Lembretes<\/h2><a[^>]*href="\/p\/perfil\/lembretes"[^>]*>Ver meus lembretes<\/a><\/section>/);
+    estado.lembretes = false;
+    try {
+      html = renderToStaticMarkup(await eu());
+      expect(html).not.toContain('eu-lembretes');
+      expect(html).not.toContain('Ver meus lembretes');
+    } finally {
+      estado.lembretes = true;
+    }
+  });
+
   it('um vínculo só: sem "Trocar de nutricionista"; documentos não liberados: sem "Meus documentos"', async () => {
     estado.vinculos = 1;
     estado.documentos = false;
