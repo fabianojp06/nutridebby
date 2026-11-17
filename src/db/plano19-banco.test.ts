@@ -179,14 +179,19 @@ describe('Plano 19 — meals.dias_semana e meal_plans (RN-238, RN-243, RN-246)',
     await expect(q(sql`update meal_plans set referencia_id = ${ref} where id = ${publicado}`)).rejects.toSatisfy(
       violaCheck('meal_plans_referencia_so_rascunho'),
     );
+    // contado pelo owner (superusuário, enxerga o audit_log de todos os tenants, sem a RLS que zeraria a contagem)
     const auditoriaDo = async (planId: string) =>
       Number((await owner.pool.query(`select count(*)::int as n from audit_log where entidade_id = $1`, [planId])).rows[0].n);
     const antes = await auditoriaDo(publicado);
+    const antesDoRascunho = await auditoriaDo(rascunho);
+    expect(antes).toBeGreaterThan(0); // controle positivo: a criação e a cópia do publicado foram contadas
     await q(sql`delete from referencias_nutrientes where id = ${ref}`);
     const { rows } = await owner.pool.query(`select id, referencia_id, referencia_congelada from meal_plans where id = any($1)`, [[rascunho, publicado]]);
     expect(rows.find((r) => r.id === rascunho)?.referencia_id).toBeNull();
     expect(rows.find((r) => r.id === publicado)?.referencia_congelada).toEqual(copia);
     expect(await auditoriaDo(publicado)).toBe(antes);
+    // controle positivo: a mesma exclusão grava a trilha do rascunho que perdeu o perfil (a contagem enxerga as linhas)
+    expect(await auditoriaDo(rascunho)).toBeGreaterThan(antesDoRascunho);
   });
 
   it('a FK do perfil é composta: o rascunho não aponta para o perfil de outro consultório', async () => {
@@ -234,6 +239,7 @@ describe('Plano 19 — biblioteca do consultório (staff_only, sem auditoria)', 
 
   it('auditoria: as ligações ao plano gravam audit_log (plano_alimentar); a biblioteca, nenhum', async () => {
     const { T, p, q } = await cenario();
+    // contado pelo owner (superusuário: sem a RLS do audit_log, que zeraria a contagem fora do withTenant)
     const contar = async () =>
       Number((await owner.pool.query(`select count(*)::int as n from audit_log where tenant_id = $1`, [T.tenantId])).rows[0].n);
     const antes = await contar();
@@ -242,6 +248,7 @@ describe('Plano 19 — biblioteca do consultório (staff_only, sem auditoria)', 
     const plano = await novoPlano(q, T, p.id, 'rascunho');
     const lista = (await q(ligarLista(T, p.id, plano))).rows[0].id as string;
     const ligacao = (await q(ligarConteudo(T, p.id, plano, null))).rows[0].id as string;
+    expect(await contar()).toBe(antes + 3); // controle positivo da mesma contagem: o plano e as duas ligações
     const { rows } = await owner.pool.query(
       `select entidade, acao, patient_id from audit_log where tenant_id = $1 and entidade_id = any($2) order by entidade_id`,
       [T.tenantId, [lista, ligacao]],

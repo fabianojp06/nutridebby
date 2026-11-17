@@ -171,9 +171,13 @@ describe('perfil e nutrientes no plano (US-233, RN-238, RN-239, D30)', () => {
     const copia = (await linha(T, pub.id)).referenciaCongelada;
     expect(copia).toEqual({ id: perfil, nome: 'Mulher 19 a 50 anos', fonte: FONTE, valores: { ferro_mg: { meta: 18, maximo: 45 } } });
     const { id: emRascunho } = await rascunho(T, { referenciaId: perfil });
-    const escritasNoPublicado = async () =>
-      (await withTenant(T.ctx, (tx) => tx.select({ n: sql<number>`count(*)::int` }).from(auditLog).where(and(eq(auditLog.entidadeId, pub.id), ne(auditLog.acao, 'ler'))), app.db))[0].n;
+    // contado no withTenant do próprio consultório (fora dele a RLS do audit_log esconde tudo e a contagem dá zero)
+    const escritasNo = async (planId: string) =>
+      (await withTenant(T.ctx, (tx) => tx.select({ n: sql<number>`count(*)::int` }).from(auditLog).where(and(eq(auditLog.entidadeId, planId), ne(auditLog.acao, 'ler'))), app.db))[0].n;
+    const escritasNoPublicado = () => escritasNo(pub.id);
     const antes = await escritasNoPublicado();
+    const antesNoRascunho = await escritasNo(emRascunho);
+    expect(antes).toBeGreaterThan(0); // controle positivo: a criação e a publicação foram contadas
 
     await excluirReferencia(T.ctx, perfil, deps);
     expect((await linha(T, emRascunho)).referenciaId).toBeNull();
@@ -181,6 +185,7 @@ describe('perfil e nutrientes no plano (US-233, RN-238, RN-239, D30)', () => {
     expect(estadoInicial(paraCliente(plano!)).referenciaId).toBeNull(); // o editor mostra "Sem perfil"
     expect(await linha(T, pub.id)).toMatchObject({ status: 'publicado', referenciaId: null, referenciaCongelada: copia });
     expect(await escritasNoPublicado()).toBe(antes);
+    expect(await escritasNo(emRascunho)).toBeGreaterThan(antesNoRascunho); // controle positivo: o rascunho que ficou "Sem perfil" tem trilha nova
     expect(await listarReferencias(T.ctx, app.db)).toEqual([]);
   });
 
