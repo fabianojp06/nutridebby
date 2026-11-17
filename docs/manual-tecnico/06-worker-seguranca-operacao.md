@@ -158,8 +158,8 @@ execução); **apaga** = `deleteAfterSeconds`.
 | `monitor-disco` | cron `0 * * * *` (`index.ts:159`) | Mede o disco de `DATA_DIR`; ≥ 70% → e-mail aos admins, no máximo 1 a cada 24 h (RNF-13) | 0 / — / 60 / — | `{}` |
 | `retencao-lgpd` | cron `0 4 * * *` (`index.ts:171`) | Anonimiza bloqueados com prazo de guarda vencido (`anonimizarVencidos`) e, mesmo se falhar, apaga exportações vencidas (`expirarExportacoesVencidas`) | 2 / 600 / 900 / — | `{}` |
 | `exportacao-paciente` | Produtor no pedido (`src/modules/pacientes/exportacao.ts:113`) | Gera o ZIP (JSON + PDF), marca "pronta", enfileira o e-mail e o `expirar-exportacao`, tudo na transação do arquivo (`gerarExportacao`) | 2 / 60↗ / 300 / 86 400 | `{ tenantId, exportId }` |
-| `expirar-exportacao` | Produtor com `startAfter` = 24 h (`exportacao-job.ts:890-891`) | Apaga o ZIP e marca "expirada" (`expirarExportacao`) | 3 / 300 / 120 / — | `{ tenantId, exportId }` |
-| `exclusao-atendida` | Produtor no atendimento do pedido (`src/modules/pacientes/lgpd.ts:209`) | Apaga as fotos do diário e só depois manda "pedido de exclusão atendido"; na última tentativa o aviso sai assim mesmo (`concluirExclusaoAtendida`) | 5 / 60↗ / 300 / 86 400 | `{ tenantId, patientId }` |
+| `expirar-exportacao` | Produtor com `startAfter` = 24 h (`exportacao-job.ts:901-902`) | Apaga o ZIP e marca "expirada" (`expirarExportacao`) | 3 / 300 / 120 / — | `{ tenantId, exportId }` |
+| `exclusao-atendida` | Produtor no atendimento do pedido (`src/modules/pacientes/lgpd.ts:213`) | Apaga as fotos do diário e só depois manda "pedido de exclusão atendido"; na última tentativa o aviso sai assim mesmo (`concluirExclusaoAtendida`) | 5 / 60↗ / 300 / 86 400 | `{ tenantId, patientId }` |
 | `plano-pdf` | Produtor na publicação (`src/modules/plano-alimentar/publicacao.ts:72,145`) | Gera o PDF do plano publicado (`gerarPdfDoPlano`) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, planId }` |
 | `diario-foto` | Produtor no envio do diário (`src/modules/portal/diario.ts:102`) | Converte para JPEG ≤ 1600 px sem EXIF/GPS e apaga o original (`converterFotoDoDiario`, RN-07) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, entryId }` |
 | `expirar-diario-foto` | cron `*/15 * * * *` (`index.ts:221`) | Foto "processando" há mais de 30 min sem job vivo → "falhou" e o original sai (`expirarFotosPendentes`) | 1 / 60 / 300 / — | `{}` |
@@ -886,7 +886,7 @@ novo e não lê nem grava `patient_cadastro`. O que muda enquanto ela roda:
 
 - **Anonimização.** A `anonimizarVencidos` da imagem antiga marca `anonimizado_em` sem apagar a linha do cadastro
   complementar (CPF, endereço, observação). A linha fica até a imagem nova voltar: a primeira varredura dela apaga, no
-  início de cada tenant, a linha de todo titular já anonimizado (`apagarCadastrosDosAnonimizados`, `lgpd.ts:644`;
+  início de cada tenant, a linha de todo titular já anonimizado (`apagarCadastrosDosAnonimizados`, `lgpd.ts:653`;
   [§4.2.8](04-modulos-clinicos.md#428-lgpd-arquivar-pedido-de-exclusão-e-anonimização-us-018-rnf-08)). Nenhuma ação
   manual; **nunca** apagar à mão no banco de produção. O gatilho `patient_cadastro_titular_ativo` impede que algo grave
   de novo o cadastro de quem já foi anonimizado.
@@ -898,6 +898,19 @@ novo e não lê nem grava `patient_cadastro`. O que muda enquanto ela roda:
 - **Telas.** A imagem antiga volta à lista sem abas e ao formulário sem as seções novas: o cadastro complementar
   gravado não aparece, mas não se perde; nada do que ela grava em `patients` apaga a linha.
 - **Na janela start-first de um deploy normal**, o mesmo vale por segundos (aceito).
+
+**Voltar atrás depois do Plano 20 (Financeiro, PR 2).** O PR 2 não tem migration (as tabelas `fin_*` vieram no PR 1, só de
+expansão), mas a imagem anterior tem dois efeitos ([§12.11](12-financeiro.md#1211-operação)):
+
+- **DPA.** O PR 2 sobe o DPA para a 1.1. Quem já aceitou a 1.1 fica com `tenants.dpa_versao = '1.1'`; a imagem anterior
+  (`DPA_VERSAO = '1.0'`) leva essa nutricionista a `/painel/dpa`, e o aceite **não destrava**: `registrarAceiteDpa` só grava
+  `tenants.dpa_versao` quando insere a linha de `consents`, e a `dpa-1.0` dela já existe (T6-R2b). Todo o painel fica
+  parado para quem aceitou a 1.1. Saída: **corrigir para a frente** (passo 5); voltar a imagem do PR 2 só com o dono
+  decidindo antes como destravar ([§12.13](12-financeiro.md#1213-divergências-conhecidas), #12).
+- **Anonimização (R-314).** A imagem anterior não chama `app_anonimizar_financeiro` nem exporta a seção `financeiro`; o
+  paciente vencido no meio ganha `anonimizado_em`, e a função (que exige `anonimizado_em` nulo) nunca mais anonimiza os
+  lançamentos dele. Risco prático nulo hoje (o primeiro vencimento é bloqueio + 20 anos); se acontecer, anonimizar à mão,
+  com o dono (P20-16). Runbook: `docs/operacao/financeiro.md`, §6.
 
 ---
 

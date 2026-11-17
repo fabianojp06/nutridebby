@@ -266,6 +266,13 @@ Arquivo `src/modules/agenda/presenca.ts`.
 
 - `registrarPresenca`: depois do início, `realizada` ou `faltou` (pode corrigir). Cancelada não. "Faltou" com
   atendimento ligado não. Vale também para paciente bloqueado ou anonimizado (é histórico da agenda).
+- Plano 20 (RN-310, RN-312): a passagem a `realizada` lê `tenants.fuso` e chama `cobrarConsultaRealizada` na mesma
+  transação (a cobrança no Financeiro, com o valor da consulta configurado); a correção de `realizada` para `faltou` só lê a
+  cobrança (`aoCorrigirParaFaltou`: não cancela nem altera, F-P5 = v0.2). `registrarPresenca` devolve `{ cobranca }` (nulo
+  quando a situação não mudou); `presencaAction` leva só o tipo à URL (`?ok=presenca&cobranca=…`, nunca o valor), e a tela da
+  consulta mostra a mensagem e a seção "Cobrança" abaixo de "Registrar presença"
+  ([§12.5](12-financeiro.md#125-cobrança-da-consulta-us-303-rn-310-a-rn-314)). A pendência de presença
+  (`/painel/agenda/pendencias`) não muda e não se confunde com "Pagamentos pendentes" do Financeiro.
 - Pendência ("sem registro de presença"): não cancelada, terminou há mais de 24 h e continua `agendada`/`confirmada`
   (`semRegistro`). A tela `/painel/agenda/pendencias` lista as 100 mais antigas.
 - `indicadoresDaAgendaNaTransacao`: mês civil no fuso do tenant. Taxa = faltas ÷ consultas do mês já iniciadas e não
@@ -728,7 +735,7 @@ suplemento e livre; §5.5.2):
   uma linha de `audit_log` (spec §5.5).
 
 **Classificação para a guarda (LGPD, Tarefa 7, NORMAS-03).** Como diz o comentário em `atenderPedidoExclusao`
-(`src/modules/pacientes/lgpd.ts:192-200`): "a configuração dos lembretes é ajuste do app, não prontuário. A conduta
+(`src/modules/pacientes/lgpd.ts:196-204`): "a configuração dos lembretes é ajuste do app, não prontuário. A conduta
 (plano alimentar, receita do suplemento) fica nos registros próprios (Res. CFN 594/2017; Res. CFN 656/2020, art. 3º, XI e
 XII). Por isso a equipe apaga de fato, e a exclusão atendida apaga na hora, como as notificações no aparelho e as
 conversas da IA Nutri […]; o `audit_log` guarda quem criou, alterou e excluiu, sem o conteúdo." O comentário da `0119`
@@ -739,11 +746,11 @@ não é prontuário — o registro clínico da conduta é o plano e a receita �
 prontuário e sai na hora.
 
 - **Exclusão atendida** (`atenderPedidoExclusao`): `lembretes_pausados_em` vai a nulo no mesmo UPDATE que leva o paciente a
-  `bloqueado` (`lgpd.ts:171`) e os lembretes são apagados (`:201`; as marcas em cascata) **depois** desse UPDATE (o
+  `bloqueado` (`lgpd.ts:175`) e os lembretes são apagados (`:205`; as marcas em cascata) **depois** desse UPDATE (o
   `lembretes_rotina_sem_apagar` só deixa a sessão `nutri` apagar o desligado pelo paciente com o titular `bloqueado`) e
   **depois** da trava do tenant de `cancelarTarefas` (ordem paciente → tenant → linhas, porque o `marcar` do worker segura o
   tenant `FOR SHARE` antes de gravar a marca; apagar antes faria um ciclo).
-- **Anonimização** (`anonimizarVencidos`, contexto `worker`): limpa a pausa (`lgpd.ts:570`) e apaga os lembretes gravados
+- **Anonimização** (`anonimizarVencidos`, contexto `worker`): limpa a pausa (`lgpd.ts:579`) e apaga os lembretes gravados
   depois do bloqueio (`:583`).
 - **Exportação** (`montarDados`, `src/modules/pacientes/exportacao-job.ts`): `paciente.lembretesPausadosEm` (`:113`) e a
   chave nova `lembretesDeRotina` (`:181`: `tipo`, `config`, `texto`, `ligado`, `desligadoPeloPacienteEm`, `criadoEm`), nos
@@ -1543,7 +1550,9 @@ Guardas: `src/app/painel/cores.test.ts` (sem cor fixa, sem `dark:` espalhado, bo
 
 - `src/app/painel/layout.tsx` monta o cabeçalho de todas as telas. **Não é barreira de segurança**: cada página chama
   `requireNutri` (guarda em `cabecalho.test.ts`). Com o DPA pendente, o cabeçalho mostra só marca, tema e "Sair".
-- Menu de 6 itens (`ITENS_DO_MENU`): Início, Pacientes, Agenda, Diários, Conteúdos, Configurações. "Configurações" é um
+- Menu de 7 itens fixos (`ITENS_DO_MENU`): Início, Pacientes, Agenda, Diários, Conteúdos, Financeiro (Plano 20, RN-327:
+  para toda nutricionista, sem contador) e Configurações; "Exames recebidos" (Plano 12) e "Dúvidas dos pacientes" (Plano 15)
+  entram quando ligados, e o menu chega a 9 itens (o cabeçalho quebra a linha, R-310 do Plano 20). "Configurações" é um
   hub de cartões e fica marcado também em WhatsApp, Alimentos e modelos (`DO_HUB`).
 - Menu da conta no avatar (`<details>`, `src/app/painel/menu-conta.tsx`): "Perfil e marca", "Segurança", "Manual",
   "Rever o tour de boas-vindas", "Sair".
@@ -1609,9 +1618,9 @@ O portal segue o modo do aparelho, **sem botão**: `data-tema="sistema"` fixo (`
 
 ### 5.8.1 Conteúdo
 
-`src/modules/ajuda/conteudo.ts` exporta `GUIAS`: 19 guias tipados (`boas-vindas`, `pacientes`, `plano-alimentar`,
+`src/modules/ajuda/conteudo.ts` exporta `GUIAS`: 20 guias tipados (`boas-vindas`, `pacientes`, `plano-alimentar`,
 `documentos`, `ia-nutri`, `inicio-paciente`, `perfil-paciente`, `prontuario`, `agenda`, `horarios`, `exames-recebidos`, `duvidas`, `diarios`, `conteudos`, `alimentos`,
-`modelos`, `configuracoes`, `whatsapp` e `seguranca`; `exames-recebidos` do Plano 12, `ia-nutri` e `duvidas` do Plano 15, `inicio-paciente` e `perfil-paciente` do Plano 18). Plano 10A (D18): `documentos` (v1) antes do `prontuario`; `configuracoes` na v2 (seção "Dados para
+`modelos`, `configuracoes`, `whatsapp`, `seguranca` e `financeiro`; `exames-recebidos` do Plano 12, `ia-nutri` e `duvidas` do Plano 15, `inicio-paciente` e `perfil-paciente` do Plano 18, `financeiro` do Plano 20). Plano 10A (D18): `documentos` (v1) antes do `prontuario`; `configuracoes` na v2 (seção "Dados para
 documentos"); `seguranca` (v1) para `/conta/seguranca`, mostrado na própria tela num bloco "Como funciona"
 (`ajuda-seguranca.tsx`), porque a tela fica fora do layout do painel; o teste do manual passou a cobrir `src/app/conta`. Plano 11:
 `configuracoes` na v3 (seção de ajuda "Inteligência artificial (IA)", quatro itens; os passos do tour não mudaram — a
@@ -1630,7 +1639,7 @@ mora numa aba que já tinha guia: nenhuma tela nova do painel, nada em `SEM_AJUD
 
 Plano 18, PR 1 (abas Início e Perfil, [§4.2.10](04-modulos-clinicos.md#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)):
 
-- **Guia novo `inicio-paciente`**, na versão 1 (`conteudo.ts:151`), com título "Início do paciente". O título "Início" é
+- **Guia novo `inicio-paciente`**, na versão 1 (`conteudo.ts:152`), com título "Início do paciente". O título "Início" é
   do guia de boas-vindas, e o teste "nenhum título de guia repetido" impede o mesmo h2 duas vezes no manual completo.
   - `padrao` `^/painel/pacientes/ID$`: só a aba Início da ficha.
   - Fica **antes** do `prontuario`, porque `guiaDaRota` pega o primeiro que casa, e o `prontuario` casa todas as abas.
@@ -1639,7 +1648,7 @@ Plano 18, PR 1 (abas Início e Perfil, [§4.2.10](04-modulos-clinicos.md#4210-fi
   - Os dois primeiros repetem os textos do `prontuario`. "Adicionar" diz "Um botão só para registrar anamnese, medidas,
     exames, atendimentos e prescrições."; "Seções", "Cada seção mostra quantos registros há e os três mais recentes."
   - A frase do selo "No app" da spec §8.3 fica para a Tarefa 9, com a v2. O teste garante que a v1 não fala do selo.
-- **`prontuario` na v3** (`conteudo.ts:213`, comentário "3 = Plano 18: abas Início e Perfil"):
+- **`prontuario` na v3** (`conteudo.ts:214`, comentário "3 = Plano 18: abas Início e Perfil"):
   - Passo `cabecalho-paciente`: "Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o
     paciente está arquivado ou bloqueado.".
   - Passo `abas-prontuario`: "Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento
@@ -1655,7 +1664,7 @@ Plano 18, PR 1 (abas Início e Perfil, [§4.2.10](04-modulos-clinicos.md#4210-fi
 
 Plano 18, PR 2 (cadastro em seções, lista e "No app", [§4.2.11](04-modulos-clinicos.md#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)):
 
-- **`pacientes` na v2** (`conteudo.ts:42`, comentário "Plano 18: abas da lista, Ações e o cadastro em seções"; spec
+- **`pacientes` na v2** (`conteudo.ts:43`, comentário "Plano 18: abas da lista, Ações e o cadastro em seções"; spec
   §8.1 e §8.4). Passos `novo-paciente` (sem mudança), `busca-pacientes` ("Ache um paciente pelo nome ou pelo e-mail. As
   abas separam ativos e arquivados; os bloqueados ficam em Ver bloqueados."), o novo `acoes-paciente` ("Em Ações você
   abre a ficha, edita o cadastro, arquiva ou reativa o paciente sem sair da lista."; alvo no cabeçalho da coluna
@@ -1663,16 +1672,35 @@ Plano 18, PR 2 (cadastro em seções, lista e "No app", [§4.2.11](04-modulos-cl
   nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta."; alvo no `<form>` de
   `paciente-form.tsx:107`, que só existe em "Novo paciente": na lista o passo aparece centralizado). A gaveta trocou "no
   filtro de situação" por "os arquivados ficam na aba Inativos" e "prontuário" por "ficha".
-- **`inicio-paciente` na v2** (`conteudo.ts:152`): o passo `secoes-inicio` ganhou a frase da spec §8.3 ("… O selo No
+- **`inicio-paciente` na v2** (`conteudo.ts:153`): o passo `secoes-inicio` ganhou a frase da spec §8.3 ("… O selo No
   app marca o que o paciente vê no app.") e entrou o passo `no-app-cartao` ("O que o paciente enxerga no app, contado
   com as mesmas regras do app."; alvo no cartão, `inicio/cartao-no-app.tsx:48`). A gaveta explica o cartão e a página
   "No app do paciente" (a página `/app` cai no guia `prontuario`, que casa qualquer aba).
-- **Guia novo `perfil-paciente`** (v1, `conteudo.ts:181`, título "Perfil do paciente"; padrão `^/painel/pacientes/ID/perfil$`,
+- **Guia novo `perfil-paciente`** (v1, `conteudo.ts:182`, título "Perfil do paciente"; padrão `^/painel/pacientes/ID/perfil$`,
   antes do `prontuario`): o mesmo passo `cadastro-paciente` do guia `pacientes` e a gaveta com o nome social "só a
   pedido do paciente", o CPF fora da lista e do app (e o link "Abrir o cadastro existente (abre em nova aba)"), a
   observação na cópia dos dados do titular e o paciente bloqueado só para consulta.
 - **`prontuario` continua na v3** (a do PR 1).
 - Teste: `conteudo.test.ts`, casos "Plano 18 (§8.1)…", "Plano 18 (§8.3)…" e "Plano 18 (§8.4)…".
+
+Plano 20 (Financeiro, [§12.6](12-financeiro.md#126-telas-navegação-e-manual-guiado)):
+
+- **Guia novo `financeiro`**, versão 1, o **último** de `GUIAS` (`conteudo.ts:430`; o Plano 18 insere guias antes do
+  `prontuario`), título "Financeiro", `padrao` `^/painel/financeiro(/.*)?$`: cobre as oito telas novas (nada em
+  `SEM_AJUDA`). Ajuda com "Para começar" e "Perguntas comuns"; 12 passos com os alvos `financeiro-secoes`,
+  `financeiro-cartoes`, `financeiro-saldo`, `financeiro-valor-consulta`, `financeiro-categorias`, `financeiro-filtros`,
+  `financeiro-novo`, `financeiro-receber`, `financeiro-cancelar`, `financeiro-pendentes`, `financeiro-relatorios` e
+  `financeiro-csv` (os passos de uma tela abrem no centro quando o alvo não está nela). Texto em rascunho até a aprovação
+  do dono e da Debby (F-P4).
+- **`boas-vindas` na v4** (comentário "4 = Plano 20"): o passo do menu passa a "Pacientes, Agenda, Diários, Conteúdos,
+  Financeiro e Configurações ficam no topo. …", mantendo as frases de "Exames recebidos" e "Dúvidas dos pacientes" (limite
+  de 300 caracteres do teste). Quem já viu a v3 vê o tour de novo.
+- **`agenda` na v2** (comentário "Plano 20: Realizada gera a cobrança"): item novo no "Passo a passo" — "Ao marcar
+  "Realizada" (ou registrar o atendimento da consulta), a cobrança é criada no Financeiro com o valor da consulta; a seção
+  "Cobrança" da consulta mostra o valor e o recebimento."; os passos do tour não mudaram.
+- **Teste do manual.** `src/modules/financeiro` entrou em `TSX_FORA` (os rótulos citados entre aspas moram em
+  `MSG_FINANCEIRO`); o caso do Plano 15 passou a `versao ≥ 3` e casos novos fixam `boas-vindas` 4, `agenda` 2 e o guia
+  `financeiro` (versão, posição, rotas e alvos).
 
 | Campo | Papel |
 |---|---|
@@ -1904,7 +1932,7 @@ Plano 17 (lembretes de rotina; spec `docs/superpowers/specs/2026-11-13-nutridebb
 21. **Prioridade da fusão.** A spec (§5.2) lista "refeição > suplemento > livre > água" na fusão do mesmo minuto; o código
     (e o plano) põe o pedido do diário entre o livre e a água (`PRIORIDADE`, `src/modules/lembretes/constantes.ts:26`).
 22. **Apagamento.** A spec (§5.5) diz que as duas tabelas "saem na anonimização". O código também as apaga na exclusão
-    atendida, e a equipe apaga de fato (NORMAS-03: ajuste do app, não prontuário; `src/modules/pacientes/lgpd.ts:192-201`),
+    atendida, e a equipe apaga de fato (NORMAS-03: ajuste do app, não prontuário; `src/modules/pacientes/lgpd.ts:196-205`),
     salvo o lembrete que o paciente desligou (`0120`).
 23. **"A nutricionista não religa" no banco.** A spec (§5.3) e o plano (Tarefa 1) previam a regra no módulo e no gatilho de
     colunas; a revisão da Tarefa 1 acrescentou a migration `0120` (`lembretes_rotina_sem_apagar`: a equipe não apaga o
