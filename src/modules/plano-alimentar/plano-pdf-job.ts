@@ -110,7 +110,7 @@ export async function gerarPdfDoPlano(data: DadosJobPdf, deps: DepsJobPdf): Prom
   }
 }
 
-/** As tentativas do job terminam em minutos (fila `plano-pdf`: 3 tentativas, 30 s de espera com backoff, 120 s cada). */
+/** As tentativas do job terminam em minutos (filas `plano-pdf` e `plano-pdf-2`: 3 tentativas, 30 s de espera com backoff, 120 s cada). */
 export const PDF_PENDENTE_MAX_MS = 3600_000;
 
 /**

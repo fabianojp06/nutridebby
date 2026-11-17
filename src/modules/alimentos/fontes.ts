@@ -62,6 +62,8 @@ export function seloDaFonte(f: Fonte): SeloDaFonte {
 export const MSG_FONTES = {
   /** US-230: no resultado da busca, em "Ver nutrientes" e na página do alimento da USDA. */
   traduzido: 'Nome traduzido automaticamente do inglês.',
+  /** RN-233: no rodapé do PDF do plano, quando há item da USDA (ou "Meu alimento" duplicado da USDA). */
+  traduzidoNoPdf: 'Nomes de alimentos da USDA traduzidos do inglês.',
 } as const;
 
 /** "Fonte: {citação}." — sem repetir o ponto final quando a citação já termina com um (TBCA). */

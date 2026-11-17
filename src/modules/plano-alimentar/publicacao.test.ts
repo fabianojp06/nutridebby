@@ -20,7 +20,7 @@ import { lerCongelados } from './congelados';
 import { MSG_PLANO, MSG_TEXTO_LIVRE } from './constantes';
 import { PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
 import { criarDeModelo, criarModelo, salvarComoModelo } from './modelos';
-import { editarPublicado, publicarPlano } from './publicacao';
+import { editarPublicado, pedirNovoPdf, publicarPlano } from './publicacao';
 import { criarRascunho, criarRascunhoTx, descartarRascunho, salvarRascunho } from './rascunho';
 import type { CorpoSalvamento } from './tipos';
 
@@ -48,8 +48,10 @@ async function publicado(T: TenantDeTeste, itens = [item(idTaco(3))]) {
   return { p, id };
 }
 
-const jobsDoPlano = async (planId: string) =>
-  Number((await owner.pool.query(`select count(*)::int as n from pgboss.job where name = 'plano-pdf' and data->>'planId' = $1`, [planId])).rows[0].n);
+/** R-244: o app novo enfileira o PDF só na fila nova (`plano-pdf-2`), que o worker antigo não conhece. */
+const jobsNaFila = async (fila: string, planId: string) =>
+  Number((await owner.pool.query(`select count(*)::int as n from pgboss.job where name = $1 and data->>'planId' = $2`, [fila, planId])).rows[0].n);
+const jobsDoPlano = (planId: string) => jobsNaFila('plano-pdf-2', planId);
 
 describe('publicação e versionamento (US-025, RN-01)', () => {
   it('"Primeira publicação": status publicado, versão 1, PDF pendente e job na fila na mesma transação', async () => {
@@ -57,6 +59,17 @@ describe('publicação e versionamento (US-025, RN-01)', () => {
     const { id } = await publicado(T);
     expect(await carregarPlano(T.ctx, id, app.db)).toMatchObject({ status: 'publicado', versao: 1, publicadoEm: '2026-10-01T15:00:00.000Z', pdfStatus: 'pendente', pdfPath: null });
     expect(await jobsDoPlano(id)).toBe(1);
+  });
+
+  it('R-244: publicarPlano e "Gerar o PDF de novo" (pedirNovoPdf) enfileiram em `plano-pdf-2`, nunca na fila que o worker antigo consome', async () => {
+    const T = await novoTenant(app.db);
+    const { p, id } = await publicado(T);
+    expect(await jobsNaFila('plano-pdf-2', id)).toBe(1);
+    expect(await jobsNaFila('plano-pdf', id)).toBe(0);
+    await owner.pool.query(`update meal_plans set pdf_status = 'falhou' where id = $1`, [id]);
+    await pedirNovoPdf(T.ctx, p.id, id, deps);
+    expect(await jobsNaFila('plano-pdf-2', id)).toBe(2);
+    expect(await jobsNaFila('plano-pdf', id)).toBe(0);
   });
 
   it('"Nova versão arquiva a anterior": Editar cria o rascunho v2, a v1 segue publicada; publicar a v2 arquiva a v1', async () => {

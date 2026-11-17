@@ -105,13 +105,16 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
         .map(({ i, f }) => {
           // RN-230: no rascunho, valores e fonte do alimento (foods.fonte, nunca tenant_id); no publicado, a cópia
           // congelada, só por lerCongelados (RN-237). Publicado sem cópia não existe (a publicação confere as linhas).
-          const v = !editavel && i.nutrientes ? congeladoDoItem(i.nutrientes, f.fonte) : { ...f, micros: microsDoCatalogo(f.micros) };
+          const congelado = !editavel && i.nutrientes ? congeladoDoItem(i.nutrientes, f.fonte) : null;
+          const v = congelado ?? { ...f, micros: microsDoCatalogo(f.micros) };
           return {
             id: i.id,
             foodId: i.foodId,
             nome: v.nome,
             fonte: v.fonte,
             origem: seloDaFonte(v.fonte),
+            // RN-233: a fonte de origem do "Meu alimento" duplicado, para o rodapé do PDF (só a cópia congelada a tem)
+            ...(congelado ? { fonteOrigem: congelado.fonteOrigem } : {}),
             porCem: { kcal: v.kcal, proteinaG: v.proteinaG, carboidratoG: v.carboidratoG, lipidioG: v.lipidioG, fibraG: v.fibraG },
             // RN-237: nulo no congelado de antes do Plano 19 ("Micronutrientes não registrados nesta versão do plano.")
             micros: v.micros,

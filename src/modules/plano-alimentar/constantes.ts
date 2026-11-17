@@ -73,6 +73,8 @@ export const MSG_DIAS = {
   /** RN-247 (a): legenda do filtro de dias ("dom: sem refeições") e o painel em "Todos" com perfis diferentes. */
   semRefeicoes: (dias: string) => `${dias}: sem refeições`,
   escolhaUmDia: 'Escolha um dia para ver os detalhes.',
+  /** RN-244: o fracionamento no PDF, por perfil de dia ("5 refeições por dia"). */
+  refeicoesPorDia: (n: number) => `${n} ${n === 1 ? 'refeição' : 'refeições'} por dia`,
   /** Editor: a refeição que perdeu o dia do filtro fica na tela até o filtro mudar (o foco e o erro ao lado ficam). */
   foraDoFiltro: (dia: string) => `Não vale em ${dia}. Sai desta lista quando você trocar o filtro.`,
 } as const;

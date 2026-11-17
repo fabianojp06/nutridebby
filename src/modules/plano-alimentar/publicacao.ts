@@ -5,6 +5,7 @@ import { mealPlans, referenciasNutrientes, type ReferenciaCongelada } from '@/db
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { getBoss } from '@/jobs/boss';
+import { FILA_DO_PDF_DO_PLANO } from '@/jobs/queues';
 import { FONTES, FONTES_DE_ALIMENTO, seloDaFonte } from '@/modules/alimentos/fontes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { avisarPlanoNovo } from '@/modules/portal/avisos';
@@ -126,7 +127,7 @@ export async function publicarPlano(
         .update(mealPlans)
         .set({ status: 'publicado', publicadoEm: now, pdfStatus: 'pendente', pdfPedidoEm: now, pdfPath: null, referenciaId: null, referenciaCongelada, updatedAt: now })
         .where(eq(mealPlans.id, planId));
-      const job = await boss.send('plano-pdf', { tenantId: ctx.tenantId, planId }, { db: fromDrizzle(tx, sql) });
+      const job = await boss.send(FILA_DO_PDF_DO_PLANO, { tenantId: ctx.tenantId, planId }, { db: fromDrizzle(tx, sql) });
       if (!job) throw new Error('A fila recusou o PDF do plano');
       await avisarPlanoNovo(tx, paciente, now, deps.appUrl ?? getEnv().APP_URL);
       return { versao: p.versao };
@@ -201,7 +202,7 @@ export async function pedirNovoPdf(ctx: TenantContext, patientId: string, planId
         .update(mealPlans)
         .set({ pdfStatus: 'pendente', pdfPedidoEm: now, updatedAt: now })
         .where(eq(mealPlans.id, planId));
-      const job = await boss.send('plano-pdf', { tenantId: ctx.tenantId, planId }, { db: fromDrizzle(tx, sql) });
+      const job = await boss.send(FILA_DO_PDF_DO_PLANO, { tenantId: ctx.tenantId, planId }, { db: fromDrizzle(tx, sql) });
       if (!job) throw new Error('A fila recusou o PDF do plano'); // desfaz: o plano não fica "pendente" sem job
     },
     deps.db ?? getDb(),

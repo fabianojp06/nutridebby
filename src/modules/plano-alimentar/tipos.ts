@@ -22,6 +22,11 @@ export type ItemPlano = {
   fonte: Fonte;
   /** O selo da fonte (`seloDaFonte`). */
   origem: SeloDaFonte;
+  /**
+   * RN-233: a tabela pública de onde o "Meu alimento" foi duplicado, da cópia congelada (rodapé "Fontes:" do PDF). Só no
+   * publicado; ausente ou nulo no rascunho e no formato antigo.
+   */
+  fonteOrigem?: Fonte | null;
   porCem: Nutrientes100;
   /**
    * RN-235/RN-237: micros por 100 g — no rascunho, os de `foods.micros`; no publicado, a cópia congelada. Nulo = plano
