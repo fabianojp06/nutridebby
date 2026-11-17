@@ -8,6 +8,8 @@ import { listarReceitasPublicadas } from '@/modules/conteudo/receitas';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
 import { MSG_MODELO_IA } from '@/modules/plano-alimentar/constantes';
+import { conteudosParaLigar } from '@/modules/plano-alimentar/ligados';
+import { listarListas } from '@/modules/plano-alimentar/listas';
 import { listarMinhasRefeicoes } from '@/modules/plano-alimentar/refeicoes-modelo';
 import { EditorPlano } from '../../editor/editor-plano';
 import { aprovarModeloPlanoAction, excluirModeloAction } from '../actions';
@@ -39,6 +41,8 @@ export default async function ModeloPage({ params }: PageProps<'/painel/planos/m
           receitas={await listarReceitasPublicadas(ctx)}
           perfis={await referenciasParaPlano(ctx)}
           minhasRefeicoes={await listarMinhasRefeicoes(ctx)}
+          fuso={tenant.fuso}
+          ligaveis={{ listas: await listarListas(ctx), conteudos: await conteudosParaLigar(ctx) }}
           acoes={
             <div className="flex flex-wrap items-center gap-4">
               {origem?.sugestao && <AprovarModelo acao={aprovarModeloPlanoAction.bind(null, modelo.id)} />}

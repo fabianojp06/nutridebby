@@ -9,6 +9,8 @@ import { MSG_RASCUNHO_IA } from '@/modules/ia/constantes';
 import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
 import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
 import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
+import { conteudosParaLigar } from '@/modules/plano-alimentar/ligados';
+import { listarListas } from '@/modules/plano-alimentar/listas';
 import { contextoDoPaciente } from '@/modules/plano-alimentar/meta';
 import { listarMinhasRefeicoes } from '@/modules/plano-alimentar/refeicoes-modelo';
 import { carregarProntuario } from '../../prontuario';
@@ -54,6 +56,8 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
         somenteLeitura={!editavel}
         perfis={await referenciasParaPlano(ctx)}
         minhasRefeicoes={editavel ? await listarMinhasRefeicoes(ctx) : undefined}
+        fuso={tenant.fuso}
+        ligaveis={editavel ? { listas: await listarListas(ctx), conteudos: await conteudosParaLigar(ctx) } : undefined}
         acoes={
           <div className="flex flex-wrap items-start gap-4">
             {editavel && (

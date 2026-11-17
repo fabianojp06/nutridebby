@@ -27,8 +27,9 @@ export type ConteudoDoPaciente = {
   /** "Por porção: …" (RN-11) ou null fora da receita. */
   porPorcao: string | null;
   /**
-   * US-054: receita fora da audiência, aberta pelo cartão do plano publicado (`?de=plano`). A página não mostra
-   * "Favoritar" nem registra a visualização (o banco recusaria; D14: não conta) e volta para "Meu plano".
+   * US-054 e RN-253: receita do plano ou conteúdo ligado ao plano publicado, fora da audiência, aberto pelo plano
+   * (`?de=plano`). A página não mostra "Favoritar" nem registra a visualização (o banco recusaria; D14: não conta),
+   * leva `?de=plano` no link do PDF e volta para "Meu plano".
    */
   soPeloPlano: boolean;
 };
@@ -103,8 +104,9 @@ export async function feedDeConteudos(ctx: TenantContext, filtro: FiltroDoFeed =
 
 /**
  * O conteúdo aberto pelo paciente; fora da audiência (ou id inválido) → null, e a página responde 404 (US-053).
- * `doPlano` (o link do cartão "Sugestão de receita", US-054): se a audiência não o mostra, liga a liberação das receitas
- * do plano NESTA transação e tenta de novo — a RLS só a entrega se for receita de refeição do plano publicado dele.
+ * `doPlano` (o link do cartão "Sugestão de receita", US-054, e de "Ligado ao seu plano", RN-253): se a audiência não o
+ * mostra, liga a liberação dos conteúdos do plano NESTA transação e tenta de novo — a RLS só o entrega se for receita
+ * do plano ou conteúdo ligado ao plano publicado dele.
  */
 export async function conteudoDoPaciente(ctx: TenantContext, id: string, db: Db = getDb(), o: { doPlano?: boolean } = {}): Promise<ConteudoDoPaciente | null> {
   const patientId = pacienteDaSessao(ctx, 'conteudoDoPaciente');
@@ -177,12 +179,23 @@ export async function marcarFavorito(ctx: TenantContext, id: string, favorito: b
   );
 }
 
-/** US-052 "Baixar material (PDF)": o caminho interno, para a rota assinar na hora do clique (D20). */
-export async function caminhoDoPdfDoConteudo(ctx: TenantContext, id: string, db: Db = getDb()): Promise<string | null> {
+/**
+ * US-052 "Baixar material (PDF)": o caminho interno, para a rota assinar na hora do clique (D20). `doPlano` (RN-253,
+ * a rota com `?de=plano`, link da página aberta por "Ligado ao seu plano"): liga a liberação dos conteúdos do plano
+ * NESTA transação — a orientação fora da audiência só sai se estiver ligada ao plano publicado do paciente.
+ */
+export async function caminhoDoPdfDoConteudo(ctx: TenantContext, id: string, db: Db = getDb(), o: { doPlano?: boolean } = {}): Promise<string | null> {
   pacienteDaSessao(ctx, 'caminhoDoPdfDoConteudo');
   if (!idValido(id)) return null;
-  const [c] = await withTenant(ctx, (tx) => tx.select({ pdfPath: contents.pdfPath }).from(contents).where(and(eq(contents.id, id), eq(contents.tipo, 'orientacao'), eq(contents.status, 'publicado'))), db);
-  return c?.pdfPath ?? null;
+  return withTenant(
+    ctx,
+    async (tx) => {
+      if (o.doPlano) await liberarReceitasDoPlano(tx);
+      const [c] = await tx.select({ pdfPath: contents.pdfPath }).from(contents).where(and(eq(contents.id, id), eq(contents.tipo, 'orientacao'), eq(contents.status, 'publicado')));
+      return c?.pdfPath ?? null;
+    },
+    db,
+  );
 }
 
 /**

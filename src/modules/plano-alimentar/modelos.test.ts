@@ -284,7 +284,10 @@ describe('Plano 19 — cópias do plano (RN-256)', () => {
     const almoco = { id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: 'Sem fritura', descricaoLivre: 'Arroz, feijão e salada.', diasSemana: [1, 2, 3, 4, 5], itens: [] };
     await salvarRascunho(T.ctx, id, { ...conteudo(0), modo: 'livre', macrosPrescritos: { proteina: 20, carboidrato: 50, lipidio: 30 }, refeicoes: [almoco] }, deps);
     const material = await novoConteudo(app.db, T, { titulo: 'Como montar o prato' });
-    const conteudoDaLista = { grupos: [{ nome: 'Carboidratos', itens: [{ nome: 'Arroz, tipo 1, cozido', gramas: 100, fonte: 'taco' }] }] };
+    // o formato da cópia (RN-252, `lerCopiaDaLista` em ligados.ts)
+    const conteudoDaLista = {
+      grupos: [{ nome: 'Carboidratos', itens: [{ nome: 'Arroz, tipo 1, cozido', quantidadeG: 100, medidaCaseiraTxt: null, fonte: 'taco', fonteVersao: '4ª ed., 2011', fonteOrigem: null, porCem: { kcal: 128, proteinaG: 2.5, carboidratoG: 28.1, lipidioG: 0.2, fibraG: 1.6 } }] }],
+    };
     const perfil = await withTenant(
       T.ctx,
       async (tx) => {

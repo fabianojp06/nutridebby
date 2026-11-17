@@ -3,6 +3,7 @@
  * banco: o editor do plano, os formulários da biblioteca (cliente) e os módulos importam daqui. Texto exato da spec
  * (§5, §6.1) quando existe.
  */
+import type { TipoConteudo } from '@/modules/conteudo/constantes';
 import type { TipoDeRefeicao } from './tipos-de-refeicao';
 import type { ModoPlano } from './tipos';
 
@@ -70,6 +71,35 @@ export const MSG_LISTAS = {
   /** "2 grupos · 7 itens" na lista. */
   contagem: (grupos: number, itens: number) => `${grupos} ${grupos === 1 ? 'grupo' : 'grupos'} · ${itens} ${itens === 1 ? 'item' : 'itens'}`,
 } as const;
+
+/** RN-252/RN-253 (Plano 19, US-239): até 5 listas e 10 receitas ou materiais ligados por plano. */
+export const MAX_LISTAS_PLANO = 5;
+export const MAX_CONTEUDOS_PLANO = 10;
+
+export const MSG_LIGADOS = {
+  titulo: 'Ligado ao plano',
+  ligarLista: 'Ligar lista de substituição',
+  ligarConteudo: 'Ligar receita ou material',
+  atualizar: 'Atualizar da biblioteca',
+  remover: 'Remover',
+  /** "Cópia de 16/11/2026. Mudanças na biblioteca não alteram este plano." (data no fuso do consultório). */
+  copia: (data: string) => `Cópia de ${data}. Mudanças na biblioteca não alteram este plano.`,
+  publicado: 'Publicado',
+  naoPublicado: 'Não publicado — o paciente não vê',
+  excluido: (titulo: string) => `${titulo} (excluído)`,
+  limite: 'O plano pode ter até 5 listas e 10 receitas ou materiais.',
+  origemExcluida: 'A lista de origem foi excluída.',
+  /** Sem texto na spec: rótulos dos seletores e o vazio da seção. */
+  lista: 'Lista de substituição',
+  conteudo: 'Receita ou material',
+  ligar: 'Ligar',
+  vazio: 'Nenhuma lista, receita ou material ligado a este plano.',
+  /** "2 grupos · 7 itens" da cópia (o mesmo texto da biblioteca). */
+  contagem: MSG_LISTAS.contagem,
+} as const;
+
+/** Um conteúdo do consultório no "Ligar receita ou material" (qualquer situação: o editor mostra a do ligado). */
+export type ConteudoParaLigar = { id: string; titulo: string; tipo: TipoConteudo; publicado: boolean };
 
 /** Uma minha refeição na lista da biblioteca e no "Carregar minha refeição" do editor; `kcal` nula no texto livre. */
 export type MinhaRefeicaoDaLista = { id: string; nome: string; tipo: TipoDeRefeicao; horario: string; modo: ModoPlano; kcal: number | null };

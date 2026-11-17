@@ -3,6 +3,7 @@ import type { Nutrientes100 } from '@/modules/alimentos/busca';
 import type { Fonte, SeloDaFonte } from '@/modules/alimentos/fontes';
 import type { MedidaDisponivel } from '@/modules/alimentos/medidas';
 import type { ChaveNutriente } from '@/modules/alimentos/nutrientes';
+import type { TipoConteudo } from '@/modules/conteudo/constantes';
 import type { MicrosPorCem } from './calculo';
 import type { DiaDaSemana } from './dias';
 
@@ -38,6 +39,35 @@ export type ItemPlano = {
 
 /** US-054 (D13): receita sugerida na refeição — `disponivel` = publicada (a despublicada fica gravada como "Receita indisponível"). */
 export type ReceitaDaRefeicao = { id: string; titulo: string; disponivel: boolean };
+
+/**
+ * RN-252 (Plano 19, D23): item da lista de substituição ligada ao plano — a cópia congelada na ligação (nome, gramas,
+ * medida caseira, fonte, versão da tabela, fonte de origem do "Meu alimento" duplicado e valores por 100 g). Não muda
+ * quando a biblioteca muda; formato conferido por `lerCopiaDaLista` (`ligados.ts`).
+ */
+export type ItemDaListaLigada = {
+  nome: string;
+  quantidadeG: number;
+  medidaCaseiraTxt: string | null;
+  fonte: Fonte;
+  fonteVersao: string | null;
+  fonteOrigem: Fonte | null;
+  porCem: Nutrientes100;
+};
+export type GrupoDaListaLigada = { nome: string; itens: ItemDaListaLigada[] };
+/** RN-252: a lista ligada (`plano_listas_substituicao`). `listaOrigemId` = de qual lista da biblioteca veio ("Atualizar da biblioteca"). */
+export type ListaLigada = { id: string; listaOrigemId: string | null; nome: string; orientacao: string; copiadaEm: string; grupos: GrupoDaListaLigada[] };
+/**
+ * RN-253 (D24): `publicado`; `nao_publicado` (rascunho, ou que a sessão não enxerga: "Não publicado — o paciente não
+ * vê"); `excluido` (a ligação ficou com `content_id` nulo e o título copiado: "{título} (excluído)").
+ */
+export type SituacaoDoLigado = 'publicado' | 'nao_publicado' | 'excluido';
+/**
+ * RN-253: receita, orientação ou vídeo ligado ao plano (`plano_conteudos`). `titulo` é o atual do conteúdo, ou a cópia
+ * feita na ligação quando a sessão não o enxerga ou ele foi excluído; `tipo` nulo nesses casos. A projeção do portal
+ * só mostra os `publicado` (RN-240: a cópia do título nunca sai de conteúdo despublicado).
+ */
+export type ConteudoLigado = { id: string; contentId: string | null; titulo: string; tipo: TipoConteudo | null; situacao: SituacaoDoLigado };
 
 export type RefeicaoPlano = {
   id: string;
@@ -81,6 +111,10 @@ export type PlanoCompleto = {
   /** Caminho interno do arquivo: só no servidor (download por signFileUrl); nunca vai ao cliente (`PlanoDoCliente`). */
   pdfPath: string | null;
   refeicoes: RefeicaoPlano[];
+  /** RN-252 (Plano 19): as listas de substituição ligadas (cópias), na ordem em que foram ligadas. */
+  listas: ListaLigada[];
+  /** RN-253 (Plano 19): as receitas e materiais ligados, na ordem em que foram ligados. */
+  conteudos: ConteudoLigado[];
   /**
    * Plano 14B (US-123): modelo sugerido pela IA — `sugestao` enquanto não aprovado ("Sugestão da IA — revise"),
    * a data da aprovação e os itens descartados do pacote (desvio 12). Nulo em modelo feito à mão e em plano de paciente.

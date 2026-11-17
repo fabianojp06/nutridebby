@@ -7,7 +7,7 @@ import { estadoInicial, legendaDosDias, nomesAcessiveis, paraEnvio, reduzir, ref
 // Teste de tempo: no CI roda à parte, depois da suíte e sozinho (pnpm test:tempo, test/arquivos-de-tempo.ts)
 const plano: PlanoDoCliente = {
   id: 'p', patientId: 'pac', isTemplate: false, titulo: 'Plano', metaKcal: 2000, energyCalcId: null, status: 'rascunho', versao: 1, revisao: 0,
-  publicadoEm: null, mostrarCalorias: false, orientacoes: '', modo: 'calculado', macrosPrescritos: null, pdfStatus: null, refeicoes: [], origemIa: null, iaOrigemEm: null,
+  publicadoEm: null, mostrarCalorias: false, orientacoes: '', modo: 'calculado', macrosPrescritos: null, pdfStatus: null, refeicoes: [], origemIa: null, iaOrigemEm: null, listas: [], conteudos: [],
   referenciaId: null, referenciaCongelada: null, nutrientesExibidos: [], mostrarMicrosPdf: false,
 };
 const alimento = (k: number): AlimentoEncontrado => ({

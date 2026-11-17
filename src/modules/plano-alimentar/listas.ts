@@ -153,32 +153,32 @@ export async function listarListas(ctx: TenantContext, db: Db = getDb()): Promis
 /** A lista inteira (RLS: a de outro consultório não aparece), com a energia de cada item calculada agora. */
 export async function carregarLista(ctx: TenantContext, id: string, db: Db = getDb()): Promise<Lista | null> {
   if (!idValido(id)) return null;
-  return withTenant(
-    ctx,
-    async (tx) => {
-      const [l] = await tx.select().from(listasSubstituicao).where(eq(listasSubstituicao.id, id));
-      if (!l) return null;
-      const gs = await tx.select().from(listasSubstituicaoGrupos).where(eq(listasSubstituicaoGrupos.listaId, id)).orderBy(asc(listasSubstituicaoGrupos.ordem));
-      const its = gs.length
-        ? await tx
-            .select()
-            .from(listasSubstituicaoItens)
-            .where(inArray(listasSubstituicaoItens.grupoId, gs.map((g) => g.id)))
-            .orderBy(asc(listasSubstituicaoItens.ordem))
-        : [];
-      const itens = await itensComValoresAtuais(tx, its.map((i) => ({ id: i.id, foodId: i.foodId, quantidadeG: i.quantidadeG, medida: i.medida ?? null, substituiItemId: null })));
-      const grupoDoItem = new Map(its.map((i) => [i.id, i.grupoId]));
-      const comKcal = (i: ItemPlano): ItemDaLista => {
-        const n = nutrientesDoItem(i.porCem, i.quantidadeG);
-        return { ...i, kcal: n.semValor.includes('kcal') ? null : n.kcal };
-      };
-      return {
-        id: l.id,
-        nome: l.nome,
-        orientacao: l.orientacao,
-        grupos: gs.map((g) => ({ id: g.id, nome: g.nome, itens: itens.filter((i) => grupoDoItem.get(i.id) === g.id).map(comKcal) })),
-      };
-    },
-    db,
-  );
+  return withTenant(ctx, (tx) => lerListaNaTransacao(tx, id), db);
+}
+
+/** `carregarLista` na transação de quem chama: também a cópia da lista ligada ao plano (RN-252, `ligados.ts`). */
+export async function lerListaNaTransacao(tx: Tx, id: string): Promise<Lista | null> {
+  if (!idValido(id)) return null;
+  const [l] = await tx.select().from(listasSubstituicao).where(eq(listasSubstituicao.id, id));
+  if (!l) return null;
+  const gs = await tx.select().from(listasSubstituicaoGrupos).where(eq(listasSubstituicaoGrupos.listaId, id)).orderBy(asc(listasSubstituicaoGrupos.ordem));
+  const its = gs.length
+    ? await tx
+        .select()
+        .from(listasSubstituicaoItens)
+        .where(inArray(listasSubstituicaoItens.grupoId, gs.map((g) => g.id)))
+        .orderBy(asc(listasSubstituicaoItens.ordem))
+    : [];
+  const itens = await itensComValoresAtuais(tx, its.map((i) => ({ id: i.id, foodId: i.foodId, quantidadeG: i.quantidadeG, medida: i.medida ?? null, substituiItemId: null })));
+  const grupoDoItem = new Map(its.map((i) => [i.id, i.grupoId]));
+  const comKcal = (i: ItemPlano): ItemDaLista => {
+    const n = nutrientesDoItem(i.porCem, i.quantidadeG);
+    return { ...i, kcal: n.semValor.includes('kcal') ? null : n.kcal };
+  };
+  return {
+    id: l.id,
+    nome: l.nome,
+    orientacao: l.orientacao,
+    grupos: gs.map((g) => ({ id: g.id, nome: g.nome, itens: itens.filter((i) => grupoDoItem.get(i.id) === g.id).map(comKcal) })),
+  };
 }

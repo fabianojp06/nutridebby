@@ -9,7 +9,7 @@ import type { ReferenciaParaPlano } from '@/modules/alimentos/referencias-consta
 import { MSG_BUSCA } from '@/modules/alimentos/busca-avancada-constantes';
 import { MSG_RECEITA } from '@/modules/conteudo/constantes';
 import type { ReceitaParaPlano } from '@/modules/conteudo/receitas';
-import type { MinhaRefeicaoDaLista } from '@/modules/plano-alimentar/biblioteca-constantes';
+import type { ConteudoParaLigar, ListaDaBiblioteca, MinhaRefeicaoDaLista } from '@/modules/plano-alimentar/biblioteca-constantes';
 import { diferencaKcalDoItem, kcalTexto, nutrientesDoItem, totalDosItens } from '@/modules/plano-alimentar/calculo';
 import { MAX_TEXTO, MSG_DIAS, MSG_PLANO, MSG_TEXTO_LIVRE } from '@/modules/plano-alimentar/constantes';
 import { DIA_CURTO, ORDEM_DIAS, rotuloDosDias, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
@@ -23,6 +23,7 @@ import {
 import { CarregarMinhaRefeicao, SalvarComoMinhaRefeicao } from './minhas-refeicoes';
 import { DialogoBuscaAlimento, type DestinoDaBusca } from './dialogo-busca';
 import { FiltroDias } from './filtro-dias';
+import { LigadoAoPlano } from './ligado-ao-plano';
 import { filtroQueMostra } from './navegacao';
 import { NutrientesDoPaciente } from './nutrientes-do-paciente';
 import { PainelTotais } from './painel-totais';
@@ -43,6 +44,13 @@ type Props = {
    * minha refeição" em cada refeição e "Carregar minha refeição"; sem ela (somente leitura), nenhum dos dois.
    */
   minhasRefeicoes?: MinhaRefeicaoDaLista[];
+  /** Fuso do consultório: a data da cópia da lista ligada ("Cópia de {data}…", RN-252). */
+  fuso: string;
+  /**
+   * US-239 (RN-252, RN-253): as listas de substituição e os conteúdos do consultório para "Ligado ao plano" — com eles
+   * (rascunho editável), a seção liga, atualiza e remove; sem eles (somente leitura), só mostra o que está ligado.
+   */
+  ligaveis?: { listas: ListaDaBiblioteca[]; conteudos: ConteudoParaLigar[] };
 };
 
 const novoId = () => crypto.randomUUID(); // D8: gerado no evento, nunca no render
@@ -81,7 +89,7 @@ export function EditorPlano(props: Props) {
   return <Editor key={geracao} {...props} aoDesatualizar={aoDesatualizar} />;
 }
 
-function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [], perfis = [], minhasRefeicoes, aoDesatualizar }: Props & { aoDesatualizar: (revisao: number) => void }) {
+function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [], perfis = [], minhasRefeicoes, fuso, ligaveis, aoDesatualizar }: Props & { aoDesatualizar: (revisao: number) => void }) {
   // `edicoes` conta as ações: é o que dispara o salvamento (D7). Contador dentro do estado do reducer, que segue puro.
   const [{ estado, edicoes }, despachar] = useReducer(
     (s: { estado: EstadoEditor; edicoes: number }, a: Acao) => {
@@ -313,6 +321,8 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
         <textarea id="orientacoes" rows={4} maxLength={MAX_TEXTO} disabled={somenteLeitura} value={estado.orientacoes} onChange={(e) => despachar({ tipo: 'orientacoes', valor: e.target.value })} aria-invalid={erro('orientacoes') ? true : undefined} aria-describedby={erro('orientacoes') ? 'orientacoes-erro' : undefined} className={CAMPO} />
         {erro('orientacoes') && <p id="orientacoes-erro" role="alert" className="text-sm text-erro">{erro('orientacoes')}</p>}
       </div>
+
+      <LigadoAoPlano planId={plano.id} patientId={plano.patientId} listas={plano.listas} conteudos={plano.conteudos} fuso={fuso} biblioteca={somenteLeitura ? undefined : ligaveis} />
     </div>
   );
 }

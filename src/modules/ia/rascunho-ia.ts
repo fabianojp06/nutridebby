@@ -159,7 +159,7 @@ export async function abrirRascunhoIa(ctx: TenantContext, patientId: string, tar
         plano: {
           id: t.id, patientId, isTemplate: false, titulo: r.plano.titulo, metaKcal: r.plano.metaKcal, energyCalcId: null, status: 'rascunho', versao: 0, revisao: 0,
           publicadoEm: null, mostrarCalorias: true, orientacoes: r.plano.orientacoes, modo: 'calculado', macrosPrescritos: null, pdfStatus: null, pdfPath: null, origemIa: null, iaOrigemEm: null, refeicoes,
-          referenciaId: null, referenciaCongelada: null, nutrientesExibidos: [], mostrarMicrosPdf: false,
+          referenciaId: null, referenciaCongelada: null, nutrientesExibidos: [], mostrarMicrosPdf: false, listas: [], conteudos: [],
         },
       };
     },

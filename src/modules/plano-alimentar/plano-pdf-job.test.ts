@@ -177,6 +177,8 @@ describe('PDF do plano (US-026)', () => {
       versao: 1, revisao: 1, publicadoEm: now.toISOString(), mostrarCalorias: false, orientacoes: '', modo: 'calculado', macrosPrescritos: null, pdfStatus: 'pendente', pdfPath: null,
       referenciaId: null, referenciaCongelada: null, nutrientesExibidos: [], mostrarMicrosPdf: false,
       refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: 'Observação no fim do almoço', diasSemana: [0, 1, 2, 3, 4, 5, 6], descricaoLivre: null, itens }],
+      listas: [],
+      conteudos: [],
       origemIa: null,
       iaOrigemEm: null,
     };

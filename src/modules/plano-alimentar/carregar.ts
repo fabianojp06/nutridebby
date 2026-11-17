@@ -9,6 +9,7 @@ import { idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
 import { lerCongelados, type Congelado } from './congelados';
 import type { DiaDaSemana } from './dias';
+import { ligadosNaTransacao } from './ligados';
 import type { ModoPlano, OrigemIaDoModelo, PlanoCompleto, PlanoDoCliente, ReceitaDaRefeicao, StatusPlano } from './tipos';
 
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : '');
@@ -66,6 +67,8 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
     const [g] = await tx.select({ descartados: iaGeracoesModelos.itensDescartados }).from(iaGeracoesModelos).where(eq(iaGeracoesModelos.id, p.iaGeracaoId));
     origemIa = { sugestao: p.aprovadoEm === null, aprovadoEm: p.aprovadoEm?.toISOString() ?? null, descartados: g?.descartados ?? 0 };
   }
+  // RN-252/RN-253: a lista ligada é a cópia; o conteúdo ligado, com o título e a situação que esta sessão enxerga
+  const ligados = await ligadosNaTransacao(tx, p.id);
   if (opts.auditar !== false && p.patientId) await auditRead(tx, { entidade: 'plano_alimentar', entidadeId: p.id, patientId: p.patientId });
   return {
     id: p.id,
@@ -120,6 +123,8 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
           };
         }),
     })),
+    listas: ligados.listas,
+    conteudos: ligados.conteudos,
     origemIa,
     iaOrigemEm: p.iaOrigemEm?.toISOString() ?? null,
   };

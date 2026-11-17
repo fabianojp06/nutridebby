@@ -548,7 +548,10 @@ describe('Plano 19 — salvamento com modo, dias, texto livre e limites (RN-243,
     await salvarRascunho(T.ctx, id, livre(0, [almoco]), deps);
     const material = await novoConteudo(app.db, T, { titulo: 'Como montar o prato' });
     const copiada = new Date('2026-11-16T12:00:00Z');
-    const conteudoDaLista = { grupos: [{ nome: 'Carboidratos', itens: [{ nome: 'Arroz, tipo 1, cozido', gramas: 100, fonte: 'taco' }] }] };
+    // o formato da cópia (RN-252, `lerCopiaDaLista` em ligados.ts)
+    const conteudoDaLista = {
+      grupos: [{ nome: 'Carboidratos', itens: [{ nome: 'Arroz, tipo 1, cozido', quantidadeG: 100, medidaCaseiraTxt: null, fonte: 'taco', fonteVersao: '4ª ed., 2011', fonteOrigem: null, porCem: { kcal: 128, proteinaG: 2.5, carboidratoG: 28.1, lipidioG: 0.2, fibraG: 1.6 } }] }],
+    };
     await withTenant(
       T.ctx,
       async (tx) => {
