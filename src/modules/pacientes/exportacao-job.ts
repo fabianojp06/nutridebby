@@ -19,6 +19,7 @@ import {
   foods,
   iaAutorizacoes,
   iaTarefas,
+  lembretesRotina,
   mealItems,
   mealPlans,
   meals,
@@ -108,6 +109,8 @@ export type DadosExportacao = {
      * da cópia do titular só com o parecer do advogado (E-09) e a base no LEIA-ME. O peso das avaliações vai nos dois (RN-204).
      */
     pesoOcultoNoAppEm: string | null;
+    /** Plano 17 (§5.5): "Pausar todos os lembretes" (desde quando), escolha do próprio titular — nos dois escopos. */
+    lembretesPausadosEm: string | null;
   };
   anamneses: {
     data: string;
@@ -170,6 +173,12 @@ export type DadosExportacao = {
   consultas: { inicio: string; fim: string; modalidade: string; status: string; origem: string; canceladoPor: string | null; motivoCancelamento: string | null }[];
   /** Plano 05: mensagens ao titular (tipo, canal, situação e datas) — sem texto, número de destino nem ids do provedor. */
   lembretes: { tipo: string; canal: string; status: string; agendadaPara: string; enviadaEm: string | null; motivoNaoEnviado: string | null }[];
+  /**
+   * Plano 17 (§5.5): lembretes de rotina por push (configuração da equipe, o nome do suplemento ou o texto livre e a escolha
+   * do titular de desligar) — nos dois escopos. Sem a marca do último envio (lembretes_rotina_envios: registro técnico do
+   * worker, STAFF_ONLY) nem quem criou. A chave `lembretes` é das mensagens das consultas (Plano 05).
+   */
+  lembretesDeRotina: { tipo: string; config: unknown; texto: string | null; ligado: boolean; desligadoPeloPacienteEm: string | null; criadoEm: string }[];
   /** D13: aceites do termo do paciente neste consultório (pela conta ou pela página pública), com o IP do aceite. */
   aceitesDoTermo: { termoVersao: string; aceitoEm: string; ip: string | null }[];
   /** D14 / T13: aparelhos inscritos para notificação no app — só a data e o navegador (nunca o endereço ou as chaves). */
@@ -374,6 +383,11 @@ export async function montarDados(
     .from(pushSubscriptions)
     .where(eq(pushSubscriptions.patientId, patientId))
     .orderBy(asc(pushSubscriptions.createdAt));
+  const lr = await tx
+    .select({ tipo: lembretesRotina.tipo, config: lembretesRotina.config, texto: lembretesRotina.texto, ligado: lembretesRotina.ligado, desligadoPeloPacienteEm: lembretesRotina.desligadoPeloPacienteEm, criadoEm: lembretesRotina.createdAt })
+    .from(lembretesRotina)
+    .where(eq(lembretesRotina.patientId, patientId))
+    .orderBy(asc(lembretesRotina.createdAt), asc(lembretesRotina.id));
   const di = await tx.select().from(diaryEntries).where(eq(diaryEntries.patientId, patientId)).orderBy(asc(diaryEntries.dataHora));
   const ee = await tx.select().from(examSubmissions).where(eq(examSubmissions.patientId, patientId)).orderBy(asc(examSubmissions.createdAt));
   // P-16 (b): o titular não recebe o rascunho (a sessão de paciente também não o vê — paciente_sem_rascunho)
@@ -469,6 +483,7 @@ export async function montarDados(
         termo: null,
       })),
       pesoOcultoNoAppEm: p.pesoOcultoNoAppEm?.toISOString() ?? null, // D6 ★ revista: nos dois escopos
+      lembretesPausadosEm: p.lembretesPausadosEm?.toISOString() ?? null,
     },
     anamneses: as.map((a) => ({
       data: a.data,
@@ -534,6 +549,14 @@ export async function montarDados(
     })),
     aceitesDoTermo: ac.map((a) => ({ termoVersao: a.termoVersao, aceitoEm: a.aceitoEm.toISOString(), ip: a.ip })),
     dispositivosPush: ps.map((d) => ({ criadaEm: d.criadaEm.toISOString(), navegador: d.navegador })),
+    lembretesDeRotina: lr.map((l) => ({
+      tipo: l.tipo,
+      config: l.config,
+      texto: l.texto,
+      ligado: l.ligado,
+      desligadoPeloPacienteEm: l.desligadoPeloPacienteEm?.toISOString() ?? null,
+      criadoEm: l.criadoEm.toISOString(),
+    })),
     diario: di.map((e) => ({
       dataHora: e.dataHora.toISOString(),
       refeicao: e.refeicao,

@@ -623,6 +623,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           cadastradoEm: now.toISOString(),
           autorizacoesIa: [],
           pesoOcultoNoAppEm: null,
+          lembretesPausadosEm: null,
         },
         anamneses: [{ data: '2026-09-01', modelo: 'Longa', respostas }],
         antropometria: [],
@@ -633,6 +634,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         pedidosLgpd: [],
         consultas: [],
         lembretes: [],
+        lembretesDeRotina: [],
         aceitesDoTermo: [],
         dispositivosPush: [],
         diario: [],
@@ -1044,6 +1046,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           cadastradoEm: now.toISOString(),
           autorizacoesIa: [],
           pesoOcultoNoAppEm: null,
+          lembretesPausadosEm: null,
         },
         anamneses: [],
         antropometria: [
@@ -1080,6 +1083,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         ],
         consultas: [],
         lembretes: [],
+        lembretesDeRotina: [],
         aceitesDoTermo: [],
         dispositivosPush: [],
         diario: [],
@@ -1139,6 +1143,51 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       // D6 ★ revista: dado pessoal do titular (art. 5º, I; art. 18, II) — nos dois escopos até o parecer do advogado (E-09)
       expect(d.paciente.pesoOcultoNoAppEm).toBe(now.toISOString());
     }
+  });
+
+  it('Plano 17 (§5.5): dados.json traz lembretesDeRotina (sem ultimo_slot_em) e mantém lembretes das consultas; a pausa vai em paciente; nos dois escopos', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const outro = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const worker = { tenantId: T.tenantId, role: 'worker' as const };
+    const AGUA = { inicio: '08:00', fim: '20:00', intervaloMin: 120, dias: [0, 1, 2, 3, 4, 5, 6] };
+    const SUPLEMENTO = { horarios: ['08:00'], dias: [1, 3, 5] };
+    const SLOT = new Date('2026-09-30T23:07:00Z');
+    // o worker (e só ele) grava a marca do paciente com data fixa e a marca do envio
+    const [agua, suplemento] = await withTenant(
+      worker,
+      (tx) =>
+        tx
+          .insert(schema.lembretesRotina)
+          .values([
+            { tenantId: T.tenantId, patientId: p.id, tipo: 'agua', config: AGUA, criadoPor: T.nutriId, createdAt: new Date('2026-09-01T12:00:00Z') },
+            { tenantId: T.tenantId, patientId: p.id, tipo: 'suplemento', texto: 'Vitamina D', config: SUPLEMENTO, ligado: false, desligadoPeloPacienteEm: new Date('2026-09-05T12:00:00Z'), criadoPor: T.nutriId, createdAt: new Date('2026-09-02T12:00:00Z') },
+            { tenantId: T.tenantId, patientId: outro.id, tipo: 'livre', texto: 'Lembrete de outra paciente', config: SUPLEMENTO, criadoPor: T.nutriId },
+          ])
+          .returning(),
+      app.db,
+    );
+    await withTenant(worker, (tx) => tx.insert(schema.lembretesRotinaEnvios).values({ lembreteId: agua.id, tenantId: T.tenantId, patientId: p.id, ultimoSlotEm: SLOT }), app.db);
+    await withTenant(ctxPaciente(T.tenantId, p.id), (tx) => tx.update(patients).set({ lembretesPausadosEm: new Date() }).where(eq(patients.id, p.id)), app.db);
+    const [{ pausa }] = await withTenant(T.ctx, (tx) => tx.select({ pausa: patients.lembretesPausadosEm }).from(patients).where(eq(patients.id, p.id)), app.db);
+    // os lembretes das consultas (Plano 05) continuam na chave `lembretes`
+    await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: p.id, canal: 'whatsapp', tipo: 'lembrete_24h', status: 'enviada', agendadaPara: new Date('2026-09-14T12:00:00Z'), enviadaEm: new Date('2026-09-14T12:00:01Z') }), app.db);
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(dados.lembretesDeRotina, escopo).toEqual([
+        { tipo: 'agua', config: AGUA, texto: null, ligado: true, desligadoPeloPacienteEm: null, criadoEm: '2026-09-01T12:00:00.000Z' },
+        { tipo: 'suplemento', config: SUPLEMENTO, texto: 'Vitamina D', ligado: false, desligadoPeloPacienteEm: '2026-09-05T12:00:00.000Z', criadoEm: '2026-09-02T12:00:00.000Z' },
+      ]);
+      expect(dados.lembretes, escopo).toEqual([
+        { tipo: 'lembrete_24h', canal: 'whatsapp', status: 'enviada', agendadaPara: '2026-09-14T12:00:00.000Z', enviadaEm: '2026-09-14T12:00:01.000Z', motivoNaoEnviado: null },
+      ]);
+      expect(dados.paciente.lembretesPausadosEm, escopo).toBe(pausa!.toISOString());
+      const json = JSON.stringify(dados);
+      // a marca do envio é registro técnico do worker (STAFF_ONLY): nem a data do último slot nem o id do lembrete
+      for (const segredo of [SLOT.toISOString(), 'ultimoSlot', 'ultimo_slot', agua.id, suplemento.id, 'Lembrete de outra paciente', T.nutriId]) expect(json, `${escopo} ${segredo}`).not.toContain(segredo);
+    }
+    const semNada = await withTenant(T.ctx, (tx) => montarDados(tx, outro.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(semNada.dados.paciente.lembretesPausadosEm).toBeNull();
   });
 });
 
