@@ -94,7 +94,10 @@ describe('busca de alimentos (US-020, D6)', () => {
     expect(usda.every((a) => a.fonte === 'usda')).toBe(true);
     const semUsda = await buscarAlimentos(T.ctx, 'pinhao', app.db, { fontes: ['taco', 'propria'] });
     expect(semUsda.map((a) => a.nome).sort()).toEqual(['Pinhão da serra', 'Pinhão, cozido']);
-    expect((await buscarAlimentos(T.ctx, 'pinhao', app.db, { grupo: 'Nozes e sementes' })).map((a) => a.grupo)).not.toContain('Cereais e derivados');
+    // o filtro de grupo acha alguma coisa e só do grupo pedido (um filtro que apagasse tudo passaria no "não contém")
+    const doGrupo = await buscarAlimentos(T.ctx, 'pinhao', app.db, { grupo: 'Nozes e sementes' });
+    expect(doGrupo.length).toBeGreaterThan(0);
+    expect(doGrupo.every((a) => a.grupo === 'Nozes e sementes')).toBe(true);
     expect(await buscarAlimentos(T.ctx, 'pinhao', app.db, { fontes: [] })).toEqual([]);
   });
 

@@ -362,7 +362,10 @@ export function trechoDoPlano(plano: PlanoDoContexto, f: Pick<FonteDoContexto, '
   }
   const item = refeicao.itens.find((i) => i.id === f.id)!;
   if ((f.tipo === 'substituicao') !== !!item.substituiItemId) return null;
-  return { indice: f.indice, fonte: `${refeicao.nome} — ${f.tipo === 'substituicao' ? 'substituições' : 'itens'}`, texto: textoDoItem(item, mostrar) };
+  // R-236: o trecho do item diz de que refeição e de que dias ("Lanche da tarde (seg a sex) — itens"): duas refeições
+  // de mesmo nome em dias diferentes não se confundem; nos 7 dias, sem parêntese, como no ramo da refeição
+  const dias = diasDoTrecho(refeicao);
+  return { indice: f.indice, fonte: `${refeicao.nome}${dias ? ` (${dias})` : ''} — ${f.tipo === 'substituicao' ? 'substituições' : 'itens'}`, texto: textoDoItem(item, mostrar) };
 }
 
 /**

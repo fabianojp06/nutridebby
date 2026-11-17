@@ -113,6 +113,11 @@ test('Plano 19: o diálogo "Buscar alimento" em cada aba, o filtro de dia e o av
           await dialogo.getByLabel('Nome do alimento').fill('chuchu');
           await expect(dialogo.getByRole('status').filter({ hasText: /encontrado/ })).toBeVisible();
         }
+        if (aba === 'Nutrientes') {
+          // com um nutriente escolhido, o axe confere também a lista de resultados (critério, valores em 100 g, "Adicionar")
+          await dialogo.getByLabel('Nutriente', { exact: true }).selectOption({ label: 'Sódio' });
+          await expect(dialogo.getByRole('tabpanel', { name: 'Nutrientes' }).getByRole('status').filter({ hasText: /encontrado/ })).toBeVisible();
+        }
         await nutri.waitForLoadState('networkidle');
         for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`${tema} diálogo, aba ${aba} — ${v}`);
       }

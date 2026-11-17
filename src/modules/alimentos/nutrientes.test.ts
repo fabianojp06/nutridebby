@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatarNutriente, formatarReferencia, MICRO_MAX, microsValidos, NUTRIENTES } from './nutrientes';
+import { formatarNutriente, formatarReferencia, MICRO_MAX, microsValidos, NUTRIENTES, passouDoMaximo } from './nutrientes';
 import { CAMPOS_MICRO } from './taco';
 
 describe('RN-235: catálogo de nutrientes', () => {
@@ -57,6 +57,15 @@ describe('RN-235: exibição (vírgula decimal, µg)', () => {
     expect(formatarReferencia('cobre_mg', 0.9)).toBe('0,9 mg');
     expect(formatarReferencia('cobre_mg', 0.95)).toBe('0,95 mg');
     expect(formatarReferencia('folato_dfe_mcg', 400)).toBe('400 µg');
+  });
+
+  it('RN-239: "Acima do máximo" compara o total arredondado como aparece (borda do máximo)', () => {
+    expect(passouDoMaximo('sodio_mg', 2300.04, 2300)).toBe(false); // aparece "2300,0 mg"
+    expect(passouDoMaximo('sodio_mg', 2300.05, 2300)).toBe(true); // aparece "2300,1 mg"
+    expect(passouDoMaximo('sodio_mg', 2300, 2300)).toBe(false);
+    expect(passouDoMaximo('vitamina_b12_mcg', 2.4, 2)).toBe(false); // µg sem casa: aparece "2 µg"
+    expect(passouDoMaximo('vitamina_b12_mcg', 2.5, 2)).toBe(true); // aparece "3 µg"
+    expect(passouDoMaximo('vitamina_b12_mcg', 2.6, 2.4)).toBe(true);
   });
 });
 

@@ -21,7 +21,7 @@ import { textoDoPdf } from '../../../test/pdf';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
 import * as schema from '@/db/schema';
-import { auditLog, consents, dataExports, diaryEntries, exams, foods, iaNutriConsentimentos, notifications, patients, pushSubscriptions, referenciasNutrientes, storedFiles, tenants, user } from '@/db/schema';
+import { auditLog, consents, dataExports, diaryEntries, exams, foods, iaNutriConsentimentos, notifications, patients, planoListasSubstituicao, pushSubscriptions, referenciasNutrientes, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
 import { DESTINO_ROTULO } from '@/modules/ia/constantes';
 import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
@@ -899,6 +899,24 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     // o titular: só o conteúdo que existe e está publicado (o excluído, o despublicado e o rascunho ficam fora)
     expect(titular.dados.planos).toEqual([{ ...comum, conteudosLigados: [{ tipo: 'orientacao', titulo: 'Como montar o prato' }] }]);
     expect(JSON.stringify(titular.dados)).not.toMatch(/Material antigo|Panqueca de aveia|Bolo em preparo/);
+  });
+
+  it('RN-257: cópia da lista ligada fora do formato não derruba a exportação (sai com nome, orientação e data, sem grupos)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { id: planId } = await criarRascunho(T.ctx, p.id, { db: app.db });
+    await salvarRascunho(T.ctx, planId, {
+      revisao: 0, envio: randomUUID(), titulo: 'Plano alimentar', metaKcal: '2000', mostrarCalorias: false, orientacoes: '',
+      refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: [0, 1, 2, 3, 4, 5, 6], itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null, substituiItemId: null }] }],
+    }, { db: app.db });
+    const { id: listaId } = await salvarLista(T.ctx, null, { nome: 'Trocas', orientacao: 'Troque no mesmo grupo.', grupos: [{ id: randomUUID(), nome: 'Carboidratos', itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null }] }] }, { db: app.db });
+    await ligarLista(T.ctx, { planId, patientId: p.id }, listaId, { db: app.db, now });
+    await publicarPlano(T.ctx, p.id, planId, deps);
+    // a cópia estragada (objeto, para passar o CHECK da tabela, mas fora do esquema de lerCopiaDaLista)
+    await dono.db.update(planoListasSubstituicao).set({ conteudo: { grupos: 'estragado' } }).where(eq(planoListasSubstituicao.planId, planId));
+
+    const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(dados.planos[0].listasSubstituicao).toEqual([{ nome: 'Trocas', orientacao: 'Troque no mesmo grupo.', copiadaEm: now.toISOString(), grupos: [] }]);
   });
 
   it('RN-257: o plano em texto livre leva a descrição de cada refeição e os dias', async () => {

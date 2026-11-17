@@ -145,7 +145,7 @@ export function DialogoBuscaAlimento({ destino, podeAdicionar, aoAdicionar, aoFe
               role="tab"
               id={`${id}-aba-${a}`}
               aria-selected={aba === a}
-              aria-controls={`${id}-painel-${a}`}
+              aria-controls={desabilitada ? undefined : `${id}-painel-${a}`}
               aria-disabled={desabilitada || undefined}
               aria-describedby={desabilitada ? `${id}-sem-item` : undefined}
               tabIndex={aba === a ? 0 : -1}

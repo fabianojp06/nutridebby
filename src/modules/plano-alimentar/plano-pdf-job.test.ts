@@ -7,14 +7,14 @@ import sharp from 'sharp';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
-import { paginasDoPdf, textoDoPdf } from '../../../test/pdf';
+import { paginasDoPdf, textoDoPdf, textosPorPagina } from '../../../test/pdf';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { contents, patients, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { duplicarComoMeu } from '@/modules/alimentos/alimentos';
-import { FONTES, MSG_FONTES } from '@/modules/alimentos/fontes';
+import { FONTES, MSG_FONTES, seloDaFonte } from '@/modules/alimentos/fontes';
 import { MSG_NUTRIENTES } from '@/modules/alimentos/nutrientes';
 import { idTaco } from '@/modules/alimentos/taco';
 import { carregarPacienteParaEscrita, PacienteBloqueadoError } from '@/modules/pacientes/base';
@@ -437,6 +437,32 @@ const textoDe = async (plano: PlanoCompleto) =>
 const PERFIL = { id: randomUUID(), nome: 'Mulher 19 a 50 anos', fonte: 'DRI/IOM 2006 — conferida pela nutricionista', valores: { ferro_mg: { meta: 18, maximo: 45 } } };
 
 describe('PDF do plano no Plano 19 (P19-10b): dias, texto livre, nutrientes, ligados e fontes', () => {
+  it('rodapé (RN-233) e número da página dentro da página A4 em todas as páginas (y entre 0 e 841,89; número na linha da última citação)', async () => {
+    const A4 = 841.89;
+    const itens = Array.from({ length: 70 }, (_, k) => itemPdf(`Alimento número ${k + 1}`, 100, { fonte: k % 2 ? 'usda' : 'taco', origem: seloDaFonte(k % 2 ? 'usda' : 'taco') }));
+    const pdf = await renderizarPlano({
+      plano: planoPdf({ refeicoes: [{ id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: TODOS, descricaoLivre: null, itens }] }),
+      nutricionista: { nome: 'Debby Silva', crn: null }, paciente: 'Ana Souza', data: '01/10/2026', cor: '#047857', logo: null,
+    });
+    const paginas = textosPorPagina(pdf);
+    expect(paginas.length).toBe(paginasDoPdf(pdf));
+    expect(paginas.length).toBeGreaterThanOrEqual(2);
+    for (const [i, textos] of paginas.entries()) {
+      const fontes = textos.find((t) => t.texto.startsWith('Fontes:'));
+      const numero = textos.find((t) => t.texto === `${i + 1}/${paginas.length}`);
+      expect(fontes, `"Fontes:" na página ${i + 1}`).toBeDefined();
+      expect(numero, `número da página ${i + 1}`).toBeDefined();
+      for (const t of [fontes!, numero!]) {
+        expect(t.y, `${t.texto} na página ${i + 1}`).toBeGreaterThan(0);
+        expect(t.y, `${t.texto} na página ${i + 1}`).toBeLessThan(A4);
+      }
+      // o rodapé é o último bloco de baixo: "Fontes:" acima do número, e o número na linha da última citação (≤ 1 pt)
+      expect(fontes!.y).toBeGreaterThan(numero!.y);
+      const ultimaDoRodape = Math.min(...textos.filter((t) => t !== numero && t.x < numero!.x && t.y < fontes!.y + 1).map((t) => t.y));
+      expect(Math.abs(numero!.y - ultimaDoRodape), `número da página ${i + 1} na linha da última citação`).toBeLessThan(1);
+    }
+  });
+
   it('RN-247 (g): um bloco por perfil de dia, com o título por extenso, "{n} refeições por dia" e o total do dia — nunca a soma dos perfis', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
@@ -552,6 +578,10 @@ describe('PDF do plano no Plano 19 (P19-10b): dias, texto livre, nutrientes, lig
 
     const acima = await textoDe(planoPdf({ ...base, refeicoes: comFerro(50), mostrarCalorias: true, mostrarMicrosPdf: true }));
     expect(acima).toContain('Ferro 50,0 mg (meta 18 mg; Acima do máximo (45 mg))');
+    // a borda: 45,04 mg aparece "45,0 mg" e não passa do máximo de 45 mg (passouDoMaximo, o mesmo critério do editor)
+    const naBorda = await textoDe(planoPdf({ ...base, refeicoes: comFerro(45.04), mostrarCalorias: true, mostrarMicrosPdf: true }));
+    expect(naBorda).toContain('Ferro 45,0 mg (meta 18 mg)');
+    expect(naBorda).not.toContain('Acima do máximo');
 
     const semPerfil = await textoDe(planoPdf({ ...base, referenciaCongelada: null, mostrarCalorias: true, mostrarMicrosPdf: true }));
     expect(semPerfil).toContain('Nutrientes: Ferro 12,4 mg');

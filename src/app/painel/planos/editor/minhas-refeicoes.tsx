@@ -57,7 +57,8 @@ export function SalvarComoMinhaRefeicao({ refeicao, nome, modo, aoSalvar }: { re
   );
 }
 
-function DialogoSalvar({ refeicao, modo, aoFechar }: { refeicao: RefeicaoEstado; modo: ModoPlano; aoFechar: (salva: MinhaRefeicaoDaLista | null) => void }) {
+/** Exportado para o teste da montagem (`componentes.test.ts`); o editor usa `SalvarComoMinhaRefeicao`. */
+export function DialogoSalvar({ refeicao, modo, aoFechar }: { refeicao: RefeicaoEstado; modo: ModoPlano; aoFechar: (salva: MinhaRefeicaoDaLista | null) => void }) {
   const id = useId();
   const dialogo = useRef<HTMLDialogElement>(null);
   const salva = useRef<MinhaRefeicaoDaLista | null>(null);
@@ -123,7 +124,8 @@ function DialogoSalvar({ refeicao, modo, aoFechar }: { refeicao: RefeicaoEstado;
           <input type="checkbox" checked={incluir} onChange={(e) => setIncluir(e.target.checked)} aria-describedby={incluir ? `${id}-obs-aviso` : undefined} />
           {MSG_MINHAS_REFEICOES.incluirObservacao}
         </label>
-        {incluir && <p id={`${id}-obs-aviso`} className="text-sm font-semibold text-aviso">{MSG_MINHAS_REFEICOES.avisoObservacao}</p>}
+        {/* o contêiner role="status" fica montado e só o texto entra ao marcar: um status que nasce junto com o texto não é lido */}
+        <p id={`${id}-obs-aviso`} role="status" className="text-sm font-semibold text-aviso">{incluir ? MSG_MINHAS_REFEICOES.avisoObservacao : ''}</p>
         {outros.map((m) => <p key={m} role="alert" className="text-sm text-erro">{m}</p>)}
         <div className="flex flex-wrap gap-3">
           <button type="button" disabled={pendente} onClick={salvar} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95 disabled:opacity-50">Salvar</button>

@@ -62,7 +62,8 @@ export function NutrientesDoPaciente({ estado, filtro, perfis, congelado, comPac
       <Resumo resumo={resumo} />
 
       {!somenteLeitura && (
-        <details className="group rounded-xl border border-borda p-2">
+        // key: com o erro do servidor ("Escolha até 12 nutrientes."), o <details> volta a abrir — o alerta fica dentro dele
+        <details key={erro ? 'com-erro' : 'sem-erro'} open={erro ? true : undefined} className="group rounded-xl border border-borda p-2">
           <summary className="flex min-h-11 cursor-pointer items-center font-medium"><SetaDetails />Escolher nutrientes ({estado.nutrientesExibidos.length} de {MAX_NUTRIENTES_EXIBIDOS})</summary>
           <fieldset aria-describedby={erro ? 'nutrientes-limite nutrientes-erro' : 'nutrientes-limite'} className="mt-2 space-y-2">
             <legend className="sr-only">Nutrientes do resumo</legend>

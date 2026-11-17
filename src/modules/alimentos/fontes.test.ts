@@ -4,11 +4,14 @@ import { describe, expect, it } from 'vitest';
 import { FONTES, FONTES_DE_ALIMENTO, fontesVisiveis, MSG_FONTES, seloDaFonte, semValorNa, TBCA_AUTORIZADA } from './fontes';
 import { FONTE_TACO_TEXTO } from './taco';
 
-/** Comandos SQL (separados por `;`) que inserem e citam a fonte `tbca` (RN-232). */
-const insertsComTbca = (sql: string): string[] =>
+/** Comando SQL que grava linhas: INSERT INTO, UPDATE … SET (um UPDATE pode trocar a fonte para tbca) e COPY … (FROM). */
+const ESCRITA = /\binsert\s+into\b|\bupdate\s+[\w."]+\s+set\b|\bcopy\s+[\w."]+\s*(?:\(|from\b)/i;
+
+/** Comandos SQL (separados por `;`) que gravam e citam a fonte `tbca` (RN-232). */
+const escritasComTbca = (sql: string): string[] =>
   sql
     .split(';')
-    .filter((c) => /\binsert\s+into\b/i.test(c) && /'tbca'/i.test(c))
+    .filter((c) => ESCRITA.test(c) && /'tbca'/i.test(c))
     .map((c) => c.trim().slice(0, 120));
 
 /** Linhas de CSV com algum campo igual a `tbca` (seed de alimentos com a fonte TBCA). */
@@ -56,20 +59,25 @@ describe('RN-230/RN-233: fontes de alimento', () => {
 });
 
 describe('RN-232: guarda da TBCA (nenhuma linha tbca sem autorização)', () => {
-  it('o detector acha um INSERT com tbca e uma linha de CSV com tbca (a guarda não é vazia)', () => {
-    expect(insertsComTbca(`ALTER TABLE foods ADD CONSTRAINT c CHECK (fonte in ('taco','tbca'));`)).toEqual([]);
-    expect(insertsComTbca(`INSERT INTO "foods" ("fonte") VALUES ('tbca');`)).toHaveLength(1);
+  it('o detector acha um INSERT, um UPDATE e um COPY com tbca e uma linha de CSV com tbca (a guarda não é vazia)', () => {
+    expect(escritasComTbca(`ALTER TABLE foods ADD CONSTRAINT c CHECK (fonte in ('taco','tbca'));`)).toEqual([]);
+    expect(escritasComTbca(`INSERT INTO "foods" ("fonte") VALUES ('tbca');`)).toHaveLength(1);
+    expect(escritasComTbca(`UPDATE "foods" SET "fonte" = 'tbca' WHERE id = 1;`)).toHaveLength(1);
+    expect(escritasComTbca(`update public.foods set fonte='tbca';`)).toHaveLength(1);
+    expect(escritasComTbca(`COPY foods (nome, fonte) FROM stdin WITH (FORMAT csv, DEFAULT 'tbca');`)).toHaveLength(1);
+    // FK com ON UPDATE e CHECK que lista tbca não gravam linha
+    expect(escritasComTbca(`ALTER TABLE x ADD CONSTRAINT f FOREIGN KEY (a) REFERENCES y(a) ON UPDATE no action, ADD CONSTRAINT c CHECK (fonte in ('tbca'));`)).toEqual([]);
     expect(linhasCsvComTbca('fonte,nome\ntaco,Arroz\n"tbca",Feijão')).toEqual(['"tbca",Feijão']);
   });
 
   it.skipIf(TBCA_AUTORIZADA)('nenhuma migration (drizzle/*.sql) nem arquivo de seeds/ insere a fonte tbca', () => {
     const achados: string[] = [];
     for (const f of readdirSync(path.resolve('drizzle')).filter((n) => n.endsWith('.sql'))) {
-      for (const c of insertsComTbca(readFileSync(path.resolve('drizzle', f), 'utf8'))) achados.push(`drizzle/${f}: ${c}`);
+      for (const c of escritasComTbca(readFileSync(path.resolve('drizzle', f), 'utf8'))) achados.push(`drizzle/${f}: ${c}`);
     }
     for (const f of arquivos('seeds')) {
       const rel = path.relative(path.resolve('.'), f);
-      if (/\.sql$/i.test(f)) for (const c of insertsComTbca(readFileSync(f, 'utf8'))) achados.push(`${rel}: ${c}`);
+      if (/\.sql$/i.test(f)) for (const c of escritasComTbca(readFileSync(f, 'utf8'))) achados.push(`${rel}: ${c}`);
       else if (/\.csv$/i.test(f)) for (const l of linhasCsvComTbca(readFileSync(f, 'utf8'))) achados.push(`${rel}: ${l.slice(0, 120)}`);
     }
     expect(achados).toEqual([]);

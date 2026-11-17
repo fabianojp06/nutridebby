@@ -378,7 +378,7 @@ describe('Plano 19 — texto livre e dias da semana no editor (RN-243, RN-245, R
     expect(totaisDoFiltro(e, 1)).toMatchObject({ total: { kcal: 260 }, perfis: [] });
     // "Todos" com perfis diferentes: a tabela dos perfis, sem um total que some os dois Almoços
     const todos = totaisDoFiltro(e, 'todos');
-    expect(todos.perfis.map((p) => ({ rotulo: p.rotulo, kcal: p.total.kcal }))).toEqual([{ rotulo: 'seg a sex', kcal: 260 }, { rotulo: 'sáb e dom', kcal: 390 }]);
+    expect(todos.perfis.map((p) => ({ rotulo: p.rotulo, kcal: p.total.kcal }))).toEqual([{ rotulo: 'Segunda a sexta', kcal: 260 }, { rotulo: 'Sábado e domingo', kcal: 390 }]);
     // um perfil só: o total dele, sem tabela
     const umPerfil = totaisDoFiltro(aplicar(e, { tipo: 'removerRefeicao', id: 'alm2' }, { tipo: 'dia', id: 'alm1', dia: 6, marcado: true }, { tipo: 'dia', id: 'alm1', dia: 0, marcado: true }), 'todos');
     expect(umPerfil).toMatchObject({ total: { kcal: 260 }, perfis: [] });
@@ -468,6 +468,18 @@ describe('Plano 19 — nutrientes do paciente no editor (US-233, RN-236, RN-239,
     expect(MSG_NUTRIENTES.acimaDoMaximo(sodio.maximo!)).toBe('Acima do máximo (2300 mg)');
     const semPerfil = resumoDeNutrientes(e, 1, ['ferro_mg'], null);
     expect(semPerfil.tipo === 'linhas' && textoDaLinha(semPerfil.linhas[0])).toBe('Ferro: 12,4 mg');
+  });
+
+  it('"Acima do máximo" compara o total como aparece: 2300,04 mg mostra "2300,0 mg" e não passa do máximo de 2300 mg', () => {
+    const sal = (sodio: number): AlimentoEncontrado => ({ ...proprio, id: `f-sal-${sodio}`, nome: 'Sal', micros: { sodio_mg: sodio } });
+    const linha = (sodio: number) => {
+      const e = aplicar(estadoInicial(plano), { tipo: 'novaRefeicao', id: 'r1' }, { tipo: 'adicionarItem', refeicaoId: 'r1', id: 'i1', alimento: sal(sodio) });
+      const r = resumoDeNutrientes(e, 1, ['sodio_mg'], { valores: { sodio_mg: { maximo: 2300 } } });
+      if (r.tipo !== 'linhas') throw new Error(r.tipo);
+      return r.linhas[0];
+    };
+    expect(linha(2300.04)).toMatchObject({ total: '2300,0 mg', acimaDoMaximo: false });
+    expect(linha(2300.05)).toMatchObject({ total: '2300,1 mg', acimaDoMaximo: true });
   });
 
   it('"Por dia": o resumo do dia escolhido no filtro é totalMicros das refeições do dia; em "Todos" com perfis de dia diferentes, "Escolha um dia para ver os detalhes."', () => {

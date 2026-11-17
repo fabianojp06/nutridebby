@@ -1,6 +1,6 @@
 import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from '@react-pdf/renderer';
 import { FONTES, FONTES_DE_ALIMENTO, MSG_FONTES, type Fonte, type FontePublica } from '@/modules/alimentos/fontes';
-import { formatarNutriente, formatarReferencia, MSG_NUTRIENTES, NUTRIENTES, type ChaveNutriente } from '@/modules/alimentos/nutrientes';
+import { formatarNutriente, formatarReferencia, MSG_NUTRIENTES, NUTRIENTES, passouDoMaximo, type ChaveNutriente } from '@/modules/alimentos/nutrientes';
 import { ROTULO_TIPO_CONTEUDO } from '@/modules/conteudo/constantes';
 import { paraWinAnsi } from '@/modules/pacientes/prontuario-pdf';
 import { MSG_PLANO_DIAS } from '@/modules/portal/plano-regras';
@@ -33,10 +33,12 @@ const s = StyleSheet.create({
   sub: { marginLeft: 22, color: '#444444' },
   obs: { marginLeft: 8, color: '#444444', fontStyle: 'italic' },
   rodape: { position: 'absolute', bottom: 20, left: 36, right: 84, fontSize: 8, color: '#666666' },
-  // A4 tem 841,89 pt de altura: a linha do número fica onde ficava com `bottom: 20`. O número vai por `top`, fora do
-  // rodapé: o @react-pdf 4.9 quebra ("unsupported number") com um `render` em nó absoluto por `bottom` num documento
-  // de muitas páginas (PM-PA9: 50 refeições e 400 itens)
-  paginaN: { position: 'absolute', top: 810, right: 36, width: 48, textAlign: 'right', fontSize: 8, color: '#666666' },
+  // A4 tem 841,89 pt de altura: a linha do número fica onde ficava com `bottom: 20` — a linha tem 14 pt (o `lineHeight:
+  // 1.4` vale sobre os 10 pt da página, não sobre os 8 pt do texto): 841,89 − 20 − 14 = 807,89 ≈ 808 (a conta do SUS-99),
+  // na linha da última citação do rodapé. O número vai por `top`, fora do rodapé: o @react-pdf 4.9 quebra ("unsupported
+  // number") com um `render` em nó absoluto por `bottom` num documento de muitas páginas (PM-PA9: 50 refeições e 400
+  // itens). Premissa: `size="A4"` — mudou o tamanho da página, refaça a conta.
+  paginaN: { position: 'absolute', top: 808, right: 36, width: 48, textAlign: 'right', fontSize: 8, color: '#666666' },
 });
 
 /** Helvetica padrão (WinAnsi): todo texto do PDF passa por aqui, inclusive o calculado (o "−" de "−11 kcal" vira "-"). */
@@ -72,7 +74,7 @@ function textoDoNutriente(c: ChaveNutriente, t: { total: number; semValor: numbe
   const v = ref?.valores[c];
   const extras: string[] = [];
   if (typeof v?.meta === 'number') extras.push(`meta ${formatarReferencia(c, v.meta)}`);
-  if (typeof v?.maximo === 'number' && t.total > v.maximo) extras.push(MSG_NUTRIENTES.acimaDoMaximo(formatarReferencia(c, v.maximo)));
+  if (typeof v?.maximo === 'number' && passouDoMaximo(c, t.total, v.maximo)) extras.push(MSG_NUTRIENTES.acimaDoMaximo(formatarReferencia(c, v.maximo)));
   if (t.semValor > 0) extras.push(MSG_NUTRIENTES.semValorDe(t.semValor, nome));
   return `${nome} ${formatarNutriente(c, t.total)}${extras.length ? ` (${extras.join('; ')})` : ''}`;
 }

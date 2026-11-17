@@ -368,6 +368,10 @@ describe('Plano 19 — relerTrechos e a resposta (RN-255; Review Focus 5)', () =
     expect(await reler('#L1-1', 'substituicao')).toEqual([{ indice: '#L1-1', fonte: 'Lista de substituição — Carboidratos — 1 porção', texto: 'Arroz, tipo 1, cozido — 100 g · 128 kcal; Mandioca, cozida — 100 g · 125 kcal' }]);
     expect(await reler('#R3', 'horario')).toEqual([{ indice: '#R3', fonte: 'Lanche da tarde — horário', texto: 'Lanche da tarde: 16:30 (sáb e dom)' }]);
     expect(await reler('#R2', 'refeicao')).toEqual([{ indice: '#R2', fonte: 'Lanche da tarde — itens', texto: 'Lanche da tarde (16:00, seg a sex): Banana, prata, crua — 100 g · 98 kcal' }]);
+    // R-236: o item (#I) de uma refeição de alguns dias traz os dias na fonte; o dos 7 dias, não
+    expect(await reler('#I2', 'quantidade')).toEqual([{ indice: '#I2', fonte: 'Lanche da tarde (seg a sex) — itens', texto: 'Banana, prata, crua — 100 g · 98 kcal' }]);
+    expect(await reler('#I3', 'quantidade')).toEqual([{ indice: '#I3', fonte: 'Lanche da tarde (sáb e dom) — itens', texto: expect.stringMatching(/^Maçã, Fuji, com casca, crua — 130 g/) }]);
+    expect(await reler('#I1', 'quantidade')).toEqual([{ indice: '#I1', fonte: 'Almoço — itens', texto: 'Arroz, tipo 1, cozido — 100 g · 128 kcal' }]);
     // um grupo que não existe na cópia → null
     const l = c.fontes.find((f) => f.indice === '#L1-2')!;
     expect(await relerTrechos(app.db, { tenantId: comLista.T.tenantId, patientId: comLista.p.id, planId: c.planId }, [{ ...l, grupo: 9 }], 'substituicao')).toBeNull();

@@ -2,11 +2,11 @@ import { arredondar, formatarDecimal, casasDecimais, lerDecimal } from '@/lib/nu
 import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { MSG_BUSCA } from '@/modules/alimentos/busca-avancada-constantes';
 import { gramasDaMedida, gramasDaMedidaTexto, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos/medidas-constantes';
-import { formatarNutriente, formatarReferencia, NUTRIENTES, type ChaveNutriente } from '@/modules/alimentos/nutrientes';
+import { formatarNutriente, formatarReferencia, NUTRIENTES, passouDoMaximo, type ChaveNutriente } from '@/modules/alimentos/nutrientes';
 import { MAX_NUTRIENTES_EXIBIDOS, type ReferenciaParaPlano } from '@/modules/alimentos/referencias-constantes';
 import { itensComoTexto, kcalTexto, lerQuantidade, somarNutrientes, totalDosItens, totalMicros, ZERO, type ItemComMicros, type Nutrientes } from '@/modules/plano-alimentar/calculo';
 import { MAX_ITENS, MAX_REFEICOES, MSG_DIAS } from '@/modules/plano-alimentar/constantes';
-import { diasSemRefeicao, ORDEM_DIAS, perfisDeDia, refeicoesDoDia, rotuloDosDias, TODOS_OS_DIAS, valeNoDia, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
+import { diasSemRefeicao, ORDEM_DIAS, perfisDeDia, refeicoesDoDia, rotuloDosDias, rotuloDosDiasPorExtenso, TODOS_OS_DIAS, valeNoDia, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
 import type { ItemPlano, ModoPlano, PlanoDoCliente, RascunhoEnviado, ReceitaDaRefeicao, RefeicaoPlano } from '@/modules/plano-alimentar/tipos';
 
 /** Estado local do editor: textos como a nutricionista digitou; números só na hora de calcular e enviar. */
@@ -457,7 +457,8 @@ export function totaisDoFiltro(e: EstadoEditor, filtro: FiltroDia): { total: Nut
   if (filtro !== 'todos') return { total: totalDasRefeicoes(refeicoesDoDia(calc, filtro)), perfis: [] };
   const perfis = perfisDeDia(calc);
   if (perfis.length <= 1) return { total: perfis.length ? totalDasRefeicoes(perfis[0].refeicoes) : ZERO, perfis: [] };
-  return { total: ZERO, perfis: perfis.map((p) => ({ rotulo: rotuloDosDias(p.dias), total: totalDasRefeicoes(p.refeicoes) })) };
+  // spec §4.4/RN-246: a tabela dos perfis no painel de totais diz os dias por extenso ("Segunda a sexta"); a legenda do filtro e os cartões ficam abreviados
+  return { total: ZERO, perfis: perfis.map((p) => ({ rotulo: rotuloDosDiasPorExtenso(p.dias), total: totalDasRefeicoes(p.refeicoes) })) };
 }
 
 /** Uma linha de "Nutrientes do paciente" (RN-239): o total do dia e, com perfil, a meta e o máximo, já formatados. */
@@ -510,7 +511,7 @@ export function resumoDeNutrientes(e: EstadoEditor, filtro: FiltroDia, chaves: r
         meta: meta === null ? null : formatarReferencia(c, meta),
         porcentagem: meta === null || meta === 0 ? null : `${Math.round((total / meta) * 100)}%`,
         maximo: maximo === null ? null : formatarReferencia(c, maximo),
-        acimaDoMaximo: maximo !== null && total > maximo,
+        acimaDoMaximo: maximo !== null && passouDoMaximo(c, total, maximo),
         semValor,
       };
     }),

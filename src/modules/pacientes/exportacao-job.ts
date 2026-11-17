@@ -315,6 +315,18 @@ function congeladoDe(n: unknown): Congelado | null {
   }
 }
 
+/**
+ * RN-252/RN-257: os grupos da cópia da lista ligada, só por `lerCopiaDaLista`; cópia fora do formato → `[]` (a lista sai
+ * com nome, orientação e data da cópia). Como `congeladoDe`: a exportação é obrigação legal e não cai por uma linha.
+ */
+function gruposDaCopia(conteudo: unknown): GrupoDaListaLigada[] {
+  try {
+    return lerCopiaDaLista(conteudo);
+  } catch {
+    return [];
+  }
+}
+
 type ConteudoAtual = { titulo: string; tipo: string; status: string };
 
 /**
@@ -404,7 +416,7 @@ async function planosParaExportacao(tx: Tx, ids: string[], escopo: EscopoExporta
         }),
       listasSubstituicao: ls
         .filter((l) => l.planId === p.id)
-        .map((l) => ({ nome: l.nome, orientacao: l.orientacao, copiadaEm: l.copiadaEm.toISOString(), grupos: lerCopiaDaLista(l.conteudo) })),
+        .map((l) => ({ nome: l.nome, orientacao: l.orientacao, copiadaEm: l.copiadaEm.toISOString(), grupos: gruposDaCopia(l.conteudo) })),
       conteudosLigados: cs.filter((c) => c.planId === p.id).flatMap((c) => conteudoLigado(c, c.contentId ? atuais.get(c.contentId) : undefined, escopo) ?? []),
     };
   });

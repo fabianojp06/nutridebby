@@ -3,7 +3,7 @@
  * busca por nutriente). Uma chave nova é mudança de código com teste. Sem imports `@/`: o schema do Drizzle
  * (`src/db/schema/plano-alimentar.ts`, `NutrientesCongelados`) importa o tipo daqui com caminho relativo.
  */
-import { casasDecimais, formatarDecimal } from '../../lib/numero';
+import { arredondar, casasDecimais, formatarDecimal } from '../../lib/numero';
 import type { Fonte } from './fontes';
 
 export type UnidadeNutriente = 'g' | 'mg' | 'mcg' | '%';
@@ -77,6 +77,14 @@ export function formatarNutriente(chave: ChaveNutriente, valor: number): string 
 export function formatarReferencia(chave: ChaveNutriente, valor: number): string {
   const n = POR_CHAVE.get(chave)!;
   return `${formatarDecimal(valor, casasDecimais(valor))}${SIMBOLO[n.unidade]}`;
+}
+
+/**
+ * RN-239: "Acima do máximo" compara o total como a tela e o PDF o mostram (arredondado às casas do catálogo), não o valor
+ * cru: 2300,04 mg aparece "2300,0 mg" e não passa do máximo de 2300 mg. Único critério do editor e do PDF.
+ */
+export function passouDoMaximo(chave: ChaveNutriente, total: number, maximo: number): boolean {
+  return arredondar(total, POR_CHAVE.get(chave)!.casas) > maximo;
 }
 
 /** RN-259: textos dos micronutrientes do "Meu alimento" (US-231, §5 da spec). */
