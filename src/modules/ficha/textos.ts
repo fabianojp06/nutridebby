@@ -59,4 +59,14 @@ export const MSG_FICHA = {
   },
   dica: 'Antes do plano alimentar, registre a anamnese, a antropometria e o gasto energético.',
   fechar: 'Fechar',
+  /** Cabeçalho da ficha (spec §8.2, RN-275): a linha de medidas da última avaliação e o selo do peso oculto. */
+  cabecalho: {
+    ultimaAvaliacao: (data: string, medidas: string) => `Última avaliação em ${data}: ${medidas}`,
+    altura: (m: string) => `altura ${m} m`,
+    peso: (kg: string) => `peso ${kg} kg`,
+    imc: (v: string) => `IMC ${v}`,
+    gordura: (p: string) => `gordura ${p}%`,
+    semAvaliacao: 'Sem avaliação antropométrica.',
+    pesoOculto: 'Peso oculto no app',
+  },
 } as const;
