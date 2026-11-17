@@ -5,11 +5,12 @@ import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { auditLog, patients, user } from '@/db/schema';
+import { auditLog, patientCadastro, patients, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { metricasPorTenant } from '@/modules/plataforma/metricas';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from './base';
+import { CAMPOS_DO_CADASTRO } from './cadastro';
 import { atualizarPaciente, buscarPaciente, criarPaciente, listarPacientes, MSG_PACIENTE, PacienteError } from './pacientes';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -149,6 +150,41 @@ describe('atualizarPaciente', () => {
     await expect(atualizarPaciente(A.ctx, A.tenant, 'abc', ana(), deps)).rejects.toBeInstanceOf(PacienteNaoEncontradoError);
     const [intacto] = await withTenant(B.ctx, (tx) => tx.select().from(patients).where(eq(patients.id, deB.id)), app.db);
     expect(intacto.nome).toBe('Ana Souza');
+  });
+});
+
+describe('cadastro complementar junto do paciente (Plano 18, RN-260)', () => {
+  const cadastroDe = (ctx: Parameters<typeof withTenant>[0], patientId: string) =>
+    withTenant(ctx, (tx) => tx.select().from(patientCadastro).where(eq(patientCadastro.patientId, patientId)), app.db);
+
+  it('quem não manda os campos novos (chamadores de antes) não mexe no cadastro', async () => {
+    const T = await novoTenant(app.db);
+    const p = await criarPaciente(T.ctx, T.tenant, ana({ cpf: '529.982.247-25', ocupacao: 'Professora' }), deps);
+    await atualizarPaciente(T.ctx, T.tenant, p.id, ana({ nome: 'Ana S. Lima', email: p.email }), deps);
+    expect(await cadastroDe(T.ctx, p.id)).toEqual([expect.objectContaining({ cpf: '52998224725', ocupacao: 'Professora' })]);
+  });
+
+  it('esvaziar todos os campos grava a linha com tudo nulo (não apaga)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await criarPaciente(T.ctx, T.tenant, ana({ cpf: '529.982.247-25', ocupacao: 'Professora', uf: 'SP' }), deps);
+    const vazio = Object.fromEntries(CAMPOS_DO_CADASTRO.map((c) => [c, '']));
+    await atualizarPaciente(T.ctx, T.tenant, p.id, ana({ ...vazio, email: p.email }), deps);
+    const [c] = await cadastroDe(T.ctx, p.id);
+    for (const campo of ['cpf', 'ocupacao', 'uf', 'nomeSocial', 'observacao', 'telefoneFixoE164'] as const) expect(c[campo], campo).toBeNull();
+    // e o primeiro preenchimento de um paciente antigo cria a linha
+    const antigo = await novoPaciente(app.db, T.ctx);
+    await atualizarPaciente(T.ctx, T.tenant, antigo.id, ana({ ...vazio, email: antigo.email, estadoCivil: 'viuvo' }), deps);
+    expect(await cadastroDe(T.ctx, antigo.id)).toEqual([expect.objectContaining({ estadoCivil: 'viuvo', cpf: null })]);
+  });
+
+  it('erros do cadastro saem junto com os do paciente, um por campo', async () => {
+    const T = await novoTenant(app.db);
+    expect(await erroDe(criarPaciente(T.ctx, T.tenant, ana({ nome: 'A', cpf: '111.111.111-11', telefoneFixo: '12', estadoCivil: 'noivo' }), deps))).toEqual({
+      nome: MSG_PACIENTE.nome,
+      cpf: 'CPF inválido. Confira os números.',
+      telefoneFixo: 'Telefone fixo inválido',
+      estadoCivil: 'Escolha uma opção da lista',
+    });
   });
 });
 

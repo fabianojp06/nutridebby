@@ -1,15 +1,16 @@
-import { and, asc, eq, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
-import { patients, type PatientRow, type TenantRow } from '@/db/schema';
+import { patientCadastro, patients, type PatientRow, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { normalizeEmail } from '@/lib/text';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { agendarConviteWhatsapp } from '@/modules/notificacoes/agendar';
 import { auditRead } from '@/modules/plataforma/audit';
-import { carregarPacienteParaEscrita, idValido, PacienteNaoEncontradoError } from './base';
+import { carregarPacienteParaEscrita, idValido, PacienteError, PacienteNaoEncontradoError } from './base';
+import { CAMPOS_DO_CADASTRO, CpfRepetidoError, formaDoCadastro, gravarCadastro, type CadastroComplementar } from './cadastro';
 import { enviarConvitePaciente } from './convite-paciente';
 import { dataValida, hojeNoFuso, idadeEm } from './datas';
 import { normalizarTelefone } from './telefone';
@@ -29,16 +30,13 @@ export const MSG_PACIENTE = {
 
 export type TenantDoPaciente = Pick<TenantRow, 'fuso' | 'nomeExibicao'>;
 export type StatusPaciente = 'ativo' | 'arquivado' | 'bloqueado';
-export type ErrosPaciente = Partial<Record<'nome' | 'dataNascimento' | 'sexo' | 'email' | 'telefone' | 'whatsappAutorizado' | 'enviarConviteWhatsapp' | 'geral', string>>;
+export { PacienteError, type ErrosPaciente } from './base';
 
-export class PacienteError extends Error {
-  override name = 'PacienteError';
-  constructor(readonly erros: ErrosPaciente) {
-    super('Dados do paciente inválidos');
-  }
-}
-
-/** US-010 + RN-17. `hoje` = data no fuso do tenant (RN-06): a idade de 18 anos vale no dia do consultório. */
+/**
+ * US-010 + RN-17. `hoje` = data no fuso do tenant (RN-06): a idade de 18 anos vale no dia do consultório. Plano 18
+ * (US-260, D23): os campos do cadastro complementar entram opcionais, validados pelas regras de `cadastro.ts` (as dos
+ * CHECKs de `patient_cadastro`, uma fonte só); os erros saem junto com os do paciente, um por campo.
+ */
 export function pacienteSchema(hoje: string) {
   return z
     .object({
@@ -69,6 +67,7 @@ export function pacienteSchema(hoje: string) {
       whatsappAutorizado: z.boolean(),
       /** US-010: só no cadastro (a edição ignora). */
       enviarConviteWhatsapp: z.boolean().default(false),
+      ...formaDoCadastro(),
     })
     .superRefine((v, ctx) => {
       if (v.whatsappAutorizado && !v.telefone) {
@@ -83,14 +82,22 @@ export function pacienteSchema(hoje: string) {
 type DadosPaciente = z.output<ReturnType<typeof pacienteSchema>>;
 type Deps = { db?: Db; now?: Date; appUrl?: string };
 
-function validar(tenant: TenantDoPaciente, input: Record<string, unknown>, now: Date): DadosPaciente {
+/**
+ * O cadastro complementar só é gravado quando o formulário manda algum dos campos dele (o formulário em seções manda
+ * todos, vazio = ''): quem chama sem eles (testes e chamadores de antes do Plano 18) não apaga o que já está gravado.
+ */
+function validar(tenant: TenantDoPaciente, input: Record<string, unknown>, now: Date): { v: DadosPaciente; cadastro: CadastroComplementar | null } {
   const r = pacienteSchema(hojeNoFuso(tenant.fuso, now)).safeParse(input);
   if (!r.success) throw new PacienteError(primeiroErroPorCampo(r.error));
-  return r.data;
+  const mandou = CAMPOS_DO_CADASTRO.some((c) => input[c] !== undefined);
+  return { v: r.data, cadastro: mandou ? (Object.fromEntries(CAMPOS_DO_CADASTRO.map((c) => [c, r.data[c]])) as CadastroComplementar) : null };
 }
 
 function comoDuplicado(err: unknown): never {
-  if (uniqueViolation(err) === 'patients_tenant_email_unique') throw new PacienteError({ email: MSG_PACIENTE.emailDuplicado });
+  const indice = uniqueViolation(err);
+  if (indice === 'patients_tenant_email_unique') throw new PacienteError({ email: MSG_PACIENTE.emailDuplicado });
+  // D23: a pré-checagem sob trava (`gravarCadastro`) evita este caminho; o índice é a última defesa
+  if (indice === 'patient_cadastro_cpf_unico') throw new CpfRepetidoError(null);
   throw err;
 }
 
@@ -115,7 +122,7 @@ function autorizacaoWhatsapp(
 export async function criarPaciente(ctx: TenantContext, tenant: TenantDoPaciente, input: Record<string, unknown>, deps: Deps = {}): Promise<PatientRow> {
   const db = deps.db ?? getDb();
   const now = deps.now ?? new Date();
-  const v = validar(tenant, input, now);
+  const { v, cadastro } = validar(tenant, input, now);
   try {
     return await withTenant(
       ctx,
@@ -135,6 +142,8 @@ export async function criarPaciente(ctx: TenantContext, tenant: TenantDoPaciente
             updatedAt: now,
           })
           .returning();
+        // Plano 18 (RN-260): o cadastro complementar na mesma transação (a linha só nasce com algum campo preenchido)
+        if (cadastro) await gravarCadastro(tx, { tenantId: ctx.tenantId, patientId: p.id, valor: cadastro, now });
         // US-010: convite de 7 dias por e-mail na mesma transação (paciente criado ⇔ convite na fila)
         await enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now });
         // US-010 "Convite também por WhatsApp": aviso sem link, só com a autorização registrada (INT-01: opt-in antes de qualquer mensagem)
@@ -158,7 +167,7 @@ export async function atualizarPaciente(
   const db = deps.db ?? getDb();
   const now = deps.now ?? new Date();
   if (!idValido(patientId)) throw new PacienteNaoEncontradoError();
-  const v = validar(tenant, input, now);
+  const { v, cadastro } = validar(tenant, input, now);
   try {
     return await withTenant(
       ctx,
@@ -179,6 +188,8 @@ export async function atualizarPaciente(
           })
           .where(eq(patients.id, patientId))
           .returning();
+        // Plano 18 (RN-260): depois de travar o paciente (carregarPacienteParaEscrita), na mesma transação
+        if (cadastro) await gravarCadastro(tx, { tenantId: ctx.tenantId, patientId, valor: cadastro, now });
         // E-mail corrigido antes do aceite: o convite pendente ia para o endereço errado
         if (!p.userId && p.status === 'ativo' && atual.email !== p.email) {
           await enviarConvitePaciente(tx, p, { appUrl: deps.appUrl ?? getEnv().APP_URL, nutri: tenant.nomeExibicao, now });
@@ -192,13 +203,22 @@ export async function atualizarPaciente(
   }
 }
 
-/** Abrir o prontuário (US-007 "Leitura auditada"): a leitura vai para o audit_log na mesma transação. */
-export async function buscarPaciente(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<PatientRow | null> {
+export type PacienteDaFicha = PatientRow & { nomeSocial: string | null };
+
+/**
+ * Abrir o prontuário (US-007 "Leitura auditada"): a leitura vai para o audit_log na mesma transação. Plano 18 (D7, D20):
+ * do cadastro complementar, só o nome social (por projeção; CPF, endereço e observação ficam só na aba Perfil).
+ */
+export async function buscarPaciente(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<PacienteDaFicha | null> {
   if (!idValido(patientId)) return null;
   return withTenant(
     ctx,
     async (tx) => {
-      const [p] = await tx.select().from(patients).where(eq(patients.id, patientId));
+      const [p] = await tx
+        .select({ ...getTableColumns(patients), nomeSocial: patientCadastro.nomeSocial })
+        .from(patients)
+        .leftJoin(patientCadastro, and(eq(patientCadastro.tenantId, patients.tenantId), eq(patientCadastro.patientId, patients.id)))
+        .where(eq(patients.id, patientId));
       if (!p) return null;
       await auditRead(tx, { entidade: 'patients', entidadeId: p.id, patientId: p.id });
       return p;

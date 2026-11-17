@@ -2,9 +2,25 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Tx } from '@/db/client';
 import { patients, type PatientRow } from '@/db/schema';
+import type { CampoDoCadastro } from './cadastro';
 
 export const MSG_BLOQUEADO = 'Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.';
 export const MSG_CADASTRO_INCOMPLETO = 'Complete a data de nascimento e o sexo do paciente no cadastro.';
+
+export type ErrosPaciente = Partial<
+  Record<'nome' | 'dataNascimento' | 'sexo' | 'email' | 'telefone' | 'whatsappAutorizado' | 'enviarConviteWhatsapp' | CampoDoCadastro | 'geral', string>
+>;
+
+/**
+ * Erros de validação do cadastro, um por campo (mensagens da spec, nunca com o valor digitado). Fica aqui, e não em
+ * `pacientes.ts`, porque `cadastro.ts` (que `pacientes.ts` importa) estende a classe (`CpfRepetidoError`).
+ */
+export class PacienteError extends Error {
+  override name = 'PacienteError';
+  constructor(readonly erros: ErrosPaciente) {
+    super('Dados do paciente inválidos');
+  }
+}
 
 export class PacienteNaoEncontradoError extends Error {
   override name = 'PacienteNaoEncontradoError';
