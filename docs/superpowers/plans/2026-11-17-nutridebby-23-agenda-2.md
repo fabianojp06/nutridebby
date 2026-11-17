@@ -70,6 +70,10 @@ Proibido nesta sessão: tocar produção (nem leitura), `docker service update`,
 | **PR 4 — Fase B** | T11 | **Portão:** só com o 18 PR 2 e o 20 PR 2 na `main`; se a onda 1 atrasar, vira o Plano 23B sem refazer a spec (AG-D38) | Filtros de local fora da agenda |
 | — | T12 | Fecha o plano (depois do último PR) | Manuais, ajuda, backlog, runbook |
 
+**Trava da chave (decisão da orquestradora 17/11, `/code-review` do #59):** `tenants.agenda_confirmar_pedidos` só pode ser ligada — em produção, pela tela da T8 ou por qualquer PR que a ligue — depois que a T6 e a T10 estiverem na `main` (critérios de aceite vindos do #59: métricas e exclusão LGPD com `solicitada`; anonimização das autorizações de aniversário). Até lá, os três ficam sem efeito porque a chave está desligada.
+
+**Nota para a T2/PR 2 (re-revisão do #59):** ao mover uma consulta de origem `paciente` para um local online **sem sala** (só a equipe chega lá), o `UPDATE` de `local_id` precisa mandar o `link_online` explicitamente: o gatilho `appointments_link_da_sala` usa `coalesce(link_sala, NEW.link_online)` e, sem link no `UPDATE`, ficaria a sala do local anterior.
+
 O fechamento de cada PR (axe das rotas novas, `ROTAS_DO_PAINEL`, manual técnico do que mudou) é o passo final da última tarefa do PR; a T12 só fecha o plano.
 
 **Branch do PR 2 depois do merge do PR 1.** O §5 regenera as migrations no `plano-23-fundacao`; o `plano-23-agenda-2` continua com os commits velhos da T1. Depois do merge do PR 1:
@@ -407,6 +411,8 @@ export async function agendarComoPaciente(ctx, tenant, input, deps?): Promise<{ 
 - [ ] **Step 4:** mesmo comando → PASS; `pnpm typecheck` (os `Record<StatusConsulta, …>` e os `switch` exaustivos quebram até cada ponto ser tratado).
 - [ ] **Step 5:** commits `feat(agenda): status solicitada (P23-06a)` e `feat(agenda): pedidos do paciente com confirmação (P23-06b)`.
 
+- **Critérios de aceite vindos do `/code-review` do PR 1 (#59), decisão da orquestradora 17/11:** (1) as métricas da nutricionista em `src/modules/agenda/presenca.ts` (total, iniciadas, iniciadasAnt) não contam `solicitada` (o mesmo recorte das métricas do admin, R-410), com teste de uma `solicitada` no mês que não muda os números; (2) na exclusão LGPD, `cancelarFuturasPelaExclusao` cancela também a `solicitada`, com `cancelado_por = 'sistema'` (o gatilho aceita com o titular bloqueado na sessão `nutri`), com teste: pedido pendente de quem pediu exclusão sai da agenda e libera o horário.
+
 **Pronto quando:** testes verdes; revisão do `revisor-rls` (travas, transições, vencimento) e do `normas-cfn-lgpd` (textos, motivo só da nutricionista) sem Critical/Important.
 
 ---
@@ -564,6 +570,8 @@ export function urlWhatsappAniversario(telefoneE164: string, primeiroNome: strin
 - [ ] **Step 3:** implementar.
 - [ ] **Step 4:** mesmo comando → PASS.
 - [ ] **Step 5 (fechamento do PR 3):** E2E (autorizar no portal, marcar e "Enviar mensagem" com o relógio do worker, e-mail no Mailpit com `List-Unsubscribe`, sair pelo link) em `e2e/agenda-2.spec.ts` (bloco `10.9.23.30`–`.39`); axe de `/painel/agenda/aniversariantes` (com a prévia aberta) e de `/aniversario/sair/[token]`; manual técnico caps. 02, 05 e 06 (seções novas no fim: tabelas, funções, `vencerSolicitacoes` em `processarNotificacoes`, rota de um clique) pelo `guardiao-manual`; commit `feat(agenda): aniversariantes com autorização e saída de um clique (P23-10)`.
+
+- **Critério de aceite vindo do `/code-review` do PR 1 (#59), decisão da orquestradora 17/11:** `anonimizarVencidos` (`src/modules/pacientes/lgpd.ts`) chama `app_anonimizar_autorizacoes_aniversario` na anonimização do titular, na ordem da regra 8. Teste em `lgpd.test.ts`: depois da anonimização, `registrado_por` das autorizações com origem `app` fica nulo e a linha continua como prova, com controle positivo (antes da anonimização o `registrado_por` está preenchido).
 
 **Pronto quando:** testes e E2E verdes; revisão do `normas-cfn-lgpd` (autorização própria, menores, texto fixo, saída, exportação) e do `revisor-rls` (gatilho, `semConta`, anonimização) sem Critical/Important.
 

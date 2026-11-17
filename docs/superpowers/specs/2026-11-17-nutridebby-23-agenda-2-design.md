@@ -953,7 +953,7 @@ cada geração).
   `local_id` nulo devolve o `NEW` intacto antes de trocar o papel (consulta gravada pela imagem anterior ao PR 2); em
   **qualquer papel**, quando `origem = 'paciente'` e o local é online, `NEW.link_online := coalesce(link_sala, NEW.link_online)`
   (com sala, o que o código mandou é ignorado; o aceite da pessoa nova roda na sessão `nutri`; local online sem sala fica
-  com o link do código e o CHECK decide — /code-review do PR 1). Só nas sessões `paciente` e `publico`, recusa com 42501 o INSERT cujo `local_id` seja de local arquivado ou sem
+  com o link do código e o CHECK decide — /code-review do PR 1). Só nas sessões `paciente` e `publico`, recusa com 42501 o INSERT ou o UPDATE de `local_id` cujo `local_id` seja de local arquivado ou sem
   `agendamento_online` (o módulo traduz para "Esse horário não está mais disponível"). O CHECK
   `appointments_link_online` roda depois dos gatilhos `BEFORE` e continua valendo.
 - Sem auditoria (sem `patient_id`; não precisa de `AUDIT_EXCEPTIONS`). Entra em `FABRICAS` de
