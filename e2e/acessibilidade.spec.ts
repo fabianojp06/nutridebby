@@ -10,7 +10,7 @@ import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publica
 // Bloco de IP deste spec (o limite de login é por IP): 10.9.10.21 a 10.9.10.30; Plano 10A (T16): 10.9.14.79 (a nutricionista
 // dos documentos, E2E_DOCS, com 2FA) e 10.9.14.80 (as páginas sem login do documento); Plano 15 (T13): 10.9.29.64 (a paciente
 // liberada para a IA Nutri e sem o consentimento, da tela "Antes de usar a IA Nutri"); Plano 17 (P17-08): 10.9.10.25 (a
-// paciente sem lembretes, de Eu › Lembretes vazia).
+// paciente sem lembretes, de Eu › Lembretes vazia); Plano 19 (T11): 10.9.19.110 (a paciente do plano por dia do seed).
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const MULTI = { email: 'multi-e2e@nutridebby.test', senha: 'Multi2026segura' }; // scripts/e2e-seed.ts: 3 consultórios, o "3" sem o termo
 test.describe.configure({ mode: 'serial' });
@@ -497,6 +497,45 @@ test('Lembretes: axe em Eu › Lembretes vazia (/p/perfil/lembretes), claro e es
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '320 px a 200%').toBe(true);
   } finally {
     await semLembretes.page.context().close();
+  }
+});
+
+// Plano 19 (T11, RNF-232): /p/plano com dois perfis de dia ("Hoje (…)" e "Ver outros dias"), a lista de substituição inline e
+// a orientação ligada — a paciente do plano por dia do seed (scripts/e2e-seed.ts, E2E_PLANO_DIAS: plano em texto livre com um
+// link longo no texto do almoço e na orientação da lista, "Sua nutricionista:"). Com todas as sanfonas abertas: claro,
+// aparelho escuro, 320 px e 320 px com o texto a 200%. IP 10.9.19.110 (bloco do plano-alimentar-2.spec).
+const PLANO_DIAS = { email: 'plano-dias-e2e@nutridebby.test', senha: 'Nutri2026segura' }; // scripts/e2e-seed.ts (E2E_PLANO_DIAS)
+test('Plano 19: axe em /p/plano com dois perfis de dia, a lista e o conteúdo ligados, claro e escuro, e a 320 px com o texto a 200%', async ({ browser }) => {
+  test.setTimeout(60_000);
+  const page = await entrarComo(browser, PLANO_DIAS.email, PLANO_DIAS.senha, '10.9.19.110');
+  try {
+    await expect(page).toHaveURL(/\/p\//);
+    const abrirTudo = async () => {
+      await page.goto('/p/plano');
+      await expect(page.getByRole('heading', { level: 2, name: /^Hoje \((seg|ter|qua|qui|sex|sáb|dom)\)$/ })).toBeVisible();
+      await expect(page.getByText('Ver outros dias', { exact: true })).toBeVisible();
+      const ligado = page.getByRole('region', { name: 'Ligado ao seu plano' });
+      await expect(ligado.getByText('Trocas do dia a dia (seed E2E)', { exact: true })).toBeVisible();
+      await expect(ligado.getByRole('link', { name: /Como montar o prato \(seed E2E\)/ })).toBeVisible();
+      await page.waitForLoadState('networkidle');
+      // as sanfonas (outros dias, refeições e a lista) abertas: o axe e a largura alcançam o texto da nutricionista
+      await page.locator('details').evaluateAll((ds) => ds.forEach((d) => ((d as HTMLDetailsElement).open = true)));
+      await expect(page.getByText('Sua nutricionista:', { exact: true }).first()).toBeVisible();
+    };
+    for (const modo of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: modo });
+      await abrirTudo();
+      expect(await violacoes(page), modo).toEqual([]);
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.setViewportSize({ width: 320, height: 780 });
+    await abrirTudo();
+    expect(await violacoes(page), '320 px').toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '320 px').toBe(true);
+    await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '320 px a 200%').toBe(true);
+  } finally {
+    await page.context().close();
   }
 });
 

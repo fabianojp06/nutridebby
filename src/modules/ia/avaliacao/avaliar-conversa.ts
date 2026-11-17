@@ -115,6 +115,15 @@ function turnoDa(plano: PlanoFicticio, ix: Indexado, texto: string) {
   });
 }
 
+/**
+ * O turno que a avaliação manda para a mensagem (plano no orçamento da reserva, R-239): os índices enviados e se o plano
+ * foi resumido. Para o teste conferir o gabarito contra o que o modelo de fato vê.
+ */
+export function turnoDaAvaliacao(plano: PlanoFicticio, texto: string): { fontes: FonteDoContexto[]; resumido: boolean } {
+  const { fontes, resumido } = turnoDa(plano, indexar(plano), texto);
+  return { fontes, resumido };
+}
+
 /** O contexto do plano fictício no formato de `montarContexto` (`dados.plano`, `dados.orientacoes` e os índices), sem banco. */
 export function dadosDoPlanoFicticio(plano: PlanoFicticio): { dados: { plano: unknown; orientacoes: unknown }; fontes: FonteDoContexto[] } {
   const ix = indexar(plano);

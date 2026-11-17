@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { symmetricEncrypt } from 'better-auth/crypto';
 import { and, eq, inArray, isNotNull, like, sql } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { account, consents, finCategorias, finConfiguracoes, iaNutriConsentimentos, iaNutriMensagens, iaNutriParticipacoes, lembretesRotina, mealPlans, patients, rateLimit, tenants, twoFactor, user } from '@/db/schema';
+import { account, consents, contents, finCategorias, finConfiguracoes, iaNutriConsentimentos, iaNutriMensagens, iaNutriParticipacoes, lembretesRotina, mealPlans, patients, rateLimit, tenants, twoFactor, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { stopBoss } from '@/jobs/boss';
@@ -10,10 +10,13 @@ import { hashPassword } from '@/lib/password.server';
 import { chaveDoLimite, liberarLimite } from '@/modules/agenda/limite-ip';
 import { idTaco } from '@/modules/alimentos/taco';
 import { GUIAS } from '@/modules/ajuda/conteudo';
+import { criarConteudo, publicarConteudo } from '@/modules/conteudo/conteudos';
 import { configIA } from '@/modules/ia/modo';
 import { LIMITE_DIA, RETENCAO_DIAS } from '@/modules/ia/nutri-paciente/constantes';
 import { consentimentoVigente, ultimoEvento } from '@/modules/ia/nutri-paciente/estado';
 import { IA_ADITIVO_VERSAO, IA_NUTRI_TERMO_VERSAO } from '@/modules/ia/textos-legais';
+import { ligarConteudo, ligarLista } from '@/modules/plano-alimentar/ligados';
+import { listarListas, salvarLista } from '@/modules/plano-alimentar/listas';
 import { publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
@@ -45,6 +48,16 @@ export const E2E_IA_NUTRI_2 = { email: 'ia-nutri-2-e2e@nutridebby.test', passwor
  * Financeiro, e aponta para eles estas contas: `E2E_FIN_NOVO` (o financeiro.spec configura) e `E2E_FIN_AXE` (o axe do estado
  * "não configurado", que nunca configura). Os consultórios das execuções anteriores ficam no banco (sem conta).
  */
+/**
+ * Plano 19 (T11): a paciente do plano por dia da semana — com conta e o termo aceito, e um plano publicado em texto livre
+ * com "Almoço" de segunda a sexta e "Almoço" de sábado e domingo, a lista de substituição "Trocas do dia a dia (seed
+ * E2E)" e a orientação "Como montar o prato (seed E2E)" (fora da audiência dela) ligadas. Publicado uma vez (o banco do
+ * E2E persiste); os planos das outras pacientes fixas não mudam. O acessibilidade.spec audita /p/plano com ela (dois
+ * perfis de dia, a lista inline e o conteúdo ligado; o texto da nutricionista com um link longo a 320 px).
+ */
+export const E2E_PLANO_DIAS = { email: 'plano-dias-e2e@nutridebby.test', password: 'Nutri2026segura', nome: 'Paciente Plano por Dia' };
+/** Plano 19: o link longo (sem espaço, maior que 320 px) do texto livre e da orientação da lista da E2E_PLANO_DIAS. */
+export const LINK_LONGO_PLANO_DIAS = 'https://exemplo.com.br/receitas/marmita-da-semana-com-legumes-assados-e-graos-integrais-variados';
 export const E2E_FIN_NOVO = { email: 'fin-novo-e2e@nutridebby.test', password: 'Nutri2026segura' };
 export const E2E_FIN_AXE = { email: 'fin-axe-e2e@nutridebby.test', password: 'Nutri2026segura' };
 
@@ -335,6 +348,78 @@ await withTenant(
   },
   db,
 );
+
+// Plano 19 (T11): a E2E_PLANO_DIAS (o comentário da constante). Tudo idempotente: a conta e o aceite como os da IA Nutri;
+// a lista (nome único no consultório) e a orientação (pelo título) só são criadas se ainda não existem; o plano só é
+// montado e publicado se a paciente ainda não tem um publicado (ligarLista/ligarConteudo devolvem a ligação que já existe
+// num rascunho que sobrou de uma execução interrompida). A audiência da orientação é só a MULTI: a paciente a vê só pelo plano.
+{
+  const cred = E2E_PLANO_DIAS;
+  const senha = await hashPassword(cred.password);
+  const [ja] = await db.select({ id: user.id }).from(user).where(eq(user.email, cred.email));
+  const userId = ja?.id ?? randomUUID();
+  if (ja) {
+    await db.update(account).set({ password: senha }).where(eq(account.userId, userId));
+  } else {
+    await db.insert(user).values({ id: userId, name: cred.nome, email: cred.email, emailVerified: true, appRole: 'paciente' });
+    await db.insert(account).values({ id: randomUUID(), userId, accountId: userId, providerId: 'credential', password: senha });
+  }
+  await db.insert(consents).values({ userId, tenantId: consultorio.id, termoVersao: TERMO_PACIENTE, ip: null }).onConflictDoNothing();
+  const [p] = await withTenant(
+    { tenantId: consultorio.id, role: 'worker' },
+    (tx) =>
+      tx
+        .insert(patients)
+        .values({ tenantId: consultorio.id, userId, nome: cred.nome, dataNascimento: '1990-01-01', sexo: 'F', email: cred.email })
+        .onConflictDoUpdate({ target: [patients.tenantId, patients.email], set: { userId, nome: cred.nome, status: 'ativo', updatedAt: new Date() } })
+        .returning({ id: patients.id }),
+    db,
+  );
+  const [publicado] = await withTenant(ctxNutri, (tx) => tx.select({ id: mealPlans.id }).from(mealPlans).where(and(eq(mealPlans.patientId, p.id), eq(mealPlans.status, 'publicado'))), db);
+  if (!publicado) {
+    const NOME_LISTA = 'Trocas do dia a dia (seed E2E)';
+    const listaId =
+      (await listarListas(ctxNutri, db)).find((l) => l.nome === NOME_LISTA)?.id ??
+      (
+        await salvarLista(ctxNutri, null, {
+          nome: NOME_LISTA,
+          orientacao: `Troque um alimento por outro do mesmo grupo. Veja ${LINK_LONGO_PLANO_DIAS}`,
+          grupos: [
+            {
+              id: randomUUID(),
+              nome: 'Frutas — 1 porção',
+              itens: [
+                { id: randomUUID(), foodId: idTaco(182), quantidadeG: '86', medida: null }, // Banana, prata, crua
+                { id: randomUUID(), foodId: idTaco(222), quantidadeG: '130', medida: null }, // Maçã, Fuji, com casca, crua
+              ],
+            },
+          ],
+        }, { db })
+      ).id;
+    const TITULO_ORIENTACAO = 'Como montar o prato (seed E2E)';
+    const [orientacao] = await withTenant(ctxNutri, (tx) => tx.select({ id: contents.id }).from(contents).where(and(eq(contents.titulo, TITULO_ORIENTACAO), eq(contents.tipo, 'orientacao'))), db);
+    let conteudoId = orientacao?.id;
+    if (!conteudoId) {
+      const [multi] = await withTenant(ctxNutri, (tx) => tx.select({ id: patients.id }).from(patients).where(eq(patients.userId, multiId)), db);
+      conteudoId = await criarConteudo(ctxNutri, 'orientacao', { titulo: TITULO_ORIENTACAO, resumo: '', etiquetas: '', visibilidade: 'pacientes', pacientes: [multi.id], corpo: '## O prato\n\nMetade do prato com legumes e verduras.' }, { db });
+      await publicarConteudo(ctxNutri, conteudoId, { avisar: false }, { db });
+    }
+    const { id: planId } = await criarRascunho(ctxNutri, p.id, { db });
+    const [r] = await withTenant(ctxNutri, (tx) => tx.select({ revisao: mealPlans.revisao }).from(mealPlans).where(eq(mealPlans.id, planId)), db);
+    const almoco = (horario: string, diasSemana: number[], texto: string) => ({ id: randomUUID(), nome: 'Almoço', horario, observacao: '', diasSemana, descricaoLivre: texto, itens: [] });
+    await salvarRascunho(ctxNutri, planId, {
+      revisao: r.revisao, envio: randomUUID(), titulo: 'Plano por dia da semana', metaKcal: '1800', mostrarCalorias: false, orientacoes: '', modo: 'livre', macrosPrescritos: null,
+      refeicoes: [
+        almoco('12:00', [1, 2, 3, 4, 5], `Arroz, feijão, frango grelhado e salada. Receita da marmita: ${LINK_LONGO_PLANO_DIAS}`),
+        almoco('13:00', [0, 6], 'Peixe assado com legumes e purê de batata.'),
+      ],
+    }, { db });
+    await ligarLista(ctxNutri, { planId, patientId: p.id }, listaId, { db });
+    await ligarConteudo(ctxNutri, { planId, patientId: p.id }, conteudoId, { db });
+    const resultado = await publicarPlano(ctxNutri, p.id, planId, { db });
+    if (resultado.avisos) throw new Error(`plano da ${cred.email} não publicado: ${resultado.avisos.join(' ')}`);
+  }
+}
 
 await stopBoss(); // a publicação do plano enfileira o PDF
 await closeDb();
