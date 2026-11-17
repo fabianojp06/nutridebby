@@ -788,6 +788,65 @@ describe('Plano 23: peças SECURITY DEFINER com dono NOBYPASSRLS', () => {
     });
   });
 
+  it('appointments_link_da_sala num local online sem sala: fica o link que o código mandou (nunca grava link nulo); sem link, o CHECK appointments_link_online recusa', async () => {
+    const t = await novoTenant();
+    const p = await novoPaciente(t);
+    const semSala = await novoLocal(t, { nome: 'Vídeo sem sala', tipo: 'online', agendamento: false });
+    const MANDADO = 'https://codigo.example.test/sugerido';
+    for (const x of [NUTRI, WORKER]) {
+      const [linha] = await em(t, x, (q) => inserirConsulta(q, t, { paciente: p, local: semSala, modalidade: 'online', origem: 'paciente', link: MANDADO }));
+      expect(linha.link_online, x.role).toBe(MANDADO);
+    }
+    await expect(em(t, NUTRI, (q) => inserirConsulta(q, t, { paciente: p, local: semSala, modalidade: 'online', origem: 'paciente', link: null }))).rejects.toSatisfy(
+      (e: unknown) => (e as { code?: string; constraint?: string }).code === '23514' && (e as { constraint?: string }).constraint === 'appointments_link_online',
+    );
+  });
+
+  it('appointments_link_da_sala no UPDATE de local_id: a consulta movida recebe a sala do local novo (mesmas regras do INSERT); mesmo local, local nulo e troca da sala no local não mexem no link', async () => {
+    const t = await novoTenant();
+    const p = await novoPaciente(t);
+    const SALA2 = 'https://sala.example.test/outra';
+    const video = await novoLocal(t, { nome: 'Videoconferência', tipo: 'online', link: SALA, agendamento: true });
+    const video2 = await novoLocal(t, { nome: 'Vídeo 2', tipo: 'online', link: SALA2, agendamento: true });
+    const semSala = await novoLocal(t, { nome: 'Vídeo sem sala', tipo: 'online', agendamento: false });
+    const arquivado = await novoLocal(t, { nome: 'Vídeo antigo', tipo: 'online', link: 'https://sala.example.test/antiga', arquivado: true });
+    const MANDADO = 'https://codigo.example.test/mandado';
+    const nova = async (origem: 'nutri' | 'paciente') =>
+      (await em(t, NUTRI, (q) => inserirConsulta(q, t, { paciente: p, local: video, modalidade: 'online', origem, link: MANDADO })))[0].id as string;
+    const mover = (x: Ctx, id: string, set: string, params: unknown[] = []) =>
+      em(t, x, async (q) => ({ linha: (await q(`update appointments set ${set} where id = $1 returning link_online, local_id`, [id, ...params]))[0], ctx: (await q(contexto))[0] }));
+
+    // origem paciente, em qualquer papel da equipe: o local novo traz a sala dele; o contexto volta
+    const a = await nova('paciente');
+    for (const [x, local, sala] of [
+      [NUTRI, video2, SALA2],
+      [WORKER, video, SALA],
+    ] as const) {
+      const { linha, ctx } = await mover(x, a, 'local_id = $2, link_online = $3', [local, MANDADO]);
+      expect(linha, x.role).toEqual({ link_online: sala, local_id: local });
+      expect(ctx).toEqual({ role: x.role, patient: '' });
+    }
+    // mesmo local (local_id no SET sem mudar): o link que o código mandou fica
+    expect((await mover(NUTRI, a, 'local_id = local_id, link_online = $2', [MANDADO])).linha).toEqual({ link_online: MANDADO, local_id: video });
+    // local novo sem sala: fica o link mandado (nunca nulo)
+    expect((await mover(NUTRI, a, 'local_id = $2', [semSala])).linha).toEqual({ link_online: MANDADO, local_id: semSala });
+    // local nulo passa intacto
+    expect((await mover(NUTRI, a, 'local_id = null, link_online = $2', [SALA2])).linha).toEqual({ link_online: SALA2, local_id: null });
+    // origem nutri: o código decide o link também na troca de local
+    const b = await nova('nutri');
+    expect((await mover(NUTRI, b, 'local_id = $2', [video2])).linha).toEqual({ link_online: MANDADO, local_id: video2 });
+    // a troca da sala no local não mexe nas consultas (é da tela de locais)
+    const c = await nova('paciente');
+    await em(t, NUTRI, (q) => q('update locais_atendimento set link_sala = $2 where id = $1', [video, 'https://sala.example.test/nova']));
+    expect((await em(t, NUTRI, (q) => q('select link_online from appointments where id = $1', [c])))[0].link_online).toBe(SALA);
+    // sessão do paciente: local arquivado ou sem agendamento → recusa do gatilho da sala; local válido → o gatilho do pedido recusa a mudança
+    const PACIENTE: Ctx = { role: 'paciente', patient: p };
+    for (const local of [arquivado, semSala]) {
+      await expect(mover(PACIENTE, c, 'local_id = $2', [local])).rejects.toSatisfy(negado('o local não aceita agendamento pelo paciente'));
+    }
+    await expect(mover(PACIENTE, c, 'local_id = $2', [video2])).rejects.toSatisfy(negado('o paciente não muda o horário, o local'));
+  });
+
   /** Pedido da página pública (como gravarPedido: contexto worker do teste), já verificado há `verificadoHa` (null = sem código). */
   type Pedido = { email?: string; nome?: string; token?: string; verificadoHa?: string | null; concluido?: boolean; modalidade?: 'presencial' | 'online' };
   const novoPedido = (t: string, o: Pedido = {}) =>
@@ -806,7 +865,7 @@ describe('Plano 23: peças SECURITY DEFINER com dono NOBYPASSRLS', () => {
   const lerPedido = async (t: string, id: string) =>
     (await em(t, WORKER, (q) => q('select local_id, modalidade, inicio, fim, aguardando_desde is not null as aguardando, resolvido_em is not null as resolvido, resolucao from public_booking_requests where id = $1', [id])))[0];
 
-  it('app_pedido_aguardar (RN-425): grava com a modalidade do local; teto 20 por consultório e 1 por e-mail; ocupado sobre solicitada e sobre outro aguardando; inválido sem código, com código vencido, já aguardando, concluído, fora do publico ou com local sem agendamento', async () => {
+  it('app_pedido_aguardar (RN-425): grava com a modalidade do local; teto 20 por consultório e 1 por e-mail; ocupado sobre solicitada, realizada, faltou, bloqueio e outro aguardando (cancelada não); inválido sem código, com código vencido (borda de 30 min como verificadoValido), já aguardando, concluído, fora do publico ou com local sem agendamento', async () => {
     const t = await novoTenant();
     const outro = await novoTenant();
     const p = await novoPaciente(t);
@@ -858,6 +917,42 @@ describe('Plano 23: peças SECURITY DEFINER com dono NOBYPASSRLS', () => {
       expect(ctx).toEqual({ role: x.role, patient: x.patient ?? '' });
     }
     expect((await lerPedido(t, naoPublico)).aguardando).toBe(false);
+
+    // ocupado: o mesmo recorte do EXCLUDE (toda consulta não cancelada, inclusive realizada e faltou) e os bloqueios, como
+    // horariosLivres; a consulta cancelada não ocupa (controle positivo)
+    for (const status of ['realizada', 'faltou', 'cancelada'] as const) {
+      const h = horario();
+      const [c] = await em(t, NUTRI, (q) => inserirConsulta(q, t, { paciente: p, local: presencial, modalidade: 'presencial', origem: 'nutri' }, h));
+      await em(t, NUTRI, (q) =>
+        q(
+          status === 'cancelada'
+            ? `update appointments set status = 'cancelada', cancelado_por = 'nutri', cancelada_em = now() where id = $1`
+            : `update appointments set status = '${status}' where id = $1`,
+          [c.id],
+        ),
+      );
+      expect((await aguardar(t, await novoPedido(t), presencial, h)).r, status).toBe(status === 'cancelada' ? 'ok' : 'ocupado');
+    }
+    const hb = horario();
+    await em(t, NUTRI, (q) => q(`insert into availability_blocks (tenant_id, inicio, fim, motivo) values ($1, $2, $3, 'Congresso')`, [t, hb.inicio, hb.fim]));
+    expect((await aguardar(t, await novoPedido(t), presencial, { inicio: new Date(hb.inicio.getTime() + 30 * 60_000), fim: new Date(hb.fim.getTime() + 30 * 60_000) })).r).toBe('ocupado');
+    expect((await aguardar(t, await novoPedido(t), presencial, { inicio: hb.fim, fim: new Date(hb.fim.getTime() + 3_600_000) })).r).toBe('ok');
+
+    // borda da validade do código, com o mesmo now() da transação: exatamente 30 min vale; 30 min e 1 µs, não
+    // (verificadoValido de agendamento-publico.ts: agora − verificadoEm <= 30 min)
+    const naBorda = (ha: string) =>
+      em(t, WORKER, async (q) => {
+        const [{ id }] = await q(
+          `insert into public_booking_requests (id, tenant_id, token_hash, codigo_hash, email, nome, inicio, modalidade, termo_versao, expira_em, verificado_em)
+           values (gen_random_uuid(), $1, $2, 'codigo', $3, 'Pessoa Nova', '2031-06-01T12:00Z', 'presencial', 'termo-v1', now() + interval '1 day', now() - $4::interval) returning id`,
+          [t, crypto.randomUUID(), `${crypto.randomUUID()}@pessoa.dev`, ha],
+        );
+        await q(`select set_config('app.role', 'publico', true)`);
+        const h = horario();
+        return (await q('select app_pedido_aguardar($1, $2, $3, $4) as r', [id, presencial, h.inicio, h.fim]))[0].r;
+      });
+    expect(await naBorda('30 minutes')).toBe('ok');
+    expect(await naBorda('30 minutes 0.000001 seconds')).toBe('invalido');
 
     // teto de 20 aguardando por consultório
     const t3 = await novoTenant();

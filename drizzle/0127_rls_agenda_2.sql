@@ -148,10 +148,12 @@ GRANT EXECUTE ON FUNCTION app_pedidos_aguardando(timestamptz, timestamptz) TO nu
 -- RN-424 / RN-425: o pedido da pessoa nova passa a aguardar a nutricionista — gravado só aqui (aguardando_fora_do_publico
 -- recusa o INSERT e o UPDATE diretos do publico). Só no papel publico, sob a trava do tenant (classe própria, ordem e-mail →
 -- tenant → pedido), antes de ler. `invalido`: pedido de outro tenant ou inexistente, sem código válido (verificado_em há
--- 30 min ou mais: a mesma VERIFICADO_VALIDADE_MS de agendamento-publico.ts — mudou lá, muda aqui), já aguardando ou concluído,
--- ou local que não é ativo com agendamento pelo paciente neste tenant. Depois, nesta ordem: `teto_tenant` (20 aguardando no
--- consultório), `email` (1 por e-mail) e `ocupado` (sobreposição com consulta agendada, confirmada ou solicitada e com outro
--- aguardando). Grava local, modalidade = tipo do local (a FK composta recusaria outra), início, fim e aguardando_desde.
+-- mais de 30 min; exatamente 30 min ainda vale — a mesma regra de verificadoValido em agendamento-publico.ts,
+-- `agora - verificadoEm <= VERIFICADO_VALIDADE_MS`: mudou lá, muda aqui), já aguardando ou concluído, ou local que não é ativo
+-- com agendamento pelo paciente neste tenant. Depois, nesta ordem: `teto_tenant` (20 aguardando no consultório), `email` (1 por
+-- e-mail) e `ocupado` (o mesmo que horariosLivres tira: sobreposição com toda consulta não cancelada — o recorte do EXCLUDE
+-- appointments_sem_sobreposicao, inclusive realizada, faltou e solicitada —, com um bloqueio de availability_blocks e com
+-- outro aguardando). Grava local, modalidade = tipo do local (a FK composta recusaria outra), início, fim e aguardando_desde.
 CREATE OR REPLACE FUNCTION app_pedido_aguardar(p_pedido uuid, p_local uuid, p_inicio timestamptz, p_fim timestamptz)
 RETURNS text
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
@@ -178,7 +180,7 @@ BEGIN
       FROM public.public_booking_requests b
      WHERE b.tenant_id = v_tenant AND b.id = p_pedido
        FOR UPDATE;
-    IF NOT FOUND OR v_pedido.verificado_em IS NULL OR v_pedido.verificado_em <= now() - interval '30 minutes'
+    IF NOT FOUND OR v_pedido.verificado_em IS NULL OR now() - v_pedido.verificado_em > interval '30 minutes'
        OR v_pedido.concluido_em IS NOT NULL OR v_pedido.aguardando_desde IS NOT NULL THEN
       v_res := 'invalido';
       EXIT corpo;
@@ -202,8 +204,10 @@ BEGIN
       EXIT corpo;
     END IF;
     IF EXISTS (SELECT 1 FROM public.appointments a
-                WHERE a.tenant_id = v_tenant AND a.status IN ('agendada', 'confirmada', 'solicitada')
+                WHERE a.tenant_id = v_tenant AND a.status <> 'cancelada'
                   AND a.inicio < p_fim AND a.fim > p_inicio)
+       OR EXISTS (SELECT 1 FROM public.availability_blocks k
+                   WHERE k.tenant_id = v_tenant AND k.inicio < p_fim AND k.fim > p_inicio)
        OR EXISTS (SELECT 1 FROM public.public_booking_requests b
                    WHERE b.tenant_id = v_tenant AND b.aguardando_desde IS NOT NULL AND b.resolvido_em IS NULL
                      AND b.inicio < p_fim AND b.fim > p_inicio) THEN
@@ -408,12 +412,15 @@ END $$;
 --> statement-breakpoint
 CREATE TRIGGER appointments_regras_pedido BEFORE INSERT OR UPDATE ON appointments FOR EACH ROW EXECUTE FUNCTION app_appointments_regras_pedido();
 --> statement-breakpoint
--- RN-406 / AG-D4 (spec §9.1): a sala do local entra na consulta pelo banco, não pelo código. BEFORE INSERT, SECURITY DEFINER
--- (molde 0083: o paciente e o publico não leem locais_atendimento). Consulta sem local (imagem anterior ao PR 2: o código manda
--- o link_online) passa intacta, antes da troca de papel. Com local: em QUALQUER papel, na consulta de origem `paciente` num
--- local online, link_online := link_sala (o que o código mandou é ignorado; o aceite da pessoa nova roda na sessão nutri com
--- origem paciente). Só nas sessões paciente e publico, recusa (42501) local arquivado ou sem agendamento pelo paciente (o
--- módulo traduz para "Esse horário não está mais disponível"). O local é procurado no tenant da linha (e no da sessão, quando há
+-- RN-406 / AG-D4 (spec §9.1): a sala do local entra na consulta pelo banco, não pelo código. BEFORE INSERT e BEFORE UPDATE
+-- OF local_id, SECURITY DEFINER (molde 0083: o paciente e o publico não leem locais_atendimento). No UPDATE só age quando o
+-- local muda (consulta movida para outro local: a sala do local novo vale como no INSERT); a troca da sala no próprio local
+-- não mexe nas consultas (tela de locais, T2). Consulta sem local (imagem anterior ao PR 2: o código manda o link_online)
+-- passa intacta, antes da troca de papel. Com local: em QUALQUER papel, na consulta de origem `paciente` num local online,
+-- link_online := link_sala (o que o código mandou é ignorado; o aceite da pessoa nova roda na sessão nutri com origem
+-- paciente) — só quando o local tem sala: num local online sem sala fica o link que o código mandou, e o CHECK
+-- appointments_link_online decide. Só nas sessões paciente e publico, recusa (42501) local arquivado ou sem agendamento pelo
+-- paciente (o módulo traduz para "Esse horário não está mais disponível"). O local é procurado no tenant da linha (e no da sessão, quando há
 -- sessão): a FK composta recusa local de outro consultório. O contexto volta antes do RETURN e do RAISE. Dispara antes de
 -- appointments_regras_pedido (ordem alfabética); o CHECK appointments_link_online vem depois dos BEFORE.
 CREATE OR REPLACE FUNCTION app_appointments_link_da_sala() RETURNS trigger
@@ -427,7 +434,7 @@ DECLARE
   v_local record;
   v_achou boolean;
 BEGIN
-  IF NEW.local_id IS NULL THEN
+  IF NEW.local_id IS NULL OR (TG_OP = 'UPDATE' AND NEW.local_id IS NOT DISTINCT FROM OLD.local_id) THEN
     RETURN NEW;
   END IF;
   v_role := coalesce(current_setting('app.role', true), '');
@@ -445,7 +452,7 @@ BEGIN
     RETURN NEW; -- a FK composta recusa
   END IF;
   IF NEW.origem IS NOT DISTINCT FROM 'paciente' AND v_local.tipo = 'online' THEN
-    NEW.link_online := v_local.link_sala;
+    NEW.link_online := coalesce(v_local.link_sala, NEW.link_online);
   END IF;
   IF v_role IN ('paciente', 'publico') AND (v_local.arquivado_em IS NOT NULL OR NOT v_local.agendamento_online) THEN
     RAISE EXCEPTION 'o local não aceita agendamento pelo paciente' USING ERRCODE = '42501';
@@ -456,7 +463,7 @@ END $$;
 -- função de gatilho: ninguém a chama direto (o gatilho dispara sem EXECUTE de quem grava)
 REVOKE ALL ON FUNCTION app_appointments_link_da_sala() FROM PUBLIC;
 --> statement-breakpoint
-CREATE TRIGGER appointments_link_da_sala BEFORE INSERT ON appointments FOR EACH ROW EXECUTE FUNCTION app_appointments_link_da_sala();
+CREATE TRIGGER appointments_link_da_sala BEFORE INSERT OR UPDATE OF local_id ON appointments FOR EACH ROW EXECUTE FUNCTION app_appointments_link_da_sala();
 --> statement-breakpoint
 -- RN-420: a chave dos pedidos só muda na sessão `nutri` (molde tenants_ia_nutri_da_equipe, 0116): paciente, público, conta e
 -- worker (o processo web também usa o papel worker: página pública, limpeza) recebem 42501. O contexto vazio (migration, semente,
