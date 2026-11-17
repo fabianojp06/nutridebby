@@ -122,7 +122,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 15: o aditivo 1.2 e a IA Nutri em Configurações (versão 8, com o passo da subseção); a 1.2 não invalida autorização nenhuma', () => {
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
-    expect(config.versao).toBe(8);
+    expect(config.versao).toBe(9); // 9 = Plano 19 (a biblioteca do plano no resumo, abaixo); a 8 foi a do Plano 15
     const ia = config.ajuda.secoes.find((s) => s.titulo === 'Inteligência artificial (IA)')!.itens;
     expect(ia).toContain(
       'O aditivo está na versão 1.2, que inclui o resumo do histórico, o rascunho de plano alimentar e a IA Nutri para pacientes. Quem aceitou a versão 1.1 continua usando a leitura de laudos, o resumo, o rascunho e os modelos; só a IA Nutri pede o aceite da 1.2 ("Aceitar a versão atual").',
@@ -230,5 +230,18 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(g.versao).toBe(1);
     expect(g.passos.every((p) => p.alvo === undefined)).toBe(true);
     expect(g.passos.find((p) => p.titulo === 'Perfis de referência')?.texto).toContain('A plataforma não traz valores prontos');
+  });
+
+  it('Plano 19 (Tarefa 8): minhas refeições e listas no guia da biblioteca (ainda versão 1, no mesmo PR) e Configurações na versão 9 com a biblioteca no resumo', () => {
+    const g = GUIAS.find((x) => x.id === 'biblioteca-do-plano')!;
+    expect(g.versao).toBe(1);
+    expect(g.passos.map((p) => p.titulo)).toEqual(['Perfis de referência', 'Minhas refeições', 'Listas de substituição']);
+    expect(g.ajuda.secoes.map((s) => s.titulo)).toEqual(['Perfis de referência', 'Minhas refeições', 'Listas de substituição']);
+    const textos = [...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)].join(' ');
+    expect(textos).toContain('"Incluir a observação"');
+    expect(textos).toContain('"Sugerir equivalentes"');
+    const config = GUIAS.find((x) => x.id === 'configuracoes')!;
+    expect(config.versao).toBe(9);
+    expect(config.ajuda.resumo).toContain('a biblioteca do plano (minhas refeições, listas de substituição e perfis de referência)');
   });
 });

@@ -10,6 +10,7 @@ import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
 import { carregarPlano, paraCliente } from '@/modules/plano-alimentar/carregar';
 import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import { contextoDoPaciente } from '@/modules/plano-alimentar/meta';
+import { listarMinhasRefeicoes } from '@/modules/plano-alimentar/refeicoes-modelo';
 import { carregarProntuario } from '../../prontuario';
 import { descartarRascunhoAction, editarPublicadoAction, publicarAction } from '../actions';
 import { BotaoAcao } from '../botao-acao';
@@ -52,6 +53,7 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
         receitas={await listarReceitasPublicadas(ctx)}
         somenteLeitura={!editavel}
         perfis={await referenciasParaPlano(ctx)}
+        minhasRefeicoes={editavel ? await listarMinhasRefeicoes(ctx) : undefined}
         acoes={
           <div className="flex flex-wrap items-start gap-4">
             {editavel && (

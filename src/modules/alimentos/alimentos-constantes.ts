@@ -10,8 +10,11 @@ export const MSG_ALIMENTO = {
   valores: 'Valores por 100 g: energia entre 0 e 1000 kcal; os demais entre 0 e 100 g', // KCAL_MAX e GRAMAS_MAX
   /** RN-230: vale para toda tabela pública (`fonte <> 'propria'`). */
   taco: 'Alimentos de tabelas públicas (TACO, USDA) não podem ser alterados. Use "Duplicar como meu alimento".',
-  /** D12 (Plano 07): a FK RESTRICT de `meal_items` e a de `recipe_ingredients` caem no mesmo `fkViolation`. */
-  emUso: 'Este alimento está em um plano ou receita e não pode ser excluído.',
+  /**
+   * D12 (Plano 07): a FK RESTRICT de `meal_items` e a de `recipe_ingredients` caem no mesmo `fkViolation`; RN-258 (Plano
+   * 19): também as de `refeicoes_modelo_itens` e `listas_substituicao_itens`.
+   */
+  emUso: 'Este alimento está em uso (plano, receita, minha refeição ou lista de substituição) e não pode ser excluído.',
   naoEncontrado: 'Alimento não encontrado.',
   /** RN-230: "Duplicar como meu alimento" de um alimento sem algum dos 5 valores, pela sigla da tabela de origem. */
   incompleto: (f: FontePublica) => `A ${FONTES[f].sigla} não tem todos os valores deste alimento: confira os campos com 0.`,

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import type { Db } from '@/db/client';
@@ -10,6 +11,7 @@ import { KCAL_MAX, MSG_ALIMENTO } from './alimentos-constantes';
 import { AlimentoError, carregarAlimento, criarAlimento, duplicarComoMeu, editarAlimento, excluirAlimento, fontesCarregadas } from './alimentos';
 import { buscarAlimentos } from './busca';
 import { MSG_NUTRIENTES } from './nutrientes';
+import { excluirLista, salvarLista } from '@/modules/plano-alimentar/listas';
 import { idTaco } from './taco';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -169,5 +171,16 @@ describe('alimento em uso (Review Focus 4)', () => {
     const semNome = Object.assign(new Error('violação de FK'), { code: '23503', severity: 'ERROR' }); // pg sem `constraint`
     const db = { transaction: async () => Promise.reject(semNome) } as unknown as Db;
     expect(await erros(excluirAlimento(T.ctx, '00000000-0000-4000-8000-000000000001', { db }))).toEqual({ geral: MSG_ALIMENTO.emUso });
+  });
+
+  it('RN-258 (Plano 19): o "Meu alimento" numa lista de substituição não é excluído, com a mensagem nova; fora da lista, sai', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await criarAlimento(T.ctx, PAO, deps);
+    const lista = await salvarLista(T.ctx, null, { nome: 'Pães', orientacao: '', grupos: [{ id: randomUUID(), nome: 'Pães — 1 porção', itens: [{ id: randomUUID(), foodId: id, quantidadeG: '50', medida: null }] }] }, deps);
+    expect(await erros(excluirAlimento(T.ctx, id, deps))).toEqual({ geral: 'Este alimento está em uso (plano, receita, minha refeição ou lista de substituição) e não pode ser excluído.' });
+    expect(MSG_ALIMENTO.emUso).toBe('Este alimento está em uso (plano, receita, minha refeição ou lista de substituição) e não pode ser excluído.');
+    await excluirLista(T.ctx, lista.id, deps);
+    await excluirAlimento(T.ctx, id, deps);
+    expect(await carregarAlimento(T.ctx, id, app.db)).toBeNull();
   });
 });

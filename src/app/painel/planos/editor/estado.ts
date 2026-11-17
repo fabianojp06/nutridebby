@@ -7,7 +7,7 @@ import { MAX_NUTRIENTES_EXIBIDOS, type ReferenciaParaPlano } from '@/modules/ali
 import { itensComoTexto, kcalTexto, lerQuantidade, totalDoDia, totaisDoDia, totalMicros, ZERO, type ItemComMicros, type Nutrientes } from '@/modules/plano-alimentar/calculo';
 import { MAX_ITENS, MAX_REFEICOES, MSG_DIAS } from '@/modules/plano-alimentar/constantes';
 import { diasSemRefeicao, ORDEM_DIAS, perfisDeDia, refeicoesDoDia, rotuloDosDias, TODOS_OS_DIAS, valeNoDia, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
-import type { ItemPlano, ModoPlano, PlanoDoCliente, RascunhoEnviado, ReceitaDaRefeicao } from '@/modules/plano-alimentar/tipos';
+import type { ItemPlano, ModoPlano, PlanoDoCliente, RascunhoEnviado, ReceitaDaRefeicao, RefeicaoPlano } from '@/modules/plano-alimentar/tipos';
 
 /** Estado local do editor: textos como a nutricionista digitou; números só na hora de calcular e enviar. */
 export type ItemEstado = Omit<ItemPlano, 'quantidadeG' | 'medida' | 'medidaCaseiraTxt'> & {
@@ -53,6 +53,8 @@ export type Acao =
   | { tipo: 'refeicao'; id: string; campo: 'nome' | 'horario' | 'observacao' | 'descricao'; valor: string }
   | { tipo: 'dia'; id: string; dia: DiaDaSemana; marcado: boolean }
   | { tipo: 'removerRefeicao'; id: string }
+  /** US-237 "Carregar minha refeição": a refeição já com ids novos, os 7 dias e, no plano livre, o texto (servidor). */
+  | { tipo: 'carregarRefeicao'; refeicao: RefeicaoPlano }
   | { tipo: 'receita'; id: string; receita: { id: string; titulo: string } | null }
   /** `quantidadeG`: a sugerida pelos equivalentes (US-234), em gramas; sem ela, 1 medida caseira ou 100 g. */
   | { tipo: 'adicionarItem'; refeicaoId: string; id: string; alimento: AlimentoEncontrado; substituiItemId?: string | null; quantidadeG?: number }
@@ -66,6 +68,8 @@ export type Acao =
 export const totalDeItens = (e: EstadoEditor): number => e.refeicoes.reduce((n, r) => n + r.itens.length, 0);
 export const podeAdicionarRefeicao = (e: EstadoEditor): boolean => e.refeicoes.length < MAX_REFEICOES;
 export const podeAdicionarItem = (e: EstadoEditor): boolean => totalDeItens(e) < MAX_ITENS;
+/** US-237: a minha refeição carregada cabe no plano (mais uma refeição e os itens dela, RN-249) e no modo (RN-243)? */
+export const podeCarregar = (e: EstadoEditor, itens: number): boolean => podeAdicionarRefeicao(e) && totalDeItens(e) + itens <= MAX_ITENS && (e.modo === 'calculado' || itens === 0);
 /** RN-239: até 12 nutrientes no resumo; o 13º é recusado ("Escolha até 12 nutrientes."). */
 export const podeEscolherNutriente = (e: EstadoEditor): boolean => e.nutrientesExibidos.length < MAX_NUTRIENTES_EXIBIDOS;
 const ORDEM_NUTRIENTE = new Map<string, number>(NUTRIENTES.map((n, k) => [n.chave, k]));
@@ -86,33 +90,64 @@ export function estadoInicial(p: PlanoDoCliente): EstadoEditor {
     referenciaId: p.referenciaId,
     nutrientesExibidos: [...p.nutrientesExibidos],
     mostrarMicrosPdf: p.mostrarMicrosPdf,
-    refeicoes: p.refeicoes.map((r) => ({
-      id: r.id,
-      nome: r.nome,
-      horario: r.horario,
-      observacao: r.observacao,
-      diasSemana: [...r.diasSemana],
-      descricao: r.descricaoLivre ?? '',
-      ...(r.receita ? { receita: r.receita } : {}),
-      itens: r.itens.map((i) => ({
-        id: i.id,
-        foodId: i.foodId,
-        nome: i.nome,
-        fonte: i.fonte,
-        origem: i.origem,
-        porCem: i.porCem,
-        micros: i.micros,
-        medidas: i.medidas,
-        substituiItemId: i.substituiItemId,
-        quantidadeTexto: numTexto(i.quantidadeG),
-        medida: i.medida ? { nome: i.medida.nome, plural: i.medida.plural, gramas: i.medida.gramas } : null,
-        qtdTexto: i.medida ? numTexto(i.medida.qtd) : '',
-      })),
-    })),
+    refeicoes: p.refeicoes.map(refeicaoEstadoDe),
   };
 }
 
-/** Gramas do item ou null se o que foi digitado é inválido (o total trata como fora da conta). */
+/** O item do plano (servidor) como o editor guarda: quantidade e medida como texto (o que a nutricionista digita). */
+export function itemEstadoDe(i: ItemPlano): ItemEstado {
+  return {
+    id: i.id,
+    foodId: i.foodId,
+    nome: i.nome,
+    fonte: i.fonte,
+    origem: i.origem,
+    porCem: i.porCem,
+    micros: i.micros,
+    medidas: i.medidas,
+    substituiItemId: i.substituiItemId,
+    quantidadeTexto: numTexto(i.quantidadeG),
+    medida: i.medida ? { nome: i.medida.nome, plural: i.medida.plural, gramas: i.medida.gramas } : null,
+    qtdTexto: i.medida ? numTexto(i.medida.qtd) : '',
+  };
+}
+
+/**
+ * O alimento escolhido na busca como item novo: `quantidadeG` é a sugerida pelos equivalentes (US-234), em gramas; sem
+ * ela, 1 medida caseira (a primeira do alimento) ou 100 g. Também o item novo das listas de substituição (US-238).
+ */
+export function itemDoAlimento(a: AlimentoEncontrado, id: string, o: { substituiItemId?: string | null; quantidadeG?: number } = {}): ItemEstado {
+  const m = o.quantidadeG === undefined ? a.medidas[0] : undefined;
+  return {
+    id,
+    foodId: a.id,
+    nome: a.nome,
+    fonte: a.fonte,
+    origem: a.origem,
+    porCem: a.porCem,
+    micros: a.micros,
+    medidas: a.medidas,
+    substituiItemId: o.substituiItemId ?? null,
+    medida: m ? { nome: m.nome, plural: m.plural, gramas: m.gramas } : null,
+    qtdTexto: m ? '1' : '',
+    quantidadeTexto: o.quantidadeG !== undefined ? numTexto(o.quantidadeG) : m ? numTexto(m.gramas) : '100',
+  };
+}
+
+/** A refeição do plano (servidor) como o editor guarda; também a minha refeição carregada (US-237). */
+export function refeicaoEstadoDe(r: RefeicaoPlano): RefeicaoEstado {
+  return {
+    id: r.id,
+    nome: r.nome,
+    horario: r.horario,
+    observacao: r.observacao,
+    diasSemana: [...r.diasSemana],
+    descricao: r.descricaoLivre ?? '',
+    ...(r.receita ? { receita: r.receita } : {}),
+    itens: r.itens.map(itemEstadoDe),
+  };
+}
+
 export function gramasDoItem(i: ItemEstado): number | null {
   if (!i.medida) return lerQuantidade(i.quantidadeTexto);
   const q = lerDecimal(i.qtdTexto);
@@ -198,25 +233,15 @@ export function reduzir(e: EstadoEditor, a: Acao): EstadoEditor {
     }
     case 'removerRefeicao':
       return { ...e, refeicoes: e.refeicoes.filter((r) => r.id !== a.id) };
+    case 'carregarRefeicao':
+      // RN-249: passando dos limites do plano, nada entra (o servidor recusaria o PUT inteiro); RN-243: no livre, sem alimentos
+      if (!podeCarregar(e, a.refeicao.itens.length) || e.refeicoes.some((r) => r.id === a.refeicao.id)) return e;
+      return { ...e, refeicoes: [...e.refeicoes, refeicaoEstadoDe(a.refeicao)] };
     case 'receita':
       return { ...e, refeicoes: e.refeicoes.map((r) => (r.id === a.id ? { ...r, receita: a.receita ? { ...a.receita, disponivel: true } : null } : r)) };
     case 'adicionarItem': {
       if (e.modo === 'livre' || !podeAdicionarItem(e)) return e; // RN-243: no modo livre a refeição não tem alimentos
-      const m = a.quantidadeG === undefined ? a.alimento.medidas[0] : undefined;
-      const novo: ItemEstado = {
-        id: a.id,
-        foodId: a.alimento.id,
-        nome: a.alimento.nome,
-        fonte: a.alimento.fonte,
-        origem: a.alimento.origem,
-        porCem: a.alimento.porCem,
-        micros: a.alimento.micros,
-        medidas: a.alimento.medidas,
-        substituiItemId: a.substituiItemId ?? null,
-        medida: m ? { nome: m.nome, plural: m.plural, gramas: m.gramas } : null,
-        qtdTexto: m ? '1' : '',
-        quantidadeTexto: a.quantidadeG !== undefined ? numTexto(a.quantidadeG) : m ? numTexto(m.gramas) : '100',
-      };
+      const novo = itemDoAlimento(a.alimento, a.id, { substituiItemId: a.substituiItemId, quantidadeG: a.quantidadeG });
       const destino = e.refeicoes.find((r) => r.id === a.refeicaoId);
       if (!destino) return e;
       if (!novo.substituiItemId) return { ...e, refeicoes: e.refeicoes.map((r) => (r === destino ? { ...r, itens: [...r.itens, novo] } : r)) };
@@ -484,17 +509,23 @@ export function paraEnvio(e: EstadoEditor, revisao: number): RascunhoEnviado {
       diasSemana: [...r.diasSemana],
       descricaoLivre: e.modo === 'livre' ? r.descricao : null,
       ...(r.receita ? { recipeContentId: r.receita.id } : {}),
-      itens: r.itens.map((i) => {
-        const g = gramasDoItem(i);
-        const q = lerDecimal(i.qtdTexto);
-        return {
-          id: i.id,
-          foodId: i.foodId,
-          quantidadeG: g === null ? i.quantidadeTexto : numTexto(g).replace(',', '.'),
-          medida: i.medida ? { ...i.medida, qtd: q !== null && Number.isFinite(q) ? q : 0 } : null,
-          substituiItemId: i.substituiItemId,
-        };
-      }),
+      itens: r.itens.map(itemParaEnvio),
     })),
+  };
+}
+
+/**
+ * O item como o servidor lê (D7): quantidade inválida vai como texto, para o servidor devolver o erro do campo. Também
+ * o formato dos itens de "Salvar como minha refeição" e dos formulários da biblioteca (Plano 19).
+ */
+export function itemParaEnvio(i: ItemEstado): { id: string; foodId: string; quantidadeG: string; medida: { nome: string; plural: string; gramas: number; qtd: number } | null; substituiItemId: string | null } {
+  const g = gramasDoItem(i);
+  const q = lerDecimal(i.qtdTexto);
+  return {
+    id: i.id,
+    foodId: i.foodId,
+    quantidadeG: g === null ? i.quantidadeTexto : numTexto(g).replace(',', '.'),
+    medida: i.medida ? { ...i.medida, qtd: q !== null && Number.isFinite(q) ? q : 0 } : null,
+    substituiItemId: i.substituiItemId,
   };
 }

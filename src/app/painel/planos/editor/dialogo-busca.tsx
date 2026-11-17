@@ -61,13 +61,20 @@ const comFiltros = (base: string, params: [string, string][]) => `${base}?${new 
  * (foco preso, Esc); o foco vai ao campo da aba ao abrir e volta ao botão que abriu ao fechar (o editor guarda). O diálogo
  * continua aberto depois de adicionar, para mais itens. Montado a cada abertura (`key` no editor).
  */
-export function DialogoBuscaAlimento({ destino, podeAdicionar, aoAdicionar, aoFechar }: {
+export function DialogoBuscaAlimento({ destino, podeAdicionar, aoAdicionar, aoFechar, limite = MSG_PLANO.limite, equivalenteComoItem = false }: {
   destino: DestinoDaBusca;
   /** Limite do plano (400 itens, RN-249): "Adicionar" fica desabilitado com o aviso. */
   podeAdicionar: boolean;
   /** Na aba Equivalentes, `quantidadeG` é a sugerida e o item entra como substituição da referência. */
   aoAdicionar: (a: AlimentoEncontrado, opcoes?: { substituiItemId: string; quantidadeG: number }) => void;
   aoFechar: () => void;
+  /** O aviso do limite de quem abriu (padrão: o do plano; a lista de substituição tem o dela, US-238). */
+  limite?: string;
+  /**
+   * US-238 "Sugerir equivalentes" da lista de substituição: o equivalente entra no grupo ("Adicionar", com a quantidade
+   * sugerida), não como substituição do item de referência.
+   */
+  equivalenteComoItem?: boolean;
 }) {
   const id = useId();
   const dialogo = useRef<HTMLDialogElement>(null);
@@ -125,7 +132,7 @@ export function DialogoBuscaAlimento({ destino, podeAdicionar, aoAdicionar, aoFe
         <button type="button" onClick={fechar} className="inline-flex min-h-11 items-center px-2 text-link underline">Fechar</button>
       </div>
       <p role="status" className="min-h-6 text-sm font-semibold text-ok">{anuncio}</p>
-      {!podeAdicionar && <p id={limiteId} className="text-sm text-suave">{MSG_PLANO.limite}</p>}
+      {!podeAdicionar && <p id={limiteId} className="text-sm text-suave">{limite}</p>}
 
       <div role="tablist" aria-labelledby={`${id}-titulo`} onKeyDown={teclaNasAbas} className="mt-2 flex flex-wrap gap-2 border-b border-borda">
         {ABAS.map((a) => {
@@ -169,11 +176,11 @@ export function DialogoBuscaAlimento({ destino, podeAdicionar, aoAdicionar, aoFe
                 type="button"
                 disabled={!podeAdicionar}
                 aria-describedby={podeAdicionar ? undefined : limiteId}
-                aria-label={`${MSG_BUSCA.comoSubstituicao}: ${a.nome} no lugar de ${destino.referencia!.nomeItem}`}
+                aria-label={equivalenteComoItem ? `${MSG_BUSCA.adicionar} ${a.nome} a ${destino.refeicao}` : `${MSG_BUSCA.comoSubstituicao}: ${a.nome} no lugar de ${destino.referencia!.nomeItem}`}
                 onClick={() => adicionar(a, { substituiItemId: destino.referencia!.itemId, quantidadeG: a.quantidadeG })}
                 className={BOTAO}
               >
-                {MSG_BUSCA.comoSubstituicao}
+                {equivalenteComoItem ? MSG_BUSCA.adicionar : MSG_BUSCA.comoSubstituicao}
               </button>
             )}
           />

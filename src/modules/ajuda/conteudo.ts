@@ -311,11 +311,11 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'configuracoes',
-    versao: 8, // Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
+    versao: 9, // Plano 19: a biblioteca do plano no resumo (cartões novos); a 8 foi a do aditivo 1.2 e da IA Nutri (Plano 15), a 7 a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
-      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança e o tema do painel.',
+      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, a biblioteca do plano (minhas refeições, listas de substituição e perfis de referência), segurança e o tema do painel.',
       secoes: [
         { titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] },
         {
@@ -398,7 +398,7 @@ export const GUIAS: readonly Guia[] = [
     padrao: /^\/painel\/planos\/(refeicoes|listas|referencias)(\/.*)?$/,
     titulo: 'Biblioteca do plano',
     ajuda: {
-      resumo: 'O que o consultório guarda para usar nos planos alimentares, como os perfis de referência. O paciente não vê a biblioteca: vê só o que fica no plano publicado.',
+      resumo: 'O que o consultório guarda para usar nos planos alimentares: minhas refeições, listas de substituição e perfis de referência. O paciente não vê a biblioteca: vê só o que fica no plano publicado.',
       secoes: [
         {
           titulo: 'Perfis de referência',
@@ -408,10 +408,28 @@ export const GUIAS: readonly Guia[] = [
             'Alterar ou excluir um perfil não muda os planos publicados: cada um guarda a cópia do perfil do dia da publicação. Os rascunhos e modelos que usavam um perfil excluído ficam sem perfil.',
           ],
         },
+        {
+          titulo: 'Minhas refeições',
+          itens: [
+            'No editor do plano, "Salvar como minha refeição" guarda a refeição com o nome e o tipo que você escolher. A observação só vai junto se você marcar "Incluir a observação": confira o nome e os itens e retire dados do paciente antes de salvar.',
+            '"Carregar minha refeição" põe a refeição no fim do plano, com os 7 dias, o horário salvo e os valores de hoje dos alimentos. Num plano em texto livre, os alimentos entram como texto.',
+            'Em Minhas refeições você filtra pelo tipo, ajusta quantidades, nome, horário e observação, e exclui. Os planos em que a refeição já foi carregada não mudam.',
+          ],
+        },
+        {
+          titulo: 'Listas de substituição',
+          itens: [
+            'Monte grupos de alimentos que se trocam entre si (ex.: carboidratos, 1 porção), com a quantidade e a medida caseira de cada um. A energia de cada item aparece ao lado.',
+            '"Sugerir equivalentes" abre a busca na aba Equivalentes com o primeiro item do grupo como referência: o alimento escolhido entra no grupo com a quantidade sugerida. Confira antes de usar.',
+            'A orientação da lista aparece para o paciente no app quando a lista é ligada a um plano publicado. A plataforma não traz listas prontas.',
+          ],
+        },
       ],
     },
     passos: [
       { titulo: 'Perfis de referência', texto: 'Cadastre as metas e os máximos de nutrientes que você usa, com a fonte. A plataforma não traz valores prontos: os perfis são do seu consultório.' },
+      { titulo: 'Minhas refeições', texto: 'Salve no editor do plano a refeição que você repete ("Salvar como minha refeição") e carregue-a em outros planos ("Carregar minha refeição"). A observação só vai junto se você marcar.' },
+      { titulo: 'Listas de substituição', texto: 'Em "Nova lista", monte os grupos de alimentos que se trocam entre si. "Sugerir equivalentes" usa o primeiro item do grupo como referência.' },
     ],
   },
 ];

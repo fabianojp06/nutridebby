@@ -18,6 +18,8 @@ const CARTOES = [
   { href: '/conta/seguranca', titulo: 'Segurança', texto: 'Senha e verificação em duas etapas.' },
   // Plano 19 (§4.6, US-232): a biblioteca do plano
   { href: '/painel/planos/referencias', titulo: 'Perfis de referência', texto: 'Metas de nutrientes, com a fonte, para comparar nos planos.' },
+  { href: '/painel/planos/refeicoes', titulo: 'Minhas refeições', texto: 'Refeições prontas para carregar nos planos.' }, // US-237
+  { href: '/painel/planos/listas', titulo: 'Listas de substituição', texto: 'Grupos de alimentos que se trocam entre si.' }, // US-238
 ];
 
 /** D20: hub de Configurações. */

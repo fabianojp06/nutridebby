@@ -9,6 +9,7 @@ import type { ReferenciaParaPlano } from '@/modules/alimentos/referencias-consta
 import { MSG_BUSCA } from '@/modules/alimentos/busca-avancada-constantes';
 import { MSG_RECEITA } from '@/modules/conteudo/constantes';
 import type { ReceitaParaPlano } from '@/modules/conteudo/receitas';
+import type { MinhaRefeicaoDaLista } from '@/modules/plano-alimentar/biblioteca-constantes';
 import { diferencaKcalDoItem, kcalTexto, nutrientesDoItem, totalDosItens } from '@/modules/plano-alimentar/calculo';
 import { MAX_TEXTO, MSG_DIAS, MSG_PLANO, MSG_TEXTO_LIVRE } from '@/modules/plano-alimentar/constantes';
 import { DIA_CURTO, ORDEM_DIAS, rotuloDosDias, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
@@ -16,9 +17,10 @@ import type { ContextoPaciente } from '@/modules/plano-alimentar/meta';
 import type { ModoPlano, PlanoDoCliente } from '@/modules/plano-alimentar/tipos';
 import { casasDecimais, formatarDecimal, lerDecimal } from '@/lib/numero';
 import {
-  errosSemCampo, estadoInicial, gramasDoItem, legendaDosDias, medidaDaOpcao, nomesAcessiveis, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir,
+  errosSemCampo, estadoInicial, gramasDoItem, legendaDosDias, medidaDaOpcao, nomesAcessiveis, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, podeCarregar, reduzir,
   referenciaDosEquivalentes, refeicoesDoFiltro, totaisDoFiltro, trocaPerdeAlgo, type Acao, type EstadoEditor, type FiltroDia, type ItemEstado, type MacrosTexto, type RefeicaoEstado,
 } from './estado';
+import { CarregarMinhaRefeicao, SalvarComoMinhaRefeicao } from './minhas-refeicoes';
 import { DialogoBuscaAlimento, type DestinoDaBusca } from './dialogo-busca';
 import { FiltroDias } from './filtro-dias';
 import { filtroQueMostra } from './navegacao';
@@ -36,6 +38,11 @@ type Props = {
   receitas?: ReceitaParaPlano[];
   /** US-233 (RN-238): os perfis de referência do consultório para "Nutrientes do paciente" (o publicado usa a cópia). */
   perfis?: ReferenciaParaPlano[];
+  /**
+   * US-237 (RN-250): as minhas refeições do consultório — com a lista (mesmo vazia), o editor oferece "Salvar como
+   * minha refeição" em cada refeição e "Carregar minha refeição"; sem ela (somente leitura), nenhum dos dois.
+   */
+  minhasRefeicoes?: MinhaRefeicaoDaLista[];
 };
 
 const novoId = () => crypto.randomUUID(); // D8: gerado no evento, nunca no render
@@ -74,7 +81,7 @@ export function EditorPlano(props: Props) {
   return <Editor key={geracao} {...props} aoDesatualizar={aoDesatualizar} />;
 }
 
-function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [], perfis = [], aoDesatualizar }: Props & { aoDesatualizar: (revisao: number) => void }) {
+function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [], perfis = [], minhasRefeicoes, aoDesatualizar }: Props & { aoDesatualizar: (revisao: number) => void }) {
   // `edicoes` conta as ações: é o que dispara o salvamento (D7). Contador dentro do estado do reducer, que segue puro.
   const [{ estado, edicoes }, despachar] = useReducer(
     (s: { estado: EstadoEditor; edicoes: number }, a: Acao) => {
@@ -114,6 +121,10 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
   const podeRefeicao = podeAdicionarRefeicao(estado);
   const podeItem = podeAdicionarItem(estado);
   const visiveis = refeicoesDoFiltro(estado, filtro, fixadas);
+  // US-237: a lista do "Carregar minha refeição" ganha na hora a que foi salva nesta tela
+  const [minhas, setMinhas] = useState<MinhaRefeicaoDaLista[]>(() => minhasRefeicoes ?? []);
+  const biblioteca = !somenteLeitura && minhasRefeicoes !== undefined;
+  const aoSalvarMinha = (r: MinhaRefeicaoDaLista) => setMinhas((m) => [...m.filter((x) => x.id !== r.id), r]);
 
   // US-234 (§4.3): o diálogo "Buscar alimento", com a refeição (e, pelos equivalentes, o item) como destino. Montado a
   // cada abertura (`n` na key); ao fechar, o foco volta ao botão que abriu (RNF-232).
@@ -263,7 +274,7 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
 
       {filtro !== 'todos' && visiveis.length === 0 && <p className="text-suave">{MSG_DIAS.semRefeicoes(DIA_CURTO[filtro])}</p>}
       {visiveis.map((r) => (
-        <Refeicao key={r.id} r={r} nome={nomes.get(r.id) ?? r.nome} livre={livre} filtroDia={filtro === 'todos' ? null : filtro} despachar={despacharNaTela} somenteLeitura={somenteLeitura} erro={erro} podeAdicionarItem={podeItem} receitas={receitas} abrirBusca={abrirBusca} />
+        <Refeicao key={r.id} r={r} nome={nomes.get(r.id) ?? r.nome} livre={livre} filtroDia={filtro === 'todos' ? null : filtro} despachar={despacharNaTela} somenteLeitura={somenteLeitura} erro={erro} podeAdicionarItem={podeItem} receitas={receitas} abrirBusca={abrirBusca} aoSalvarMinha={biblioteca ? aoSalvarMinha : null} />
       ))}
       {busca && !somenteLeitura && !livre && (
         <DialogoBuscaAlimento
@@ -284,6 +295,18 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
           {!podeRefeicao && <p id="limite-refeicoes" className="text-sm text-suave">{MSG_PLANO.limite}</p>}
         </div>
       )}
+      {biblioteca && (
+        <CarregarMinhaRefeicao
+          minhas={minhas}
+          modo={estado.modo}
+          cabe={(itens) => podeCarregar(estado, itens)}
+          aoCarregar={(refeicao) => {
+            despachar({ tipo: 'carregarRefeicao', refeicao });
+            // o foco vai ao nome da refeição carregada (no fim do plano), depois do render
+            requestAnimationFrame(() => document.getElementById(`${refeicao.id}-nome`)?.focus());
+          }}
+        />
+      )}
 
       <div className="space-y-1">
         <label htmlFor="orientacoes" className="block font-medium">Orientações gerais</label>
@@ -294,7 +317,7 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
   );
 }
 
-function Refeicao({ r, nome, livre, filtroDia, despachar, somenteLeitura, erro, podeAdicionarItem, receitas, abrirBusca }: {
+function Refeicao({ r, nome, livre, filtroDia, despachar, somenteLeitura, erro, podeAdicionarItem, receitas, abrirBusca, aoSalvarMinha }: {
   r: RefeicaoEstado;
   /** O nome único na tela (`nomesAcessiveis`): "Almoço (seg a sex)" quando o nome se repete. */
   nome: string;
@@ -307,6 +330,8 @@ function Refeicao({ r, nome, livre, filtroDia, despachar, somenteLeitura, erro, 
   podeAdicionarItem: boolean;
   receitas: ReceitaParaPlano[];
   abrirBusca: AbrirBusca;
+  /** US-237: com a biblioteca (rascunho ou modelo editável), "Salvar como minha refeição"; null = sem o botão. */
+  aoSalvarMinha: ((m: MinhaRefeicaoDaLista) => void) | null;
 }) {
   const totalRefeicao = totalDosItens(r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, substituiItemId: i.substituiItemId })));
   const chave = `refeicao:${r.id}`;
@@ -426,6 +451,7 @@ function Refeicao({ r, nome, livre, filtroDia, despachar, somenteLeitura, erro, 
         />
         {erro(`${chave}:observacao`) && <p id={`${r.id}-obs-erro`} role="alert" className="text-sm text-erro">{erro(`${chave}:observacao`)}</p>}
       </div>
+      {aoSalvarMinha && <SalvarComoMinhaRefeicao refeicao={r} nome={nome} modo={livre ? 'livre' : 'calculado'} aoSalvar={aoSalvarMinha} />}
       {!somenteLeitura && (
         <button type="button" onClick={() => { if (window.confirm(`Remover ${r.nome || 'esta refeição'}?`)) despachar({ tipo: 'removerRefeicao', id: r.id }); }} className="text-sm underline">
           Remover refeição

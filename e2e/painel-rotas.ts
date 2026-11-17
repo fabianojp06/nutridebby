@@ -6,6 +6,10 @@ export type IdsDoPainel = {
   duvida: string;
   /** Plano 19 (US-232): o perfil de referência criado pela tela "Novo perfil". */
   referencia: string;
+  /** Plano 19 (US-237): a minha refeição salva pelo editor ("Salvar como minha refeição"). */
+  minhaRefeicao: string;
+  /** Plano 19 (US-238): a lista de substituição criada pela tela "Nova lista". */
+  lista: string;
 };
 
 /**
@@ -68,4 +72,8 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/whatsapp': () => '/painel/whatsapp',
   '/painel/planos/referencias': () => '/painel/planos/referencias', // Plano 19 (US-232)
   '/painel/planos/referencias/[id]': (i) => `/painel/planos/referencias/${i.referencia}`,
+  '/painel/planos/refeicoes': () => '/painel/planos/refeicoes', // Plano 19 (US-237)
+  '/painel/planos/refeicoes/[id]': (i) => `/painel/planos/refeicoes/${i.minhaRefeicao}`,
+  '/painel/planos/listas': () => '/painel/planos/listas', // Plano 19 (US-238)
+  '/painel/planos/listas/[id]': (i) => `/painel/planos/listas/${i.lista}`,
 };

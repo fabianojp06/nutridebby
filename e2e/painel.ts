@@ -83,6 +83,12 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   await nutri.getByLabel('Nome do modelo').fill(`Modelo axe ${sufixo}`);
   await nutri.getByRole('button', { name: 'Salvar como modelo' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Modelo salvo.' })).toBeVisible();
+  // minha refeição (Plano 19, US-237): nasce só pelo editor, "Salvar como minha refeição" do Almoço do rascunho
+  await nutri.getByRole('button', { name: /^Salvar como minha refeição/ }).first().click();
+  const salvarRefeicao = nutri.getByRole('dialog', { name: 'Salvar refeição' });
+  await salvarRefeicao.getByLabel('Nome').fill(`Almoço axe ${sufixo}`);
+  await salvarRefeicao.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Refeição salva em Minhas refeições.' })).toBeVisible();
 
   // semana ≥ 2 (portal.spec usa 0, acessibilidade.spec 1) e variável por execução: o seed não apaga consultas, e repetir o
   // mesmo dia e hora da execução anterior dá "Conflito com a consulta de …"
@@ -167,6 +173,19 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   await expect(nutri).toHaveURL(new RegExp(`/painel/planos/referencias/${UUID}$`));
   const referencia = idDaUrl(nutri, new RegExp(`/painel/planos/referencias/(${UUID})$`));
 
+  // lista de substituição (Plano 19, US-238): "Nova lista" abre a página [id] com `novo`; salvar vai para o id criado
+  await nutri.goto('/painel/planos/listas');
+  await nutri.getByRole('link', { name: 'Nova lista' }).click();
+  await expect(nutri).toHaveURL(/\/painel\/planos\/listas\/novo$/);
+  await nutri.getByLabel('Nome', { exact: true }).fill(`Lista axe ${sufixo}`);
+  await nutri.getByRole('button', { name: 'Adicionar grupo' }).click();
+  await nutri.getByLabel('Nome do grupo 1').fill('Carboidratos — 1 porção');
+  await nutri.getByLabel('Adicionar alimento em Carboidratos — 1 porção').fill('chuchu cozido');
+  await nutri.getByRole('option', { name: /Chuchu, cozido/ }).click();
+  await nutri.getByRole('button', { name: 'Salvar lista' }).click();
+  await expect(nutri).toHaveURL(new RegExp(`/painel/planos/listas/${UUID}$`));
+  const lista = idDaUrl(nutri, new RegExp(`/painel/planos/listas/(${UUID})$`));
+
   return {
     paciente: p.split('/').pop()!,
     plano,
@@ -191,5 +210,7 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
       return idDoLink(nutri, '/painel/exames-recebidos', new RegExp(`/painel/exames-recebidos/(${UUID})$`));
     })(),
     referencia,
+    minhaRefeicao: await idDoLink(nutri, '/painel/planos/refeicoes', new RegExp(`/painel/planos/refeicoes/(${UUID})$`)),
+    lista,
   };
 }

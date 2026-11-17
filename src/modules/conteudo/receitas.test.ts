@@ -113,7 +113,7 @@ describe('receita (US-051, RN-11)', () => {
     const r = await novoConteudo(app.db, T, { tipo: 'receita', titulo: 'R', status: 'rascunho' });
     await salvarReceita(T.ctx, r.id, { rendimento: '100', porcao: '50', ingredientes: [{ foodId: food, quantidadeG: '10' }] }, { db: app.db });
     await expect(excluirAlimento(T.ctx, food, { db: app.db })).rejects.toMatchObject({ erros: { geral: MSG_ALIMENTO.emUso } });
-    expect(MSG_ALIMENTO.emUso).toBe('Este alimento está em um plano ou receita e não pode ser excluído.');
+    expect(MSG_ALIMENTO.emUso).toBe('Este alimento está em uso (plano, receita, minha refeição ou lista de substituição) e não pode ser excluído.'); // RN-258 (Plano 19)
   });
 
   it('RN-230: a receita aceita a USDA, e a fonte do ingrediente sai de foods.fonte (selo "USDA (EUA)", "Sem valor na USDA")', async () => {
