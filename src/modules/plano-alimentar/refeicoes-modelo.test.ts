@@ -226,7 +226,7 @@ describe('carregar minha refeição (US-237 "Carregar" e "Modo do plano")', () =
     const r = await refeicaoParaPlano(T.ctx, id, 'livre', app.db);
     expect(r.itens).toEqual([]);
     expect(r.descricaoLivre).toBe(itensComoTexto(salva.itens));
-    expect(r.descricaoLivre).toMatch(/— 4 colheres de sopa cheias \(ou Pão de fermentação natural — 50 g\); .+ — 80 g$/);
+    expect(r.descricaoLivre).toMatch(/— 4 colheres de sopa cheias \(100 g\) \(ou Pão de fermentação natural — 50 g\); .+ — 80 g$/);
     expect(r.diasSemana).toEqual([...TODOS_OS_DIAS]);
 
     const { id: sopa } = await salvarComoMinhaRefeicao(T.ctx, { nome: 'Jantar', tipo: 'Jantar', horario: '19:00', observacao: '', modo: 'livre', descricaoLivre: 'Sopa de legumes', itens: [] }, deps);

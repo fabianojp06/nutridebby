@@ -300,7 +300,7 @@ describe('Plano 19 — texto livre e dias da semana no editor (RN-243, RN-245, R
       { id: 'feijao', nome: feijao.nome, quantidadeG: 90.5, medidaCaseiraTxt: null, substituiItemId: null },
       { id: 'sub', nome: proprio.nome, quantidadeG: 100, medidaCaseiraTxt: null, substituiItemId: 'arroz' },
     ]);
-    expect(esperado).toBe('Arroz, tipo 1, cozido — 4 colheres de sopa cheias (ou Alimento 130 — 100 g); Feijão, carioca, cozido — 90,5 g');
+    expect(esperado).toBe('Arroz, tipo 1, cozido — 4 colheres de sopa cheias (100 g) (ou Alimento 130 — 100 g); Feijão, carioca, cozido — 90,5 g');
     expect(e.refeicoes.map((r) => ({ texto: r.descricao, itens: r.itens.length }))).toEqual([{ texto: esperado, itens: 0 }, { texto: '', itens: 0 }]);
     const envio = paraEnvio(e, 4);
     expect(envio.modo).toBe('livre');

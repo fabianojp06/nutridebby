@@ -297,7 +297,7 @@ export function referenciaDosEquivalentes(i: ItemEstado): { foodId: string; quan
 
 /**
  * RN-245: o item como entra no texto da troca para o modo livre. Quantidade válida: a medida caseira (o mesmo
- * `textoMedida` que o servidor grava em `medida_caseira_txt`) ou os gramas. Inválida (o campo está em erro): o que foi
+ * `textoMedida` que o servidor grava em `medida_caseira_txt`) com os gramas, ou só os gramas. Inválida (o campo está em erro): o que foi
  * digitado, com a unidade ("abc g", "? colher de sopa cheia"), em vez de um número que a nutricionista não escreveu.
  */
 function itemParaTexto(i: ItemEstado) {
@@ -305,7 +305,7 @@ function itemParaTexto(i: ItemEstado) {
   const base = { id: i.id, nome: i.nome, substituiItemId: i.substituiItemId };
   if (g !== null) return { ...base, quantidadeG: g, medidaCaseiraTxt: i.medida ? textoMedida(lerDecimal(i.qtdTexto)!, i.medida) : null };
   const digitado = (i.medida ? i.qtdTexto : i.quantidadeTexto).trim() || '?';
-  return { ...base, quantidadeG: 0, medidaCaseiraTxt: `${digitado} ${i.medida ? i.medida.nome : 'g'}` };
+  return { ...base, quantidadeG: null, medidaCaseiraTxt: `${digitado} ${i.medida ? i.medida.nome : 'g'}` };
 }
 
 /**

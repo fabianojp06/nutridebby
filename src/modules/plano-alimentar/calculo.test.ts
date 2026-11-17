@@ -151,9 +151,9 @@ describe('RN-247: total do dia por perfil (nunca a soma de dois "Almoço")', () 
 });
 
 describe('RN-245: itens como texto (troca para texto livre e minha refeição num plano livre)', () => {
-  const it_ = (id: string, nome: string, quantidadeG: number, medidaCaseiraTxt: string | null, substituiItemId: string | null = null) => ({ id, nome, quantidadeG, medidaCaseiraTxt, substituiItemId });
+  const it_ = (id: string, nome: string, quantidadeG: number | null, medidaCaseiraTxt: string | null, substituiItemId: string | null = null) => ({ id, nome, quantidadeG, medidaCaseiraTxt, substituiItemId });
 
-  it('principais unidos por "; ", substituições "(ou …)" depois do principal', () => {
+  it('principais unidos por "; ", substituições "(ou …)" depois do principal; com medida caseira, a medida e os gramas (Res. CFN 594/2017, art. 4º, § 1º, VIII)', () => {
     const itens = [
       it_('arroz', 'Arroz branco, cozido', 100, '4 colheres de sopa'),
       it_('feijao', 'Feijão carioca, cozido', 86, '1 concha média'),
@@ -162,13 +162,15 @@ describe('RN-245: itens como texto (troca para texto livre e minha refeição nu
       it_('grao', 'Grão-de-bico, cozido', 80, null, 'feijao'),
     ];
     expect(itensComoTexto(itens)).toBe(
-      'Arroz branco, cozido — 4 colheres de sopa (ou Macarrão, cozido — 1 escumadeira); Feijão carioca, cozido — 1 concha média (ou Lentilha, cozida — 90,5 g) (ou Grão-de-bico, cozido — 80 g)',
+      'Arroz branco, cozido — 4 colheres de sopa (100 g) (ou Macarrão, cozido — 1 escumadeira (110 g)); Feijão carioca, cozido — 1 concha média (86 g) (ou Lentilha, cozida — 90,5 g) (ou Grão-de-bico, cozido — 80 g)',
     );
   });
 
-  it('sem medida caseira, os gramas; sem itens, texto vazio', () => {
-    expect(itensComoTexto([it_('a', 'Arroz branco, cozido', 100, '4 colheres de sopa'), it_('b', 'Azeite', 5, null)])).toBe('Arroz branco, cozido — 4 colheres de sopa; Azeite — 5 g');
+  it('sem medida caseira, só os gramas; sem itens, texto vazio', () => {
+    expect(itensComoTexto([it_('a', 'Arroz branco, cozido', 100, '4 colheres de sopa'), it_('b', 'Azeite', 5, null)])).toBe('Arroz branco, cozido — 4 colheres de sopa (100 g); Azeite — 5 g');
     expect(itensComoTexto([])).toBe('');
+    // quantidade em erro no editor (nula): o texto digitado como está, sem gramas inventados
+    expect(itensComoTexto([it_('a', 'Feijão', null, 'abc g')])).toBe('Feijão — abc g');
   });
 
   it('corta em 2000 caracteres', () => {
@@ -176,6 +178,10 @@ describe('RN-245: itens como texto (troca para texto livre e minha refeição nu
     const t = itensComoTexto(itens);
     expect(t).toHaveLength(2000);
     expect(t.startsWith('Alimento de nome bem comprido número 0 — 100 g; Alimento')).toBe(true);
+    // com medida caseira (o texto fica mais longo com os gramas): o corte continua em 2000
+    const comMedida = itensComoTexto(Array.from({ length: 100 }, (_, i) => it_(`m${i}`, `Alimento ${i}`, 100, '4 colheres de sopa')));
+    expect(comMedida).toHaveLength(2000);
+    expect(comMedida.startsWith('Alimento 0 — 4 colheres de sopa (100 g); Alimento 1 — 4 colheres de sopa (100 g); ')).toBe(true);
     // o corte não deixa meio emoji (par substituto do UTF-16) no fim
     expect(itensComoTexto([it_('a', `${'x'.repeat(1999)}🍎`, 100, null)])).toBe('x'.repeat(1999));
   });

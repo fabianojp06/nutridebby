@@ -145,11 +145,14 @@ export const quantidadeDoItem = (i: { quantidadeG: number; medidaCaseiraTxt: str
  * RN-245: os itens da refeição em texto, para a troca para texto livre (Tarefa 7) e a minha refeição carregada num plano
  * livre (Tarefa 8): `"{nome} — {quantidade}"` dos principais unidos por "; ", cada substituição como
  * `" (ou {nome} — {quantidade})"` logo depois do seu principal, cortado em 2000 caracteres (`MAX_TEXTO`, o CHECK
- * `meals_descricao_livre_tamanho`). A quantidade é a medida caseira quando há ("4 colheres de sopa", o exemplo da
- * US-235), senão os gramas ("90,5 g").
+ * `meals_descricao_livre_tamanho`). A quantidade é a de `quantidadeDoItem`: a medida caseira com os gramas quando há
+ * ("4 colheres de sopa (100 g)", volume e gramatura — decisão da orquestradora, 17/11/2026, Res. CFN 594/2017, art. 4º,
+ * § 1º, VIII), senão os gramas ("90,5 g"). `quantidadeG` nulo (o editor com a quantidade em erro): `medidaCaseiraTxt` vai como
+ * está (o que foi digitado, "abc g"), sem gramas inventados.
  */
-export function itensComoTexto(itens: { id: string; nome: string; quantidadeG: number; medidaCaseiraTxt: string | null; substituiItemId: string | null }[]): string {
-  const parte = (i: (typeof itens)[number]) => `${i.nome} — ${i.medidaCaseiraTxt || gramasDaMedidaTexto(i.quantidadeG)}`;
+export function itensComoTexto(itens: { id: string; nome: string; quantidadeG: number | null; medidaCaseiraTxt: string | null; substituiItemId: string | null }[]): string {
+  const parte = (i: (typeof itens)[number]) =>
+    `${i.nome} — ${i.quantidadeG === null ? (i.medidaCaseiraTxt ?? '') : quantidadeDoItem({ quantidadeG: i.quantidadeG, medidaCaseiraTxt: i.medidaCaseiraTxt })}`;
   const texto = itens
     .filter((i) => i.substituiItemId === null)
     .map((p) => parte(p) + itens.filter((s) => s.substituiItemId === p.id).map((s) => ` (ou ${parte(s)})`).join(''))
