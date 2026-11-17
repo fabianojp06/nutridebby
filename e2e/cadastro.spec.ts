@@ -186,7 +186,7 @@ test('lista: abas, "Mais recentes" mantém a busca, link antigo ?status=arquivad
   await nutri.goto(`/painel/pacientes?busca=${encodeURIComponent(sufixo)}`);
   const abas = nutri.getByRole('navigation', { name: 'Situação dos pacientes' });
   const nomes = nutri.locator('tbody tr td:first-child a');
-  await expect(abas.getByRole('link', { name: 'Ativos' })).toHaveAttribute('aria-current', 'page');
+  await expect(abas.getByRole('link', { name: 'Ativos', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(nutri.getByRole('link', { name: 'Ver bloqueados' })).toBeVisible();
   await expect(nutri.getByRole('columnheader')).toHaveText(['Nome', 'Idade', 'E-mail', 'Acesso ao app', 'Desde', 'Ações']);
   await expect(nomes).toHaveText([ALICE.nome, BIA.nome, ZECA.nome]);
@@ -199,18 +199,18 @@ test('lista: abas, "Mais recentes" mantém a busca, link antigo ?status=arquivad
   await expect(nomes).toHaveText([ZECA.nome, ALICE.nome, BIA.nome]);
   await expect(nutri.getByLabel('Buscar por nome ou e-mail')).toHaveValue(sufixo);
 
-  await abas.getByRole('link', { name: 'Inativos' }).click();
-  await expect(abas.getByRole('link', { name: 'Inativos' })).toHaveAttribute('aria-current', 'page');
+  await abas.getByRole('link', { name: 'Inativos', exact: true }).click();
+  await expect(abas.getByRole('link', { name: 'Inativos', exact: true })).toHaveAttribute('aria-current', 'page');
   expect(new URL(nutri.url()).searchParams.get('busca')).toBe(sufixo);
   expect(new URL(nutri.url()).searchParams.get('ordem')).toBe('recentes');
   await expect(nutri.getByText('Pacientes arquivados: sem acesso ao app e sem notificações. O prontuário continua guardado.')).toBeVisible();
   await expect(nutri.getByText('Nenhum paciente encontrado.')).toBeVisible();
-  await abas.getByRole('link', { name: 'Todos' }).click();
-  await expect(abas.getByRole('link', { name: 'Todos' })).toHaveAttribute('aria-current', 'page');
+  await abas.getByRole('link', { name: 'Todos', exact: true }).click();
+  await expect(abas.getByRole('link', { name: 'Todos', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(nomes).toHaveText([ZECA.nome, ALICE.nome, BIA.nome]);
 
   await nutri.goto('/painel/pacientes?status=arquivado');
-  await expect(abas.getByRole('link', { name: 'Inativos' })).toHaveAttribute('aria-current', 'page');
+  await expect(abas.getByRole('link', { name: 'Inativos', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
 test('menu da linha (RN-273): abre, Esc fecha e devolve o foco, clique fora fecha, Tab depois do último item segue para a linha seguinte', async () => {
@@ -314,7 +314,7 @@ test('arquivar pela lista duas vezes seguidas (D26): confirmação, "Paciente ar
   expect(vistos.lastIndexOf('Paciente arquivado.')).toBeGreaterThan(vistos.indexOf(''));
 
   // na aba Inativos, os dois, sem acesso
-  await nutri.getByRole('navigation', { name: 'Situação dos pacientes' }).getByRole('link', { name: 'Inativos' }).click();
+  await nutri.getByRole('navigation', { name: 'Situação dos pacientes' }).getByRole('link', { name: 'Inativos', exact: true }).click();
   for (const p of [ALICE, ZECA]) {
     await expect(nutri.getByRole('row').filter({ has: nutri.getByRole('link', { name: p.nome, exact: true }) })).toContainText('Sem acesso (arquivado)');
   }

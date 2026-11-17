@@ -33,7 +33,7 @@ test('cadastra paciente adulto; menor de 18 e e-mail repetido são recusados (US
   await nutri.goto('/painel/pacientes/novo');
   await preencherCadastro(nutri, { nome: ANA.nome, email: ANA.email, nascimento: '2010-01-01' });
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
-  await expect(nutri.locator('p[role="alert"]')).toHaveText('O sistema atende apenas pacientes a partir de 18 anos');
+  await expect(nutri.locator('#dataNascimento-erro')).toHaveText('O sistema atende apenas pacientes a partir de 18 anos');
   await expect(nutri.getByLabel('Nome completo', { exact: true })).toHaveValue(ANA.nome); // PF-N9: nada do que foi digitado se perde
 
   await nutri.getByLabel('Data de nascimento').fill('1991-03-10');
