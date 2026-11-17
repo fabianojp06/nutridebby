@@ -1,5 +1,8 @@
 import { sql } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool, type PoolClient } from 'pg';
 import type { Db } from '@/db/client';
+import * as schema from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { listarCategorias, salvarConfiguracoes } from '@/modules/financeiro/configuracoes';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
@@ -40,4 +43,34 @@ export async function cincoMilLancamentos(db: Db, T: TenantDeTeste, agora: Date,
     db,
   );
   return { pacientes };
+}
+
+/**
+ * RNF-301: um `Db` cujo `pg.Pool` conta as consultas. O Drizzle abre a transação num cliente do `connect()` (BEGIN, …,
+ * COMMIT) e manda o resto pelo `query` do pool: os dois caminhos são embrulhados.
+ */
+export function dbQueContaConsultas(connectionString: string): { db: Db; pool: Pool; consultas: string[] } {
+  const pool = new Pool({ connectionString, max: 2 });
+  const consultas: string[] = [];
+  const texto = (cfg: unknown) => (typeof cfg === 'string' ? cfg : ((cfg as { text?: string } | null)?.text ?? ''));
+  const consultarNoPool = pool.query.bind(pool) as (cfg: unknown, valores?: unknown) => Promise<unknown>;
+  pool.query = ((cfg: unknown, valores?: unknown) => {
+    consultas.push(texto(cfg));
+    return consultarNoPool(cfg, valores);
+  }) as unknown as Pool['query'];
+  const conectar = pool.connect.bind(pool) as () => Promise<PoolClient>;
+  const embrulhados = new WeakSet<PoolClient>();
+  pool.connect = (async () => {
+    const c = await conectar();
+    if (!embrulhados.has(c)) {
+      embrulhados.add(c);
+      const consultar = c.query.bind(c) as (cfg: unknown, valores?: unknown) => Promise<unknown>;
+      c.query = ((cfg: unknown, valores?: unknown) => {
+        consultas.push(texto(cfg));
+        return consultar(cfg, valores);
+      }) as unknown as PoolClient['query'];
+    }
+    return c;
+  }) as unknown as Pool['connect'];
+  return { db: drizzle({ client: pool, schema }) as unknown as Db, pool, consultas };
 }

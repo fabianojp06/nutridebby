@@ -3,10 +3,9 @@ import { notFound } from 'next/navigation';
 import { Aviso } from '@/components/ui/aviso';
 import { requireNutri } from '@/lib/tenant-session';
 import { partesNoFuso } from '@/modules/agenda/fuso';
-import { listarCategorias } from '@/modules/financeiro/configuracoes';
 import { MSG_FINANCEIRO as M } from '@/modules/financeiro/constantes';
 import { formatarReais, valorParaCampo } from '@/modules/financeiro/dinheiro';
-import { abrirLancamento } from '@/modules/financeiro/lancamentos';
+import { telaDeEdicao } from '@/modules/financeiro/telas';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { marcadorDoEnvio, TopoDoFinanceiro } from '../../topo';
 import { Cancelar } from '../cancelar';
@@ -21,7 +20,7 @@ const LINK = 'text-link underline';
  * US-302: a edição do lançamento, h1 "Entrada — {categoria}" / "Saída — {categoria}" (sem paciente nem data, §4.1).
  * Tipo, paciente e consulta como texto (fixos, RN-308; a consulta é link). Paciente bloqueado (RN-315): o aviso, só o
  * valor no formulário, receber/desfazer e cancelar. Cancelado ou anonimizado: só leitura, com a mensagem da §6.2.
- * Com paciente, abrir é leitura auditada (`abrirLancamento`, RN-318).
+ * Com paciente, abrir é leitura auditada (RN-318), na transação da tela (`telaDeEdicao`, RNF-301).
  */
 export default async function EditarLancamento({
   params,
@@ -30,8 +29,10 @@ export default async function EditarLancamento({
   const { id } = await params;
   const { ctx, tenant } = await requireNutri(`/painel/financeiro/lancamentos/${id}`);
   const parametros = await searchParams;
-  const l = await abrirLancamento(ctx, tenant, id);
-  if (!l) notFound();
+  // RNF-301: o lançamento (com o `ler` da RN-318) e as categorias do formulário numa transação só
+  const tela = await telaDeEdicao(ctx, tenant, id);
+  if (!tela) notFound();
+  const { lancamento: l, categorias } = tela;
   const hoje = hojeNoFuso(tenant.fuso);
   const titulo = `${M.csv.tipos[l.tipo]} — ${l.categoria.nome}`;
   const volta = `/painel/financeiro/lancamentos/${l.id}`;
@@ -113,9 +114,6 @@ export default async function EditarLancamento({
     );
   }
 
-  const categorias = (await listarCategorias(ctx))
-    .filter((c) => c.tipo === l.tipo && (c.arquivadaEm === null || c.id === l.categoria.id))
-    .map((c) => ({ id: c.id, nome: c.nome }));
   const bloqueado = l.paciente?.bloqueado ?? false;
   // depois de receber, desfazer ou salvar, a mesma tela volta com outro envio: o formulário e os painéis remontam com o
   // que está gravado (os campos não controlados não seguiriam o `defaultValue` novo)

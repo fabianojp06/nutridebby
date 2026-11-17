@@ -3,12 +3,11 @@ import { Aviso } from '@/components/ui/aviso';
 import { BotaoLink } from '@/components/ui/botao';
 import { Cartao } from '@/components/ui/cartao';
 import { requireNutri } from '@/lib/tenant-session';
-import { lerConfiguracoes, listarCategorias } from '@/modules/financeiro/configuracoes';
 import { MSG_FINANCEIRO as M } from '@/modules/financeiro/constantes';
 import { formatarReais } from '@/modules/financeiro/dinheiro';
-import { listarLancamentos, pacienteDoFinanceiro } from '@/modules/financeiro/lancamentos';
 import { mesDe } from '@/modules/financeiro/meses';
 import { dataDeReferencia } from '@/modules/financeiro/situacao';
+import { telaDeLancamentos } from '@/modules/financeiro/telas';
 import type { LancamentoNaTela } from '@/modules/financeiro/tipos';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { marcadorDoEnvio, TopoDoFinanceiro } from '../topo';
@@ -24,16 +23,25 @@ const TITULO = M.secoes.lancamentos;
 
 /**
  * US-302 / RN-306: "Lançamentos". Sem `mes`, o mês atual no fuso; com `paciente` e sem `mes`, todos os meses (até 200,
- * com o aviso). Totais do filtro em duas linhas, sem os cancelados. A leitura com filtro de paciente é auditada por
- * `listarLancamentos` (RN-318). Sem configuração (RN-301): o primeiro acesso, sem "Nova entrada"/"Nova saída".
+ * com o aviso). Totais do filtro em duas linhas, sem os cancelados. A leitura com filtro de paciente é auditada na
+ * transação da tela (`telaDeLancamentos`, RN-318; RNF-301). Sem configuração (RN-301): o primeiro acesso, sem "Nova entrada"/"Nova saída".
  */
 export default async function Lancamentos({
   searchParams,
 }: PageProps<'/painel/financeiro/lancamentos'>) {
   const { ctx, tenant } = await requireNutri('/painel/financeiro/lancamentos');
   const parametros = await searchParams;
-  const config = await lerConfiguracoes(ctx);
-  if (!config) {
+  const f = filtrosDaUrl(parametros);
+  // RNF-301: a tela inteira numa transação (configuração, paciente do filtro, lista com o `ler` da RN-318 e categorias)
+  const tela = await telaDeLancamentos(ctx, tenant, {
+    mes: f.mes,
+    tipo: f.tipo,
+    situacao: f.situacao,
+    categoriaId: f.categoria,
+    forma: f.forma,
+    pacienteId: f.paciente,
+  });
+  if (!tela.config) {
     return (
       <>
         <TopoDoFinanceiro titulo={TITULO} parametros={parametros} />
@@ -47,19 +55,7 @@ export default async function Lancamentos({
     );
   }
 
-  const f = filtrosDaUrl(parametros);
-  const [r, categorias, paciente] = await Promise.all([
-    listarLancamentos(ctx, tenant, {
-      mes: f.mes,
-      tipo: f.tipo,
-      situacao: f.situacao,
-      categoriaId: f.categoria,
-      forma: f.forma,
-      pacienteId: f.paciente,
-    }),
-    listarCategorias(ctx),
-    f.paciente ? pacienteDoFinanceiro(ctx, f.paciente) : null,
-  ]);
+  const { config, lista: r, categorias, paciente } = tela;
   const hoje = hojeNoFuso(tenant.fuso);
   // o mês efetivo: o da URL; sem ele, todos ('') com paciente, ou o atual no fuso
   const mes = f.mes ?? (paciente ? '' : mesDe(hoje));

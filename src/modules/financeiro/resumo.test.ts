@@ -1,12 +1,8 @@
 import { sql } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool, type PoolClient } from 'pg';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { cincoMilLancamentos } from '../../../test/financeiro';
+import { cincoMilLancamentos, dbQueContaConsultas } from '../../../test/financeiro';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
-import type { Db } from '@/db/client';
-import * as schema from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { arquivarCategoria, listarCategorias, salvarConfiguracoes } from './configuracoes';
 import { cancelarLancamento, criarLancamento } from './lancamentos';
@@ -15,36 +11,7 @@ import { entradasESaidas12Meses, fluxoDeCaixaDoAno, pagamentosPendentes, pendenc
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
 
-/**
- * RNF-301: um `Db` cujo `pg.Pool` conta as consultas. O Drizzle abre a transação num cliente do `connect()` (BEGIN, …,
- * COMMIT) e manda o resto pelo `query` do pool: os dois caminhos são embrulhados.
- */
-function dbQueContaConsultas(): { db: Db; pool: Pool; consultas: string[] } {
-  const pool = new Pool({ connectionString: inject('appDatabaseUrl'), max: 2 });
-  const consultas: string[] = [];
-  const texto = (cfg: unknown) => (typeof cfg === 'string' ? cfg : ((cfg as { text?: string } | null)?.text ?? ''));
-  const consultarNoPool = pool.query.bind(pool) as (cfg: unknown, valores?: unknown) => Promise<unknown>;
-  pool.query = ((cfg: unknown, valores?: unknown) => {
-    consultas.push(texto(cfg));
-    return consultarNoPool(cfg, valores);
-  }) as unknown as Pool['query'];
-  const conectar = pool.connect.bind(pool) as () => Promise<PoolClient>;
-  const embrulhados = new WeakSet<PoolClient>();
-  pool.connect = (async () => {
-    const c = await conectar();
-    if (!embrulhados.has(c)) {
-      embrulhados.add(c);
-      const consultar = c.query.bind(c) as (cfg: unknown, valores?: unknown) => Promise<unknown>;
-      c.query = ((cfg: unknown, valores?: unknown) => {
-        consultas.push(texto(cfg));
-        return consultar(cfg, valores);
-      }) as unknown as PoolClient['query'];
-    }
-    return c;
-  }) as unknown as Pool['connect'];
-  return { db: drizzle({ client: pool, schema }) as unknown as Db, pool, consultas };
-}
-const contado = dbQueContaConsultas();
+const contado = dbQueContaConsultas(inject('appDatabaseUrl'));
 
 afterAll(async () => {
   await app.pool.end();
