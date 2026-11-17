@@ -13,6 +13,7 @@ import { Cancelar } from '../../../financeiro/lancamentos/cancelar';
 import { ErroGeral } from '../../../financeiro/lancamentos/comum';
 import { Receber, useFocoNoErro, type AcaoDoLancamento } from '../../../financeiro/lancamentos/receber';
 import { cancelarCobrancaAction, receberCobrancaAction, registrarCobrancaAction, salvarValorCobrancaAction } from './cobranca-actions';
+import { ID_COBRANCA } from './ids';
 
 const LINK = 'text-link underline';
 const CONFIGURACOES = '/painel/financeiro/configuracoes';
@@ -34,8 +35,11 @@ type Props = {
  */
 export function SecaoCobranca({ consultaId, cobranca: l, motivo, valorSugerido, hoje }: Props) {
   return (
-    <section aria-labelledby="cobranca" className="space-y-2">
-      <h2 id="cobranca" className="text-lg font-semibold">{M.consulta.titulo}</h2>
+    <section aria-labelledby={ID_COBRANCA} className="space-y-2">
+      {/* recebe o foco depois das ações da seção (a região de mensagens fica logo acima, na página) */}
+      <h2 id={ID_COBRANCA} tabIndex={-1} className="text-lg font-semibold">
+        {M.consulta.titulo}
+      </h2>
       {l ? <ComCobranca consultaId={consultaId} l={l} hoje={hoje} /> : <SemCobranca consultaId={consultaId} motivo={motivo} valorSugerido={valorSugerido} />}
     </section>
   );

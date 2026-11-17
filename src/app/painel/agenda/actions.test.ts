@@ -82,7 +82,7 @@ describe('presencaAction (US-303, RN-310): ?ok=presenca&cobranca=<resultado>, se
     expect(url).not.toMatch(/valor|250/);
     const html = await pagina(C, { ok: 'presenca', cobranca: 'criada' });
     expect(texto(html)).toContain(M.presenca.criada(formatarReais(25000)));
-    expect(html).toContain('<h2 id="cobranca" class="text-lg font-semibold">Cobrança</h2>');
+    expect(html).toContain('<h2 id="cobranca" tabindex="-1" class="text-lg font-semibold">Cobrança</h2>');
     // vence no dia da consulta: "Em atraso" só se o dia virou no fuso entre o início e agora
     const situacao = hojeNoFuso(C.tenant.fuso, C.inicio) < hojeNoFuso(C.tenant.fuso) ? M.situacoes.em_atraso : M.situacoes.previsto;
     expect(texto(html)).toContain(M.consulta.valorESituacao(formatarReais(25000), situacao));
@@ -153,5 +153,54 @@ describe('presencaAction (US-303, RN-310): ?ok=presenca&cobranca=<resultado>, se
     expect(texto(html)).toContain(M.consulta.semCobranca);
     expect(texto(html)).toContain(M.consulta.registrar);
     expect(html).toContain('value="250,00"');
+  });
+});
+
+/**
+ * Spec §7 (revisão da T7, rodada 1): as ações da seção "Cobrança" voltam com `?ok=cobranca_*&envio=`; a mensagem vai para
+ * uma região `role="status"` sempre montada logo acima da seção (fora do `key` dela, que remonta), não para o `Aviso` do
+ * topo, e o foco vai ao h2 "Cobrança" (`tabIndex={-1}`) — ou ao h1 da consulta, se a seção saiu.
+ */
+describe('seção "Cobrança": região fixa e foco depois das ações (§7)', () => {
+  const ESTILO_OK = 'rounded-2xl border border-ok bg-ok-fundo p-3 text-ok';
+  const ocorrencias = (html: string, t: string) => texto(html).split(t).length - 1;
+
+  it('consulta realizada: a região vazia já está montada logo acima da seção, e o h2 recebe foco', async () => {
+    const C = await cenario();
+    await destino(presencaAction(C.c, 'realizada'));
+    const html = await pagina(C, {});
+    expect(html).toContain('<div class="space-y-2"><p role="status"></p><section aria-labelledby="cobranca"');
+    expect(html).toContain('<h2 id="cobranca" tabindex="-1" class="text-lg font-semibold">Cobrança</h2>');
+    expect(html).toMatch(/<h1 id="titulo-consulta" tabindex="-1"[^>]*>Consulta de Ana Souza<\/h1>/);
+  });
+
+  it.each([
+    ['cobranca_registrada', M.ok.salvo],
+    ['cobranca_salva', M.ok.salvo],
+    ['cobranca_recebida', M.ok.recebido],
+    ['cobranca_cancelada', M.ok.cancelado],
+  ])('?ok=%s → "%s" na região de cima da seção, uma vez só (fora do Aviso do topo)', async (ok, mensagem) => {
+    const C = await cenario();
+    await destino(presencaAction(C.c, 'realizada'));
+    const html = await pagina(C, { ok, envio: '1731800000000' });
+    expect(html).toContain(`<div class="space-y-2"><p role="status" class="${ESTILO_OK}">${mensagem}</p><section aria-labelledby="cobranca"`);
+    expect(ocorrencias(html, mensagem)).toBe(1);
+  });
+
+  it('cancelou a cobrança de uma "Faltou" (a seção sai): a região continua com "Lançamento cancelado."', async () => {
+    const C = await cenario();
+    await withTenant(C.ctx, (tx) => tx.execute(sql`update appointments set status = 'faltou' where id = ${C.c}`), app.db);
+    const html = await pagina(C, { ok: 'cobranca_cancelada', envio: '1731800000000' });
+    expect(html).toContain(`<div class="space-y-2"><p role="status" class="${ESTILO_OK}">${M.ok.cancelado}</p></div>`);
+    expect(html).not.toContain('<h2 id="cobranca"');
+    // sem a seção, o foco vai ao h1 da consulta
+    expect(html).toMatch(/<h1 id="titulo-consulta" tabindex="-1"/);
+  });
+
+  it('consulta sem seção e sem ok= da cobrança: sem a região; chave desconhecida não vira texto', async () => {
+    const C = await cenario();
+    expect(await pagina(C, {})).not.toContain('<div class="space-y-2"><p role="status"');
+    await destino(presencaAction(C.c, 'realizada'));
+    expect(await pagina(C, { ok: 'cobranca_<b>x</b>', envio: '1' })).toContain('<div class="space-y-2"><p role="status"></p><section');
   });
 });

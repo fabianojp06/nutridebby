@@ -17,8 +17,11 @@ import { ROTULO_CANAL, ROTULO_TIPO, situacaoDaNotificacao, type Canal, type Tipo
 import { cancelarAction, moverAction, presencaAction } from '../../actions';
 import { ConsultaForm } from '../../consulta-form';
 import { AVISO_ROTULO, lerAvisos, selosDaConsulta } from '../../periodo';
+import { Mensagens } from '../../../financeiro/mensagens';
+import { marcadorDoEnvio } from '../../../financeiro/topo';
 import { CancelarForm } from './cancelar-form';
 import { SecaoCobranca } from './cobranca';
+import { ALVOS_DA_COBRANCA, ID_TITULO_CONSULTA } from './ids';
 import { PresencaForm } from './presenca';
 import { Aviso } from '@/components/ui/aviso';
 
@@ -26,7 +29,11 @@ export const dynamic = 'force-dynamic';
 
 const F = MSG_FINANCEIRO;
 const CONFIGURACOES = '/painel/financeiro/configuracoes';
-/** `?ok=` das ações da seção "Cobrança" (cobranca-actions.ts) → os textos de sucesso do Financeiro (§6.2). */
+/**
+ * `?ok=` das ações da seção "Cobrança" (cobranca-actions.ts) → os textos de sucesso do Financeiro (§6.2), na região fixa
+ * logo acima da seção (§7), não no `Aviso` do topo: o botão tocado some quando a seção remonta, e o foco vai para o h2
+ * "Cobrança".
+ */
 const OK_DA_COBRANCA: Record<string, string> = {
   cobranca_registrada: F.ok.salvo,
   cobranca_salva: F.ok.salvo,
@@ -64,7 +71,8 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
   const secao = await cobrancaDaConsulta(ctx, tenant, c.id);
   const presenca = sp.ok === 'presenca' ? mensagemDaPresenca(sp.cobranca, secao.cobranca?.valorCentavos ?? null) : null;
   const okDaCobranca = typeof sp.ok === 'string' && Object.hasOwn(OK_DA_COBRANCA, sp.ok) ? OK_DA_COBRANCA[sp.ok] : null;
-  const ok = sp.ok === 'marcada' ? MSG_AGENDA.marcada : sp.ok === 'alterada' ? MSG_AGENDA.alterada : sp.ok === 'cancelada' ? MSG_AGENDA.cancelada : okDaCobranca;
+  const ok = sp.ok === 'marcada' ? MSG_AGENDA.marcada : sp.ok === 'alterada' ? MSG_AGENDA.alterada : sp.ok === 'cancelada' ? MSG_AGENDA.cancelada : null;
+  const mostrarCobranca = c.status === 'realizada' || secao.cobranca !== null;
   const ativa = STATUS_ATIVOS.includes(c.status);
   const agora = new Date();
   const comecou = c.status !== 'cancelada' && c.inicio.getTime() <= agora.getTime();
@@ -77,7 +85,7 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
       <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
         <p className="text-sm"><Link href={`/painel/agenda?data=${p.data}`} className="text-link underline">Agenda</Link></p>
         <header className="space-y-1">
-          <h1 className="font-titulo text-2xl font-semibold">{`Consulta de ${c.paciente}`}</h1>
+          <h1 id={ID_TITULO_CONSULTA} tabIndex={-1} className="font-titulo text-2xl font-semibold">{`Consulta de ${c.paciente}`}</h1>
           <p>{`${formatarQuando(c.inicio, tenant.fuso)}–${partesNoFuso(c.fim, tenant.fuso).hora} · ${ROTULO_MODALIDADE[c.modalidade]}`}</p>
           {c.linkOnline && <p className="text-sm">Link da chamada: <a href={c.linkOnline} className="text-link underline" rel="noreferrer" target="_blank">{c.linkOnline}</a></p>}
           <ul className="flex flex-wrap gap-1 text-sm" aria-label="Situação">
@@ -95,8 +103,15 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
             <PresencaForm realizada={presencaAction.bind(null, c.id, 'realizada')} faltou={presencaAction.bind(null, c.id, 'faltou')} />
           </section>
         )}
-        {(c.status === 'realizada' || secao.cobranca) && (
-          <SecaoCobranca key={[sp.envio, secao.cobranca?.valorCentavos, secao.cobranca?.pagoEm].join('|')} consultaId={c.id} cobranca={secao.cobranca} motivo={secao.motivo} valorSugerido={secao.valorSugerido} hoje={hojeNoFuso(tenant.fuso, agora)} />
+        {/* §7: a região fica montada enquanto a seção existe (e depois de cancelar a cobrança de uma "Faltou", que tira a
+            seção), fora do `key` da seção, para o texto do `ok=` ser anunciado; o foco vai ao h2 (ou ao h1, sem a seção) */}
+        {(mostrarCobranca || okDaCobranca) && (
+          <div className="space-y-2">
+            <Mensagens texto={okDaCobranca ?? ''} tipo="ok" focar={okDaCobranca !== null} marcador={marcadorDoEnvio(sp.envio)} alvos={ALVOS_DA_COBRANCA} />
+            {mostrarCobranca && (
+              <SecaoCobranca key={[sp.envio, secao.cobranca?.valorCentavos, secao.cobranca?.pagoEm].join('|')} consultaId={c.id} cobranca={secao.cobranca} motivo={secao.motivo} valorSugerido={secao.valorSugerido} hoje={hojeNoFuso(tenant.fuso, agora)} />
+            )}
+          </div>
         )}
         {podeAtender && (
           <p><Link href={`/painel/pacientes/${c.patientId}/atendimentos?consulta=${c.id}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Iniciar atendimento</Link></p>
