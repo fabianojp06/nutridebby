@@ -13,9 +13,12 @@ export default async function ProntuarioLayout({ children, params }: LayoutProps
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   // Plano 15 (US-175, DP-17): a aba "IA Nutri" com a IA Nutri ativada no consultório ou com participação (o paciente
   // arquivado ou bloqueado, ou de consultório que desligou, ainda tem a conversa e o registro da desativação)
-  const iaNutri = tenant.iaNutriAtivadaEm !== null || (await temParticipacao(ctx, paciente.id));
-  // Plano 18 (D13, RN-275): a última avaliação, uma leitura auditada por execução do layout
-  const medidas = linhaDoCabecalho(await carregarCabecalho(id));
+  // Plano 18 (D13, RN-275): a última avaliação, uma leitura auditada por execução do layout; as duas consultas em paralelo
+  const [iaNutri, cabecalho] = await Promise.all([
+    tenant.iaNutriAtivadaEm !== null ? true : temParticipacao(ctx, paciente.id),
+    carregarCabecalho(id),
+  ]);
+  const medidas = linhaDoCabecalho(cabecalho);
   const selo = seloDoPaciente(paciente);
   const partes = [
     paciente.dataNascimento ? `${idadeEm(paciente.dataNascimento, hojeNoFuso(tenant.fuso))} anos` : null,

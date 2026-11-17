@@ -35,6 +35,7 @@ vi.mock('@/modules/ficha/resumo', async (importOriginal) => ({
 vi.mock('./inicio/acoes', () => ({ acoesDoAdicionar: () => ({ 'criar-receita': vi.fn(), 'criar-parecer': vi.fn() }) }));
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => ({ push: () => undefined }) }));
 const { default: InicioPage } = await import('./page');
+const { MSG_BLOQUEADO } = await import('@/modules/pacientes/base');
 
 const secao = (id: string, titulo: string, aba: string, total = 0): SecaoNoInicio => ({
   id,
@@ -94,6 +95,15 @@ describe('aba Início (Plano 18)', () => {
     expect(html).not.toContain('data-guia="adicionar-prontuario"');
     expect(html).not.toContain('Adicionar ao prontuário');
     expect(html).toContain('Antropometria (5)');
+    // o aviso do antigo Resumo (o mesmo do Perfil), no topo do Início
+    expect(MSG_BLOQUEADO).toBe('Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.');
+    expect(html.startsWith(`<div class="space-y-6"><p role="status">${MSG_BLOQUEADO}</p>`)).toBe(true);
+  });
+
+  it('o aviso de bloqueado só aparece para o paciente bloqueado', async () => {
+    expect(await render()).not.toContain(MSG_BLOQUEADO);
+    estado.paciente = { ...estado.paciente, status: 'arquivado' };
+    expect(await render()).not.toContain(MSG_BLOQUEADO);
   });
 
   it('anonimizado: sem Adicionar', async () => {

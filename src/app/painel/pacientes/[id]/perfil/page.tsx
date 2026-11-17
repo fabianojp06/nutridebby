@@ -1,3 +1,4 @@
+import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
 import { etiquetasDoPaciente, listarEtiquetas } from '@/modules/pacientes/etiquetas';
 import { situacaoDoAcesso, situacaoDoConviteWhatsapp } from '@/modules/pacientes/convite-paciente';
 import { atualizarPacienteAction, reenviarConviteAction, salvarEtiquetasAction } from '../../actions';
@@ -24,7 +25,7 @@ export default async function PerfilPage({ params }: PageProps<'/painel/paciente
     <div className="grid gap-8 md:grid-cols-2">
       <section aria-labelledby="cadastro-titulo" className="max-w-xl space-y-3">
         <h2 id="cadastro-titulo" className="text-lg font-semibold">Cadastro</h2>
-        {bloqueado && <p role="status">Paciente bloqueado por pedido de exclusão: o prontuário é só para consulta.</p>}
+        {bloqueado && <p role="status">{MSG_BLOQUEADO}</p>}
         <PacienteForm
           acao={atualizarPacienteAction.bind(null, paciente.id)}
           inicial={valoresDoPaciente(paciente)}

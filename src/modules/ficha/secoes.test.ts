@@ -9,6 +9,7 @@ import { DO_PLANO_18, ehDoPlano18 } from '../../../test/ficha';
 import { anamneses, anamnesisTemplates, anthropometry, auditLog, consultations, energyCalcs, exams, mealPlans, patients } from '@/db/schema';
 import { TenantContextError, withTenant } from '@/db/tenant';
 import { secoesDoInicio, type SecaoNoInicio } from './inicio';
+import { secaoExamesEnviados } from './secoes/exames-enviados';
 import type { PacienteDaSecao, SecaoDaFicha, TenantDaSecao } from './tipos';
 
 // Plano 18 (D14, RN-277, RN-278): as seções do Início numa transação `nutri`, só contador e rótulos genéricos, sem trilha.
@@ -241,15 +242,22 @@ describe('secoesDoInicio (RN-277, RN-278)', () => {
     ]);
   });
 
-  it('envios (RN-192): o envio "recebido" do titular bloqueado não conta — total 0 e, sem o recebimento ligado, a seção some', async () => {
+  it('envios: titular bloqueado ou anonimizado — a seção some (nunca "(0) Nenhum registro ainda." com envios guardados), como na fila', async () => {
     const T = await novoTenant(app.db);
     const desligado: TenantDaSecao = { ...TUDO_LIGADO, examesPacienteAtivadoEm: null };
     const p = await novoPaciente(app.db, T.ctx);
     await envioNoBanco(app.db, T.ctx, p.id, { status: 'recebido' });
     await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, p.id)), app.db);
     const bloqueado = comoPaciente({ ...p, status: 'bloqueado' });
-    expect(secao(await secoesDoInicio(T.ctx, TUDO_LIGADO, bloqueado, { db: app.db }), 'exames-enviados')!.resumo).toEqual({ total: 0, ultimos: [] });
+    expect(secao(await secoesDoInicio(T.ctx, TUDO_LIGADO, bloqueado, { db: app.db }), 'exames-enviados')).toBeUndefined();
     expect(secao(await secoesDoInicio(T.ctx, desligado, bloqueado, { db: app.db }), 'exames-enviados')).toBeUndefined();
+    // as outras seções continuam (só para consulta)
+    expect(secao(await secoesDoInicio(T.ctx, TUDO_LIGADO, bloqueado, { db: app.db }), 'exames')).toBeDefined();
+    // anonimizado (arquivado): a seção também some
+    const anonimizado = comoPaciente({ ...p, status: 'arquivado', anonimizadoEm: new Date('2026-10-01T12:00:00Z') });
+    expect(secao(await secoesDoInicio(T.ctx, TUDO_LIGADO, anonimizado, { db: app.db }), 'exames-enviados')).toBeUndefined();
+    // monotonia no total (JSDoc de disponivel): para o titular bloqueado é false com qualquer total
+    for (const total of [0, 1, Number.POSITIVE_INFINITY]) expect(secaoExamesEnviados.disponivel(TUDO_LIGADO, bloqueado, total)).toBe(false);
   });
 
   it('plano: rascunho, publicado e arquivado com a situação, a versão mais nova primeiro', async () => {

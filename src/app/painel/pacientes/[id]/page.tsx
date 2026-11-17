@@ -5,6 +5,7 @@ import { secoesDoInicio } from '@/modules/ficha/inicio';
 import { cartaoResumo, linhasDoResumo } from '@/modules/ficha/resumo';
 import { MSG_FICHA } from '@/modules/ficha/textos';
 import { MSG_RESUMO } from '@/modules/ia/constantes';
+import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
 import { iaDoAssistente } from './ia-assistente';
 import { acoesDoAdicionar } from './inicio/acoes';
 import { Adicionar } from './inicio/adicionar';
@@ -14,7 +15,7 @@ import { carregarProntuario } from './prontuario';
 export const dynamic = 'force-dynamic';
 
 /**
- * Aba Início (Plano 18, US-262, US-263): o botão Adicionar (nunca para bloqueado ou anonimizado; arquivado registra, como
+ * Aba Início (Plano 18, US-262, US-263): o aviso do paciente bloqueado, o botão Adicionar (nunca para bloqueado ou anonimizado; arquivado registra, como
  * cada aba), o cartão Resumo (RN-276), o bloco da IA (US-120) e as seções do registro, na ordem dele (RN-277, RN-278). O
  * cadastro, o acesso ao app e as etiquetas ficam no Perfil (D12).
  */
@@ -26,11 +27,14 @@ export default async function InicioPage({ params }: PageProps<'/painel/paciente
     secoesDoInicio(ctx, tenant, paciente),
     cartaoResumo(ctx, tenant.fuso, paciente),
   ]);
-  const podeAdicionar = paciente.status !== 'bloqueado' && !paciente.anonimizadoEm;
+  const bloqueado = paciente.status === 'bloqueado';
+  const podeAdicionar = !bloqueado && !paciente.anonimizadoEm;
   const grupos = podeAdicionar ? montarAdicionar(paciente.id, secoes) : [];
   const chaves = grupos.flatMap((g) => g.itens.flatMap((i) => ('acao' in i ? [i.acao] : [])));
   return (
     <div className="space-y-6">
+      {/* o aviso que o antigo Resumo mostrava (code review do PR 1 do Plano 18), o mesmo do Perfil */}
+      {bloqueado && <p role="status">{MSG_BLOQUEADO}</p>}
       {podeAdicionar && <Adicionar grupos={grupos} acoes={acoesDoAdicionar(paciente.id, chaves)} />}
       <div className="grid gap-6 md:grid-cols-2">
         <Cartao id="resumo-titulo" titulo={MSG_FICHA.resumo.titulo}>

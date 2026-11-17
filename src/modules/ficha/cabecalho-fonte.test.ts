@@ -37,7 +37,8 @@ describe('carregarCabecalho (RN-275)', () => {
   it('o layout lê o cabeçalho só por `carregarCabecalho`, de `./prontuario` (de `cabecalho.ts`, só o formato)', () => {
     const src = readFileSync(LAYOUT, 'utf8');
     expect(src).toMatch(/import \{[^}]*\bcarregarCabecalho\b[^}]*\} from '\.\/prontuario'/);
-    expect(src).toMatch(/await carregarCabecalho\(/);
+    // chamado com o id da rota, direto ou no Promise.all com a participação da IA Nutri (code review do PR 1 do Plano 18)
+    expect(src).toMatch(/await (?:carregarCabecalho\(|Promise\.all\(\[[^\]]*\bcarregarCabecalho\(id\))/);
     expect(src).not.toMatch(/\blerCabecalho\b/);
   });
 });

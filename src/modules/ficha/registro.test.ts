@@ -26,6 +26,10 @@ const IMPORTS_PERMITIDOS = [
   '@/db/schema',
   '@/modules/pacientes/datas',
   '@/modules/documentos/constantes',
+  // exames-enviados.ts (seção): o filtro do titular (doTitular/titularVisivel), o mesmo da fila "Exames recebidos". O
+  // módulo só chama auditRead dentro de abrirEnvio; importar o filtro não audita nada (code review do PR 1 do Plano 18)
+  '@/modules/pacientes/exames-enviados',
+  '@/modules/pacientes/exames-enviados-constantes',
   '../textos',
   '../tipos',
   './comum',

@@ -25,10 +25,11 @@ export type EnvioNaFila = { id: string; patientId: string; paciente: string; env
 
 /**
  * Revisão do plano (LGPD art. 16, minimização): entre o atendimento da exclusão e o job exclusao-atendida (ou por até um dia, se
- * o job falhar de vez), os envios do titular bloqueado ou anonimizado não aparecem na fila, nos contadores nem abrem.
+ * o job falhar de vez), os envios do titular bloqueado ou anonimizado não aparecem na fila, nos contadores nem abrem. A seção
+ * "Exames enviados" do Início (Plano 18, `src/modules/ficha/secoes/exames-enviados.ts`) usa o mesmo filtro.
  */
-const doTitular = and(eq(patients.tenantId, examSubmissions.tenantId), eq(patients.id, examSubmissions.patientId));
-const titularVisivel = and(ne(patients.status, 'bloqueado'), isNull(patients.anonimizadoEm));
+export const doTitular = and(eq(patients.tenantId, examSubmissions.tenantId), eq(patients.id, examSubmissions.patientId));
+export const titularVisivel = and(ne(patients.status, 'bloqueado'), isNull(patients.anonimizadoEm));
 
 /** US-162: a fila "Exames recebidos" — todos os pacientes, os mais antigos primeiro. Só lista: sem auditRead (como a lista de pacientes). */
 export async function filaDeEnvios(ctx: TenantContext, db: Db = getDb()): Promise<EnvioNaFila[]> {
