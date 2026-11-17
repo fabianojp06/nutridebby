@@ -46,7 +46,7 @@ O papel fica em `user.app_role`, com três valores aceitos pela restrição `use
 Pontos que importam:
 
 - **Um login, um papel.** O e-mail é global e único (`user.email` é `citext` com `unique()`, `src/db/schema/auth.ts`). A spec (§3, "Modelo de identidade") manda usar outro e-mail para ser nutricionista e paciente ao mesmo tempo. O convite de paciente recusa e-mail de conta da equipe (`MSG_CONVITE_PACIENTE.contaDeEquipe`, `src/modules/pacientes/convite-paciente.ts:26`, checado em `prepararAceite`, linha 176).
-- **A conta de paciente não tem tenant.** `aceitarConvitePaciente` grava o `user` sem `tenantId` (`convite-paciente.ts:236`). O vínculo com cada consultório é a linha `patients.user_id`. Por isso o paciente pode ser atendido por várias nutricionistas com o mesmo login (spec §3).
+- **A conta de paciente não tem tenant.** `aceitarConvitePaciente` grava o `user` sem `tenantId` (`convite-paciente.ts:263`). O vínculo com cada consultório é a linha `patients.user_id`. Por isso o paciente pode ser atendido por várias nutricionistas com o mesmo login (spec §3).
 - **O admin nunca consulta tabela com `tenant_id`.** `withTenant` aceita só `nutri`, `paciente`, `worker` e `publico` e lança erro para qualquer outro papel (`src/db/tenant.ts`, `ROLES` e `assertContext`). Plano 01, Global Constraints (§4.1 da spec).
 - `appRole`, `tenantId` e `tema` são `additionalFields` com `input: false` (`auth.ts:142-149`): nenhum endpoint do Better Auth deixa o cliente gravá-los.
 
@@ -102,7 +102,7 @@ As rotas da última linha conferem a senha com a sessão aberta. O limite impede
 
 ## 3.4 Senha
 
-**Hash.** Argon2id por `@node-rs/argon2` 2.2.1: `memoryCost: 19456` (19 MiB), `timeCost: 2`, `parallelism: 1` (`src/lib/password.server.ts:6-9`). O Better Auth recebe essas funções em `emailAndPassword.password` (`auth.ts:70-73`). Os convites usam o mesmo `hashPassword` (`src/modules/plataforma/convites.ts:85`, `convite-paciente.ts:226`).
+**Hash.** Argon2id por `@node-rs/argon2` 2.2.1: `memoryCost: 19456` (19 MiB), `timeCost: 2`, `parallelism: 1` (`src/lib/password.server.ts:6-9`). O Better Auth recebe essas funções em `emailAndPassword.password` (`auth.ts:70-73`). Os convites usam o mesmo `hashPassword` (`src/modules/plataforma/convites.ts:85`, `convite-paciente.ts:253`).
 
 **Política.** `validatePasswordPolicy` (`src/lib/password-policy.ts:1`):
 
@@ -116,10 +116,10 @@ As rotas da última linha conferem a senha com a sessão aberta. O limite impede
 Onde a política roda:
 
 - `hooks.before` do Better Auth, só em `/reset-password` e `/change-password` (`auth.ts:166-169`).
-- `aceitarConvite` (nutricionista, `convites.ts:66`; política na linha 73) e `aceitarConvitePaciente` (`convite-paciente.ts:220`), que não passam pelo Better Auth.
+- `aceitarConvite` (nutricionista, `convites.ts:66`; política na linha 73) e `aceitarConvitePaciente` (`convite-paciente.ts:247`), que não passam pelo Better Auth.
 - No navegador, como ajuda, sem a lista comum (`src/app/definir-senha/page.tsx:17`).
 
-**Custo do argon2 e convite inválido.** Antes do hash, os dois aceites de convite conferem o token sem trava. Um POST anônimo com token ruim nunca gasta os ~19 MB do argon2 (T6-R2a, `convites.ts:78-85`; `convite-paciente.ts:223-226`).
+**Custo do argon2 e convite inválido.** Antes do hash, os dois aceites de convite conferem o token sem trava. Um POST anônimo com token ruim nunca gasta os ~19 MB do argon2 (T6-R2a, `convites.ts:78-85`; `convite-paciente.ts:250-253`).
 
 ---
 
@@ -328,7 +328,7 @@ A conta de paciente não tem tenant. Para abrir o portal é preciso saber **qual
 
 ### Contexto `conta` (Plano 06, D2)
 
-`withConta(userId, fn)` (`src/db/tenant.ts:109`) abre a transação com `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id` vazio. No banco, a política `paciente_por_conta` (`drizzle/0073_conta_vinculos.sql`, linha 6) libera **só `SELECT`** em `patients` onde `user_id` é a própria conta. Toda outra tabela devolve 0 linhas, porque nenhuma `tenant_isolation` casa sem tenant. Nada é gravado.
+`withConta(userId, fn)` (`src/db/tenant.ts:114`) abre a transação com `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id` vazio. No banco, a política `paciente_por_conta` (`drizzle/0073_conta_vinculos.sql`, linha 6) libera **só `SELECT`** em `patients` onde `user_id` é a própria conta. Toda outra tabela devolve 0 linhas, porque nenhuma `tenant_isolation` casa sem tenant. Nada é gravado.
 
 Uso restrito (CLAUDE.md, regra 1): `src/modules/portal/vinculos.ts` e a função `app_conta_sem_outro_vinculo` (`drizzle/0079_paciente_titular.sql`), usada na anonimização.
 
@@ -478,7 +478,7 @@ A Server Action (`src/app/convite/[token]/actions.ts`) faz login automático com
 
 ### Convite do paciente
 
-`inspecionarConvitePaciente` (`convite-paciente.ts:141`) lê o convite pelo token e o prontuário no contexto do próprio paciente, com `semConta: true` (paciente sem sessão; lista fechada em `SEM_CONTA_PERMITIDOS`, `src/db/tenant.ts`). Classifica a conta com aquele e-mail: `nenhuma`, `paciente` ou `equipe`.
+`inspecionarConvitePaciente` (`convite-paciente.ts:168`) lê o convite pelo token e o prontuário no contexto do próprio paciente, com `semConta: true` (paciente sem sessão; lista fechada em `SEM_CONTA_PERMITIDOS`, `src/db/tenant.ts`). Classifica a conta com aquele e-mail: `nenhuma`, `paciente` ou `equipe`.
 
 A página `src/app/convite/paciente/[token]/page.tsx` decide:
 
@@ -577,7 +577,7 @@ Tabela `consents` (`src/db/schema/access.ts`). É prova de aceite: sem `ON DELET
 | Marca extra | `tenants.dpa_aceito_em` e `tenants.dpa_versao` | — |
 | Onde é exigido | `requireNutri` compara `tenant.dpaVersao` com `DPA_VERSAO` | `requirePaciente` chama `termoAceito(userId, tenantId)` (`src/modules/portal/termo.ts:10`) |
 | Tela | `/painel/dpa` (`aceitarDpaAction`, `src/app/painel/actions.ts:12`); com uma versão anterior aceita (`tenant.dpaVersao` preenchido e diferente de `DPA_VERSAO`), mostra acima do texto o aviso `DPA_MUDOU` (`role="status"`): "O contrato de tratamento de dados mudou (versão 1.0, de 15/10/2026). Leia e aceite para continuar usando o painel." (texto livre: a spec não tem um para este caso) | `/p/termo` (`aceitarTermoAction`, `src/app/p/termo/actions.ts`) |
-| Primeiro aceite | no convite (`aceitarConvite`) | no convite (`registrarAceiteTermo`, `convite-paciente.ts:204`) |
+| Primeiro aceite | no convite (`aceitarConvite`) | no convite (`registrarAceiteTermo`, `convite-paciente.ts:231`) |
 | IP | gravado (`clientIp`) | gravado |
 
 `registrarAceiteDpa` (`dpa.ts:74`) só atualiza `tenants` quando a linha de `consents` foi de fato inserida. Assim a marca no tenant nunca diverge da prova (T6-R2b).

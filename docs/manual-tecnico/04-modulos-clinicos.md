@@ -14,10 +14,10 @@ Fonte de verdade: o código. Cada afirmação cita arquivo e linha (ou função)
 | Convenção | Como aparece no código | Onde |
 |---|---|---|
 | Tabela com `tenant_id` só dentro de `withTenant(ctx, fn)` | Todo serviço recebe `ctx: TenantContext` e abre a transação com `withTenant` | `src/db/tenant.ts`; regra 1 do CLAUDE.md |
-| Id da URL validado antes do banco | `idValido(id)` (`z.guid()`); id inválido vira "não encontrado", nunca erro 500 | `src/modules/pacientes/base.ts:24` |
-| Escrita no prontuário trava o paciente | `carregarPacienteParaEscrita(tx, id)`: `SELECT … FOR UPDATE`; bloqueado ou anonimizado lança `PacienteBloqueadoError`; arquivado continua editável | `src/modules/pacientes/base.ts:31` |
+| Id da URL validado antes do banco | `idValido(id)` (`z.guid()`); id inválido vira "não encontrado", nunca erro 500 | `src/modules/pacientes/base.ts:40` |
+| Escrita no prontuário trava o paciente | `carregarPacienteParaEscrita(tx, id)`: `SELECT … FOR UPDATE`; bloqueado ou anonimizado lança `PacienteBloqueadoError`; arquivado continua editável | `src/modules/pacientes/base.ts:47` |
 | Leitura de dado de saúde é auditada | `auditRead(tx, {entidade, entidadeId, patientId})` na mesma transação; escritas viram `audit_log` pelo gatilho `audit_row_change` | `src/modules/plataforma/audit.ts:28`; regra 8 do CLAUDE.md |
-| Erros por campo | Cada módulo tem uma classe `XxxError` com `erros: Record<campo, mensagem>` e textos em pt-BR da spec | ex.: `PacienteError` (`pacientes.ts:34`), `PlanoError` (`plano-alimentar/erros.ts:28`) |
+| Erros por campo | Cada módulo tem uma classe `XxxError` com `erros: Record<campo, mensagem>` e textos em pt-BR da spec | ex.: `PacienteError` (`pacientes/base.ts:18`), `PlanoError` (`plano-alimentar/erros.ts:28`) |
 | Datas "do dia" no fuso do tenant | `hojeNoFuso(fuso, agora)`, `idadeEm(nascimento, data)` | `src/modules/pacientes/datas.ts:16,23`; RN-06 |
 | Arredondamento | `arredondar(v, casas)` por notação exponencial (meio para cima, sem erro de ponto flutuante); `formatarDecimal` com vírgula e sem separador de milhar | `src/lib/numero.ts:15,21`; RNF-12 |
 | Ordem de travas | paciente → tenant (cota) → registro do arquivo/plano. Toda função que mexe em arquivo de paciente ou em plano respeita essa ordem para evitar deadlock | comentários em `armazenamento.ts:61`, `rascunho.ts:168`, `plano-pdf-job.ts:30` |
@@ -179,7 +179,7 @@ Servir arquivos (`src/app/api/arquivos/route.ts:21`):
 
 Como estender com segurança:
 
-1. Tipo novo de arquivo: acrescentar em `TipoDeArquivo`, no CHECK `stored_files_tipo_valido` (migration), em `TIPOS_DO_PACIENTE` se tiver dono, e no `MIME`/`CAMINHO_ARQUIVO` se a extensão for nova. Se o tipo tiver dono (paciente), confira também: o CHECK `stored_files_dono` (`drizzle/0071_stored_files_paciente.sql:7`, validado em `0072`), que exige `patient_id` exatamente para os tipos de paciente; a política `paciente_arquivos` (`0072`, refeita em `0085`), que decide o que o paciente enxerga; `anexosDoPaciente` (`src/modules/pacientes/lgpd.ts:304`), que apaga os arquivos na exclusão e na anonimização (LGPD), e a exportação (`exportacao-job.ts`), se o arquivo faz parte dos dados do titular. Se o arquivo for temporário (como `exportacao`), acrescente o `--exclude` do `rclone sync` de `data/` em `scripts/backup/nutri-backup.sh:118` (hoje só `/*/exportacao/**`), para não ir ao R2.
+1. Tipo novo de arquivo: acrescentar em `TipoDeArquivo`, no CHECK `stored_files_tipo_valido` (migration), em `TIPOS_DO_PACIENTE` se tiver dono, e no `MIME`/`CAMINHO_ARQUIVO` se a extensão for nova. Se o tipo tiver dono (paciente), confira também: o CHECK `stored_files_dono` (`drizzle/0071_stored_files_paciente.sql:7`, validado em `0072`), que exige `patient_id` exatamente para os tipos de paciente; a política `paciente_arquivos` (`0072`, refeita em `0085`), que decide o que o paciente enxerga; `anexosDoPaciente` (`src/modules/pacientes/lgpd.ts:441`), que apaga os arquivos na exclusão e na anonimização (LGPD), e a exportação (`exportacao-job.ts`), se o arquivo faz parte dos dados do titular. Se o arquivo for temporário (como `exportacao`), acrescente o `--exclude` do `rclone sync` de `data/` em `scripts/backup/nutri-backup.sh:118` (hoje só `/*/exportacao/**`), para não ir ao R2.
 2. Registro que aponta para o arquivo: gravar no `registrar` de `salvarArquivo` e apagar no `naMesmaTransacao` de `apagarArquivo`. Nunca em transação separada (regra 9 do CLAUDE.md; Plano 03, decisão "Arquivo e registro juntos").
 3. Respeitar a ordem de travas: dono em `antesDaReserva`/`naMesmaTransacao`, depois cota. Os documentos (Plano 10A) travam o paciente e o documento antes da cota em todo `salvarArquivo` que grava nele (`travarDocumentoAntesDaCota`, `src/modules/documentos/arquivos-do-preparo.ts`; ordem paciente → original → versão nova → tenant, cap. 09 §9.11.5).
 
@@ -276,14 +276,14 @@ A lista não audita (nome e contato), como a agenda (Plano 05, D10). Abrir o pro
 (abas, ordem, "Desde", nome social e o menu "Ações" por linha) está na [§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2);
 a agenda continua pedindo a ordem pelo nome de registro (`ordem: 'registro'`, que `filtroDaUrl` nunca devolve).
 
-Plano 14B-2: a página do paciente — desde o Plano 18, a aba Início da ficha (`src/app/painel/pacientes/[id]/page.tsx:43`) —
+Plano 14B-2: a página do paciente — desde o Plano 18, a aba Início da ficha (`src/app/painel/pacientes/[id]/page.tsx:87`) —
 ganha a seção "Inteligência artificial"
 com o link "Resumo do histórico (IA)" quando a IA permite o resumo (`iaDoAssistente`, `[id]/ia-assistente.ts:19`) ou o
 motivo quando não permite; nada aparece com a IA ausente, o consultório suspenso, o paciente não ativo ou a IA ainda não
 ativada. A tela `/painel/pacientes/[id]/resumo-ia` está na [§10.13.6](10-ia.md#10136-telas-e-manual-guiado).
 
 Plano 18 (D12): o formulário do cadastro, o "Acesso ao app" (antes "Acesso ao portal") e as "Etiquetas" saíram dessa
-página e foram para a aba Perfil (`src/app/painel/pacientes/[id]/perfil/page.tsx:12`), sem mudar as funções acima; as
+página e foram para a aba Perfil (`src/app/painel/pacientes/[id]/perfil/page.tsx:18`), sem mudar as funções acima; as
 três Server Actions (`atualizarPacienteAction`, `reenviarConviteAction`, `salvarEtiquetasAction`) mandam o login de volta
 ao Perfil (`requireNutri` com `/painel/pacientes/{id}/perfil`, `src/app/painel/pacientes/actions.ts:41,57,70`).
 Detalhe da ficha na [§4.2.10](#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1).
@@ -327,7 +327,7 @@ Modelo padrão (`modeloPadrao`, `anamnese-padrao.ts:6`): dez perguntas não obri
 Decisão (Plano 03, "Modelo padrão de anamnese"): criado na primeira listagem, não na criação da conta, porque a conta é criada pelo admin, que nunca toca tabela 🔒.
 
 **A anamnese e a IA (Plano 14B-2).** A anamnese mais recente vai ao resumo do histórico e, só com "Considerar a anamnese"
-marcada, ao rascunho de plano, sempre por `respostasMascaradas` (`src/modules/ia/pseudonimizar.ts:121`: pergunta e
+marcada, ao rascunho de plano, sempre por `respostasMascaradas` (`src/modules/ia/pseudonimizar.ts:141`: pergunta e
 resposta, na ordem do `template_snapshot`, mascaradas e cortadas em 2.000 caracteres; sem ids), nunca o modelo nem os ids
 das perguntas ([§10.13.1](10-ia.md#10131-o-que-sai-e-a-pseudonimização-d8d11-rn-115-rn-120)). O módulo de anamnese não
 mudou.
@@ -452,17 +452,17 @@ stateDiagram-v2
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `arquivarPaciente(ctx, id)` | `ativo` → `arquivado`; apaga convites pendentes. Prontuário mantido (RN-08) | `lgpd.ts:34` |
-| `desarquivarPaciente(ctx, id)` | `arquivado` → `ativo`; bloqueado lança erro | `lgpd.ts:54` |
-| `atenderPedidoExclusao(ctx, tenant, id, nomeDigitado)` | Confere o nome digitado; calcula `anonimizar_apos`; conclui (ou cria concluído) o `privacy_requests`; bloqueia; ver lista abaixo; enfileira `exclusao-atendida` na mesma transação | `lgpd.ts:86` |
-| `apagarFotosDoDiario(ctx, id)` | Remove fotos do diário (original e JPEG) com `removerAntesDoCommit`; o registro fica com `foto_status = 'removida'` | `lgpd.ts:190` |
-| `concluirExclusaoAtendida(data, deps)` | Job: apaga as fotos e **só depois** envia o e-mail "pedido atendido" (F-13). Na última tentativa o e-mail sai mesmo com erro de disco. Plano 15: antes do e-mail, as conversas da IA Nutri e a participação (`apagarIaNutriDoTitular`), menos a pergunta com risco não aberta, que fica até 30 dias (D22); o e-mail cita "as conversas com a IA Nutri" e essa guarda ([§10.14.7](10-ia.md#10147-retenção-exclusão-anonimização-e-exportação-rn-181-d8--180-dias-d22-76-133)) | `lgpd.ts:230` |
-| `pedidosDoTitularAbertos(ctx)` | Quadro "Pedidos do titular" do Início, prazo mais curto primeiro | `lgpd.ts:269` |
-| `anexosDoPaciente(tx, id)` | Laudos, exportações, PDFs de plano e fotos do diário do paciente | `lgpd.ts:289` |
+| `arquivarPaciente(ctx, id)` | `ativo` → `arquivado`; apaga convites pendentes. Prontuário mantido (RN-08) | `lgpd.ts:59` |
+| `desarquivarPaciente(ctx, id)` | `arquivado` → `ativo`; bloqueado lança erro | `lgpd.ts:79` |
+| `atenderPedidoExclusao(ctx, tenant, id, nomeDigitado)` | Confere o nome digitado; calcula `anonimizar_apos`; conclui (ou cria concluído) o `privacy_requests`; bloqueia; ver lista abaixo; enfileira `exclusao-atendida` na mesma transação | `lgpd.ts:113` |
+| `apagarFotosDoDiario(ctx, id)` | Remove fotos do diário (original e JPEG) com `removerAntesDoCommit`; o registro fica com `foto_status = 'removida'` | `lgpd.ts:232` |
+| `concluirExclusaoAtendida(data, deps)` | Job: apaga as fotos e **só depois** envia o e-mail "pedido atendido" (F-13). Na última tentativa o e-mail sai mesmo com erro de disco. Plano 15: antes do e-mail, as conversas da IA Nutri e a participação (`apagarIaNutriDoTitular`), menos a pergunta com risco não aberta, que fica até 30 dias (D22); o e-mail cita "as conversas com a IA Nutri" e essa guarda ([§10.14.7](10-ia.md#10147-retenção-exclusão-anonimização-e-exportação-rn-181-d8--180-dias-d22-76-133)) | `lgpd.ts:366` |
+| `pedidosDoTitularAbertos(ctx)` | Quadro "Pedidos do titular" do Início, prazo mais curto primeiro | `lgpd.ts:421` |
+| `anexosDoPaciente(tx, id)` | Laudos, exportações, PDFs de plano e fotos do diário do paciente | `lgpd.ts:441` |
 | `anonimizarVencidos(db, now)` | Job diário: por tenant (inclusive suspensos), rede de segurança das fotos, depois anonimiza cada bloqueado vencido. Plano 15: `app_anonimizar_consentimentos_ia_nutri` (tira IP, user-agent e conta do consentimento da IA Nutri) e `limparIaNutriNaAnonimizacao` (o que restou da conversa e a participação). Plano 18 (RN-283): apaga a linha de `patient_cadastro` e, no início de cada tenant, roda a rede `apagarCadastrosDosAnonimizados` | `lgpd.ts:498` |
 | `contaSemOutroVinculo(tx, userId)` / `anonimizarContaSemVinculo(tx, userId, now)` | P06-08: a conta de login sem outro vínculo é anonimizada; sessões, senha, 2FA e `verification` ligados a ela saem; só conta `paciente` | `conta-titular.ts:10,29` |
 
-O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:98-169`):
+O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:113-215`):
 
 1. `status = 'bloqueado'`, `bloqueado_em`, `anonimizar_apos`; desde o Plano 17, `lembretes_pausados_em` nulo no mesmo UPDATE
    (a única limpeza que o gatilho `patients_lembretes_do_paciente` deixa à sessão `nutri`).
@@ -473,14 +473,14 @@ O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:98-169`):
 6. `push_subscriptions` do vínculo apagadas (Plano 05, D14).
 7. Uso de conteúdo apagado (`apagarUsoDeConteudo`; Plano 07, D15).
 8. `access_events` apagados (`apagarAcessosDoTitular`; Plano 08, D13).
-9. Plano 17: lembretes de rotina apagados (`lgpd.ts:198`; as marcas de envio em cascata), depois do UPDATE do item 1 e da
+9. Plano 17: lembretes de rotina apagados (`lgpd.ts:201`; as marcas de envio em cascata), depois do UPDATE do item 1 e da
    trava do tenant de `cancelarTarefas` — a configuração é ajuste do app, não prontuário
    ([§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17)).
 10. `recordAudit('bloquear')` e job `exclusao-atendida`.
 
-Prazo de guarda: `PRAZO_GUARDA_ANOS = 20` (`lgpd.ts:41`), contado do **último registro do prontuário**, que no pedido de exclusão é o próprio bloqueio: `anonimizar_apos` = hoje no fuso do consultório + 20 anos (`lgpd.ts:123-126`), mesmo para quem tem atendimento antigo (JUR-01, decisão do dono em 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"). Até 09/10/2026 contava do último `consultations.data`; a migration de dados `0110_prazo_guarda_bloqueio` recalculou quem já estava bloqueado e não anonimizado — data do bloqueio (`bloqueado_em` no fuso do tenant; sem ela, o `concluido_em` do pedido de exclusão atendido) + 20 anos, só para mais (`GREATEST`), com o gatilho de auditoria ligado (`set_config` por tenant; um "alterar" de ator nulo por paciente que mudou). O 20 está repetido na migration. P-01 (o número) segue pendente com CRN/advogado.
+Prazo de guarda: `PRAZO_GUARDA_ANOS = 20` (`lgpd.ts:44`), contado do **último registro do prontuário**, que no pedido de exclusão é o próprio bloqueio: `anonimizar_apos` = hoje no fuso do consultório + 20 anos (`lgpd.ts:129-131`), mesmo para quem tem atendimento antigo (JUR-01, decisão do dono em 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"). Até 09/10/2026 contava do último `consultations.data`; a migration de dados `0110_prazo_guarda_bloqueio` recalculou quem já estava bloqueado e não anonimizado — data do bloqueio (`bloqueado_em` no fuso do tenant; sem ela, o `concluido_em` do pedido de exclusão atendido) + 20 anos, só para mais (`GREATEST`), com o gatilho de auditoria ligado (`set_config` por tenant; um "alterar" de ator nulo por paciente que mudou). O 20 está repetido na migration. P-01 (o número) segue pendente com CRN/advogado.
 
-A anonimização de cada paciente (`lgpd.ts:372-428`):
+A anonimização de cada paciente (`lgpd.ts:498-635`):
 
 1. Apaga cada anexo com `removerAntesDoCommit` (se o `rm` falhar, o registro fica e o dia seguinte tenta de novo).
 2. Trava o paciente; `app_anonimizar_aceites(id)` tira IP e conta dos aceites (migration 0065).
@@ -551,10 +551,10 @@ sequenceDiagram
 | `exportacoesRecentes(...)` | Últimos 5 pedidos, auditados | `exportacao.ts:171` |
 | `linkDaExportacao(appUrl, pedido)` | Titular: `/p/meus-dados/exportacoes/<id>` (com o consultório); equipe: `/painel/pacientes/<id>/exportacoes/<id>` | `exportacao.ts:37` |
 | `montarDados(tx, patientId, now, fuso, escopo)` | `dados.json` com paciente, anamneses, antropometria, gasto energético, exames, atendimentos (só orientações), planos (rascunho só no escopo `equipe`), pedidos LGPD, consultas, lembretes (mensagens das consultas), aceites, dispositivos push (sem endpoint), lembretes de rotina (`lembretesDeRotina`, Plano 17: configuração, texto, `ligado` e a escolha do titular, sem a marca de envio; e `paciente.lembretesPausadosEm`, nos dois escopos), diário e conteúdos; desde o Plano 18, `paciente.cadastro` (abaixo) | `exportacao-job.ts:421` |
-| `gerarExportacao(data, deps)` | Job idempotente: só age sobre `pendente`; cota esgotada, anonimização no meio ou última tentativa → `falhou` | `exportacao-job.ts:474` |
-| `expirarExportacao` / `expirarExportacoesVencidas` | Apaga o ZIP e marca `expirada` na transação do arquivo; a varredura diária pega o que o job de +24 h não conseguiu | `exportacao-job.ts:716,627` |
+| `gerarExportacao(data, deps)` | Job idempotente: só age sobre `pendente`; cota esgotada, anonimização no meio ou última tentativa → `falhou` | `exportacao-job.ts:780` |
+| `expirarExportacao` / `expirarExportacoesVencidas` | Apaga o ZIP e marca `expirada` na transação do arquivo; a varredura diária pega o que o job de +24 h não conseguiu | `exportacao-job.ts:1021,932` |
 
-Conteúdo do ZIP: `dados.json`, `prontuario.pdf`, `laudos/<data>-<nn>.<ext>` e `diario/<data>-<n>.jpg` (nomes sem texto do usuário; `exportacao-job.ts:297,305,531`). Laudos e fotos guardados sem recompressão. Acima de `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:153`) o que não cabe fica fora com `laudosForaDoZip = true`.
+Conteúdo do ZIP: `dados.json`, `prontuario.pdf`, `laudos/<data>-<nn>.<ext>` e `diario/<data>-<n>.jpg` (nomes sem texto do usuário; `exportacao-job.ts:532,540,838-839`). Laudos e fotos guardados sem recompressão. Acima de `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:354`) o que não cabe fica fora com `laudosForaDoZip = true`.
 
 Nunca exportados: `consultation_notes`, `patient_tags`/`patient_tag_links` (Plano 03, "Conteúdo da exportação"), motivo de cancelamento escrito pela nutricionista, texto e destino das mensagens.
 
@@ -622,7 +622,7 @@ O Início também fica ativo em `/app` e `/resumo-ia`, páginas que saem dele se
 estima cerca de 1170 de 1232 px, e o E2E confere (`acessibilidade-painel.spec.ts`, caso "Plano 18: a faixa de abas…",
 `scrollWidth <= clientWidth` e axe sem "incomplete"). Uma 14ª aba não cabe (R-266).
 
-**Perfil** (`perfil/page.tsx:12`) recebeu, como estavam no Resumo:
+**Perfil** (`perfil/page.tsx:18`) recebeu, como estavam no Resumo:
 
 - "Cadastro" (`PacienteForm`, "Salvar cadastro");
 - "Acesso ao app" (título que era "Acesso ao portal"), com `textoDoAcesso`, a linha do convite por WhatsApp e
@@ -655,7 +655,7 @@ A ficha só lê o cabeçalho por `carregarCabecalho` (`src/app/painel/pacientes/
 
 - É um `cache()` do React com chave texto (`patientId`), como `carregarProntuario` (`:13`), de onde vem o `ctx`.
 - Mora em `src/app` porque `src/modules` não importa de `@/app`.
-- O layout chama uma vez (`layout.tsx:18`) e põe a linha com `print:hidden` (`:37`): a folha impressa pode ir para a mão
+- O layout chama uma vez (`layout.tsx:19`) e põe a linha com `print:hidden` (`:55`): a folha impressa pode ir para a mão
   do paciente com o peso oculto (RN-203).
 - Com `peso_oculto_no_app_em`, aparece o selo "Peso oculto no app" (`:33`). O painel continua mostrando o peso (RN-204).
 
@@ -669,7 +669,7 @@ outra chamada direta, que gravaria mais uma linha:
 
 #### Página Início (US-262, US-263)
 
-`InicioPage` (`src/app/painel/pacientes/[id]/page.tsx:21`) carrega três coisas em paralelo (`:24`), cada uma na sua
+`InicioPage` (`src/app/painel/pacientes/[id]/page.tsx:49`) carrega três coisas em paralelo (`:55`), cada uma na sua
 transação: `iaDoAssistente`, `secoesDoInicio` e `cartaoResumo`. A tela mostra, nesta ordem:
 
 1. O botão **Adicionar** (`:34`). Fica fora para paciente bloqueado ou anonimizado; o arquivado registra, como em cada
@@ -691,7 +691,7 @@ As seções e o cartão não gravam trilha (§2.8.3).
   vêm do paciente que `carregarProntuario` já leu e auditou, e a do plano é só uma data. `linhasDoResumo` (`:53`) monta as
   linhas. No PR 2, a nota "Cadastro incompleto" (RN-269) fica dentro do cartão e o cartão "No app do paciente" ao lado
   dele ([§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)).
-- **Seção** (`inicio/secao.tsx:13`, RN-278):
+- **Seção** (`inicio/secao.tsx:15`, RN-278):
   - `<details>` aberto quando `total > 0`;
   - `<summary>` em `block min-h-11 py-2`, sem `flex`, com o `<h3>` "{Título} ({n})" e a seta em SVG `aria-hidden`;
   - no corpo, até 3 links "{rótulo} · {dd/mm/aaaa} · {situação}" e "Ver todos", com o nome acessível
@@ -732,7 +732,7 @@ As seções e o cartão não gravam trilha (§2.8.3).
 | `aba` | Segmento da aba do "Ver todos" (`''` = Início), quando não há `verTodos` |
 | `verTodos?(patientId)` | "Ver todos" fora da ficha: caminho absoluto em `/painel/` (ex.: o Financeiro do Plano 20). Resolvido por `verTodosDa` (`inicio.ts:22`) |
 | `disponivel(tenant, paciente, total)` | Se a seção aparece. **Monótona no total**: com o total maior, nunca passa de `true` a `false` (`tipos.ts:45-50`). `secoesDoInicio` chama primeiro com `Number.POSITIVE_INFINITY` e pula sem consultar a seção que não apareceria com total nenhum (`inicio.ts:50`); depois confere com o total real (`:52`). O `total` só serve à RN-192 (envios) |
-| `resumo(tx, patientId, fuso)` | Contador e os 3 últimos numa consulta (`count(*) over ()` + `limit 3`: `totalJunto` e `LIMITE_DA_SECAO`, `secoes/comum.ts:6,9`); o fuso converte instantes no dia do tenant (`diaNoFuso`, `:12`). Pode devolver `podeAdicionar: false` para esconder o `adicionar` da seção (padrão `true`) |
+| `resumo(tx, patientId, fuso)` | Contador e os 3 últimos numa consulta (`count(*) over ()` + `limit 3`: `totalJunto` e `LIMITE_DA_SECAO`, `secoes/comum.ts:8,11`); o fuso converte instantes no dia do tenant (`diaNoFuso`, `:14`). Pode devolver `podeAdicionar: false` para esconder o `adicionar` da seção (padrão `true`) |
 | `leitura?: { entidade }` | Seção que devolve dado auditado (o Financeiro do Plano 20). `inicio.ts` grava **um** `auditRead` dessa entidade, com `entidadeId: null`, na mesma transação e só quando a seção devolve itens (`inicio.ts:53`). O arquivo da seção nunca chama `auditRead`. Nenhuma das 8 seções do Plano 18 declara `leitura` |
 | `adicionar?` | Lista de `{ grupo, rotulo, destino }`: grupo `'avaliacoes' \| 'prescricoes' \| 'outros'` (`tipos.ts:31`; "Outros" só aparece quando alguma seção o usa); destino `{ href }` (relativo à ficha, sem `/` inicial, ou absoluto em `/painel/`) ou `{ acao: ChaveDeAcao }` (`'criar-receita' \| 'criar-parecer'`, `tipos.ts:25,28`) |
 | `noApp?` | `contar` e `visiveis` sobre `TxDePaciente` (`tipos.ts:22`, tipo marcado que só `no-app.ts` cria). Implementam (PR 2): `plano-alimentar`, `antropometria`, `atendimentos`, `exames-enviados` e `documentos` |
@@ -1179,12 +1179,12 @@ Spec × código (o código foi descrito acima; a spec deve ser corrigida ou a de
 4. **§7 `anamnesis_templates`.** A spec lista só `nome` e `schema`; o código tem também `padrao` (índice único parcial) e `arquivado_em`. A US-012 diz que o modelo padrão existe "ao criar a conta"; o código o cria na primeira listagem (`garantirModeloPadrao`, `anamnese.ts:36`) — efeito igual para a usuária, momento diferente.
 5. **§7 `exams.arquivo_path`.** A spec trata como campo livre; o código tem FK para `stored_files.caminho` com `ON DELETE SET NULL` e CHECK `exams_arquivo_do_tenant` (desvio do Plano 03 não refletido na §7).
 6. **US-021, cenário "Alimento em uso".** O cenário diz "Este alimento está em um plano e não pode ser excluído."; o código diz "Este alimento está em um plano ou receita e não pode ser excluído." (`alimentos-constantes.ts`, `MSG_ALIMENTO.emUso`; Plano 07, D12). A nota do Plano 07 (`…-historias.md:1367`) já traz o texto novo; o cenário original não foi corrigido.
-7. **US-018, cenário "Exportar": "dados.json (todas as tabelas de P)".** O código exclui as tabelas `staff_only` (notas privadas, etiquetas) e o motivo de cancelamento escrito pela nutricionista (`exportacao-job.ts:107,129,215`). É decisão do Plano 03 ("Conteúdo da exportação") e está na US-046, mas o texto da US-018 não diz.
-8. **US-018 "anonimizar_apos = última consulta + prazo".** **Resolvida (JUR-01, 09/10/2026):** o prazo passou a contar da data do bloqueio, o último registro do prontuário (`lgpd.ts:123-126`; migration `0110`), e a US-018 foi corrigida. Antes, o código contava da última data de atendimento registrado (`max(consultations.data)`).
+7. **US-018, cenário "Exportar": "dados.json (todas as tabelas de P)".** O código exclui as tabelas `staff_only` (notas privadas, etiquetas) e o motivo de cancelamento escrito pela nutricionista (`exportacao-job.ts:238,259,416`). É decisão do Plano 03 ("Conteúdo da exportação") e está na US-046, mas o texto da US-018 não diz.
+8. **US-018 "anonimizar_apos = última consulta + prazo".** **Resolvida (JUR-01, 09/10/2026):** o prazo passou a contar da data do bloqueio, o último registro do prontuário (`lgpd.ts:129-131`; migration `0110`), e a US-018 foi corrigida. Antes, o código contava da última data de atendimento registrado (`max(consultations.data)`).
 
 Plano × código:
 
-9. **Teto de laudos na exportação.** Decisão do dono no Plano 03: 200 MB. Código: `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:153`), valor do Plano 06, D16 (que passou a incluir as fotos do diário no mesmo teto). A tabela de decisões do Plano 03 ficou desatualizada.
+9. **Teto de laudos na exportação.** Decisão do dono no Plano 03: 200 MB. Código: `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:354`), valor do Plano 06, D16 (que passou a incluir as fotos do diário no mesmo teto). A tabela de decisões do Plano 03 ficou desatualizada.
 10. **DPA e termo do paciente.** **Resolvida (P08-06, 15/10/2026):** `DPA_VERSAO` e `TERMO_PACIENTE_VERSAO = '1.0'` (`dpa.ts:13`, `termo-paciente.ts:7`), como previa o Plano 08, D14, mas com o texto publicado pelo dono sem o advogado (na linha da A-D27). Antes, `'0.1-provisorio'` (Tarefa 8 bloqueada no E-09).
 
 Plano 18, PR 1 (ficha: Início, Perfil, cabeçalho e registro de seções; conferido no branch `plano-18-ficha-cadastro` em
@@ -1192,14 +1192,14 @@ Plano 18, PR 1 (ficha: Início, Perfil, cabeçalho e registro de seções; confe
 
 11. **RN-277 e Tarefa 1 do plano: o item de "Exames enviados pelo paciente" abre em `/painel/exames-recebidos/{id}`.**
     O código só leva à revisão nas situações recebido, aceito e recusado. Em processando, expirado e falhou, o item leva
-    à aba Exames do paciente (`ABRE_A_REVISAO`, `src/modules/ficha/secoes/exames-enviados.ts:14,41`). O motivo é a
+    à aba Exames do paciente (`ABRE_A_REVISAO`, `src/modules/ficha/secoes/exames-enviados.ts:14,43`). O motivo é a
     revisão final do PR 1: nessas situações, a página da revisão diria "Este envio já foi revisado." sem ninguém ter
     revisado. Spec e plano não foram atualizados.
 12. **RN-275: a última avaliação é `order by data desc, created_at desc limit 1`.** O código também desempata por
     `id desc` (`cabecalho.ts:32`), e a seção Antropometria usa a mesma ordem (`secoes/antropometria.ts:18`): o cabeçalho
     e o primeiro item da seção mostram sempre a mesma avaliação.
 13. **RN-277: `resumo(tx, patientId)`.** O código usa `resumo(tx, patientId, fuso)` (`src/modules/ficha/tipos.ts:55`):
-    o fuso do tenant converte os instantes no dia (`diaNoFuso`, `secoes/comum.ts:12`, RN-06).
+    o fuso do tenant converte os instantes no dia (`diaNoFuso`, `secoes/comum.ts:14`, RN-06).
 14. **Resolvida no PR 2 (Tarefa 9): o guia `inicio-paciente` foi à v2 com a frase do selo e o passo `no-app-cartao`.**
     Registro original — **Spec §8.3: o passo `secoes-inicio` do guia `inicio-paciente` termina com "O selo No app marca o que o paciente vê
     no app."** A v1 sai sem essa frase (`src/modules/ajuda/conteudo.ts:170`), porque o selo só existe a partir da

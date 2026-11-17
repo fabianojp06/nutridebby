@@ -728,7 +728,7 @@ suplemento e livre; §5.5.2):
   uma linha de `audit_log` (spec §5.5).
 
 **Classificação para a guarda (LGPD, Tarefa 7, NORMAS-03).** Como diz o comentário em `atenderPedidoExclusao`
-(`src/modules/pacientes/lgpd.ts:189-197`): "a configuração dos lembretes é ajuste do app, não prontuário. A conduta
+(`src/modules/pacientes/lgpd.ts:192-200`): "a configuração dos lembretes é ajuste do app, não prontuário. A conduta
 (plano alimentar, receita do suplemento) fica nos registros próprios (Res. CFN 594/2017; Res. CFN 656/2020, art. 3º, XI e
 XII). Por isso a equipe apaga de fato, e a exclusão atendida apaga na hora, como as notificações no aparelho e as
 conversas da IA Nutri […]; o `audit_log` guarda quem criou, alterou e excluiu, sem o conteúdo." O comentário da `0119`
@@ -739,11 +739,11 @@ não é prontuário — o registro clínico da conduta é o plano e a receita �
 prontuário e sai na hora.
 
 - **Exclusão atendida** (`atenderPedidoExclusao`): `lembretes_pausados_em` vai a nulo no mesmo UPDATE que leva o paciente a
-  `bloqueado` (`lgpd.ts:168`) e os lembretes são apagados (`:198`; as marcas em cascata) **depois** desse UPDATE (o
+  `bloqueado` (`lgpd.ts:171`) e os lembretes são apagados (`:201`; as marcas em cascata) **depois** desse UPDATE (o
   `lembretes_rotina_sem_apagar` só deixa a sessão `nutri` apagar o desligado pelo paciente com o titular `bloqueado`) e
   **depois** da trava do tenant de `cancelarTarefas` (ordem paciente → tenant → linhas, porque o `marcar` do worker segura o
   tenant `FOR SHARE` antes de gravar a marca; apagar antes faria um ciclo).
-- **Anonimização** (`anonimizarVencidos`, contexto `worker`): limpa a pausa (`lgpd.ts:565`) e apaga os lembretes gravados
+- **Anonimização** (`anonimizarVencidos`, contexto `worker`): limpa a pausa (`lgpd.ts:570`) e apaga os lembretes gravados
   depois do bloqueio (`:583`).
 - **Exportação** (`montarDados`, `src/modules/pacientes/exportacao-job.ts`): `paciente.lembretesPausadosEm` (`:113`) e a
   chave nova `lembretesDeRotina` (`:181`: `tipo`, `config`, `texto`, `ligado`, `desligadoPeloPacienteEm`, `criadoEm`), nos
@@ -1630,16 +1630,16 @@ mora numa aba que já tinha guia: nenhuma tela nova do painel, nada em `SEM_AJUD
 
 Plano 18, PR 1 (abas Início e Perfil, [§4.2.10](04-modulos-clinicos.md#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)):
 
-- **Guia novo `inicio-paciente`**, na versão 1 (`conteudo.ts:147`), com título "Início do paciente". O título "Início" é
+- **Guia novo `inicio-paciente`**, na versão 1 (`conteudo.ts:151`), com título "Início do paciente". O título "Início" é
   do guia de boas-vindas, e o teste "nenhum título de guia repetido" impede o mesmo h2 duas vezes no manual completo.
   - `padrao` `^/painel/pacientes/ID$`: só a aba Início da ficha.
   - Fica **antes** do `prontuario`, porque `guiaDaRota` pega o primeiro que casa, e o `prontuario` casa todas as abas.
-  - Os quatro passos têm os alvos `cabecalho-paciente` (`layout.tsx:28`), `abas-prontuario` (`abas.tsx:37`),
-    `adicionar-prontuario` (o botão Adicionar, `inicio/adicionar.tsx:28`) e `secoes-inicio` (`page.tsx:53`).
+  - Os quatro passos têm os alvos `cabecalho-paciente` (`layout.tsx:32`), `abas-prontuario` (`abas.tsx:37`),
+    `adicionar-prontuario` (o botão Adicionar, `inicio/adicionar.tsx:28`) e `secoes-inicio` (`page.tsx:97`).
   - Os dois primeiros repetem os textos do `prontuario`. "Adicionar" diz "Um botão só para registrar anamnese, medidas,
     exames, atendimentos e prescrições."; "Seções", "Cada seção mostra quantos registros há e os três mais recentes."
   - A frase do selo "No app" da spec §8.3 fica para a Tarefa 9, com a v2. O teste garante que a v1 não fala do selo.
-- **`prontuario` na v3** (`conteudo.ts:178`, comentário "3 = Plano 18: abas Início e Perfil"):
+- **`prontuario` na v3** (`conteudo.ts:213`, comentário "3 = Plano 18: abas Início e Perfil"):
   - Passo `cabecalho-paciente`: "Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o
     paciente está arquivado ou bloqueado.".
   - Passo `abas-prontuario`: "Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento
@@ -1904,7 +1904,7 @@ Plano 17 (lembretes de rotina; spec `docs/superpowers/specs/2026-11-13-nutridebb
 21. **Prioridade da fusão.** A spec (§5.2) lista "refeição > suplemento > livre > água" na fusão do mesmo minuto; o código
     (e o plano) põe o pedido do diário entre o livre e a água (`PRIORIDADE`, `src/modules/lembretes/constantes.ts:26`).
 22. **Apagamento.** A spec (§5.5) diz que as duas tabelas "saem na anonimização". O código também as apaga na exclusão
-    atendida, e a equipe apaga de fato (NORMAS-03: ajuste do app, não prontuário; `src/modules/pacientes/lgpd.ts:189-198`),
+    atendida, e a equipe apaga de fato (NORMAS-03: ajuste do app, não prontuário; `src/modules/pacientes/lgpd.ts:192-201`),
     salvo o lembrete que o paciente desligou (`0120`).
 23. **"A nutricionista não religa" no banco.** A spec (§5.3) e o plano (Tarefa 1) previam a regra no módulo e no gatilho de
     colunas; a revisão da Tarefa 1 acrescentou a migration `0120` (`lembretes_rotina_sem_apagar`: a equipe não apaga o
