@@ -9,7 +9,8 @@ import { withConta, withTenant, type TenantContext } from '@/db/tenant';
 /**
  * Plano 23 (spec §9), T1a: o que o banco garante sozinho nas tabelas e colunas novas da Agenda 2 — RLS (staff_only dos
  * locais, aguardando_fora_do_publico, paciente_aniversario_proprio), REVOKE, CHECKs, FKs compostas com o tipo do local e
- * índices únicos. SQL cru, sem módulo. Os gatilhos (T1b) e as peças SECURITY DEFINER (T1c, migrate-owner.test.ts, com dono
+ * índices únicos. SQL cru, sem módulo. T1b: os gatilhos `appointments_regras_pedido` (RN-421, RN-422), `tenants_agenda_da_equipe`
+ * (RN-420) e `aniversario_autorizacoes_regras` (RN-433). As peças SECURITY DEFINER (T1c, migrate-owner.test.ts, com dono
  * NOBYPASSRLS) têm testes próprios.
  */
 const app = makeDb(inject('appDatabaseUrl'));
@@ -46,7 +47,8 @@ const restricao = (codigo: string, nome: string) => (e: unknown) => {
 
 /**
  * Só as restrições, sem os gatilhos (dono superusuário com `session_replication_role = replica`, desfeito no fim): os CHECKs
- * de `appointments` ficam provados mesmo com o `appointments_regras_pedido` (T1b) decidindo o nascimento por sessão.
+ * de `appointments` ficam provados mesmo com o `appointments_regras_pedido` (T1b) decidindo o nascimento por sessão, e o de
+ * origem de `aniversario_autorizacoes` mesmo com o `aniversario_autorizacoes_regras` recusando a origem fora de `nutri`.
  */
 async function semGatilhos(texto: string, params: unknown[]): Promise<void> {
   const c = await owner.pool.connect();
@@ -345,7 +347,14 @@ describe('Plano 23 — Agenda 2 no banco (T1a: RLS, CHECKs e FKs)', () => {
     await expect(em(T.ctx, inserirAutorizacao(T, { patientId: p, forma: 'oral' }))).rejects.toSatisfy(check('aniversario_autorizacoes_forma_valida'));
     await expect(em(T.ctx, sql`insert into aniversario_autorizacoes (tenant_id, patient_id, evento, origem, forma, registrado_por)
       values (${T.tenantId}, ${p}, 'pediu', 'nutri', 'escrito', ${T.nutriId})`)).rejects.toSatisfy(check('aniversario_autorizacoes_evento_valido'));
-    await expect(em(T.ctx, inserirAutorizacao(T, { patientId: p, origem: 'email', forma: null }))).rejects.toSatisfy(check('aniversario_autorizacoes_origem_valida'));
+    // origem fora da lista: sem os gatilhos (na sessão nutri o aniversario_autorizacoes_regras recusa antes do CHECK)
+    await expect(
+      semGatilhos(`insert into aniversario_autorizacoes (tenant_id, patient_id, evento, origem, forma, registrado_por) values ($1, $2, 'autorizou', 'email', null, $3)`, [
+        T.tenantId,
+        p,
+        T.nutriId,
+      ]),
+    ).rejects.toSatisfy(check('aniversario_autorizacoes_origem_valida'));
     const linhas = await em(T.ctx, sql`select evento, origem, forma, registrado_por, registrado_em from aniversario_autorizacoes where patient_id = ${p}`);
     expect(linhas).toHaveLength(5);
     for (const l of linhas) expect(l).toMatchObject({ origem: 'nutri', registrado_por: T.nutriId });
@@ -419,5 +428,303 @@ describe('Plano 23 — Agenda 2 no banco (T1a: RLS, CHECKs e FKs)', () => {
       { acao: 'criar', actor_user_id: expect.any(String), patient_id: p },
       { acao: 'alterar', actor_user_id: T.nutriId, patient_id: p },
     ]);
+  });
+});
+
+// T1b: os gatilhos. A recusa de cada um é 42501 com a própria mensagem (nunca a da RLS nem a de permissão).
+const negadoPor = (trecho: string) => (e: unknown) => {
+  const { code, message } = erro(e);
+  return code === '42501' && message.includes(trecho);
+};
+const worker = (T: TenantDeTeste): TenantContext => ({ tenantId: T.tenantId, role: 'worker' });
+const ligarPedidos = (T: TenantDeTeste) => em(T.ctx, sql`update tenants set agenda_confirmar_pedidos = true where id = ${T.tenantId}`);
+/** Várias instruções na mesma transação (o marcador `app.agenda_remarcavel` é local a ela). */
+const naTransacao = <R>(ctx: TenantContext, fn: (q: (s: SQL) => Promise<Row[]>) => Promise<R>) =>
+  withTenant(ctx, (tx) => fn(async (s) => (await tx.execute(s)).rows as Row[]), app.db);
+
+type Nova = { origem?: 'nutri' | 'paciente'; status?: string; remarcadaDe?: string | null; inicio?: SQL };
+/** Consulta presencial; o `status` é o que o código mandaria (o gatilho decide na sessão do paciente e na pública). */
+const novaConsulta = (T: TenantDeTeste, patientId: string, n: Nova = {}) => {
+  const h = n.inicio ?? hora();
+  return sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status, remarcada_de)
+    values (${T.tenantId}, ${patientId}, ${h}, ${h} + interval '1 hour', 'presencial', ${n.origem ?? 'paciente'}, ${n.status ?? 'agendada'}, ${n.remarcadaDe ?? null})
+    returning id, status`;
+};
+const cancelar = (id: string, por: string) =>
+  sql`update appointments set status = 'cancelada', cancelado_por = ${por}, cancelada_em = now() where id = ${id} returning id`;
+const statusDa = async (T: TenantDeTeste, id: string) => (await em(T.ctx, sql`select status from appointments where id = ${id}`))[0].status;
+
+describe('Plano 23 — Agenda 2 no banco (T1b: gatilhos)', () => {
+  it('pedido (RN-421): a chave decide o nascimento na sessão do paciente e na pública; a equipe e o worker nunca criam pedido', async () => {
+    const T = await novoTenant(app.db);
+    const p = (await novoPaciente(app.db, T.ctx)).id;
+    const comoP = ctxPaciente(T.tenantId, p);
+    const nasce = async (ctx: TenantContext, n: Nova = {}) => (await em(ctx, novaConsulta(T, p, n)))[0].status;
+
+    // chave desligada: agendada, mesmo se o código mandar solicitada
+    expect(await nasce(comoP)).toBe('agendada');
+    expect(await nasce(comoP, { status: 'solicitada' })).toBe('agendada');
+    expect(await nasce(publico(T))).toBe('agendada');
+
+    await ligarPedidos(T);
+    expect(await nasce(comoP)).toBe('solicitada');
+    expect(await nasce(comoP, { status: 'confirmada' })).toBe('solicitada');
+    expect(await nasce(publico(T))).toBe('solicitada');
+    // solicitada só com origem paciente (o gatilho decide o status; o CHECK recusa a origem)
+    await expect(em(comoP, novaConsulta(T, p, { origem: 'nutri' }))).rejects.toSatisfy(restricao('23514', 'appointments_solicitada_do_paciente'));
+
+    // a equipe e o worker: o que o código mandou, nunca solicitada (o aceite da pessoa nova grava origem paciente na sessão nutri)
+    for (const ctx of [T.ctx, worker(T)]) {
+      expect(await nasce(ctx, { origem: 'nutri' })).toBe('agendada');
+      expect(await nasce(ctx)).toBe('agendada');
+      await expect(em(ctx, novaConsulta(T, p, { status: 'solicitada' }))).rejects.toSatisfy(negadoPor('só nasce pedido na sessão do paciente'));
+    }
+    // os motivos de pedido só existem saindo de solicitada: nunca no INSERT
+    await expect(
+      em(T.ctx, sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status, cancelado_por, cancelada_em)
+        values (${T.tenantId}, ${p}, ${hora()}, ${hora()}, 'presencial', 'paciente', 'cancelada', 'pedido_recusado', now())`),
+    ).rejects.toSatisfy(negadoPor('saindo de um pedido'));
+  });
+
+  it('remarcação (RN-421): o cancelamento pelo paciente libera UMA consulta agendada com remarcada_de, também em SAVEPOINT; desistir do pedido nunca libera', async () => {
+    const T = await novoTenant(app.db);
+    const p = (await novoPaciente(app.db, T.ctx)).id;
+    const outro = (await novoPaciente(app.db, T.ctx)).id;
+    const comoP = ctxPaciente(T.tenantId, p);
+    await ligarPedidos(T);
+    const marcada = async (patientId = p) => (await em(T.ctx, novaConsulta(T, patientId, { origem: 'nutri' })))[0].id as string;
+
+    // cancela a agendada e remarca: agendada; o segundo INSERT com o mesmo marcador volta a ser pedido
+    const a = await marcada();
+    expect(
+      await naTransacao(comoP, async (q) => {
+        await q(cancelar(a, 'paciente'));
+        const [n1] = await q(novaConsulta(T, p, { remarcadaDe: a }));
+        const [n2] = await q(novaConsulta(T, p, { remarcadaDe: a }));
+        return [n1.status, n2.status];
+      }),
+    ).toEqual(['agendada', 'solicitada']);
+
+    // confirmada também; dentro de SAVEPOINT (liberado) vale; desfeito o SAVEPOINT, o marcador vai junto
+    const b = await marcada();
+    await em(T.ctx, sql`update appointments set status = 'confirmada', confirmada_via = 'link' where id = ${b}`);
+    expect(
+      await naTransacao(comoP, async (q) => {
+        await q(sql`savepoint remarcar`);
+        await q(cancelar(b, 'paciente'));
+        const [n] = await q(novaConsulta(T, p, { remarcadaDe: b }));
+        await q(sql`release savepoint remarcar`);
+        return n.status;
+      }),
+    ).toBe('agendada');
+    const c = await marcada();
+    expect(
+      await naTransacao(comoP, async (q) => {
+        await q(sql`savepoint remarcar`);
+        await q(cancelar(c, 'paciente'));
+        await q(sql`rollback to savepoint remarcar`);
+        const [n] = await q(novaConsulta(T, p, { remarcadaDe: c }));
+        return n.status;
+      }),
+    ).toBe('solicitada');
+    expect(await statusDa(T, c)).toBe('agendada');
+
+    // desistir de um pedido (pedido_desistido) não abre a exceção
+    const [s] = await em(comoP, novaConsulta(T, p));
+    expect(s.status).toBe('solicitada');
+    expect(
+      await naTransacao(comoP, async (q) => {
+        await q(cancelar(s.id as string, 'pedido_desistido'));
+        const [n] = await q(novaConsulta(T, p, { remarcadaDe: s.id as string }));
+        return n.status;
+      }),
+    ).toBe('solicitada');
+
+    // remarcada_de que não é a consulta cancelada (a de outro paciente) → pedido
+    const d = await marcada();
+    const deOutro = await marcada(outro);
+    expect(
+      await naTransacao(comoP, async (q) => {
+        await q(cancelar(d, 'paciente'));
+        const [n] = await q(novaConsulta(T, p, { remarcadaDe: deOutro }));
+        return n.status;
+      }),
+    ).toBe('solicitada');
+    // a origem tem de ser do mesmo paciente, mesmo com o marcador apontando para ela (aqui forjado na sessão pública,
+    // que enxerga as consultas do consultório; no app só o gatilho grava o marcador)
+    const e = await marcada();
+    expect(
+      await naTransacao(publico(T), async (q) => {
+        await q(sql`select set_config('app.agenda_remarcavel', ${e}, true)`);
+        const [doMesmo] = await q(novaConsulta(T, p, { remarcadaDe: e }));
+        await q(sql`select set_config('app.agenda_remarcavel', ${deOutro}, true)`);
+        const [doOutro] = await q(novaConsulta(T, p, { remarcadaDe: deOutro }));
+        return [doMesmo.status, doOutro.status];
+      }),
+    ).toEqual(['agendada', 'solicitada']);
+
+    // a nutricionista cancelando não libera nada (o marcador é do cancelamento pelo paciente, na sessão do paciente)
+    const f = await marcada();
+    expect(
+      await naTransacao(comoP, async (q) => {
+        await q(cancelar(f, 'nutri'));
+        const [n] = await q(novaConsulta(T, p, { remarcadaDe: f }));
+        return n.status;
+      }),
+    ).toBe('solicitada');
+  });
+
+  it('transições do pedido (RN-422): aceite só da nutricionista; cada cancelamento com o seu papel e motivo; nada volta a pedido; o pedido não muda de horário, local, modalidade nem paciente', async () => {
+    const T = await novoTenant(app.db);
+    const p = (await novoPaciente(app.db, T.ctx)).id;
+    const outro = (await novoPaciente(app.db, T.ctx)).id;
+    const comoP = ctxPaciente(T.tenantId, p);
+    const local = await criarLocal(T, { principal: true });
+    await ligarPedidos(T);
+    const pedido = async (inicio?: SQL) => {
+      const [c] = await em(comoP, novaConsulta(T, p, { inicio }));
+      expect(c.status).toBe('solicitada');
+      return c.id as string;
+    };
+    const aceitar = (id: string) => sql`update appointments set status = 'agendada' where id = ${id} returning id`;
+
+    // aceite: só a nutricionista
+    const a = await pedido();
+    for (const ctx of [comoP, worker(T)]) await expect(em(ctx, aceitar(a))).rejects.toSatisfy(negadoPor('só a nutricionista aceita o pedido'));
+    await em(T.ctx, aceitar(a));
+    expect(await statusDa(T, a)).toBe('agendada');
+
+    // os três cancelamentos válidos
+    const b = await pedido();
+    await em(comoP, cancelar(b, 'pedido_desistido'));
+    const c = await pedido();
+    await em(T.ctx, cancelar(c, 'pedido_recusado'));
+    const perto = await pedido(sql`date_trunc('minute', now()) + interval '1 hour'`); // dentro da antecedência (12 h): venceu
+    await em(worker(T), cancelar(perto, 'pedido_vencido'));
+    for (const id of [b, c, perto]) expect(await statusDa(T, id)).toBe('cancelada');
+
+    // papel × motivo trocados
+    const d = await pedido();
+    const trocados: [TenantContext, string][] = [
+      [comoP, 'pedido_recusado'],
+      [comoP, 'pedido_vencido'],
+      [comoP, 'paciente'],
+      [T.ctx, 'pedido_desistido'],
+      [T.ctx, 'pedido_vencido'],
+      [T.ctx, 'nutri'],
+      [worker(T), 'pedido_desistido'],
+      [worker(T), 'pedido_recusado'],
+      [worker(T), 'sistema'],
+    ];
+    for (const [ctx, por] of trocados) await expect(em(ctx, cancelar(d, por)), `${ctx.role} + ${por}`).rejects.toSatisfy(negadoPor('quem cancela o pedido'));
+    // o worker não vence pedido no prazo (o processo web também usa o papel worker)
+    await expect(em(worker(T), cancelar(d, 'pedido_vencido'))).rejects.toSatisfy(negadoPor('ainda está no prazo'));
+    // só aceito ou cancelado
+    for (const status of ['confirmada', 'realizada', 'faltou'])
+      await expect(em(T.ctx, sql`update appointments set status = ${status} where id = ${d}`), status).rejects.toSatisfy(negadoPor('o pedido só é aceito ou cancelado'));
+
+    // em solicitada, horário, local, modalidade e paciente não mudam; o resto muda
+    const fixos: SQL[] = [
+      sql`inicio = inicio + interval '30 minutes'`,
+      sql`fim = fim + interval '30 minutes'`,
+      sql`local_id = ${local}`,
+      sql`modalidade = 'online', link_online = 'https://sala.example.test/debby'`,
+      sql`patient_id = ${outro}`,
+    ];
+    for (const set of fixos) await expect(em(T.ctx, sql`update appointments set ${set} where id = ${d}`)).rejects.toSatisfy(negadoPor('não mudam'));
+    expect(await em(T.ctx, sql`update appointments set updated_at = now() where id = ${d} returning id`)).toHaveLength(1);
+
+    // nenhum UPDATE leva a solicitada; os motivos de pedido só saindo de solicitada
+    const [ag] = await em(T.ctx, novaConsulta(T, p, { origem: 'nutri' }));
+    for (const ctx of [T.ctx, comoP, worker(T)])
+      await expect(em(ctx, sql`update appointments set status = 'solicitada', origem = 'paciente' where id = ${ag.id}`)).rejects.toSatisfy(
+        negadoPor('nenhuma alteração leva a consulta a pedido'),
+      );
+    const deAgendada: [TenantContext, string][] = [
+      [comoP, 'pedido_desistido'],
+      [T.ctx, 'pedido_recusado'],
+      [worker(T), 'pedido_vencido'],
+    ];
+    for (const [ctx, por] of deAgendada) await expect(em(ctx, cancelar(ag.id as string, por)), por).rejects.toSatisfy(negadoPor('saindo de um pedido'));
+    expect(await statusDa(T, ag.id as string)).toBe('agendada');
+
+    // sistema (exclusão LGPD) só com o titular já bloqueado
+    await expect(em(T.ctx, cancelar(d, 'sistema'))).rejects.toSatisfy(negadoPor('quem cancela o pedido'));
+    await em(T.ctx, sql`update patients set status = 'bloqueado', bloqueado_em = now() where id = ${p}`);
+    await em(T.ctx, cancelar(d, 'sistema'));
+    expect(await statusDa(T, d)).toBe('cancelada');
+  });
+
+  it('tenants_agenda_da_equipe (RN-420): paciente, publico e conta não mudam a chave dos pedidos; a equipe muda; outra coluna não é barrada por este gatilho', async () => {
+    const T = await novoTenant(app.db);
+    const p = (await novoPaciente(app.db, T.ctx)).id;
+    const comoP = ctxPaciente(T.tenantId, p);
+    const mudar = (v: boolean) => sql`update tenants set agenda_confirmar_pedidos = ${v} where id = ${T.tenantId} returning id`;
+    const negado = negadoPor('só a equipe muda a confirmação dos pedidos');
+    for (const ctx of [comoP, linkSemConta(T, p), publico(T)]) await expect(em(ctx, mudar(true)), ctx.role).rejects.toSatisfy(negado);
+    await expect(naConta(mudar(true))).rejects.toSatisfy(negado);
+    expect(await em(T.ctx, mudar(true))).toHaveLength(1);
+    expect(await em(worker(T), mudar(false))).toHaveLength(1);
+    expect(await em(T.ctx, mudar(true))).toHaveLength(1);
+    // o mesmo valor, ou outra coluna, passa por este gatilho
+    expect(await em(comoP, mudar(true))).toHaveLength(1);
+    expect(await em(comoP, sql`update tenants set updated_at = now() where id = ${T.tenantId} returning id`)).toHaveLength(1);
+    expect(await em(T.ctx, sql`select agenda_confirmar_pedidos from tenants where id = ${T.tenantId}`)).toEqual([{ agenda_confirmar_pedidos: true }]);
+  });
+
+  it('aniversario_autorizacoes_regras (RN-433): registrado_em pelo relógio do banco; a equipe só pela origem nutri em nome da própria usuária; o worker não registra; autorizou só de titular ativo e visível', async () => {
+    const T = await novoTenant(app.db);
+    const p = (await novoPaciente(app.db, T.ctx)).id;
+
+    // registrado_em = clock_timestamp(), mesmo se o módulo mandar outro
+    const [r] = await naTransacao(T.ctx, async (q) => {
+      await q(sql`select pg_sleep(0.01)`);
+      return q(sql`insert into aniversario_autorizacoes (tenant_id, patient_id, evento, origem, forma, registrado_por, registrado_em)
+        values (${T.tenantId}, ${p}, 'autorizou', 'nutri', 'escrito', ${T.nutriId}, '2000-01-01T00:00:00Z')
+        returning registrado_em > now() as depois_do_inicio, registrado_em <= clock_timestamp() as ate_agora`);
+    });
+    expect(r).toEqual({ depois_do_inicio: true, ate_agora: true });
+
+    // a equipe: só origem nutri, em nome da própria usuária
+    await expect(em(T.ctx, inserirAutorizacao(T, { patientId: p, registradoPor: randomUUID() }))).rejects.toSatisfy(negadoPor('em nome da própria usuária'));
+    await expect(em(T.ctx, inserirAutorizacao(T, { patientId: p, registradoPor: null }))).rejects.toSatisfy(negadoPor('em nome da própria usuária'));
+    await expect(em(T.ctx, inserirAutorizacao(T, { patientId: p, origem: 'app', forma: null }))).rejects.toSatisfy(negadoPor('a equipe registra só pela origem nutri'));
+    await expect(em(T.ctx, inserirAutorizacao(T, { patientId: p, origem: 'link', evento: 'retirou', forma: null, registradoPor: null }))).rejects.toSatisfy(
+      negadoPor('a equipe registra só pela origem nutri'),
+    );
+    await em(T.ctx, inserirAutorizacao(T, { patientId: p, evento: 'retirou', forma: null }));
+    // o worker não registra
+    for (const a of [{ evento: 'retirou' as const, forma: null, registradoPor: null }, { registradoPor: randomUUID() }])
+      await expect(em(worker(T), inserirAutorizacao(T, { patientId: p, ...a }))).rejects.toSatisfy(negadoPor('o worker não registra'));
+    // o publico: quem recusa é a RLS (publico_negado), não o gatilho
+    await expect(em(publico(T), inserirAutorizacao(T, { patientId: p, registradoPor: null, origem: 'link', evento: 'retirou', forma: null }))).rejects.toSatisfy(
+      rlsDe('aniversario_autorizacoes'),
+    );
+
+    // titular arquivado, bloqueado ou anonimizado: autorizou → gatilho (em qualquer papel que o enxergue); retirou passa
+    const arquivado = (await novoPaciente(app.db, T.ctx)).id;
+    const bloqueado = (await novoPaciente(app.db, T.ctx)).id;
+    const anonimizado = (await novoPaciente(app.db, T.ctx)).id;
+    await em(T.ctx, sql`update patients set status = 'arquivado' where id = ${arquivado}`);
+    await em(T.ctx, sql`update patients set status = 'bloqueado', bloqueado_em = now() where id = ${bloqueado}`);
+    await em(worker(T), sql`update patients set anonimizado_em = now() where id = ${anonimizado}`); // ainda 'ativo': só o anonimizado_em
+    const titular = negadoPor('só o titular ativo autoriza');
+    for (const id of [arquivado, bloqueado, anonimizado]) {
+      await expect(em(T.ctx, inserirAutorizacao(T, { patientId: id }))).rejects.toSatisfy(titular);
+      await em(T.ctx, inserirAutorizacao(T, { patientId: id, evento: 'retirou', forma: null }));
+    }
+    const u = randomUUID();
+    await expect(em(ctxPaciente(T.tenantId, bloqueado, u), inserirAutorizacao(T, { patientId: bloqueado, origem: 'app', forma: null, registradoPor: u }))).rejects.toSatisfy(titular);
+    await em(ctxPaciente(T.tenantId, bloqueado, u), inserirAutorizacao(T, { patientId: bloqueado, origem: 'app', evento: 'retirou', forma: null, registradoPor: u }));
+    await em(linkSemConta(T, arquivado), inserirAutorizacao(T, { patientId: arquivado, origem: 'link', evento: 'retirou', forma: null, registradoPor: null }));
+
+    // o titular invisível passa pelo gatilho e a RLS recusa: outro paciente, outro consultório
+    const u2 = randomUUID();
+    await expect(em(ctxPaciente(T.tenantId, p, u2), inserirAutorizacao(T, { patientId: bloqueado, origem: 'app', forma: null, registradoPor: u2 }))).rejects.toSatisfy(
+      rlsDe('aniversario_autorizacoes'),
+    );
+    const U = await novoTenant(app.db);
+    await expect(em(U.ctx, inserirAutorizacao(T, { patientId: bloqueado, registradoPor: U.nutriId }))).rejects.toSatisfy(rlsDe('aniversario_autorizacoes'));
+    await expect(em(U.ctx, inserirAutorizacao(T, { patientId: p, registradoPor: U.nutriId }))).rejects.toSatisfy(rlsDe('aniversario_autorizacoes'));
   });
 });
