@@ -193,14 +193,14 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autoriza
  * titular bloqueado ou anonimizado, ou na revogação (e a equipe, só a pergunta com risco de quem revogou, depois de aberta —
  * D22; a fábrica não grava essa).
  */
-// Plano 20: fin_lancamentos (cancela-se, nunca se apaga) e fin_configuracoes (a linha do consultório) — DELETE revogado (0119)
+// Plano 20: fin_lancamentos (cancela-se, nunca se apaga) e fin_configuracoes (a linha do consultório) — DELETE revogado (0123)
 const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes']);
 /**
  * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
  * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
  */
 // Plano 14B: ia_geracoes_modelos também tem DELETE/TRUNCATE revogados (0112).
-// Plano 20: fin_lancamentos e fin_configuracoes também (0119).
+// Plano 20: fin_lancamentos e fin_configuracoes também (0123).
 const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancamentos', 'fin_configuracoes']);
 /**
  * D19 (Plano 10A): os gatilhos de imutabilidade (0091, T2) — app_documento_imutavel, o das notas e app_codigo_acesso_regras

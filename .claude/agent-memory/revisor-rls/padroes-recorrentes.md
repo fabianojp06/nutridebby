@@ -325,6 +325,7 @@ Plano 18 (ficha, re-revisão do code review do PR 1, 17/11/2026):
   inteiro (que exporta funções que auditam/escrevem) só para reaproveitar um filtro puro. A guarda textual
   (`auditRead|recordAudit`) não pega a chamada indireta. Sugerir mover o helper puro para um módulo sem efeitos
   (constantes/filtro) ou restringir os nomes importados.
+
 Plano 20, T1 (Financeiro, 17/11/2026):
 - Gatilho BEFORE ROW UPDATE que trava a mãe (paciente FOR KEY SHARE) "como defesa" roda DEPOIS da trava da própria linha:
   inverte a ordem paciente → linha se o módulo não travar o paciente antes; ciclo com a anonimização (paciente FOR UPDATE →
