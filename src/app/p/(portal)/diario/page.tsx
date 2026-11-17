@@ -15,8 +15,10 @@ export default async function Diario({ searchParams }: PageProps<'/p/diario'>) {
   // Plano 16 (US-192): a refeição pedida pelo link ("Comi outra coisa", "Mandar foto do prato", "Foto da refeição")
   const q = await searchParams;
   const pedida = typeof q.refeicao === 'string' && idValido(q.refeicao) ? q.refeicao : null;
-  // só uma refeição do plano publicado dele (planoDoPaciente, auditado); um id qualquer cai no formulário comum
-  const doPlano = pedida ? ((await planoDoPaciente(ctx, tenant.fuso))?.refeicoes.find((r) => r.id === pedida) ?? null) : null;
+  // só uma refeição do plano publicado dele (planoDoPaciente, auditado) que vale hoje (Plano 19, RN-247 e: a de outro dia
+  // seria recusada ao gravar); um id qualquer cai no formulário comum
+  const plano = pedida ? await planoDoPaciente(ctx, tenant.fuso) : null;
+  const doPlano = plano?.refeicoes.find((r) => r.id === pedida && r.dias.includes(plano.hoje)) ?? null;
   const registros = await diarioDoPaciente(ctx);
   return (
     <>

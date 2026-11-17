@@ -4,6 +4,7 @@ import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { nomeDoEnvio } from '@/modules/pacientes/exames-enviados-constantes';
 import { horaComFuso, quandoRelativo, quandoRelativoComFuso, separadorDoDia } from './datas-portal';
 import { rotuloDaRefeicao, type RespostaDoDiario } from './diario-constantes';
+import { MSG_PLANO_DIAS } from './plano-regras';
 
 /**
  * Plano 16 (§4.3): o mural "Hoje" é LEITURA — nenhuma tabela, nenhuma mensagem (spec C, D24 = b). Esta função pura decide
@@ -26,6 +27,8 @@ export const MSG_MURAL = {
   vazio: 'Nada por aqui ainda. Quando sua nutricionista publicar seu plano, suas refeições aparecem aqui.',
   /** Plano publicado e nada no mural (antes dos 90 min da 1ª refeição, ou refeições sem horário): nunca dizer que ela não publicou. */
   nadaAgora: 'Nada para agora. Suas refeições aparecem aqui perto do horário de cada uma.',
+  /** Plano 19 (RN-247 b): plano publicado sem nenhuma refeição que vale hoje — no lugar de `nadaAgora`. */
+  semRefeicaoHoje: MSG_PLANO_DIAS.semRefeicaoHoje,
   verTodoDiario: 'Ver todo o diário',
   diasAnteriores: 'Dias anteriores',
   /** Autor VISÍVEL de cada item (RN-194, §11.1): o lado do balão não basta. O comentário da nutricionista usa o rótulo próprio. */
@@ -56,6 +59,7 @@ export type FotoDoRegistro = { estado: 'sem_foto' | 'processando' | 'falhou' } |
 
 export type FontesDoMural = {
   primeiroNome: string;
+  /** `refeicoes`: só as que valem HOJE no fuso do consultório (RN-247 b; `muralDoPaciente` filtra). */
   plano: { publicadoEm: Date | null; refeicoes: readonly { id: string; nome: string; horario: string; itens: readonly { nome: string }[] }[] } | null;
   diario: readonly {
     id: string;
@@ -90,7 +94,16 @@ export type ItemDoMural =
   | (Base & { tipo: 'conteudo'; autor: 'consultorio'; conteudoId: string; titulo: string; texto: string })
   | (Base & { tipo: 'documentos'; autor: 'consultorio'; texto: string });
 
-export type Mural = { primeiroNome: string; hoje: ItemDoMural[]; anteriores: { dia: string; rotulo: string; itens: ItemDoMural[] }[]; vazio: boolean; /** sem plano publicado: o texto "Nada por aqui ainda…" só vale aqui */ semPlano: boolean };
+export type Mural = {
+  primeiroNome: string;
+  hoje: ItemDoMural[];
+  anteriores: { dia: string; rotulo: string; itens: ItemDoMural[] }[];
+  vazio: boolean;
+  /** sem plano publicado: o texto "Nada por aqui ainda…" só vale aqui */
+  semPlano: boolean;
+  /** Plano 19 (RN-247 b): plano publicado sem refeição que vale hoje — "Seu plano não tem refeições para hoje." */
+  semRefeicaoHoje: boolean;
+};
 
 const minuscula = (s: string) => s.charAt(0).toLocaleLowerCase('pt-BR') + s.slice(1);
 
@@ -195,5 +208,6 @@ export function comporMural(f: FontesDoMural, agora: Date, fuso: string): Mural 
     anteriores: [...porDia].map(([dia, lista]) => ({ dia, rotulo: separadorDoDia(dia, hoje), itens: lista })),
     vazio: ordenados.length === 0,
     semPlano: f.plano === null,
+    semRefeicaoHoje: f.plano !== null && f.plano.refeicoes.length === 0,
   };
 }

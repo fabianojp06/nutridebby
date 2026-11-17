@@ -1,17 +1,28 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
-import { foods, mealItems, mealPlans } from '@/db/schema';
+import { foods, mealItems, mealPlans, meals } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { casasDecimais, formatarDecimal } from '@/lib/numero';
 import { GRUPOS_TACO } from '@/modules/alimentos/grupos';
+import { lerCongelados } from '@/modules/plano-alimentar/congelados';
+import { diaDaSemanaNoFuso, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
 import { auditRead } from '@/modules/plataforma/audit';
 import { pacienteDaSessao } from './sessao';
 
 export const DIAS_PADRAO = 7;
-export const MSG_COMPRAS = { dias: 'Escolha de 1 a 14 dias.', semPlano: 'Sem plano publicado, não há lista de compras.' } as const;
+export const MSG_COMPRAS = {
+  dias: 'Escolha de 1 a 14 dias.',
+  semPlano: 'Sem plano publicado, não há lista de compras.',
+  /** Plano 19 (RN-248): nenhuma refeição com alimento (o plano em texto livre). */
+  semAlimentos: 'Este plano não tem alimentos com quantidade, então não há lista de compras.',
+  /** RN-248: só algumas refeições em texto livre — abaixo da lista. */
+  textoLivreFora: 'As refeições em texto livre não entram na lista.',
+} as const;
 
 export type ItemCompra = { nome: string; gramas: number; texto: string };
 export type GrupoCompra = { grupo: string; itens: ItemCompra[] };
+/** RN-240: a projeção fechada da lista de compras. */
+export type ListaDoPlano = { planoId: string; grupos: GrupoCompra[]; semAlimentos: boolean; textoLivreFora: boolean };
 
 export function lerDias(v: unknown): number | null {
   if (v === undefined || v === null || v === '') return DIAS_PADRAO;
@@ -35,12 +46,24 @@ const ordemDoGrupo = (g: string) => {
   return i === -1 ? GRUPOS_TACO.length : i;
 };
 
-/** RN-13: soma dos itens principais × dias, agrupada pelo grupo do alimento. */
-export function listaDeCompras(itens: { nome: string; grupo: string; quantidadeG: number }[], dias: number): GrupoCompra[] {
+/** RN-248: quantos dos `dias` dias a partir de `hoje` (inclusive) caem nos dias da refeição. */
+export function vezesNaJanela(diasSemana: readonly number[], hoje: DiaDaSemana, dias: number): number {
+  let n = 0;
+  for (let k = 0; k < dias; k++) if (diasSemana.includes((hoje + k) % 7)) n++;
+  return n;
+}
+
+/**
+ * RN-13 / RN-248 (Plano 19): cada item principal soma uma vez por dia da janela em que a refeição vale (`quantidade ×
+ * número de dias da janela que estão em dias_semana`), agrupado pelo grupo do alimento.
+ */
+export function listaDeCompras(itens: { nome: string; grupo: string; quantidadeG: number; diasSemana: readonly number[] }[], dias: number, hoje: DiaDaSemana): GrupoCompra[] {
   const porGrupo = new Map<string, Map<string, number>>();
   for (const i of itens) {
+    const vezes = vezesNaJanela(i.diasSemana, hoje, dias);
+    if (!vezes) continue;
     const g = porGrupo.get(i.grupo) ?? new Map<string, number>();
-    g.set(i.nome, (g.get(i.nome) ?? 0) + i.quantidadeG * dias);
+    g.set(i.nome, (g.get(i.nome) ?? 0) + i.quantidadeG * vezes);
     porGrupo.set(i.grupo, g);
   }
   return [...porGrupo.entries()]
@@ -51,23 +74,46 @@ export function listaDeCompras(itens: { nome: string; grupo: string; quantidadeG
     }));
 }
 
-/** US-045: a lista do plano publicado do paciente da sessão (nunca do rascunho — RLS). Leitura auditada (D22). */
-export async function listaDoPlano(ctx: TenantContext, dias: number, db: Db = getDb()): Promise<{ planoId: string; grupos: GrupoCompra[] } | null> {
+/** RN-237: o nome congelado na publicação (só por `lerCongelados`); congelado fora do formato → o nome atual do alimento. */
+function nomeCongelado(nutrientes: unknown, nomeAtual: string): string {
+  try {
+    return lerCongelados(nutrientes).nome || nomeAtual;
+  } catch {
+    return nomeAtual;
+  }
+}
+
+/**
+ * US-045: a lista do plano publicado do paciente da sessão (nunca do rascunho — RLS), para `dias` dias a partir de hoje no
+ * fuso do consultório (RN-248). Refeição em texto livre não entra: sem nenhuma refeição com alimento, `semAlimentos`; com
+ * só algumas, `textoLivreFora`. Leitura auditada (D22).
+ */
+export async function listaDoPlano(ctx: TenantContext, fuso: string, dias: number, o: { db?: Db; agora?: Date } = {}): Promise<ListaDoPlano | null> {
   const patientId = pacienteDaSessao(ctx, 'listaDoPlano');
+  const hoje = diaDaSemanaNoFuso(o.agora ?? new Date(), fuso);
   return withTenant(
     ctx,
     async (tx) => {
       const [p] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(and(eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'publicado')));
       if (!p) return null;
+      const refeicoes = await tx.select({ id: meals.id, diasSemana: meals.diasSemana, descricaoLivre: meals.descricaoLivre }).from(meals).where(eq(meals.planId, p.id)).orderBy(asc(meals.ordem));
       const linhas = await tx
-        .select({ nomeCongelado: mealItems.nutrientes, nomeAtual: foods.nome, grupo: foods.grupo, quantidadeG: mealItems.quantidadeG })
+        .select({ mealId: mealItems.mealId, nutrientes: mealItems.nutrientes, nomeAtual: foods.nome, grupo: foods.grupo, quantidadeG: mealItems.quantidadeG, substituiItemId: mealItems.substituiItemId })
         .from(mealItems)
         .innerJoin(foods, eq(foods.id, mealItems.foodId))
-        .where(and(eq(mealItems.planId, p.id), isNull(mealItems.substituiItemId)));
+        .where(eq(mealItems.planId, p.id));
       await auditRead(tx, { entidade: 'plano_alimentar', entidadeId: p.id, patientId: patientId });
-      const itens = linhas.map((l) => ({ nome: l.nomeCongelado?.nome ?? l.nomeAtual, grupo: l.grupo, quantidadeG: Number(l.quantidadeG) }));
-      return { planoId: p.id, grupos: listaDeCompras(itens, dias) };
+      const principais = linhas.filter((l) => l.substituiItemId === null);
+      const diasDe = new Map(refeicoes.map((r) => [r.id, r.diasSemana]));
+      const comAlimento = new Set(principais.map((l) => l.mealId));
+      const itens = principais.map((l) => ({ nome: nomeCongelado(l.nutrientes, l.nomeAtual), grupo: l.grupo, quantidadeG: Number(l.quantidadeG), diasSemana: diasDe.get(l.mealId) ?? [] }));
+      return {
+        planoId: p.id,
+        grupos: listaDeCompras(itens, dias, hoje),
+        semAlimentos: comAlimento.size === 0,
+        textoLivreFora: comAlimento.size > 0 && refeicoes.some((r) => !comAlimento.has(r.id) && Boolean(r.descricaoLivre?.trim())),
+      };
     },
-    db,
+    o.db ?? getDb(),
   );
 }

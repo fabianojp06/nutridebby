@@ -6,6 +6,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
 import { inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { idValido } from '@/modules/pacientes/base';
+import { diaDaSemanaNoFuso, valeNoDia, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
 import { CotaEsgotadaError, MSG_COTA_ESGOTADA, salvarArquivo, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
 import { auditRead } from '@/modules/plataforma/audit';
 import {
@@ -65,14 +66,20 @@ async function conferirLimite(tx: Tx, patientId: string, fuso: string, agora: Da
   if (n >= LIMITE_DIARIO_POR_DIA) throw new DiarioError({ geral: MSG_DIARIO.limite });
 }
 
-/** Plano 16 (RN-197): a refeição do plano PUBLICADO do paciente da sessão (a RLS já esconde a dos outros); senão null. */
-async function refeicaoDoPlanoPublicado(tx: Tx, patientId: string, refeicaoId: string): Promise<{ nome: string; horario: string } | null> {
+/**
+ * Plano 16 (RN-197): a refeição do plano PUBLICADO do paciente da sessão (a RLS já esconde a dos outros); senão null.
+ * Plano 19 (RN-247 e, CS-233): só a que vale hoje (`hoje` = o dia no fuso do consultório); a de outro dia é recusada com
+ * `MSG_DIARIO.refeicaoDeOutroDia` e nada é gravado.
+ */
+async function refeicaoDoPlanoPublicado(tx: Tx, patientId: string, refeicaoId: string, hoje: DiaDaSemana): Promise<{ nome: string; horario: string } | null> {
   const [r] = await tx
-    .select({ nome: meals.nome, horario: meals.horario })
+    .select({ nome: meals.nome, horario: meals.horario, diasSemana: meals.diasSemana })
     .from(meals)
     .innerJoin(mealPlans, and(eq(mealPlans.id, meals.planId), eq(mealPlans.tenantId, meals.tenantId)))
     .where(and(eq(meals.id, refeicaoId), eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'publicado')));
-  return r ? { nome: r.nome, horario: r.horario ? r.horario.slice(0, 5) : '' } : null;
+  if (!r) return null;
+  if (!valeNoDia(r, hoje)) throw new DiarioError({ geral: MSG_DIARIO.refeicaoDeOutroDia });
+  return { nome: r.nome, horario: r.horario ? r.horario.slice(0, 5) : '' };
 }
 
 /** `refeicaoSlot` (Plano 17): o rótulo da refeição do plano escolhida, com ou sem resposta — só para o pedido do diário do worker. */
@@ -116,7 +123,7 @@ export async function registrarNoDiario(
     await travarPaciente(tx, patientId);
     let g: Gravacao = { refeicao: refeicaoInformada, resposta: null, refeicaoDoPlano: null, refeicaoSlot: null };
     if (refeicaoId) {
-      const r = await refeicaoDoPlanoPublicado(tx, patientId, refeicaoId);
+      const r = await refeicaoDoPlanoPublicado(tx, patientId, refeicaoId, diaDaSemanaNoFuso(agora, tenant.fuso));
       if (!r) throw new DiarioError({ geral: MSG_DIARIO.refeicaoNaoEncontrada });
       const rotulo = rotuloDaRefeicao(r.nome, r.horario);
       g = { refeicao: refeicaoDoDiario(r.nome), resposta: null, refeicaoDoPlano: null, refeicaoSlot: rotulo };

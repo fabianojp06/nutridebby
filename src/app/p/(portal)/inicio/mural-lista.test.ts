@@ -14,6 +14,7 @@ const MURAL: Mural = {
   primeiroNome: 'Marina',
   vazio: false,
   semPlano: false,
+  semRefeicaoHoje: false,
   anteriores: [{ dia: '2026-10-07', rotulo: 'Ontem', itens: [{ chave: 'plano', tipo: 'plano', autor: 'consultorio', quando, hora, texto: 'Seu novo plano alimentar está disponível.' }] }],
   hoje: [
     { chave: 'refeicao:r1', tipo: 'refeicao', autor: 'consultorio', quando, hora: { semFuso: '12:30', comFuso: '12:30' }, texto: 'Próxima refeição às 12:30 — Almoço: arroz.', refeicaoId: 'r1', respondida: false },
@@ -50,9 +51,9 @@ describe('mural "Hoje" (US-191, RNF-191)', () => {
     expect(html).not.toMatch(/<textarea|<input[^>]*type="text"/);
   });
   it('vazio: sem plano, o texto da spec; com plano e nada para agora, o texto neutro (nunca diz que ela não publicou)', () => {
-    const semPlano = renderToStaticMarkup(createElement(MuralLista, { mural: { primeiroNome: '', vazio: true, semPlano: true, hoje: [], anteriores: [] }, fuso: 'America/Sao_Paulo' }));
+    const semPlano = renderToStaticMarkup(createElement(MuralLista, { mural: { primeiroNome: '', vazio: true, semPlano: true, semRefeicaoHoje: false, hoje: [], anteriores: [] }, fuso: 'America/Sao_Paulo' }));
     expect(semPlano).toContain('Nada por aqui ainda. Quando sua nutricionista publicar seu plano, suas refeições aparecem aqui.');
-    const comPlano = renderToStaticMarkup(createElement(MuralLista, { mural: { primeiroNome: '', vazio: true, semPlano: false, hoje: [], anteriores: [] }, fuso: 'America/Sao_Paulo' }));
+    const comPlano = renderToStaticMarkup(createElement(MuralLista, { mural: { primeiroNome: '', vazio: true, semPlano: false, semRefeicaoHoje: false, hoje: [], anteriores: [] }, fuso: 'America/Sao_Paulo' }));
     expect(comPlano).toContain(MSG_MURAL.nadaAgora);
     expect(comPlano).not.toContain('publicar seu plano');
   });
@@ -64,6 +65,11 @@ describe('mural "Hoje" (US-191, RNF-191)', () => {
     expect(html).not.toContain('aria-label="Hoje"');
     const semPlano = renderToStaticMarkup(createElement(MuralLista, { mural: { ...MURAL, hoje: [], semPlano: true }, fuso: 'America/Sao_Paulo' }));
     expect(semPlano).toContain(MSG_MURAL.vazio);
+  });
+  it('Plano 19 (RN-247 b): plano publicado sem refeição que vale hoje → "Seu plano não tem refeições para hoje." no lugar de "Nada para agora…"', () => {
+    const html = renderToStaticMarkup(createElement(MuralLista, { mural: { ...MURAL, hoje: [], vazio: true, semRefeicaoHoje: true }, fuso: 'America/Sao_Paulo' }));
+    expect(html).toContain('<p>Seu plano não tem refeições para hoje.</p>');
+    expect(html).not.toContain(MSG_MURAL.nadaAgora);
   });
   it('texto livre quebra dentro do balão (RNF-191, CS-193): um link longo no comentário não alarga a página a 320 px', () => {
     const html = renderToStaticMarkup(createElement(MuralLista, { mural: MURAL, fuso: 'America/Sao_Paulo' }));

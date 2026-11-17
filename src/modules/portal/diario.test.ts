@@ -210,6 +210,29 @@ describe('respostas à refeição do plano (Plano 16, RN-197, D3)', () => {
     expect(await linhas()).toEqual([]);
   });
 
+  it('Plano 19 (RN-247 e, CS-233): America/Manaus — "Comi assim" de refeição de sábado num domingo → "Esta refeição não é de hoje." e nada gravado; no sábado entra', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const ctx = ctxPaciente(T.tenantId, p.id);
+    const { refeicoes } = await planoPublicado(app.db, T, p.id, { refeicoes: [{ nome: 'Almoço de sábado', horario: '12:00', dias: [6] }, { nome: 'Café', horario: '07:00' }] });
+    const MANAUS = { fuso: 'America/Manaus' };
+    const domingo0001 = new Date('2026-11-15T04:01:00Z'); // domingo, 15/11/2026, 00:01 em Manaus (UTC−4)
+    const sabado2359 = new Date('2026-11-15T03:59:00Z'); // sábado, 14/11/2026, 23:59 em Manaus
+    const linhas = () => withTenant(T.ctx, (tx) => tx.select().from(diaryEntries).where(eq(diaryEntries.patientId, p.id)), app.db);
+    for (const entrada of [
+      { refeicao: null, texto: '', foto: null, refeicaoId: refeicoes[0].id, resposta: 'como_no_plano' },
+      { refeicao: null, texto: 'Sanduíche', foto: null, refeicaoId: refeicoes[0].id, resposta: 'outra_coisa' },
+      { refeicao: null, texto: 'arroz', foto: null, refeicaoId: refeicoes[0].id },
+    ])
+      expect(await erros(registrarNoDiario(ctx, MANAUS, entrada, deps(domingo0001)))).toEqual({ geral: MSG_DIARIO.refeicaoDeOutroDia });
+    expect(await erros(registrarNoDiario(ctx, MANAUS, { refeicao: null, texto: '', foto: JPEG, refeicaoId: refeicoes[0].id }, deps(domingo0001)))).toEqual({ geral: MSG_DIARIO.refeicaoDeOutroDia });
+    expect(await linhas()).toEqual([]);
+    // a refeição de todos os dias continua valendo no domingo; a de sábado, no sábado
+    await registrarNoDiario(ctx, MANAUS, { refeicao: null, texto: '', foto: null, refeicaoId: refeicoes[1].id, resposta: 'como_no_plano' }, deps(domingo0001));
+    await registrarNoDiario(ctx, MANAUS, { refeicao: null, texto: '', foto: null, refeicaoId: refeicoes[0].id, resposta: 'como_no_plano' }, deps(sabado2359));
+    expect((await linhas()).map((e) => e.refeicaoDoPlano).sort()).toEqual(['Almoço de sábado · 12:00', 'Café · 07:00']);
+  });
+
   it('limite de 10 por dia (RN-07): o "Comi assim" novo recusa; o repetido de uma refeição já respondida devolve o registro', async () => {
     const { ctx, ref } = await comPlano();
     const almoco = await registrarNoDiario(ctx, SP, { refeicao: null, texto: '', foto: null, refeicaoId: ref('Almoço'), resposta: 'como_no_plano' }, deps(ALMOCO_1240));

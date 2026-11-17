@@ -8,6 +8,7 @@ import { inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { novosNoPortalNaTransacao } from '@/modules/documentos/portal';
 import { situacaoParaPaciente } from '@/modules/pacientes/exames-enviados-constantes';
 import { lerPlanoNaTransacao } from '@/modules/plano-alimentar/carregar';
+import { diaDaSemanaNoFuso, refeicoesDoDia } from '@/modules/plano-alimentar/dias';
 import { auditRead } from '@/modules/plataforma/audit';
 import { conteudosNovosNaTransacao } from './conteudos';
 import { paraRegistro } from './diario';
@@ -65,7 +66,13 @@ export async function muralDoPaciente(ctx: TenantContext, tenant: TenantAgenda, 
         plano: plano
           ? {
               publicadoEm: plano.publicadoEm ? new Date(plano.publicadoEm) : null,
-              refeicoes: plano.refeicoes.map((r) => ({ id: r.id, nome: r.nome, horario: r.horario, itens: r.itens.filter((i) => i.substituiItemId === null).map((i) => ({ nome: i.nome })) })),
+              // RN-247 (b) / CS-233: só as refeições que valem hoje no fuso do consultório (projeção fechada, RN-240)
+              refeicoes: refeicoesDoDia(plano.refeicoes, diaDaSemanaNoFuso(agora, tenant.fuso)).map((r) => ({
+                id: r.id,
+                nome: r.nome,
+                horario: r.horario,
+                itens: r.itens.filter((i) => i.substituiItemId === null).map((i) => ({ nome: i.nome })),
+              })),
             }
           : null,
         diario: diario.map((e) => {

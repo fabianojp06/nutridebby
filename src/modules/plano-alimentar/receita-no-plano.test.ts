@@ -79,7 +79,7 @@ describe('"Sugestão de receita" (US-054)', () => {
     const comoAna = ctxPaciente(T.tenantId, ana.id);
     const plano = (await planoDoPaciente(comoAna, 'America/Sao_Paulo', { db: app.db }))!;
     expect(plano.refeicoes[0].receita).toEqual({ id: panqueca.id, titulo: 'Panqueca de aveia' });
-    expect(plano.totalKcal).toBe('128 kcal'); // só o arroz (100 g): "é só sugestão"
+    expect(plano.perfis.map((p) => p.totalKcal)).toEqual(['128 kcal']); // só o arroz (100 g): "é só sugestão" (Plano 19: o total do dia é o do perfil)
     // a exceção da RN-12 vale só no caminho do plano: no feed da Ana a receita (só da Bia) não aparece
     expect((await feedDeConteudos(comoAna, {}, app.db)).itens).toEqual([]);
     expect(await conteudoDoPaciente(comoAna, panqueca.id, app.db, { doPlano: true })).toMatchObject({ soPeloPlano: true });

@@ -11,6 +11,7 @@ import { auditLog, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { partesNoFuso } from '@/modules/agenda/fuso';
+import { diaDaSemanaNoFuso } from '@/modules/plano-alimentar/dias';
 import { registrarNoDiario } from './diario';
 import { comentarRegistro } from './diario-nutri';
 import { muralDoPaciente } from './mural';
@@ -101,6 +102,27 @@ describe('muralDoPaciente (Plano 16, RN-199, RN-200, RNF-190)', () => {
     expect(todos(mural).find((i) => i.tipo === 'refeicao')).toMatchObject({ respondida: true });
     expect(todos(mural).find((i) => i.tipo === 'registro')).toMatchObject({ resposta: 'como_no_plano' });
     expect(JSON.stringify(mural)).not.toContain('Cancelado');
+  });
+
+  it('Plano 19 (RN-247 b, CS-233): só as refeições que valem hoje; sem nenhuma hoje, semRefeicaoHoje ("Seu plano não tem refeições para hoje.")', async () => {
+    const agora = new Date();
+    const hoje = diaDaSemanaNoFuso(agora, SP);
+    const T = await novoTenant(app.db);
+    const [p, q] = [await novoPaciente(app.db, T.ctx), await novoPaciente(app.db, T.ctx)];
+    const outrosDias = [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== hoje);
+    await planoPublicado(app.db, T, p.id, { refeicoes: [{ nome: 'Almoço de outro dia', horario: horarioProximo(agora), dias: outrosDias }] });
+    const semHoje = await muralDoPaciente(ctxPaciente(T.tenantId, p.id), await tenantDe(T.tenantId), agora, app.db);
+    expect(todos(semHoje).filter((i) => i.tipo === 'refeicao')).toEqual([]);
+    expect(semHoje).toMatchObject({ semPlano: false, semRefeicaoHoje: true });
+    const { refeicoes } = await planoPublicado(app.db, T, q.id, {
+      refeicoes: [
+        { nome: 'Almoço de hoje', horario: horarioProximo(agora), dias: [hoje] },
+        { nome: 'Almoço de outro dia', horario: horarioProximo(agora), dias: outrosDias },
+      ],
+    });
+    const comHoje = await muralDoPaciente(ctxPaciente(T.tenantId, q.id), await tenantDe(T.tenantId), agora, app.db);
+    expect(todos(comHoje).filter((i) => i.tipo === 'refeicao').map((i) => i.tipo === 'refeicao' && i.refeicaoId)).toEqual([refeicoes[0].id]);
+    expect(comHoje.semRefeicaoHoje).toBe(false);
   });
 
   it('só em sessão de paciente', async () => {
