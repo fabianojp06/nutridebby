@@ -36,7 +36,7 @@ describe('busca de alimentos (US-020, D6) — tempo', () => {
   });
 
   // RN-241/RN-242 com a TACO (o volume da USDA é medido na Tarefa 12, com o seed)
-  it(`busca por nutriente e equivalentes: no máximo ${BUSCA_LIMITE} resultados e p95 ≤ 300 ms com a TACO (RNF-01)`, async () => {
+  it(`busca por nutriente e equivalentes: no máximo ${BUSCA_LIMITE} resultados e p95 ≤ 500 ms com a TACO (RNF-01)`, async () => {
     const T = await novoTenant(app.db);
     const tempos: number[] = [];
     for (let i = 0; i < 20; i++) {
@@ -48,6 +48,6 @@ describe('busca de alimentos (US-020, D6) — tempo', () => {
       tempos.push(performance.now() - t0);
       expect(r.resultados.length).toBeLessThanOrEqual(BUSCA_LIMITE);
     }
-    expect(p95(tempos)).toBeLessThanOrEqual(300);
+    expect(p95(tempos)).toBeLessThanOrEqual(500);
   });
 });

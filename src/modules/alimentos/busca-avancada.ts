@@ -93,7 +93,7 @@ export async function equivalentes(
       if (vRef === null || vRef <= 0 || energiaRef === null || !fontes.length) return { ...base, ...resposta(base.criterio, []) };
 
       const v = valorSql(o.igualarPor);
-      const qtd = sql<number>`(round((${q * vRef}::float8 / ${v})::numeric)::float8)`;
+      const qtd = sql<number>`(round((${q * vRef}::float8 / nullif(${v}, 0))::numeric)::float8)`;
       const naQtd = (coluna: SQL) => sql`((${coluna})::float8 * ${qtd} / 100)`;
       const dif = (coluna: SQL, alvo: number | null) => (alvo === null ? sql`null` : sql`abs(${naQtd(coluna)} - ${alvo}::float8)`);
       const difEnergia = dif(COLUNA_MACRO.kcal, energiaRef);

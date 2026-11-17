@@ -271,7 +271,7 @@ function AbaNutrientes({ id, campo, acao }: { id: string; campo: (el: HTMLSelect
         </fieldset>
         <Filtros id={`${id}-nut`} fonte={fonte} setFonte={setFonte} grupo={grupo} setGrupo={setGrupo} />
       </div>
-      {dados && <Criterio texto={dados.criterio} />}
+      {dados && <Criterio texto={dados.criterio} aviso={dados.resultados.length ? dados.aviso : null} />}
       <Resultados
         id={`${id}-nut`}
         erro={erro}
@@ -302,13 +302,13 @@ function AbaEquivalentes({ id, referencia, campo, acao }: { id: string; referenc
         </div>
         <Filtros id={`${id}-eq`} fonte={fonte} setFonte={setFonte} />
       </div>
-      {dados && <Criterio texto={dados.criterio} />}
+      {dados && <Criterio texto={dados.criterio} aviso={dados.resultados.length ? dados.aviso : null} />}
       <Resultados
         id={`${id}-eq`}
         erro={erro}
         lista={dados?.resultados ?? null}
         vazio={MSG_BUSCA.nenhum}
-        rotulo={(a) => <span>{MSG_BUSCA.sugerido(a.nome, formatarDecimal(a.quantidadeG, 0))}{a.nomeOriginal && <span lang="en" className="block text-sm text-suave">{a.nomeOriginal}</span>}</span>}
+        rotulo={(a) => <span>{MSG_BUSCA.sugerido(a.nome, formatarDecimal(a.quantidadeG, 0))}{a.nomeOriginal && <span lang="en" className="block text-sm text-suave">{a.nomeOriginal}</span>}{a.fonte === 'usda' && <span className="block text-xs text-suave">{MSG_FONTES.traduzido}</span>}</span>}
         detalhe={(a) => {
           const v = valorPorCem(a, igualarPor);
           return igualarPor === 'kcal' || v === null ? kcalNaQuantidade(a) : `${formatarCriterio(igualarPor, (v * a.quantidadeG) / 100)} · ${kcalNaQuantidade(a)}`;
@@ -322,11 +322,11 @@ function AbaEquivalentes({ id, referencia, campo, acao }: { id: string; referenc
 const kcalNaQuantidade = (a: Equivalente) => (a.porCem.kcal === null ? semValorNa(a.fonte) : `${formatarDecimal((a.porCem.kcal * a.quantidadeG) / 100, 0)} kcal`);
 
 /** RN-241/RN-242: o critério escrito na tela e o aviso fixo. */
-function Criterio({ texto }: { texto: string }) {
+function Criterio({ texto, aviso }: { texto: string; aviso: string | null }) {
   return (
     <div className="space-y-0.5 text-sm">
       <p>{texto}</p>
-      <p className="font-semibold text-aviso">{MSG_BUSCA.sugestao}</p>
+      {aviso && <p className="font-semibold text-aviso">{aviso}</p>}
     </div>
   );
 }
