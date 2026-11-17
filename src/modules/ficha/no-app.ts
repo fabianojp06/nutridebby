@@ -4,8 +4,7 @@ import { accessEvents, contents, diaryEntries, foods, iaNutriParticipacoes, lemb
 import { TenantContextError, withTenant, type TenantContext } from '@/db/tenant';
 import { idValido, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { situacaoDoAcesso } from '@/modules/pacientes/convite-paciente';
-import { hojeNoFuso } from '@/modules/pacientes/datas';
-import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
+import { formatarDataHora, hojeNoFuso } from '@/modules/pacientes/datas';
 import { SECOES_DA_FICHA } from './secoes';
 import { MSG_NO_APP } from './textos';
 import type { TxDePaciente } from './tipos';
@@ -53,8 +52,28 @@ async function comoPaciente<T>(db: Db, tenantId: string, patientId: string, fn: 
 }
 
 /**
+ * Arquivado, bloqueado ou anonimizado: o paciente não vê nada no app e a página só mostra a linha do acesso — o resto vai
+ * neutro, sem ter sido lido (minimização, LGPD art. 6º, III).
+ */
+function semAcesso(estado: 'arquivado' | 'bloqueado'): NoApp {
+  return {
+    acesso: { estado, ultimoAcesso: null, textoDoConvite: null },
+    notificacoes: { aparelhos: 0, whatsapp: false },
+    plano: { publicadoEm: null, listaDeCompras: false },
+    lembretes: null,
+    pesoOculto: false,
+    gorduraNoApp: false,
+    iaNutri: null,
+    contagens: null,
+    receitasSugeridas: null,
+    visiveis: {},
+  };
+}
+
+/**
  * Plano 18 (D16, D24, RN-279, RN-281): "No app do paciente" — o que o paciente vê hoje no app, pela nutricionista.
- * (1) Na sessão `nutri` (depois de conferir que o paciente é deste consultório): situação e acesso, último dia de acesso,
+ * (0) Arquivado, bloqueado ou anonimizado: só a situação (`semAcesso`), sem ler mais nada. (1) Na sessão `nutri` (depois de
+ * conferir que o paciente é deste consultório): situação e acesso, último dia de acesso,
  * aparelhos com notificação (a regra de `aparelhosComNotificacao` do Plano 17), WhatsApp, peso oculto, % de gordura, IA
  * Nutri, a data do plano publicado e a lista de compras (a regra de `listaDoPlano`), os lembretes (sem texto nem config)
  * e as receitas sugeridas no plano publicado (D24: a contagem não liga a liberação das receitas do plano, que só o
@@ -77,19 +96,21 @@ export async function noAppDoPaciente(
     ctx,
     async (tx) => {
       const [p] = await tx
+        .select({ id: patients.id, userId: patients.userId, status: patients.status, anonimizadoEm: patients.anonimizadoEm })
+        .from(patients)
+        .where(eq(patients.id, patientId));
+      if (!p) throw new PacienteNaoEncontradoError();
+      // minimização: arquivado, bloqueado e anonimizado só mostram a linha do acesso — nada mais é lido nem calculado
+      if (p.status === 'arquivado' || p.status === 'bloqueado' || p.anonimizadoEm) return { fechado: p.status === 'arquivado' ? ('arquivado' as const) : ('bloqueado' as const) };
+      const [m] = await tx
         .select({
-          id: patients.id,
-          userId: patients.userId,
-          status: patients.status,
-          anonimizadoEm: patients.anonimizadoEm,
           pesoOcultoNoAppEm: patients.pesoOcultoNoAppEm,
           whatsappOptinEm: patients.whatsappOptinEm,
           whatsappOptoutEm: patients.whatsappOptoutEm,
           lembretesPausadosEm: patients.lembretesPausadosEm,
         })
         .from(patients)
-        .where(eq(patients.id, patientId));
-      if (!p) throw new PacienteNaoEncontradoError();
+        .where(eq(patients.id, p.id));
       const [t] = await tx
         .select({ fuso: tenants.fuso, gordura: tenants.mostrarPercGorduraPaciente, iaNutriAtivadaEm: tenants.iaNutriAtivadaEm })
         .from(tenants)
@@ -131,23 +152,25 @@ export async function noAppDoPaciente(
         .select({ ligado: lembretesRotina.ligado, desligadoPeloPacienteEm: lembretesRotina.desligadoPeloPacienteEm })
         .from(lembretesRotina)
         .where(eq(lembretesRotina.patientId, p.id));
-      return { p, t, ultimo: ultimo?.dia ?? null, aparelhos: push?.n ?? 0, ia, plano, listaDeCompras, receitas, lembretes };
+      return { fechado: null, p: { ...p, ...m }, t, ultimo: ultimo?.dia ?? null, aparelhos: push?.n ?? 0, ia, plano, listaDeCompras, receitas, lembretes };
     },
     db,
   );
 
+  if (doPainel.fechado) return semAcesso(doPainel.fechado);
+
   const { p, t } = doPainel;
   const fuso = t?.fuso ?? 'America/Sao_Paulo';
   const situacao = await situacaoDoAcesso(ctx, p, db, agora);
-  const estado: EstadoNoApp = p.status === 'arquivado' ? 'arquivado' : p.status === 'bloqueado' || p.anonimizadoEm ? 'bloqueado' : situacao.estado;
+  const estado: EstadoNoApp = situacao.estado;
   const textoDoConvite =
-    estado === 'pendente' && situacao.estado === 'pendente'
+    situacao.estado === 'pendente'
       ? MSG_NO_APP.acesso.conviteAte(formatarDataHora(situacao.expiraEm, fuso))
-      : estado === 'expirado'
+      : situacao.estado === 'expirado'
         ? MSG_NO_APP.acesso.conviteExpirado
         : null;
 
-  const comAcesso = p.status === 'ativo' && !p.anonimizadoEm && Boolean(p.userId);
+  const comAcesso = p.status === 'ativo' && Boolean(p.userId);
   const doApp = comAcesso
     ? await comoPaciente(db, ctx.tenantId, p.id, async (tx) => {
         const contagens: Record<string, number> = {};

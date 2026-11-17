@@ -35,6 +35,13 @@ export function formatarDataNoFuso(instante: Date | string, fuso: string): strin
   return formatarData(hojeNoFuso(fuso, new Date(instante)));
 }
 
+/** Instante como 'dd/mm/aaaa, hh:mm' no fuso do tenant (RN-06). Puro (sem banco): o lugar antigo, `historico-acessos.tsx`, reexporta. */
+export function formatarDataHora(d: Date, fuso: string): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: fuso, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(d);
+}
+
 /** 'AAAA-MM-DD' + anos (29/02 → 28/02 quando o ano de destino não é bissexto). */
 export function somarAnos(iso: string, anos: number): string {
   const [a, m, d] = iso.split('-').map(Number);

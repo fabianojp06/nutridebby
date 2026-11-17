@@ -1,13 +1,11 @@
 import type { TenantContext } from '@/db/tenant';
+import { formatarDataHora } from '@/modules/pacientes/datas';
 import { ENTIDADE_ROTULO, listAccessHistory, rotuloDaAcao, type AccessHistoryPage } from '../audit';
 
 const PAPEL: Record<string, string> = { nutri: 'nutricionista', paciente: 'paciente', admin: 'administração' };
 
-export function formatarDataHora(d: Date, fuso: string): string {
-  return new Intl.DateTimeFormat('pt-BR', {
-    timeZone: fuso, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  }).format(d);
-}
+// movida para o módulo puro de datas (Plano 18, revisão da P18-09); reexportada aqui para os usos antigos
+export { formatarDataHora };
 
 /** Aba "Histórico de acessos" do prontuário (US-007). Montada no prontuário no P03-01. */
 export function HistoricoAcessosTabela({ pagina, fuso, baseHref }: { pagina: AccessHistoryPage; fuso: string; baseHref: string }) {

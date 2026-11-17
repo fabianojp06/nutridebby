@@ -17,6 +17,8 @@ const estado = vi.hoisted(() => ({
   incompletoPedido: [] as string[],
   noApp: {} as NoApp,
   noAppPedidos: [] as unknown[][],
+  noAppFalha: null as Error | null,
+  avisos: [] as unknown[][],
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('./prontuario', () => ({
@@ -48,9 +50,14 @@ vi.mock('@/modules/ficha/incompleto', () => ({
 vi.mock('@/modules/ficha/no-app', () => ({
   noAppDoPaciente: async (...args: unknown[]) => {
     estado.noAppPedidos.push(args);
+    if (estado.noAppFalha) throw estado.noAppFalha;
     return estado.noApp;
   },
 }));
+vi.mock('@/lib/logger', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/logger')>();
+  return { ...real, logger: { ...real.logger, warn: (...args: unknown[]) => estado.avisos.push(args) } };
+});
 vi.mock('./inicio/acoes', () => ({ acoesDoAdicionar: () => ({ 'criar-receita': vi.fn(), 'criar-parecer': vi.fn() }) }));
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => ({ push: () => undefined }) }));
 const { default: InicioPage } = await import('./page');
@@ -89,6 +96,8 @@ describe('aba Início (Plano 18)', () => {
     estado.incompleto = null;
     estado.incompletoPedido = [];
     estado.noAppPedidos = [];
+    estado.noAppFalha = null;
+    estado.avisos = [];
     estado.noApp = {
       acesso: { estado: 'ativo', ultimoAcesso: '2026-11-14', textoDoConvite: null },
       notificacoes: { aparelhos: 1, whatsapp: true },
@@ -234,6 +243,22 @@ describe('aba Início (Plano 18)', () => {
       expect(c).not.toContain('documentos');
       expect(c).not.toContain('conteúdos');
       expect(c).not.toContain('Plano alimentar publicado');
+    });
+
+    it('o No app falhou: o Início continua, sem o cartão e sem o selo; no log só o tipo do erro', async () => {
+      estado.noApp = { ...estado.noApp, pesoOculto: true };
+      const erro = new TypeError('falhou para Ana Teste, peso 70 kg');
+      estado.noAppFalha = erro;
+      const html = await render();
+      expect(cartao(html)).toBe('');
+      expect(html).not.toContain('data-guia="no-app-cartao"');
+      expect(html).not.toContain('>No app<');
+      expect(html).not.toContain('Peso e IMC ocultos no app.');
+      // o resto do Início continua
+      expect(html).toMatch(/<h2[^>]*>Resumo<\/h2>/);
+      expect(h3s(html).filter((t) => /\(\d+\)$/.test(t))).toHaveLength(REGISTRO.length);
+      expect(estado.avisos).toEqual([[{ erro: 'TypeError' }, 'No app do paciente indisponível no Início']]);
+      expect(JSON.stringify(estado.avisos)).not.toMatch(/Ana|70 kg/);
     });
 
     it('arquivado: "Paciente arquivado: não vê nada no app até ser reativado."', async () => {

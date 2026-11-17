@@ -161,7 +161,7 @@ export const GUIAS: readonly Guia[] = [
             'Use "Adicionar" para registrar anamnese, antropometria, gasto energético, exame, atendimento ou prescrição sem procurar a aba.',
             'Abra uma seção para ver os registros mais recentes; "Ver todos" leva à aba com a lista completa.',
             'O cadastro, o acesso ao app e as etiquetas ficam no Perfil.',
-            'O cartão "No app do paciente" mostra o acesso ao app, o plano, os documentos e os conteúdos que o paciente vê; "Ver detalhes" abre a página com notificações, lembretes, evolução, jornada, exames, diário e IA Nutri, contados com as mesmas regras do app.',
+            'O cartão "No app do paciente" mostra o acesso ao app, o plano, os documentos (só quando liberados no consultório) e os conteúdos que o paciente vê; "Ver detalhes" abre a página com notificações, lembretes, evolução, jornada, exames, diário e IA Nutri, contados com as mesmas regras do app.',
           ],
         },
         { titulo: 'Perguntas comuns', itens: ['Paciente bloqueado por pedido de exclusão não tem o botão "Adicionar": o prontuário é só para consulta.'] },

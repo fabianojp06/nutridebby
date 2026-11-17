@@ -202,6 +202,8 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(g.passos.find((p) => p.alvo === 'no-app-cartao')?.texto).toBe('O que o paciente enxerga no app, contado com as mesmas regras do app.');
     // a explicação da página "No app do paciente" fica nas ajudas deste guia (a página cai no guia `prontuario`)
     expect(g.ajuda.secoes.flatMap((s) => s.itens)).toContainEqual(expect.stringContaining('"No app do paciente"'));
+    // os documentos só aparecem com a liberação no consultório (a linha some sem ela, §8.5); só a gaveta: sem subir versão
+    expect(g.ajuda.secoes.flatMap((s) => s.itens)).toContainEqual(expect.stringContaining('os documentos (só quando liberados no consultório)'));
   });
   it('Plano 18 (§8.4): o guia "Perfil do paciente" casa só o Perfil, vem antes do prontuário e traz o passo do cadastro em seções; o de Pacientes tem o mesmo passo (Novo paciente)', () => {
     const g = GUIAS.find((x) => x.id === 'perfil-paciente')!;

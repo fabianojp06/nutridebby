@@ -94,7 +94,7 @@ describe('página "No app do paciente" (§8.5)', () => {
     };
     const html = await render();
     expect(linha(html, 'Acesso')).toBe('Ativo: o paciente já criou a senha. · Último acesso: nenhum ainda.');
-    expect(linha(html, 'Notificações')).toBe('Desligadas em todos os aparelhos · WhatsApp não autorizado');
+    expect(linha(html, 'Notificações')).toBe('Notificações: desligadas em todos os aparelhos. · WhatsApp não autorizado');
     expect(linha(html, 'Plano')).toBe('Publicado em 10/11/2026 · 1 receita sugerida');
     expect(linha(html, 'Evolução')).toBe('5 avaliações · Peso e IMC: aparecem no app · % de gordura: aparece no app');
     expect(linha(html, 'IA Nutri')).toBe('Desligada');

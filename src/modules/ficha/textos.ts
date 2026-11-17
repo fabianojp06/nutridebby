@@ -147,7 +147,8 @@ export const MSG_NO_APP = {
   },
   notificacoes: {
     ativas: (n: number) => `Ativas em ${plural(n, 'aparelho', 'aparelhos')}`,
-    desligadas: 'Desligadas em todos os aparelhos',
+    /** Texto exato da §8.5 ("Sem push"), com o rótulo e o ponto. */
+    desligadas: 'Notificações: desligadas em todos os aparelhos.',
     whatsapp: 'WhatsApp autorizado',
     semWhatsapp: 'WhatsApp não autorizado',
   },

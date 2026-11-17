@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { count, eq, sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novaEtiqueta, novoConteudo } from '../../../test/conteudos';
@@ -8,7 +8,7 @@ import { envioNoBanco } from '../../../test/exames-enviados';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
-import { accessEvents, anthropometry, auditLog, consultations, diaryEntries, iaNutriParticipacoes, invites, lembretesRotina, pushSubscriptions, tenants, type TenantRow } from '@/db/schema';
+import { accessEvents, anthropometry, auditLog, consultations, diaryEntries, iaNutriParticipacoes, invites, lembretesRotina, patients, pushSubscriptions, tenants, type TenantRow } from '@/db/schema';
 import { TenantContextError, withTenant, type TenantContext } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { sha256 } from '@/lib/crypto';
@@ -30,6 +30,17 @@ import { listaDoPlano } from '@/modules/portal/lista-compras';
 import { planoDoPaciente } from '@/modules/portal/plano';
 import { noAppDoPaciente } from './no-app';
 import { SECOES_DA_FICHA } from './secoes';
+
+// Quem abriu o contexto do paciente sem login (o `withTenant` de verdade, só anotando): para provar que ele não abre
+const aberturas = vi.hoisted(() => ({ semConta: [] as string[] }));
+vi.mock('@/db/tenant', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/db/tenant')>();
+  const withTenant: typeof real.withTenant = (ctx, fn, db) => {
+    if (ctx.semConta) aberturas.semConta.push(ctx.patientId ?? '');
+    return real.withTenant(ctx, fn, db);
+  };
+  return { ...real, withTenant };
+});
 
 // Plano 18 (D16, D24, RN-279, RN-281; Review Focus 2, CS-261): o "No app" conta o que o portal devolve ao mesmo paciente
 // na sessão dele (com login) — contagens e selos iguais —, sem trilha de leitura e só pela sessão da nutricionista.
@@ -348,6 +359,128 @@ describe('noAppDoPaciente (Plano 18, D16, RN-281)', () => {
     expect(r.acesso.estado).toBe('arquivado');
     expect(r.contagens).toBeNull();
     expect(r.visiveis).toEqual({});
+  });
+
+  it('conteúdos (positivos): o da etiqueta que a paciente TEM e o "pacientes" com ela na audiência entram, como no feed', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: eva, userId } = await pacienteComConta(app.db, T);
+    const outra = await novoPaciente(app.db, T.ctx);
+    const gestante = await novaEtiqueta(app.db, T, 'gestante', [eva.id]);
+    await novoConteudo(app.db, T, { titulo: 'Da etiqueta', visibilidade: 'etiquetas', tags: [gestante] });
+    await novoConteudo(app.db, T, { titulo: 'Só da Eva', visibilidade: 'pacientes', pacientes: [eva.id] });
+    await novoConteudo(app.db, T, { titulo: 'Só da outra', visibilidade: 'pacientes', pacientes: [outra.id] });
+    const r = await noAppDoPaciente(T.ctx, eva.id, {}, { db: app.db, agora: AGORA });
+    const feed = await feedDeConteudos(ctxPaciente(T.tenantId, eva.id, userId), {}, app.db);
+    expect(feed.itens.map((i) => i.titulo).sort()).toEqual(['Da etiqueta', 'Só da Eva']);
+    expect(r.contagens!.conteudos).toBe(feed.itens.length);
+  });
+
+  it('documentos com `documentos_liberados` desligado: 0 e sem selo, como o portal (que não mostra nada)', async () => {
+    const T = await novoTenant(app.db);
+    await liberarDocumentos(app.db, T.tenantId);
+    const { paciente: gil, userId } = await pacienteComConta(app.db, T);
+    const doc = await documentoNoBanco(app.db, T.ctx, gil.id, { status: 'assinado' });
+    const ligado = await noAppDoPaciente(T.ctx, gil.id, { documentos: [doc.id] }, { db: app.db, agora: AGORA });
+    expect(ligado.contagens!.documentos).toBe(1); // controle: com a liberação, conta
+    await app.db.update(tenants).set({ documentosLiberados: false }).where(eq(tenants.id, T.tenantId));
+    const r = await noAppDoPaciente(T.ctx, gil.id, { documentos: [doc.id] }, { db: app.db, agora: AGORA });
+    expect(await documentosDoPaciente(ctxPaciente(T.tenantId, gil.id, userId), app.db)).toEqual([]);
+    expect(r.contagens!.documentos).toBe(0);
+    expect(r.visiveis.documentos ?? []).toEqual([]);
+  });
+
+  it('convite vencido: estado "expirado", o texto do Perfil (`textoDoAcesso`) e sem contagens', async () => {
+    const c = await oCenario();
+    const ivo = await novoPaciente(app.db, c.T.ctx);
+    await app.db.insert(invites).values({ tipo: 'paciente', tenantId: c.T.tenantId, patientId: ivo.id, tokenHash: sha256(randomUUID()), expiraEm: new Date(AGORA.getTime() - DIA) });
+    const r = await noAppDoPaciente(c.T.ctx, ivo.id, {}, { db: app.db, agora: AGORA });
+    expect(r.acesso.estado).toBe('expirado');
+    expect(r.acesso.textoDoConvite).toBe(textoDoAcesso(await situacaoDoAcesso(c.T.ctx, ivo, app.db, AGORA), FUSO, 'ativo'));
+    expect(r.acesso.textoDoConvite).toBe('Convite expirado. Reenvie para o paciente conseguir entrar.');
+    expect(r.contagens).toBeNull();
+  });
+
+  it('lembrete desligado pela equipe: fora dos ligados e dos desligados pelo paciente, como na seção do Plano 17', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: lia } = await pacienteComConta(app.db, T);
+    const TODOS = [0, 1, 2, 3, 4, 5, 6];
+    await inserir(T.ctx, (tx) =>
+      tx.insert(lembretesRotina).values([
+        { tenantId: T.tenantId, patientId: lia.id, criadoPor: T.nutriId, tipo: 'agua', config: { inicio: '08:00', fim: '21:00', intervaloMin: 60, dias: TODOS } },
+        { tenantId: T.tenantId, patientId: lia.id, criadoPor: T.nutriId, tipo: 'suplemento', texto: 'Ômega 3', ligado: false, config: { horarios: ['09:00'], dias: TODOS } },
+      ]),
+    );
+    const r = await noAppDoPaciente(T.ctx, lia.id, {}, { db: app.db, agora: AGORA });
+    const v = await lembretesDoPaciente(T.ctx, lia.id, { fuso: FUSO }, { db: app.db, agora: AGORA });
+    expect(r.lembretes).toEqual({
+      ligados: v.lembretes.filter((l) => l.ligado && !l.desligadoPeloPacienteEm).length,
+      desligadosPeloPaciente: v.lembretes.filter((l) => l.desligadoPeloPacienteEm).length,
+      pausados: v.pausadoEm !== null,
+    });
+    expect(r.lembretes).toEqual({ ligados: 1, desligadosPeloPaciente: 0, pausados: false });
+  });
+
+  describe('sem acesso (arquivado, bloqueado, anonimizado — com conta): só a linha do acesso, nada mais lido', () => {
+    beforeEach(() => {
+      aberturas.semConta = [];
+    });
+
+    /** Paciente com conta e com tudo o que a página mostraria (push, WhatsApp, plano, lembrete, peso oculto, avaliação). */
+    async function comTudo(T: TenantDeTeste) {
+      const { paciente, userId } = await pacienteComConta(app.db, T, { whatsappOptinEm: new Date(), whatsappOptinOrigem: 'nutri' });
+      await inserir(T.ctx, (tx) => tx.insert(pushSubscriptions).values({ tenantId: T.tenantId, patientId: paciente.id, endpoint: `https://push.example.test/${randomUUID()}`, p256dh: 'a'.repeat(87), auth: 'b'.repeat(22) }));
+      await inserir(T.ctx, (tx) => tx.insert(lembretesRotina).values({ tenantId: T.tenantId, patientId: paciente.id, criadoPor: T.nutriId, tipo: 'agua', config: { inicio: '08:00', fim: '21:00', intervaloMin: 60, dias: [1] } }));
+      await inserir(T.ctx, (tx) => tx.insert(iaNutriParticipacoes).values({ tenantId: T.tenantId, patientId: paciente.id, liberadaEm: new Date(), liberadaPor: T.nutriId }));
+      await inserir(ctxPaciente(T.tenantId, paciente.id, userId), (tx) => tx.insert(accessEvents).values({ tenantId: T.tenantId, patientId: paciente.id, dia: '2026-11-14' }));
+      const [av] = await inserir(T.ctx, (tx) =>
+        tx.insert(anthropometry).values({ tenantId: T.tenantId, patientId: paciente.id, data: '2026-11-01', pesoKg: 70, alturaCm: 170 }).returning({ id: anthropometry.id }),
+      );
+      await plano(T, paciente.id, { status: 'publicado', versao: 1, publicadoEm: new Date('2026-11-05T15:00:00Z'), refeicoes: [{ itens: [{}] }] });
+      await definirPesoOculto(T.ctx, paciente.id, true, { db: app.db });
+      return { paciente, avaliacao: av.id };
+    }
+
+    const NEUTRO = {
+      notificacoes: { aparelhos: 0, whatsapp: false },
+      plano: { publicadoEm: null, listaDeCompras: false },
+      lembretes: null,
+      pesoOculto: false,
+      gorduraNoApp: false,
+      iaNutri: null,
+      contagens: null,
+      receitasSugeridas: null,
+      visiveis: {},
+    };
+
+    it('arquivado, bloqueado e anonimizado: o resto neutro (mesmo com os dados no banco), sem selo e sem abrir o contexto sem login', async () => {
+      const T = await novoTenant(app.db);
+      await app.db.update(tenants).set({ mostrarPercGorduraPaciente: true, iaNutriAtivadaEm: new Date() }).where(eq(tenants.id, T.tenantId));
+      const arq = await comTudo(T);
+      const blo = await comTudo(T);
+      const ano = await comTudo(T);
+      const ati = await comTudo(T);
+      await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, arq.paciente.id)), app.db);
+      await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, blo.paciente.id)), app.db);
+      // a anonimização de verdade apaga a conta e o resto (lgpd.ts); aqui só a marca, com a conta ainda ligada, para
+      // provar que a marca sozinha basta para nada ser lido
+      await dono.db.transaction(async (tx) => {
+        await tx.execute(sql`set local session_replication_role = replica`);
+        await tx.execute(sql`update patients set status = 'bloqueado', anonimizado_em = now() where id = ${ano.paciente.id}`);
+      });
+
+      // controle: o ativo com os mesmos dados mostra tudo e abre o contexto sem login
+      const ativo = await noAppDoPaciente(T.ctx, ati.paciente.id, { antropometria: [ati.avaliacao] }, { db: app.db, agora: AGORA });
+      expect(ativo).toMatchObject({ notificacoes: { aparelhos: 1, whatsapp: true }, lembretes: { ligados: 1 }, pesoOculto: true, gorduraNoApp: true, iaNutri: 'ligada' });
+      expect(ativo.visiveis.antropometria).toEqual([ati.avaliacao]);
+      expect(aberturas.semConta).toEqual([ati.paciente.id]);
+      aberturas.semConta = [];
+
+      for (const [x, estado] of [[arq, 'arquivado'], [blo, 'bloqueado'], [ano, 'bloqueado']] as const) {
+        const r = await noAppDoPaciente(T.ctx, x.paciente.id, { antropometria: [x.avaliacao] }, { db: app.db, agora: AGORA });
+        expect(r, estado).toEqual({ acesso: { estado, ultimoAcesso: null, textoDoConvite: null }, ...NEUTRO });
+      }
+      expect(aberturas.semConta).toEqual([]);
+    });
   });
 
   it('sem trilha: nenhuma linha nova no audit_log (controle positivo: uma leitura auditada grava)', async () => {

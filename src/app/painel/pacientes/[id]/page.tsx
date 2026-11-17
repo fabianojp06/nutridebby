@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Aviso } from '@/components/ui/aviso';
 import { BotaoLink } from '@/components/ui/botao';
 import { Cartao } from '@/components/ui/cartao';
+import { logger, nomeDoErro } from '@/lib/logger';
 import { montarAdicionar } from '@/modules/ficha/adicionar';
 import { cadastroIncompleto } from '@/modules/ficha/incompleto';
 import { secoesDoInicio, type SecaoNoInicio } from '@/modules/ficha/inicio';
@@ -23,9 +24,16 @@ export const dynamic = 'force-dynamic';
  * RN-279: as seções com o selo "No app" nos itens que o paciente vê — os ids que `noAppDoPaciente` achou no contexto do
  * paciente (nunca reproduzido aqui, na sessão `nutri`).
  */
-async function secoesComSelo(ctx: Parameters<typeof noAppDoPaciente>[0], secoes: SecaoNoInicio[], patientId: string): Promise<{ secoes: SecaoNoInicio[]; noApp: NoApp }> {
+async function secoesComSelo(ctx: Parameters<typeof noAppDoPaciente>[0], secoes: SecaoNoInicio[], patientId: string): Promise<{ secoes: SecaoNoInicio[]; noApp: NoApp | null }> {
   const itens = Object.fromEntries(secoes.map((s) => [s.id, s.resumo.ultimos.map((i) => i.id)]));
-  const noApp = await noAppDoPaciente(ctx, patientId, itens);
+  let noApp: NoApp;
+  try {
+    noApp = await noAppDoPaciente(ctx, patientId, itens);
+  } catch (err) {
+    // o Início não cai pelo No app: sem o cartão e sem o selo; no log, só o tipo do erro (nunca a mensagem nem dado de saúde)
+    logger.warn({ erro: nomeDoErro(err) }, 'No app do paciente indisponível no Início');
+    return { secoes, noApp: null };
+  }
   const comSelo = secoes.map((s) => {
     const visiveis = new Set(noApp.visiveis[s.id] ?? []);
     return { ...s, resumo: { ...s.resumo, ultimos: s.resumo.ultimos.map((i) => ({ ...i, noApp: visiveis.has(i.id) })) } };
@@ -73,7 +81,7 @@ export default async function InicioPage({ params }: PageProps<'/painel/paciente
             </div>
           )}
         </Cartao>
-        <CartaoNoApp noApp={noApp} patientId={paciente.id} documentos={tenant.documentosLiberados} />
+        {noApp && <CartaoNoApp noApp={noApp} patientId={paciente.id} documentos={tenant.documentosLiberados} />}
       </div>
       {/* US-120 (Plano 14B): só com a IA da plataforma presente e o paciente ativo; sem poder pedir, o motivo (texto da aba Exames) */}
       {ia && (
@@ -89,7 +97,7 @@ export default async function InicioPage({ params }: PageProps<'/painel/paciente
       <section aria-labelledby="secoes-titulo" data-guia="secoes-inicio" className="rounded-3xl border border-borda bg-cartao px-5 py-2">
         <h2 id="secoes-titulo" className="sr-only">{MSG_FICHA.secoesTitulo}</h2>
         {/* RN-279, §8.3: com o peso oculto, a seção Antropometria avisa que peso e IMC não aparecem no app */}
-        {secoes.map((s) => <Secao key={s.id} secao={s} patientId={paciente.id} nota={s.id === 'antropometria' && noApp.pesoOculto ? MSG_FICHA.pesoOcultoNaSecao : undefined} />)}
+        {secoes.map((s) => <Secao key={s.id} secao={s} patientId={paciente.id} nota={s.id === 'antropometria' && noApp?.pesoOculto ? MSG_FICHA.pesoOcultoNaSecao : undefined} />)}
       </section>
     </div>
   );
