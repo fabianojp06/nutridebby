@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderEmail } from './templates';
+import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 
 describe('modelos de e-mail (INT-02)', () => {
   it('convite da nutricionista: assunto, nome, link no botão e no texto, validade de 72 h', () => {
@@ -68,6 +69,19 @@ describe('exclusao_atendida (US-018)', () => {
     );
     expect(r.html).toContain('por no máximo 30 dias, para a sua proteção');
   });
+
+  it('Plano 20 (US-307, spec §6.2; LGPD art. 18, § 4º, II): a linha dos registros de pagamento vem logo depois da do prontuário', () => {
+    const r = renderEmail({ tipo: 'exclusao_atendida', para: 'ana@ex.com', nome: 'Ana Souza', nutri: 'Debby Silva', anonimizarApos: '15/09/2046' });
+    const linhas = r.text.split('\n\n');
+    const prontuario = linhas.findIndex((l) => l.startsWith('Por obrigação legal (LGPD, art. 16, I), o prontuário clínico'));
+    expect(prontuario).toBeGreaterThan(0);
+    expect(linhas[prontuario + 1]).toBe(
+      'Se você tem registros de pagamento de consultas neste acompanhamento, eles ficam guardados pelo mesmo prazo, pelas obrigações fiscais, e os pagamentos em aberto continuam devidos.',
+    );
+    expect(linhas[prontuario + 1]).toBe(MSG_FINANCEIRO.lgpd.emailExclusaoAtendida);
+    expect(linhas.at(-1)).toBe('Se tiver dúvidas, fale com a sua nutricionista.');
+    expect(r.html).toContain('pelas obrigações fiscais, e os pagamentos em aberto continuam devidos.');
+  });
 });
 
 describe('exportacao_pronta (US-018)', () => {
@@ -95,6 +109,12 @@ describe('pedido_exclusao_registrado (US-046)', () => {
     expect(r.text).toContain('Recebemos seu pedido de exclusão de dados. Debby Silva tem até 20/10/2026 para responder.');
     expect(r.text).toContain('o prontuário clínico é guardado de forma bloqueada pelo prazo exigido');
     expect(r.html).toContain('Debby Silva tem até 20/10/2026 para responder.');
+    // Plano 20 (US-307, spec §6.2): a segunda linha cita os registros de pagamento das consultas
+    expect(r.text.split('\n\n')).toEqual([
+      'Recebemos seu pedido de exclusão de dados. Debby Silva tem até 20/10/2026 para responder.',
+      'Por obrigação legal, o prontuário clínico é guardado de forma bloqueada pelo prazo exigido, e os registros de pagamento das consultas ficam guardados pelo mesmo prazo (os pagamentos em aberto continuam devidos); o resto é apagado quando o pedido for atendido. Você recebe outro e-mail nesse momento.',
+    ]);
+    expect(r.text.split('\n\n')[1]).toBe(MSG_FINANCEIRO.lgpd.emailPedidoExclusao);
   });
 });
 

@@ -145,7 +145,7 @@ it('avaliação feita num atendimento fica ligada a ele; atendimento de outro pa
   const T = await novoTenant(app.db);
   const p = await novoPaciente(app.db, T.ctx);
   const outro = await novoPaciente(app.db, T.ctx);
-  const at = await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-09-01', notasPrivadas: '', orientacoes: '' }, deps);
+  const { id: at } = await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-09-01', notasPrivadas: '', orientacoes: '' }, deps);
   const r = await registrarAntropometria(T.ctx, T.tenant, p.id, { ...entrada({}), consultationId: at }, deps);
   expect((await listarAntropometrias(T.ctx, p.id, app.db)).find((a) => a.id === r.id)?.consultationId).toBe(at);
   expect(await erros(registrarAntropometria(T.ctx, T.tenant, outro.id, { ...entrada({}), consultationId: at }, deps))).toEqual({ geral: MSG_ATENDIMENTO.naoEncontrado });

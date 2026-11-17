@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 
 const estado = vi.hoisted(() => ({ vinculos: 2, documentos: true, lembretes: true }));
 const blocoIa = vi.hoisted(() => ({ valor: null as null | { situacao: { tipo: string; em?: Date; versao?: string }; podeDecidir: boolean } }));
@@ -178,5 +179,13 @@ describe('/p/perfil — Eu (US-197, molde D-Assuntos)', () => {
         expect(b).toMatch(/\bborder\b/);
       }
     });
+  });
+
+  it('Plano 20 (US-307, spec §6.2): a confirmação de "Pedir a exclusão" cita os registros de pagamento das consultas', async () => {
+    const { CONFIRMAR_EXCLUSAO } = await import('./privacidade');
+    expect(CONFIRMAR_EXCLUSAO).toBe(
+      'Pedir a exclusão? Sua nutricionista tem até 15 dias para responder. O prontuário clínico e os registros de pagamento das consultas são guardados pelo prazo legal.',
+    );
+    expect(CONFIRMAR_EXCLUSAO).toBe(MSG_FINANCEIRO.lgpd.confirmarExclusaoPortal);
   });
 });

@@ -8,8 +8,16 @@ import { prazosDaRequisicao } from './sessao-prazos';
 import type { SessionData } from './session';
 import { evaluateSession, MSG_SESSAO_EXPIRADA, type AppRole } from './session-rules';
 
+/**
+ * Por que a sessão foi recusada, sem ler a resposta: `sem_sessao` é o 401 (sem sessão ou expirada); `papel`, qualquer 403
+ * (papel errado, conta suspensa, 2FA do admin). `requireApiNutri` repassa (o download do CSV responde com redirect).
+ */
+export type MotivoDaSessaoRecusada = 'sem_sessao' | 'papel';
+
 /** `tenant`: a linha já lida para o RN-15 (null para admin). */
-export type ApiAuth = { ok: true; data: SessionData; tenant: TenantRow | null } | { ok: false; response: Response };
+export type ApiAuth =
+  | { ok: true; data: SessionData; tenant: TenantRow | null }
+  | { ok: false; response: Response; motivo: MotivoDaSessaoRecusada };
 
 /** `extra`: campos além do `erro` (ex.: `motivo: 'escolher'` do portal, S-4) — nunca dado pessoal. */
 export const recusaApi = (status: number, erro: string, extra: Record<string, string> = {}): { ok: false; response: Response } => ({
@@ -65,12 +73,12 @@ async function autenticarApi(req: Request, allowed: readonly AppRole[], deslizar
       return { ok: true, data: data!, tenant };
     case 'login':
     case 'expired':
-      return recusaApi(401, MSG_SESSAO_EXPIRADA);
+      return { ...recusaApi(401, MSG_SESSAO_EXPIRADA), motivo: 'sem_sessao' };
     case 'suspended':
-      return recusaApi(403, 'Conta temporariamente indisponível');
+      return { ...recusaApi(403, 'Conta temporariamente indisponível'), motivo: 'papel' };
     case 'setup-2fa':
     case 'forbidden':
-      return recusaApi(403, 'Acesso negado');
+      return { ...recusaApi(403, 'Acesso negado'), motivo: 'papel' };
     default: {
       const nunca: never = decision;
       throw new Error(`Decisão de sessão desconhecida: ${String(nunca)}`);

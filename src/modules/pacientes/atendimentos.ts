@@ -4,6 +4,7 @@ import { uniqueViolation } from '@/db/errors';
 import { appointments, consultationNotes, consultations } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { motivoParaNaoIniciarAtendimento } from '@/modules/agenda/presenca';
+import { cobrarConsultaRealizada, type ResultadoCobranca } from '@/modules/financeiro/cobranca';
 import { auditRead } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita, idValido } from './base';
 import { dataValida, hojeNoFuso } from './datas';
@@ -62,8 +63,16 @@ async function gravarNota(tx: Tx, a: { tenantId: string; patientId: string; cons
  * Plano 05 ("Iniciar atendimento" na agenda): com `appointmentId`, a consulta precisa ser deste paciente, não
  * cancelada e já começada (a regra da tela, `motivoParaNaoIniciarAtendimento`); o atendimento fica ligado a ela (no máximo um por consulta) e ela vira "realizada" — inclusive a marcada
  * como "faltou" por engano: houve atendimento. Ordem das travas: paciente → consulta (a mesma da agenda).
+ * Plano 20 (F-D13, RN-310): a passagem a "realizada" cobra na mesma transação; `cobranca` é nulo sem consulta ou quando ela
+ * já era "realizada" (sem retroativo).
  */
-export async function registrarAtendimento(ctx: TenantContext, tenant: { fuso: string }, patientId: string, input: Entrada, deps: { db?: Db; now?: Date } = {}): Promise<string> {
+export async function registrarAtendimento(
+  ctx: TenantContext,
+  tenant: { fuso: string },
+  patientId: string,
+  input: Entrada,
+  deps: { db?: Db; now?: Date } = {},
+): Promise<{ id: string; cobranca: ResultadoCobranca | null }> {
   const now = deps.now ?? new Date();
   const v = validar(input, hojeNoFuso(tenant.fuso, now));
   const appointmentId = input.appointmentId === undefined || input.appointmentId === null || input.appointmentId === '' ? null : input.appointmentId;
@@ -72,6 +81,7 @@ export async function registrarAtendimento(ctx: TenantContext, tenant: { fuso: s
       ctx,
       async (tx) => {
         const p = await carregarPacienteParaEscrita(tx, patientId);
+        let cobranca: ResultadoCobranca | null = null;
         if (appointmentId !== null) {
           const [c] = idValido(appointmentId)
             ? await tx.select().from(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.patientId, p.id))).for('update')
@@ -80,14 +90,17 @@ export async function registrarAtendimento(ctx: TenantContext, tenant: { fuso: s
           // a regra da tela, conferida de novo sob a trava da consulta (R11: motivoParaNaoIniciarAtendimento)
           const motivo = motivoParaNaoIniciarAtendimento(c, now);
           if (motivo) throw new AtendimentoError({ geral: motivo === 'cancelada' ? MSG_ATENDIMENTO.consultaInvalida : MSG_ATENDIMENTO.consultaNaoComecou });
-          if (c.status !== 'realizada') await tx.update(appointments).set({ status: 'realizada', presencaEm: now, updatedAt: now }).where(eq(appointments.id, c.id));
+          if (c.status !== 'realizada') {
+            await tx.update(appointments).set({ status: 'realizada', presencaEm: now, updatedAt: now }).where(eq(appointments.id, c.id));
+            cobranca = await cobrarConsultaRealizada(tx, { tenantId: ctx.tenantId, fuso: tenant.fuso, consulta: { id: c.id, patientId: p.id, inicio: c.inicio } });
+          }
         }
         const [c] = await tx
           .insert(consultations)
           .values({ tenantId: ctx.tenantId, patientId: p.id, data: v.data, orientacoesPaciente: v.orientacoes, appointmentId: appointmentId as string | null, createdAt: now, updatedAt: now })
           .returning({ id: consultations.id });
         await gravarNota(tx, { tenantId: ctx.tenantId, patientId: p.id, consultationId: c.id }, v.notas, now);
-        return c.id;
+        return { id: c.id, cobranca };
       },
       deps.db ?? getDb(),
     );

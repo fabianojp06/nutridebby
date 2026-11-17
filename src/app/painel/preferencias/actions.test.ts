@@ -21,7 +21,8 @@ describe('marcarGuiaAction (D27): só os guias que existem, até a versão atual
   it.each([
     ['id no formato, mas fora de GUIAS', 'qualquer-coisa', 1],
     ['array (vira texto no regex)', ['agenda'], 1],
-    ['versão maior que a do guia', 'agenda', 2],
+    // Plano 20: a versão do guia "agenda" sobe com o texto; o caso usa a atual + 1, não um número fixo
+    ['versão maior que a do guia', 'agenda', (GUIAS.find((g) => g.id === 'agenda')?.versao ?? 0) + 1],
     ['versão que não é número', 'agenda', '1'],
   ])('%s → nada gravado', async (_n, id, versao) => {
     await marcarGuiaAction(id as string, versao as number, 'visto');

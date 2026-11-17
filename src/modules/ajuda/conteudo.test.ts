@@ -10,7 +10,7 @@ const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
   .join('\n');
 
 // Rótulos que vêm de módulos (opções da agenda, filtros): citados no manual, desenhados fora do .tsx
-const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes', 'src/modules/ficha']
+const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes', 'src/modules/ficha', 'src/modules/financeiro']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.ts') && !d.name.endsWith('.test.ts')).map((d) => path.join(d.parentPath, d.name)))
   // Plano 16: os rótulos da resposta do diário ("Comeu como no plano") vêm de uma constante do portal (sem import de servidor)
   .concat(path.resolve('src/modules/portal/diario-constantes.ts'))
@@ -132,7 +132,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 15 (★ DO-6): o passo do menu do boas-vindas cita "Dúvidas dos pacientes" e a versão sobe para 3 neste PR', () => {
     const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
-    expect(g.versao).toBe(3);
+    expect(g.versao).toBeGreaterThanOrEqual(3); // 4 desde o Plano 20 (abaixo)
     expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('"Dúvidas dos pacientes" aparece também, com o número das abertas.');
   });
   it('Plano 15: a fila "Dúvidas dos pacientes" e a aba "IA Nutri" da ficha têm guia próprio (a aba antes do guia do prontuário)', () => {
@@ -154,6 +154,42 @@ describe('conteúdo do manual (P08-10)', () => {
     const perguntas = g.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')!.itens.join(' ');
     expect(perguntas).toContain('24 lembretes por dia');
     expect(perguntas).toContain('entre 6h e 22h');
+  });
+  it('Plano 20: o passo do menu do boas-vindas cita "Financeiro" e a versão sobe para 4 (quem já viu o tour, vê de novo)', () => {
+    const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
+    expect(g.versao).toBe(4);
+    expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('Financeiro');
+  });
+  it('Plano 20 (T7): o guia da Agenda cita a cobrança criada ao marcar "Realizada" e a versão sobe para 2', () => {
+    const g = GUIAS.find((x) => x.id === 'agenda')!;
+    expect(g.versao).toBe(2);
+    const passos = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens.join(' ');
+    expect(passos).toContain('Realizada');
+    expect(passos).toContain('cobrança');
+    expect(passos).toContain('Financeiro');
+  });
+  it('Plano 20: o Financeiro tem guia próprio (versão 1, último da lista), com os alvos do Resumo, das Configurações, dos Lançamentos, dos Pagamentos pendentes e dos Relatórios', () => {
+    const g = GUIAS.find((x) => x.id === 'financeiro')!;
+    expect(g.versao).toBe(1);
+    expect(GUIAS.at(-1)?.id).toBe('financeiro');
+    for (const rota of ['/painel/financeiro', '/painel/financeiro/configuracoes', '/painel/financeiro/lancamentos/novo', `/painel/financeiro/lancamentos/${UUID}`, `/painel/financeiro/pendencias/${UUID}`, '/painel/financeiro/pendencias', '/painel/financeiro/relatorios'])
+      expect(guiaDaRota(rota)?.id, rota).toBe('financeiro');
+    expect(guiaDaRota('/painel/financeirox')).toBeNull();
+    expect(g.passos.map((p) => p.alvo)).toEqual([
+      'financeiro-secoes',
+      'financeiro-cartoes',
+      'financeiro-saldo',
+      'financeiro-valor-consulta',
+      'financeiro-categorias',
+      'financeiro-filtros',
+      'financeiro-novo',
+      'financeiro-receber',
+      'financeiro-cancelar',
+      'financeiro-pendentes',
+      'financeiro-relatorios',
+      'financeiro-csv',
+    ]);
+    for (const rota of ['/painel/financeiro/lancamentos', `/painel/financeiro/lancamentos/${UUID}`]) expect(guiaDaRota(rota)?.id, rota).toBe('financeiro');
   });
 
   it('Plano 18 (§8.2): o guia do prontuário na versão 3, com o cabeçalho e as abas Início e Perfil; o resumo e o passo a passo citam os dois', () => {

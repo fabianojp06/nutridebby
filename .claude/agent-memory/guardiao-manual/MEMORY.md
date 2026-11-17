@@ -1,3 +1,3 @@
-- [Estado dos manuais](estado-dos-manuais.md) — técnico: Plano 18 PR 1 em 17/11 (conferido d9066f9, base 667c952); pendências do PR 2; P17 antes
+- [Estado dos manuais](estado-dos-manuais.md) — técnico: Plano 20 PR 2 (Financeiro, cap. 12) em 17/11 (conferido f6cd00a, base 6c3ee8f); PR 3 pendente
 - [Onde os manuais envelhecem](onde-os-manuais-envelhecem.md) — checklist de contagens, linhas e status que ficam velhos a cada fechamento
 - [Sem push nem PR](sem-push-sem-pr.md) — commit só se pedido; push/PR/merge ficam com quem orquestra

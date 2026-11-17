@@ -9,6 +9,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { consultaDireta } from '../../../test/agenda';
 import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
+import { cobrancasDoPaciente } from '../../../test/financeiro';
 import { tarefaNoBanco } from '../../../test/ia';
 import { mensagemNoBanco } from '../../../test/ia-nutri';
 import { novoConteudo } from '../../../test/conteudos';
@@ -22,6 +23,7 @@ import { logger } from '@/lib/logger';
 import * as schema from '@/db/schema';
 import { auditLog, consents, dataExports, diaryEntries, exams, iaNutriConsentimentos, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
+import { financeiroParaExportacao } from '@/modules/financeiro/titular';
 import { DESTINO_ROTULO } from '@/modules/ia/constantes';
 import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
 import { TEXTOS_FIXOS } from '@/modules/ia/nutri-paciente/textos';
@@ -646,6 +648,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         examesEnviados: [],
         iaNutri: { consentimentos: [], mensagens: [] },
         laudosForaDoZip: false,
+        financeiro: [],
       },
       'Debby Silva',
     );
@@ -1096,6 +1099,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         examesEnviados: [],
         iaNutri: { consentimentos: [], mensagens: [] },
         laudosForaDoZip: false,
+        financeiro: [],
       },
       'Debby Silva',
     );
@@ -1260,8 +1264,47 @@ describe('Plano 15 (§7.6 "Exportação", US-018, US-046, RN-109) — a IA Nutri
     const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
     expect(dados.iaNutri).toEqual({ consentimentos: [], mensagens: [] });
   });
-});
 
+  it('Plano 20 (US-307, spec §10): dados.json traz a seção "financeiro" (a última) nos dois escopos, sem quem lançou nem quem cancelou; prontuario.pdf igual e nenhum arquivo novo no ZIP', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: p, userId } = await pacienteComConta(app.db, T);
+    await cobrancasDoPaciente(app.db, T, p.id, now);
+    const esperado = await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => financeiroParaExportacao(tx, p.id, '2026-10-01'), app.db);
+    expect(esperado.map((l) => l.descricao)).toEqual(['Consulta de retorno', 'Cobrança em dobro', 'Pacote mensal']);
+    const daEquipe = await solicitarExportacao(T.ctx, p.id, deps);
+    const doTitular = await solicitarExportacao(ctxPaciente(T.tenantId, p.id, userId), p.id, { ...deps, escopo: 'titular' });
+    for (const id of [daEquipe, doTitular]) {
+      expect(await gerarExportacao({ tenantId: T.tenantId, exportId: id }, { ...deps, ultimaTentativa: false })).toBe('pronta');
+      const zip = await zipDoPedido(T, id);
+      expect(Object.keys(zip).sort(), id).toEqual(['dados.json', 'prontuario.pdf']);
+      const dados = JSON.parse(strFromU8(zip['dados.json'])) as Awaited<ReturnType<typeof montarDados>>['dados'];
+      expect(Object.keys(dados).at(-1)).toBe('financeiro');
+      expect(dados.financeiro).toEqual(esperado);
+      expect(JSON.stringify(dados.financeiro)).not.toContain(T.nutriId);
+      // a seção fica só no dados.json: o PDF é o mesmo de um paciente sem lançamentos
+      const pdf = textoDoPdf(Buffer.from(zip['prontuario.pdf']));
+      expect(pdf).toBe(textoDoPdf(await renderizarProntuario({ ...dados, financeiro: [] }, T.tenant.nomeExibicao)));
+      expect(pdf).not.toContain('Pacote mensal');
+    }
+  });
+
+  it('Plano 20 (US-307): a situação do lançamento é a do dia da exportação no fuso do consultório (23h em São Paulo ainda é o vencimento)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await cobrancasDoPaciente(app.db, T, p.id, now);
+    const situacao = async (agora: Date) =>
+      (await withTenant(T.ctx, (tx) => montarDados(tx, p.id, agora, 'America/Sao_Paulo', 'titular'), app.db)).dados.financeiro.find((l) => l.vencimento === '2026-09-20')!.situacao;
+    expect(await situacao(new Date('2026-09-21T02:00:00Z'))).toBe('previsto'); // 20/09, 23h em São Paulo
+    expect(await situacao(new Date('2026-09-21T03:00:00Z'))).toBe('em_atraso');
+  });
+
+  it('Plano 20: paciente sem lançamento: financeiro vazio', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(dados.financeiro).toEqual([]);
+  });
+});
 
 describe('Plano 18 (§10, D7, D18, RN-262, RN-266) — o cadastro complementar no dados.json e no prontuario.pdf', () => {
   const CPF = '52998224725';

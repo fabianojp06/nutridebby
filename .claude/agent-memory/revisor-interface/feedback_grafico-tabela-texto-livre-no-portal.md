@@ -21,3 +21,9 @@ mesmo comentário/observação em `/p/diario`, `refeicao-detalhe.tsx` e `plano/p
 não só a tela da tarefa. O E2E de 320 px não pega: o seed não tem comentário com URL longa.
 
 Quarta vez (T8 do Plano 14A, 09/10/2026): agora não é texto livre, é o **e-mail de contato** do consultório (até 254 caracteres, sem ponto de quebra) dentro de texto legal (`TextoLegalView`, `${d.contato}`) em `/p/perfil/ia`. Fora o `whitespace-pre-line`, procure também e-mail e URL interpolados em texto fixo.
+
+Quinta vez, agora no painel (T6 do Plano 20, 17/11/2026): a descrição (até 200 caracteres, texto livre) e o motivo do cancelamento do Financeiro saem em `<span>` flex da linha da lista e em `<dd>` de grid sem `wrap-break-word`/`min-w-0`. Vale para o painel também, não só para o portal.
+
+Sexta vez (revisão final do PR 2 do Plano 20, 17/11/2026): descrição (200 caracteres; o dono cola código de barras ou Pix copia-e-cola) e motivo do cancelamento do Financeiro, em `<span class="block">` dentro de flex e em `<dd>`, sem `wrap-break-word`. Subiu a Important na revisão final (a 360 px a página ganha rolagem lateral). `grep -n "descricao\|motivo" ` nas telas novas do painel.
+
+Re-revisão da onda de correção do PR 2 (17/11/2026): a correção certa é `wrap-break-word` no texto **mais** `min-w-0` no item flex/grid (em `flex-wrap`, `overflow-wrap` sozinho não reduz o min-content; `sm:grid-cols-[max-content_1fr]` idem). Foi feita assim e com teste `renderToStaticMarkup` de 48 dígitos. Ao conferir uma correção desse padrão, confirme as duas classes, não só `wrap-break-word`.

@@ -58,24 +58,62 @@ describe('registrarAceiteDpa (T6-R2b)', () => {
   });
 });
 
-describe('P08-06: do DPA 0.1 provisório para o 1.0', () => {
-  it('o consultório com o 0.1 aceito grava o aceite do 1.0 numa linha nova; a do 0.1 fica como prova', async () => {
+describe('Plano 20 (US-309): do DPA 1.0 para o 1.1', () => {
+  it('o consultório com o 1.0 aceito grava o aceite do 1.1 numa linha nova; a do 1.0 fica como prova', async () => {
     const { tenantId, userId } = await tenantComNutri();
-    const t1 = new Date('2026-10-01T10:00:00Z');
-    await app.db.insert(consents).values({ userId, termoVersao: 'dpa-0.1-provisorio', aceitoEm: t1, ip: '203.0.113.1' });
-    await app.db.update(tenants).set({ dpaVersao: '0.1-provisorio', dpaAceitoEm: t1 }).where(eq(tenants.id, tenantId));
+    const t1 = new Date('2026-10-16T10:00:00Z');
+    await app.db.insert(consents).values({ userId, termoVersao: 'dpa-1.0', aceitoEm: t1, ip: '203.0.113.1' });
+    await app.db.update(tenants).set({ dpaVersao: '1.0', dpaAceitoEm: t1 }).where(eq(tenants.id, tenantId));
 
-    const t2 = new Date('2026-10-16T10:00:00Z');
+    const t2 = new Date('2026-11-17T10:00:00Z');
     await registrarAceiteDpa(app.db, { userId, tenantId, ip: '203.0.113.2', now: t2 });
 
-    expect([DPA_VERSAO, DPA_TERMO]).toEqual(['1.0', 'dpa-1.0']);
+    expect([DPA_VERSAO, DPA_TERMO]).toEqual(['1.1', 'dpa-1.1']);
     const linhas = await app.db.select().from(consents).where(eq(consents.userId, userId));
     expect(linhas.map((l) => [l.termoVersao, l.ip, l.aceitoEm.toISOString()]).sort()).toEqual([
-      ['dpa-0.1-provisorio', '203.0.113.1', t1.toISOString()],
-      ['dpa-1.0', '203.0.113.2', t2.toISOString()],
+      ['dpa-1.0', '203.0.113.1', t1.toISOString()],
+      ['dpa-1.1', '203.0.113.2', t2.toISOString()],
     ]);
     const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, tenantId));
-    expect(tenant).toMatchObject({ dpaVersao: '1.0', dpaAceitoEm: t2 });
+    expect(tenant).toMatchObject({ dpaVersao: '1.1', dpaAceitoEm: t2 });
+  });
+});
+
+describe('#153: volta atrás e novo avanço (revisão final do PR 2)', () => {
+  it('com dpa-1.1 já em consents e o tenant marcado com a 1.0, o reaceite regrava o tenant sem duplicar a prova', async () => {
+    const { tenantId, userId } = await tenantComNutri();
+    const t1 = new Date('2026-10-16T10:00:00Z');
+    const t2 = new Date('2026-11-17T10:00:00Z');
+    await app.db.insert(consents).values([
+      { userId, termoVersao: 'dpa-1.0', aceitoEm: t1, ip: '203.0.113.1' },
+      { userId, termoVersao: DPA_TERMO, aceitoEm: t2, ip: '203.0.113.2' },
+    ]);
+    // a correção manual do runbook (financeiro.md §6) depois da volta atrás da imagem
+    await app.db.update(tenants).set({ dpaVersao: '1.0', dpaAceitoEm: t1 }).where(eq(tenants.id, tenantId));
+
+    const t3 = new Date('2026-11-20T10:00:00Z');
+    await registrarAceiteDpa(app.db, { userId, tenantId, ip: '203.0.113.3', now: t3 });
+
+    const linhas = await app.db.select().from(consents).where(and(eq(consents.userId, userId), eq(consents.termoVersao, DPA_TERMO)));
+    expect(linhas.map((l) => [l.ip, l.aceitoEm.toISOString()])).toEqual([['203.0.113.2', t2.toISOString()]]);
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, tenantId));
+    // a data é a da prova que já existia, nunca a do clique repetido
+    expect(tenant).toMatchObject({ dpaVersao: DPA_VERSAO, dpaAceitoEm: t2 });
+  });
+
+  it('o reaceite de outra usuária, já com o tenant na versão em vigor, não mexe no tenant', async () => {
+    const { tenantId, userId } = await tenantComNutri();
+    const t1 = new Date('2026-11-17T10:00:00Z');
+    await registrarAceiteDpa(app.db, { userId, tenantId, ip: null, now: t1 });
+    const outra = randomUUID();
+    await app.db.insert(user).values({ id: outra, name: 'Outra', email: `dpa-${randomUUID().slice(0, 8)}@exemplo.com`, appRole: 'nutri', tenantId });
+    const t0 = new Date('2026-11-10T10:00:00Z');
+    await app.db.insert(consents).values({ userId: outra, termoVersao: DPA_TERMO, aceitoEm: t0, ip: null });
+
+    await registrarAceiteDpa(app.db, { userId: outra, tenantId, ip: null, now: new Date('2026-11-21T10:00:00Z') });
+
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, tenantId));
+    expect(tenant).toMatchObject({ dpaVersao: DPA_VERSAO, dpaAceitoEm: t1 });
   });
 });
 

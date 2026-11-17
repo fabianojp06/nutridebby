@@ -2,12 +2,14 @@
 import Link from 'next/link';
 import { useActionState, useEffect, useRef } from 'react';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
+import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
 import { MSG_IA_NUTRI, NOME_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
 import type { BlocoIaNutriApp } from '@/modules/ia/nutri-paciente/estado';
 import { desativarIaNutriAction, exclusaoAction, meusDadosAction, retirarIaAction, type PerfilState } from './actions';
 
-const CONFIRMAR_EXCLUSAO = 'Pedir a exclusão? Sua nutricionista tem até 15 dias para responder. O prontuário clínico é guardado pelo prazo legal.';
+/** Plano 20 (US-307, spec §6.2): também os registros de pagamento das consultas ficam pelo prazo legal. */
+export const CONFIRMAR_EXCLUSAO = MSG_FINANCEIRO.lgpd.confirmarExclusaoPortal;
 
 /**
  * RNF-10: a região `role="status"` existe desde o início (vazia) e só o texto muda — região viva inserida já com o texto
