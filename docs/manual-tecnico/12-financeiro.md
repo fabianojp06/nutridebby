@@ -1,6 +1,6 @@
 # 12. Financeiro do consultório (Plano 20)
 
-Conferido contra o branch `plano-20-financeiro` em `f6cd00a` (17/11/2026; Tarefas 2–11 do PR 2, antes do merge),
+Conferido contra o branch `plano-20-financeiro` em `7a0e919` (17/11/2026; Tarefas 2–11 do PR 2 e a onda de correção da revisão final, antes do merge),
 rebaseado na `main` `6c3ee8f`, onde já está o **PR 1** (fundação: tabelas, RLS, gatilhos e guardas, PR #53, merge em
 17/11/2026). Migrations `0122_financeiro` e `0123_rls_financeiro` (do PR 1); o PR 2 não tem migration. Spec
 `docs/superpowers/specs/2026-11-16-nutridebby-20-financeiro-design.md` (v0.2, com os ajustes da §18) e plano
@@ -523,7 +523,7 @@ presa em `/painel/dpa` até o dono destravar com SQL (runbook §6, "Volta atrás
 
 ## 12.13 Divergências conhecidas
 
-Spec v0.2 (com a §18) e plano × código em `f6cd00a`. Na lista consolidada do [README](README.md#financeiro-do-consultório-plano-20),
+Spec v0.2 (com a §18) e plano × código em `7a0e919`. Na lista consolidada do [README](README.md#financeiro-do-consultório-plano-20),
 #142 a #153.
 
 | # | Fonte | Diz | Código | Tipo |
