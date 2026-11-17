@@ -319,3 +319,9 @@ Plano 18, PR 1 (registro de seções da ficha, 17/11/2026):
   `tx as TxDePaciente`. Só vale com guarda de fonte do cast (só o arquivo dono). Conferir no PR que cria o dono.
 - Mesma "última linha" lida em dois lugares com ORDER BY diferente (cabeçalho com `id desc`, seção sem): no empate, a tela
   mostra registros diferentes. Conferir desempate igual quando duas leituras dizem "a última".
+
+Plano 18 (ficha, re-revisão do code review do PR 1, 17/11/2026):
+- Guarda de "lista fechada de imports" (ex.: `IMPORTS_PERMITIDOS` de `ficha/registro.test.ts`) ampliada com o módulo
+  inteiro (que exporta funções que auditam/escrevem) só para reaproveitar um filtro puro. A guarda textual
+  (`auditRead|recordAudit`) não pega a chamada indireta. Sugerir mover o helper puro para um módulo sem efeitos
+  (constantes/filtro) ou restringir os nomes importados.
