@@ -101,7 +101,9 @@ export function nutri() {
 // Plano 18 (CS-263, RNF-260): "abrir a ficha" — da lista ao Início de um paciente (as seções do registro numa transação,
 // o cabeçalho com a última avaliação e o cartão "No app do paciente", contado no contexto do paciente), o Perfil (o
 // cadastro complementar da semente, com a leitura auditada) e a visão "No app". Pacientes variados a cada iteração (os
-// 50 da sessão da nutricionista: com e sem cadastro, plano e consultas, como a semente os deixa)
+// 50 da sessão da nutricionista, como a semente os deixa: com e sem cadastro, com plano publicado (os 6 primeiros) e com o
+// registro clínico das seções — antropometria, gasto energético, anamneses, atendimentos, exames, envios e documentos —,
+// 1 em 10 sem nenhum registro; a agenda (`appointments`) não é seção do Início)
 export function ficha() {
   const n = nutris[(__VU * 3 + __ITER) % nutris.length];
   const pid = n.pacientes[(__VU * 11 + __ITER * 7) % n.pacientes.length];

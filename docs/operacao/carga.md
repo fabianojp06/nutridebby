@@ -21,6 +21,10 @@ está em UTC, 3 h à frente). Arquivos: `docker-compose.carga.yml`, `test/carga/
    --env-file=.env.carga test/carga/seed.ts`. A semente lê o `.env.carga` (nenhum valor na tela nem na linha de
    comando), troca o host `db:5432` dele por `127.0.0.1:54339` e recusa qualquer outro arquivo de ambiente. Leva alguns
    minutos (15 mil pacientes, 50 consultórios) e grava `test/carga/.sessoes.json` (cookies; só o dono lê, fora do git).
+   Plano 18 (CS-263): a semente também grava o cadastro complementar e o registro clínico que as seções do Início da
+   ficha leem (antropometria, atendimentos, exames etc.) e liga os documentos e o recebimento de exames em todos os
+   consultórios. Rodar a semente **uma segunda vez** em seguida, com o mesmo comando: tem de terminar sem erro, refazer só
+   o cadastro (upsert) e dizer "0 registros clínicos novos" em cada consultório (idempotência; anotar no relatório).
 4. Em outro terminal, `docker stats` e a CPU livre do host gravando em arquivo a cada 10 s — inclui o `cursoia_crm`
    (em produção no mesmo host: não pode piorar) e os containers da carga: `while :; do date -u +%FT%TZ; docker stats
    --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}'; vmstat 1 2 | tail -1; sleep 10; done >
@@ -83,6 +87,9 @@ Os números do k6 saem do `test/carga/resumo.json` (passo 6), antes do passo 10:
 - Lighthouse: LCP `/p/inicio`: · LCP `/p/plano`:
 - B-8 (`app_soltar_endpoint_push` com 50 tenants): p95 do `POST /api/p/push?sincronizar=1` (`http_req_duration{nome:/api/p/push}`): · respostas 204/409/429 (`http_reqs{nome:/api/p/push,status:…}`):
 - S-7: p95 das páginas `/p/*` (`http_req_duration{tipo:pagina,area:p}`; acima de 800 ms → tarefa do `cache()` no `requirePaciente`):
+- Plano 18 (CS-263, RNF-260): p95 do Início da ficha com as seções do registro (`jq -r
+  '.metrics["http_req_duration{nome:/painel/pacientes/:id}"]["p(95)"]' test/carga/resumo.json`; meta 800 ms, com
+  threshold no `cenario.js`) e do Perfil e do "No app" (`{nome:/painel/pacientes/:id/perfil}`, `{nome:/painel/pacientes/:id/app}`): · segunda rodada da semente sem erro e sem registros clínicos novos:
 - Plano 16 (RNF-190, PM-G11): p95 de `/p/inicio` e de `/p/jornada` (`http_req_duration{nome:/p/inicio}`, `{nome:/p/jornada}`; meta 800 ms): · linhas de `audit_log` por abertura de Hoje (até quatro "Visualizou": plano, diário, exames enviados e antropometria da mini-jornada; contar no banco **da carga**, nunca no de produção):
 - Gargalo e ajuste proposto ao dono (limites no Easypanel, `shared_buffers`, pool):
 - Não coberto nesta rodada → backlog: `/painel/conteudos` com 200 conteúdos publicados e o decode de PNG grande na
