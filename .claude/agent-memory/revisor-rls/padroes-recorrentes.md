@@ -334,3 +334,16 @@ Plano 20, T1 (Financeiro, 17/11/2026):
   (ex.: prazo `anonimizar_apos` vencido) não vale no gatilho. Conferir se o gatilho repete as pré-condições da função.
 - Função SQL com `now()` do banco × módulo com `now` injetado (anonimizarVencidos): a função recusa onde o módulo aceita
   (testes com data fixa); avisar a tarefa que liga a chamada.
+
+Plano 19, T3 (fontes de alimento, 17/11/2026):
+- Linhas públicas de teste (foods sem tenant, molde NO FORCE…FORCE) no banco ÚNICO do Vitest: conferir todo teste que conta
+  `tenant_id is null`/agrupa por fonte (foods-rls, plano19-banco, medidas-fonte); migrate-owner.test usa container próprio.
+- Filtro "a IA só recebe X" mora no parâmetro da busca (`buscaDoTenant`): conferir todos os chamadores de buscarAlimentos e
+  a projeção explícita do executarFerramenta (campos novos do tipo, ex. micros, não vão ao modelo).
+
+Plano 19, T4 (cópias do plano, 17/11/2026):
+- Cópia que trava a ORIGEM FOR SHARE e depois INSERE com o mesmo ponteiro (referencia_id) → a verificação da FK pede
+  KEY SHARE na mãe; a exclusão da mãe trava a mãe e o SET NULL espera a origem → deadlock. A análise "sem 23503" costuma
+  cobrir só o ramo com trava explícita. Conferir todo INSERT que copia ponteiro de FK com SET NULL de uma linha travada.
+- (T5, 17/11) Esse ciclo ficou como Minor adiado na T4 (progress.md do SDD); antes de reabrir achado de trava/ciclo, ler
+  `.superpowers/sdd/<plano>/progress.md` (triagem dos Minors) e só citar como já registrado.
