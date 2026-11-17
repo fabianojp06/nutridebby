@@ -101,11 +101,12 @@ export async function salvarConfiguracoes(ctx: TenantContext, tenant: { fuso: st
 /** RN-303: todas as categorias do consultório (arquivadas também, para a tela das Configurações), por tipo e nome. */
 export async function listarCategorias(ctx: TenantContext, deps: Deps = {}): Promise<FinCategoriaRow[]> {
   exigirNutri(ctx);
-  return withTenant(
-    ctx,
-    (tx) => tx.select().from(finCategorias).orderBy(asc(finCategorias.tipo), sql`${finCategorias.chave} is null`, sql`lower(${finCategorias.nome})`),
-    deps.db ?? getDb(),
-  );
+  return withTenant(ctx, categoriasNaTransacao, deps.db ?? getDb());
+}
+
+/** As categorias de `listarCategorias` na transação de quem chama (as telas dos lançamentos, RNF-301). */
+export function categoriasNaTransacao(tx: Tx): Promise<FinCategoriaRow[]> {
+  return tx.select().from(finCategorias).orderBy(asc(finCategorias.tipo), sql`${finCategorias.chave} is null`, sql`lower(${finCategorias.nome})`);
 }
 
 function validarNome(nome: unknown): string {

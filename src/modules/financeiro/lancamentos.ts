@@ -351,14 +351,21 @@ export async function listarLancamentos(
   tenant: { fuso: string },
   filtros: FiltrosLista,
   deps: Deps = {},
-): Promise<{ linhas: LancamentoNaTela[]; totais: TotaisDaLista; maisDe200: boolean; meses: string[] }> {
+): Promise<ListaDeLancamentos> {
   exigirNutri(ctx);
   const hoje = hojeNoFuso(tenant.fuso, deps.agora ?? new Date());
+  return withTenant(ctx, (tx) => listaNaTransacao(tx, ctx.tenantId, hoje, filtros), deps.db ?? getDb());
+}
+
+export type ListaDeLancamentos = { linhas: LancamentoNaTela[]; totais: TotaisDaLista; maisDe200: boolean; meses: string[] };
+
+/** `listarLancamentos` na transação de quem chama (a tela da lista, RNF-301), com o mesmo `ler` da RN-318. */
+export async function listaNaTransacao(tx: Tx, tenantId: string, hoje: string, filtros: FiltrosLista): Promise<ListaDeLancamentos> {
   const pacienteId = idValido(filtros.pacienteId) ? filtros.pacienteId : null;
   const mes = filtros.mes && MES.test(filtros.mes) ? filtros.mes : pacienteId ? null : mesDe(hoje);
   const periodo = mes ? intervaloDoMes(mes) : null;
   const filtro = and(
-    eq(finLancamentos.tenantId, ctx.tenantId),
+    eq(finLancamentos.tenantId, tenantId),
     periodo ? sql`${referencia} between ${periodo.de} and ${periodo.ate}` : undefined,
     filtros.tipo === 'entrada' || filtros.tipo === 'saida' ? eq(finLancamentos.tipo, filtros.tipo) : undefined,
     idValido(filtros.categoriaId) ? eq(finLancamentos.categoriaId, filtros.categoriaId) : undefined,
@@ -367,33 +374,27 @@ export async function listarLancamentos(
     filtroDeSituacao(filtros.situacao, hoje),
   );
   const limite = mes ? null : LIMITE_SEM_MES;
-  return withTenant(
-    ctx,
-    async (tx) => {
-      const consulta = selecionarNaTela(tx).where(filtro).orderBy(desc(referencia), desc(finLancamentos.createdAt), desc(finLancamentos.id));
-      const linhas = await (limite ? consulta.limit(limite + 1) : consulta);
-      const [t] = await tx
-        .select({
-          recebido: sql`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'entrada' and ${finLancamentos.pagoEm} is not null), 0)::text`,
-          aReceber: sql`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'entrada' and ${finLancamentos.pagoEm} is null), 0)::text`,
-          pago: sql`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'saida' and ${finLancamentos.pagoEm} is not null), 0)::text`,
-          aPagar: sql`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'saida' and ${finLancamentos.pagoEm} is null), 0)::text`,
-        })
-        .from(finLancamentos)
-        .where(and(filtro, isNull(finLancamentos.canceladoEm)));
-      const [antigo] = await tx.select({ dia: sql<string | null>`min(${referencia})` }).from(finLancamentos);
-      const maisDe200 = limite !== null && linhas.length > limite;
-      const visiveis = maisDe200 ? linhas.slice(0, limite) : linhas;
-      if (pacienteId && visiveis.length) await auditRead(tx, { entidade: 'financeiro', entidadeId: null, patientId: pacienteId });
-      return {
-        linhas: visiveis.map((r) => naTela(r, hoje)),
-        totais: { entradas: { recebido: centavos(t.recebido), aReceber: centavos(t.aReceber) }, saidas: { pago: centavos(t.pago), aPagar: centavos(t.aPagar) } },
-        maisDe200,
-        meses: mesesAte(mesDe(hoje), antigo?.dia ? mesDe(antigo.dia) : null),
-      };
-    },
-    deps.db ?? getDb(),
-  );
+  const consulta = selecionarNaTela(tx).where(filtro).orderBy(desc(referencia), desc(finLancamentos.createdAt), desc(finLancamentos.id));
+  const linhas = await (limite ? consulta.limit(limite + 1) : consulta);
+  const [t] = await tx
+    .select({
+      recebido: sql`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'entrada' and ${finLancamentos.pagoEm} is not null), 0)::text`,
+      aReceber: sql`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'entrada' and ${finLancamentos.pagoEm} is null), 0)::text`,
+      pago: sql`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'saida' and ${finLancamentos.pagoEm} is not null), 0)::text`,
+      aPagar: sql`coalesce(sum(${finLancamentos.valorCentavos}::bigint) filter (where ${finLancamentos.tipo} = 'saida' and ${finLancamentos.pagoEm} is null), 0)::text`,
+    })
+    .from(finLancamentos)
+    .where(and(filtro, isNull(finLancamentos.canceladoEm)));
+  const [antigo] = await tx.select({ dia: sql<string | null>`min(${referencia})` }).from(finLancamentos);
+  const maisDe200 = limite !== null && linhas.length > limite;
+  const visiveis = maisDe200 ? linhas.slice(0, limite) : linhas;
+  if (pacienteId && visiveis.length) await auditRead(tx, { entidade: 'financeiro', entidadeId: null, patientId: pacienteId });
+  return {
+    linhas: visiveis.map((r) => naTela(r, hoje)),
+    totais: { entradas: { recebido: centavos(t.recebido), aReceber: centavos(t.aReceber) }, saidas: { pago: centavos(t.pago), aPagar: centavos(t.aPagar) } },
+    maisDe200,
+    meses: mesesAte(mesDe(hoje), antigo?.dia ? mesDe(antigo.dia) : null),
+  };
 }
 
 /** A tela de edição (US-302). RN-318: lançamento com paciente → `ler` com o id do lançamento. */
@@ -401,31 +402,32 @@ export async function abrirLancamento(ctx: TenantContext, tenant: { fuso: string
   exigirNutri(ctx);
   if (!idValido(id)) return null;
   const hoje = hojeNoFuso(tenant.fuso, deps.agora ?? new Date());
-  return withTenant(
-    ctx,
-    async (tx) => {
-      const [r] = await selecionarNaTela(tx).where(eq(finLancamentos.id, id));
-      if (!r) return null;
-      if (r.l.patientId) await auditRead(tx, { entidade: 'financeiro', entidadeId: r.l.id, patientId: r.l.patientId });
-      return naTela(r, hoje);
-    },
-    deps.db ?? getDb(),
-  );
+  return withTenant(ctx, (tx) => lancamentoNaTransacao(tx, id, hoje), deps.db ?? getDb());
+}
+
+/** `abrirLancamento` na transação de quem chama (a tela de edição, RNF-301), com o mesmo `ler` da RN-318. Id já conferido. */
+export async function lancamentoNaTransacao(tx: Tx, id: string, hoje: string): Promise<LancamentoNaTela | null> {
+  const [r] = await selecionarNaTela(tx).where(eq(finLancamentos.id, id));
+  if (!r) return null;
+  if (r.l.patientId) await auditRead(tx, { entidade: 'financeiro', entidadeId: r.l.id, patientId: r.l.patientId });
+  return naTela(r, hoje);
 }
 
 /** F-D28: o seletor "Paciente (opcional)" — ativos e arquivados, sem bloqueados nem anonimizados, por nome. */
-export async function pacientesParaLancamento(ctx: TenantContext, deps: Deps = {}): Promise<{ id: string; nome: string; arquivado: boolean }[]> {
+export async function pacientesParaLancamento(ctx: TenantContext, deps: Deps = {}): Promise<PacienteParaLancamento[]> {
   exigirNutri(ctx);
-  const linhas = await withTenant(
-    ctx,
-    (tx) =>
-      tx
-        .select({ id: patients.id, nome: patients.nome, status: patients.status })
-        .from(patients)
-        .where(and(inArray(patients.status, ['ativo', 'arquivado']), isNull(patients.anonimizadoEm)))
-        .orderBy(asc(patients.nome), asc(patients.id)),
-    deps.db ?? getDb(),
-  );
+  return withTenant(ctx, pacientesNaTransacao, deps.db ?? getDb());
+}
+
+export type PacienteParaLancamento = { id: string; nome: string; arquivado: boolean };
+
+/** `pacientesParaLancamento` na transação de quem chama (o formulário novo, RNF-301). */
+export async function pacientesNaTransacao(tx: Tx): Promise<PacienteParaLancamento[]> {
+  const linhas = await tx
+    .select({ id: patients.id, nome: patients.nome, status: patients.status })
+    .from(patients)
+    .where(and(inArray(patients.status, ['ativo', 'arquivado']), isNull(patients.anonimizadoEm)))
+    .orderBy(asc(patients.nome), asc(patients.id));
   return linhas.map((p) => ({ id: p.id, nome: p.nome, arquivado: p.status === 'arquivado' }));
 }
 
@@ -434,18 +436,17 @@ export async function pacientesParaLancamento(ctx: TenantContext, deps: Deps = {
  * situação, como a lista de pacientes — sem `auditRead` (a leitura do financeiro dele é auditada por `listarLancamentos`).
  * Id inválido ou de outro consultório (RLS) → null. `bloqueado` não inclui o anonimizado (que não ganha aviso).
  */
-export async function pacienteDoFinanceiro(
-  ctx: TenantContext,
-  id: string,
-  deps: Deps = {},
-): Promise<{ id: string; nome: string; bloqueado: boolean; anonimizado: boolean } | null> {
+export async function pacienteDoFinanceiro(ctx: TenantContext, id: string, deps: Deps = {}): Promise<PacienteDoFinanceiro | null> {
   exigirNutri(ctx);
   if (!idValido(id)) return null;
-  const [p] = await withTenant(
-    ctx,
-    (tx) => tx.select({ nome: patients.nome, status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, id)),
-    deps.db ?? getDb(),
-  );
+  return withTenant(ctx, (tx) => pacienteNaTransacao(tx, id), deps.db ?? getDb());
+}
+
+export type PacienteDoFinanceiro = { id: string; nome: string; bloqueado: boolean; anonimizado: boolean };
+
+/** `pacienteDoFinanceiro` na transação de quem chama (as telas da lista e do formulário novo, RNF-301). Id já conferido. */
+export async function pacienteNaTransacao(tx: Tx, id: string): Promise<PacienteDoFinanceiro | null> {
+  const [p] = await tx.select({ nome: patients.nome, status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, id));
   if (!p) return null;
   const anonimizado = !!p.anonimizadoEm;
   return { id, nome: p.nome, bloqueado: p.status === 'bloqueado' && !anonimizado, anonimizado };
