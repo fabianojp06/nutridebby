@@ -271,8 +271,8 @@ export async function cancelarLancamento(ctx: TenantContext, id: string, motivo:
 /** Data de referência (RN-306): o pagamento, ou o vencimento em aberto. */
 const referencia = sql<string>`coalesce(${finLancamentos.pagoEm}, ${finLancamentos.vencimento})`;
 
-/** As colunas de `LancamentoNaTela`, com categoria, paciente e consulta — uma consulta só, sem N+1. */
-function selecionarNaTela(tx: Tx) {
+/** As colunas de `LancamentoNaTela`, com categoria, paciente e consulta — uma consulta só, sem N+1 (também o Resumo, T4). */
+export function selecionarNaTela(tx: Tx) {
   return tx
     .select({
       l: finLancamentos,
@@ -288,7 +288,7 @@ function selecionarNaTela(tx: Tx) {
 }
 type LinhaSelecionada = Awaited<ReturnType<typeof selecionarNaTela>>[number];
 
-function naTela(r: LinhaSelecionada, hoje: string): LancamentoNaTela {
+export function naTela(r: LinhaSelecionada, hoje: string): LancamentoNaTela {
   const { l } = r;
   return {
     id: l.id,
