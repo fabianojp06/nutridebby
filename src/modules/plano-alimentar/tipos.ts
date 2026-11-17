@@ -1,10 +1,11 @@
-import type { MedidaCaseira, MedidaDoItem } from '@/db/schema';
+import type { MedidaCaseira, MedidaDoItem, NutrientesCongelados } from '@/db/schema';
 import type { Nutrientes100 } from '@/modules/alimentos/busca';
 import type { MedidaDisponivel } from '@/modules/alimentos/medidas';
 
 /** Só tipos: o editor (cliente) importa daqui sem puxar banco. */
 export type StatusPlano = 'rascunho' | 'publicado' | 'arquivado';
-export type { MedidaCaseira, MedidaDoItem };
+/** `NutrientesCongelados` é o formato gravado em `meal_items.nutrientes`; para ler, `lerCongelados` (RN-237). */
+export type { MedidaCaseira, MedidaDoItem, NutrientesCongelados };
 
 export type ItemPlano = {
   id: string;

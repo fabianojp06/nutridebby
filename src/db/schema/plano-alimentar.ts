@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, foreignKey, index, integer, jsonb, numeric, pgTable, smallint, text, time, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import type { Fonte } from '../../modules/alimentos/fontes'; // relativo: o drizzle-kit não resolve o alias @/
+import type { ChaveNutriente } from '../../modules/alimentos/nutrientes';
 import { foods } from './alimentos';
 import type { ValoresDaReferencia } from './biblioteca-plano';
 import { iaGeracoesModelos } from './ia';
@@ -7,15 +9,24 @@ import { patients } from './pacientes';
 import { storedFiles, tenants } from './platform';
 
 export type MedidaDoItem = { nome: string; plural: string; gramas: number; qtd: number };
-/** D10: cópia dos valores por 100 g e do nome no momento da publicação (plano publicado é imutável, RN-01). */
+/**
+ * D10: cópia dos valores por 100 g e do nome no momento da publicação (plano publicado é imutável, RN-01). Plano 19
+ * (RN-237): a publicação passa a gravar também `fonte`, `fonteVersao`, `fonteOrigem` e `micros`; opcionais aqui porque
+ * os planos publicados antes do deploy não os têm (formato antigo). `origem` fica para os leitores antigos. Leia sempre
+ * por `lerCongelados` (`src/modules/plano-alimentar/congelados.ts`), o único leitor tolerante.
+ */
 export type NutrientesCongelados = {
   nome: string;
   origem: 'TACO' | 'Meu alimento';
+  fonte?: Fonte;
+  fonteVersao?: string | null;
+  fonteOrigem?: Fonte | null;
   kcal: number | null;
   proteinaG: number | null;
   carboidratoG: number | null;
   lipidioG: number | null;
   fibraG: number | null;
+  micros?: Partial<Record<ChaveNutriente, number | null>> | null;
 };
 
 /** Plano 19 (RN-238): cópia do perfil de referência gravada na publicação (o id é o do perfil no momento). */

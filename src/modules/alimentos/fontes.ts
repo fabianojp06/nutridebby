@@ -6,3 +6,61 @@
 export const FONTES_DE_ALIMENTO = ['taco', 'usda', 'tbca', 'propria'] as const;
 
 export type Fonte = (typeof FONTES_DE_ALIMENTO)[number];
+export type FontePublica = Exclude<Fonte, 'propria'>;
+
+/**
+ * RN-232 (D7): nenhuma linha com `fonte = 'tbca'` entra enquanto for `false` (guarda em `fontes.test.ts` sobre
+ * `drizzle/*.sql` e `seeds/`), e o filtro de fonte e o selo não mostram a TBCA (`fontesVisiveis`). A carga vira plano
+ * próprio, depois da autorização (carga, conversão, "Duplicar", PDF, exportação e IA).
+ */
+export const TBCA_AUTORIZADA: boolean = false;
+
+/** Ano da versão do FoodData Central do seed (RN-231): preenchido na Tarefa 12, com o seed. Até lá não há linha `usda`. */
+const USDA_ANO = '{ano}';
+
+export type DadosDaFonte = {
+  selo: string;
+  sigla: string;
+  /** RN-233: citação no rodapé do PDF e na tela de alimentos. */
+  citacao: string;
+  /** Versão da tabela, congelada no item na publicação (`fonteVersao`, RN-237). */
+  versao: string;
+  /** sha256 dos arquivos de origem do seed (INT-04; a TACO tem o seu em `TACO_FONTE`). */
+  sha256?: string[];
+};
+
+/** RN-233: selo, sigla, citação e versão de cada tabela pública. */
+export const FONTES: Record<FontePublica, DadosDaFonte> = {
+  taco: { selo: 'TACO', sigla: 'TACO', citacao: 'TACO 4ª ed. — NEPA/UNICAMP', versao: '4ª ed., 2011' },
+  usda: {
+    selo: 'USDA (EUA)',
+    sigla: 'USDA',
+    citacao: `U.S. Department of Agriculture, Agricultural Research Service. FoodData Central, ${USDA_ANO}. fdc.nal.usda.gov`,
+    versao: `FoodData Central ${USDA_ANO}`,
+  },
+  tbca: {
+    selo: 'TBCA',
+    sigla: 'TBCA',
+    // RN-232: formato publicado em tbca.net.br (conferido em 16/11/2026); a data de acesso entra com a carga
+    citacao:
+      'Tabela Brasileira de Composição de Alimentos (TBCA). Universidade de São Paulo (USP). Centro de Pesquisa em Alimentos (FoRC). Versão 7.3. São Paulo, 2025. Disponível em: http://www.fcf.usp.br/tbca. Acesso em: {data}.',
+    versao: 'Versão 7.3',
+  },
+};
+
+const SELO = { taco: 'TACO', usda: 'USDA (EUA)', tbca: 'TBCA', propria: 'Meu alimento' } as const satisfies Record<Fonte, string>;
+
+/** RN-230: selo do alimento na busca, no editor e na página do alimento. */
+export function seloDaFonte(f: Fonte): (typeof SELO)[Fonte] {
+  return SELO[f];
+}
+
+/** RN-230: "Sem valor na TACO" (RN-02) vira "Sem valor na {sigla}"; no "Meu alimento", "Sem valor". */
+export function semValorNa(f: Fonte): string {
+  return f === 'propria' ? 'Sem valor' : `Sem valor na ${FONTES[f].sigla}`;
+}
+
+/** Fontes que o filtro e a lista de citações mostram, na ordem do catálogo, sem repetir; a TBCA só com autorização. */
+export function fontesVisiveis(carregadas: Fonte[]): Fonte[] {
+  return FONTES_DE_ALIMENTO.filter((f) => carregadas.includes(f) && (f !== 'tbca' || TBCA_AUTORIZADA));
+}
