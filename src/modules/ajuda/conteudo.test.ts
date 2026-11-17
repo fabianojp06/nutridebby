@@ -160,14 +160,25 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(g.versao).toBe(4);
     expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('Financeiro');
   });
-  it('Plano 20: o Financeiro tem guia próprio (versão 1, último da lista), com os alvos das telas do Resumo e das Configurações', () => {
+  it('Plano 20: o Financeiro tem guia próprio (versão 1, último da lista), com os alvos do Resumo, das Configurações e dos Lançamentos', () => {
     const g = GUIAS.find((x) => x.id === 'financeiro')!;
     expect(g.versao).toBe(1);
     expect(GUIAS.at(-1)?.id).toBe('financeiro');
     for (const rota of ['/painel/financeiro', '/painel/financeiro/configuracoes', '/painel/financeiro/lancamentos/novo', `/painel/financeiro/lancamentos/${UUID}`, `/painel/financeiro/pendencias/${UUID}`])
       expect(guiaDaRota(rota)?.id, rota).toBe('financeiro');
     expect(guiaDaRota('/painel/financeirox')).toBeNull();
-    expect(g.passos.map((p) => p.alvo)).toEqual(['financeiro-secoes', 'financeiro-cartoes', 'financeiro-saldo', 'financeiro-valor-consulta', 'financeiro-categorias']);
+    expect(g.passos.map((p) => p.alvo)).toEqual([
+      'financeiro-secoes',
+      'financeiro-cartoes',
+      'financeiro-saldo',
+      'financeiro-valor-consulta',
+      'financeiro-categorias',
+      'financeiro-filtros',
+      'financeiro-novo',
+      'financeiro-receber',
+      'financeiro-cancelar',
+    ]);
+    for (const rota of ['/painel/financeiro/lancamentos', `/painel/financeiro/lancamentos/${UUID}`]) expect(guiaDaRota(rota)?.id, rota).toBe('financeiro');
   });
 
   it('Plano 18 (§8.2): o guia do prontuário na versão 3, com o cabeçalho e as abas Início e Perfil; o resumo e o passo a passo citam os dois', () => {

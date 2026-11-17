@@ -4,6 +4,8 @@ export type IdsDoPainel = {
   anamnese: string; atendimento: string; exportacao: string; plano: string; conteudo: string; documento: string; envio: string;
   /** Plano 15 (US-175): a dúvida enviada direto pela segunda paciente da IA Nutri do seed. */
   duvida: string;
+  /** Plano 20 (US-301): a entrada do paciente lançada pela tela "Nova entrada". */
+  lancamento: string;
 };
 
 /**
@@ -39,6 +41,9 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/exames-recebidos/[id]': (i) => `/painel/exames-recebidos/${i.envio}`,
   '/painel/financeiro': () => '/painel/financeiro', // Plano 20 (a semente deixa o Financeiro configurado)
   '/painel/financeiro/configuracoes': () => '/painel/financeiro/configuracoes',
+  '/painel/financeiro/lancamentos': () => '/painel/financeiro/lancamentos',
+  '/painel/financeiro/lancamentos/novo': () => '/painel/financeiro/lancamentos/novo?tipo=entrada',
+  '/painel/financeiro/lancamentos/[id]': (i) => `/painel/financeiro/lancamentos/${i.lancamento}`,
   '/painel/pacientes': () => '/painel/pacientes',
   '/painel/pacientes/novo': () => '/painel/pacientes/novo',
   '/painel/pacientes/[id]': (i) => `/painel/pacientes/${i.paciente}`, // a aba Início (Plano 18; era o Resumo)

@@ -19,6 +19,8 @@ const GET_PERMITIDOS: Record<string, string> = {
   'src/app/p/(portal)/compras/page.tsx': 'número de dias da lista de compras',
   'src/app/p/(portal)/conteudos/page.tsx': 'busca e filtro da biblioteca de conteúdos',
   'src/app/admin/page.tsx': 'P09-07: busca da lista de consultórios do admin (nome, endereço, e-mail da nutricionista — sem dado de saúde)',
+  'src/app/painel/financeiro/lancamentos/filtros.tsx':
+    'Plano 20 (§4.1, RN-306): filtros da lista de lançamentos — mês, tipo, categoria, situação, forma e o id do paciente, só opções de <select> (nada digitado)',
 };
 
 type Achado = { arquivo: string; linha: number; motivo: string };

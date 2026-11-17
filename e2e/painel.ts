@@ -66,8 +66,9 @@ async function duvidaDiretaDaSegunda(browser: Browser, nutri: Page, ip: string):
  * D25: cria um paciente e uma linha de cada tela com parâmetro — plano (publicarPlanoSimples), consulta
  * (marcarParaPaciente), avaliação, anamnese, atendimento, alimento próprio, modelo de anamnese, modelo de plano
  * ("Salvar como modelo" do editor), registro no diário (pelo portal, com o paciente), exportação ("Exportar dados" em
- * Privacidade; a tela abre "em preparo" sem o worker), conteúdo (Plano 07), receita (Plano 10A, rascunho) e exame enviado pelo
- * paciente (Plano 12, na fila depois do worker) e dúvida da IA Nutri (Plano 15, a segunda paciente do seed) — e devolve os ids.
+ * Privacidade; a tela abre "em preparo" sem o worker), conteúdo (Plano 07), receita (Plano 10A, rascunho), lançamento do
+ * paciente (Plano 20, "Nova entrada"), exame enviado pelo paciente (Plano 12, na fila depois do worker) e dúvida da IA Nutri
+ * (Plano 15, a segunda paciente do seed) — e devolve os ids.
  * `ip`: o IP só do paciente (o limite de login é por IP); `ipIaNutri`: o da segunda paciente da IA Nutri.
  */
 export async function prepararTelasComId(browser: Browser, nutri: Page, ip: string, ipIaNutri: string): Promise<IdsDoPainel> {
@@ -158,6 +159,19 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   await expect(nutri).toHaveURL(/\/documentos\/[0-9a-f-]{36}$/);
   const documento = idDaUrl(nutri, new RegExp(`/documentos/(${UUID})$`));
 
+  // lançamento (Plano 20, US-301): a entrada do paciente pela tela "Nova entrada" (o seed deixa o Financeiro configurado);
+  // o vencimento sugerido é hoje, e a lista volta no mês atual, com o "Editar" da linha
+  await nutri.goto('/painel/financeiro/lancamentos/novo?tipo=entrada');
+  await nutri.getByLabel('Paciente (opcional)').selectOption({ label: paciente.nome });
+  await nutri.getByLabel('Valor', { exact: true }).fill('250,00');
+  await nutri.getByLabel('Categoria', { exact: true }).selectOption({ label: 'Consultas' });
+  await nutri.getByLabel('Descrição (opcional)').fill(`Retorno axe ${sufixo}`);
+  await nutri.getByRole('button', { name: 'Salvar entrada' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Lançamento salvo.' })).toBeVisible();
+  const hrefLancamento = await nutri.getByRole('link', { name: new RegExp(`^Editar Entrada, ${paciente.nome}, `) }).first().getAttribute('href');
+  const lancamento = new RegExp(`^/painel/financeiro/lancamentos/(${UUID})$`).exec(hrefLancamento ?? '');
+  expect(lancamento, `link "Editar" do lançamento de ${paciente.nome}: ${hrefLancamento}`).not.toBeNull();
+
   return {
     paciente: p.split('/').pop()!,
     plano,
@@ -171,6 +185,7 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
     diario: await idDoLink(nutri, '/painel/diarios', new RegExp(`/painel/diarios/(${UUID})$`)),
     conteudo,
     documento,
+    lancamento: lancamento![1],
     duvida: await duvidaDiretaDaSegunda(browser, nutri, ipIaNutri),
     envio: await (async () => {
       await expect

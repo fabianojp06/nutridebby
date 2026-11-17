@@ -1,4 +1,21 @@
 import { afterAll, afterEach, describe, expect, inject, it, vi } from 'vitest';
+// as actions (T6) chamam o módulo sem `deps`: o getDb pode ser trocado pelo banco que recusa a escrita
+const banco = vi.hoisted(() => ({ ruim: null as unknown, sessao: null as unknown }));
+vi.mock('server-only', () => ({}));
+vi.mock('@/lib/tenant-session', () => ({ requireNutri: vi.fn(async () => banco.sessao) }));
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('next/navigation', () => ({
+  redirect: (url: string) => {
+    throw new Error(`redirect ${url}`);
+  },
+  notFound: () => {
+    throw new Error('notFound');
+  },
+}));
+vi.mock('@/db/client', async (orig) => {
+  const real = await orig<typeof import('@/db/client')>();
+  return { ...real, getDb: () => (banco.ruim as ReturnType<typeof real.getDb> | null) ?? real.getDb() };
+});
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool, type PoolClient } from 'pg';
 import { makeDb } from '../../../test/db';
@@ -11,6 +28,10 @@ import { filtrarBreadcrumb, filtrarEvento } from '@/lib/sentry-filtro';
 import { sql } from 'drizzle-orm';
 import { listarCategorias, renomearCategoria, salvarConfiguracoes } from './configuracoes';
 import { cancelarLancamento, criarLancamento, editarLancamento } from './lancamentos';
+import { closeDb } from '@/db/client';
+import { hojeNoFuso } from '@/modules/pacientes/datas';
+import { salvarConfiguracoesAction } from '@/app/painel/financeiro/configuracoes/actions';
+import { criarLancamentoAction, editarLancamentoAction } from '@/app/painel/financeiro/lancamentos/actions';
 
 /**
  * RNF-300 / CS-302 / RN-322: valor, descrição, motivo, categoria e nome do paciente nunca vão para log, Sentry ou mensagem
@@ -42,6 +63,7 @@ soLeitura.connect = (async () => {
 }) as unknown as Pool['connect'];
 const dbSoLeitura = drizzle({ client: soLeitura, schema }) as unknown as Db;
 afterAll(async () => {
+  await closeDb();
   await app.pool.end();
   await owner.pool.end();
   await soLeitura.end();
@@ -126,6 +148,57 @@ describe('RNF-300: nada do Financeiro no log, no Sentry nem na mensagem de erro'
     expect(await withTenant(T.ctx, (tx) => tx.execute(sql`select valor_centavos from fin_lancamentos where id = ${id}`), app.db).then((r) => r.rows)).toEqual([
       { valor_centavos: 98765432 },
     ]);
+  });
+
+  it('nas actions (criarLancamentoAction, editarLancamentoAction e a das Configurações): erro de validação e do banco sem nada no log, no Sentry nem nos erros devolvidos', async () => {
+    const espioes = (['trace', 'debug', 'info', 'warn', 'error', 'fatal'] as const).map((n) => vi.spyOn(logger, n));
+    const T = await novoTenant(app.db);
+    const deps = { db: app.db };
+    const hoje = hojeNoFuso(T.tenant.fuso);
+    await salvarConfiguracoes(T.ctx, T.tenant, { saldoInicialEm: hoje, saldoInicial: '100', valorConsulta: '' }, deps);
+    const consultas = (await listarCategorias(T.ctx, deps)).find((c) => c.chave === 'consultas')!;
+    await renomearCategoria(T.ctx, consultas.id, MARCAS.categoria, deps);
+    const p = await novoPaciente(app.db, T.ctx, { nome: MARCAS.nome });
+    const base = { valor: MARCAS.valor, categoriaId: consultas.id, vencimento: hoje, pacienteId: p.id, descricao: MARCAS.descricao };
+    const { id } = await criarLancamento(T.ctx, T.tenant, { tipo: 'entrada', ...base }, deps);
+    banco.sessao = { ctx: T.ctx, tenant: { id: T.tenantId, ...T.tenant } };
+    const fd = (campos: Record<string, string>) => {
+      const f = new FormData();
+      for (const [k, v] of Object.entries(campos)) f.set(k, v);
+      return f;
+    };
+
+    // validação: o estado de erro leva os textos da spec, nunca o que foi digitado (que volta só em `valores`, para a tela)
+    const estados = [
+      await criarLancamentoAction({}, fd({ tipo: 'entrada', ...base, valor: `${MARCAS.valor}x`, descricao: MARCAS.descricao.repeat(20) })),
+      await editarLancamentoAction({}, fd({ id, ...base, valor: MARCAS.descricao, jaFoi: 'on', pagoEm: MARCAS.motivo, forma: MARCAS.motivo })),
+      await salvarConfiguracoesAction({}, fd({ saldoInicialEm: MARCAS.descricao, saldoInicial: MARCAS.valor.repeat(3), valorConsulta: MARCAS.nome })),
+    ];
+    for (const r of estados) {
+      expect(Object.keys(r.erros ?? {}).length).toBeGreaterThan(0);
+      for (const m of textos) expect(JSON.stringify(r.erros)).not.toContain(m);
+    }
+
+    // banco: a escrita é recusada no meio da action (25006) e o erro que sobe sai limpo
+    banco.ruim = dbSoLeitura;
+    const lancados = await Promise.all([
+      pegar(criarLancamentoAction({}, fd({ tipo: 'entrada', ...base }))),
+      pegar(editarLancamentoAction({}, fd({ id, ...base, valor: '1,00' }))),
+      pegar(salvarConfiguracoesAction({}, fd({ saldoInicialEm: hoje, saldoInicial: MARCAS.valor, valorConsulta: '' }))),
+    ]).finally(() => {
+      banco.ruim = null;
+    });
+    expect(lancados.map((e) => [(e as { name?: string }).name, (e as { code?: string }).code])).toEqual(Array(3).fill(['DbError', '25006']));
+    for (const e of lancados) {
+      const t = tudoDoErro(e);
+      for (const m of textos) expect(t).not.toContain(m);
+      const evento = filtrarEvento({ message: (e as Error).message, exception: { values: [{ type: (e as Error).name, value: (e as Error).message }] }, extra: { erro: t } });
+      for (const m of textos) expect(JSON.stringify(evento)).not.toContain(m);
+    }
+    const logs = JSON.stringify(espioes.map((s) => s.mock.calls));
+    for (const m of textos) expect(logs).not.toContain(m);
+    const { rows } = await owner.pool.query('select count(*)::int as n from fin_lancamentos where tenant_id = $1', [T.tenantId]);
+    expect(rows[0].n).toBe(1);
   });
 
   it('os formulários do Financeiro ficam fora dos breadcrumbs: cliques e digitação somem; a navegação leva só a origem', () => {
