@@ -17,6 +17,7 @@ import {
   editarLancamento,
   listarLancamentos,
   marcarRecebido,
+  pacienteDoFinanceiro,
   pacientesParaLancamento,
 } from './lancamentos';
 
@@ -224,7 +225,7 @@ describe('editar, receber, desfazer e cancelar (US-302, RN-308, RN-309, RN-315, 
     const { id } = await entrada(C, { vencimento: '2026-11-10' });
     expect(await errosDe(marcarRecebido(C.ctx, C.tenant, id, { pagoEm: '2026-11-18', forma: 'pix' }, deps))).toEqual({ pagoEm: M.recebimentoFuturo });
     expect(await errosDe(marcarRecebido(C.ctx, C.tenant, id, { pagoEm: '2026-11-17', forma: '' }, deps))).toEqual({ forma: M.escolhaForma });
-    expect(await marcarRecebido(C.ctx, C.tenant, id, { pagoEm: '2026-11-17', forma: 'dinheiro' }, deps)).toEqual({ mes: '2026-11' });
+    expect(await marcarRecebido(C.ctx, C.tenant, id, { pagoEm: '2026-11-17', forma: 'dinheiro' }, deps)).toEqual({ mes: '2026-11', tipo: 'entrada' });
     expect(await ler(id)).toMatchObject({ pago_em: '2026-11-17', forma_pagamento: 'dinheiro' });
     await desfazerRecebimento(C.ctx, id, deps);
     expect(await ler(id)).toMatchObject({ pago_em: null, forma_pagamento: null });
@@ -434,5 +435,23 @@ describe('pacientesParaLancamento (F-D28)', () => {
       { id: C.p, nome: 'Ana Souza', arquivado: false },
       { id: carla, nome: 'Carla Dias', arquivado: true },
     ]);
+  });
+});
+
+describe('pacienteDoFinanceiro (chip da lista, pré-seleção do formulário)', () => {
+  it('nome e bloqueio do paciente do consultório; anonimizado não conta como bloqueado; de outro consultório ou id inválido → null; sem leitura auditada', async () => {
+    const C = await cenario();
+    const bruno = (await novoPaciente(app.db, C.ctx, { nome: 'Bruno Lima' })).id;
+    const davi = (await novoPaciente(app.db, C.ctx, { nome: 'Davi Reis' })).id;
+    await bloquear(C, bruno);
+    await bloquear(C, davi);
+    await owner.pool.query('update patients set anonimizado_em = now() where id = $1', [davi]);
+    const B = await cenario();
+    expect(await pacienteDoFinanceiro(C.ctx, C.p, deps)).toEqual({ id: C.p, nome: 'Ana Souza', bloqueado: false, anonimizado: false });
+    expect(await pacienteDoFinanceiro(C.ctx, bruno, deps)).toEqual({ id: bruno, nome: 'Bruno Lima', bloqueado: true, anonimizado: false });
+    expect(await pacienteDoFinanceiro(C.ctx, davi, deps)).toMatchObject({ id: davi, bloqueado: false, anonimizado: true });
+    expect(await pacienteDoFinanceiro(C.ctx, B.p, deps)).toBeNull();
+    expect(await pacienteDoFinanceiro(C.ctx, 'nao-e-uuid', deps)).toBeNull();
+    expect(await leituras(C.tenantId)).toEqual([]);
   });
 });

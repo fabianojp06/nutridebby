@@ -224,14 +224,17 @@ export async function editarLancamento(
   });
 }
 
-/** "Marcar como recebido/pago" (US-302): data até hoje no fuso e forma obrigatória. Vale também com o paciente bloqueado. */
+/**
+ * "Marcar como recebido/pago" (US-302): data até hoje no fuso e forma obrigatória. Vale também com o paciente bloqueado.
+ * Devolve o tipo, para a tela dizer "Recebimento registrado." ou "Pagamento registrado." sem confiar no formulário.
+ */
 export async function marcarRecebido(
   ctx: TenantContext,
   tenant: { fuso: string },
   id: string,
   input: { pagoEm: string; forma: string },
   deps: Deps = {},
-): Promise<{ mes: string }> {
+): Promise<{ mes: string; tipo: TipoLancamento }> {
   const agora = deps.agora ?? new Date();
   return alterarLancamento(ctx, id, deps, async (tx, { l }) => {
     const erros: Record<string, string> = {};
@@ -241,7 +244,7 @@ export async function marcarRecebido(
     if (!forma) erros.forma = M.escolhaForma;
     if (Object.keys(erros).length || !pagoEm) throw new FinanceiroError(erros);
     await tx.update(finLancamentos).set({ pagoEm, formaPagamento: forma, updatedAt: agora }).where(eq(finLancamentos.id, l.id));
-    return { mes: mesDe(pagoEm) };
+    return { mes: mesDe(pagoEm), tipo: l.tipo };
   });
 }
 
@@ -424,4 +427,26 @@ export async function pacientesParaLancamento(ctx: TenantContext, deps: Deps = {
     deps.db ?? getDb(),
   );
   return linhas.map((p) => ({ id: p.id, nome: p.nome, arquivado: p.status === 'arquivado' }));
+}
+
+/**
+ * O paciente de `?paciente=` na lista (chip "Paciente: {nome}") e no formulário novo (aviso do bloqueado, §6.2): só nome e
+ * situação, como a lista de pacientes — sem `auditRead` (a leitura do financeiro dele é auditada por `listarLancamentos`).
+ * Id inválido ou de outro consultório (RLS) → null. `bloqueado` não inclui o anonimizado (que não ganha aviso).
+ */
+export async function pacienteDoFinanceiro(
+  ctx: TenantContext,
+  id: string,
+  deps: Deps = {},
+): Promise<{ id: string; nome: string; bloqueado: boolean; anonimizado: boolean } | null> {
+  exigirNutri(ctx);
+  if (!idValido(id)) return null;
+  const [p] = await withTenant(
+    ctx,
+    (tx) => tx.select({ nome: patients.nome, status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, id)),
+    deps.db ?? getDb(),
+  );
+  if (!p) return null;
+  const anonimizado = !!p.anonimizadoEm;
+  return { id, nome: p.nome, bloqueado: p.status === 'bloqueado' && !anonimizado, anonimizado };
 }

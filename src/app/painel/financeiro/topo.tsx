@@ -24,11 +24,22 @@ export function marcadorDoEnvio(envio: string | string[] | undefined): string {
 /**
  * O topo de toda tela do Financeiro (§4.1, §7): h1 com `tabIndex={-1}` (recebe o foco com `ok=`), a navegação interna, as
  * ações da tela e a região de mensagens sempre montada (`?ok=` e `?aviso=`; o `?envio=` faz cada salvamento focar o h1 e
- * anunciar de novo, mesmo com a URL anterior igual a menos dele).
+ * anunciar de novo, mesmo com a URL anterior igual a menos dele). `avisos`: os da própria tela (o `antes_do_saldo` da
+ * lista leva a data do saldo), que vêm logo depois do texto do `ok=`, na mesma região (US-301).
  */
-export function TopoDoFinanceiro({ titulo, parametros, acoes }: { titulo: string; parametros: ParametrosDaUrl; acoes?: ReactNode }) {
+export function TopoDoFinanceiro({
+  titulo,
+  parametros,
+  acoes,
+  avisos,
+}: {
+  titulo: string;
+  parametros: ParametrosDaUrl;
+  acoes?: ReactNode;
+  avisos?: Record<string, string>;
+}) {
   const sucesso = daLista(MSG_FINANCEIRO.ok, parametros.ok);
-  const aviso = daLista(AVISOS, parametros.aviso);
+  const aviso = daLista({ ...AVISOS, ...avisos }, parametros.aviso);
   return (
     <>
       <h1 id={ID_TITULO} tabIndex={-1} className="font-titulo text-2xl font-semibold">
@@ -36,7 +47,12 @@ export function TopoDoFinanceiro({ titulo, parametros, acoes }: { titulo: string
       </h1>
       <SecoesDoFinanceiro />
       {acoes && <div className="flex flex-wrap justify-end gap-2">{acoes}</div>}
-      <Mensagens texto={sucesso || aviso} tipo={sucesso ? 'ok' : 'aviso'} focar={!!sucesso} marcador={marcadorDoEnvio(parametros.envio)} />
+      <Mensagens
+        texto={[sucesso, aviso].filter(Boolean).join(' ')}
+        tipo={sucesso ? 'ok' : 'aviso'}
+        focar={!!sucesso}
+        marcador={marcadorDoEnvio(parametros.envio)}
+      />
     </>
   );
 }

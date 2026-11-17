@@ -447,6 +447,7 @@ export const GUIAS: readonly Guia[] = [
             'O saldo atual soma ao saldo do caixa tudo o que foi recebido e pago a partir da data do saldo.',
             'Categoria com lançamentos não pode ser excluída: use "Arquivar" para que ela não apareça nos formulários.',
             'A categoria Consultas pode mudar de nome, mas não pode ser arquivada nem excluída.',
+            'Um lançamento recebido ou pago conta no mês do pagamento; em aberto, no mês do vencimento.',
           ],
         },
       ],
@@ -457,6 +458,10 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'financeiro-saldo', titulo: 'Saldo do caixa', texto: 'Informe quanto havia no caixa numa data. O saldo atual soma a este valor tudo o que foi recebido e pago a partir dela.' },
       { alvo: 'financeiro-valor-consulta', titulo: 'Valor da consulta', texto: 'Sugerido em toda cobrança criada ao marcar a consulta como Realizada. Sem ele, as consultas não geram cobrança.' },
       { alvo: 'financeiro-categorias', titulo: 'Categorias', texto: 'Organize as entradas e as saídas: crie, renomeie ou arquive categorias. A categoria Consultas é a das cobranças das consultas.' },
+      { alvo: 'financeiro-filtros', titulo: 'Filtros da lista', texto: 'Escolha o mês, o tipo, a categoria, a situação ou a forma de pagamento e toque em "Filtrar". Os totais acima da lista seguem o filtro, sem os cancelados.' },
+      { alvo: 'financeiro-novo', titulo: 'Lançamento', texto: 'Valor, categoria e vencimento. Marque "Já foi recebido" (ou "Já foi pago") quando o dinheiro já entrou ou saiu. O paciente é opcional e só aparece na entrada.' },
+      { alvo: 'financeiro-receber', titulo: 'Receber', texto: 'Use "Marcar como recebido" com a data e a forma de pagamento. Lançou por engano? "Desfazer recebimento" volta o lançamento para em aberto.' },
+      { alvo: 'financeiro-cancelar', titulo: 'Cancelar', texto: 'Lançamento não se apaga: "Cancelar lançamento" pede o motivo e não tem volta. Ele continua na lista, como Cancelado, fora dos totais e do saldo.' },
     ],
   },
 ];
