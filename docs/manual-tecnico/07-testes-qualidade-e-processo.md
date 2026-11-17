@@ -112,13 +112,13 @@ Pontos que importam:
 
 1. **Dois papéis de conexão.** `ownerDatabaseUrl` é o superusuário do container, usado só para migrations,
    fixtures e consultas de conferência ao catálogo. `appDatabaseUrl` troca o usuário para `nutri_app`
-   (`global-setup.ts:12-15`), o mesmo role sem privilégios da produção. `test/setup.ts` põe essa URL em
+   (`global-setup.ts:17-20`), o mesmo role sem privilégios da produção. `test/setup.ts` põe essa URL em
    `DATABASE_URL`. **Por quê:** o superusuário ignora a RLS. Um teste que conectasse com ele passaria mesmo com a
    RLS quebrada (Plano 01, Review Focus 2). `src/db/migrate.test.ts` prova que o role da aplicação não é
    superusuário nem tem `BYPASSRLS` (caso "o role da aplicação não é superusuário nem ignora RLS").
 2. **As migrations de verdade.** O setup chama `runMigrations` (`src/db/migrate.ts`), a mesma função do deploy. Os
    testes rodam sobre o schema real, com as políticas e os gatilhos.
-3. **Tabelas-fixture.** `rls_fixture_patient_items` e `audit_fixture_registros` (`global-setup.ts:19-44`) ganham
+3. **Tabelas-fixture.** `rls_fixture_patient_items` e `audit_fixture_registros` (`global-setup.ts:24-48`) ganham
    `app_enable_tenant_rls`, `app_enable_patient_rls` e `app_enable_audit`. Elas testam as funções de RLS e de
    auditoria sem depender de uma tabela de negócio.
 4. **Dados para o teste do backup.** O id do container, o usuário e o banco vão para `test/backup.test.ts` e
@@ -128,17 +128,28 @@ Pontos que importam:
    outras sessões) e o fecha a conexões (`ALLOW_CONNECTIONS false`), para nenhum teste segurá-lo e impedir os clones.
    O nome vai para os testes como `modeloDdlDatabase`. O helper `bancoProprioParaDdl()` (`test/ddl.ts`) dá a cada
    arquivo que o chama um banco `ddl_<aleatório>` clonado desse modelo no `beforeAll` e apagado no `afterAll`
-   (`DROP DATABASE … WITH (FORCE)`); `pool` é o superusuário, como `ownerDatabaseUrl`. O clone tem o mesmo catálogo,
-   sem ACL nem configurações do nível do banco (`datacl` e `pg_db_role_setting` não são copiados pelo `TEMPLATE`).
+   (`DROP DATABASE … WITH (FORCE)`); `pool` é o superusuário, como `ownerDatabaseUrl`. O clone tem o mesmo catálogo.
+   O `TEMPLATE` não copia a ACL do banco (`datacl`), então o helper reaplica o que o `ensureAppLogin` faz no banco
+   compartilhado: `GRANT CONNECT` ao role da aplicação e `REVOKE TEMPORARY … FROM PUBLIC`. Configurações por banco
+   (`pg_db_role_setting`) o projeto não usa. Se as migrations, as fixtures ou o banco-modelo falharem, o setup para o
+   contêiner antes de relançar (o erro do modelo cita o SUS-100).
    **Por quê:** os testes de "a guarda funciona" (`rls-guard.test.ts`, `audit-guard.test.ts`) fazem `drop policy`,
    `create policy` e `drop trigger` em tabelas reais dentro de `begin`/`rollback`, o que pega `AccessExclusiveLock` até
    o rollback. No banco compartilhado, os outros arquivos travavam as mesmas tabelas em outra ordem e fechavam ciclo
    (40P01: o B-5 segurava `exams` e pedia `contents`; outra transação segurava `contents` e pedia `exams`; CI do PR #54
-   e um deploy). As travas do Postgres são por banco, então no clone a disputa não existe. O caso "a guarda roda num
-   clone do banco migrado, não no banco compartilhado" (`rls-guard.test.ts`) confere o clone e as migrations dele.
+   e um deploy). As travas do Postgres são por banco, então no clone a disputa não existe. Dois casos de
+   `rls-guard.test.ts` conferem o clone sem abrir conexão no banco compartilhado: "a guarda roda num clone do banco
+   migrado, não no banco compartilhado" (`current_database()` diferente de `pgDatabase` e o número de linhas de
+   `drizzle.__drizzle_migrations` igual ao de entradas de `drizzle/meta/_journal.json`) e "o clone tem os privilégios
+   do nível do banco do compartilhado" (a ACL dos dois em `pg_database`, catálogo do cluster).
 
-   **Regra:** teste que faz DDL em tabela real (`drop`/`create policy`, `drop trigger`, `alter table`, `lock table`)
-   usa `bancoProprioParaDdl`, nunca o banco compartilhado.
+   **Regra:** teste que faz DDL em tabela real (`drop`/`create`/`alter policy`, `drop`/`create trigger`, `alter table`
+   — inclusive `alter table … disable trigger` —, `lock table`) usa `bancoProprioParaDdl`, nunca o banco
+   compartilhado. A guarda estática `src/db/ddl-guard.test.ts` varre `src/**/*.test.ts` e `test/**` e quebra o CI se
+   um arquivo faz essa DDL sem importar `bancoProprioParaDdl` de `test/ddl.ts`. Ficam de fora tabelas `tmp_*`,
+   comentários e os arquivos com cluster próprio (que importam `novoPostgres`: `test/global-setup.ts`,
+   `src/db/migrate-owner.test.ts` e `src/modules/plataforma/ia-nutri-pausa.test.ts`, lista conferida pelo próprio
+   teste). Controle positivo no mesmo arquivo: textos de exemplo com cada forma de DDL e sem o import são acusados.
 
 `test/setup.ts` define `NODE_ENV=test`, `APP_URL`, `AUTH_SECRET`, `ENCRYPTION_KEY`, `EMAIL_FROM`, `MAILPIT_URL`,
 `FILE_URL_SECRET`, as chaves de teste do Turnstile e um `DATA_DIR` temporário por arquivo (`mkdtempSync`),
@@ -167,7 +178,7 @@ arquivos rodam em paralelo sem pisar um no outro, e a RLS ainda separa os dados.
 | `test/whatsapp.ts` | `whatsappFalso`, `conexaoDeTeste` | Provedor WhatsApp em memória e conexão do tenant |
 | `test/pdf.ts` | `textoDoPdf`, `paginasDoPdf` | Lê o texto e conta as páginas dos PDFs do `@react-pdf` |
 | `test/ddl.ts` (SUS-100) | `bancoProprioParaDdl` | Banco próprio clonado de `nutri_modelo_ddl` para o arquivo que faz DDL em tabela real; `pool` de superusuário, apagado no `afterAll` |
-| `test/postgres-teste.ts` | `novoPostgres`, `uriDoPostgres` | Postgres 16 do Testcontainers; com `NUTRI_CI_REDE_DIRETA=1` (runner próprio), URL pelo IP do contêiner e espera só pelo healthcheck. Usado pelo `global-setup` e pelo `migrate-owner.test.ts` |
+| `test/postgres-teste.ts` | `novoPostgres`, `uriDoPostgres`, `urlDoBanco` | Postgres 16 do Testcontainers; com `NUTRI_CI_REDE_DIRETA=1` (runner próprio), URL pelo IP do contêiner e espera só pelo healthcheck. Usado pelo `global-setup`, pelo `migrate-owner.test.ts` e pelo `ia-nutri-pausa.test.ts`; `urlDoBanco` (SUS-100) troca o banco de uma URL (`postgres` para `CREATE`/`DROP DATABASE`, os clones de `test/ddl.ts`) |
 | `test/ficha.ts` (Plano 18) | `DO_PLANO_18`, `SECOES_DO_PLANO_18`, `ehDoPlano18` | As 8 seções do Início do Plano 18, na ordem: os testes que conferem só essas filtram por aqui, e uma seção de outro plano acrescentada no fim de `SECOES_DA_FICHA` não os quebra |
 | `test/grafo-de-imports.ts` | `grafoDeImports`, `raizesDoNext`, `caminhoAte`, `fontesDe` | Grafo de imports pela árvore sintática do TypeScript (base das guardas de 7.4.3) |
 

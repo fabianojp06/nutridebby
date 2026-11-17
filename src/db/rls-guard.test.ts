@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { Pool } from 'pg';
 import { describe, expect, inject, it } from 'vitest';
 import { bancoProprioParaDdl } from '../../test/ddl';
 import {
@@ -26,16 +25,27 @@ const owner = bancoProprioParaDdl();
 
 describe('banco próprio dos testes de DDL (SUS-100)', () => {
   it('a guarda roda num clone do banco migrado, não no banco compartilhado', async () => {
-    const compartilhado = new Pool({ connectionString: inject('ownerDatabaseUrl'), max: 1 });
-    try {
-      const q = 'select current_database() as banco, (select count(*)::int from drizzle.__drizzle_migrations) as migrations';
-      const [clone, base] = await Promise.all([owner.pool.query(q), compartilhado.query(q)]);
-      expect(clone.rows[0].banco).toMatch(/^ddl_/);
-      expect(clone.rows[0].banco).not.toBe(base.rows[0].banco);
-      expect(clone.rows[0].migrations).toBe(base.rows[0].migrations);
-    } finally {
-      await compartilhado.end();
-    }
+    // Sem conexão a mais no banco compartilhado: o nome dele vem do global-setup, e as migrations do clone são contadas
+    // contra o journal do drizzle-kit (a fonte), não contra outro banco que viria do mesmo modelo.
+    const { rows } = await owner.pool.query<{ banco: string; migrations: number }>(
+      'select current_database() as banco, (select count(*)::int from drizzle.__drizzle_migrations) as migrations',
+    );
+    const journal = JSON.parse(readFileSync(path.resolve('drizzle/meta/_journal.json'), 'utf8')) as { entries: unknown[] };
+    expect(rows[0].banco).toMatch(/^ddl_/);
+    expect(rows[0].banco).not.toBe(inject('pgDatabase'));
+    expect(journal.entries.length).toBeGreaterThan(0);
+    expect(rows[0].migrations).toBe(journal.entries.length);
+  });
+
+  it('o clone tem os privilégios do nível do banco do compartilhado (CONNECT do app, sem TEMPORARY de PUBLIC)', async () => {
+    // pg_database é catálogo do cluster: o clone lê a ACL dos dois bancos sem abrir conexão no compartilhado.
+    const acl = `select array(select a::text from pg_database d, unnest(d.datacl) a where d.datname = $1 order by 1) as acl`;
+    const [clone, base] = await Promise.all([
+      owner.pool.query<{ acl: string[] }>(acl.replace('$1', 'current_database()')),
+      owner.pool.query<{ acl: string[] }>(acl, [inject('pgDatabase')]),
+    ]);
+    expect(base.rows[0].acl.length).toBeGreaterThan(0);
+    expect(clone.rows[0].acl).toEqual(base.rows[0].acl);
   });
 });
 
