@@ -347,3 +347,17 @@ Plano 19, T4 (cópias do plano, 17/11/2026):
   cobrir só o ramo com trava explícita. Conferir todo INSERT que copia ponteiro de FK com SET NULL de uma linha travada.
 - (T5, 17/11) Esse ciclo ficou como Minor adiado na T4 (progress.md do SDD); antes de reabrir achado de trava/ciclo, ler
   `.superpowers/sdd/<plano>/progress.md` (triagem dos Minors) e só citar como já registrado.
+
+Plano 19, T8 (biblioteca: minhas refeições e listas, 17/11/2026): limpa na lente (withTenant, visibilidade do food_id,
+tenant NO KEY UPDATE antes da contagem). Padrão menor: `catch` com `fkViolation(e) !== null` genérico mapeando QUALQUER
+FK para "alimento excluído" (mãe apagada em paralelo também cai nele) — conferir o nome da constraint.
+
+Plano 19, T9 (ligado ao plano, 17/11/2026): limpa na lente (policy 0131 exige plano 'publicado' + RLS de paciente em
+plano_conteudos; travas paciente → plano → conteúdo FOR SHARE, sem ciclo; apagarArquivo só NO KEY UPDATE no tenant).
+Padrão a vigiar: leitor genérico (`lerPlanoNaTransacao`) que ganha campo novo (título copiado de conteúdo, situação lida
+com a RLS de quem chama) — no worker e na sessão de paciente sem liberação o objeto carrega título de conteúdo não
+publicado; conferir a projeção fechada de cada leitor (portal, IA Nutri, PDF) nas tarefas dos leitores.
+
+Plano 19, T10b (PDF do plano + fila nova, 17/11/2026): limpa na lente. Fila nova para isolar worker antigo/novo: conferir
+que o PRODUTOR do app também cria a fila (getBoss → ensureQueues; senão o send do app novo antes do worker novo recusa e
+desfaz a publicação), que nenhum `boss.send('<fila velha>')` sobrou (grep) e que a varredura de pendentes cobre a volta atrás.

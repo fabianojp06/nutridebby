@@ -24,3 +24,5 @@
 - [Tela movida e mensagens órfãs](feedback_tela-movida-e-mensagens-orfas.md) — aba movida (Resumo→Perfil): mensagem "no cadastro" sem link; E2E de "cada seção" parcial
 - [Limite mudado, E2E literal esquecido](feedback_constante-de-limite-e-e2e-literal.md) — MAX_REFEICOES/MSG de limite: grep e2e/ pelo número e texto antigos; aviso da action fica velho
 - [Filtro esconde o que edita](feedback_filtro-esconde-o-que-edita.md) — filtro de dia some o cartão ao desmarcar o dia; link de erro por hash não repete; vazio sem role=status
+- [Painel que fecha e sucesso mudo](feedback_painel-que-fecha-e-sucesso-mudo.md) — ação imediata: foco cai no body ao fechar o painel; sem role=status no sucesso
+- [Lista derivada vazia sem texto](feedback_lista-derivada-vazia-sem-texto.md) — filtro/janela válido com resultado vazio: só a dica de rodapé aparece (compras do 19)
