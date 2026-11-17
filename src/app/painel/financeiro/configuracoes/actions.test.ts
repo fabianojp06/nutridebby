@@ -23,7 +23,7 @@ const { categoriaAction, novaCategoriaAction, salvarConfiguracoesAction } = awai
 const { closeDb } = await import('@/db/client');
 const { lerConfiguracoes, listarCategorias, salvarConfiguracoes } = await import('@/modules/financeiro/configuracoes');
 const { criarLancamento } = await import('@/modules/financeiro/lancamentos');
-const { MSG_FINANCEIRO } = await import('@/modules/financeiro/constantes');
+const { CATEGORIAS_INICIAIS, MSG_FINANCEIRO } = await import('@/modules/financeiro/constantes');
 const { revalidatePath } = await import('next/cache');
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -47,7 +47,8 @@ const formulario = (campos: Record<string, string>) => {
   for (const [k, v] of Object.entries(campos)) fd.set(k, v);
   return fd;
 };
-const contar = async (sql: string, ...params: unknown[]) => (await app.pool.query(sql, params)).rows[0].n as number;
+/** Contagem pelo dono do banco: o papel da aplicação, fora de `withTenant`, não vê nada pela RLS (contaria sempre 0). */
+const contar = async (sql: string, ...params: unknown[]) => (await owner.pool.query(sql, params)).rows[0].n as number;
 
 async function configurado(): Promise<TenantDeTeste> {
   const T = await novoTenant(app.db);
@@ -65,6 +66,8 @@ describe('salvarConfiguracoesAction (US-300)', () => {
     await expect(salvarConfiguracoesAction({}, fd)).rejects.toThrow(`redirect ${CAMINHO}?ok=config`);
     expect(await lerConfiguracoes(T.ctx, { db: app.db })).toEqual({ saldoInicialCentavos: 150_000, saldoInicialEm: '2026-11-01', valorConsultaCentavos: 25_000 });
     expect((await listarCategorias(T.ctx, { db: app.db })).map((c) => c.nome)).toContain('Consultas');
+    // controle positivo da contagem usada no caso de erro (que espera 0)
+    expect(await contar('select count(*)::int as n from fin_categorias where tenant_id = $1', T.tenantId)).toBe(CATEGORIAS_INICIAIS.length);
     expect(revalidatePath).toHaveBeenCalledWith('/painel/financeiro', 'layout');
   });
 
