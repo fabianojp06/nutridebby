@@ -18,9 +18,15 @@
  * resumo, no rascunho e no contexto da IA Nutri — a mesma regra do nome de registro, com o mesmo limite declarado. É lido
  * só para a máscara (nome-social.ts) e nunca sai. RN-109: a regra da máscara não muda (nem o `>= 3`, nem a lista, nem as
  * partes do nome); passa a valer para mais um nome do próprio paciente, então sai MENOS do que o texto 1.1 descreve ("o
- * sistema retira o seu nome"; o nome social é o nome do paciente). Na leitura da Tarefa 11, sem mudança no texto da
- * autorização nem versão nova; a confirmação do `normas-cfn-lgpd` contra o texto 1.1 fica para antes do merge do PR 2
- * (spec §10 e §14).
+ * sistema retira o seu nome"; o nome social é o nome do paciente). Confirmado pelo `normas-cfn-lgpd` em 17/11/2026 (spec
+ * §10 e §14): sem versão nova da autorização 1.1, do consentimento da IA Nutri 1.0 (`LIMITE_DA_MASCARA_IA_NUTRI`) nem do
+ * aditivo 1.2 (item 5, "nome ... do paciente") — LGPD art. 8º, § 6º, e art. 9º, § 2º: finalidade, forma, controlador,
+ * destino e compartilhamento não mudam, e o que é enviado não aumenta (a autorização só promete nova autorização "se
+ * isso mudar"); sai menos, art. 6º, III, e a promessa "retira o seu nome" fica mais exata (art. 9º, § 1º); a
+ * transferência (art. 33, VIII) cobre um subconjunto do autorizado. `AUTORIZACAO_IA_VERSAO_MIN` e
+ * `IA_NUTRI_TERMO_VERSAO_MIN` ficam como estão. Boa prática para a próxima versão desses textos, já prevista por outro
+ * motivo: "o seu nome (inclusive o nome social, se houver)". A redação final continua com o advogado (D11/E-09); sem
+ * pergunta nova para ele nem para o CRN-3. Leitura da norma, não parecer jurídico.
  */
 import type { Resposta, SnapshotModelo } from '@/modules/pacientes/anamnese-tipos';
 

@@ -1,2 +1,3 @@
 - [Fontes do CFN para IA e prontuário](fontes-cfn-ia-prontuario.md) — artigos já localizados (599/2018, 594/2017, 856/2026 e vigência pela 858/2026) e o grau de confiança de cada fonte
 - [Pendências para a consulta ao CRN-3](pendencias-consulta-crn3.md) — perguntas abertas que a revisão da 14B-1 acrescentou ao rascunho (selo do plano criado de modelo da IA)
+- [LGPD e a máscara da IA](fontes-lgpd-mascara-ia.md) — artigos conferidos no Planalto em 17/11/2026; nome social na máscara sem versão nova dos textos (P18-11)
