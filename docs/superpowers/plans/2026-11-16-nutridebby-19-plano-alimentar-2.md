@@ -485,3 +485,9 @@ Só um PR com migration na fila por vez. O PR do seed (Tarefa 12) refaz os passo
 ## Depois das tarefas (fluxo do CLAUDE.md)
 
 Para cada PR (o do código e, depois, o do seed): revisão final do branch (workflow, com `revisor-rls`, `normas-cfn-lgpd`, `revisor-interface` e `guardiao-manual`) → uma onda de correções → `/code-review high` no PR **uma vez** → correções Critical/Important (Minor vai para o backlog) → re-revisão **só do diff das correções** → `/security-review` (checklist reforçado: RLS da biblioteca e das ligações, RN-12 ampliada e o PDF com `?de=plano`, CS-232) → **portão da IA Nutri** (PM-PA15): nova avaliação da RN-184 pelo dono, com casos de lista de substituição, texto livre e dias (`docs/operacao/ia.md`) → merge **só com o OK do dono** (merge = deploy; a migration roda no boot do `nutri_app`; avisar do risco do snapshot com a produção no ar). A orquestradora escalona as revisões pesadas com as outras sessões e atualiza o painel do backlog Paridade Dietbox.
+
+## Decisões da orquestradora (16/11/2026, com autorização do dono para seguir as recomendações)
+
+- **Trem de merge da onda 1:** 17 → 18 PR 1 → 20 PR 1 → 19 (código) → 18 PR 2 → 20 PR 2 → 20 PR 3 → 19 (seed, sozinho). O Plano 17 entra primeiro; o filtro por dia dos lembretes fica com este plano (T10a), como está escrito.
+- **"No app":** quem entrar depois faz a contagem. Como o 19 (código) entra antes do 18 PR 2, a contagem de materiais e da lista de substituição fica com a sessão do Plano 18.
+- **Faixa de IP do E2E:** cada plano usa a própria faixa (sufixo = número do plano). Antes, confira em `e2e/` como os IPs são gerados.
