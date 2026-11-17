@@ -134,8 +134,11 @@ describe('Plano 20 — Financeiro no banco (spec §9)', () => {
     const outro = (await novoPaciente(app.db, C.ctx)).id;
     const a = await consulta(C);
     const l = await lancar(C);
+    // tipo sozinho: entrada sem paciente → saída com categoria de saída. FK composta e CHECKs aceitariam; só o gatilho recusa.
+    const semPaciente = await lancar(C, { paciente: null });
+    await expect(atualizar(C, semPaciente.id, sql`tipo = 'saida', categoria_id = ${C.saida}`)).rejects.toSatisfy(doGatilho);
     for (const set of [
-      sql`tipo = 'saida', patient_id = null, categoria_id = ${C.saida}`,
+      sql`patient_id = null`,
       sql`patient_id = ${outro}`,
       sql`appointment_id = ${a}`,
       sql`criado_por = ${randomUUID()}`,
