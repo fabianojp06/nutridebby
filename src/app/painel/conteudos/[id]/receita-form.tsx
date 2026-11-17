@@ -16,7 +16,7 @@ const positivo = (t: string) => {
   return n === null || Number.isNaN(n) || n <= 0 ? null : n;
 };
 
-/** US-051: rendimento, porção, tempo, modo de preparo e ingredientes (TACO + "Meu alimento"), com a conta por porção ao vivo. */
+/** US-051: rendimento, porção, tempo, modo de preparo e ingredientes (tabelas públicas + "Meu alimento", RN-230), com a conta por porção ao vivo. */
 export function ReceitaForm({ id, inicial }: { id: string; inicial: ReceitaLida | null }) {
   const [s, enviar, enviando] = useActionState<ReceitaState, FormData>(salvarReceitaAction.bind(null, id), {});
   const [rendimento, setRendimento] = useState(inicial ? num(inicial.rendimentoG) : '');
@@ -62,7 +62,7 @@ export function ReceitaForm({ id, inicial }: { id: string; inicial: ReceitaLida 
               const msg = eq ?? erro(`ingrediente:${k}:alimento`) ?? em;
               return (
                 <li key={l.chave} className="flex flex-wrap items-end gap-3">
-                  <p className="min-w-48 flex-1">{l.nome} <Selo origem={l.origem} />{l.porCem.kcal === null && <span className="ml-2 text-sm text-suave">{MSG_PLANO.semValor}</span>}</p>
+                  <p className="min-w-48 flex-1">{l.nome} <Selo fonte={l.fonte} />{l.porCem.kcal === null && <span className="ml-2 text-sm text-suave">{MSG_PLANO.semValor(l.fonte)}</span>}</p>
                   <div className="space-y-1">
                     <label htmlFor={`${l.chave}-g`} className="block text-sm">{`Gramas de ${l.nome}`}</label>
                     <input id={`${l.chave}-g`} inputMode="decimal" value={l.gramasTexto} onChange={(e) => mudar(l.chave, 'gramasTexto', e.target.value)} aria-invalid={eq ? true : undefined} aria-describedby={eq ? `${l.chave}-erro` : undefined} className="w-24 rounded-xl border border-campo bg-cartao p-2 text-texto" />
@@ -82,7 +82,7 @@ export function ReceitaForm({ id, inicial }: { id: string; inicial: ReceitaLida 
               rotulo="Adicionar ingrediente"
               aoEscolher={(a) => {
                 const chave = `${prefixo}-${proxima.current++}`;
-                setLinhas((ls) => [...ls, { foodId: a.id, nome: a.nome, origem: a.origem, porCem: a.porCem, quantidadeG: 0, medidaCaseiraTxt: null, chave, gramasTexto: '', medidaTexto: '' }]);
+                setLinhas((ls) => [...ls, { foodId: a.id, nome: a.nome, fonte: a.fonte, origem: a.origem, porCem: a.porCem, quantidadeG: 0, medidaCaseiraTxt: null, chave, gramasTexto: '', medidaTexto: '' }]);
               }}
             />
           )}

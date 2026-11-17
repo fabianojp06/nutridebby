@@ -1,5 +1,6 @@
 import type { MedidaCaseira, MedidaDoItem, NutrientesCongelados } from '@/db/schema';
 import type { Nutrientes100 } from '@/modules/alimentos/busca';
+import type { Fonte, SeloDaFonte } from '@/modules/alimentos/fontes';
 import type { MedidaDisponivel } from '@/modules/alimentos/medidas';
 
 /** Só tipos: o editor (cliente) importa daqui sem puxar banco. */
@@ -11,7 +12,10 @@ export type ItemPlano = {
   id: string;
   foodId: string;
   nome: string;
-  origem: 'TACO' | 'Meu alimento';
+  /** RN-230: de `foods.fonte` no rascunho; da cópia congelada no publicado. */
+  fonte: Fonte;
+  /** O selo da fonte (`seloDaFonte`). */
+  origem: SeloDaFonte;
   porCem: Nutrientes100;
   /** Medidas disponíveis para trocar (só no rascunho; publicado = []). */
   medidas: MedidaDisponivel[];

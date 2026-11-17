@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { check, index, jsonb, numeric, pgTable, smallint, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
-import { FONTES_DE_ALIMENTO } from '../../modules/alimentos/fontes'; // relativo: o drizzle-kit não resolve o alias @/
+import { FONTES_DE_ALIMENTO, type Fonte } from '../../modules/alimentos/fontes'; // relativo: o drizzle-kit não resolve o alias @/
 import { GRUPOS_TACO } from '../../modules/alimentos/grupos'; // relativo: o drizzle-kit não resolve o alias @/
 import { tenants } from './platform';
 
@@ -36,7 +36,7 @@ export const foods = pgTable(
      * durante o boot do app novo e na volta atrás, grava "Cadastrar meu alimento" e "Duplicar" sem `fonte`, e o default
      * mantém essas linhas válidas no CHECK `foods_origem_valida`. Nunca tirar o default.
      */
-    fonte: text('fonte').notNull().default('propria'),
+    fonte: text('fonte').$type<Fonte>().notNull().default('propria'), // o tipo vale pelo CHECK foods_fonte_valida
     /** Plano 19: o código na tabela de origem (número da TACO, `fdc_id` da USDA, código da TBCA); nulo no "Meu alimento". */
     fonteRef: text('fonte_ref'),
     /** Plano 19: o nome em inglês da USDA (nulo nas outras fontes); a busca procura nos dois nomes. */

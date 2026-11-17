@@ -168,7 +168,7 @@ describe('PDF do plano (US-026)', () => {
 
   it('refeição maior que a página continua na página seguinte: nenhum item ou observação fica de fora', async () => {
     const itens = Array.from({ length: 60 }, (_, k) => ({
-      id: randomUUID(), foodId: idTaco(1 + k), nome: `Alimento número ${k + 1}`, origem: 'TACO' as const,
+      id: randomUUID(), foodId: idTaco(1 + k), nome: `Alimento número ${k + 1}`, fonte: 'taco' as const, origem: 'TACO' as const,
       porCem: { kcal: 100, proteinaG: 1, carboidratoG: 1, lipidioG: 1, fibraG: 1 }, medidas: [],
       quantidadeG: 100, medida: null, medidaCaseiraTxt: null, substituiItemId: null,
     }));

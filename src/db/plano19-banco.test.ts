@@ -93,7 +93,7 @@ describe('Plano 19 — foods: fonte, fonte_ref e nome_original (RN-230, I-2)', (
   it('a migration rotulou a TACO: fonte "taco" e fonte_ref = taco_id em todas as linhas públicas; nenhuma USDA/TBCA', async () => {
     const { rows } = await owner.pool.query(
       `select fonte, count(*)::int as n, count(*) filter (where fonte_ref = taco_id::text)::int as ref_ok
-         from foods where tenant_id is null group by fonte`,
+         from foods where tenant_id is null and fonte_ref not like 'teste-%' group by fonte`, // REF_DE_TESTE (test/alimentos-publicos.ts): linhas de outros arquivos
     );
     expect(rows).toEqual([{ fonte: 'taco', n: 597, ref_ok: 597 }]);
   });

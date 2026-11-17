@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FONTES, FONTES_DE_ALIMENTO, fontesVisiveis, seloDaFonte, semValorNa, TBCA_AUTORIZADA } from './fontes';
+import { FONTES, FONTES_DE_ALIMENTO, fontesVisiveis, MSG_FONTES, seloDaFonte, semValorNa, TBCA_AUTORIZADA } from './fontes';
 import { FONTE_TACO_TEXTO } from './taco';
 
 /** Comandos SQL (separados por `;`) que inserem e citam a fonte `tbca` (RN-232). */
@@ -27,6 +27,7 @@ describe('RN-230/RN-233: fontes de alimento', () => {
     expect(semValorNa('tbca')).toBe('Sem valor na TBCA');
     expect(semValorNa('propria')).toBe('Sem valor');
     for (const f of ['taco', 'usda', 'tbca'] as const) expect(FONTES[f].selo).toBe(seloDaFonte(f));
+    expect(MSG_FONTES.traduzido).toBe('Nome traduzido automaticamente do inglês.');
   });
 
   it('citações (RN-233, RN-232) e FONTE_TACO_TEXTO reexportado de FONTES.taco', () => {
@@ -36,6 +37,14 @@ describe('RN-230/RN-233: fontes de alimento', () => {
     expect(FONTES.tbca.citacao).toBe(
       'Tabela Brasileira de Composição de Alimentos (TBCA). Universidade de São Paulo (USP). Centro de Pesquisa em Alimentos (FoRC). Versão 7.3. São Paulo, 2025. Disponível em: http://www.fcf.usp.br/tbca. Acesso em: {data}.',
     );
+  });
+
+  it('RN-230: nenhum "Sem valor na TACO" fixo no código (fora de fontes.ts e dos testes): o texto sai de semValorNa(fonte)', () => {
+    const presos = arquivos('src')
+      .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) && path.basename(f) !== 'fontes.ts')
+      .filter((f) => readFileSync(f, 'utf8').includes('Sem valor na TACO'))
+      .map((f) => path.relative(path.resolve('.'), f));
+    expect(presos).toEqual([]);
   });
 
   it('fontesVisiveis: nunca TBCA com TBCA_AUTORIZADA false; ordem do catálogo, sem repetir', () => {

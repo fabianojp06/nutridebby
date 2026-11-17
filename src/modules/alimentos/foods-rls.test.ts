@@ -19,7 +19,8 @@ const violaRls = (e: unknown) => {
 
 describe('RLS de foods: TACO compartilhada e somente leitura (D1)', () => {
   it('o seed tem os 597 alimentos com ids determinísticos', async () => {
-    const r = await owner.pool.query(`select count(*)::int as n from foods where tenant_id is null`);
+    // por fonte (Plano 19): o banco do Vitest é um só, e outros arquivos inserem linhas públicas de teste (USDA) no meio
+    const r = await owner.pool.query(`select count(*)::int as n from foods where fonte = 'taco'`);
     expect(r.rows[0].n).toBe(597);
     const arroz = await owner.pool.query(`select nome, kcal from foods where id = $1`, [idTaco(3)]);
     expect(arroz.rows[0]).toEqual({ nome: 'Arroz, tipo 1, cozido', kcal: '128.00' });
@@ -29,7 +30,7 @@ describe('RLS de foods: TACO compartilhada e somente leitura (D1)', () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
     for (const ctx of [T.ctx, ctxPaciente(T.tenantId, p.id)]) {
-      const n = await withTenant(ctx, (tx) => tx.execute(sql`select count(*)::int as n from foods where tenant_id is null`), app.db);
+      const n = await withTenant(ctx, (tx) => tx.execute(sql`select count(*)::int as n from foods where fonte = 'taco'`), app.db);
       expect(n.rows[0].n).toBe(597);
     }
     await withTenant(

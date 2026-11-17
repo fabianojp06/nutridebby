@@ -20,7 +20,7 @@ test.afterAll(async () => {
 
 test('busca tolerante a acento com selo de origem e fonte citada (US-020)', async () => {
   await nutri.goto('/painel/alimentos');
-  await expect(nutri.getByText('Fonte: TACO 4ª ed. — NEPA/UNICAMP. Valores por 100 g.')).toBeVisible();
+  await expect(nutri.getByText('Fonte: TACO 4ª ed. — NEPA/UNICAMP.', { exact: true })).toBeVisible(); // RN-233: uma citação por fonte carregada
   await nutri.getByLabel('Buscar alimento').fill('feijao carioca');
   const opcao = nutri.getByRole('option', { name: /Feijão, carioca, cozido/ });
   await expect(opcao).toBeVisible();

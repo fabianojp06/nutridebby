@@ -1,5 +1,5 @@
 import { FONTES_DE_ALIMENTO, type Fonte } from '@/modules/alimentos/fontes';
-import { ehChaveNutriente } from '@/modules/alimentos/nutrientes';
+import { microsDoCatalogo } from '@/modules/alimentos/nutrientes';
 import type { MicrosPorCem } from './calculo';
 
 /**
@@ -32,16 +32,7 @@ const numeroOuNulo = (v: unknown): number | null => (typeof v === 'number' && Nu
  */
 const fonteDaOrigem = (origem: unknown): Fonte | undefined => (origem === 'TACO' ? 'taco' : origem === 'Meu alimento' ? 'propria' : undefined);
 
-function lerMicros(m: unknown): MicrosPorCem | null {
-  if (!objeto(m)) return null;
-  const out: MicrosPorCem = {};
-  for (const [k, v] of Object.entries(m)) {
-    if (!ehChaveNutriente(k)) continue;
-    if (v === null) out[k] = null;
-    else if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
-  }
-  return out;
-}
+const lerMicros = (m: unknown): MicrosPorCem | null => (objeto(m) ? microsDoCatalogo(m) : null);
 
 /**
  * RN-237: o único leitor de `meal_items.nutrientes` (PDF, portal, exportação, resumo da IA, contexto da IA Nutri e

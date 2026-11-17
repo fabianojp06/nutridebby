@@ -1,3 +1,5 @@
+import { semValorNa } from '@/modules/alimentos/fontes';
+
 export const QUANTIDADE_MIN = 0.1;
 export const QUANTIDADE_MAX = 5000;
 export const META_MIN = 500;
@@ -31,7 +33,8 @@ export const MSG_PLANO = {
   publicarVazio: 'Inclua pelo menos uma refeição com um alimento para publicar.',
   publicarHorario: 'Informe o horário de todas as refeições.',
   publicarRefeicaoVazia: (nome: string) => `A refeição "${nome}" não tem alimentos.`,
-  semValor: 'Sem valor na TACO',
+  /** RN-230: "Sem valor na {sigla}" pela fonte do item ou do ingrediente ("Sem valor na USDA"). */
+  semValor: semValorNa,
   semPeso: 'Registre a antropometria para ver g/kg',
   /** Plano 14B (RN-117, A-D13): o selo do plano publicado que nasceu da IA (PDF e portal) e a marca no editor. */
   seloIa: 'Elaborado com apoio de IA e revisado pela nutricionista',

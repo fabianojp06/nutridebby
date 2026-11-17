@@ -1,15 +1,26 @@
 import { eq, sql } from 'drizzle-orm';
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { apagarPublicos, inserirPublicos } from '../../../test/alimentos-publicos';
 import { makeDb } from '../../../test/db';
 import { novoConteudo } from '../../../test/conteudos';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { contents } from '@/db/schema';
+import { contents, recipeIngredients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { trocarPdf } from '@/modules/conteudo/arquivos';
+import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import { caminhoDoPdfDoConteudo, conteudoDoPaciente, feedDeConteudos, marcarFavorito, mensagemDoFeedVazio, registrarVisualizacao } from './conteudos';
 
 const app = makeDb(inject('appDatabaseUrl'));
-afterAll(() => app.pool.end());
+const owner = makeDb(inject('ownerDatabaseUrl'));
+let usda: string;
+beforeAll(async () => {
+  [usda] = await inserirPublicos(owner.pool, [{ nome: 'Mirtilo, cru', nomeOriginal: 'Blueberries, raw', grupo: 'Frutas e derivados', kcal: null, carboidratoG: 14.5, micros: { vitamina_k_mcg: 19.3 } }]);
+});
+afterAll(async () => {
+  await apagarPublicos(owner.pool, [usda]);
+  await app.pool.end();
+  await owner.pool.end();
+});
 
 async function cenario() {
   const T = await novoTenant(app.db);
@@ -99,6 +110,21 @@ describe('aba "Conteúdos" (US-055)', () => {
     expect(c.receita).toMatchObject({ rendimentoG: 1000, porcaoG: 250, ingredientes: [{ quantidadeG: 400 }] });
     expect(c.porPorcao).toMatch(/^Por porção: \d+ kcal/);
     expect(c.soPeloPlano).toBe(false);
+  });
+
+  it('RN-230: ingrediente da USDA na receita do portal — a fonte vem de foods.fonte ("Sem valor na USDA"), sem micros (CS-232)', async () => {
+    const { T, ctxAna } = await cenario();
+    const r = await novoConteudo(app.db, T, { tipo: 'receita', titulo: 'Panqueca com mirtilo', receita: { rendimento: 500, porcao: 100, ingredientes: [{ foodId: '00000000-0000-4000-8000-000000000003', g: 400 }, { foodId: usda, g: 100 }] } });
+    try {
+      const c = (await conteudoDoPaciente(ctxAna, r.id, app.db))!;
+      const [arroz, mirtilo] = c.receita!.ingredientes;
+      expect([arroz.fonte, arroz.origem, mirtilo.fonte, mirtilo.origem]).toEqual(['taco', 'TACO', 'usda', 'USDA (EUA)']);
+      expect(mirtilo.porCem.kcal).toBeNull();
+      expect(MSG_PLANO.semValor(mirtilo.fonte)).toBe('Sem valor na USDA');
+      expect(JSON.stringify(c)).not.toMatch(/micros|vitamina_k/);
+    } finally {
+      await withTenant(T.ctx, (tx) => tx.delete(recipeIngredients).where(eq(recipeIngredients.foodId, usda)), app.db);
+    }
   });
 
   it('D2: orientação em rascunho com PDF e conteúdo de outro tenant — nem detalhe, nem PDF, nem visualização ou favorito', async () => {

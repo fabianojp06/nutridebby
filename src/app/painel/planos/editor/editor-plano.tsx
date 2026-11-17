@@ -242,7 +242,7 @@ function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, 
   return (
     <li className={`flex flex-wrap items-end gap-3 ${principal ? 'ml-6 border-l-2 border-borda pl-3' : ''}`}>
       <div className="min-w-48 flex-1">
-        <p className="font-medium">{principal && <span className="text-sm text-suave">ou </span>}{i.nome} <Selo origem={i.origem} /></p>
+        <p className="font-medium">{principal && <span className="text-sm text-suave">ou </span>}{i.nome} <Selo fonte={i.fonte} /></p>
         {i.medidas.length === 0 && !somenteLeitura && (
           <Link href={`/painel/alimentos/${i.foodId}`} target="_blank" className="text-sm underline">Cadastrar medida caseira</Link>
         )}
@@ -277,7 +277,7 @@ function ItemLinha({ i, refeicaoId, principal, despachar, somenteLeitura, erro, 
       </fieldset>
       <p className="text-sm" data-testid={`kcal-${i.id}`}>
         {i.medida && q !== null && Number.isFinite(q) && q > 0 && g !== null && <span>{textoMedida(q, i.medida)} · {formatarDecimal(g, casasDecimais(g))} g · </span>}
-        {n === null ? '—' : n.semValor.includes('kcal') ? MSG_PLANO.semValor : `${kcalTexto(n.kcal)} kcal`}
+        {n === null ? '—' : n.semValor.includes('kcal') ? MSG_PLANO.semValor(i.fonte) : `${kcalTexto(n.kcal)} kcal`}
         {dif && <span className="text-suave"> ({dif})</span>}
       </p>
       {errQ && <p id={`${i.id}-erro`} role="alert" className="w-full text-sm text-erro">{errQ}</p>}

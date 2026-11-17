@@ -4,7 +4,7 @@ import { novoCatalogo } from './ferramentas-alimentos';
 import { limparTexto, validarPlanoIa } from './plano-ia';
 
 const alimento = (n: number, extra: Partial<AlimentoEncontrado> = {}): AlimentoEncontrado => ({
-  id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`, nome: `Alimento ${n}`, grupo: 'G', origem: 'TACO',
+  id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`, nome: `Alimento ${n}`, nomeOriginal: null, grupo: 'G', fonte: 'taco', origem: 'TACO', micros: {},
   porCem: { kcal: 100, proteinaG: 1, carboidratoG: 1, lipidioG: 1, fibraG: 1 }, medidas: [{ id: null, origem: 'IBGE', nome: 'unidade', plural: 'unidades', gramas: 50 }], ...extra,
 });
 function catalogo(...as: AlimentoEncontrado[]) {

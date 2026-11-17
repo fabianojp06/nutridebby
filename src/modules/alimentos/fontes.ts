@@ -50,9 +50,24 @@ export const FONTES: Record<FontePublica, DadosDaFonte> = {
 
 const SELO = { taco: 'TACO', usda: 'USDA (EUA)', tbca: 'TBCA', propria: 'Meu alimento' } as const satisfies Record<Fonte, string>;
 
+/** O texto do selo ("TACO", "USDA (EUA)", "TBCA", "Meu alimento"): o `origem` da busca, do item do plano e da receita. */
+export type SeloDaFonte = (typeof SELO)[Fonte];
+
 /** RN-230: selo do alimento na busca, no editor e na página do alimento. */
-export function seloDaFonte(f: Fonte): (typeof SELO)[Fonte] {
+export function seloDaFonte(f: Fonte): SeloDaFonte {
   return SELO[f];
+}
+
+/** RN-259: textos da fonte do alimento (§6.1 da spec). */
+export const MSG_FONTES = {
+  /** US-230: no resultado da busca, em "Ver nutrientes" e na página do alimento da USDA. */
+  traduzido: 'Nome traduzido automaticamente do inglês.',
+} as const;
+
+/** "Fonte: {citação}." — sem repetir o ponto final quando a citação já termina com um (TBCA). */
+export function textoDaCitacao(f: FontePublica): string {
+  const c = FONTES[f].citacao;
+  return `Fonte: ${c}${c.endsWith('.') ? '' : '.'}`;
 }
 
 /** RN-230: "Sem valor na TACO" (RN-02) vira "Sem valor na {sigla}"; no "Meu alimento", "Sem valor". */

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { apagarPublicos, inserirPublicos } from '../../../test/alimentos-publicos';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { auditLog, mealItems, mealPlans, meals, patients } from '@/db/schema';
@@ -14,7 +15,16 @@ import { copiarConteudo, criarRascunho, criarRascunhoTx, descartarRascunho, grav
 import type { CorpoSalvamento } from './tipos';
 
 const app = makeDb(inject('appDatabaseUrl'));
-afterAll(() => app.pool.end());
+const owner = makeDb(inject('ownerDatabaseUrl'));
+let usda: string;
+beforeAll(async () => {
+  [usda] = await inserirPublicos(owner.pool, [{ nome: 'Couve-de-bruxelas, cozida', nomeOriginal: 'Brussels sprouts, cooked, boiled', grupo: 'Verduras, hortaliças e derivados', kcal: 36, proteinaG: 2.6, carboidratoG: 7.1, lipidioG: 0.5, fibraG: 2.6 }]);
+});
+afterAll(async () => {
+  await apagarPublicos(owner.pool, [usda]);
+  await app.pool.end();
+  await owner.pool.end();
+});
 const deps = { db: app.db };
 
 const erros = async (p: Promise<unknown>) => {
@@ -98,6 +108,23 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
     expect(pl!.refeicoes.map((r) => [r.nome, r.horario, r.itens.length])).toEqual([['Café da manhã', '07:30', 2], ['Almoço', '12:00', 1]]);
     expect(pl!.refeicoes[1].itens[0]).toMatchObject({ nome: 'Arroz, tipo 1, cozido', origem: 'TACO', quantidadeG: 100, medidaCaseiraTxt: '4 colheres de sopa cheias', porCem: { kcal: 128 } });
     expect(pl!.refeicoes[0].itens[1].substituiItemId).toBe(pl!.refeicoes[0].itens[0].id);
+  });
+
+  it('RN-230: no rascunho, a fonte e o selo do item saem de foods.fonte (USDA, TACO), nunca de tenant_id', async () => {
+    const T = await novoTenant(app.db);
+    const { p, id } = await comRascunho(T);
+    const c = conteudo(0);
+    c.refeicoes[1].itens.push({ id: randomUUID(), foodId: usda, quantidadeG: '80', medida: null, substituiItemId: null });
+    await salvarRascunho(T.ctx, id, c, deps);
+    try {
+      const itens = (await carregarPlano(T.ctx, id, app.db))!.refeicoes[1].itens;
+      expect(itens.map((i) => [i.nome, i.fonte, i.origem])).toEqual([
+        ['Arroz, tipo 1, cozido', 'taco', 'TACO'],
+        ['Couve-de-bruxelas, cozida', 'usda', 'USDA (EUA)'],
+      ]);
+    } finally {
+      await descartarRascunho(T.ctx, p.id, id, deps); // a FK RESTRICT de meal_items prenderia a linha pública de teste
+    }
   });
 
   it('salvar o mesmo conteúdo de novo não gera auditoria nova (só o que mudou vira audit_log)', async () => {

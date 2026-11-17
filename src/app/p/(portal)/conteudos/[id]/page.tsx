@@ -50,8 +50,8 @@ export default async function ConteudoDoPaciente({ params, searchParams }: PageP
                 {c.receita.ingredientes.map((i, k) => (
                   <li key={k}>
                     {`${i.nome} — ${quantidadeDoItem(i)}`}
-                    {/* D11 / RN-02: sem valor na TACO conta 0 na porção — a tela avisa */}
-                    {i.porCem.kcal === null && <span className="ml-2 text-sm text-suave">{MSG_PLANO.semValor}</span>}
+                    {/* D11 / RN-02: sem valor na tabela conta 0 na porção — a tela avisa, pela fonte do ingrediente (RN-230) */}
+                    {i.porCem.kcal === null && <span className="ml-2 text-sm text-suave">{MSG_PLANO.semValor(i.fonte)}</span>}
                   </li>
                 ))}
               </ul>

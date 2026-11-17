@@ -10,11 +10,11 @@ const plano: PlanoDoCliente = {
   publicadoEm: null, mostrarCalorias: false, orientacoes: '', pdfStatus: null, refeicoes: [], origemIa: null, iaOrigemEm: null,
 };
 const arroz: AlimentoEncontrado = {
-  id: 'f-arroz', nome: 'Arroz, tipo 1, cozido', grupo: 'Cereais e derivados', origem: 'TACO',
+  id: 'f-arroz', nome: 'Arroz, tipo 1, cozido', nomeOriginal: null, grupo: 'Cereais e derivados', fonte: 'taco', origem: 'TACO', micros: {},
   porCem: { kcal: 128, proteinaG: 2.5, carboidratoG: 28.1, lipidioG: 0.2, fibraG: 1.6 },
   medidas: [{ id: null, origem: 'IBGE', nome: 'colher de sopa cheia', plural: 'colheres de sopa cheias', gramas: 25 }],
 };
-const proprio: AlimentoEncontrado = { id: 'f-130', nome: 'Alimento 130', grupo: 'Miscelâneas', origem: 'Meu alimento', porCem: { kcal: 130, proteinaG: 0, carboidratoG: 0, lipidioG: 0, fibraG: 0 }, medidas: [] };
+const proprio: AlimentoEncontrado = { id: 'f-130', nome: 'Alimento 130', nomeOriginal: null, grupo: 'Miscelâneas', fonte: 'propria', origem: 'Meu alimento', micros: {}, porCem: { kcal: 130, proteinaG: 0, carboidratoG: 0, lipidioG: 0, fibraG: 0 }, medidas: [] };
 
 const aplicar = (e: EstadoEditor, ...as: Parameters<typeof reduzir>[1][]) => as.reduce(reduzir, e);
 
@@ -51,7 +51,7 @@ describe('estado do editor (US-022)', () => {
     const comItem: PlanoDoCliente = {
       ...plano,
       refeicoes: [{ id: 'r1', nome: 'Almoço', horario: '12:00', observacao: '', itens: [
-        { id: 'i1', foodId: arroz.id, nome: arroz.nome, origem: 'TACO', porCem: arroz.porCem, medidas: arroz.medidas, quantidadeG: 120, medida: { ...pires, qtd: 2 }, medidaCaseiraTxt: '2 pires pequenos', substituiItemId: null },
+        { id: 'i1', foodId: arroz.id, nome: arroz.nome, fonte: 'taco', origem: 'TACO', porCem: arroz.porCem, medidas: arroz.medidas, quantidadeG: 120, medida: { ...pires, qtd: 2 }, medidaCaseiraTxt: '2 pires pequenos', substituiItemId: null },
       ] }],
     };
     let e = estadoInicial(comItem);

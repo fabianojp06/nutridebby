@@ -1,5 +1,6 @@
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
+import { apagarPublicos, inserirPublicos } from '../../../test/alimentos-publicos';
 import { makeDb } from '../../../test/db';
 import { autorizacaoNoBanco, IA_TESTE, iaPronta, prontuarioCompleto } from '../../../test/ia';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
@@ -8,7 +9,7 @@ import { auditLog, iaTarefas, iaUso, patients, tenants, type TenantRow } from '@
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { criarAlimento, excluirAlimento } from '@/modules/alimentos/alimentos';
-import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
+import { buscarAlimentos, type AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { idTaco } from '@/modules/alimentos/taco';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { carregarPlano, listarPlanosDoPaciente } from '@/modules/plano-alimentar/carregar';
@@ -23,10 +24,17 @@ import { abrirRascunhoIa, MetasError, metasPadrao, pedirRascunhoIa, RascunhoExis
 import { processarRascunho } from './rascunho-job';
 
 const app = makeDb(inject('appDatabaseUrl'));
+const owner = makeDb(inject('ownerDatabaseUrl'));
+let usda: string;
+beforeAll(async () => {
+  [usda] = await inserirPublicos(owner.pool, [{ nome: 'Cevada, cozida', nomeOriginal: 'Barley, pearled, cooked', kcal: 123, proteinaG: 2.3, carboidratoG: 28.2, lipidioG: 0.4, fibraG: 3.8 }]);
+});
 afterAll(async () => {
   await stopBoss();
   await closeDb();
+  await apagarPublicos(owner.pool, [usda]);
   await app.pool.end();
+  await owner.pool.end();
 });
 const agora = new Date(Math.floor(Date.now() / 1000) * 1000);
 const deps = { db: app.db, agora, ia: IA_TESTE, avisarTeto: async () => 0 };
@@ -235,6 +243,18 @@ describe('abrirRascunhoIa (US-121, RN-108, regra 8)', () => {
     expect(principal.porCem.kcal).toBeGreaterThan(0);
     expect(sub).toMatchObject({ quantidadeG: 100, substituiItemId: principal.id });
     expect((await listAccessHistory(C.T.ctx, C.p.id, 1, app.db)).itens.some((i) => i.acao === 'ler' && i.entidade === 'ia' && i.entidadeId === id)).toBe(true);
+  });
+
+  it('RN-230: alimento da USDA que chegue ao resultado pelo id (a ferramenta não o devolve) sai na prévia com a fonte de foods.fonte', async () => {
+    const C = await cenario();
+    const cevada = (await buscarAlimentos(C.T.ctx, 'cevada cozida', app.db, { fontes: ['usda'] })).find((a) => a.id === usda)!;
+    expect(cevada).toBeDefined();
+    const id = await rascunhoPronto(C, { extras: [cevada], itens: [{ alimento: 'A1', gramas: 150 }, { alimento: 'A2', gramas: 100 }] });
+    const previa = (await abrirRascunhoIa(C.T.ctx, C.p.id, id, { db: app.db, destino: 'teste' }))!;
+    expect(previa.plano.refeicoes[0].itens.map((i) => [i.foodId, i.fonte, i.origem])).toEqual([
+      [idTaco(3), 'taco', 'TACO'],
+      [usda, 'usda', 'USDA (EUA)'],
+    ]);
   });
 
   it('retirada, outro paciente, outro destino, vencida ou id inválido → null, sem auditoria', async () => {

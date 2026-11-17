@@ -1,11 +1,14 @@
-import { sql } from 'drizzle-orm';
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { eq, sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { apagarPublicos, inserirPublicos } from '../../../test/alimentos-publicos';
 import { makeDb } from '../../../test/db';
 import { novoConteudo } from '../../../test/conteudos';
 import { novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { recipeIngredients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { excluirAlimento } from '@/modules/alimentos/alimentos';
 import { MSG_ALIMENTO } from '@/modules/alimentos/alimentos-constantes';
+import { idTaco } from '@/modules/alimentos/taco';
 import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import { MSG_CONTEUDO, MSG_RECEITA } from './constantes';
 import { ConteudoError } from './erros';
@@ -13,7 +16,16 @@ import { nutrientesPorPorcao } from './receita-calculo';
 import { carregarReceitaDoPainel, listarReceitasPublicadas, salvarReceita } from './receitas';
 
 const app = makeDb(inject('appDatabaseUrl'));
-afterAll(() => app.pool.end());
+const owner = makeDb(inject('ownerDatabaseUrl'));
+let usda: string;
+beforeAll(async () => {
+  [usda] = await inserirPublicos(owner.pool, [{ nome: 'Xarope de bordo', nomeOriginal: 'Syrups, maple', grupo: 'Produtos açucarados', kcal: null, carboidratoG: 67 }]);
+});
+afterAll(async () => {
+  await apagarPublicos(owner.pool, [usda]);
+  await app.pool.end();
+  await owner.pool.end();
+});
 
 /** "Meu alimento" com valores redondos (por 100 g). */
 async function meuAlimento(T: TenantDeTeste, kcal = 400): Promise<string> {
@@ -42,7 +54,7 @@ describe('receita (US-051, RN-11)', () => {
     await salvarReceita(T.ctx, r.id, { rendimento: '1000', porcao: '250', tempo: '20', modo: 'Misture e asse.', ingredientes: [{ foodId: food, quantidadeG: '500', medida: '5 xícaras' }] }, { db: app.db });
     const lida = (await carregarReceitaDoPainel(T.ctx, r.id, app.db))!;
     expect(lida).toMatchObject({ rendimentoG: 1000, porcaoG: 250, tempoMin: 20, modoPreparo: 'Misture e asse.' });
-    expect(lida.ingredientes).toEqual([{ foodId: food, nome: 'Mistura de aveia', origem: 'Meu alimento', porCem: { kcal: 400, proteinaG: 10, carboidratoG: 50, lipidioG: 15, fibraG: 5 }, quantidadeG: 500, medidaCaseiraTxt: '5 xícaras' }]);
+    expect(lida.ingredientes).toEqual([{ foodId: food, nome: 'Mistura de aveia', fonte: 'propria', origem: 'Meu alimento', porCem: { kcal: 400, proteinaG: 10, carboidratoG: 50, lipidioG: 15, fibraG: 5 }, quantidadeG: 500, medidaCaseiraTxt: '5 xícaras' }]);
     expect(nutrientesPorPorcao(lida.ingredientes, lida.rendimentoG, lida.porcaoG)!.kcal).toBe(500);
     await salvarReceita(T.ctx, r.id, { rendimento: '1000', porcao: '250,5', tempo: '', modo: '', ingredientes: [{ foodId: food, quantidadeG: '100' }] }, { db: app.db });
     expect(await carregarReceitaDoPainel(T.ctx, r.id, app.db)).toMatchObject({ porcaoG: 250.5, tempoMin: null, ingredientes: [{ quantidadeG: 100, medidaCaseiraTxt: null }] });
@@ -102,6 +114,23 @@ describe('receita (US-051, RN-11)', () => {
     await salvarReceita(T.ctx, r.id, { rendimento: '100', porcao: '50', ingredientes: [{ foodId: food, quantidadeG: '10' }] }, { db: app.db });
     await expect(excluirAlimento(T.ctx, food, { db: app.db })).rejects.toMatchObject({ erros: { geral: MSG_ALIMENTO.emUso } });
     expect(MSG_ALIMENTO.emUso).toBe('Este alimento está em um plano ou receita e não pode ser excluído.');
+  });
+
+  it('RN-230: a receita aceita a USDA, e a fonte do ingrediente sai de foods.fonte (selo "USDA (EUA)", "Sem valor na USDA")', async () => {
+    const T = await novoTenant(app.db);
+    const food = await meuAlimento(T);
+    const r = await novoConteudo(app.db, T, { tipo: 'receita', titulo: 'Panqueca com xarope', status: 'rascunho' });
+    try {
+      await salvarReceita(T.ctx, r.id, { rendimento: '300', porcao: '100', ingredientes: [{ foodId: food, quantidadeG: '200' }, { foodId: usda, quantidadeG: '30' }, { foodId: idTaco(3), quantidadeG: '70' }] }, { db: app.db });
+      const lida = (await carregarReceitaDoPainel(T.ctx, r.id, app.db))!;
+      expect(lida.ingredientes.map((i) => [i.fonte, i.origem])).toEqual([['propria', 'Meu alimento'], ['usda', 'USDA (EUA)'], ['taco', 'TACO']]);
+      expect(lida.ingredientes[1].porCem.kcal).toBeNull();
+      expect(MSG_PLANO.semValor(lida.ingredientes[1].fonte)).toBe('Sem valor na USDA');
+      expect(MSG_PLANO.semValor(lida.ingredientes[2].fonte)).toBe('Sem valor na TACO');
+    } finally {
+      // a FK RESTRICT prenderia a linha pública de teste: sai antes do afterAll
+      await withTenant(T.ctx, (tx) => tx.delete(recipeIngredients).where(eq(recipeIngredients.foodId, usda)), app.db);
+    }
   });
 
   it('listarReceitasPublicadas: só receitas publicadas, por título (o seletor do plano, US-054)', async () => {

@@ -2,9 +2,11 @@ import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { contents, foods, iaGeracoesModelos, mealItems, mealPlans, meals } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { seloDaFonte } from '@/modules/alimentos/fontes';
 import { medidasDeVarios } from '@/modules/alimentos/medidas';
 import { idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
+import { lerCongelados } from './congelados';
 import type { OrigemIaDoModelo, PlanoCompleto, PlanoDoCliente, ReceitaDaRefeicao, StatusPlano } from './tipos';
 
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : '');
@@ -20,7 +22,7 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
   if (!p) return null;
   const rs = await tx.select().from(meals).where(eq(meals.planId, p.id)).orderBy(asc(meals.ordem));
   const its = await tx
-    .select({ i: mealItems, f: { nome: foods.nome, tenantId: foods.tenantId, kcal: foods.kcal, proteinaG: foods.proteinaG, carboidratoG: foods.carboidratoG, lipidioG: foods.lipidioG, fibraG: foods.fibraG } })
+    .select({ i: mealItems, f: { nome: foods.nome, fonte: foods.fonte, kcal: foods.kcal, proteinaG: foods.proteinaG, carboidratoG: foods.carboidratoG, lipidioG: foods.lipidioG, fibraG: foods.fibraG } })
     .from(mealItems)
     .innerJoin(foods, eq(foods.id, mealItems.foodId))
     .where(and(eq(mealItems.planId, p.id)))
@@ -74,12 +76,16 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
         .filter((x) => x.i.mealId === r.id)
         .map(({ i, f }) => {
           const congelado = !editavel && i.nutrientes;
-          const v = congelado ? i.nutrientes! : { ...f, origem: f.tenantId === null ? ('TACO' as const) : ('Meu alimento' as const) };
+          const v = congelado ? i.nutrientes! : f;
+          // RN-230: no rascunho, a fonte de foods.fonte (nunca de tenant_id); no publicado, a da cópia (formato antigo
+          // pela `origem`, RN-237 — a leitura toda do congelado passa a lerCongelados na Tarefa 4)
+          const fonte = congelado ? lerCongelados(i.nutrientes).fonte : f.fonte;
           return {
             id: i.id,
             foodId: i.foodId,
             nome: v.nome,
-            origem: v.origem,
+            fonte,
+            origem: seloDaFonte(fonte),
             porCem: { kcal: v.kcal, proteinaG: v.proteinaG, carboidratoG: v.carboidratoG, lipidioG: v.lipidioG, fibraG: v.fibraG },
             medidas: medidas.get(i.foodId) ?? [],
             quantidadeG: i.quantidadeG,

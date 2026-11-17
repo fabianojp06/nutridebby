@@ -3,6 +3,7 @@ import { getDb, type Db } from '@/db/client';
 import { foods, iaTarefas, mealPlans, patients, tenants, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
+import { seloDaFonte } from '@/modules/alimentos/fontes';
 import { textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { criarRascunhoTx, gravarConteudoRascunhoTx } from '@/modules/plano-alimentar/rascunho';
@@ -133,7 +134,7 @@ export async function abrirRascunhoIa(ctx: TenantContext, patientId: string, tar
           if (!f || (i.substitui !== null && !principais.has(i.substitui))) return [];
           return [
             {
-              id: idDoItem(ii), foodId: f.id, nome: f.nome, origem: f.tenantId === null ? ('TACO' as const) : ('Meu alimento' as const),
+              id: idDoItem(ii), foodId: f.id, nome: f.nome, fonte: f.fonte, origem: seloDaFonte(f.fonte), // RN-230: de foods.fonte
               porCem: { kcal: f.kcal, proteinaG: f.proteinaG, carboidratoG: f.carboidratoG, lipidioG: f.lipidioG, fibraG: f.fibraG },
               medidas: [], quantidadeG: i.quantidadeG, medida: i.medida, medidaCaseiraTxt: i.medida ? textoMedida(i.medida.qtd, i.medida) : null,
               substituiItemId: i.substitui === null ? null : idDoItem(i.substitui),

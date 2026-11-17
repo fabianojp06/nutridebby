@@ -1,12 +1,14 @@
 import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
-import { FONTE_TACO_TEXTO } from '@/modules/alimentos/taco';
+import { fontesCarregadas } from '@/modules/alimentos/alimentos';
+import { textoDaCitacao } from '@/modules/alimentos/fontes';
 import { BuscaAlimento } from './busca-alimento';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AlimentosPage() {
-  await requireNutri('/painel/alimentos');
+  const { ctx } = await requireNutri('/painel/alimentos');
+  const fontes = await fontesCarregadas(ctx);
   return (
     <>
       <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
@@ -15,7 +17,11 @@ export default async function AlimentosPage() {
           <Link href="/painel/alimentos/novo" className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Cadastrar meu alimento</Link>
         </div>
         <div data-guia="busca-alimentos"><BuscaAlimento /></div>
-        <p className="text-sm text-suave">Fonte: {FONTE_TACO_TEXTO}. Valores por 100 g.</p>
+        {/* RN-233: a tela de alimentos cita cada tabela pública carregada, uma por linha */}
+        <div className="space-y-1 text-sm text-suave">
+          {fontes.map((f) => <p key={f}>{textoDaCitacao(f)}</p>)}
+          <p>Valores por 100 g.</p>
+        </div>
       </main>
     </>
   );

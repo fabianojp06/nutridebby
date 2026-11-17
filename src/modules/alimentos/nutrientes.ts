@@ -69,7 +69,33 @@ export function formatarNutriente(chave: ChaveNutriente, valor: number): string 
   return `${formatarDecimal(valor, n.casas)}${SIMBOLO[n.unidade]}`;
 }
 
+/** RN-259: textos dos micronutrientes do "Meu alimento" (US-231, §5 da spec). */
+export const MSG_NUTRIENTES = {
+  secao: 'Micronutrientes (opcional)',
+  faixa: 'Use um número de 0 a 100000.',
+  /** Chave fora do catálogo ou micros fora do formato: o formulário nunca manda, só uma entrada adulterada. */
+  desconhecido: 'Formulário inválido.',
+} as const;
+
+/** Unidade como a tela mostra no rótulo do campo ("Cálcio (mg)", "Vitamina D (µg)", "Umidade (%)"). */
+export const UNIDADE_NA_TELA: Record<UnidadeNutriente, string> = { g: 'g', mg: 'mg', mcg: 'µg', '%': '%' };
+
 const objeto = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * `foods.micros` lido do banco (ou de uma cópia): só as chaves do catálogo, com número ou `null`; o resto sai. O que não é
+ * objeto vira `{}`.
+ */
+export function microsDoCatalogo(m: unknown): Partial<Record<ChaveNutriente, number | null>> {
+  const out: Partial<Record<ChaveNutriente, number | null>> = {};
+  if (!objeto(m)) return out;
+  for (const [k, v] of Object.entries(m)) {
+    if (!ehChaveNutriente(k)) continue;
+    if (v === null) out[k] = null;
+    else if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
+}
 
 /**
  * `foods.micros` (RN-235): só chaves do catálogo, número de 0 a 100000 por 100 g; `null` = sem valor (fica fora do

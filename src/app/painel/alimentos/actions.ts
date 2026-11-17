@@ -5,11 +5,13 @@ import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
 import { AlimentoError, criarAlimento, duplicarComoMeu, editarAlimento, excluirAlimento } from '@/modules/alimentos/alimentos';
 import { cadastrarMedida, excluirMedida, MedidaError } from '@/modules/alimentos/medidas';
+import type { ChaveNutriente } from '@/modules/alimentos/nutrientes';
+import { microsDoFormulario, nomeDoCampoMicro } from './campos-micros';
 
 export type AlimentoState = { erros?: Record<string, string>; valores?: Record<string, string> };
 export type MedidaState = { erros?: Record<string, string>; ok?: string; envio?: number };
 
-const campos = (fd: FormData) => ({
+const principais = (fd: FormData) => ({
   nome: fd.get('nome'),
   grupo: fd.get('grupo'),
   kcal: fd.get('kcal'),
@@ -18,7 +20,14 @@ const campos = (fd: FormData) => ({
   lipidioG: fd.get('lipidioG'),
   fibraG: fd.get('fibraG'),
 });
-const valores = (fd: FormData) => Object.fromEntries(Object.entries(campos(fd)).map(([k, v]) => [k, typeof v === 'string' ? v : '']));
+/** US-231: os micros vão juntos (o formulário manda todos os campos; vazio = sem valor). */
+const campos = (fd: FormData) => ({ ...principais(fd), micros: microsDoFormulario(fd) });
+const texto = (v: FormDataEntryValue | null) => (typeof v === 'string' ? v : '');
+/** O que foi digitado, para o formulário voltar preenchido com o erro (micros pelo `name` do campo). */
+const valores = (fd: FormData) => ({
+  ...Object.fromEntries(Object.entries(principais(fd)).map(([k, v]) => [k, texto(v)])),
+  ...Object.fromEntries(Object.entries(microsDoFormulario(fd)).map(([k, v]) => [nomeDoCampoMicro(k as ChaveNutriente), texto(v)])),
+});
 
 export async function criarAlimentoAction(_prev: AlimentoState, fd: FormData): Promise<AlimentoState> {
   const { ctx } = await requireNutri('/painel/alimentos/novo');

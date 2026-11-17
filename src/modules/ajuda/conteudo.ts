@@ -287,10 +287,10 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'alimentos',
-    versao: 1,
+    versao: 2, // Plano 19 (Tarefa 3): tabelas públicas por fonte e micros no "Meu alimento"; a USDA entra no resumo com o seed (Tarefa 12)
     padrao: /^\/painel\/alimentos(\/.*)?$/,
     titulo: 'Alimentos',
-    ajuda: { resumo: 'A tabela TACO e os alimentos que você cadastrar ("Meu alimento"), com as medidas caseiras.', secoes: [{ titulo: 'Perguntas comuns', itens: ['Alimento usado em algum plano ou receita não pode ser excluído.'] }] },
+    ajuda: { resumo: 'As tabelas públicas de composição (TACO) e os alimentos que você cadastrar ("Meu alimento"), com as medidas caseiras.', secoes: [{ titulo: 'Perguntas comuns', itens: ['Alimento usado em algum plano ou receita não pode ser excluído.'] }] },
     passos: [{ alvo: 'busca-alimentos', titulo: 'Busca', texto: 'Procure pelo nome; os seus alimentos aparecem junto com os da TACO.' }],
   },
   {

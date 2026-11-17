@@ -14,6 +14,8 @@ const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/doc
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.ts') && !d.name.endsWith('.test.ts')).map((d) => path.join(d.parentPath, d.name)))
   // Plano 16: os rótulos da resposta do diário ("Comeu como no plano") vêm de uma constante do portal (sem import de servidor)
   .concat(path.resolve('src/modules/portal/diario-constantes.ts'))
+  // Plano 19: os selos ("Meu alimento", "USDA (EUA)") saem de seloDaFonte (fontes.ts), não de um literal no .tsx
+  .concat(path.resolve('src/modules/alimentos/fontes.ts'))
   .map((f) => readFileSync(f, 'utf8'))
   .join('\n');
 
@@ -194,6 +196,12 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('nenhum título de guia repetido (o manual completo lista um h2 por guia; "Início" é o de boas-vindas)', () => {
     expect(new Set(GUIAS.map((g) => g.titulo)).size).toBe(GUIAS.length);
+  });
+  it('Plano 19 (Tarefa 3): guia "Alimentos" na versão 2, resumo com as tabelas públicas (sem "A tabela TACO")', () => {
+    const g = GUIAS.find((x) => x.id === 'alimentos')!;
+    expect(g.versao).toBe(2);
+    expect(g.ajuda.resumo).toBe('As tabelas públicas de composição (TACO) e os alimentos que você cadastrar ("Meu alimento"), com as medidas caseiras.');
+    expect(g.ajuda.resumo).not.toContain('A tabela TACO');
   });
   it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
     expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');

@@ -5,6 +5,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { arredondar, lerDecimal } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
 import type { Nutrientes100 } from '@/modules/alimentos/busca';
+import { seloDaFonte, type Fonte, type SeloDaFonte } from '@/modules/alimentos/fontes';
 import { idValido } from '@/modules/pacientes/base';
 import { lerQuantidade } from '@/modules/plano-alimentar/calculo';
 import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
@@ -17,7 +18,8 @@ export type ReceitaLida = {
   porcaoG: number;
   tempoMin: number | null;
   modoPreparo: string;
-  ingredientes: { foodId: string; nome: string; origem: 'TACO' | 'Meu alimento'; porCem: Nutrientes100; quantidadeG: number; medidaCaseiraTxt: string | null }[];
+  /** RN-230: `fonte` de `foods.fonte` (nunca de `tenant_id`) e `origem` = o selo dela. Sem micros (o portal lê a receita). */
+  ingredientes: { foodId: string; nome: string; fonte: Fonte; origem: SeloDaFonte; porCem: Nutrientes100; quantidadeG: number; medidaCaseiraTxt: string | null }[];
 };
 export type ReceitaParaPlano = { id: string; titulo: string };
 type Valida = { rendimentoG: number; porcaoG: number; tempoMin: number | null; modoPreparo: string; ingredientes: { foodId: string; quantidadeG: number; medidaCaseiraTxt: string | null }[] };
@@ -107,7 +109,7 @@ export async function lerReceitaNaTransacao(tx: Tx, contentId: string): Promise<
   const [r] = await tx.select().from(recipes).where(eq(recipes.contentId, contentId));
   if (!r) return null;
   const its = await tx
-    .select({ i: recipeIngredients, f: { nome: foods.nome, tenantId: foods.tenantId, kcal: foods.kcal, proteinaG: foods.proteinaG, carboidratoG: foods.carboidratoG, lipidioG: foods.lipidioG, fibraG: foods.fibraG } })
+    .select({ i: recipeIngredients, f: { nome: foods.nome, fonte: foods.fonte, kcal: foods.kcal, proteinaG: foods.proteinaG, carboidratoG: foods.carboidratoG, lipidioG: foods.lipidioG, fibraG: foods.fibraG } })
     .from(recipeIngredients)
     .innerJoin(foods, eq(foods.id, recipeIngredients.foodId))
     .where(eq(recipeIngredients.contentId, contentId))
@@ -120,7 +122,8 @@ export async function lerReceitaNaTransacao(tx: Tx, contentId: string): Promise<
     ingredientes: its.map(({ i, f }) => ({
       foodId: i.foodId,
       nome: f.nome,
-      origem: f.tenantId === null ? ('TACO' as const) : ('Meu alimento' as const),
+      fonte: f.fonte,
+      origem: seloDaFonte(f.fonte),
       porCem: { kcal: f.kcal, proteinaG: f.proteinaG, carboidratoG: f.carboidratoG, lipidioG: f.lipidioG, fibraG: f.fibraG },
       quantidadeG: i.quantidadeG,
       medidaCaseiraTxt: i.medidaCaseiraTxt,
