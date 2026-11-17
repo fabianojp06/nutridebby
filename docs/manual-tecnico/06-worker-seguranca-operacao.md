@@ -886,7 +886,7 @@ novo e não lê nem grava `patient_cadastro`. O que muda enquanto ela roda:
 
 - **Anonimização.** A `anonimizarVencidos` da imagem antiga marca `anonimizado_em` sem apagar a linha do cadastro
   complementar (CPF, endereço, observação). A linha fica até a imagem nova voltar: a primeira varredura dela apaga, no
-  início de cada tenant, a linha de todo titular já anonimizado (`apagarCadastrosDosAnonimizados`, `lgpd.ts:653`;
+  início de cada tenant, a linha de todo titular já anonimizado (`apagarCadastrosDosAnonimizados`, `lgpd.ts:652`;
   [§4.2.8](04-modulos-clinicos.md#428-lgpd-arquivar-pedido-de-exclusão-e-anonimização-us-018-rnf-08)). Nenhuma ação
   manual; **nunca** apagar à mão no banco de produção. O gatilho `patient_cadastro_titular_ativo` impede que algo grave
   de novo o cadastro de quem já foi anonimizado.
@@ -910,7 +910,7 @@ expansão), mas a imagem anterior tem dois efeitos ([§12.11](12-financeiro.md#1
   dpa_versao = '1.1'`, com o motivo registrado (os aceites `dpa-1.1` ficam em `consents` como prova). No avanço
   seguinte não precisa de SQL: desde a revisão final do PR 2, `registrarAceiteDpa` regrava o tenant quando a linha da
   versão já existe e o tenant está noutra versão (com o `aceito_em` da prova, sem linha nova). Runbook
-  `docs/operacao/financeiro.md` §6, "Volta atrás e DPA (#149)"; [§12.13](12-financeiro.md#1213-divergências-conhecidas), #12.
+  `docs/operacao/financeiro.md` §6, "Volta atrás e DPA (#153)"; [§12.13](12-financeiro.md#1213-divergências-conhecidas), #12.
 - **Anonimização (R-314).** A imagem anterior não chama `app_anonimizar_financeiro` nem exporta a seção `financeiro`; o
   paciente vencido no meio ganha `anonimizado_em`, e a função (que exige `anonimizado_em` nulo) nunca mais anonimiza os
   lançamentos dele. Risco prático nulo hoje (o primeiro vencimento é bloqueio + 20 anos, nenhum antes de 2046); se

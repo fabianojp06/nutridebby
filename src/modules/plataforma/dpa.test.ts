@@ -79,7 +79,7 @@ describe('Plano 20 (US-309): do DPA 1.0 para o 1.1', () => {
   });
 });
 
-describe('#149: volta atrás e novo avanço (revisão final do PR 2)', () => {
+describe('#153: volta atrás e novo avanço (revisão final do PR 2)', () => {
   it('com dpa-1.1 já em consents e o tenant marcado com a 1.0, o reaceite regrava o tenant sem duplicar a prova', async () => {
     const { tenantId, userId } = await tenantComNutri();
     const t1 = new Date('2026-10-16T10:00:00Z');

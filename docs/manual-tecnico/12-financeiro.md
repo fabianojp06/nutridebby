@@ -517,7 +517,7 @@ da virada e as pendências abertas como entradas previstas, F-D28); conferência
 migration, mas a imagem anterior (a) não chama `app_anonimizar_financeiro` nem exporta a seção `financeiro` — o paciente
 vencido no meio ganha `anonimizado_em` e os lançamentos dele nunca mais são anonimizados pela função (R-314, P20-16;
 o primeiro vencimento é bloqueio + 20 anos, nenhum antes de 2046); e (b) volta ao DPA 1.0, e quem já aceitou a 1.1 fica
-presa em `/painel/dpa` até o dono destravar com SQL (runbook §6, "Volta atrás e DPA (#149)") — ver #12.
+presa em `/painel/dpa` até o dono destravar com SQL (runbook §6, "Volta atrás e DPA (#153)") — ver #12.
 
 ## 12.12 Como estender
 

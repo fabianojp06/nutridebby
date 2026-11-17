@@ -30,7 +30,7 @@ orquestradora).
 3. **Snapshot (regra 5 do servidor).** Atenção ao aviso de 06/11/2026: até a Hostinger resolver, o snapshot **congela a
    VPS** e exige reboot manual. Não tirar snapshot com a produção no ar sem o dono decidir. O PR 2 **não tem migration**
    (as tabelas vieram no PR 1): a volta atrás é de imagem, com uma ressalva do DPA — depois que alguém aceitou a 1.1, a
-   imagem antiga trava o painel (ver §6, "Volta atrás e DPA (#149)").
+   imagem antiga trava o painel (ver §6, "Volta atrás e DPA (#153)").
 4. **Aviso às outras sessões (R-312).** Depois do PR 2, todo "Realizada" no consultório do E2E cria cobrança, e essa
    consulta nunca mais sai da semente (a semente a deixa `cancelada`, porque `fin_lancamentos` não se apaga e a FK é
    `NO ACTION`). Nenhum E2E pode esperar a agenda do consultório do E2E vazia.
@@ -116,7 +116,7 @@ a Debby, antes da consulta (ex.: na conversa do agendamento). Mostrar o preço n
   `anonimizado_em`, e a função `app_anonimizar_financeiro` (que exige `anonimizado_em` nulo) nunca mais anonimiza os
   lançamentos dele. Risco prático nulo hoje (o primeiro vencimento é bloqueio + 20 anos, nenhum antes de 2046). Se houver
   volta atrás com paciente vencido no meio, anonimizar à mão, com o dono (item no backlog).
-- **Volta atrás e DPA (#149).** Depois que alguém aceitou o DPA 1.1, **preferir corrigir para a frente** (um PR novo com
+- **Volta atrás e DPA (#153).** Depois que alguém aceitou o DPA 1.1, **preferir corrigir para a frente** (um PR novo com
   a correção), não voltar a imagem. Se a volta da imagem for inevitável: a imagem antiga exige a 1.0 (`DPA_VERSAO`), o
   tenant está marcado com a 1.1 e toda nutricionista desse consultório cai em /painel/dpa (as APIs do painel dão 403).
   Aceitar de novo lá **não destrava**: a linha `dpa-1.0` já existe em `consents`, e o `registrarAceiteDpa` da imagem

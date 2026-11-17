@@ -103,7 +103,7 @@ export const DPA_PARAGRAFOS: readonly string[] = DPA_1_1;
  * Registro do aceite (quem, versão, quando, IP) + marca no tenant (US-002: tenants.dpa_aceito_em).
  * T6-R2b: se o `consents` já existe para esta versão (`onConflictDoNothing`), a linha não é inserida de novo e
  * `dpa_aceito_em` nunca é adiantado: a marca do tenant não diverge da prova de aceite.
- * #149 (revisão final do PR 2): a linha da versão já existe, mas o tenant está marcado com outra versão (uma volta atrás
+ * #153 (revisão final do PR 2): a linha da versão já existe, mas o tenant está marcado com outra versão (uma volta atrás
  * da imagem e um novo avanço, ou a correção manual do runbook do Financeiro, §6). Sem regravar o tenant, a nutricionista
  * ficaria presa em /painel/dpa. Então o tenant volta a apontar para esta versão, com a data do aceite já registrado em
  * `consents` (nunca `now`), e nenhuma linha nova de prova. Com o tenant já nesta versão, nada muda.
