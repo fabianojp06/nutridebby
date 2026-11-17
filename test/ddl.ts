@@ -11,7 +11,9 @@ import { afterAll, beforeAll, inject } from 'vitest';
  * `exams` e pedia `contents` enquanto outra transação segurava `contents` e pedia `exams` → 40P01 (CI do PR #54 e um
  * deploy). Travar numa ordem fixa não resolve, porque a ordem dos outros testes não é nossa; aqui a disputa deixa de
  * existir: cada arquivo que chama este helper ganha um banco clonado (`CREATE DATABASE … TEMPLATE`) do modelo que o
- * `test/global-setup.ts` congela logo depois das migrations e das fixtures — o mesmo catálogo, nenhuma outra sessão.
+ * `test/global-setup.ts` congela logo depois das migrations e das fixtures — o mesmo catálogo (sem ACL nem
+ * configurações do nível do banco: `datacl` e `pg_db_role_setting` não são copiados pelo TEMPLATE), nenhuma outra
+ * sessão.
  * As travas do Postgres são por banco (o OID do banco faz parte da chave), então nada aqui espera por outro arquivo.
  *
  * Uso: `const owner = bancoProprioParaDdl();` no topo do arquivo e `owner.pool` nos testes (superusuário, como o
