@@ -69,7 +69,7 @@ describe('conteúdo do manual (P08-10)', () => {
     const g = GUIAS.find((x) => x.id === 'prontuario')!;
     const textos = [g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)];
     expect(textos.filter((t) => /documento/i.test(t))).toEqual([]);
-    expect(g.versao).toBe(3); // 2 no Plano 14A pela autorização de IA (item novo nas perguntas comuns), 3 no Plano 18 pelas abas Início e Perfil; nunca pela aba Documentos
+    expect(g.versao).toBeGreaterThanOrEqual(3); // 2 no Plano 14A pela autorização de IA (item novo nas perguntas comuns), 3 no Plano 18 pelas abas Início e Perfil, 4 no Plano 22 (abaixo); nunca pela aba Documentos
   });
   it('Plano 12: o passo do menu do boas-vindas cita "Exames recebidos" e o guia subiu de versão (quem já viu o tour, vê de novo)', () => {
     const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
@@ -104,7 +104,7 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(itens('prontuario')).toContain(
       '"Resumo do histórico (IA)": um resumo do prontuário antes da consulta, com cada frase ligada ao registro de onde veio. Só com a autorização do paciente; as notas privadas só vão se você marcar "Incluir notas privadas".',
     );
-    expect(GUIAS.find((x) => x.id === 'prontuario')!.versao).toBe(3); // Plano 18: abas Início e Perfil
+    expect(GUIAS.find((x) => x.id === 'prontuario')!.versao).toBeGreaterThanOrEqual(3); // Plano 18: abas Início e Perfil; 4 desde o Plano 22 (abaixo)
     expect(itens('plano-alimentar')).toContain(
       '"Gerar rascunho com IA": informe a meta, os macronutrientes e as refeições; a IA escolhe alimentos da TACO e da sua tabela, e todas as contas são do sistema. O plano publicado leva o selo "Elaborado com apoio de IA e revisado pela nutricionista".',
     );
@@ -194,7 +194,7 @@ describe('conteúdo do manual (P08-10)', () => {
 
   it('Plano 18 (§8.2): o guia do prontuário na versão 3, com o cabeçalho e as abas Início e Perfil; o resumo e o passo a passo citam os dois', () => {
     const g = GUIAS.find((x) => x.id === 'prontuario')!;
-    expect(g.versao).toBe(3);
+    expect(g.versao).toBeGreaterThanOrEqual(3); // 4 desde o Plano 22 (a aba Exames, abaixo)
     expect(g.passos.find((p) => p.alvo === 'cabecalho-paciente')?.texto).toBe(
       'Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o paciente está arquivado ou bloqueado.',
     );
@@ -278,5 +278,15 @@ describe('conteúdo do manual (P08-10)', () => {
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
     expect(config.versao).toBe(9); // Plano 22: o cartão "Exames" (+1 sobre a main)
     expect(config.passos.find((p) => p.alvo === 'cartoes-configuracoes')?.texto).toContain('"Exames"');
+  });
+
+  it('Plano 22 (T4, EP-D52): o guia do prontuário cita "Adicionar do catálogo" e "Editar" na aba Exames e sobe para a versão 4; editar e versões ficam no guia do prontuário', () => {
+    const g = GUIAS.find((x) => x.id === 'prontuario')!;
+    expect(g.versao).toBe(4);
+    const passo = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens.join(' ');
+    expect(passo).toContain('"Adicionar do catálogo"');
+    expect(passo).toContain('"Editar"');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/editar`)?.id).toBe('prontuario');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/versoes`)?.id).toBe('prontuario');
   });
 });

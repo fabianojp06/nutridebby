@@ -16,6 +16,7 @@ import {
   energyCalcs,
   examSubmissions,
   exams,
+  examVersoes,
   foods,
   iaAutorizacoes,
   iaTarefas,
@@ -233,8 +234,22 @@ export type DadosExportacao = {
     temLaudo: boolean;
     /** Caminho do laudo dentro do ZIP (`laudos/…`); null se não há laudo ou se ele ficou de fora. */
     laudo: string | null;
-    /** Plano 11: `iaTarefaId` = a linha veio de uma sugestão da IA conferida (liga com `ia[].id`). */
-    valores: { nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string }[];
+    /**
+     * Plano 11: `iaTarefaId` = a linha veio de uma sugestão da IA conferida (liga com `ia[].id`). Plano 22 (RN-376):
+     * `refMin`/`refMax`, a faixa numérica do laudo, quando informada.
+     */
+    valores: { nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string; refMin?: number; refMax?: number }[];
+    /**
+     * Plano 22 (RN-378, EP-D41; Review Focus 6): o estado do exame antes de cada edição (`exam_versoes`, staff_only, por
+     * inclusão explícita), da mais antiga para a mais nova — sem a justificativa e sem o autor (RN-399).
+     */
+    versoesAnteriores: {
+      versao: number;
+      titulo: string;
+      data: string;
+      valores: { nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string; refMin?: number; refMax?: number }[];
+      alteradoEm: string;
+    }[];
   }[];
   /** Só as orientações: notas privadas (staff_only) nunca saem (US-016). */
   atendimentos: { data: string; orientacoes: string | null }[];
@@ -421,8 +436,8 @@ async function planosParaExportacao(tx: Tx, ids: string[], escopo: EscopoExporta
 
 /**
  * Todas as tabelas do paciente, menos as staff_only (notas privadas, etiquetas; ia_tarefas e fin_lancamentos entram por
- * inclusão explícita) — inclusive o cadastro complementar (`patient_cadastro`, Plano 18, por inclusão explícita:
- * `cadastroParaExportacao`). Consultas em sequência:
+ * inclusão explícita), salvo `exam_versoes` (Plano 22, EP-D41) — inclusive o cadastro complementar (`patient_cadastro`,
+ * Plano 18, por inclusão explícita: `cadastroParaExportacao`). Consultas em sequência:
  * uma transação é uma conexão só, e consultas paralelas nela geram o aviso de descontinuação do pg 8.23
  * (erro no pg 9).
  */
@@ -455,6 +470,18 @@ export async function montarDados(
     .from(exams)
     .where(eq(exams.patientId, patientId))
     .orderBy(asc(exams.data));
+  // Plano 22 (EP-D41): as versões anteriores, por inclusão explícita (staff_only), só as colunas que saem
+  const vs = await tx
+    .select({ examId: examVersoes.examId, versao: examVersoes.versao, titulo: examVersoes.titulo, data: examVersoes.data, valores: examVersoes.valores, alteradoEm: examVersoes.alteradoEm })
+    .from(examVersoes)
+    .where(eq(examVersoes.patientId, patientId))
+    .orderBy(asc(examVersoes.examId), asc(examVersoes.versao));
+  const versoesPorExame = new Map<string, DadosExportacao['exames'][number]['versoesAnteriores']>();
+  for (const v of vs) {
+    const lista = versoesPorExame.get(v.examId) ?? [];
+    lista.push({ versao: v.versao, titulo: v.titulo, data: v.data, valores: v.valores, alteradoEm: v.alteradoEm.toISOString() });
+    versoesPorExame.set(v.examId, lista);
+  }
   const at = await tx
     .select({ data: consultations.data, orientacoes: consultations.orientacoesPaciente })
     .from(consultations)
@@ -623,6 +650,7 @@ export async function montarDados(
       temLaudo: !!e.arquivoPath,
       laudo: null,
       valores: e.valores,
+      versoesAnteriores: versoesPorExame.get(e.id) ?? [],
     })),
     atendimentos: at,
     planos,

@@ -9,6 +9,8 @@ export type IdsDoPainel = {
   /** Plano 22 (T3): um exame do catálogo e um modelo de solicitação, criados pela UI. */
   exameCatalogo: string;
   modeloSolicitacao: string;
+  /** Plano 22 (T4): um exame do paciente, lançado e editado pela UI (a tela de versões com uma versão). */
+  exame: string;
 };
 
 /**
@@ -85,4 +87,7 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/exames/modelos': () => '/painel/exames/modelos',
   '/painel/exames/modelos/novo': () => '/painel/exames/modelos/novo',
   '/painel/exames/modelos/[id]': (i) => `/painel/exames/modelos/${i.modeloSolicitacao}`,
+  // Plano 22 (T4): editar exame e "Versões anteriores"
+  '/painel/pacientes/[id]/exames/[exameId]/editar': (i) => `/painel/pacientes/${i.paciente}/exames/${i.exame}/editar`,
+  '/painel/pacientes/[id]/exames/[exameId]/versoes': (i) => `/painel/pacientes/${i.paciente}/exames/${i.exame}/versoes`,
 };

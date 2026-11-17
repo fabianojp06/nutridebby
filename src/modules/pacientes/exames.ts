@@ -4,6 +4,8 @@ import { examSubmissions, exams, type ExamRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { lerDecimal } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
+import { referenciaDaFaixa } from '@/modules/exames/classificacao';
+import { MSG_EXAMES } from '@/modules/exames/constantes';
 import { cancelarTarefas } from '@/modules/ia/cancelar';
 import { apagarArquivo, salvarArquivo, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
 import { auditRead } from '@/modules/plataforma/audit';
@@ -13,8 +15,11 @@ import { EXAME_MAX_BYTES, MSG_EXAME } from './exames-constantes';
 
 export { EXAME_MAX_BYTES, MSG_EXAME };
 
-/** `iaTarefaId` (Plano 11, §5.11): a linha veio da leitura por IA dessa tarefa. A digitação manual (lerValores) nunca o grava. */
-export type ValorExame = { nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string };
+/**
+ * `iaTarefaId` (Plano 11, §5.11): a linha veio da leitura por IA dessa tarefa. A digitação manual (lerValores) nunca o grava.
+ * `refMin`/`refMax` (Plano 22, RN-376, C-378): a faixa numérica do laudo, opcional; nenhuma chave antiga muda.
+ */
+export type ValorExame = { nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string; refMin?: number; refMax?: number };
 
 export class ExameError extends Error {
   override name = 'ExameError';
@@ -27,25 +32,79 @@ const MAX_LINHAS = 50;
 const MAX_VALOR = 1e15; // acima disso o número perde precisão / viraria notação exponencial na tela
 const texto = (v: unknown, max: number) => normalizarTexto(v).slice(0, max);
 const passaDoLimite = (v: unknown, max: number) => normalizarTexto(v).length > max;
+const F = MSG_EXAMES.lancamentoErros;
 
-/** Linhas de valores do formulário. Linha toda vazia é ignorada; nome sem valor numérico (ou o contrário) → null. */
-export function lerValores(bruto: unknown): ValorExame[] | null {
-  if (!Array.isArray(bruto)) return null;
-  const out: ValorExame[] = [];
-  if (bruto.length > MAX_LINHAS) return null; // recusa em vez de cortar: dado de saúde não some em silêncio
-  for (const l of bruto as Record<string, unknown>[]) {
-    if (l !== null && typeof l !== 'object') return null;
-    if (passaDoLimite(l?.nome, 80) || passaDoLimite(l?.unidade, 20) || passaDoLimite(l?.referencia, 80)) return null;
-    const nome = texto(l?.nome, 80);
-    const valorTxt = l?.valor;
-    const vazio = !nome && (valorTxt === undefined || valorTxt === '' || valorTxt === null);
-    if (vazio) continue;
-    const valor = lerDecimal(valorTxt);
+/** Um limite da faixa do laudo (RN-376, RNF-374: só por `lerDecimal`): vazio → null; lixo, não finito ou |x| ≥ 1e15 → 'invalido'. */
+function lerLimite(v: unknown): number | null | 'invalido' {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== 'string' && typeof v !== 'number') return 'invalido';
+  const n = lerDecimal(v);
+  if (n === null) return null;
+  return Number.isFinite(n) && Math.abs(n) < MAX_VALOR ? n : 'invalido';
+}
+
+/** Uma linha lida, com o índice dela no que veio do formulário (a edição liga o índice à origem, T4). */
+export type LinhaLida = { indice: number; valor: ValorExame };
+
+/**
+ * Plano 22 (T4, R22-02): as linhas do formulário com o erro de cada campo (`valores.{i}.nome`, `.valor`, `.unidade`,
+ * `.referencia`, `.refMin`, `.refMax`; `valores` para a lista inteira). A linha só é "toda vazia" (ignorada) sem nome,
+ * valor, "de" e "até": uma linha só com faixa vira erro, nunca some calada. Sem referência e com faixa, grava-se a
+ * referência da faixa ("70 a 99", RN-376), para os leitores que só leem `referencia`. `iaTarefaId` do bruto é sempre
+ * ignorado (só o servidor copia a origem da IA, RN-378).
+ */
+export function lerLinhasComErros(bruto: unknown): { linhas: LinhaLida[] } | { erros: Record<string, string> } {
+  // recusa em vez de cortar: dado de saúde não some em silêncio
+  if (!Array.isArray(bruto) || bruto.length > MAX_LINHAS) return { erros: { valores: MSG_EXAME.valores } };
+  const erros: Record<string, string> = {};
+  const linhas: LinhaLida[] = [];
+  (bruto as unknown[]).forEach((item, i) => {
+    const k = (campo: string) => `valores.${i}.${campo}`;
+    if (item === null) return; // como antes: linha nula conta como vazia
+    if (typeof item !== 'object' || Array.isArray(item)) {
+      erros.valores = MSG_EXAME.valores;
+      return;
+    }
+    const l = item as Record<string, unknown>;
+    const nome = texto(l.nome, 80);
+    const valorVazio = l.valor === undefined || l.valor === '' || l.valor === null;
+    const refMin = lerLimite(l.refMin);
+    const refMax = lerLimite(l.refMax);
+    if (!nome && valorVazio && refMin === null && refMax === null) return;
+    const antes = Object.keys(erros).length;
+    if (passaDoLimite(l.nome, 80) || !nome) erros[k('nome')] = MSG_EXAME.valores;
+    if (passaDoLimite(l.unidade, 20)) erros[k('unidade')] = MSG_EXAME.valores;
+    if (passaDoLimite(l.referencia, 80)) erros[k('referencia')] = MSG_EXAME.valores;
+    const valor = lerDecimal(l.valor);
     // isFinite, não só isNaN: '9'.repeat(400) vira Infinity, que o jsonb gravaria como null
-    if (!nome || typeof valor !== 'number' || !Number.isFinite(valor) || Math.abs(valor) >= MAX_VALOR) return null;
-    out.push({ nome, valor, unidade: texto(l.unidade, 20) || null, referencia: texto(l.referencia, 80) || null });
-  }
-  return out;
+    if (typeof valor !== 'number' || !Number.isFinite(valor) || Math.abs(valor) >= MAX_VALOR) erros[k('valor')] = MSG_EXAME.valores;
+    if (refMin === 'invalido') erros[k('refMin')] = F.faixaInvalida;
+    if (refMax === 'invalido') erros[k('refMax')] = F.faixaInvalida;
+    if (typeof refMin === 'number' && typeof refMax === 'number' && refMin > refMax) erros[k('refMin')] = F.faixaInvertida;
+    if (Object.keys(erros).length > antes || typeof valor !== 'number' || refMin === 'invalido' || refMax === 'invalido') return;
+    const v: ValorExame = {
+      nome,
+      valor,
+      unidade: texto(l.unidade, 20) || null,
+      referencia: texto(l.referencia, 80) || referenciaDaFaixa(refMin, refMax),
+    };
+    if (refMin !== null) v.refMin = refMin;
+    if (refMax !== null) v.refMax = refMax;
+    linhas.push({ indice: i, valor: v });
+  });
+  return Object.keys(erros).length ? { erros } : { linhas };
+}
+
+/** Plano 22 (T4, R22-02): as linhas do formulário, ou os erros por campo (as chaves de `lerLinhasComErros`). */
+export function lerValoresComErros(bruto: unknown): { valores: ValorExame[] } | { erros: Record<string, string> } {
+  const r = lerLinhasComErros(bruto);
+  return 'linhas' in r ? { valores: r.linhas.map((l) => l.valor) } : r;
+}
+
+/** Linhas de valores do formulário (envoltório de `lerValoresComErros`, o mesmo de antes para `ia/conferencia.ts`): erro → null. */
+export function lerValores(bruto: unknown): ValorExame[] | null {
+  const r = lerValoresComErros(bruto);
+  return 'valores' in r ? r.valores : null;
 }
 
 type Entrada = { titulo: unknown; data: unknown; valores: unknown; arquivo: Buffer | null };
@@ -70,10 +129,11 @@ export async function criarExame(
   const data = typeof input.data === 'string' ? input.data.trim() : '';
   if (!dataValida(data)) erros.data = MSG_EXAME.data;
   else if (data > hojeNoFuso(tenant.fuso, now)) erros.data = MSG_EXAME.futuro;
-  const valores = lerValores(input.valores);
-  if (!valores) erros.valores = MSG_EXAME.valores;
+  const lidos = lerValoresComErros(input.valores);
+  if ('erros' in lidos) Object.assign(erros, lidos.erros);
   if (input.arquivo && input.arquivo.length > EXAME_MAX_BYTES) erros.arquivo = MSG_EXAME.arquivo;
-  if (Object.keys(erros).length || !valores) throw new ExameError(erros);
+  if (Object.keys(erros).length || !('valores' in lidos)) throw new ExameError(erros);
+  const { valores } = lidos;
 
   await withTenant(ctx, (tx) => carregarPacienteParaEscrita(tx, patientId), db);
   const inserir = async (tx: Tx, arquivoPath: string | null) => {

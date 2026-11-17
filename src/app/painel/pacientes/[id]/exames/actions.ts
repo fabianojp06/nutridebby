@@ -5,10 +5,11 @@ import { notFound, redirect } from 'next/navigation';
 import { getEnv } from '@/env';
 import { requireNutri } from '@/lib/tenant-session';
 import { aplicarSugestao, ConferenciaError, descartarSugestao } from '@/modules/ia/conferencia';
+import { editarExame, type LinhaEditada } from '@/modules/exames/edicao';
 import { configIA } from '@/modules/ia/modo';
 import { pedirLeituraExame, PedidoIaError } from '@/modules/ia/tarefas';
 import { MSG_BLOQUEADO, PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
-import { excluirExame } from '@/modules/pacientes/exames';
+import { ExameError, excluirExame } from '@/modules/pacientes/exames';
 
 export async function excluirExameAction(patientId: string, id: string): Promise<void> {
   const { ctx } = await requireNutri(`/painel/pacientes/${patientId}/exames`);
@@ -67,3 +68,55 @@ export async function descartarSugestaoAction(patientId: string, tarefaId: strin
   revalidatePath(`/painel/pacientes/${patientId}/exames`);
   redirect(`/painel/pacientes/${patientId}/exames`);
 }
+
+export type EditarState = { erros?: Record<string, string>; valores?: Record<string, unknown>; envio?: number };
+
+const textoDo = (f: FormData, k: string) => {
+  const v = f.get(k);
+  return typeof v === 'string' ? v : '';
+};
+
+/** As linhas que o formulário manda em JSON: só os campos da linha e o índice `origem` (nunca o `iaTarefaId`). */
+function linhasDoFormulario(f: FormData): LinhaEditada[] | null {
+  let bruto: unknown;
+  try {
+    bruto = JSON.parse(textoDo(f, 'linhas') || '[]');
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(bruto)) return null;
+  return bruto.map((l) => {
+    const o = (l && typeof l === 'object' ? l : {}) as Record<string, unknown>;
+    return {
+      origem: typeof o.origem === 'number' ? o.origem : null,
+      nome: o.nome,
+      valor: o.valor,
+      unidade: o.unidade,
+      referencia: o.referencia,
+      refMin: o.refMin,
+      refMax: o.refMax,
+    };
+  });
+}
+
+/**
+ * Plano 22 (T4, US-371, RN-378): "Editar exame" — sem arquivo (o laudo não muda, EP-D44), por isso Server Action. Erro
+ * devolve `valores` (título, data e justificativa voltam aos campos; as linhas ficam no estado do formulário). Salvo →
+ * de volta à aba Exames com "Exame salvo.", o foco no título do exame.
+ */
+export async function editarExameAction(patientId: string, exameId: string, _prev: EditarState, f: FormData): Promise<EditarState> {
+  const { ctx, tenant } = await requireNutri(`/painel/pacientes/${patientId}/exames/${exameId}/editar`);
+  const valores = { titulo: textoDo(f, 'titulo'), data: textoDo(f, 'data'), justificativa: textoDo(f, 'justificativa') };
+  const linhas = linhasDoFormulario(f);
+  try {
+    await editarExame(ctx, tenant, patientId, exameId, { ...valores, linhas: linhas ?? (null as unknown as LinhaEditada[]), lidoEm: textoDo(f, 'lidoEm') });
+  } catch (e) {
+    if (e instanceof ExameError) return { erros: e.erros, valores, envio: Date.now() };
+    if (e instanceof PacienteBloqueadoError) return { erros: { geral: MSG_BLOQUEADO }, valores, envio: Date.now() };
+    if (e instanceof PacienteNaoEncontradoError) notFound();
+    throw e;
+  }
+  revalidatePath(`/painel/pacientes/${patientId}`, 'layout');
+  redirect(`/painel/pacientes/${patientId}/exames?exame=salvo#exame-${exameId}`);
+}
+

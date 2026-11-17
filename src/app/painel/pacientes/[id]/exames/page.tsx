@@ -6,6 +6,10 @@ import { Selo } from '@/components/ui/selo';
 import { getEnv } from '@/env';
 import { signFileUrl } from '@/lib/signed-url';
 import { casasDecimais, formatarDecimal } from '@/lib/numero';
+import { expandirParaAnalise } from '@/modules/exames/catalogo-regras';
+import { indiceDoCatalogo } from '@/modules/exames/classificacao';
+import { MSG_EXAMES } from '@/modules/exames/constantes';
+import { bibliotecasParaExames } from '@/modules/exames/modelos-solicitacao';
 import { motivoDoPaciente, situacaoIaDoPaciente } from '@/modules/ia/autorizacao';
 import { abrirSugestao } from '@/modules/ia/conferencia';
 import { MSG_IA } from '@/modules/ia/constantes';
@@ -30,6 +34,11 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const lista = await listarExames(ctx, paciente.id);
   const bloqueado = paciente.status === 'bloqueado';
+  // Plano 22 (T4, RNF-371): catálogo e modelos de solicitação numa transação só; as faixas do consultório ficam no servidor
+  const bibliotecas = bloqueado ? null : await bibliotecasParaExames(ctx);
+  const indice = indiceDoCatalogo(bibliotecas?.catalogo ?? []);
+  const catalogo = (bibliotecas?.catalogo ?? []).map(({ nome, unidade, sinonimos, componentes }) => ({ nome, unidade, sinonimos, componentes }));
+  const modelos = (bibliotecas?.modelos ?? []).map((m) => ({ id: m.id, nome: m.nome, linhas: expandirParaAnalise(m.exames, indice) }));
   const busca = await searchParams;
   const ia = configIA(getEnv());
   const estadoIa = estadoIaComPaciente(tenant, ia);
@@ -55,6 +64,7 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
     <div className="space-y-8">
       <FocoNaAncora />
       {busca.envio === 'salvo' && <Aviso tipo="ok">{MSG_REVISAO.salvo}</Aviso>}
+      {busca.exame === 'salvo' && <Aviso tipo="ok">{MSG_EXAMES.exame.salvo}</Aviso>}
       {iaRecusou && <Aviso tipo="aviso">{iaRecusou}</Aviso>}
       {enviados > 0 && (
         <p>
@@ -98,9 +108,9 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
         </section>
       )}
       {!bloqueado && (
-        <section aria-labelledby="novo-exame" className="max-w-4xl space-y-3">
+        <section aria-labelledby="novo-exame" className="max-w-6xl space-y-3">
           <h2 id="novo-exame" tabIndex={-1} className="text-lg font-semibold">Novo exame</h2>
-          <ExameForm patientId={paciente.id} hoje={hojeNoFuso(tenant.fuso)} />
+          <ExameForm patientId={paciente.id} hoje={hojeNoFuso(tenant.fuso)} catalogo={catalogo} modelos={modelos} />
         </section>
       )}
       <section aria-labelledby="exames" className="space-y-4">
@@ -110,7 +120,8 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
           <article key={e.id} aria-labelledby={`exame-${e.id}`} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
+                {/* tabIndex: "Editar exame" volta com #exame-{id} e o foco vem para cá (FocoNaAncora) */}
+                <h3 id={`exame-${e.id}`} tabIndex={-1} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
                 {doPaciente.has(e.id) && <Selo>{MSG_REVISAO.selo}</Selo>}
               </div>
               <div className="flex gap-4">
@@ -119,6 +130,11 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
                 )}
                 {e.arquivoPath && mostrarIa && (
                   <IaDoExame patientId={paciente.id} exame={{ id: e.id, titulo: e.titulo }} situacao={situacoes.get(e.id)} ia={iaExame} agora={agora} />
+                )}
+                {!bloqueado && (
+                  <Link href={`/painel/pacientes/${paciente.id}/exames/${e.id}/editar`} aria-label={MSG_EXAMES.exame.editarRotulo(e.titulo, formatarData(e.data))} className="inline-flex min-h-11 items-center text-link underline">
+                    {MSG_EXAMES.exame.editar}
+                  </Link>
                 )}
                 {!bloqueado && (
                   <form action={excluirExameAction.bind(null, paciente.id, e.id)}>

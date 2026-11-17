@@ -211,13 +211,14 @@ export const GUIAS: readonly Guia[] = [
     // D20 (Plano 10A): sem "documentos" e sem subir a versão — a aba só aparece com o consultório liberado; ela fica descrita no guia `documentos`.
     // Plano 11: o item da IA entra nas perguntas comuns sem subir a versão, pelo mesmo motivo (a IA depende da liberação; os passos não mudam).
     // Plano 14B-2: item da IA sem subir a versão (depende da liberação, como no Plano 11)
-    versao: 3, // Plano 14A: a autorização de IA na aba Privacidade (item novo nas perguntas comuns); 3 = Plano 18: abas Início e Perfil
+    // Plano 22 (T4, EP-D52): 4 = a aba Exames ganha "Adicionar do catálogo" e "Editar" (passo novo no "Passo a passo")
+    versao: 4, // Plano 14A: a autorização de IA na aba Privacidade (item novo nas perguntas comuns); 3 = Plano 18: abas Início e Perfil
     padrao: new RegExp(`^/painel/pacientes/${ID}(/.*)?$`),
     titulo: 'Prontuário',
     ajuda: {
       resumo: 'Tudo do paciente em abas: o Início reúne o que já foi feito, o Perfil guarda o cadastro, e as outras trazem anamnese, antropometria, gasto energético, atendimentos, exames, evolução, plano alimentar e privacidade.',
       secoes: [
-        { titulo: 'Passo a passo', itens: ['No Início, veja o que já foi feito; no Perfil, confira o cadastro. Depois, comece pela anamnese (use um modelo para ganhar tempo).', 'Registre as medidas em Antropometria; a Evolução mostra os gráficos.', 'Em Privacidade ficam a cópia dos dados e o pedido de exclusão do paciente.'] },
+        { titulo: 'Passo a passo', itens: ['No Início, veja o que já foi feito; no Perfil, confira o cadastro. Depois, comece pela anamnese (use um modelo para ganhar tempo).', 'Registre as medidas em Antropometria; a Evolução mostra os gráficos.', 'Em Privacidade ficam a cópia dos dados e o pedido de exclusão do paciente.', 'Na aba Exames, "Adicionar do catálogo" monta as linhas com os exames do seu catálogo; copie a faixa impressa no laudo para ver a classificação. "Editar" corrige um exame já lançado e guarda a versão anterior, com a justificativa.'] },
         { titulo: 'Perguntas comuns', itens: ['Cada acesso ao prontuário fica registrado no "Histórico de acessos" (LGPD).', 'Paciente arquivado sai da agenda e dos conteúdos, mas o prontuário continua guardado.', 'Na aba Exames, "Ler valores com IA" lê o laudo anexado e mostra os valores para você conferir; só as linhas marcadas são salvas.', 'Em Privacidade, "Uso de IA" mostra se o paciente autorizou o uso de IA e os registros; o pedido vai por "Enviar pedido de autorização por e-mail" ou pelo "Registrar termo em papel" (imprimir pelo Chrome ou Edge, para sair o rodapé com o código e o número da página; o paciente assina; fotografar todas as páginas; ao salvar, digitar o código de referência do rodapé do papel; guardar o original na pasta do paciente e entregar uma via a ele).', 'Na aba Evolução, "Não mostrar peso no app" tira o peso e o IMC do app do paciente; o prontuário e a cópia dos dados não mudam.', '"Resumo do histórico (IA)": um resumo do prontuário antes da consulta, com cada frase ligada ao registro de onde veio. Só com a autorização do paciente; as notas privadas só vão se você marcar "Incluir notas privadas".'] },
       ],
     },

@@ -173,6 +173,8 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   expect(lancamento, `link "Editar" do lançamento de ${paciente.nome}: ${hrefLancamento}`).not.toBeNull();
   // Plano 22 (T3): um exame do catálogo e um modelo de solicitação, pelo caminho real da UI
   const { exameCatalogo, modeloSolicitacao } = await bibliotecasDeExames(nutri, sufixo);
+  // Plano 22 (T4): um exame lançado e editado pela aba Exames (a tela "Versões anteriores" com uma versão)
+  const exame = await exameEditado(nutri, p, sufixo);
 
   return {
     paciente: p.split('/').pop()!,
@@ -200,6 +202,7 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
     })(),
     exameCatalogo,
     modeloSolicitacao,
+    exame,
   };
 }
 
@@ -245,3 +248,31 @@ export async function bibliotecasDeExames(nutri: Page, sufixo: string): Promise<
   const modeloSolicitacao = await idPeloNome(nutri, `Check-up axe ${sufixo}`, new RegExp(`/painel/exames/modelos/(${UUID})$`));
   return { exameCatalogo, modeloSolicitacao };
 }
+
+/**
+ * Plano 22 (T4, US-371): lança um exame com uma linha (com a faixa do laudo) na aba Exames e o edita pela tela "Editar
+ * exame" (o valor muda, com a justificativa), pelo caminho real da UI; devolve o id do exame.
+ */
+export async function exameEditado(nutri: Page, prontuario: string, sufixo: string): Promise<string> {
+  const titulo = `Rotina axe ${sufixo}`;
+  await nutri.goto(`${prontuario}/exames`);
+  await nutri.getByLabel('Título do exame').fill(titulo);
+  await nutri.getByLabel('Marcador 1', { exact: true }).fill('Glicemia de jejum');
+  await nutri.getByLabel('Valor 1', { exact: true }).fill('105');
+  await nutri.getByLabel('Unidade 1', { exact: true }).fill('mg/dL');
+  await nutri.getByLabel('Faixa do laudo: de 1', { exact: true }).fill('70');
+  await nutri.getByLabel('até 1', { exact: true }).fill('99');
+  await expect(nutri.getByRole('group', { name: 'Linha 1: Glicemia de jejum' })).toContainText('Acima da referência');
+  await nutri.getByRole('button', { name: 'Salvar exame' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Exame salvo.' })).toBeVisible();
+  const exame = await idDoLink(nutri, `${prontuario}/exames`, new RegExp(`/exames/(${UUID})/editar$`));
+
+  await nutri.goto(`${prontuario}/exames/${exame}/editar`);
+  await nutri.getByLabel('Valor 1', { exact: true }).fill('98');
+  await nutri.getByLabel('Justificativa da alteração').fill('Valor digitado errado');
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri).toHaveURL(/\/exames\?exame=salvo/);
+  await expect(nutri.getByRole('status').filter({ hasText: 'Exame salvo.' })).toBeVisible();
+  return exame;
+}
+

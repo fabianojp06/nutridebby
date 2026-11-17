@@ -38,6 +38,7 @@ import { gravarCadastro } from './cadastro';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
 import { registrarAtendimento } from './atendimentos';
 import { salvarEtiquetasDoPaciente } from './etiquetas';
+import { editarExame, exameParaEditar } from '@/modules/exames/edicao';
 import { criarExame } from './exames';
 import {
   estadoDaExportacao,
@@ -640,7 +641,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         anamneses: [{ data: '2026-09-01', modelo: 'Longa', respostas }],
         antropometria: [],
         gastoEnergetico: [],
-        exames: [{ data: '2026-09-01', titulo: 'Painel', temLaudo: false, laudo: null, valores }],
+        exames: [{ data: '2026-09-01', titulo: 'Painel', temLaudo: false, laudo: null, valores, versoesAnteriores: [] }],
         atendimentos: [],
         planos: [],
         pedidosLgpd: [],
@@ -1083,6 +1084,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
             temLaudo: false,
             laudo: null,
             valores: [{ nome: 'Marcador', valor: 0.0000001, unidade: 'mg/L', referencia: null }],
+            versoesAnteriores: [],
           },
         ],
         atendimentos: [],
@@ -1424,5 +1426,38 @@ describe('Plano 18 (§10, D7, D18, RN-262, RN-266) — o cadastro complementar n
     expect(texto).toContain('Nome social: Joana Silva');
     expect(texto).not.toContain('529.982.247-25');
     expect(texto).not.toContain(CPF);
+  });
+});
+
+describe('Plano 22 (T4, RN-376, RN-378, EP-D41; Review Focus 6) — faixa do laudo e versões anteriores no dados.json', () => {
+  it('as linhas trazem refMin/refMax; versoesAnteriores (inclusão explícita de exam_versoes, staff_only) sai sem a justificativa e sem o autor, nos dois escopos', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const exameId = await criarExame(
+      T.ctx,
+      T.tenant,
+      p.id,
+      { titulo: 'Rotina', data: '2026-09-01', valores: [{ nome: 'Glicemia de jejum', valor: '95', unidade: 'mg/dL', referencia: '', refMin: '70', refMax: '99' }], arquivo: null },
+      deps,
+    );
+    const semVersao = await criarExame(T.ctx, T.tenant, p.id, { titulo: 'Sem edição', data: '2026-08-01', valores: [], arquivo: null }, deps);
+    const aberto = (await exameParaEditar(T.ctx, p.id, exameId, { db: app.db }))!;
+    const linhas = aberto.valores.map((v, i) => ({ origem: i, nome: v.nome, valor: '105', unidade: v.unidade, referencia: v.referencia, refMin: '70', refMax: '99' }));
+    const JUSTIFICATIVA = 'Valor digitado errado na consulta';
+    await editarExame(T.ctx, T.tenant, p.id, exameId, { titulo: 'Rotina anual', data: '2026-09-01', linhas, justificativa: JUSTIFICATIVA, lidoEm: aberto.updatedAt }, { db: app.db });
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
+      const editado = dados.exames.find((e) => e.titulo === 'Rotina anual')!;
+      expect(editado.valores, escopo).toEqual([{ nome: 'Glicemia de jejum', valor: 105, unidade: 'mg/dL', referencia: '70 a 99', refMin: 70, refMax: 99 }]);
+      expect(editado.versoesAnteriores, escopo).toEqual([
+        { versao: 1, titulo: 'Rotina', data: '2026-09-01', valores: [{ nome: 'Glicemia de jejum', valor: 95, unidade: 'mg/dL', referencia: '70 a 99', refMin: 70, refMax: 99 }], alteradoEm: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) },
+      ]);
+      expect(Object.keys(editado.versoesAnteriores[0]).sort(), escopo).toEqual(['alteradoEm', 'data', 'titulo', 'valores', 'versao']);
+      expect(dados.exames.find((e) => e.titulo === 'Sem edição')!.versoesAnteriores, escopo).toEqual([]);
+      const json = JSON.stringify(dados);
+      expect(json, escopo).not.toContain(JUSTIFICATIVA);
+      expect(json, escopo).not.toContain(T.nutriId);
+    }
+    expect(semVersao).toBeDefined();
   });
 });

@@ -270,6 +270,14 @@ export const MSG_EXAMES = {
     apoioComparar: 'Escolha de 2 a 6 exames para comparar.',
     avisoEditarNoApp: 'Este exame está no app do paciente. O que você salvar aparece lá na hora.',
     avisoExcluirNoApp: 'Este exame está no app do paciente. Ao excluir, ele some de lá.',
+    /** Texto novo (T4): "Versões anteriores" de um exame nunca editado. Rascunho para a Debby. */
+    semVersoes: 'Este exame ainda não foi editado.',
+    /** Texto novo (T4): o nome acessível do "Editar" de cada exame na lista (nomes únicos). */
+    editarRotulo: (titulo: string, data: string) => `Editar ${titulo} de ${data}`,
+    /** Texto novo (T4): rótulos de "Versões anteriores". Rascunho para a Debby. */
+    justificativaDe: (texto: string) => `Justificativa: ${texto}`,
+    semJustificativa: 'Só acrescentou linhas (sem justificativa).',
+    valoresDaVersao: (n: number) => `Valores da versão ${n}`,
   },
   classificacao: {
     abaixo: 'Abaixo da referência',

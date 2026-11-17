@@ -217,3 +217,16 @@ export async function listAccessHistory(
     })),
   };
 }
+
+/**
+ * Plano 22 (T4, EP-D53) e Plano 21 (AF-D63): o nome e o papel de quem gravou ("Versões anteriores" do exame e da nota),
+ * pelo mesmo `select` de `listAccessHistory` (que não é tocada; unificar fica para o backlog). Chamada FORA de
+ * `withTenant`, como o Histórico de acessos (a tabela `user` é exceção de RLS, regra 1). Id que não é uuid é ignorado; id
+ * sem conta fica fora do mapa (quem chama mostra "Usuário removido").
+ */
+export async function nomesDosAtores(db: Db, ids: string[]): Promise<Map<string, { nome: string; papel: string }>> {
+  const unicos = [...new Set(ids)].filter((id) => z.guid().safeParse(id).success);
+  if (!unicos.length) return new Map();
+  const atores = await db.select({ id: user.id, nome: user.name, papel: user.appRole }).from(user).where(inArray(user.id, unicos));
+  return new Map(atores.map((a) => [a.id, { nome: a.nome, papel: a.papel }]));
+}

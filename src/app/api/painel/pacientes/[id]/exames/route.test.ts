@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { getAuth } from '@/lib/auth';
+import { editarExame, exameParaEditar } from '@/modules/exames/edicao';
 import { listarExames } from '@/modules/pacientes/exames';
 import { COTA_BYTES, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { registrarAceiteDpa } from '@/modules/plataforma/dpa';
@@ -78,4 +79,32 @@ describe('POST /api/painel/pacientes/[id]/exames', () => {
     expect((await enviar(pB.id, { titulo: 'X', data: '2026-09-01', valores: '[]' })).status).toBe(401);
     expect((await enviar(pB.id, { titulo: 'X', data: '2026-09-01', valores: '[]' }, B.cookie, 'https://evil.example')).status).toBe(403);
   });
+
+  it('Plano 22 (T4, RN-376, M3): grava a faixa do laudo (referência gerada da faixa) e o updatedAt do exame recém-criado, devolvido como lidoEm, passa na edição', async () => {
+    const A = await nutriComDpa();
+    const p = await novoPaciente(db, A.ctx);
+    const valores = JSON.stringify([{ nome: 'Glicemia de jejum', valor: '105', unidade: 'mg/dL', referencia: '', refMin: '70', refMax: '99', iaTarefaId: randomUUID() }]);
+    const r = await enviar(p.id, { titulo: 'Rotina', data: '2026-09-01', valores }, A.cookie);
+    expect(r.status).toBe(200);
+    const { id } = (await r.json()) as { id: string };
+    const aberto = (await exameParaEditar(A.ctx, p.id, id))!;
+    expect(aberto.valores).toEqual([{ nome: 'Glicemia de jejum', valor: 105, unidade: 'mg/dL', referencia: '70 a 99', refMin: 70, refMax: 99 }]);
+    await editarExame(A.ctx, { fuso: 'America/Sao_Paulo' }, p.id, id, {
+      titulo: 'Rotina',
+      data: '2026-09-01',
+      linhas: [{ origem: 0, nome: 'Glicemia de jejum', valor: '98', unidade: 'mg/dL', referencia: '70 a 99', refMin: '70', refMax: '99' }],
+      justificativa: 'Valor digitado errado',
+      lidoEm: aberto.updatedAt,
+    });
+    expect((await listarExames(A.ctx, p.id, db))[0].valores[0].valor).toBe(98);
+  });
+
+  it('Plano 22 (T4): faixa invertida → 400 com o erro no campo da linha', async () => {
+    const A = await nutriComDpa();
+    const p = await novoPaciente(db, A.ctx);
+    const r = await enviar(p.id, { titulo: 'Rotina', data: '2026-09-01', valores: JSON.stringify([{ nome: 'G', valor: '1', refMin: '120', refMax: '99' }]) }, A.cookie);
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ erros: { 'valores.0.refMin': 'O início da faixa deve ser menor ou igual ao fim.' } });
+  });
 });
+
