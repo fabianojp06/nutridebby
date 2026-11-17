@@ -188,6 +188,10 @@ export async function solicitarCodigo(slug: string, input: Record<string, unknow
 
 type PedidoRow = typeof publicBookingRequests.$inferSelect;
 
+/**
+ * O código vale até VERIFICADO_VALIDADE_MS depois da verificação, inclusive (exatamente 30 min ainda vale). A mesma regra está
+ * em app_pedido_aguardar (custom rls_agenda_2: `now() - verificado_em > interval '30 minutes'` é inválido): mudou aqui, muda lá.
+ */
 const verificadoValido = (p: PedidoRow, agora: Date) => !!p.verificadoEm && agora.getTime() - p.verificadoEm.getTime() <= VERIFICADO_VALIDADE_MS;
 const tokenDoPedido = (v: unknown) => (typeof v === 'string' && TOKEN_PEDIDO.test(v) ? v : null);
 const pedidoExpirado = () => new PublicoError(410, { geral: MSG_PUBLICO.codigoExpirado });

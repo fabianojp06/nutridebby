@@ -657,7 +657,8 @@ describe('Plano 23 — Agenda 2 no banco (T1b: gatilhos)', () => {
     const p = (await novoPaciente(app.db, T.ctx)).id;
     const outro = (await novoPaciente(app.db, T.ctx)).id;
     const comoP = ctxPaciente(T.tenantId, p);
-    const local = await criarLocal(T, { principal: true });
+    // com agendamento: o local sem agendamento já seria recusado antes pelo appointments_link_da_sala (UPDATE OF local_id)
+    const local = await criarLocal(T, { principal: true, agendamento: true });
     await ligarPedidos(T);
     const marcada = async (inicio?: SQL) => (await em(T.ctx, novaConsulta(T, p, { origem: 'nutri', inicio })))[0].id as string;
     const linha = async (id: string) =>

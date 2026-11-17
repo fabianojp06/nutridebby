@@ -35,8 +35,30 @@ export async function lerBloqueios(tx: Tx, de: Date, ate: Date): Promise<Bloquei
   return bs.map((b) => ({ id: b.id, inicio: b.inicio, fim: b.fim, motivo: b.motivo }));
 }
 
+/**
+ * AG-D47 na tela de horários do PR 1 (até a T3 refazê-la): o backfill da 0127 desdobra cada regra "ambas" em uma presencial
+ * e uma online de mesmo dia, início, fim e duração. A tela mostra o par como UMA regra "ambas" (com o id da metade
+ * presencial), o limite (MAX_REGRAS) conta o par como uma e `excluirRegra` apaga as duas metades. Fora do backfill esse par
+ * não nasce: `criarRegra` recusa sobreposição entre modalidades. `gerarHorarios` já une os horários (horarios.ts).
+ */
+const chaveDoPar = (r: Regra) => `${r.diaSemana}|${r.inicio}|${r.fim}|${r.duracaoMin}`;
+export function juntarPares(regras: RegraSalva[]): RegraSalva[] {
+  const online = new Map<string, RegraSalva>();
+  for (const r of regras) if (r.modalidade === 'online' && !online.has(chaveDoPar(r))) online.set(chaveDoPar(r), r);
+  const metadeOnline = new Set<string>();
+  const ambas = new Set<string>();
+  for (const r of regras) {
+    if (r.modalidade !== 'presencial') continue;
+    const o = online.get(chaveDoPar(r));
+    if (!o || metadeOnline.has(o.id)) continue;
+    metadeOnline.add(o.id);
+    ambas.add(r.id);
+  }
+  return regras.filter((r) => !metadeOnline.has(r.id)).map((r) => (ambas.has(r.id) ? { ...r, modalidade: 'ambas' as const } : r));
+}
+
 export function listarRegras(ctx: TenantContext, db: Db = getDb()): Promise<RegraSalva[]> {
-  return withTenant(ctx, lerRegras, db);
+  return withTenant(ctx, async (tx) => juntarPares(await lerRegras(tx)), db);
 }
 
 export function listarBloqueios(ctx: TenantContext, de: Date, ate: Date, db: Db = getDb()): Promise<BloqueioSalvo[]> {
@@ -71,7 +93,7 @@ export async function criarRegra(ctx: TenantContext, input: Record<string, unkno
       // Uma gravação de regra por vez no tenant: a checagem de sobreposição não pode correr com outra
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agenda-regras'), hashtext(${ctx.tenantId}))`);
       const atuais = await lerRegras(tx);
-      if (atuais.length >= MAX_REGRAS) throw new DisponibilidadeError({ geral: MSG_AGENDA.limiteRegras });
+      if (juntarPares(atuais).length >= MAX_REGRAS) throw new DisponibilidadeError({ geral: MSG_AGENDA.limiteRegras });
       const choca = atuais.some((x) => x.diaSemana === r.diaSemana && minutosDe(x.inicio) < minutosDe(r.fim) && minutosDe(r.inicio) < minutosDe(x.fim));
       if (choca) throw new DisponibilidadeError({ inicio: MSG_AGENDA.sobreposicao });
       const [n] = await tx.insert(availabilityRules).values({ tenantId: ctx.tenantId, ...r, createdAt: now, updatedAt: now }).returning({ id: availabilityRules.id });
@@ -81,9 +103,29 @@ export async function criarRegra(ctx: TenantContext, input: Record<string, unkno
   );
 }
 
+/** Exclui a regra e, se ela for metade de um par desdobrado pelo backfill (AG-D47, `juntarPares`), a outra metade junto. */
 export async function excluirRegra(ctx: TenantContext, id: string, db: Db = getDb()): Promise<void> {
   if (!idValido(id)) return;
-  await withTenant(ctx, (tx) => tx.delete(availabilityRules).where(eq(availabilityRules.id, id)), db);
+  await withTenant(
+    ctx,
+    async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agenda-regras'), hashtext(${ctx.tenantId}))`);
+      const [r] = await tx.delete(availabilityRules).where(eq(availabilityRules.id, id)).returning();
+      if (!r || (r.modalidade !== 'presencial' && r.modalidade !== 'online')) return;
+      await tx
+        .delete(availabilityRules)
+        .where(
+          and(
+            eq(availabilityRules.diaSemana, r.diaSemana),
+            eq(availabilityRules.inicio, r.inicio),
+            eq(availabilityRules.fim, r.fim),
+            eq(availabilityRules.duracaoMin, r.duracaoMin),
+            eq(availabilityRules.modalidade, r.modalidade === 'presencial' ? 'online' : 'presencial'),
+          ),
+        );
+    },
+    db,
+  );
 }
 
 /**

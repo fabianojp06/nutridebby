@@ -273,6 +273,9 @@ describe('página pública (US-032, RN-16)', () => {
     const t2 = await solicitarCodigo(T.slug, e2, deps());
     await consultaDireta(app.db, T.ctx, (await novoPaciente(app.db, T.ctx)).id, em('2026-10-16', '17:00'));
     expect((await confirmarCodigo(T.slug, { pedido: t2.pedido, codigo: await codigoDe(e2.email) }, deps())).estado).toBe('horario_ocupado');
+    // a borda: exatamente 30 min depois da verificação ainda vale (a mesma regra de app_pedido_aguardar, migrate-owner.test.ts)
+    const naBorda = deps({ agora: new Date(agora.getTime() + 30 * 60_000) });
+    expect((await escolherOutroHorario(T.slug, { pedido: t2.pedido, inicio: em('2026-10-16', '17:00').toISOString(), modalidade: 'presencial' }, naBorda)).estado).toBe('horario_ocupado');
     const depois = deps({ agora: new Date(agora.getTime() + 31 * 60_000) });
     expect(await falha(escolherOutroHorario(T.slug, { pedido: t2.pedido, inicio: em('2026-10-16', '18:00').toISOString(), modalidade: 'presencial' }, depois))).toEqual({ status: 410, erros: { geral: MSG_PUBLICO.codigoExpirado } });
     expect(await falha(confirmarCodigo(T.slug, { pedido: t2.pedido, codigo: '000000' }, depois))).toEqual({ status: 410, erros: { geral: MSG_PUBLICO.codigoExpirado } });
