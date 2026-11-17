@@ -571,10 +571,12 @@ Revisão final do branch (workflow, com `revisor-rls` — política sem conta, `
 ## Pendências do rebase (depois do 19) e backlog
 
 Registradas no fechamento (Tarefa 12c, 17/11/2026), com o PR 2 pronto no branch local `plano-18-pr2` (`3799409` antes
-deste commit). Pelo trem de merge da onda 1 (17 → 18 PR 1 → 20 PR 1 → 19 → **18 PR 2** → 20 PR 2 → 20 PR 3), o Plano 19
-entra antes: no rebase do PR 2 sobre a `main` com o 19, conferir cada item abaixo.
+deste commit). **Mudança do trem (orquestradora, 17/11/2026):** o 19 depende de uma avaliação de IA do dono (PM-PA15), e
+o PR 2 do 18 passou a entrar **antes** do 19, rebaseado sobre a `main` sem o 19 (`6c3ee8f`). Por isso os itens 1 e 2
+abaixo **saíram do PR 2 do 18 e passaram à Sessão B (Plano 19)**, que entra depois e os aplica no rebase dela; os itens
+3 a 5 continuam valendo para qualquer rebase do 18 que ainda precise acontecer antes do merge.
 
-**Pendências do rebase:**
+**Pendências do rebase (itens 1 e 2: da Sessão B, no rebase do 19 sobre o 18 PR 2):**
 
 1. **T9 condicional — "No app" com os materiais do plano.** Com o 19 na `main`, os conteúdos ligados ao plano
    (`plano_conteudos`) e a lista de substituição ligada passam a aparecer no plano publicado (RN-253 da spec do 19). O
