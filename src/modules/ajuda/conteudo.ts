@@ -39,12 +39,12 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'pacientes',
-    versao: 1,
+    versao: 1, // Plano 18: "Reenviar convite" na aba Perfil, só na gaveta (o tour não muda, a versão fica)
     padrao: /^\/painel\/pacientes(\/novo)?$/,
     titulo: 'Pacientes',
     ajuda: {
       resumo: 'A lista dos seus pacientes. Tudo começa aqui: cadastrar, convidar para o app e abrir o prontuário.',
-      secoes: [{ titulo: 'Passo a passo', itens: ['Clique em "Novo paciente" e preencha nome, data de nascimento, sexo e e-mail.', 'Ao salvar, o paciente recebe o convite para o app por e-mail (e por WhatsApp, se você marcar "Enviar convite por WhatsApp" com a autorização). Se o convite vencer, use "Reenviar convite" no prontuário.', 'Use a busca para achar pelo nome; arquivados aparecem no filtro de situação.'] }],
+      secoes: [{ titulo: 'Passo a passo', itens: ['Clique em "Novo paciente" e preencha nome, data de nascimento, sexo e e-mail.', 'Ao salvar, o paciente recebe o convite para o app por e-mail (e por WhatsApp, se você marcar "Enviar convite por WhatsApp" com a autorização). Se o convite vencer, use "Reenviar convite" em "Acesso ao app", na aba Perfil do prontuário.', 'Use a busca para achar pelo nome; arquivados aparecem no filtro de situação.'] }],
     },
     passos: [
       { alvo: 'novo-paciente', titulo: 'Novo paciente', texto: 'Comece cadastrando o paciente. O convite para o app sai por e-mail ao salvar.' },

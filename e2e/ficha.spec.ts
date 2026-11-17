@@ -94,6 +94,14 @@ for (const tema of ['Claro', 'Escuro'] as const) {
   test(`axe do diálogo aberto, tema ${tema}`, async () => {
     await escolherTema(nutri, tema);
     await abrirAdicionar();
+    // Como no sessao-equipe.spec (revisão final do Plano 15): o axe 4.13 empilha, sob cada linha de um texto, também o que
+    // está atrás do diálogo modal; a dica ocupa duas linhas e a ficha por baixo muda entre elas, o que dá
+    // "elmPartiallyObscuring" sem ser problema de contraste (o diálogo é opaco: bg-cartao, text-texto). A página por baixo
+    // sai do cálculo (visibility: hidden, que o diálogo desfaz para si); o contraste conferido é o do texto sobre o diálogo.
+    await nutri.evaluate(() => {
+      for (const e of Array.from(document.body.children)) (e as HTMLElement).style.visibility = 'hidden';
+      for (const d of Array.from(document.querySelectorAll<HTMLDialogElement>('dialog[open]'))) d.style.visibility = 'visible';
+    });
     const r = await new AxeBuilder({ page: nutri }).include('dialog[open]').withTags(TAGS).analyze();
     expect(r.passes.length, 'o axe rodou regras no diálogo').toBeGreaterThan(0);
     const contrasteIncerto = r.incomplete.filter((i) => i.id === 'color-contrast').flatMap((i) => i.nodes.map((n) => `incompleto color-contrast: ${n.target.join(' ')}`));

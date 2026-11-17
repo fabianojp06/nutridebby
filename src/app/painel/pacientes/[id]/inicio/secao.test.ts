@@ -47,6 +47,12 @@ describe('seção do Início (spec §8.3)', () => {
     expect(classe).not.toMatch(/\bflex\b/);
   });
 
+  it('a seta do <summary> é um SVG aria-hidden, sem texto (um "▸" girado fica em "incomplete" no color-contrast do axe)', () => {
+    const s = summary(html(ANTROPOMETRIA));
+    expect(s).toMatch(/^<svg aria-hidden="true"[^>]*>/);
+    expect(s.replace(/<h3[\s\S]*<\/h3>/, '').replace(/<[^>]+>/g, '').trim()).toBe('');
+  });
+
   it('itens no corpo, com rótulo, data dd/mm/aaaa e situação; href relativo resolvido na ficha e absoluto como está', () => {
     const h = html(ANTROPOMETRIA);
     expect(summary(h)).not.toContain('Avaliação');

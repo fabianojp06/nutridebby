@@ -120,6 +120,15 @@ describe('secoesDoInicio (RN-277, RN-278)', () => {
     expect(secao(r, 'anamneses')!.resumo).toEqual({ total: 0, ultimos: [] });
   });
 
+  it('antropometria: empate de data e de created_at desempata por id desc, como o cabeçalho', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const quando = new Date('2026-10-12T12:00:00Z');
+    const ids = [await avaliacao(T, p.id, '2026-10-12', quando), await avaliacao(T, p.id, '2026-10-12', quando), await avaliacao(T, p.id, '2026-10-12', quando)];
+    const s = secao(await secoesDoInicio(T.ctx, TUDO_LIGADO, comoPaciente(p), { db: app.db }), 'antropometria')!;
+    expect(s.resumo.ultimos.map((i) => i.id)).toEqual([...ids].sort().reverse());
+  });
+
   it('sem conteúdo clínico: nem o nome do modelo da anamnese, nem o do exame, nem o título do plano, nem orientações', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
@@ -209,6 +218,27 @@ describe('secoesDoInicio (RN-277, RN-278)', () => {
     const aceito = await envioNoBanco(app.db, T.ctx, p.id, { status: 'aceito' });
     const s = secao(await secoesDoInicio(T.ctx, desligado, comoPaciente(p), { db: app.db }), 'exames-enviados')!;
     expect(s.resumo).toEqual({ total: 1, ultimos: [expect.objectContaining({ id: aceito, situacao: 'Aceito', href: `/painel/exames-recebidos/${aceito}` })] });
+  });
+
+  it('envios: processando, expirado e falhou levam à aba Exames (a revisão diria "Este envio já foi revisado."); recebido, aceito e recusado, à revisão', async () => {
+    const T = await novoTenant(app.db);
+    const destinos: Array<[string, string]> = [];
+    for (const status of ['processando', 'expirado', 'falhou', 'recebido', 'aceito', 'recusado'] as const) {
+      const p = await novoPaciente(app.db, T.ctx); // um envio por paciente: o resumo traz só os 3 últimos
+      const motivo = status === 'falhou' ? { motivoFalha: 'conversao' } : status === 'recusado' ? { motivoRecusa: 'ilegivel' } : {}; // CHECKs do envio
+      const id = await envioNoBanco(app.db, T.ctx, p.id, { status, ...motivo });
+      const [item] = secao(await secoesDoInicio(T.ctx, TUDO_LIGADO, comoPaciente(p), { db: app.db }), 'exames-enviados')!.resumo.ultimos;
+      expect(item.id).toBe(id);
+      destinos.push([status, item.href.replace(id, '{id}')]);
+    }
+    expect(destinos).toEqual([
+      ['processando', 'exames'],
+      ['expirado', 'exames'],
+      ['falhou', 'exames'],
+      ['recebido', '/painel/exames-recebidos/{id}'],
+      ['aceito', '/painel/exames-recebidos/{id}'],
+      ['recusado', '/painel/exames-recebidos/{id}'],
+    ]);
   });
 
   it('envios (RN-192): o envio "recebido" do titular bloqueado não conta — total 0 e, sem o recebimento ligado, a seção some', async () => {

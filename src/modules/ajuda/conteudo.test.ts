@@ -169,6 +169,13 @@ describe('conteúdo do manual (P08-10)', () => {
     const passoAPasso = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens;
     expect(passoAPasso[0]).toMatch(/Início.*Perfil.*anamnese/);
   });
+  it('Plano 18: o guia de Pacientes manda ao "Reenviar convite" da aba Perfil, só na gaveta (o tour não muda, versão 1)', () => {
+    const g = GUIAS.find((x) => x.id === 'pacientes')!;
+    expect(g.versao).toBe(1);
+    const itens = g.ajuda.secoes.flatMap((s) => s.itens);
+    expect(itens).toContainEqual(expect.stringContaining('use "Reenviar convite" em "Acesso ao app", na aba Perfil do prontuário.'));
+    expect(g.passos.map((p) => p.texto).join(' ')).not.toContain('Reenviar convite');
+  });
   it('Plano 18 (§8.3): o guia "Início do paciente" casa só o Início da ficha, vem antes do prontuário e traz os passos da spec', () => {
     const g = GUIAS.find((x) => x.id === 'inicio-paciente')!;
     expect(g.titulo).toBe('Início do paciente');

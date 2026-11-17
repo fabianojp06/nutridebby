@@ -15,7 +15,11 @@ export function Secao({ secao, patientId }: { secao: SecaoNoInicio; patientId: s
   return (
     <details open={total > 0} className="group border-t border-linha first-of-type:border-t-0">
       <summary className="block min-h-11 cursor-pointer py-2">
-        <span aria-hidden="true" className="mr-2 inline-block transition-transform group-open:rotate-90">▸</span>
+        {/* seta em SVG, não em texto: um "▸" girado (inline-block com transform) é texto de 1 caractere que o axe deixa em
+            "incomplete" no color-contrast (E2E acessibilidade-painel); o SVG não entra no contraste de texto */}
+        <svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2 inline-block align-[-0.125em] transition-transform group-open:rotate-90">
+          <path d="M6 3l5 5-5 5" />
+        </svg>
         <h3 className="inline font-semibold">{MSG_FICHA.secao(secao.titulo, total)}</h3>
       </summary>
       <div className="space-y-1 pb-3 pl-6">

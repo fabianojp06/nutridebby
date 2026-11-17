@@ -7,9 +7,17 @@ import { diaNoFuso, LIMITE_DA_SECAO, resumoDasLinhas, totalJunto } from './comum
 type StatusEnvio = keyof typeof MSG_FICHA.situacaoDoEnvio;
 
 /**
+ * Situações em que a página da revisão (/painel/exames-recebidos/{id}) diz algo certo: "recebido" abre a revisão, "aceito" e
+ * "recusado" mostram "Este envio já foi revisado.". Nas outras (processando, expirado, falhou) a página diria o mesmo sem
+ * ninguém ter revisado: o item leva à aba Exames do paciente (revisão final do PR 1 do Plano 18).
+ */
+const ABRE_A_REVISAO: ReadonlySet<StatusEnvio> = new Set(['recebido', 'aceito', 'recusado']);
+
+/**
  * Exames enviados pelo paciente (Plano 12): "Envio do paciente", o dia do envio e a situação (sem nome, observação nem
  * motivo). Fora o cancelado (RN-192: "envio não cancelado"); como a fila e os contadores do painel, nada do titular
- * bloqueado ou anonimizado. O item abre fora da ficha, na revisão do envio; o "Ver todos" é a aba Exames (RN-277).
+ * bloqueado ou anonimizado. O item abre fora da ficha, na revisão do envio (fora de recebido, aceito e recusado, na aba
+ * Exames); o "Ver todos" é a aba Exames (RN-277).
  */
 export const secaoExamesEnviados: SecaoDaFicha = {
   id: 'exames-enviados',
@@ -30,7 +38,7 @@ export const secaoExamesEnviados: SecaoDaFicha = {
       rotulo: MSG_FICHA.rotulos.envio,
       data: diaNoFuso(e.enviadoEm, fuso),
       situacao: MSG_FICHA.situacaoDoEnvio[e.status as StatusEnvio],
-      href: `/painel/exames-recebidos/${e.id}`,
+      href: ABRE_A_REVISAO.has(e.status as StatusEnvio) ? `/painel/exames-recebidos/${e.id}` : 'exames',
     }));
   },
 };

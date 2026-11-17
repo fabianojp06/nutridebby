@@ -15,7 +15,7 @@ export const secaoAntropometria: SecaoDaFicha = {
       .select({ id: anthropometry.id, data: anthropometry.data, total: totalJunto() })
       .from(anthropometry)
       .where(eq(anthropometry.patientId, patientId))
-      .orderBy(desc(anthropometry.data), desc(anthropometry.createdAt))
+      .orderBy(desc(anthropometry.data), desc(anthropometry.createdAt), desc(anthropometry.id))
       .limit(LIMITE_DA_SECAO);
     return resumoDasLinhas(linhas, (a) => ({ id: a.id, rotulo: MSG_FICHA.rotulos.avaliacao, data: a.data, href: 'antropometria' }));
   },
