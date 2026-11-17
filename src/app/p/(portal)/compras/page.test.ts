@@ -19,7 +19,7 @@ describe('/p/compras (RN-248)', () => {
   });
 
   it('com itens: a lista e a dica de marcação; sem o texto de janela vazia', async () => {
-    lista.atual = { planoId: 'p1', grupos: [{ grupo: 'Cereais e derivados', itens: [{ nome: 'Arroz branco', gramas: 500, texto: '500 g' }] }], semAlimentos: false, textoLivreFora: false };
+    lista.atual = { planoId: 'p1', grupos: [{ grupo: 'Cereais e derivados', itens: [{ nome: 'Arroz branco', gramas: 500, texto: '500 g' }] }], semAlimentos: false };
     const html = await pagina();
     expect(html).toContain('Arroz branco — 500 g');
     expect(html).toContain('Marque o que já comprou');
@@ -27,7 +27,7 @@ describe('/p/compras (RN-248)', () => {
   });
 
   it('janela sem nenhuma refeição que valha (ex.: 1 dia num domingo, plano de seg a sex): texto de vazio em região de status, sem lista nem dica de marcação', async () => {
-    lista.atual = { planoId: 'p1', grupos: [], semAlimentos: false, textoLivreFora: false };
+    lista.atual = { planoId: 'p1', grupos: [], semAlimentos: false };
     const html = await pagina({ dias: '1' });
     expect(html).toMatch(/<p role="status">Nenhuma refeição com alimentos do seu plano cai nesses dias\. Aumente o número de dias\.<\/p>/);
     expect(html).not.toContain('Marque o que já comprou');
@@ -35,7 +35,7 @@ describe('/p/compras (RN-248)', () => {
   });
 
   it('plano sem alimentos (texto livre): só o aviso da RN-248, não o de janela vazia', async () => {
-    lista.atual = { planoId: 'p1', grupos: [], semAlimentos: true, textoLivreFora: false };
+    lista.atual = { planoId: 'p1', grupos: [], semAlimentos: true };
     const html = await pagina();
     expect(html).toContain('Este plano não tem alimentos com quantidade, então não há lista de compras.');
     expect(html).not.toContain('Nenhuma refeição com alimentos');

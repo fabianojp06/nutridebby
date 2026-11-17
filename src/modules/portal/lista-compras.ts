@@ -15,8 +15,6 @@ export const MSG_COMPRAS = {
   semPlano: 'Sem plano publicado, não há lista de compras.',
   /** Plano 19 (RN-248): nenhuma refeição com alimento (o plano em texto livre). */
   semAlimentos: 'Este plano não tem alimentos com quantidade, então não há lista de compras.',
-  /** RN-248: só algumas refeições em texto livre — abaixo da lista. */
-  textoLivreFora: 'As refeições em texto livre não entram na lista.',
   /** RN-248: a janela pedida não pega nenhuma refeição com alimento (ex.: 1 dia num domingo, plano só de seg a sex). Texto fora da spec, para aprovação. */
   semRefeicaoNosDias: 'Nenhuma refeição com alimentos do seu plano cai nesses dias. Aumente o número de dias.',
 } as const;
@@ -24,7 +22,7 @@ export const MSG_COMPRAS = {
 export type ItemCompra = { nome: string; gramas: number; texto: string };
 export type GrupoCompra = { grupo: string; itens: ItemCompra[] };
 /** RN-240: a projeção fechada da lista de compras. */
-export type ListaDoPlano = { planoId: string; grupos: GrupoCompra[]; semAlimentos: boolean; textoLivreFora: boolean };
+export type ListaDoPlano = { planoId: string; grupos: GrupoCompra[]; semAlimentos: boolean };
 
 export function lerDias(v: unknown): number | null {
   if (v === undefined || v === null || v === '') return DIAS_PADRAO;
@@ -87,8 +85,9 @@ function nomeCongelado(nutrientes: unknown, nomeAtual: string): string {
 
 /**
  * US-045: a lista do plano publicado do paciente da sessão (nunca do rascunho — RLS), para `dias` dias a partir de hoje no
- * fuso do consultório (RN-248). Refeição em texto livre não entra: sem nenhuma refeição com alimento, `semAlimentos`; com
- * só algumas, `textoLivreFora`. Leitura auditada (D22).
+ * fuso do consultório (RN-248). Refeição em texto livre não entra: sem nenhuma refeição com alimento, `semAlimentos`. O
+ * modo é do plano inteiro (RN-243: no calculado, `descricao_livre` é nulo), então o caso "só algumas em texto livre" da
+ * RN-248 não acontece e não há aviso para ele (code review do PR #57). Leitura auditada (D22).
  */
 export async function listaDoPlano(ctx: TenantContext, fuso: string, dias: number, o: { db?: Db; agora?: Date } = {}): Promise<ListaDoPlano | null> {
   const patientId = pacienteDaSessao(ctx, 'listaDoPlano');
@@ -98,7 +97,7 @@ export async function listaDoPlano(ctx: TenantContext, fuso: string, dias: numbe
     async (tx) => {
       const [p] = await tx.select({ id: mealPlans.id }).from(mealPlans).where(and(eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'publicado')));
       if (!p) return null;
-      const refeicoes = await tx.select({ id: meals.id, diasSemana: meals.diasSemana, descricaoLivre: meals.descricaoLivre }).from(meals).where(eq(meals.planId, p.id)).orderBy(asc(meals.ordem));
+      const refeicoes = await tx.select({ id: meals.id, diasSemana: meals.diasSemana }).from(meals).where(eq(meals.planId, p.id)).orderBy(asc(meals.ordem));
       const linhas = await tx
         .select({ mealId: mealItems.mealId, nutrientes: mealItems.nutrientes, nomeAtual: foods.nome, grupo: foods.grupo, quantidadeG: mealItems.quantidadeG, substituiItemId: mealItems.substituiItemId })
         .from(mealItems)
@@ -113,7 +112,6 @@ export async function listaDoPlano(ctx: TenantContext, fuso: string, dias: numbe
         planoId: p.id,
         grupos: listaDeCompras(itens, dias, hoje),
         semAlimentos: comAlimento.size === 0,
-        textoLivreFora: comAlimento.size > 0 && refeicoes.some((r) => !comAlimento.has(r.id) && Boolean(r.descricaoLivre?.trim())),
       };
     },
     o.db ?? getDb(),

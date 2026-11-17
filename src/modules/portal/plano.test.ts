@@ -210,7 +210,7 @@ describe('Plano 19 — o app do paciente (RN-240, RN-247, RN-252, RN-253)', () =
     const mural = await muralDoPaciente(ctx, await tenantEm(T.tenantId, SP), new Date(), app.db);
     expect(Object.keys(mural).sort()).toEqual(['anteriores', 'hoje', 'primeiroNome', 'semPlano', 'semRefeicaoHoje', 'vazio']);
     const compras = (await listaDoPlano(ctx, SP, 7, { db: app.db }))!;
-    expect(Object.keys(compras).sort()).toEqual(['grupos', 'planoId', 'semAlimentos', 'textoLivreFora']);
+    expect(Object.keys(compras).sort()).toEqual(['grupos', 'planoId', 'semAlimentos']);
     expect(Object.keys(compras.grupos[0]).sort()).toEqual(['grupo', 'itens']);
     expect(Object.keys(compras.grupos[0].itens[0]).sort()).toEqual(['gramas', 'nome', 'texto']);
 

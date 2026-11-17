@@ -41,7 +41,7 @@ describe('lista do plano (US-045)', () => {
     await publicarPlano(T.ctx, p.id, id, { db: app.db });
     const lista = await listaDoPlano(ctx, SP, 7, { db: app.db });
     expect(lista!.grupos).toEqual([{ grupo: 'Cereais e derivados', itens: [{ nome: 'Arroz, tipo 1, cozido', gramas: 700, texto: '700 g' }] }]);
-    expect(lista).toMatchObject({ semAlimentos: false, textoLivreFora: false });
+    expect(lista).toMatchObject({ semAlimentos: false });
   });
 
   it('RN-248 (Plano 19): por dia da janela a partir de hoje no fuso — 7 dias a partir de uma quarta: o almoço de seg–sex 5 vezes, o de sábado 1', async () => {
@@ -64,8 +64,7 @@ describe('lista do plano (US-045)', () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
     await planoPublicado(app.db, T, p.id, { modo: 'livre', refeicoes: [{ nome: 'Almoço', horario: '12:00', descricaoLivre: 'Arroz e feijão.', itens: [] }] });
-    expect(await listaDoPlano(ctxPaciente(T.tenantId, p.id), SP, 7, { db: app.db })).toMatchObject({ grupos: [], semAlimentos: true, textoLivreFora: false });
+    expect(await listaDoPlano(ctxPaciente(T.tenantId, p.id), SP, 7, { db: app.db })).toMatchObject({ grupos: [], semAlimentos: true });
     expect(MSG_COMPRAS.semAlimentos).toBe('Este plano não tem alimentos com quantidade, então não há lista de compras.');
-    expect(MSG_COMPRAS.textoLivreFora).toBe('As refeições em texto livre não entram na lista.');
   });
 });
