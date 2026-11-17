@@ -2,11 +2,11 @@
 
 | Item | Valor |
 |---|---|
-| Versão | 0.2 |
-| Data | 2026-11-16 |
-| Status | **Decisões aprovadas pelo dono em 16/11/2026** ("aprovo todas as recomendações, pode seguir": as seis perguntas da proposta, §14). Spec escrita a partir da proposta aprovada (`.sessoes/proposta-plano-19.json`: brief, crítica de completude, normas e levantamento do código), com as correções da crítica conferidas no código da `main` 5482450 (última migration `0117_ia_nutri_funcoes`). Só documentos nesta etapa: o plano de execução vem depois, nesta mesma branch (`plano-19-plano-alimentar-2`, sessão B, worktree `../nutridebby-b`). **Revisão 0.2 (16/11/2026):** achados das lentes banco/RLS, normas, interface e completude conferidos no código e aplicados (§18) |
+| Versão | 0.3 |
+| Data | 2026-11-17 |
+| Status | **Decisões aprovadas pelo dono em 16/11/2026** ("aprovo todas as recomendações, pode seguir": as seis perguntas da proposta, §14). Spec escrita a partir da proposta aprovada (`.sessoes/proposta-plano-19.json`: brief, crítica de completude, normas e levantamento do código), com as correções da crítica conferidas no código da `main` 5482450 (última migration `0117_ia_nutri_funcoes`). Só documentos nesta etapa: o plano de execução vem depois, nesta mesma branch (`plano-19-plano-alimentar-2`, sessão B, worktree `../nutridebby-b`). **Revisão 0.2 (16/11/2026):** achados das lentes banco/RLS, normas, interface e completude conferidos no código e aplicados (§18). **Revisão 0.3 (17/11/2026):** revisão do plano de execução (executabilidade, banco e conflitos com as sessões paralelas); o que mudou na spec está no §19 |
 | Itens do backlog | Paridade Dietbox, onda 1: **PD-20** TBCA (preparada, carga desligada até a autorização) · **PD-21** USDA · **PD-22** micronutrientes e valores de referência · **PD-23** busca por nutriente e equivalentes · **PD-24** texto livre · **PD-25** dias da semana · **PD-26** minhas refeições · **PD-27** observação no app e receitas, materiais e lista de substituição ligados ao plano · **PD-28** listas de substituição reutilizáveis |
-| Quando | **Plano 19**, em paralelo como sessão B (`docs/operacao/sessoes-paralelas.md`, branch `docs/sessoes-paralelas`, ainda não mesclada). Só a parte dos lembretes depende do merge do Plano 17 (D28). O seed da USDA vai num PR seguinte, depois do deploy do código que conhece `foods.fonte` (D29) |
+| Quando | **Plano 19**, em paralelo como sessão B (`docs/operacao/sessoes-paralelas.md`, na `main` desde o PR #50, 680eac3). Só a parte dos lembretes depende do merge do Plano 17 (D28). O seed da USDA vai num PR seguinte, depois do deploy do código que conhece `foods.fonte` (D29) |
 | Documentos de base | [`2026-09-27-nutridebby-mvp-design.md`](2026-09-27-nutridebby-mvp-design.md) (RN-01, RN-02, RN-11, RN-12, RN-13, INT-04), [`2026-09-27-nutridebby-mvp-historias.md`](2026-09-27-nutridebby-mvp-historias.md) (US-020 a US-026, US-041, US-045, US-054), [`2026-10-03-nutridebby-ia-nutricionista-design.md`](2026-10-03-nutridebby-ia-nutricionista-design.md) (RN-109, RN-116, RN-117, RN-126), [`2026-10-03-nutridebby-paciente-exames-ia-design.md`](2026-10-03-nutridebby-paciente-exames-ia-design.md) (IA Nutri, D9 = a, RN-170, RN-171), [`2026-10-08-nutridebby-app-paciente-g-design.md`](2026-10-08-nutridebby-app-paciente-g-design.md) (RN-194, RN-196, RN-197, RN-213), spec do Plano 17 (branch `plano-17-lembretes-rotina`) e o manual técnico, cap. [04](../../manual-tecnico/04-modulos-clinicos.md) (§4.3 Alimentos, §4.4 Plano alimentar) e [05](../../manual-tecnico/05-agenda-portal-conteudo.md) |
 | Numeração nova | US-230 a US-239 · RN-230 a RN-259 · RNF-230 a RNF-235 · CS-230 a CS-233 · R-230 a R-244 · C-230 a C-235 · DEP-PA1 a DEP-PA8 · PM-PA1 a PM-PA15 · D1 a D31 (decisões **deste documento**; fora daqui, cite "spec 19, Dn", como "Plano 05, D10"). O bloco 230 (e não o 220, o primeiro livre) evita colisão com as specs dos Planos 18 e 20, escritas ao mesmo tempo; se mesmo assim colidir, quem mescla depois renumera. A INT-04 ganha versão nova em vez de um INT novo, pelo mesmo motivo |
 
@@ -659,6 +659,7 @@ Cenário: IA Nutri e a lista
 | Modo | "Como montar o plano" · "Com alimentos e quantidades" · "Texto livre por refeição" · "O que comer" · "Distribuição prescrita (opcional)" · "A soma de proteína, carboidrato e lipídio precisa dar 100%." |
 | Dias | "Dias" · "Todos" · "seg" … "dom" · "{dia}: sem refeições" · "Escolha ao menos um dia da semana." · "Escolha um dia para ver os detalhes." · "{Dia} não tem refeições." · "Publicar mesmo assim" |
 | Nutrientes | "Nutrientes do paciente" · "Perfil de referência" · "Sem perfil" · "Ver todos os nutrientes" · "Mostrar no PDF os nutrientes escolhidos" · "Escolha até 12 nutrientes." · "Acima do máximo ({valor})" · "Micronutrientes não registrados nesta versão do plano." |
+| Biblioteca | "Novo perfil" · "Nova lista" (links para `/painel/planos/referencias/novo` e `/painel/planos/listas/novo`: a página `[id]` com `novo` abre o formulário vazio; minha refeição nasce só pelo editor) |
 | Ligado ao plano | "Ligado ao plano" · "Ligar lista de substituição" · "Ligar receita ou material" · "Atualizar da biblioteca" · "Remover" · "Cópia de {data}. Mudanças na biblioteca não alteram este plano." · "Não publicado — o paciente não vê" · "{título} (excluído)" · "O plano pode ter até 5 listas e 10 receitas ou materiais." |
 | Observação | "Aparece para o paciente no app." |
 | Publicação | "Registre o VET, a distribuição de macro e micronutrientes e as quantidades da prescrição no plano ou no atendimento." · "Publicar mesmo assim" |
@@ -735,7 +736,7 @@ Cada uma com migration custom `rls_<tabela>` (regra 2), entrada em `FABRICAS` de
 | `listas_substituicao` | `tenant_id`, `id`, `nome` (1–80, UNIQUE por tenant), `orientacao` (até 1000), carimbos | `app_enable_tenant_rls` + `app_enable_staff_only`; `STAFF_ONLY`; `FABRICAS` | Sem gatilho |
 | `listas_substituicao_grupos` | `tenant_id`, `lista_id` (FK composta, cascade), `id`, `nome` (1–60), `ordem` | `app_enable_tenant_rls` + `app_enable_staff_only`; entrada em `STAFF_ONLY` (motivo: "biblioteca do consultório; o paciente nunca vê"); `FABRICAS` + `COM_MAE` | Sem gatilho |
 | `listas_substituicao_itens` | `tenant_id`, `lista_id`, `grupo_id` (FK composta, cascade), `id`, `food_id` (FK **RESTRICT**), `quantidade_g` (0,1–5000), `medida jsonb`, `ordem` | `app_enable_tenant_rls` + `app_enable_staff_only`; entrada em `STAFF_ONLY` (motivo: "biblioteca do consultório; o paciente nunca vê"); `FABRICAS` + `COM_MAE`; `food_id` conferido visível ao salvar (RN-258) | Sem gatilho |
-| `plano_listas_substituicao` | `tenant_id`, `patient_id` (nulo em modelo, como `meals`), `plan_id`, `id`, `lista_origem_id uuid null` (sem FK: só informativo), `nome`, `orientacao`, `conteudo jsonb` (grupos e itens congelados, RN-252), `copiada_em`, `ordem`, carimbos. FKs compostas `(tenant_id, plan_id)` e `(tenant_id, plan_id, patient_id)` → `meal_plans`, cascade (molde de `meals`). CHECK `jsonb_typeof(conteudo) = 'object'` e tamanho (`octet_length(conteudo::text) <= 65536`, previsível; `pg_column_size` mede o comprimido) | `app_enable_tenant_rls` + `app_enable_patient_rls` + política RESTRICTIVE `paciente_sem_rascunho` (molde da 0045: `EXISTS` em `meal_plans` com `status <> 'rascunho'`); sem escrita do paciente (fora de `PACIENTE_ESCREVE`); `FABRICAS` + `COM_MAE` (sem filtro em `SO_APAGA.patients`: a única FK é para `meal_plans`, em cascata) | `app_enable_audit('plano_listas_substituicao', 'plano_alimentar')` |
+| `plano_listas_substituicao` | `tenant_id`, `patient_id` (nulo em modelo, como `meals`), `plan_id`, `id`, `lista_origem_id uuid null` (sem FK: só informativo), `nome`, `orientacao`, `conteudo jsonb` (grupos e itens congelados, RN-252), `copiada_em`, `ordem`, carimbos. FKs compostas `(tenant_id, plan_id)` e `(tenant_id, plan_id, patient_id)` → `meal_plans`, cascade (molde de `meals`). CHECK `jsonb_typeof(conteudo) = 'object'` e tamanho (`octet_length(conteudo::text) <= 524288`, previsível; `pg_column_size` mede o comprimido). O teto cobre o pior caso dos limites da lista (20 grupos × 30 itens = 600 itens; cada item com id, nome de até 120 caracteres acentuados, gramas, texto da medida, fonte, `fonteOrigem`, kcal e macros dá até uns 600 bytes de JSON, ou ~370 KB); os 64 KB da v0.2 recusariam com 23514 uma lista que a biblioteca deixa salvar (revisão do plano, banco I-1). Teste com a lista cheia em `plano19-banco.test.ts` e `ligados.test.ts` | `app_enable_tenant_rls` + `app_enable_patient_rls` + política RESTRICTIVE `paciente_sem_rascunho` (molde da 0045: `EXISTS` em `meal_plans` com `status <> 'rascunho'`); sem escrita do paciente (fora de `PACIENTE_ESCREVE`); `FABRICAS` + `COM_MAE` (sem filtro em `SO_APAGA.patients`: a única FK é para `meal_plans`, em cascata) | `app_enable_audit('plano_listas_substituicao', 'plano_alimentar')` |
 | `plano_conteudos` | `tenant_id`, `patient_id` (nulo em modelo), `plan_id`, `id`, `content_id uuid null` (FK composta `(tenant_id, content_id)` → `contents` `ON DELETE SET NULL (content_id)`), `titulo` (cópia, 1–120), `ordem`, `created_at`. UNIQUE `(plan_id, content_id)`. FKs para `meal_plans` como acima. Índice `(tenant_id, content_id) where content_id is not null` (a política de `contents` procura por ele) | Idem a `plano_listas_substituicao` | `app_enable_audit('plano_conteudos', 'plano_alimentar')` |
 
 - **Política de `contents`** (migration custom): `DROP` e `CREATE` de `paciente_conteudo_visivel` com o ramo novo da
@@ -801,7 +802,7 @@ Cada uma com migration custom `rls_<tabela>` (regra 2), entrada em `FABRICAS` de
 | R-239 | Planos de 50 refeições pesam no editor, no PDF e no contexto da IA Nutri | Medição antes de fechar a tarefa (RN-249, PM-PA9); se passar do orçamento, o limite volta a ser discutido |
 | R-240 | Colisão com o Plano 17 (lembretes) e os Planos 18 e 20 em arquivos e migrations | §13, D28: só acrescentar, migration gerada de novo, um PR com migration por vez |
 | R-241 | Texto livre sem VET, sem doses e gramatura e sem os micronutrientes mais importantes não cumpre a "prescrição dietética" (Res. CFN 594, art. 4º, § 1º, VIII: data, horário, VET, consistência, macro e micronutrientes mais importantes para o paciente, fracionamento e doses em volume e gramatura) | Aviso na publicação cobrindo VET, distribuição e quantidades (RN-244); pergunta 1 ao CRN-3 sobre o inciso inteiro; regra revista com a resposta |
-| R-244 | Imagem antiga no ar durante o boot do app novo ou na volta atrás (escrita sem colunas novas, rótulo da fonte por `tenant_id`) | Migration só de expansão com defaults permanentes (`foods.fonte DEFAULT 'propria'`); seed da USDA num PR seguinte (D29) |
+| R-244 | Imagem antiga no ar durante o boot do app novo ou na volta atrás (escrita sem colunas novas, rótulo da fonte por `tenant_id`; worker antigo gerando o PDF de um plano publicado no app novo sem dias nem texto livre) | Migration só de expansão com defaults permanentes (`foods.fonte DEFAULT 'propria'`); seed da USDA num PR seguinte (D29); PDF do plano numa fila nova (`plano-pdf-2`) que só o worker novo registra (ele também consome `plano-pdf`); manual técnico §6.8.1 com "Voltar atrás depois do Plano 19" (efeitos da imagem anterior) e, depois do seed da USDA, nunca voltar abaixo do PR do código: corrigir para a frente |
 | R-242 | A nutricionista toma o perfil de referência por dado "oficial" da plataforma | Fonte obrigatória e mostrada sempre junto dos valores; a lista vazia diz que a plataforma não traz valores prontos |
 | R-243 | Quatro worktrees de plano ao mesmo tempo (`-a`, `-b`, `-c`, `-18`) passam do limite de 3 sessões de código (§2 de `sessoes-paralelas.md`) e disputam CPU com a produção | A orquestradora escalona suíte, E2E e revisões pesadas; esta sessão só roda suíte pesada quando avisada |
 
@@ -810,7 +811,9 @@ Cada uma com migration custom `rls_<tabela>` (regra 2), entrada em `FABRICAS` de
 ## 13. Conflitos com sessões paralelas
 
 Estado em 16/11/2026: Plano 17 em `../nutridebby-a` (P17-01 a P17-03 feitas, migrations `0118` a `0120` na branch), Plano 18 em
-`../nutridebby-18`, Plano 20 em `../nutridebby-c`, Plano 19 aqui (sessão B). Nada mesclado ainda. Regras: §5 e §6 de
+`../nutridebby-18`, Plano 20 em `../nutridebby-c`, Plano 19 aqui (sessão B). Nada mesclado ainda. **Em 17/11/2026:** o PR #50
+(sessões paralelas) está na `main`; o 17 está em P17-05; a ordem de merge combinada põe o **17 antes do 19** (os lembretes
+por dia deixam de ser condicionais no plano) e o seed da USDA por último, sozinho no trem. Regras: §5 e §6 de
 `sessoes-paralelas.md` — migration gerada de novo sobre a `main` antes do PR, só acrescentar nos arquivos disputados,
 quem entra depois resolve o conflito no rebase, um PR com migration na fila por vez.
 
@@ -826,6 +829,10 @@ quem entra depois resolve o conflito no rebase, um PR com migration na fila por 
 | `src/app/painel/pacientes/[id]/plano-alimentar/page.tsx` | 17 (seção de lembretes), 18 | Só se a página precisar mostrar o modo ou os dias; preferir mudar o editor |
 | `src/modules/portal/{plano,mural,diario,diario-constantes,lista-compras,conteudos}.ts` e `src/app/p/(portal)/{plano,inicio,compras}/*` | 17 (diário), 18 (filtros de visibilidade do PD-13) | Filtro por dia e seções novas; projeção fechada com teste |
 | `src/app/api/p/conteudos/[id]/pdf` | — | `?de=plano` |
+| `src/app/painel/pacientes/[id]/plano-alimentar/botao-acao.tsx`, `[planId]/page.tsx`, `plano-alimentar/page.tsx` | 17 (prop `nome` do `BotaoAcao`; `page.tsx` reidentado) | Componente próprio `botao-publicar.tsx` (D31), sem mudar `BotaoAcao`/`AcaoPlanoState`; `plano-alimentar/page.tsx` intocado. O `confirm` atual do "Publicar" fica, então os helpers `e2e/portal.ts` e `e2e/plano-alimentar.spec.ts` (17 e 18) continuam valendo |
+| `src/jobs/queues.ts`, `src/worker/index.ts` | — | Fila `plano-pdf-2` (R-244) |
+| `src/modules/agenda/fuso.ts` | 17, 20 (usam) | Só usar (`diaDaSemana`, `partesNoFuso`); ninguém edita |
+| `CLAUDE.md` regra 2 (chamadores de `liberarReceitasDoPlano`) | 18 | Edição **no lugar** (terceiro chamador, `caminhoDoPdfDoConteudo`), exceção ao "só acrescentar" avisada à orquestradora |
 | `src/modules/ajuda/conteudo.ts`, `src/modules/ajuda/portal.ts` e os testes | 17 (`plano-alimentar` 1 → 2, portal 2 → 3), 20 (guia `financeiro`) | Guia novo `biblioteca-do-plano`; versões sobem. **Quem entra depois sobe a versão de novo sobre a `main`** (`versao + 1`), senão quem já viu o tour do outro plano não vê os passos novos |
 | `e2e/painel-rotas.ts`, `e2e/acessibilidade-painel.spec.ts` | 18, 20 | Só acrescentar as 6 rotas novas em `ROTAS_DO_PAINEL` |
 | `src/modules/ficha/no-app.ts` (Plano 18, PD-13, "No app do paciente") | 18 | Quem entra depois inclui na contagem os conteúdos de `plano_conteudos` e a lista ligada do plano publicado, com o caso no teste de paridade (CS-261 do 18) |
@@ -1046,3 +1053,21 @@ Nenhum achado foi descartado. A frase "a capa herda por `paciente_arquivos`" (ba
 (completude M-10) foram conciliadas: a capa sai por `signFileUrl` do `capa_path` lido com a RLS de `contents`, e a política
 da 0102 também confere por `EXISTS`.
 
+---
+
+## 19. Revisão 0.3 (17/11/2026) — revisão do plano de execução
+
+O plano passou por três revisões (executabilidade, banco e guardas, conflitos com as sessões paralelas). Os achados que
+só tocam o plano foram aplicados nele (ordem serial, Tarefa 10 dividida em 10a–10d, `ULTIMAS`, fábricas, guardas e
+testes). Estes mudaram a spec:
+
+| Lente | Achado | Decisão | Onde |
+|---|---|---|---|
+| Banco | I-1 CHECK de 64 KB em `plano_listas_substituicao.conteudo` menor que a lista que a biblioteca deixa salvar | Aplicado: 512 KB, com a conta do pior caso e teste da lista cheia | §9.2 |
+| Banco | I-2 worker antigo e volta atrás | Aplicado: fila `plano-pdf-2`, §6.8.1 do manual técnico e "não voltar abaixo do PR do código depois do seed" | R-244 |
+| Executabilidade | I-6 rotas `[id]` sem caminho de criação | Aplicado: `[id] = novo` para perfis e listas (sem rota nova), links "Novo perfil" e "Nova lista"; minha refeição só pelo editor | §6.1 |
+| Conflitos | Estado das sessões e ordem de merge | Aplicado: #50 na `main`, 17 antes do 19, seed por último e sozinho; linhas novas na tabela | Cabeçalho, §13 |
+| Conflitos | Exceções ao "só acrescentar" | Registradas | §13 |
+
+Nenhuma regra de negócio, texto da spec já aprovado ou decisão do dono mudou. O `confirm` do "Publicar" fica (D31 não o
+removia: só trocou o aviso dinâmico por "Publicar mesmo assim").
