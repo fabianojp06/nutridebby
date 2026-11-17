@@ -439,3 +439,9 @@ Plano 23, T1a (Agenda 2, banco, 17/11/2026):
 - Política RESTRICTIVE `FOR SELECT` usada para "o papel não grava o estado X" (aguardando_fora_do_publico): barra o UPDATE
   (linha nova conferida pelo SELECT) e o FOR UPDATE, mas NÃO o INSERT sem RETURNING — o `publico` insere a linha já no estado
   X (provado no dev com rollback). Conferir os três comandos; pedir FOR ALL (USING + WITH CHECK) ou política de INSERT própria.
+Plano 23, T1b (gatilhos do pedido, 17/11/2026):
+- Regra de NASCIMENTO decidida no BEFORE INSERT (chave → `solicitada`) com o papel que tem UPDATE amplo na própria linha
+  (paciente em `appointments`: `app_allow_paciente_escrita(...,'update')`, sem gatilho de colunas desde a 0070): reabrir a
+  cancelada (`cancelada → agendada`, provado no dev com ROLLBACK) ou mover o horário de uma agendada contorna a regra. Conferir
+  sempre o que o papel já pode fazer por UPDATE nas linhas que NÃO estão no estado novo, não só as transições do estado novo.
+- `tenants` sem RLS: gatilho "só a equipe muda a coluna" barra papel, não tenant — a sessão nutri de A muda a linha de B.
