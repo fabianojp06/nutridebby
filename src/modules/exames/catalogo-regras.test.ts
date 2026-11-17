@@ -40,6 +40,11 @@ describe('exame do catálogo (RN-371, RN-373 a RN-375; "Catálogo: erros" da §6
   });
   it('11 outros nomes', () => {
     expect(erroDe({ ...base, sinonimos: Array.from({ length: 11 }, (_, i) => `V${i}`) }, 'sinonimos')).toBe('Use até 10 outros nomes.');
+    // /code-review do PR 1: o limite vale depois de tirar os repetidos — 11 linhas, uma repetida (sem acento e maiúsculas), passam com 10
+    const onze = [...Array.from({ length: 10 }, (_, i) => `Vitâmina ${i}`), 'VITAMINA 3'];
+    expect(validarExameDoCatalogo({ ...base, sinonimos: onze }).sinonimos).toHaveLength(10);
+    // e o igual ao nome também não conta
+    expect(validarExameDoCatalogo({ ...base, sinonimos: [...Array.from({ length: 10 }, (_, i) => `V${i}`), 'vitamina d'] }).sinonimos).toHaveLength(10);
   });
   it('painel com 1 e 31 componentes', () => {
     const painel = { nome: 'Hemograma completo', unidade: '', faixas: [] };

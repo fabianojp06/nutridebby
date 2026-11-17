@@ -88,7 +88,6 @@ export const TERMOS_NAO_VEGETAIS: readonly string[] = [
   'condroitina',
   'inositol',
   'ubiquinol',
-  'coenzima Q10',
   'licopeno',
   'luteína',
   // gêneros de probióticos e leveduras
@@ -110,7 +109,7 @@ const formas = (termo: string): string[] => {
   return base;
 };
 const PALAVRAS_BARRADAS = new Set(TERMOS_NAO_VEGETAIS.filter((t) => !t.includes(' ')).flatMap(formas));
-/** Termos de mais de uma palavra ("geleia real", "coenzima Q10"): a sequência inteira de palavras, sem acento. */
+/** Termos de mais de uma palavra ("geleia real"): a sequência inteira de palavras, sem acento. */
 const EXPRESSOES_BARRADAS = TERMOS_NAO_VEGETAIS.filter((t) => t.includes(' ')).map((t) => ` ${semAcento(t)} `);
 
 /** RN-392: palavra inteira, sem acento e sem diferença de maiúsculas; "L-" no começo de palavra (L-teanina, L-carnitina). */
@@ -203,7 +202,9 @@ const derivadoVegetal = z.object({
   extracao: opc(120),
 });
 /** Revisão final do PR 1: a vedação do art. 9º, II (Res. CFN 680/2021) vale também para o fitoterápico de uma planta
- * só — a nomenclatura e a extração passam pela mesma conferência de apoio da fórmula (a padronização fica de fora). */
+ * só. A vedação é sobre a COMPOSIÇÃO: só a nomenclatura passa pela conferência de apoio da fórmula (/code-review do PR 1).
+ * A extração e a padronização ficam de fora — o marcador de padronização é legítimo ("Extrato seco padronizado a 95% de
+ * curcumina") e barrá-lo travaria rascunhos e retificações já salvos. */
 const fitoterapico = z
   .object({
     tipo: z.literal('fitoterapico'),
@@ -216,9 +217,7 @@ const fitoterapico = z
     padronizacao: opc(120),
   })
   .superRefine((f, c) => {
-    for (const campo of ['nomenclatura', 'extracao'] as const) {
-      if (temTermoNaoVegetal(f[campo])) c.addIssue({ code: 'custom', path: [campo], message: MSG_PRESCRICAO.naoVegetal });
-    }
+    if (temTermoNaoVegetal(f.nomenclatura)) c.addIssue({ code: 'custom', path: ['nomenclatura'], message: MSG_PRESCRICAO.naoVegetal });
   });
 const item = z.discriminatedUnion('tipo', [suplemento, plantaCha, derivadoVegetal, fitoterapico], { message: MSG_PRESCRICAO.opcao });
 export type ItemPrescricao = z.output<typeof item>;

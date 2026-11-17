@@ -538,6 +538,19 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
         { entidade: 'exames_versoes', entidade_id: filhas[sai].versao, actor_user_id: nutri },
       ]);
       await c.query('commit');
+      // /code-review do PR 1 (LGPD): a anonimização não apaga o exame — a função SECURITY DEFINER do dono sem superusuário
+      // (UPDATE revogado de nutri_app_role, FORCE RLS) limpa a justificativa e o texto das filhas que ficaram
+      const fn = await owner.query(`select pg_get_userbyid(proowner) as dono, prosecdef from pg_proc where proname = 'app_anonimizar_exames_textos'`);
+      expect(fn.rows).toEqual([{ dono: 'nutri_owner', prosecdef: true }]);
+      await ctx(t, 'worker');
+      await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2026-01-01', anonimizado_em = now() where id = $1`, [p]);
+      await c.query('select app_anonimizar_exames_textos($1, $2)', [t, p]);
+      const textos = await c.query(
+        `select (select array_agg(texto) from exam_interpretacoes where exam_id = $1) as notas, (select array_agg(justificativa) from exam_versoes where exam_id = $1) as versoes`,
+        [fica],
+      );
+      expect(textos.rows).toEqual([{ notas: [null], versoes: [null] }]);
+      await c.query('commit');
     } finally {
       await c.query('rollback').catch(() => undefined);
       c.release();
