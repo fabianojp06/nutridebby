@@ -203,6 +203,15 @@ describe('Plano 11 (RN-101) — a IA no Histórico de acessos', () => {
   });
 });
 
+describe('Plano 20 (RN-319) — o Financeiro no Histórico de acessos', () => {
+  it('a entidade financeiro aparece como "Financeiro"; financeiro_configuracoes não tem paciente e fica sem rótulo', () => {
+    expect(ENTIDADE_ROTULO.financeiro).toBe('Financeiro');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'financeiro' })).toBe('Criou');
+    expect(rotuloDaAcao({ acao: 'alterar', entidade: 'financeiro' })).toBe('Alterou');
+    expect(ENTIDADE_ROTULO.financeiro_configuracoes).toBeUndefined();
+  });
+});
+
 describe('Plano 15 (RN-183) — a IA Nutri no Histórico de acessos', () => {
   it('rótulos: "Perguntou à IA", "Enviou dúvida à nutricionista", "Pergunta enviada à IA"; as entidades com o nome de trabalho (desvio 6)', () => {
     expect(rotuloDaAcao({ acao: 'criar', entidade: 'ia_nutri_pergunta' })).toBe('Perguntou à IA');

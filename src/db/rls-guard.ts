@@ -115,6 +115,9 @@ export const STAFF_ONLY: Record<string, string> = {
   ia_uso: 'Plano 11 (D3): registro técnico de custo da IA — só a equipe (o admin lê pela função admin_metricas_ia)',
   ia_geracoes_modelos: 'Plano 14B (US-123 (d)): pedidos de modelos sugeridos pela IA — registro técnico da equipe; não tem paciente',
   lembretes_rotina_envios: 'Plano 17 (§5.5): marca técnica do último horário enviado de cada lembrete — escrita só pelo worker (gatilho lembretes_rotina_envios_do_worker, 0119); o paciente vê os lembretes, não a marca',
+  fin_configuracoes: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
+  fin_categorias: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
+  fin_lancamentos: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {

@@ -76,6 +76,9 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   ia_nutri_revogacao: 'IA Nutri (conversa com o paciente)',
   // Plano 17 (§5.5): a configuração dos lembretes de rotina (gatilho de lembretes_rotina, 0119)
   lembretes: 'Lembretes no app',
+  // Plano 20 (RN-319): escritas de fin_lancamentos (gatilho), leituras de um paciente (RN-318) e o CSV (RN-321). A entidade
+  // `financeiro_configuracoes` (RN-320) não tem paciente e fica fora do Histórico do paciente: sem rótulo
+  financeiro: 'Financeiro',
 };
 
 export type AccessHistoryItem = {
