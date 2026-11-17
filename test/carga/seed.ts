@@ -6,10 +6,13 @@
  * pilha (o worker dela decifra) e o produtor do pg-boss (`getBoss`) abre o banco por DATABASE_URL.
  * Uso, na raiz do repositório (no commit da imagem): pnpm tsx --env-file=.env.carga test/carga/seed.ts
  * Nunca importado pelo app nem pelo Vitest (não termina em `.test.ts`).
+ * Plano 18 (P18-12b, CS-263): os pacientes ganham o cadastro complementar (`semearCadastro`). Rodar de novo na mesma pilha
+ * (consultórios já semeados) só refaz o cadastro, por upsert, e mantém o `.sessoes.json`; o resto da semente é de uma vez
+ * por pilha (recriada com `down -v`, roteiro passo 10).
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import * as schema from '@/db/schema';
@@ -19,6 +22,8 @@ import { getBoss, stopBoss } from '@/jobs/boss';
 import { createAuth } from '@/lib/auth';
 import { hashPassword } from '@/lib/password.server';
 import { agendarLembretes } from '@/modules/notificacoes/agendar';
+import { gravarCadastro, type CadastroComplementar } from '@/modules/pacientes/cadastro';
+import { cpfValido } from '@/modules/pacientes/cpf';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
 import { revisaoDoPlano } from '@/modules/plano-alimentar/carregar';
 import { publicarPlano } from '@/modules/plano-alimentar/publicacao';
@@ -54,9 +59,99 @@ type Inscricao = { endpoint: string; keys: { p256dh: string; auth: string } };
 const sessoes: { pacientes: { cookie: string; conteudo: string; inscricao: Inscricao }[]; nutris: { cookie: string; pacientes: string[]; planos: { id: string; paciente: string }[] }[]; slugs: string[] } = { pacientes: [], nutris: [], slugs: [] };
 const tenantIds: string[] = [];
 let alimentos: string[] = []; // TACO (tenant_id nulo), lida na sessão do primeiro consultório (RLS de foods)
+const slugDo = (t: number) => `carga-${String(t).padStart(2, '0')}`;
+
+// Plano 18 (P18-12b, CS-263): cadastro complementar sintético, determinístico por (consultório, paciente) — a segunda
+// rodada grava os mesmos valores. CPF fictício com os dígitos verificadores certos, único no consultório (índice
+// patient_cadastro_cpf_unico) ou nulo; nunca impresso (regra 3). Variado como num consultório real: 1 em 5 sem linha
+// (paciente antigo), metade sem endereço (nota "Cadastro incompleto"), 1 em 10 com nome social (lista e busca).
+if (PACIENTES > 100_000) throw new Error('CARGA_PACIENTES acima de 100 mil: o CPF sintético repetiria');
+const digito = (base: string) => {
+  let soma = 0;
+  for (let i = 0; i < base.length; i++) soma += Number(base[i]) * (base.length + 1 - i);
+  const resto = soma % 11;
+  return resto < 2 ? 0 : 11 - resto;
+};
+function cpfSintetico(t: number, p: number): string {
+  const base = String(200_000_000 + t * 100_000 + p); // 9 dígitos, nunca todos iguais (2xx… até 204.999.999)
+  const comPrimeiro = `${base}${digito(base)}`;
+  const cpf = `${comPrimeiro}${digito(comPrimeiro)}`;
+  if (!cpfValido(cpf)) throw new Error('CPF sintético inválido'); // sem o valor (regra 3)
+  return cpf;
+}
+const IDENTIDADES = ['mulher', 'homem', 'nao_binario', 'prefere_nao_informar'] as const;
+const ESTADOS = ['solteiro', 'casado', 'uniao_estavel', 'divorciado'] as const;
+const ESCOLAS = ['medio_completo', 'superior_incompleto', 'superior_completo', 'pos_graduacao'] as const;
+function cadastroSintetico(t: number, p: number): Partial<CadastroComplementar> | null {
+  if (p % 5 === 4) return null;
+  const endereco = p % 2 === 0;
+  return {
+    cpf: p % 3 === 0 ? null : cpfSintetico(t, p),
+    nomeSocial: p % 10 === 1 ? `Social ${p} ${slugDo(t)}` : null,
+    identidadeGenero: IDENTIDADES[p % IDENTIDADES.length],
+    estadoCivil: p % 7 === 0 ? null : ESTADOS[p % ESTADOS.length],
+    escolaridade: ESCOLAS[p % ESCOLAS.length],
+    ocupacao: 'Analista de carga',
+    nacionalidade: 'brasileira',
+    naturalidade: 'São Paulo (SP)',
+    telefoneFixo: `+5511${String(30_000_000 + t * 1_000 + p)}`,
+    cep: endereco ? '01310100' : null,
+    logradouro: endereco ? 'Avenida da Carga' : null,
+    numero: endereco ? String(p + 1) : null,
+    complemento: null,
+    bairro: endereco ? 'Centro' : null,
+    cidade: endereco ? 'São Paulo' : null,
+    uf: endereco ? 'SP' : null,
+    observacao: p % 4 === 0 ? 'Paciente sintético da pilha de carga.' : null,
+  };
+}
+/**
+ * Pelo `gravarCadastro` da tela (validação dos CHECKs e pré-checagem do CPF sob trava, D23), na sessão da nutricionista:
+ * upsert em (tenant_id, patient_id), nunca DELETE (gatilho patient_cadastro_sem_apagar). `pacientes[p]` é o paciente `p`.
+ */
+async function semearCadastro(ctx: TenantContext, t: number, pacientes: string[]): Promise<number> {
+  return withTenant(
+    ctx,
+    async (tx) => {
+      let n = 0;
+      for (const [p, patientId] of pacientes.entries()) {
+        const valor = cadastroSintetico(t, p);
+        if (!valor) continue;
+        await gravarCadastro(tx, { tenantId: ctx.tenantId, patientId, valor, now: agora });
+        n++;
+      }
+      return n;
+    },
+    db,
+  );
+}
+
+// Segunda rodada na mesma pilha: só o cadastro (upsert), pelos mesmos índices (o `p` do e-mail `p<p>-<slug>@carga.test`)
+const [jaSemeado] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, slugDo(0)));
+if (jaSemeado) {
+  for (let t = 0; t < TENANTS; t++) {
+    const slug = slugDo(t);
+    const [tn] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, slug));
+    const [nutri] = await db.select({ id: user.id }).from(user).where(eq(user.email, `nutri-${slug}@carga.test`));
+    if (!tn || !nutri) throw new Error(`${slug} não está na pilha: semente incompleta, recrie a pilha (down -v) e rode de novo`);
+    const ctx: TenantContext = { tenantId: tn.id, role: 'nutri', actorUserId: nutri.id, ip: '127.0.0.1' };
+    const linhas = await withTenant(ctx, (tx) => tx.select({ id: patients.id, email: patients.email }).from(patients), db);
+    const pacientes: string[] = [];
+    for (const l of linhas) {
+      const m = new RegExp(`^p(\\d+)-${slug}@carga\\.test$`).exec(l.email);
+      if (m) pacientes[Number(m[1])] = l.id;
+    }
+    if (pacientes.length !== PACIENTES || Object.keys(pacientes).length !== PACIENTES) throw new Error(`${slug}: pacientes diferentes de CARGA_PACIENTES`);
+    console.log(`${slug}: cadastro de ${await semearCadastro(ctx, t, pacientes)} pacientes (upsert)`);
+  }
+  await stopBoss();
+  await pool.end();
+  console.log('pronto: só o cadastro (a pilha já estava semeada; .sessoes.json mantido)');
+  process.exit(0);
+}
 
 for (let t = 0; t < TENANTS; t++) {
-  const slug = `carga-${String(t).padStart(2, '0')}`;
+  const slug = slugDo(t);
   const [tn] = await db.insert(tenants).values({ slug, nomeExibicao: `Consultório Carga ${t}`, dpaVersao: DPA_VERSAO, dpaAceitoEm: agora, agendamentoPublicoAtivo: true }).returning({ id: tenants.id });
   tenantIds.push(tn.id);
   const nutriId = randomUUID();
@@ -81,6 +176,7 @@ for (let t = 0; t < TENANTS; t++) {
   await db.insert(account).values(ids.map((x) => ({ id: randomUUID(), userId: x.userId, accountId: x.userId, providerId: 'credential', password: hash })));
   await withTenant(ctx, (tx) => tx.insert(patients).values(ids.map((x, i) => ({ id: x.id, tenantId: tn.id, nome: `Paciente ${i} ${slug}`, email: x.email, userId: x.userId, dataNascimento: '1990-01-01', sexo: i % 2 ? 'F' : 'M' }))), db);
   await db.insert(consents).values(ids.map((x) => ({ userId: x.userId, tenantId: tn.id, termoVersao: TERMO_PACIENTE, ip: null })));
+  const comCadastro = await semearCadastro(ctx, t, ids.map((x) => x.id));
 
   // agenda do mês: 8 consultas por dia útil, espalhadas entre os pacientes (varredura de notificações, N9).
   // consultaDireta grava "sem regra, sem lembrete" (test/agenda.ts): as futuras ganham os lembretes pela função real
@@ -136,7 +232,7 @@ for (let t = 0; t < TENANTS; t++) {
   }
   sessoes.nutris.push({ cookie: await entrar(auth, emailNutri), pacientes: ids.slice(0, 50).map((x) => x.id), planos });
   sessoes.slugs.push(slug);
-  console.log(`${slug}: ${PACIENTES} pacientes, ${acessos.length} acessos, 100 conteúdos`);
+  console.log(`${slug}: ${PACIENTES} pacientes (${comCadastro} com cadastro), ${acessos.length} acessos, 100 conteúdos`);
 }
 
 // D4: parte dos lembretes vence DURANTE a rodada (o job `notificacoes` varre e envia de verdade, para o Mailpit).
