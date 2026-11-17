@@ -374,6 +374,23 @@ describe('receber, desfazer e cancelar (US-302)', () => {
         ),
       )[0],
     ).toBe(`${LISTA}/${id}`);
+    // o id em maiúsculas (aceito por `idValido`) também volta à edição; o resto do caminho continua exato
+    const maiusculo = await gravada(C);
+    expect(
+      partes(
+        await destino(
+          receberLancamentoAction({}, formulario({ id: maiusculo.id, volta: `${LISTA}/${maiusculo.id.toUpperCase()}`, pagoEm: C.hoje, forma: 'pix' })),
+        ),
+      )[0],
+    ).toBe(`${LISTA}/${maiusculo.id.toUpperCase()}`);
+    const outroCaso = await gravada(C);
+    expect(
+      partes(
+        await destino(
+          receberLancamentoAction({}, formulario({ id: outroCaso.id, volta: `/PAINEL/financeiro/lancamentos/${outroCaso.id}`, pagoEm: C.hoje, forma: 'pix' })),
+        ),
+      )[0],
+    ).toBe(LISTA);
   });
 
   it('Plano 20 (T8): receber no detalhe "Pagamentos pendentes de {nome}" volta para ele, sem outros parâmetros', async () => {

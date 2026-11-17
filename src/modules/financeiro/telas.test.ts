@@ -5,9 +5,9 @@ import { makeDb } from '../../../test/db';
 import { dbQueContaConsultas } from '../../../test/financeiro';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { listarCategorias, salvarConfiguracoes } from './configuracoes';
+import { lerConfiguracoes, listarCategorias, salvarConfiguracoes } from './configuracoes';
 import { abrirLancamento, cancelarLancamento, criarLancamento, listarLancamentos } from './lancamentos';
-import { formularioNovo, telaDeEdicao, telaDeLancamentos } from './telas';
+import { formularioNovo, telaDeConfiguracoes, telaDeEdicao, telaDeLancamentos } from './telas';
 
 /** RNF-301 ("cada tela em uma transação"): as telas dos lançamentos (Plano 20, T6) leem tudo num `withTenant` só. */
 const app = makeDb(inject('appDatabaseUrl'));
@@ -135,6 +135,18 @@ describe('telaDeEdicao (US-302, RN-318)', () => {
   });
 });
 
+describe('telaDeConfiguracoes (US-300, RN-301, RN-303)', () => {
+  it('a configuração e todas as categorias (arquivadas também) das funções avulsas; sem configuração, sem categorias', async () => {
+    const C = await cenario();
+    const t = await telaDeConfiguracoes(C.ctx, deps);
+    expect(t.config).toEqual(await lerConfiguracoes(C.ctx, deps));
+    expect(t.categorias).toEqual(await listarCategorias(C.ctx, deps));
+    expect(t.categorias.map((c) => c.id)).toContain(C.arquivada);
+    const T = await novoTenant(app.db);
+    expect(await telaDeConfiguracoes(T.ctx, deps)).toEqual({ config: null, categorias: [] });
+  });
+});
+
 describe('RNF-301: cada tela em uma transação', () => {
   it('lista, formulário novo e edição: um BEGIN cada, com um número fixo de consultas', async () => {
     const C = await cenario();
@@ -149,12 +161,17 @@ describe('RNF-301: cada tela em uma transação', () => {
       novaSaida: await medir((d) => formularioNovo(C.ctx, 'saida', undefined, d)),
       // lançamento, auditRead, categorias
       edicao: await medir((d) => telaDeEdicao(C.ctx, C.tenant, e.id, d)),
+      // configuração, categorias
+      configuracoes: await medir((d) => telaDeConfiguracoes(C.ctx, d)),
+      configuracoesSemConfig: await medir(async (d) => telaDeConfiguracoes((await novoTenant(app.db)).ctx, d)),
     }).toEqual({
       lista: { transacoes: 1, consultas: 3 + 5 }, // configuração, linhas, totais, mês mais antigo, categorias
       listaDoPaciente: { transacoes: 1, consultas: 3 + 7 },
       novaEntrada: { transacoes: 1, consultas: 3 + 4 },
       novaSaida: { transacoes: 1, consultas: 3 + 2 },
       edicao: { transacoes: 1, consultas: 3 + 3 },
+      configuracoes: { transacoes: 1, consultas: 3 + 2 },
+      configuracoesSemConfig: { transacoes: 1, consultas: 3 + 1 },
     });
   });
 
@@ -166,18 +183,20 @@ describe('RNF-301: cada tela em uma transação', () => {
           await expect(telaDeLancamentos(ctx, C.tenant, {}, d)).rejects.toThrow('financeiro: só a sessão nutri');
           await expect(formularioNovo(ctx, 'entrada', undefined, d)).rejects.toThrow('financeiro: só a sessão nutri');
           await expect(telaDeEdicao(ctx, C.tenant, C.p, d)).rejects.toThrow('financeiro: só a sessão nutri');
+          await expect(telaDeConfiguracoes(ctx, d)).rejects.toThrow('financeiro: só a sessão nutri');
         }),
       ).toEqual({ transacoes: 0, consultas: 0 });
     }
   });
 });
 
-describe('RNF-301: as páginas dos lançamentos leem só pela função da tela', () => {
+describe('RNF-301: as páginas dos lançamentos e das Configurações leem só pela função da tela', () => {
   const AVULSAS = /\b(lerConfiguracoes|listarCategorias|listarLancamentos|abrirLancamento|pacienteDoFinanceiro|pacientesParaLancamento)\b/;
   it.each([
     ['src/app/painel/financeiro/lancamentos/page.tsx', 'telaDeLancamentos'],
     ['src/app/painel/financeiro/lancamentos/novo/page.tsx', 'formularioNovo'],
     ['src/app/painel/financeiro/lancamentos/[id]/page.tsx', 'telaDeEdicao'],
+    ['src/app/painel/financeiro/configuracoes/page.tsx', 'telaDeConfiguracoes'],
   ])('%s chama só %s', (arquivo, funcao) => {
     const fonte = readFileSync(arquivo, 'utf8');
     expect(fonte).not.toMatch(AVULSAS);

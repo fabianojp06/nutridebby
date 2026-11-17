@@ -39,3 +39,13 @@ export function valorParaCampo(centavos: number): string {
   const texto = NUMERO.format(Math.abs(centavos) / 100);
   return centavos < 0 ? `-${texto}` : texto;
 }
+
+/**
+ * RNF-304: a soma em `bigint` volta do banco como texto e só vira `number` se couber sem perda (os totais do Resumo, do
+ * fluxo, das pendências e da lista de lançamentos). Nulo → 0.
+ */
+export function centavos(texto: string | number | null | undefined): number {
+  const n = Number(texto ?? 0);
+  if (!Number.isSafeInteger(n)) throw new RangeError('financeiro: soma fora do inteiro seguro');
+  return n;
+}

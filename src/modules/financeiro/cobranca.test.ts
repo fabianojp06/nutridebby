@@ -18,8 +18,8 @@ import {
 } from './cobranca';
 import { listarCategorias, salvarConfiguracoes } from './configuracoes';
 import { MSG_FINANCEIRO } from './constantes';
-import { FinanceiroError, FinanceiroNaoConfiguradoError } from './erros';
-import { ajustarValor, cancelarLancamento, marcarRecebido } from './lancamentos';
+import { FinanceiroError, FinanceiroNaoConfiguradoError, LancamentoNaoEncontradoError } from './erros';
+import { ajustarValor, cancelarLancamento, criarLancamento, marcarRecebido } from './lancamentos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -281,6 +281,28 @@ describe('cobrancaDaConsulta e registrarCobrancaManual (US-303, RN-314, RN-318)'
     expect(await errosDe(ajustarValor(C.ctx, antes.id, '300,01', deps))).toEqual({ geral: M.bloqueadoAlterar });
     await ajustarValor(C.ctx, antes.id, '200', deps);
     expect((await linhas(C))[0].valor_centavos).toBe(20000);
+  });
+
+  it('daConsulta (a seção da consulta): lançamento que não é a cobrança desta consulta → não encontrado, nada muda', async () => {
+    const C = await cenario();
+    await presenca(C, 'realizada');
+    const outra = await consultaDireta(app.db, C.ctx, C.p, em('2026-11-29', '10:00'));
+    await presenca(C, 'realizada', outra);
+    const avulsa = await criarLancamento(C.ctx, C.tenant, { tipo: 'entrada', valor: '90,00', categoriaId: C.consultas, vencimento: '2026-11-30', pacienteId: C.p }, deps);
+    const todas = await linhas(C);
+    const daOutra = todas.find((l) => l.appointment_id === outra)!.id as string;
+    const desta = todas.find((l) => l.appointment_id === C.c)!.id as string;
+    for (const id of [daOutra, avulsa.id]) {
+      await expect(ajustarValor(C.ctx, id, '1,00', { ...deps, daConsulta: C.c })).rejects.toBeInstanceOf(LancamentoNaoEncontradoError);
+      await expect(marcarRecebido(C.ctx, C.tenant, id, { pagoEm: '2026-11-30', forma: 'pix' }, { ...deps, daConsulta: C.c })).rejects.toBeInstanceOf(
+        LancamentoNaoEncontradoError,
+      );
+      await expect(cancelarLancamento(C.ctx, id, 'Não é desta consulta', { ...deps, daConsulta: C.c })).rejects.toBeInstanceOf(LancamentoNaoEncontradoError);
+    }
+    expect(await linhas(C)).toEqual(todas);
+    // controle: a cobrança desta consulta segue
+    await ajustarValor(C.ctx, desta, '200,00', { ...deps, daConsulta: C.c });
+    expect((await linhas(C)).find((l) => l.id === desta).valor_centavos).toBe(20000);
   });
 
   it('só a sessão nutri (RN-300)', async () => {

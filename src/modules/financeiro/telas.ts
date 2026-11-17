@@ -1,12 +1,12 @@
-import { eq, sql } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
-import { finLancamentos, type FinCategoriaRow, type TipoLancamento } from '@/db/schema';
+import type { FinCategoriaRow, TipoLancamento } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { idValido } from '@/modules/pacientes/base';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { categoriasNaTransacao, configuracaoNaTransacao, type Configuracao } from './configuracoes';
 import { exigirNutri } from './erros';
 import {
+  diaMaisAntigoNaTransacao,
   lancamentoNaTransacao,
   listaNaTransacao,
   pacienteNaTransacao,
@@ -26,7 +26,7 @@ import type { FiltrosLista, FluxoDoAno, LancamentoNaTela } from './tipos';
 
 /**
  * RNF-301: "cada tela em uma transação". As telas dos lançamentos (Plano 20, T6), de Pagamentos pendentes e de Relatórios
- * (T8) leem tudo o que mostram num `withTenant` só — uma conexão do pool por requisição, uma fotografia consistente do
+ * (T8) e a das Configurações leem tudo o que mostram num `withTenant` só — uma conexão do pool por requisição, uma fotografia consistente do
  * banco —, com as mesmas consultas e a mesma auditoria (RN-318) das funções avulsas de `lancamentos.ts`,
  * `configuracoes.ts` e `resumo.ts`, que continuam para quem só precisa de uma.
  */
@@ -126,6 +126,26 @@ export async function telaDeEdicao(ctx: TenantContext, tenant: Tenant, id: strin
   );
 }
 
+export type TelaDeConfiguracoes = { config: null; categorias: [] } | { config: Configuracao; categorias: FinCategoriaRow[] };
+
+/**
+ * "Configurações do Financeiro" (US-300): a configuração e as categorias (arquivadas também, RN-303) numa transação
+ * (RNF-301). Sem configuração (primeiro acesso, RN-301), as categorias ainda não existem (nascem na primeira gravação,
+ * RN-302): nem as lê.
+ */
+export async function telaDeConfiguracoes(ctx: TenantContext, deps: Deps = {}): Promise<TelaDeConfiguracoes> {
+  exigirNutri(ctx);
+  return withTenant(
+    ctx,
+    async (tx): Promise<TelaDeConfiguracoes> => {
+      const config = await configuracaoNaTransacao(tx);
+      if (!config) return { config: null, categorias: [] };
+      return { config, categorias: await categoriasNaTransacao(tx) };
+    },
+    deps.db ?? getDb(),
+  );
+}
+
 export type TelaDePendencias = { config: null } | { config: Configuracao; pendentes: PagamentoPendente[] };
 
 /** "Pagamentos pendentes" (US-304). Sem configuração (RN-301), só a configuração nula. Sem `auditRead` (RN-318). */
@@ -168,11 +188,8 @@ export async function telaDeRelatorios(ctx: TenantContext, tenant: Tenant, anoPe
     async (tx) => {
       const config = await configuracaoNaTransacao(tx);
       if (!config) return { config: null };
-      const [antigo] = await tx
-        .select({ dia: sql<string | null>`min(coalesce(${finLancamentos.pagoEm}, ${finLancamentos.vencimento}))::text` })
-        .from(finLancamentos)
-        .where(eq(finLancamentos.tenantId, ctx.tenantId));
-      const primeiro = Math.min(atual, Number(config.saldoInicialEm.slice(0, 4)), antigo?.dia ? Number(antigo.dia.slice(0, 4)) : atual);
+      const antigo = await diaMaisAntigoNaTransacao(tx, ctx.tenantId);
+      const primeiro = Math.min(atual, Number(config.saldoInicialEm.slice(0, 4)), antigo ? Number(antigo.slice(0, 4)) : atual);
       const anos = Array.from({ length: atual - primeiro + 1 }, (_, i) => atual - i);
       const pedido = Number(anoPedido);
       const ano = anoPedido && /^\d{4}$/.test(anoPedido) && anos.includes(pedido) ? pedido : atual;
