@@ -328,7 +328,10 @@ const FORNECEDOR: Record<DestinoIA, string> = {
   'bedrock-eu': 'Amazon Web Services (Claude), com processamento em Estados-membros da União Europeia',
   teste: 'provedor de teste, sem envio de dados a fornecedor',
 };
-/** Revisão normativa: o DPA (1.0, cláusula 8) lista os suboperadores e remete o fornecedor de IA a este aditivo — a cláusula 3 o inclui. */
+/**
+ * Revisão normativa: o DPA (cláusula 8, igual na 1.0 e na 1.1 do Plano 20) lista os suboperadores e remete o fornecedor
+ * de IA a este aditivo — a cláusula 3 o inclui.
+ */
 const SUBOPERADORA: Record<DestinoIA, string> = {
   'anthropic-us': 'A Anthropic',
   'bedrock-eu': 'A Amazon Web Services',

@@ -58,24 +58,24 @@ describe('registrarAceiteDpa (T6-R2b)', () => {
   });
 });
 
-describe('P08-06: do DPA 0.1 provisório para o 1.0', () => {
-  it('o consultório com o 0.1 aceito grava o aceite do 1.0 numa linha nova; a do 0.1 fica como prova', async () => {
+describe('Plano 20 (US-309): do DPA 1.0 para o 1.1', () => {
+  it('o consultório com o 1.0 aceito grava o aceite do 1.1 numa linha nova; a do 1.0 fica como prova', async () => {
     const { tenantId, userId } = await tenantComNutri();
-    const t1 = new Date('2026-10-01T10:00:00Z');
-    await app.db.insert(consents).values({ userId, termoVersao: 'dpa-0.1-provisorio', aceitoEm: t1, ip: '203.0.113.1' });
-    await app.db.update(tenants).set({ dpaVersao: '0.1-provisorio', dpaAceitoEm: t1 }).where(eq(tenants.id, tenantId));
+    const t1 = new Date('2026-10-16T10:00:00Z');
+    await app.db.insert(consents).values({ userId, termoVersao: 'dpa-1.0', aceitoEm: t1, ip: '203.0.113.1' });
+    await app.db.update(tenants).set({ dpaVersao: '1.0', dpaAceitoEm: t1 }).where(eq(tenants.id, tenantId));
 
-    const t2 = new Date('2026-10-16T10:00:00Z');
+    const t2 = new Date('2026-11-17T10:00:00Z');
     await registrarAceiteDpa(app.db, { userId, tenantId, ip: '203.0.113.2', now: t2 });
 
-    expect([DPA_VERSAO, DPA_TERMO]).toEqual(['1.0', 'dpa-1.0']);
+    expect([DPA_VERSAO, DPA_TERMO]).toEqual(['1.1', 'dpa-1.1']);
     const linhas = await app.db.select().from(consents).where(eq(consents.userId, userId));
     expect(linhas.map((l) => [l.termoVersao, l.ip, l.aceitoEm.toISOString()]).sort()).toEqual([
-      ['dpa-0.1-provisorio', '203.0.113.1', t1.toISOString()],
-      ['dpa-1.0', '203.0.113.2', t2.toISOString()],
+      ['dpa-1.0', '203.0.113.1', t1.toISOString()],
+      ['dpa-1.1', '203.0.113.2', t2.toISOString()],
     ]);
     const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, tenantId));
-    expect(tenant).toMatchObject({ dpaVersao: '1.0', dpaAceitoEm: t2 });
+    expect(tenant).toMatchObject({ dpaVersao: '1.1', dpaAceitoEm: t2 });
   });
 });
 
