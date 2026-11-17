@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatarNutriente, MICRO_MAX, microsValidos, NUTRIENTES } from './nutrientes';
+import { formatarNutriente, formatarReferencia, MICRO_MAX, microsValidos, NUTRIENTES } from './nutrientes';
 import { CAMPOS_MICRO } from './taco';
 
 describe('RN-235: catálogo de nutrientes', () => {
@@ -49,6 +49,14 @@ describe('RN-235: exibição (vírgula decimal, µg)', () => {
     expect(formatarNutriente('gordura_saturada_g', 0.25)).toBe('0,3 g');
     expect(formatarNutriente('vitamina_b12_mcg', 2.4)).toBe('2 µg');
     expect(formatarNutriente('umidade_pct', 68.15)).toBe('68,2%');
+  });
+
+  it('RN-239: meta e máximo do perfil com as casas digitadas, sem cortar pelas casas do catálogo (B12 2,4 µg)', () => {
+    expect(formatarReferencia('vitamina_b12_mcg', 2.4)).toBe('2,4 µg');
+    expect(formatarReferencia('ferro_mg', 18)).toBe('18 mg');
+    expect(formatarReferencia('cobre_mg', 0.9)).toBe('0,9 mg');
+    expect(formatarReferencia('cobre_mg', 0.95)).toBe('0,95 mg');
+    expect(formatarReferencia('folato_dfe_mcg', 400)).toBe('400 µg');
   });
 });
 

@@ -2,6 +2,7 @@
 
 import { useActionState } from 'react';
 import { Campo } from '@/components/campo';
+import { SetaDetails } from '@/components/ui/seta-details';
 import { GRUPOS_TACO } from '@/modules/alimentos/grupos';
 import { MSG_NUTRIENTES, NUTRIENTES, UNIDADE_NA_TELA } from '@/modules/alimentos/nutrientes';
 import type { AlimentoState } from './actions';
@@ -38,8 +39,8 @@ export function AlimentoForm({ acao, inicial, rotuloBotao }: { acao: (s: Aliment
         {numero('fibraG', 'Fibra (g)')}
       </fieldset>
       {/* key: o <details> volta a abrir quando um envio traz erro num micro */}
-      <details key={abrirMicros ? 'aberta' : 'fechada'} open={abrirMicros || undefined} className="rounded-2xl border border-borda p-3">
-        <summary className="flex min-h-11 cursor-pointer items-center font-medium">{MSG_NUTRIENTES.secao}</summary>
+      <details key={abrirMicros ? 'aberta' : 'fechada'} open={abrirMicros || undefined} className="group rounded-2xl border border-borda p-3">
+        <summary className="flex min-h-11 cursor-pointer items-center font-medium"><SetaDetails />{MSG_NUTRIENTES.secao}</summary>
         <fieldset className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <legend className="sr-only">Micronutrientes por 100 g</legend>
           {NUTRIENTES.map((n) => {

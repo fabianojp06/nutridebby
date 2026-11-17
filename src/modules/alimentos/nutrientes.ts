@@ -70,12 +70,13 @@ export function formatarNutriente(chave: ChaveNutriente, valor: number): string 
 }
 
 /**
- * RN-239: meta e máximo do perfil como foram digitados, sem zeros à direita e no máximo com as casas do catálogo
- * ("18 mg", "0,9 mg", "400 µg"); o total do plano usa `formatarNutriente` ("12,4 mg").
+ * RN-239: meta e máximo do perfil como foram digitados, com as casas que a nutricionista digitou (até 6, o que
+ * `casasDecimais` lê) e sem zeros à direita ("18 mg", "0,9 mg", "2,4 µg", "400 µg"). As casas do catálogo não cortam o
+ * valor do perfil: a meta de B12 de 2,4 µg não vira "2 µg". O total do plano usa `formatarNutriente` ("12,4 mg").
  */
 export function formatarReferencia(chave: ChaveNutriente, valor: number): string {
   const n = POR_CHAVE.get(chave)!;
-  return `${formatarDecimal(valor, Math.min(casasDecimais(valor), n.casas))}${SIMBOLO[n.unidade]}`;
+  return `${formatarDecimal(valor, casasDecimais(valor))}${SIMBOLO[n.unidade]}`;
 }
 
 /** RN-259: textos dos micronutrientes do "Meu alimento" (US-231, §5 da spec). */

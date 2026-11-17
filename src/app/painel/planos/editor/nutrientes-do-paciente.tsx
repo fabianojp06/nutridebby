@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { SetaDetails } from '@/components/ui/seta-details';
 import { MSG_NUTRIENTES, NUTRIENTES } from '@/modules/alimentos/nutrientes';
 import { MAX_NUTRIENTES_EXIBIDOS, type ReferenciaParaPlano } from '@/modules/alimentos/referencias-constantes';
 import { MSG_DIAS } from '@/modules/plano-alimentar/constantes';
@@ -61,8 +62,8 @@ export function NutrientesDoPaciente({ estado, filtro, perfis, congelado, comPac
       <Resumo resumo={resumo} />
 
       {!somenteLeitura && (
-        <details className="rounded-xl border border-borda p-2">
-          <summary className="flex min-h-11 cursor-pointer items-center font-medium">Escolher nutrientes ({estado.nutrientesExibidos.length} de {MAX_NUTRIENTES_EXIBIDOS})</summary>
+        <details className="group rounded-xl border border-borda p-2">
+          <summary className="flex min-h-11 cursor-pointer items-center font-medium"><SetaDetails />Escolher nutrientes ({estado.nutrientesExibidos.length} de {MAX_NUTRIENTES_EXIBIDOS})</summary>
           <fieldset aria-describedby={erro ? 'nutrientes-limite nutrientes-erro' : 'nutrientes-limite'} className="mt-2 space-y-2">
             <legend className="sr-only">Nutrientes do resumo</legend>
             <p id="nutrientes-limite" className="text-sm text-suave">{MSG_NUTRIENTES.limite}</p>
@@ -82,8 +83,8 @@ export function NutrientesDoPaciente({ estado, filtro, perfis, congelado, comPac
         </details>
       )}
 
-      <details className="rounded-xl border border-borda p-2">
-        <summary className="flex min-h-11 cursor-pointer items-center font-medium">{MSG_NUTRIENTES.verTodos}</summary>
+      <details className="group rounded-xl border border-borda p-2">
+        <summary className="flex min-h-11 cursor-pointer items-center font-medium"><SetaDetails />{MSG_NUTRIENTES.verTodos}</summary>
         <TodosOsNutrientes resumo={todos} comPerfil={perfil !== null} />
       </details>
 

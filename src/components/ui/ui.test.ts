@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { Aviso } from './aviso';
 import { Botao } from './botao';
 import { Cartao } from './cartao';
+import { SetaDetails } from './seta-details';
 
 describe('componentes base (D24)', () => {
   it('Aviso de erro é role="alert"; de aviso, "status"; o papel pode ser forçado', () => {
@@ -21,5 +22,10 @@ describe('componentes base (D24)', () => {
   });
   it('Botao tem alvo de 44 px (min-h-11)', () => {
     expect(renderToStaticMarkup(createElement(Botao, { type: 'button' }, 'Salvar'))).toContain('min-h-11');
+  });
+  it('SetaDetails: seta decorativa que gira com o <details> aberto (o summary em flex perde o marcador nativo)', () => {
+    const html = renderToStaticMarkup(createElement(SetaDetails));
+    expect(html).toMatch(/^<svg aria-hidden="true"/);
+    expect(html).toContain('group-open:rotate-90');
   });
 });

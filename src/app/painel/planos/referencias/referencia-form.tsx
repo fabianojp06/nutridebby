@@ -1,9 +1,10 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useRef } from 'react';
 import { Campo } from '@/components/campo';
 import { NUTRIENTES, UNIDADE_NA_TELA } from '@/modules/alimentos/nutrientes';
 import { FONTE_REFERENCIA_MAX, MSG_REFERENCIAS, NOME_REFERENCIA_MAX, nomeDoCampoDaReferencia } from '@/modules/alimentos/referencias-constantes';
+import { useFocoNoPrimeiroErro } from '../foco-no-erro';
 import type { ReferenciaState } from './actions';
 
 type Acao = (s: ReferenciaState, fd: FormData) => Promise<ReferenciaState>;
@@ -12,19 +13,23 @@ const NUMERO = 'w-28 rounded-xl border border-campo bg-cartao p-2 text-texto foc
 
 /**
  * US-232 (RN-238): nome, fonte (obrigatória) e, por nutriente do catálogo, a meta e/ou o máximo do dia. Os erros ficam
- * ao lado do campo (`role="alert"`, `aria-describedby`); o da linha do nutriente vale para os dois campos dela.
+ * ao lado do campo (`role="alert"`, `aria-describedby`); o da linha do nutriente vale para os dois campos dela. Salvar com
+ * erro leva o foco ao primeiro campo inválido (ou ao aviso "nenhum nutriente", sem campo ao lado): o botão fica no fim
+ * da tabela e o erro de Nome/Fonte, no topo, fora da tela (`useFocoNoPrimeiroErro`, como a lista de substituição).
  */
 export function ReferenciaForm({ acao, inicial, rotuloBotao }: { acao: Acao; inicial: Record<string, string>; rotuloBotao: string }) {
   const [state, action, pendente] = useActionState(acao, {});
   const e = state.erros ?? {};
   const v: Record<string, string> = { ...inicial, ...state.valores };
+  const raiz = useRef<HTMLFormElement>(null);
+  useFocoNoPrimeiroErro(raiz, state.erros);
   return (
-    <form action={action} className="space-y-4" noValidate>
+    <form ref={raiz} action={action} className="space-y-4" noValidate>
       <Campo id="nome" rotulo="Nome" required maxLength={NOME_REFERENCIA_MAX} defaultValue={v.nome ?? ''} erro={e.nome} />
       <Campo id="fonte" rotulo="Fonte" required maxLength={FONTE_REFERENCIA_MAX} defaultValue={v.fonte ?? ''} erro={e.fonte} />
       <fieldset aria-describedby={e.valores ? 'valores-erro' : undefined} className="space-y-2">
         <legend className="font-medium">Metas e máximos do dia</legend>
-        {e.valores && <p id="valores-erro" role="alert" className="text-sm text-erro">{e.valores}</p>}
+        {e.valores && <p id="valores-erro" role="alert" data-foco-erro tabIndex={-1} className="text-sm text-erro">{e.valores}</p>}
         <div className="overflow-x-auto">
           <table className="text-sm">
             <thead>

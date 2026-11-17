@@ -12,6 +12,7 @@ vi.mock('react', async (importOriginal) => ({ ...(await importOriginal<typeof im
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 const { focarPrimeiroErro } = await import('./foco-no-erro');
 const { ListaForm } = await import('./listas/lista-form');
+const { ReferenciaForm } = await import('./referencias/referencia-form');
 
 function raizFalsa() {
   const alvo = { scrollIntoView: vi.fn(), focus: vi.fn() };
@@ -45,5 +46,21 @@ describe('lista de substituição: avisos de erro sem campo ao lado recebem o fo
     const html = renderToStaticMarkup(createElement(ListaForm, { acao: async (s) => s, lista, rotuloBotao: 'Salvar lista' }));
     expect(html).toMatch(/<input id="nome"[^>]*aria-invalid="true"/);
     expect(html).toMatch(/<p role="alert" tabindex="-1" data-foco-erro="true"[^>]*>Inclua pelo menos um alimento no grupo\.<\/p>/);
+  });
+});
+
+describe('perfil de referência: salvar com erro leva o foco ao primeiro campo inválido (revisão final do Plano 19)', () => {
+  it('Nome/Fonte inválidos têm aria-invalid (o primeiro da página recebe o foco); "nenhum nutriente" é aviso focável', () => {
+    estado.atual = { erros: { fonte: 'Informe a fonte.', valores: 'Informe a meta ou o máximo de pelo menos um nutriente.' } };
+    const html = renderToStaticMarkup(createElement(ReferenciaForm, { acao: async (s) => s, inicial: {}, rotuloBotao: 'Salvar' }));
+    expect(html).toMatch(/<input id="fonte"[^>]*aria-invalid="true"/);
+    expect(html).toMatch(/<p id="valores-erro" role="alert" data-foco-erro="true" tabindex="-1"[^>]*>Informe a meta/);
+    // a ordem da página: o Nome/Fonte (topo) vem antes do aviso da tabela, e o querySelector pega o primeiro
+    expect(html.indexOf('aria-invalid="true"')).toBeLessThan(html.indexOf('data-foco-erro'));
+  });
+
+  it('o formulário usa o mesmo efeito da lista de substituição', async () => {
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync('src/app/painel/planos/referencias/referencia-form.tsx', 'utf8')).toMatch(/useFocoNoPrimeiroErro\(raiz, state\.erros\)/);
   });
 });
