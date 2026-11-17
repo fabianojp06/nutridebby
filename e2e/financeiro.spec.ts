@@ -64,7 +64,8 @@ test('primeiro acesso: "Comece por aqui" → Configurações → Resumo com o sa
   const hoje = noFuso(new Date()).data;
   await expect(nutri.getByLabel('Data do saldo')).toHaveValue(hoje); // sugerida: hoje no fuso do consultório
   await nutri.getByLabel('Valor do saldo').fill('1.500,00');
-  await nutri.getByLabel('Valor da consulta').fill('250,00');
+  // a seção também se chama "Valor da consulta" (aria-labelledby): o campo pelo papel
+  await nutri.getByRole('textbox', { name: 'Valor da consulta' }).fill('250,00');
   await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Configurações salvas.' })).toBeVisible();
   // RN-302: as categorias iniciais nascem na primeira gravação, com "Consultas" entre as de entrada
