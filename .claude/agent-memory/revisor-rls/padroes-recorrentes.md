@@ -465,3 +465,7 @@ Plano 23, re-revisão do /code-review do PR #59 (17/11/2026): os 5 itens resolvi
   bloqueios; borda `<=` × `<` entre validade SQL e TS. Cruzar sempre com o EXCLUDE, o leitor TS e a borda do TS.
 - Junção de linhas desdobradas por chave de horário (juntarPares) vale só enquanto o par não pode nascer: quando a tarefa
   seguinte liberar regras por local na mesma faixa, a junção e o "apaga a outra metade" passam a apagar regra legítima.
+Plano 20, T12 (seção Financeiro no Início, 17/11/2026):
+- Lista fechada de imports (ex.: `IMPORTS_PERMITIDOS` de `ficha/secoes`) liberando um módulo inteiro que também exporta
+  funções que auditam ou abrem withTenant próprio (ex.: `financeiro/resumo` com `pendenciasDoPaciente`): a guarda de texto
+  `auditRead` no arquivo da seção não pega a chamada indireta. Sugerir arquivo só com a função de leitura ou guarda do nome importado.
