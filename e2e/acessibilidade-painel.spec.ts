@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { fichaPelaBusca, SEMENTE_COMPLETA, SEMENTE_INCOMPLETA } from './cadastro';
 import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
+import { criarPacientePeloFormulario } from './pacientes-form';
 import { escolherTema, prepararTelasComId } from './painel';
 import { ROTAS_DO_PAINEL, type IdsDoPainel } from './painel-rotas';
 import { avaliar, pacienteNoPortal } from './portal';
@@ -10,11 +11,14 @@ import { avaliar, pacienteNoPortal } from './portal';
 // RNF-10 (D25): o painel com zero violação WCAG 2.1 AA (+ alvo de toque da 2.2) nos três modos, em TODAS as telas
 // (ROTAS_DO_PAINEL, conferida pela guarda rotas-axe.test.ts). IPs: 10.9.13.84 (nutri), .85 (outro aparelho), .83 (paciente);
 // 10.9.29.31 (o paciente que autoriza a IA, Plano 14B-2); 10.9.29.51 (a segunda paciente da IA Nutri, que envia a dúvida
-// direta para a fila, Plano 15).
+// direta para a fila, Plano 15); 10.9.20.2 (a conta E2E_FIN_AXE do Financeiro não configurado, Plano 20 — bloco 10.9.20.x).
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
+// Plano 20: consultório novo a cada `pnpm e2e:seed`, nunca configurado (copiada: importar o seed roda o seed)
+const FIN_AXE = { email: 'fin-axe-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 test.describe.configure({ mode: 'serial', timeout: 240_000 }); // cada teste visita as ~44 telas do painel
 let nutri: Page;
+let finAxe: Page | undefined;
 let rotas: string[] = [];
 let ids: IdsDoPainel;
 let errosCsp: string[] = []; // D7: a CSP vale direto porque o E2E abre todas as telas sem violação — a prova é este laço
@@ -31,6 +35,8 @@ test.beforeAll(async ({ browser }) => {
 test.afterAll(async () => {
   await escolherTema(nutri, 'Igual ao aparelho'); // o seed e as outras specs esperam o padrão
   await nutri?.context().close();
+  if (finAxe) await escolherTema(finAxe, 'Igual ao aparelho');
+  await finAxe?.context().close();
 });
 
 async function violacoes(page: Page, incluir?: string, opcoes: { ignorarForaDaTela?: boolean } = {}): Promise<string[]> {
@@ -87,6 +93,61 @@ test('estados abertos também passam: menu da conta, aviso de erro de formulári
   await nutri.goto('/painel/pacientes/novo');
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click(); // vazio: erros por campo (role="alert")
   expect(await violacoes(nutri)).toEqual([]);
+});
+
+/**
+ * Plano 20 (RNF-302): os estados do Financeiro fora de ROTAS_DO_PAINEL — o primeiro acesso ("Comece por aqui": Resumo,
+ * Pagamentos pendentes e Configurações sem categorias) com a conta E2E_FIN_AXE, o detalhe de pagamentos pendentes vazio (um
+ * paciente sem cobrança no mesmo consultório) e o formulário de lançamento com erro (a nutricionista do E2E, que tem o
+ * Financeiro configurado pela semente) — nos modos claro e escuro, a 1280 e a 360 px (a 360 px, sem rolagem lateral). As telas
+ * do Financeiro de ROTAS_DO_PAINEL entram também a 360 px (a 1280 px já estão no laço de cima).
+ */
+test('Plano 20: Financeiro não configurado, pagamentos pendentes vazios e lançamento com erro, claro e escuro, 1280 e 360 px', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const fa = await entrarComo(browser, FIN_AXE.email, FIN_AXE.senha, '10.9.20.2');
+  finAxe = fa; // o afterAll volta o tema desta conta também
+  await expect(fa).toHaveURL(/\/painel$/);
+  const sufixo = Date.now().toString(36);
+  const nome = `Paciente Fin Axe ${sufixo}`;
+  const semCobranca = (await criarPacientePeloFormulario(fa, { nome, email: `fin-axe-${sufixo}@nutridebby.test` })).split('/').pop()!;
+  const comece = (page: Page) => expect(page.getByRole('heading', { name: 'Comece por aqui' })).toBeVisible();
+  const estados: { page: Page; url: string; pronta: (page: Page) => Promise<void> }[] = [
+    { page: fa, url: '/painel/financeiro', pronta: comece },
+    { page: fa, url: '/painel/financeiro/pendencias', pronta: comece },
+    { page: fa, url: '/painel/financeiro/configuracoes', pronta: (p) => expect(p.getByLabel('Valor do saldo')).toBeVisible() },
+    { page: fa, url: `/painel/financeiro/pendencias/${semCobranca}`, pronta: (p) => expect(p.getByText(`Nenhum pagamento pendente de ${nome}.`)).toBeVisible() },
+    {
+      page: nutri,
+      url: '/painel/financeiro/lancamentos/novo?tipo=entrada',
+      pronta: async (p) => {
+        await p.getByRole('button', { name: 'Salvar entrada' }).click(); // vazio: erros junto dos campos (role="alert")
+        await expect(p.getByRole('alert').filter({ hasText: 'Informe o valor.' })).toBeVisible();
+        await expect(p.getByRole('alert').filter({ hasText: 'Escolha a categoria.' })).toBeVisible();
+      },
+    },
+  ];
+  const doFinanceiro = rotas.filter((u) => u.startsWith('/painel/financeiro'));
+  expect(doFinanceiro.length, 'as telas do Financeiro em ROTAS_DO_PAINEL').toBeGreaterThan(0);
+  const falhas: string[] = [];
+  for (const tema of ['Claro', 'Escuro'] as const) {
+    await escolherTema(fa, tema);
+    await escolherTema(nutri, tema);
+    for (const largura of [1280, 360]) {
+      const telas = largura === 360 ? [...estados, ...doFinanceiro.map((url) => ({ page: nutri, url, pronta: async () => {} }))] : estados;
+      for (const t of telas) {
+        await t.page.setViewportSize({ width: largura, height: largura === 360 ? 780 : 720 });
+        await t.page.goto(t.url);
+        await t.pronta(t.page);
+        await t.page.waitForLoadState('networkidle');
+        for (const v of await violacoes(t.page)) falhas.push(`${tema} ${largura} px ${t.url} — ${v}`);
+        if (largura === 360 && !(await t.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) {
+          falhas.push(`${tema} 360 px ${t.url} — rola na horizontal`);
+        }
+      }
+    }
+    for (const p of [fa, nutri]) await p.setViewportSize({ width: 1280, height: 720 });
+  }
+  expect(falhas).toEqual([]);
 });
 
 /**
