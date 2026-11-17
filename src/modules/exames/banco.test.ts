@@ -88,10 +88,10 @@ const inserirNota = (C: Cenario, n: Nota) =>
       values (${C.tenantId}, ${n.paciente ?? C.p}, ${n.exame}, ${n.versao ?? 1}, ${n.texto === undefined ? 'Glicose dentro da faixa do laudo.' : n.texto},
               ${randomUUID()}, '2001-01-01T00:00:00Z')
       returning *`;
-type Versao = { exame: string; paciente?: string; versao?: number; justificativa?: string | null };
+type Versao = { exame: string; paciente?: string; versao?: number; justificativa?: string | null; titulo?: string; valores?: string };
 const inserirVersao = (C: Cenario, v: Versao) =>
   sql`insert into exam_versoes (tenant_id, patient_id, exam_id, versao, titulo, data, valores, justificativa, alterado_por, alterado_em)
-      values (${C.tenantId}, ${v.paciente ?? C.p}, ${v.exame}, ${v.versao ?? 1}, 'Hemograma', '2026-11-01', '[]',
+      values (${C.tenantId}, ${v.paciente ?? C.p}, ${v.exame}, ${v.versao ?? 1}, ${v.titulo ?? 'Hemograma'}, '2026-11-01', ${v.valores ?? '[]'}::jsonb,
               ${v.justificativa === undefined ? 'Valor digitado errado' : v.justificativa}, ${randomUUID()}, '2001-01-01T00:00:00Z')
       returning *`;
 
@@ -190,6 +190,19 @@ describe('Plano 22 — catálogo, versões e nota do exame no banco (spec §9)',
     expect((await em(C.ctx, inserirVersao(C, { exame: e.id, versao: 2, justificativa: null })))[0].justificativa).toBeNull();
     await expect(em(C.ctx, inserirVersao(C, { exame: e.id, versao: 0 }))).rejects.toSatisfy(comCodigo('23514'));
     await expect(em(C.ctx, inserirVersao(C, { exame: e.id, versao: 2 }))).rejects.toSatisfy(comCodigo('23505'));
+  });
+
+  it('versão: título de 0 ou 121 caracteres → 23514 (exam_versoes_titulo_tamanho); valores objeto, texto ou número → 23514 (exam_versoes_valores), nunca 22023', async () => {
+    const C = await cenario();
+    const e = await exame(C);
+    await expect(em(C.ctx, inserirVersao(C, { exame: e.id, titulo: '' }))).rejects.toSatisfy((x) => comCodigo('23514')(x) && restricao('exam_versoes_titulo_tamanho')(x));
+    await expect(em(C.ctx, inserirVersao(C, { exame: e.id, titulo: 'x'.repeat(121) }))).rejects.toSatisfy((x) => comCodigo('23514')(x) && restricao('exam_versoes_titulo_tamanho')(x));
+    for (const valores of ['{}', '"texto"', '1', 'null']) {
+      await expect(em(C.ctx, inserirVersao(C, { exame: e.id, valores })), valores).rejects.toSatisfy((x) => comCodigo('23514')(x) && restricao('exam_versoes_valores')(x));
+    }
+    // os limites passam: título de 1 e de 120 caracteres, valores com linhas
+    await em(C.ctx, inserirVersao(C, { exame: e.id, titulo: 'x' }));
+    await em(C.ctx, inserirVersao(C, { exame: e.id, versao: 2, titulo: 'x'.repeat(120), valores: '[{"nome":"Glicose","valor":90,"unidade":"mg/dL","referencia":null}]' }));
   });
 
   it('nota e versão na sessão de paciente, publico e conta: INSERT recusado pela RLS da própria tabela (o exame já existe — fora de COM_MAE)', async () => {

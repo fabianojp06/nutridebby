@@ -63,6 +63,9 @@ export const examVersoes = pgTable(
     }).onDelete('cascade'),
     check('exam_versoes_versao_valida', sql`${t.versao} >= 1`),
     check('exam_versoes_justificativa_tamanho', sql`${t.justificativa} is null or char_length(${t.justificativa}) between 5 and 500`),
+    // revisão da P22-01: os mesmos limites de `exams` (título 1–120) e `valores` sempre lista (case… else false: 23514, nunca 22023)
+    check('exam_versoes_titulo_tamanho', sql`char_length(${t.titulo}) between 1 and 120`),
+    check('exam_versoes_valores', sql`case when jsonb_typeof(${t.valores}) = 'array' then true else false end`),
     unique('exam_versoes_versao_unique').on(t.tenantId, t.examId, t.versao),
   ],
 );
