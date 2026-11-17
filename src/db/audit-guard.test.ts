@@ -1,11 +1,11 @@
-import { afterAll, describe, expect, it } from 'vitest';
-import { inject } from 'vitest';
-import { makeDb } from '../../test/db';
+import { describe, expect, it } from 'vitest';
+import { bancoProprioParaDdl } from '../../test/ddl';
 import { AUDIT_EXCEPTIONS, findAuditViolations } from './audit-guard';
 import { findStaleExceptions, PATIENT_POLICY_EXCEPTIONS, RLS_EXCEPTIONS } from './rls-guard';
 
-const owner = makeDb(inject('ownerDatabaseUrl'));
-afterAll(() => owner.pool.end());
+// SUS-100: os testes de "a guarda funciona" fazem DDL (drop/create policy, drop trigger) em tabela real; num banco
+// próprio, clonado do modelo pós-migrations, as travas AccessExclusive não disputam com os outros arquivos (40P01).
+const owner = bancoProprioParaDdl();
 
 describe('guarda de auditoria (US-007: toda tabela de saúde é auditada)', () => {
   it('toda tabela com patient_id tem o gatilho audit_row_change', async () => {

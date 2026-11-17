@@ -48,7 +48,22 @@ export async function setup(project: TestProject) {
   `);
   await owner.end();
 
+  // SUS-100: modelo dos bancos próprios dos testes que fazem DDL em tabela real (test/ddl.ts). Congelado aqui, antes de
+  // qualquer arquivo conectar (CREATE DATABASE … TEMPLATE exige o banco de origem sem outras sessões), e fechado a
+  // conexões, para nenhum teste segurar o modelo e impedir os clones.
+  const modelo = 'nutri_modelo_ddl';
+  const adminUrl = new URL(ownerUrl);
+  adminUrl.pathname = '/postgres';
+  const admin = new Pool({ connectionString: adminUrl.toString(), max: 1 });
+  try {
+    await admin.query(`CREATE DATABASE ${modelo} TEMPLATE "${container.getDatabase()}"`);
+    await admin.query(`ALTER DATABASE ${modelo} WITH ALLOW_CONNECTIONS false`);
+  } finally {
+    await admin.end();
+  }
+
   project.provide('ownerDatabaseUrl', ownerUrl);
+  project.provide('modeloDdlDatabase', modelo);
   project.provide('appDatabaseUrl', appUrl);
   // Teste do script de backup (Tarefa 12): pg_dump e psql rodam DENTRO do container, como no host
   project.provide('pgContainerId', container.getId());
@@ -63,6 +78,8 @@ export async function teardown() {
 declare module 'vitest' {
   export interface ProvidedContext {
     ownerDatabaseUrl: string;
+    /** SUS-100: banco-modelo (sem conexões) dos bancos próprios de `test/ddl.ts`. */
+    modeloDdlDatabase: string;
     appDatabaseUrl: string;
     pgContainerId: string;
     pgUser: string;
