@@ -14,6 +14,7 @@ import { idTaco } from '@/modules/alimentos/taco';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { carregarPlano, listarPlanosDoPaciente } from '@/modules/plano-alimentar/carregar';
 import { criarRascunho } from '@/modules/plano-alimentar/rascunho';
+import type { PlanoCompleto } from '@/modules/plano-alimentar/tipos';
 import { listAccessHistory, rotuloDaAcao } from '@/modules/plataforma/audit';
 import { MSG_IA, MSG_RASCUNHO_IA } from './constantes';
 import { buscaDoTenant } from './ferramentas-alimentos';
@@ -108,7 +109,7 @@ async function rascunhoPronto(C: Cenario, o: { itens?: Parameters<typeof plano>[
 
 describe('metasPadrao (US-121)', () => {
   it('com cálculos, a meta é a do mais recente; com plano, as refeições com horário dele; sem nada, as seis comuns', () => {
-    const doPlano = { refeicoes: [{ id: 'a', nome: 'Desjejum', horario: '06:30', observacao: '', itens: [] }, { id: 'b', nome: 'Sem hora', horario: '', observacao: '', itens: [] }] };
+    const doPlano: Pick<PlanoCompleto, 'refeicoes'> = { refeicoes: [{ id: 'a', nome: 'Desjejum', horario: '06:30', observacao: '', diasSemana: [0, 1, 2, 3, 4, 5, 6], descricaoLivre: null, itens: [] }, { id: 'b', nome: 'Sem hora', horario: '', observacao: '', diasSemana: [0, 1, 2, 3, 4, 5, 6], descricaoLivre: null, itens: [] }] };
     expect(metasPadrao([{ kcal: 2100 }, { kcal: 1900 }], doPlano)).toEqual({ metaKcal: 2100, refeicoes: [{ nome: 'Desjejum', horario: '06:30' }] });
     const vazio = metasPadrao([], null);
     expect(vazio).toEqual({ metaKcal: null, refeicoes: REFEICOES_COMUNS.map((r) => ({ ...r })) });

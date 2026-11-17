@@ -1,11 +1,16 @@
 import { semValorNa } from '@/modules/alimentos/fontes';
+import { rotuloDosDiasPorExtenso, type DiaDaSemana } from './dias';
 
 export const QUANTIDADE_MIN = 0.1;
 export const QUANTIDADE_MAX = 5000;
 export const META_MIN = 500;
 export const META_MAX = 10000;
-export const MAX_REFEICOES = 15;
-export const MAX_ITENS = 200;
+/** RN-249 (Plano 19, D18): limites do editor e do salvamento (`estado.ts`, `rascunho.ts`). */
+export const MAX_REFEICOES = 50;
+export const MAX_ITENS = 400;
+/** RN-249: todo o caminho da IA (formulário, validação da saída, ferramenta de cálculo) fica nos limites de antes. */
+export const MAX_REFEICOES_RASCUNHO_IA = 15;
+export const MAX_ITENS_RASCUNHO_IA = 200;
 export const MAX_TEXTO = 2000;
 /** D7: envios sem resposta confirmada que o editor manda em `enviosIncertos`. */
 export const MAX_ENVIOS_INCERTOS = 20;
@@ -20,7 +25,8 @@ export const MSG_PLANO = {
   alimento: 'Alimento não encontrado.',
   receita: 'Receita não encontrada.',
   substituicao: 'A substituição precisa estar ligada a um alimento principal da mesma refeição.',
-  limite: 'O plano pode ter até 15 refeições e 200 itens.',
+  limite: 'O plano pode ter até 50 refeições e 400 itens.',
+  limiteRascunhoIa: 'O rascunho da IA pode ter até 15 refeições e 200 itens.',
   texto: 'Texto muito longo (até 2000 caracteres).',
   conflito: 'Este plano foi alterado em outra aba. Recarregue a página para continuar.',
   invalido: 'Não foi possível salvar estes dados. Recarregue a página.',
@@ -36,9 +42,29 @@ export const MSG_PLANO = {
   /** RN-230: "Sem valor na {sigla}" pela fonte do item ou do ingrediente ("Sem valor na USDA"). */
   semValor: semValorNa,
   semPeso: 'Registre a antropometria para ver g/kg',
+  /** RN-256: na tela "Salvar como modelo" (o modelo leva as observações e o texto livre, RNF-08). */
+  modeloComTextos: 'Observações e textos das refeições vão para o modelo. Retire dados do paciente antes de salvar.',
   /** Plano 14B (RN-117, A-D13): o selo do plano publicado que nasceu da IA (PDF e portal) e a marca no editor. */
   seloIa: 'Elaborado com apoio de IA e revisado pela nutricionista',
   marcaIa: 'Criado com apoio de IA',
+} as const;
+
+/** RN-243–RN-245 (Plano 19, D15/D16): plano em texto livre. */
+export const MSG_TEXTO_LIVRE = {
+  macros: 'A soma de proteína, carboidrato e lipídio precisa dar 100%.',
+  semTexto: (nome: string) => `A refeição "${nome}" está sem texto.`,
+  /** Sem texto na spec para o modo livre ("Inclua pelo menos uma refeição com um alimento" fala de alimento). */
+  publicarVazio: 'Inclua pelo menos uma refeição para publicar.',
+  /** D31: aviso (não erro) na publicação sem VET; a nutricionista publica com "Publicar mesmo assim". */
+  semVet: 'Registre o VET, a distribuição de macro e micronutrientes e as quantidades da prescrição no plano ou no atendimento.',
+} as const;
+
+/** RN-246 (Plano 19, D17): dias da semana da refeição. */
+export const MSG_DIAS = {
+  nenhum: 'Escolha ao menos um dia da semana.',
+  /** D31: aviso na publicação, na ordem seg…dom ("Domingo não tem refeições.", "Sábado e domingo não têm refeições."). */
+  semRefeicao: (dias: readonly DiaDaSemana[]) => `${rotuloDosDiasPorExtenso(dias)} ${dias.length > 1 ? 'não têm' : 'não tem'} refeições.`,
+  publicarMesmoAssim: 'Publicar mesmo assim',
 } as const;
 
 /** Plano 14B (US-123, RN-125): textos do modelo sugerido (os mesmos de MSG_MODELOS_IA; repetidos aqui para o editor, que não importa o módulo da IA). */

@@ -67,6 +67,12 @@ describe('ferramentas do rascunho e dos modelos (RN-116, D7)', () => {
     expect(ok).toMatchObject({ total_kcal: 192, indicador: 'Dentro da meta' });
     const erro = await executarFerramenta({ id: 'c3', nome: 'calcular_plano', entrada: { meta_kcal: null, refeicoes: [{ itens: [{ alimento: 'A9', gramas: 10 }] }] } }, cat, busca([]));
     expect(erro).toEqual({ conteudo: 'alimento A9 não foi buscado nesta tarefa', erro: true });
+    // RN-249 (Plano 19): a ferramenta fica nos limites do rascunho da IA (15 refeições, 200 itens), não nos do editor
+    const refeicoes = (n: number, itens = 1) => Array.from({ length: n }, () => ({ itens: Array.from({ length: itens }, () => ({ alimento: 'A1', gramas: 10 })) }));
+    const calcular = (r: ReturnType<typeof refeicoes>) => executarFerramenta({ id: 'c4', nome: 'calcular_plano', entrada: { meta_kcal: null, refeicoes: r } }, cat, busca([]));
+    expect(await calcular(refeicoes(16))).toEqual({ conteudo: 'entrada inválida', erro: true });
+    expect((await calcular(refeicoes(15))).erro).toBeUndefined();
+    expect(await calcular(refeicoes(1, 201))).toEqual({ conteudo: 'entrada inválida', erro: true });
   });
 
   it('entrada fora do formato e ferramenta desconhecida → erro curto (o laço segue)', async () => {

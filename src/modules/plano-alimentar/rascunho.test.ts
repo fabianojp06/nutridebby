@@ -2,14 +2,15 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { apagarPublicos, inserirPublicos } from '../../../test/alimentos-publicos';
+import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
-import { auditLog, mealItems, mealPlans, meals, patients } from '@/db/schema';
+import { auditLog, contents, mealItems, mealPlans, meals, patients, planoConteudos, planoListasSubstituicao } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { idTaco } from '@/modules/alimentos/taco';
 import { carregarPacienteParaEscrita, PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { carregarPlano } from './carregar';
-import { MSG_PLANO } from './constantes';
+import { MAX_ITENS, MAX_REFEICOES, MSG_DIAS, MSG_PLANO, MSG_TEXTO_LIVRE } from './constantes';
 import { ConflitoRevisaoError, PlanoError, PlanoNaoEncontradoError } from './erros';
 import { copiarConteudo, criarRascunho, criarRascunhoTx, descartarRascunho, gravarConteudoRascunhoTx, proximaVersao, salvarRascunho } from './rascunho';
 import type { CorpoSalvamento } from './tipos';
@@ -250,8 +251,9 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
       [`refeicao:${c.refeicoes[0].id}:horario`]: MSG_PLANO.horario,
       [`refeicao:${c.refeicoes[0].id}:nome`]: MSG_PLANO.refeicaoNome,
     });
-    const muitas = Array.from({ length: 16 }, () => ({ id: randomUUID(), nome: 'R', horario: '', observacao: '', itens: [] }));
+    const muitas = Array.from({ length: 51 }, () => ({ id: randomUUID(), nome: 'R', horario: '', observacao: '', itens: [] }));
     expect(await erros(salvarRascunho(T.ctx, id, { ...c, refeicoes: muitas }, deps))).toEqual({ geral: MSG_PLANO.limite });
+    expect(MSG_PLANO.limite).toBe('O plano pode ter até 50 refeições e 400 itens.');
     expect(await erros(salvarRascunho(T.ctx, id, { foo: 1 }, deps))).toHaveProperty('geral');
     expect((await carregarPlano(T.ctx, id, app.db))?.refeicoes).toEqual([]);
   });
@@ -450,5 +452,178 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
     const { p, id } = await comRascunho(T);
     await carregarPlano(T.ctx, id, app.db);
     expect((await auditDoPlano(T, p.id)).some((a) => a.acao === 'ler' && a.entidadeId === id)).toBe(true);
+  });
+});
+
+describe('Plano 19 — salvamento com modo, dias, texto livre e limites (RN-243, RN-244, RN-246, RN-249)', () => {
+  const refeicao = (o: Partial<CorpoSalvamento['refeicoes'][number]> = {}): CorpoSalvamento['refeicoes'][number] => ({
+    id: randomUUID(), nome: 'Almoço', horario: '12:00', observacao: '', itens: [], ...o,
+  });
+  const livre = (revisao: number, refeicoes: CorpoSalvamento['refeicoes'], extra: Partial<CorpoSalvamento> = {}): CorpoSalvamento => ({
+    revisao, envio: randomUUID(), titulo: 'Plano em texto', metaKcal: '', mostrarCalorias: false, orientacoes: '', modo: 'livre', refeicoes, ...extra,
+  });
+  const linhasDasRefeicoes = (T: TenantDeTeste, planId: string) =>
+    withTenant(T.ctx, (tx) => tx.select({ id: meals.id, dias: meals.diasSemana, texto: meals.descricaoLivre }).from(meals).where(eq(meals.planId, planId)).orderBy(meals.ordem), app.db);
+  const cabecalho = async (T: TenantDeTeste, planId: string) =>
+    (await withTenant(T.ctx, (tx) => tx.select({ modo: mealPlans.modo, macros: mealPlans.macrosPrescritos }).from(mealPlans).where(eq(mealPlans.id, planId)), app.db))[0];
+
+  it('RN-249: 50 refeições e 400 itens salvam; 51 refeições ou 401 itens são recusados com "O plano pode ter até 50 refeições e 400 itens."', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await comRascunho(T);
+    expect([MAX_REFEICOES, MAX_ITENS]).toEqual([50, 400]);
+    // 50 refeições com 8 itens cada = 400 itens
+    const cheio = Array.from({ length: 50 }, (_, k) =>
+      refeicao({ nome: `R${k}`, itens: Array.from({ length: 8 }, () => ({ id: randomUUID(), foodId: idTaco(3), quantidadeG: '10', medida: null, substituiItemId: null })) }),
+    );
+    const c = { ...conteudo(0), refeicoes: cheio };
+    expect(await salvarRascunho(T.ctx, id, c, deps)).toEqual({ revisao: 1 });
+    expect((await carregarPlano(T.ctx, id, app.db))!.refeicoes).toHaveLength(50);
+    const umItemAMais = { ...c, revisao: 1, refeicoes: [...cheio.slice(0, 49), { ...cheio[49], itens: [...cheio[49].itens, { id: randomUUID(), foodId: idTaco(3), quantidadeG: '10', medida: null, substituiItemId: null }] }] };
+    expect(await erros(salvarRascunho(T.ctx, id, umItemAMais, deps))).toEqual({ geral: 'O plano pode ter até 50 refeições e 400 itens.' });
+    expect(await erros(salvarRascunho(T.ctx, id, { ...c, revisao: 1, refeicoes: [...cheio, refeicao()] }, deps))).toEqual({ geral: 'O plano pode ter até 50 refeições e 400 itens.' });
+  });
+
+  it('modo livre: grava o texto de cada refeição, os dias em ordem e a distribuição; o calculado nunca grava texto nem distribuição (RN-243)', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await comRascunho(T);
+    const semana = refeicao({ nome: 'Almoço', descricaoLivre: '  Arroz, feijão e salada.  ', diasSemana: [5, 1, 2, 3, 4] });
+    const fds = refeicao({ nome: 'Almoço', horario: '13:00', descricaoLivre: '', diasSemana: [6, 0] });
+    await salvarRascunho(T.ctx, id, livre(0, [semana, fds], { macrosPrescritos: { proteina: '20', carboidrato: 50, lipidio: '30' } }), deps);
+    expect(await cabecalho(T, id)).toEqual({ modo: 'livre', macros: { proteina: 20, carboidrato: 50, lipidio: 30 } });
+    expect(await linhasDasRefeicoes(T, id)).toEqual([
+      { id: semana.id, dias: [1, 2, 3, 4, 5], texto: 'Arroz, feijão e salada.' },
+      { id: fds.id, dias: [0, 6], texto: null }, // o rascunho aceita a refeição sem texto (a publicação, não)
+    ]);
+    expect(await carregarPlano(T.ctx, id, app.db)).toMatchObject({
+      modo: 'livre', macrosPrescritos: { proteina: 20, carboidrato: 50, lipidio: 30 },
+      refeicoes: [{ diasSemana: [1, 2, 3, 4, 5], descricaoLivre: 'Arroz, feijão e salada.' }, { diasSemana: [0, 6], descricaoLivre: null }],
+    });
+    // livre → calculado: o texto e a distribuição saem, mesmo se o corpo ainda os mandar
+    await salvarRascunho(T.ctx, id, livre(1, [semana, fds], { modo: 'calculado', macrosPrescritos: { proteina: 20, carboidrato: 50, lipidio: 30 } }), deps);
+    expect(await cabecalho(T, id)).toEqual({ modo: 'calculado', macros: null });
+    expect((await linhasDasRefeicoes(T, id)).map((r) => r.texto)).toEqual([null, null]);
+  });
+
+  it('o editor de antes do Plano 19 (sem modo, dias e texto no corpo) não apaga o que está gravado; refeição nova nasce com os 7 dias', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await comRascunho(T);
+    const almoco = refeicao({ descricaoLivre: 'Prato feito', diasSemana: [1, 2, 3, 4, 5] });
+    await salvarRascunho(T.ctx, id, livre(0, [almoco], { macrosPrescritos: { proteina: 25, carboidrato: 45, lipidio: 30 } }), deps);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { descricaoLivre, diasSemana, ...antigo } = almoco;
+    const nova = refeicao({ nome: 'Ceia', horario: '21:00' });
+    await salvarRascunho(T.ctx, id, { revisao: 1, envio: randomUUID(), titulo: 'Plano em texto', metaKcal: '', mostrarCalorias: false, orientacoes: '', refeicoes: [antigo, nova] }, deps);
+    expect(await cabecalho(T, id)).toEqual({ modo: 'livre', macros: { proteina: 25, carboidrato: 45, lipidio: 30 } });
+    expect(await linhasDasRefeicoes(T, id)).toEqual([
+      { id: almoco.id, dias: [1, 2, 3, 4, 5], texto: 'Prato feito' },
+      { id: nova.id, dias: [0, 1, 2, 3, 4, 5, 6], texto: null },
+    ]);
+  });
+
+  it('erros no campo, antes do banco: distribuição que não soma 100%, dias vazios, texto longo; modo livre com alimentos e dias fora do formato são recusados', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await comRascunho(T);
+    const r = refeicao({ descricaoLivre: 'x' });
+    for (const macros of [{ proteina: 20, carboidrato: 50, lipidio: 20 }, { proteina: '20,5', carboidrato: '49,5', lipidio: 30 }, { proteina: 120, carboidrato: -20, lipidio: 0 }, { proteina: '', carboidrato: 50, lipidio: 50 }])
+      expect(await erros(salvarRascunho(T.ctx, id, livre(0, [r], { macrosPrescritos: macros }), deps)), JSON.stringify(macros)).toEqual({
+        macrosPrescritos: 'A soma de proteína, carboidrato e lipídio precisa dar 100%.',
+      });
+    expect(MSG_TEXTO_LIVRE.macros).toBe('A soma de proteína, carboidrato e lipídio precisa dar 100%.');
+    expect(await erros(salvarRascunho(T.ctx, id, livre(0, [{ ...r, diasSemana: [] }]), deps))).toEqual({ [`refeicao:${r.id}:dias`]: 'Escolha ao menos um dia da semana.' });
+    expect(MSG_DIAS.nenhum).toBe('Escolha ao menos um dia da semana.');
+    expect(await erros(salvarRascunho(T.ctx, id, livre(0, [{ ...r, descricaoLivre: 'x'.repeat(2001) }]), deps))).toEqual({ [`refeicao:${r.id}:descricaoLivre`]: MSG_PLANO.texto });
+    for (const dias of [[7], [1, 1], ['seg'], 'todos'])
+      expect(await erros(salvarRascunho(T.ctx, id, livre(0, [{ ...r, diasSemana: dias as number[] }]), deps)), JSON.stringify(dias)).toEqual({ geral: MSG_PLANO.invalido });
+    expect(await erros(salvarRascunho(T.ctx, id, livre(0, [r], { modo: 'outro' as 'livre' }), deps))).toEqual({ geral: MSG_PLANO.invalido });
+    const comItem = { ...r, itens: [{ id: randomUUID(), foodId: idTaco(3), quantidadeG: '100', medida: null, substituiItemId: null }] };
+    expect(await erros(salvarRascunho(T.ctx, id, livre(0, [comItem]), deps))).toEqual({ geral: MSG_PLANO.invalido });
+    expect(await linhasDasRefeicoes(T, id)).toEqual([]); // nada gravado
+  });
+
+  it('copiarConteudo (RN-256): dias, texto livre, listas ligadas (a mesma cópia, sem reler a biblioteca) e conteúdos ligados', async () => {
+    const T = await novoTenant(app.db);
+    const { p, id } = await comRascunho(T);
+    const almoco = refeicao({ descricaoLivre: 'Prato feito', diasSemana: [1, 2, 3, 4, 5] });
+    await salvarRascunho(T.ctx, id, livre(0, [almoco]), deps);
+    const material = await novoConteudo(app.db, T, { titulo: 'Como montar o prato' });
+    const copiada = new Date('2026-11-16T12:00:00Z');
+    const conteudoDaLista = { grupos: [{ nome: 'Carboidratos', itens: [{ nome: 'Arroz, tipo 1, cozido', gramas: 100, fonte: 'taco' }] }] };
+    await withTenant(
+      T.ctx,
+      async (tx) => {
+        await tx.insert(planoListasSubstituicao).values({ tenantId: T.tenantId, patientId: p.id, planId: id, listaOrigemId: randomUUID(), nome: 'Trocas do dia a dia', orientacao: 'Troque dentro do grupo.', conteudo: conteudoDaLista, copiadaEm: copiada, ordem: 0 });
+        await tx.insert(planoConteudos).values([
+          { tenantId: T.tenantId, patientId: p.id, planId: id, contentId: material.id, titulo: 'Como montar o prato', ordem: 0 },
+          { tenantId: T.tenantId, patientId: p.id, planId: id, contentId: null, titulo: 'Material excluído', ordem: 1 },
+        ]);
+      },
+      app.db,
+    );
+    const modeloId = await withTenant(
+      T.ctx,
+      async (tx) => {
+        const [m] = await tx.insert(mealPlans).values({ tenantId: T.tenantId, isTemplate: true, titulo: 'Modelo', modo: 'livre' }).returning({ id: mealPlans.id });
+        await copiarConteudo(tx, id, m.id);
+        return m.id;
+      },
+      app.db,
+    );
+    expect((await linhasDasRefeicoes(T, modeloId)).map(({ dias, texto }) => ({ dias, texto }))).toEqual([{ dias: [1, 2, 3, 4, 5], texto: 'Prato feito' }]);
+    const [lista] = await withTenant(T.ctx, (tx) => tx.select().from(planoListasSubstituicao).where(eq(planoListasSubstituicao.planId, modeloId)), app.db);
+    expect(lista).toMatchObject({ patientId: null, nome: 'Trocas do dia a dia', orientacao: 'Troque dentro do grupo.', conteudo: conteudoDaLista, copiadaEm: copiada, ordem: 0 });
+    const ligados = await withTenant(T.ctx, (tx) => tx.select().from(planoConteudos).where(eq(planoConteudos.planId, modeloId)).orderBy(planoConteudos.ordem), app.db);
+    expect(ligados.map((c) => [c.patientId, c.contentId, c.titulo, c.ordem])).toEqual([
+      [null, material.id, 'Como montar o prato', 0],
+      [null, null, 'Material excluído', 1],
+    ]);
+  });
+
+  it('copiarConteudo: exclusão do conteúdo ligado ao mesmo tempo que a cópia → a ligação copiada fica sem o conteúdo, com o título (nunca 23503)', async () => {
+    const T = await novoTenant(app.db);
+    const { p, id } = await comRascunho(T);
+    await salvarRascunho(T.ctx, id, livre(0, [refeicao({ descricaoLivre: 'Prato feito' })]), deps);
+    const material = await novoConteudo(app.db, T, { titulo: 'Como montar o prato' });
+    await withTenant(T.ctx, (tx) => tx.insert(planoConteudos).values({ tenantId: T.tenantId, patientId: p.id, planId: id, contentId: material.id, titulo: 'Como montar o prato', ordem: 0 }), app.db);
+    const [m] = await withTenant(T.ctx, (tx) => tx.insert(mealPlans).values({ tenantId: T.tenantId, isTemplate: true, titulo: 'Modelo', modo: 'livre' }).returning({ id: mealPlans.id }), app.db);
+    let soltar!: () => void;
+    const segura = new Promise<void>((r) => (soltar = r));
+    let feito!: () => void;
+    const excluiu = new Promise<void>((r) => (feito = r));
+    const outra = withTenant(T.ctx, async (tx) => {
+      await tx.delete(contents).where(eq(contents.id, material.id));
+      feito();
+      await segura; // a exclusão fica aberta, sem COMMIT, enquanto a cópia roda
+    }, app.db);
+    await excluiu;
+    let terminou = false;
+    const copiando = withTenant(T.ctx, (tx) => copiarConteudo(tx, id, m.id), app.db)
+      .catch((e: unknown) => e) // sem a trava, o 23503 chega ao expect, sem rejeição solta
+      .finally(() => (terminou = true));
+    for (let i = 0; i < 60 && !terminou; i++) {
+      const r = await app.db.execute(sql`select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock' and pid <> pg_backend_pid()`);
+      if ((r.rows[0] as { n: number }).n > 0) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    soltar();
+    await outra;
+    expect(await copiando).toBeUndefined();
+    const ligados = await withTenant(T.ctx, (tx) => tx.select({ contentId: planoConteudos.contentId, titulo: planoConteudos.titulo }).from(planoConteudos).where(eq(planoConteudos.planId, m.id)), app.db);
+    expect(ligados).toEqual([{ contentId: null, titulo: 'Como montar o prato' }]);
+  });
+
+  it('"Usar como rascunho" e modelos sugeridos (gravarConteudoRascunhoTx, criarRascunhoTx): modo calculado e refeições nos 7 dias', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const planId = await withTenant(
+      T.ctx,
+      async (tx) => {
+        await carregarPacienteParaEscrita(tx, p.id);
+        const id = await criarRascunhoTx(tx, T.tenantId, p.id, { titulo: 'Da IA' });
+        await gravarConteudoRascunhoTx(tx, T.tenantId, p.id, id, [{ nome: 'Almoço', horario: '12:00', itens: [{ foodId: idTaco(3), quantidadeG: 100, medida: null, substitui: null }] }]);
+        return id;
+      },
+      app.db,
+    );
+    expect(await carregarPlano(T.ctx, planId, app.db)).toMatchObject({ modo: 'calculado', macrosPrescritos: null, refeicoes: [{ diasSemana: [0, 1, 2, 3, 4, 5, 6], descricaoLivre: null }] });
   });
 });

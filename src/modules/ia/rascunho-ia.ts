@@ -7,6 +7,7 @@ import { seloDaFonte } from '@/modules/alimentos/fontes';
 import { textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { criarRascunhoTx, gravarConteudoRascunhoTx } from '@/modules/plano-alimentar/rascunho';
+import { TODOS_OS_DIAS } from '@/modules/plano-alimentar/dias';
 import type { ItemPlano, PlanoCompleto, RefeicaoPlano } from '@/modules/plano-alimentar/tipos';
 import { auditRead } from '@/modules/plataforma/audit';
 import { autorizacaoDaTarefa, autorizacaoDoPaciente, motivoDoPaciente } from './autorizacao';
@@ -146,7 +147,8 @@ export async function abrirRascunhoIa(ctx: TenantContext, patientId: string, tar
           return;
         }
         foraDoCatalogo += x.itens.length - itens.length;
-        refeicoes.push({ id: `${t.id}-${ir}`, nome: x.nome, horario: x.horario, observacao: '', itens });
+        // RN-246: como gravarConteudoRascunhoTx, a refeição sugerida vale todos os dias
+        refeicoes.push({ id: `${t.id}-${ir}`, nome: x.nome, horario: x.horario, observacao: '', diasSemana: [...TODOS_OS_DIAS], descricaoLivre: null, itens });
       });
       await auditRead(tx, { entidade: 'ia', entidadeId: t.id, patientId });
       return {
@@ -155,7 +157,7 @@ export async function abrirRascunhoIa(ctx: TenantContext, patientId: string, tar
         foraDoCatalogo,
         plano: {
           id: t.id, patientId, isTemplate: false, titulo: r.plano.titulo, metaKcal: r.plano.metaKcal, energyCalcId: null, status: 'rascunho', versao: 0, revisao: 0,
-          publicadoEm: null, mostrarCalorias: true, orientacoes: r.plano.orientacoes, pdfStatus: null, pdfPath: null, origemIa: null, iaOrigemEm: null, refeicoes,
+          publicadoEm: null, mostrarCalorias: true, orientacoes: r.plano.orientacoes, modo: 'calculado', macrosPrescritos: null, pdfStatus: null, pdfPath: null, origemIa: null, iaOrigemEm: null, refeicoes,
         },
       };
     },

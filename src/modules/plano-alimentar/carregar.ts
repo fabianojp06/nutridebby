@@ -2,14 +2,29 @@ import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { contents, foods, iaGeracoesModelos, mealItems, mealPlans, meals } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { seloDaFonte } from '@/modules/alimentos/fontes';
+import { seloDaFonte, type Fonte } from '@/modules/alimentos/fontes';
 import { medidasDeVarios } from '@/modules/alimentos/medidas';
 import { idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
-import { lerCongelados } from './congelados';
-import type { OrigemIaDoModelo, PlanoCompleto, PlanoDoCliente, ReceitaDaRefeicao, StatusPlano } from './tipos';
+import { lerCongelados, type Congelado } from './congelados';
+import type { DiaDaSemana } from './dias';
+import type { ModoPlano, OrigemIaDoModelo, PlanoCompleto, PlanoDoCliente, ReceitaDaRefeicao, StatusPlano } from './tipos';
 
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : '');
+
+/**
+ * RN-237: o item publicado só pela cópia congelada, lida por `lerCongelados` (formato antigo e novo). Um congelado sem
+ * fonte nem `origem` conhecida (nunca gravado assim pela publicação) não derruba a página: a fonte sai do alimento,
+ * que não muda de fonte (`foods.fonte` acompanha `tenant_id`, CHECK `foods_origem_valida`); o resto continua da cópia.
+ */
+function congeladoDoItem(n: unknown, fonteDoAlimento: Fonte): Congelado {
+  try {
+    return lerCongelados(n);
+  } catch {
+    const copia = typeof n === 'object' && n !== null && !Array.isArray(n) ? n : {};
+    return lerCongelados({ ...copia, fonte: fonteDoAlimento });
+  }
+}
 
 /**
  * Plano inteiro na transação. Rascunho/modelo: valores atuais dos alimentos + medidas para trocar (só se o chamador
@@ -64,6 +79,8 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
     publicadoEm: p.publicadoEm?.toISOString() ?? null,
     mostrarCalorias: p.mostrarCalorias,
     orientacoes: p.orientacoes,
+    modo: p.modo as ModoPlano,
+    macrosPrescritos: p.macrosPrescritos ?? null,
     pdfStatus: p.pdfStatus as PlanoCompleto['pdfStatus'],
     pdfPath: p.pdfPath,
     refeicoes: rs.map((r) => ({
@@ -71,21 +88,21 @@ export async function lerPlanoNaTransacao(tx: Tx, planId: string, opts: { audita
       nome: r.nome,
       horario: hhmm(r.horario),
       observacao: r.observacao,
+      diasSemana: r.diasSemana as DiaDaSemana[],
+      descricaoLivre: r.descricaoLivre,
       ...receitaDa(r.recipeContentId),
       itens: its
         .filter((x) => x.i.mealId === r.id)
         .map(({ i, f }) => {
-          const congelado = !editavel && i.nutrientes;
-          const v = congelado ? i.nutrientes! : f;
-          // RN-230: no rascunho, a fonte de foods.fonte (nunca de tenant_id); no publicado, a da cópia (formato antigo
-          // pela `origem`, RN-237 — a leitura toda do congelado passa a lerCongelados na Tarefa 4)
-          const fonte = congelado ? lerCongelados(i.nutrientes).fonte : f.fonte;
+          // RN-230: no rascunho, valores e fonte do alimento (foods.fonte, nunca tenant_id); no publicado, a cópia
+          // congelada, só por lerCongelados (RN-237). Publicado sem cópia não existe (a publicação confere as linhas).
+          const v = !editavel && i.nutrientes ? congeladoDoItem(i.nutrientes, f.fonte) : f;
           return {
             id: i.id,
             foodId: i.foodId,
             nome: v.nome,
-            fonte,
-            origem: seloDaFonte(fonte),
+            fonte: v.fonte,
+            origem: seloDaFonte(v.fonte),
             porCem: { kcal: v.kcal, proteinaG: v.proteinaG, carboidratoG: v.carboidratoG, lipidioG: v.lipidioG, fibraG: v.fibraG },
             medidas: medidas.get(i.foodId) ?? [],
             quantidadeG: i.quantidadeG,

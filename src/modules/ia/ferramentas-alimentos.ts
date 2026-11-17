@@ -4,7 +4,7 @@ import { arredondar } from '@/lib/numero';
 import { buscarAlimentos, type AlimentoEncontrado } from '@/modules/alimentos/busca';
 import type { Fonte } from '@/modules/alimentos/fontes';
 import { distribuicaoMacros, indicadorMeta, totalDoDia, type ItemCalculo } from '@/modules/plano-alimentar/calculo';
-import { MAX_ITENS, MAX_REFEICOES, QUANTIDADE_MAX, QUANTIDADE_MIN } from '@/modules/plano-alimentar/constantes';
+import { MAX_ITENS_RASCUNHO_IA, MAX_REFEICOES_RASCUNHO_IA, QUANTIDADE_MAX, QUANTIDADE_MIN } from '@/modules/plano-alimentar/constantes';
 import type { ChamadaFerramenta, FerramentaIA } from './provedor';
 
 /**
@@ -79,8 +79,8 @@ const buscaSchema = z.object({ termo: z.string().min(1).max(120) });
 const calculoSchema = z.object({
   meta_kcal: z.number().nullable(),
   refeicoes: z
-    .array(z.object({ itens: z.array(z.object({ alimento: z.string().max(10), gramas: z.number() })).max(MAX_ITENS) }))
-    .max(MAX_REFEICOES),
+    .array(z.object({ itens: z.array(z.object({ alimento: z.string().max(10), gramas: z.number() })).max(MAX_ITENS_RASCUNHO_IA) }))
+    .max(MAX_REFEICOES_RASCUNHO_IA), // RN-249: o caminho da IA fica em 15 refeições e 200 itens
 });
 
 function localDe(cat: CatalogoDaTarefa, a: AlimentoEncontrado): string {

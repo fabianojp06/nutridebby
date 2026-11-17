@@ -7,7 +7,7 @@ import { errosSemCampo, estadoInicial, gramasDoItem, medidaDaOpcao, opcaoDaMedid
 
 const plano: PlanoDoCliente = {
   id: 'p', patientId: 'pac', isTemplate: false, titulo: 'Plano alimentar', metaKcal: null, energyCalcId: null, status: 'rascunho', versao: 1, revisao: 0,
-  publicadoEm: null, mostrarCalorias: false, orientacoes: '', pdfStatus: null, refeicoes: [], origemIa: null, iaOrigemEm: null,
+  publicadoEm: null, mostrarCalorias: false, orientacoes: '', modo: 'calculado', macrosPrescritos: null, pdfStatus: null, refeicoes: [], origemIa: null, iaOrigemEm: null,
 };
 const arroz: AlimentoEncontrado = {
   id: 'f-arroz', nome: 'Arroz, tipo 1, cozido', nomeOriginal: null, grupo: 'Cereais e derivados', fonte: 'taco', origem: 'TACO', micros: {},
@@ -50,7 +50,7 @@ describe('estado do editor (US-022)', () => {
     const pires = { nome: 'pires pequeno', plural: 'pires pequenos', gramas: 60 };
     const comItem: PlanoDoCliente = {
       ...plano,
-      refeicoes: [{ id: 'r1', nome: 'Almoço', horario: '12:00', observacao: '', itens: [
+      refeicoes: [{ id: 'r1', nome: 'Almoço', horario: '12:00', observacao: '', diasSemana: [0, 1, 2, 3, 4, 5, 6], descricaoLivre: null, itens: [
         { id: 'i1', foodId: arroz.id, nome: arroz.nome, fonte: 'taco', origem: 'TACO', porCem: arroz.porCem, medidas: arroz.medidas, quantidadeG: 120, medida: { ...pires, qtd: 2 }, medidaCaseiraTxt: '2 pires pequenos', substituiItemId: null },
       ] }],
     };
@@ -225,8 +225,8 @@ describe('estado do editor (US-022)', () => {
   it('US-054: escolher, trocar e tirar a receita; o envio leva recipeContentId só com sugestão', () => {
     const plano: PlanoDoCliente = {
       id: 'p1', patientId: 'pa', isTemplate: false, titulo: 'Plano', metaKcal: null, energyCalcId: null, status: 'rascunho', versao: 1, revisao: 0,
-      publicadoEm: null, mostrarCalorias: false, orientacoes: '', pdfStatus: null, origemIa: null, iaOrigemEm: null,
-      refeicoes: [{ id: 'r1', nome: 'Café', horario: '07:00', observacao: '', itens: [], receita: { id: 'c1', titulo: 'Panqueca', disponivel: false } }],
+      publicadoEm: null, mostrarCalorias: false, orientacoes: '', modo: 'calculado', macrosPrescritos: null, pdfStatus: null, origemIa: null, iaOrigemEm: null,
+      refeicoes: [{ id: 'r1', nome: 'Café', horario: '07:00', observacao: '', diasSemana: [0, 1, 2, 3, 4, 5, 6], descricaoLivre: null, itens: [], receita: { id: 'c1', titulo: 'Panqueca', disponivel: false } }],
     };
     const e0 = estadoInicial(plano);
     expect(e0.refeicoes[0].receita).toEqual({ id: 'c1', titulo: 'Panqueca', disponivel: false });

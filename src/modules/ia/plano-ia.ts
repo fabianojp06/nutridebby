@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { gramasDaMedida, QTD_MEDIDA_MAX } from '@/modules/alimentos/medidas-constantes';
 import { lerQuantidade } from '@/modules/plano-alimentar/calculo';
-import { MAX_ITENS, MAX_REFEICOES, MAX_TEXTO, META_MAX, META_MIN } from '@/modules/plano-alimentar/constantes';
+import { MAX_ITENS_RASCUNHO_IA, MAX_REFEICOES_RASCUNHO_IA, MAX_TEXTO, META_MAX, META_MIN } from '@/modules/plano-alimentar/constantes';
 import type { CatalogoDaTarefa } from './ferramentas-alimentos';
 import type { ItemIa, PlanoIa, RefeicaoIa } from './tipos';
 
@@ -101,7 +101,7 @@ const brutoSchema = z.object({
         ),
       }),
     )
-    .max(MAX_REFEICOES),
+    .max(MAX_REFEICOES_RASCUNHO_IA), // RN-249: rascunho e modelos sugeridos ficam em 15/200 (o editor vai a 50/400)
 });
 type ItemBruto = z.infer<typeof brutoSchema>['refeicoes'][number]['itens'][number];
 
@@ -122,7 +122,7 @@ export function validarPlanoIa(bruto: unknown, cat: CatalogoDaTarefa): PlanoIa |
   }
   const p = brutoSchema.safeParse(obj);
   if (!p.success) return null;
-  if (p.data.refeicoes.reduce((n, r) => n + r.itens.length, 0) > MAX_ITENS) return null;
+  if (p.data.refeicoes.reduce((n, r) => n + r.itens.length, 0) > MAX_ITENS_RASCUNHO_IA) return null;
   const titulo = limparLinha(p.data.titulo);
   const orientacoes = limparTexto(p.data.orientacoes ?? '');
   if (!titulo || titulo.length > MAX_TITULO || orientacoes.length > MAX_TEXTO) return null;

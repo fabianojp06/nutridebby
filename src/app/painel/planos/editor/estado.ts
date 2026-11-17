@@ -31,7 +31,7 @@ export type Acao =
   | { tipo: 'removerItem'; itemId: string }
   | { tipo: 'moverItem'; itemId: string; direcao: -1 | 1 };
 
-/** Limites do servidor (15 refeições, 200 itens com as substituições): passando deles o PUT inteiro é recusado. */
+/** Limites do servidor (50 refeições, 400 itens com as substituições, RN-249): passando deles o PUT inteiro é recusado. */
 export const totalDeItens = (e: EstadoEditor): number => e.refeicoes.reduce((n, r) => n + r.itens.length, 0);
 export const podeAdicionarRefeicao = (e: EstadoEditor): boolean => e.refeicoes.length < MAX_REFEICOES;
 export const podeAdicionarItem = (e: EstadoEditor): boolean => totalDeItens(e) < MAX_ITENS;

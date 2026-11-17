@@ -12,6 +12,7 @@ import { contextoDoPaciente } from '@/modules/plano-alimentar/meta';
 import { carregarProntuario } from '../../prontuario';
 import { descartarRascunhoAction, editarPublicadoAction, publicarAction } from '../actions';
 import { BotaoAcao } from '../botao-acao';
+import { BotaoPublicar } from '../botao-publicar';
 import { PdfDoPlano } from './pdf-do-plano';
 import { Aviso } from '@/components/ui/aviso';
 
@@ -52,7 +53,7 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
         acoes={
           <div className="flex flex-wrap items-start gap-4">
             {editavel && (
-              <span data-guia="publicar-plano"><BotaoAcao acao={publicarAction.bind(null, paciente.id, plano.id)} rotulo="Publicar" confirmar="Publicar esta versão para o paciente? A versão publicada hoje será arquivada." exigirSalvo /></span>
+              <span data-guia="publicar-plano"><BotaoPublicar acao={publicarAction.bind(null, paciente.id, plano.id)} /></span>
             )}
             {plano.status === 'publicado' && !bloqueado && <BotaoAcao acao={editarPublicadoAction.bind(null, paciente.id, plano.id)} rotulo="Editar" principal={false} />}
             {!rascunho && <PdfDoPlano plano={plano} patientId={paciente.id} bloqueado={bloqueado} />}

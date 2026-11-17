@@ -1,12 +1,15 @@
-import type { MedidaCaseira, MedidaDoItem, NutrientesCongelados } from '@/db/schema';
+import type { MacrosPrescritos, MedidaCaseira, MedidaDoItem, NutrientesCongelados } from '@/db/schema';
 import type { Nutrientes100 } from '@/modules/alimentos/busca';
 import type { Fonte, SeloDaFonte } from '@/modules/alimentos/fontes';
 import type { MedidaDisponivel } from '@/modules/alimentos/medidas';
+import type { DiaDaSemana } from './dias';
 
 /** Só tipos: o editor (cliente) importa daqui sem puxar banco. */
 export type StatusPlano = 'rascunho' | 'publicado' | 'arquivado';
 /** `NutrientesCongelados` é o formato gravado em `meal_items.nutrientes`; para ler, `lerCongelados` (RN-237). */
-export type { MedidaCaseira, MedidaDoItem, NutrientesCongelados };
+export type { MacrosPrescritos, MedidaCaseira, MedidaDoItem, NutrientesCongelados };
+/** RN-243 (Plano 19, D15): com alimentos e quantidades, ou texto livre por refeição. */
+export type ModoPlano = 'calculado' | 'livre';
 
 export type ItemPlano = {
   id: string;
@@ -28,7 +31,18 @@ export type ItemPlano = {
 /** US-054 (D13): receita sugerida na refeição — `disponivel` = publicada (a despublicada fica gravada como "Receita indisponível"). */
 export type ReceitaDaRefeicao = { id: string; titulo: string; disponivel: boolean };
 
-export type RefeicaoPlano = { id: string; nome: string; horario: string; observacao: string; itens: ItemPlano[]; receita?: ReceitaDaRefeicao };
+export type RefeicaoPlano = {
+  id: string;
+  nome: string;
+  horario: string;
+  observacao: string;
+  /** RN-246: dias em que a refeição vale (0 = domingo), em ordem. */
+  diasSemana: DiaDaSemana[];
+  /** RN-243: o texto da refeição no plano em texto livre (nulo no calculado ou ainda sem texto). */
+  descricaoLivre: string | null;
+  itens: ItemPlano[];
+  receita?: ReceitaDaRefeicao;
+};
 
 export type PlanoCompleto = {
   id: string;
@@ -43,6 +57,10 @@ export type PlanoCompleto = {
   publicadoEm: string | null;
   mostrarCalorias: boolean;
   orientacoes: string;
+  /** RN-243: `livre` = texto por refeição, sem itens. */
+  modo: ModoPlano;
+  /** RN-244: distribuição de macros em % do VET (só no modo livre). */
+  macrosPrescritos: MacrosPrescritos | null;
   pdfStatus: 'pendente' | 'pronto' | 'falhou' | null;
   /** Caminho interno do arquivo: só no servidor (download por signFileUrl); nunca vai ao cliente (`PlanoDoCliente`). */
   pdfPath: string | null;
@@ -73,11 +91,21 @@ export type RascunhoEnviado = {
   energyCalcId?: string | null;
   mostrarCalorias: boolean;
   orientacoes: string;
+  /**
+   * Plano 19 (RN-243/RN-244): ausentes = ficam como estão no banco (o editor de antes do Plano 19, numa aba aberta
+   * durante o deploy, não os manda). `macrosPrescritos` com os três vazios = sem distribuição.
+   */
+  modo?: ModoPlano;
+  macrosPrescritos?: { proteina: string | number; carboidrato: string | number; lipidio: string | number } | null;
   refeicoes: {
     id: string;
     nome: string;
     horario: string;
     observacao: string;
+    /** RN-246: ausente = fica como está (refeição nova: os 7 dias). */
+    diasSemana?: number[];
+    /** RN-243: só no modo livre; ausente = fica como está. */
+    descricaoLivre?: string | null;
     /** US-054: receita sugerida (id de conteúdo); ausente = sem sugestão. */
     recipeContentId?: string | null;
     itens: { id: string; foodId: string; quantidadeG: string; medida: MedidaDoItem | null; substituiItemId: string | null }[];

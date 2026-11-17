@@ -40,11 +40,15 @@ describe('validarPlanoIa (RN-121, RN-124, D14): nada do modelo passa sem revalid
     expect(p.descartados).toBe(2); // a substituição órfã e o item da ceia
   });
 
-  it('limites do editor: horário HH:MM, nome ≤ 60, título ≤ 120, orientações ≤ 2000, 15 refeições, 200 itens; meta 500–10000', () => {
+  it('limites: horário HH:MM, nome ≤ 60, título ≤ 120, orientações ≤ 2000; os do rascunho da IA, 15 refeições e 200 itens (RN-249, o editor vai a 50/400); meta 500–10000', () => {
     expect(validarPlanoIa({ titulo: 'x'.repeat(121), meta_kcal: null, orientacoes: '', refeicoes: [] }, catalogo())).toBeNull();
     expect(validarPlanoIa({ titulo: 'T', meta_kcal: 100, orientacoes: '', refeicoes: [] }, catalogo())).toMatchObject({ metaKcal: null });
     const muitas = Array.from({ length: 16 }, (_, i) => ({ nome: `R${i}`, horario: '08:00', itens: [item('A1', 10)] }));
     expect(validarPlanoIa({ titulo: 'T', meta_kcal: null, orientacoes: '', refeicoes: muitas }, catalogo(alimento(1)))).toBeNull();
+    expect(validarPlanoIa({ titulo: 'T', meta_kcal: null, orientacoes: '', refeicoes: muitas.slice(0, 15) }, catalogo(alimento(1)))).not.toBeNull();
+    const itens201 = Array.from({ length: 10 }, (_, i) => ({ nome: `R${i}`, horario: '08:00', itens: Array.from({ length: i ? 20 : 21 }, () => item('A1', 10)) }));
+    expect(validarPlanoIa({ titulo: 'T', meta_kcal: null, orientacoes: '', refeicoes: itens201 }, catalogo(alimento(1)))).toBeNull();
+    expect(validarPlanoIa({ titulo: 'T', meta_kcal: null, orientacoes: '', refeicoes: itens201.slice(1) }, catalogo(alimento(1)))).not.toBeNull();
     const ruim = validarPlanoIa({ titulo: 'T', meta_kcal: null, orientacoes: '', refeicoes: [{ nome: 'Jantar', horario: '25:00', itens: [item('A1', 10)] }] }, catalogo(alimento(1)))!;
     expect(ruim.refeicoes).toEqual([]);
     expect(ruim.descartados).toBe(1);

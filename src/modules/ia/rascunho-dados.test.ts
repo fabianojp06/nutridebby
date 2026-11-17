@@ -45,7 +45,9 @@ describe('validarMetas (US-121): os textos do formulário do rascunho', () => {
     expect(erros({ ...base, refeicoes: [{ nome: '  ', horario: '12:00' }] })).toEqual({ 'refeicao:0:nome': 'Informe o nome da refeição (até 60 caracteres)' });
     expect(erros({ ...base, refeicoes: [{ nome: 'x'.repeat(61), horario: '12:00' }] })).toEqual({ 'refeicao:0:nome': 'Informe o nome da refeição (até 60 caracteres)' });
     const dezesseis = Array.from({ length: 16 }, (_, i) => ({ nome: `R${i}`, horario: '12:00' }));
-    expect(erros({ ...base, refeicoes: dezesseis })).toEqual({ refeicoes: 'O plano pode ter até 15 refeições e 200 itens.' });
+    // RN-249 (Plano 19): o editor vai a 50 refeições, o rascunho da IA fica em 15
+    expect(erros({ ...base, refeicoes: dezesseis })).toEqual({ refeicoes: 'O rascunho da IA pode ter até 15 refeições e 200 itens.' });
+    expect(erros({ ...base, refeicoes: dezesseis.slice(0, 15) })).toBeNull();
   });
 
   it('restrições com mais de 500 caracteres', () => {
