@@ -1,7 +1,8 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
 import { Campo } from '@/components/campo';
+import { focarPrimeiroErro } from '@/components/focar-primeiro-erro';
 import { Aviso } from '@/components/ui/aviso';
 import { Botao } from '@/components/ui/botao';
 import { CATEGORIAS_DO_CONSULTORIO, MSG_EXAMES } from '@/modules/exames/constantes';
@@ -18,16 +19,21 @@ const CAMPO = 'min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text
  * Plano 22 (T3, US-370, spec §7 "Catálogo"): o exame do catálogo em três áreas — dados (nome, unidade, outros nomes e
  * "Exames que compõem este"), "Faixas do consultório" (uma linha editável por faixa, "Acrescentar faixa"/"Remover faixa")
  * e "Modelos de nota de interpretação" (linha fixa e o aviso de dados do paciente). Erros por campo (`role="alert"`,
- * ligados por `aria-describedby`); depois de um erro, o formulário volta com o que foi digitado (`valores`, `key`).
+ * ligados por `aria-describedby`); depois de um erro, o formulário volta com o que foi digitado (`valores`, `key`) e o
+ * foco vai ao primeiro erro (`focarPrimeiroErro`), com a tela rolada até ele — o erro pode estar no topo, longe do "Salvar".
  */
 export function ExameCatalogoForm({ acao, inicial }: { acao: (s: ExameCatalogoState, fd: FormData) => Promise<ExameCatalogoState>; inicial: ExameDoFormulario }) {
   const [state, action, pendente] = useActionState(acao, {});
   const valores = state.valores ? formularioDosValores(state.valores) : inicial;
+  const formulario = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (state.erros && Object.keys(state.erros).length) focarPrimeiroErro(formulario.current);
+  }, [state.envio, state.erros]);
   return (
-    <form action={action} noValidate className="space-y-6">
+    <form ref={formulario} action={action} noValidate className="space-y-6">
       <Campos key={state.envio ?? 0} inicial={valores} erros={state.erros ?? {}} />
       {state.erros?.geral && (
-        <p role="alert" className="text-erro">
+        <p role="alert" tabIndex={-1} className="text-erro">
           {state.erros.geral}
         </p>
       )}
@@ -65,6 +71,15 @@ const comChave = (f: FaixaDoFormulario) => ({ ...f, chave: ++proxima });
 
 function Campos({ inicial, erros }: { inicial: ExameDoFormulario; erros: Record<string, string> }) {
   const [faixas, setFaixas] = useState(() => inicial.faixas.map(comChave));
+  // "Acrescentar faixa": o foco vai ao "Sexo do cadastro" da faixa nova (que nasce abaixo da dobra); "Remover faixa": o
+  // botão sai do DOM, então o foco vai ao título "Faixas do consultório" — nunca ao `body`
+  const titulo = useRef<HTMLHeadingElement>(null);
+  const focarNova = useRef(false);
+  useEffect(() => {
+    if (!focarNova.current) return;
+    focarNova.current = false;
+    document.getElementById(`faixas-${faixas.length - 1}-sexo`)?.focus();
+  }, [faixas]);
   return (
     <>
       <div className="grid gap-4 md:grid-cols-2">
@@ -75,21 +90,37 @@ function Campos({ inicial, erros }: { inicial: ExameDoFormulario; erros: Record<
       </div>
 
       <section aria-labelledby="faixas-titulo" data-guia="faixas-consultorio" className="space-y-3 rounded-3xl border border-borda bg-cartao p-5">
-        <h2 id="faixas-titulo" className="font-titulo text-lg font-semibold">
+        <h2 ref={titulo} id="faixas-titulo" tabIndex={-1} className="font-titulo text-lg font-semibold">
           {F.titulo}
         </h2>
         <p className="text-suave">{F.ajuda}</p>
         {erros.faixas && (
-          <p role="alert" className="text-erro">
+          <p role="alert" tabIndex={-1} className="text-erro">
             {erros.faixas}
           </p>
         )}
         <ol className="space-y-4">
           {faixas.map((f, i) => (
-            <LinhaDaFaixa key={f.chave} i={i} faixa={f} erros={erros} aoRemover={() => setFaixas((fs) => fs.filter((x) => x.chave !== f.chave))} />
+            <LinhaDaFaixa
+              key={f.chave}
+              i={i}
+              faixa={f}
+              erros={erros}
+              aoRemover={() => {
+                setFaixas((fs) => fs.filter((x) => x.chave !== f.chave));
+                titulo.current?.focus();
+              }}
+            />
           ))}
         </ol>
-        <Botao type="button" variante="secundario" onClick={() => setFaixas((fs) => [...fs, comChave(faixaVazia())])}>
+        <Botao
+          type="button"
+          variante="secundario"
+          onClick={() => {
+            focarNova.current = true;
+            setFaixas((fs) => [...fs, comChave(faixaVazia())]);
+          }}
+        >
           {F.acrescentar}
         </Botao>
       </section>

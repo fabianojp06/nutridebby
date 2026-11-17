@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Request } from '@playwright/test';
 import { entrarComo } from './helpers';
 import { bibliotecasDeExames, escolherTema } from './painel';
 
@@ -111,11 +111,14 @@ test('Dialogo (EP-D42): Esc fecha e o foco volta ao botão que abriu — "Nomes 
   await nutri.setViewportSize({ width: 1280, height: 800 });
   await nutri.goto('/painel/exames/catalogo');
   if (await botaoComecar(nutri).count()) {
-    await botaoComecar(nutri).click();
-    await expect(dialogoComecar(nutri)).toBeVisible();
-    await nutri.keyboard.press('Escape');
-    await expect(dialogoComecar(nutri)).toBeHidden();
-    await expect(botaoComecar(nutri)).toBeFocused();
+    // duas vezes no mesmo <Dialogo> (montado entre as aberturas): cada abertura devolve o foco (`devolvido` volta a falso)
+    for (let vez = 1; vez <= 2; vez++) {
+      await botaoComecar(nutri).click();
+      await expect(dialogoComecar(nutri)).toBeVisible();
+      await nutri.keyboard.press('Escape');
+      await expect(dialogoComecar(nutri)).toBeHidden();
+      await expect(botaoComecar(nutri), `abertura ${vez}`).toBeFocused();
+    }
   }
   await excluirDoExame(nutri).click();
   await expect(confirmarExcluir(nutri)).toBeVisible();
@@ -175,4 +178,80 @@ test('Dialogo: ocupado segura o Esc duplo (continua aberto, aoFechar não chamad
   await expect(nutri.getByRole('button', { name: `Excluir ${nome}`, exact: true })).toHaveCount(0);
   // a linha (e o botão que abriu) saiu: o foco vai ao título da tela
   await expect(nutri.getByRole('heading', { level: 1, name: 'Catálogo de exames' })).toBeFocused();
+});
+
+test('Buscar no catálogo (revisão da T3): Enter na busca não envia o modelo; o erro do modelo recebe o foco; o foco volta ao botão', async () => {
+  await nutri.setViewportSize({ width: 1280, height: 800 });
+  await nutri.goto('/painel/exames/modelos/novo');
+  await nutri.getByLabel('Nome do modelo').fill(`Modelo Enter ${Date.now().toString(36)}`);
+  // sem exame: o erro da lista (longe do "Salvar") recebe o foco
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  const semExames = nutri.getByRole('alert').filter({ hasText: 'Inclua ao menos um exame.' });
+  await expect(semExames).toBeFocused();
+
+  // com um exame, o modelo já seria salvo: o Enter na busca do diálogo não pode enviar o formulário da tela
+  await nutri.getByLabel('Adicionar exame fora do catálogo').fill('Ferro sérico');
+  await nutri.getByRole('button', { name: 'Adicionar', exact: true }).click();
+  const envios: string[] = [];
+  // só a Server Action (cabeçalho Next-Action): o vigia da sessão também faz POST ao registrar o uso
+  const ouvir = (r: Request) => {
+    if (r.method() === 'POST' && r.headers()['next-action']) envios.push(r.url());
+  };
+  nutri.on('request', ouvir);
+  const abrir = nutri.getByRole('button', { name: 'Adicionar do catálogo' });
+  await abrir.click();
+  const dialogo = nutri.getByRole('dialog', { name: 'Buscar no catálogo' });
+  const busca = dialogo.getByRole('searchbox', { name: 'Buscar no catálogo' });
+  await expect(busca).toBeFocused();
+  await busca.fill(nomeExame);
+  await busca.press('Enter');
+  await aberto(dialogo);
+  await expect(busca).toHaveValue(nomeExame); // nada remontou: a busca continua
+  await dialogo.getByLabel(nomeExame).check();
+  await dialogo.getByRole('button', { name: 'Adicionar 1 exame' }).click();
+  await expect(dialogo).toBeHidden();
+  await expect(abrir).toBeFocused();
+  await expect(nutri.getByRole('heading', { level: 2, name: /Exames \(2 exames\)/ })).toBeVisible();
+  nutri.off('request', ouvir);
+  expect(envios, 'nenhuma Server Action: o Enter não enviou o modelo').toEqual([]);
+  await expect(nutri).toHaveURL(/\/painel\/exames\/modelos\/novo$/);
+});
+
+test('Dialogo (correção f57e2d6): fechado pelo navegador e desmontado em seguida, o foco fica em quem abriu (uma devolução só)', async () => {
+  // "Buscar no catálogo" só existe enquanto aberto: o `close` do navegador devolve o foco ao botão e chama `aoFechar`, que
+  // desmonta o <Dialogo> ainda com `aberto`. Sem a guarda `devolvido`, a limpeza devolveria de novo — o botão já foi usado
+  // (`anterior` nulo), então o foco iria ao `focoAoFechar` (o título "Exames") e sairia do botão.
+  await nutri.setViewportSize({ width: 1280, height: 800 });
+  await nutri.goto('/painel/exames/modelos/novo');
+  const abrir = nutri.getByRole('button', { name: 'Adicionar do catálogo' });
+  await abrir.click();
+  const dialogo = nutri.getByRole('dialog', { name: 'Buscar no catálogo' });
+  await aberto(dialogo);
+  await nutri.evaluate(() => document.querySelector<HTMLDialogElement>('dialog[open]')?.close()); // como o form method="dialog"
+  await expect(dialogo).toHaveCount(0);
+  await expect(abrir).toBeFocused();
+  await expect(nutri.getByRole('heading', { level: 2, name: /^Exames/ })).not.toBeFocused();
+});
+
+test('Exame do catálogo (revisão da T3): o foco acompanha "Acrescentar faixa", "Remover faixa" e o primeiro erro', async () => {
+  await nutri.setViewportSize({ width: 1280, height: 800 });
+  await nutri.goto('/painel/exames/catalogo/novo');
+  await nutri.getByLabel('Nome', { exact: true }).fill('Exame com erro');
+  await nutri.getByLabel('Unidade (opcional)').fill('mg/dL');
+  const acrescentar = nutri.getByRole('button', { name: 'Acrescentar faixa' });
+  await acrescentar.click();
+  await expect(nutri.getByRole('group', { name: 'Faixa 1' }).getByLabel('Sexo do cadastro')).toBeFocused();
+  await acrescentar.click();
+  await expect(nutri.getByRole('group', { name: 'Faixa 2' }).getByLabel('Sexo do cadastro')).toBeFocused();
+  await nutri.getByRole('button', { name: 'Remover faixa 2' }).click();
+  await expect(nutri.getByRole('group', { name: 'Faixa 2' })).toHaveCount(0);
+  await expect(nutri.getByRole('heading', { level: 2, name: 'Faixas do consultório' })).toBeFocused(); // nunca o body
+
+  // erro no meio do formulário (a fonte da faixa 1): o foco vai ao campo, não fica no "Salvar"
+  await nutri.getByLabel('Abaixo de').fill('20');
+  await nutri.getByLabel('Categoria').selectOption('Baixo');
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri.getByRole('alert').filter({ hasText: 'Informe a fonte (de 2 a 300 caracteres).' })).toBeVisible();
+  await expect(nutri.getByLabel('Fonte')).toBeFocused();
+  await expect(nutri.getByLabel('Fonte')).toBeInViewport();
 });

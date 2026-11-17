@@ -1,7 +1,8 @@
 'use client';
 
-import { useActionState, useId, useRef, useState } from 'react';
+import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { Campo } from '@/components/campo';
+import { focarPrimeiroErro } from '@/components/focar-primeiro-erro';
 import { Aviso } from '@/components/ui/aviso';
 import { Botao } from '@/components/ui/botao';
 import type { ExameDaLista } from '@/db/schema/exames-catalogo';
@@ -33,19 +34,25 @@ function examesDoJson(texto: string): ExameDaLista[] {
  * Plano 22 (T3, US-376, RN-391): o modelo de solicitação — "Nome do modelo", "Exames" (do catálogo, pelo `Dialogo`
  * "Buscar no catálogo" em modo `lista`, ou digitados fora do catálogo; "Remover" por exame) e "Orientações ao paciente
  * (opcional)". **Sem** indicação clínica; o aviso "Retire dados do paciente antes de salvar." fica acima dos campos. A
- * lista vai como JSON (`exames`); depois de um erro, volta com o que foi digitado (`valores`, `key`).
+ * lista vai como JSON (`exames`); depois de um erro, volta com o que foi digitado (`valores`, `key`) e o foco vai ao
+ * primeiro erro (`focarPrimeiroErro`: o campo marcado ou o aviso da lista de exames), com a tela rolada até ele.
  */
 export function ModeloForm({ acao, inicial, catalogo }: { acao: (s: ModeloSolicitacaoState, fd: FormData) => Promise<ModeloSolicitacaoState>; inicial: Inicial; catalogo: ItemDoCatalogo[] }) {
   const [state, action, pendente] = useActionState(acao, {});
   const valores: Inicial = state.valores ? { nome: state.valores.nome, exames: examesDoJson(state.valores.exames), orientacoes: state.valores.orientacoes } : inicial;
+  const formulario = useRef<HTMLFormElement>(null);
+  // a cada resposta com erro (envio novo), o foco vai ao primeiro erro — o do topo fica longe do "Salvar"
+  useEffect(() => {
+    if (state.erros && Object.keys(state.erros).length) focarPrimeiroErro(formulario.current);
+  }, [state.envio, state.erros]);
   return (
-    <form action={action} noValidate className="space-y-6">
+    <form ref={formulario} action={action} noValidate className="space-y-6">
       <Aviso tipo="aviso" papel="nenhum">
         {M.aviso}
       </Aviso>
       <Campos key={state.envio ?? 0} inicial={valores} erros={state.erros ?? {}} catalogo={catalogo} />
       {state.erros?.geral && (
-        <p role="alert" className="text-erro">
+        <p role="alert" tabIndex={-1} className="text-erro">
           {state.erros.geral}
         </p>
       )}
@@ -98,7 +105,7 @@ function Campos({ inicial, erros, catalogo }: { inicial: Inicial; erros: Record<
         </h2>
         <input type="hidden" name="exames" value={JSON.stringify(exames)} />
         {erroDaLista && (
-          <p role="alert" className="text-erro">
+          <p role="alert" tabIndex={-1} className="text-erro">
             {erroDaLista}
           </p>
         )}
@@ -121,7 +128,7 @@ function Campos({ inicial, erros, catalogo }: { inicial: Inicial; erros: Record<
             ))}
           </ul>
         )}
-        <EscolherDoCatalogo modo="lista" catalogo={catalogo} aoAdicionar={acrescentar} />
+        <EscolherDoCatalogo modo="lista" catalogo={catalogo} aoAdicionar={acrescentar} focoAoFechar={() => titulo.current} />
         <div className="space-y-1">
           <label htmlFor={idLivre} className="block font-medium">
             {MSG_SOLICITACAO.adicionarForaDoCatalogo}

@@ -37,6 +37,9 @@ function focoInicialDe(d: HTMLDialogElement): HTMLElement | undefined {
  * **Contrato: nunca dentro de `<form>` da tela.** Nenhum `<form>` embrulha o diálogo — o `<form>` de dentro ficaria
  * aninhado (HTML inválido) e os botões enviariam o formulário da tela. Quem precisa de formulário põe um `<form>`
  * **dentro** do diálogo e renderiza o `<Dialogo>` ao lado do formulário da tela, como a receita ou o exame (RN-394).
+ * Quem só pode viver dentro do `<form>` da tela na árvore do React leva o `<Dialogo>` para fora dele no DOM com
+ * `createPortal`, no contêiner `[data-tema]` (os tokens do tema), montado só enquanto aberto — como `EscolherDoCatalogo`
+ * (src/app/painel/exames/escolher-do-catalogo.tsx): sem isso, o `Enter` num campo do diálogo envia o formulário da tela.
  * Foco, Esc e axe são provados no Playwright (EP-D54).
  */
 export function Dialogo({
