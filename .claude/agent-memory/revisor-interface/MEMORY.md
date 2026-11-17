@@ -22,3 +22,6 @@
 - [Entrada some pelo estado da tela](feedback_entrada-some-pelo-estado-da-tela.md) — seção de Eu condicionada a "algum ativo" some quando o paciente desliga tudo
 - [Cartões irmãos somem no revalidate](feedback_cartoes-irmaos-somem-no-revalidate.md) — sugestão inicial some inteira quando um cartão salva; resumo do portal omite push de diário
 - [Tela movida e mensagens órfãs](feedback_tela-movida-e-mensagens-orfas.md) — aba movida (Resumo→Perfil): mensagem "no cadastro" sem link; E2E de "cada seção" parcial
+- [Form longo: estado por props e text-destaque](feedback_form-longo-estado-por-props-e-destaque.md) — text-destaque como link; controlado reiniciado por refresh; sem foco no erro; alvos 42 px
+- [Menu flutuante e sucesso repetido](feedback_menu-flutuante-e-sucesso-repetido.md) — painel fixed aberto apos Tab cobre o proximo botao; status igual na 2a acao nao anuncia
+- [No app: config sem conta e cartão frágil](feedback_no-app-config-sem-conta.md) — T9 Plano 18: linhas de configuração sob "vê hoje"; cartão no Promise.all do Início
