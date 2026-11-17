@@ -62,7 +62,10 @@ CREATE TABLE "exam_versoes" (
 	"alterado_em" timestamp with time zone NOT NULL,
 	CONSTRAINT "exam_versoes_versao_unique" UNIQUE("tenant_id","exam_id","versao"),
 	CONSTRAINT "exam_versoes_versao_valida" CHECK ("exam_versoes"."versao" >= 1),
-	CONSTRAINT "exam_versoes_justificativa_tamanho" CHECK ("exam_versoes"."justificativa" is null or char_length("exam_versoes"."justificativa") between 5 and 500)
+	CONSTRAINT "exam_versoes_justificativa_tamanho" CHECK ("exam_versoes"."justificativa" is null or char_length("exam_versoes"."justificativa") between 5 and 500),
+	-- Plano 22 (editado à mão): revisão da P22-01 — título 1–120 (como exams) e valores sempre lista (case … else false: 23514, nunca 22023); o snapshot reflete os dois CHECKs
+	CONSTRAINT "exam_versoes_titulo_tamanho" CHECK (char_length("exam_versoes"."titulo") between 1 and 120),
+	CONSTRAINT "exam_versoes_valores" CHECK (case when jsonb_typeof("exam_versoes"."valores") = 'array' then true else false end)
 );
 --> statement-breakpoint
 ALTER TABLE "document_verifications" DROP CONSTRAINT "document_verifications_tipo_valido";--> statement-breakpoint

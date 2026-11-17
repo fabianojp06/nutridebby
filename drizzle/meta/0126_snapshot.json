@@ -5246,6 +5246,14 @@
         "exam_versoes_justificativa_tamanho": {
           "name": "exam_versoes_justificativa_tamanho",
           "value": "\"exam_versoes\".\"justificativa\" is null or char_length(\"exam_versoes\".\"justificativa\") between 5 and 500"
+        },
+        "exam_versoes_titulo_tamanho": {
+          "name": "exam_versoes_titulo_tamanho",
+          "value": "char_length(\"exam_versoes\".\"titulo\") between 1 and 120"
+        },
+        "exam_versoes_valores": {
+          "name": "exam_versoes_valores",
+          "value": "case when jsonb_typeof(\"exam_versoes\".\"valores\") = 'array' then true else false end"
         }
       },
       "isRLSEnabled": false
