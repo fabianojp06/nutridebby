@@ -917,7 +917,7 @@ Política `paciente_sem_rascunho` (RESTRICTIVE) nas três tabelas: sessão de pa
 | `kcalTexto`, `gTexto` | kcal inteiro; gramas com 1 casa | `calculo.ts:122-123` |
 | `diferencaKcalDoItem(sub, principal)` | Diferença da substituição só se os **dois** lados têm kcal na tabela | `calculo.ts:137` |
 | `quantidadeDoItem(i)` | "4 colheres de sopa cheias (100 g)" ou só "12,5 g" | `calculo.ts:141` |
-| `itensComoTexto(itens)` | Plano 19 (RN-245): os itens em texto para a troca para texto livre e para a minha refeição carregada num plano livre: `"{nome} — {quantidade}"` dos principais unidos por "; ", cada substituição como `" (ou {nome} — {quantidade})"`, cortado em 2000 caracteres sem meio caractere UTF-16. A quantidade é a medida caseira **sem os gramas** quando há ("4 colheres de sopa"), senão os gramas — ver a divergência #17 | `calculo.ts:151` |
+| `itensComoTexto(itens)` | Plano 19 (RN-245): os itens em texto para a troca para texto livre e para a minha refeição carregada num plano livre: `"{nome} — {quantidade}"` dos principais unidos por "; ", cada substituição como `" (ou {nome} — {quantidade})"`, cortado em 2000 caracteres sem meio caractere UTF-16. A quantidade é a de `quantidadeDoItem`: a medida caseira **com os gramas** quando há ("4 colheres de sopa (100 g)"), senão os gramas — decidido em 17/11/2026, ver a divergência #17 | `calculo.ts:152` |
 
 `contextoDoPaciente(ctx, patientId, fuso)` (`meta.ts:12`) junta o peso para g/kg (Plano 04, D15) e os cálculos de GET para "Usar como meta do plano". As duas leituras já são auditadas.
 
@@ -1234,11 +1234,11 @@ Plano 18, PR 1 (ficha: Início, Perfil, cabeçalho e registro de seções; confe
 Plano 19 (Plano alimentar 2, PR do código; conferido no branch `plano-19-plano-alimentar-2` em `a7978a6`, 17/11/2026,
 antes do merge; o seed da USDA é do PR seguinte):
 
-17. **RN-245 e US-235: o texto de um item com medida caseira.** O exemplo da spec é "Arroz — 4 colheres de sopa".
-    `itensComoTexto` (`calculo.ts:151`) segue a letra: com medida caseira, só a medida, **sem os gramas**; sem medida,
-    os gramas ("90,5 g"). O resto do sistema mostra "4 colheres de sopa (100 g)" (`quantidadeDoItem`). Ruling da
-    Tarefa 2, mantido: **pergunta ao dono** (e ao CRN-3, junto da pergunta 1 da P19-★2, porque a Res. CFN 594 pede doses
-    "em volume e gramatura") se a troca para texto livre deve levar "4 colheres de sopa (100 g)". Mudar é uma linha.
+17. **RN-245 e US-235: o texto de um item com medida caseira — decidido.** O exemplo da spec era "Arroz — 4 colheres
+    de sopa", sem os gramas. Decisão da orquestradora (17/11/2026, Res. CFN 594/2017, art. 4º, § 1º, VIII: doses "em
+    volume e gramatura"): `itensComoTexto` (`calculo.ts:152`) usa `quantidadeDoItem`, como o resto do sistema — com
+    medida caseira, "4 colheres de sopa (100 g)"; sem medida, os gramas ("90,5 g"). Spec (US-235 e RN-245) atualizada
+    no code review do PR #57 (P19-16).
 18. **R-239: "se passar do orçamento, o limite volta a ser discutido".** A medição da Tarefa 10c passou do orçamento
     da IA Nutri (50/400 com 5 listas cheias: até 442 mil tokens contra a reserva de 40 mil). Em vez de rediscutir os
     limites (D18) ou subir o teto, o contexto passou a caber **por prioridade** com um marcador explícito

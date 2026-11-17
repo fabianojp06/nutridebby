@@ -700,7 +700,7 @@ Conferido no branch `plano-19-plano-alimentar-2` em `a7978a6` (Tarefas 1–10d e
 
 | # | Fonte | Diz | Código | Tipo | Cap. |
 |---|---|---|---|---|---|
-| 138 | RN-245, US-235 | O item vira "{nome} — {quantidade}" (exemplo "4 colheres de sopa") | Com medida caseira, só a medida, **sem os gramas**; o resto do sistema mostra "4 colheres de sopa (100 g)". Ruling da Tarefa 2: segue a letra da spec; **pergunta ao dono** (e ao CRN-3, Res. CFN 594 pede "volume e gramatura") se deve levar os gramas | Comp. | 4 #17 |
+| 138 | RN-245, US-235 | O item vira "{nome} — {quantidade}" (exemplo "4 colheres de sopa (100 g)") | **Resolvida — decidido (orquestradora, 17/11/2026, Res. CFN 594/2017, art. 4º, § 1º, VIII: volume e gramatura):** com medida caseira, a medida **com os gramas** ("4 colheres de sopa (100 g)", `quantidadeDoItem`), como o resto do sistema; sem medida, "100 g". Spec (US-235 e RN-245) atualizada no code review do PR #57 (P19-16) | — | 4 #17 |
 | 139 | R-239 (spec §12) | Se 50 refeições passarem do orçamento da IA Nutri, "o limite volta a ser discutido" | Os limites ficaram (D18) e o contexto cabe por prioridade: refeições de hoje inteiras, os outros dias e as listas enquanto couberem, o resto com o marcador "(resumido: detalhes não incluídos)" e a instrução de não supor o que não vê; 15/200 entra inteiro (teste). Ruling da Tarefa 10c, aceito pela orquestradora; marcador revisado pelo `normas-cfn-lgpd` | Doc | 4 #18, 10 |
 | 140 | RN-238 (só fala do perfil) | Nada sobre excluir conteúdo ligado | O `SET NULL` de `plano_conteudos.content_id` grava "alterar Plano alimentar" no Histórico de cada paciente com o conteúdo ligado, inclusive em plano publicado. Aceito, como a RN-238 registrou para o perfil | Doc | 2, 4 #19 |
 | 141 | RN-244, US-235 | Só o aviso sem VET | O PDF do plano em texto livre mostra "Meta: {VET} kcal" e a distribuição prescrita quando preenchidas (ruling da Tarefa 10b, Res. CFN 594, art. 4º, § 1º, VIII) | Doc | 4 #20 |
@@ -722,5 +722,5 @@ Conferido no branch `runner-proprio` em `bbd7728` (antes do merge; mergeado no P
 |---|---|---|---|---|---|
 | 102 | Spec §9.7 ("Merge na `main`") e RNF-03 | Build da imagem no GitHub Actions, não na VPS, para não consumir CPU e memória do CRM | O CI roda na VPS, no runner próprio, inclusive o build de prova do job `image` (sem push), dentro da `user-1500.slice` (4 de 8 vCPU, 12 GB, sem swap); a imagem publicada segue montada no `publish` hospedado | Doc | 1 #13, 7 #11 |
 
-**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68, #74 e #138. As de tipo Doc entram na
+**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68 e #74. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.
