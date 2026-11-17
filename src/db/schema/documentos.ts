@@ -54,7 +54,8 @@ export const signedDocuments = pgTable(
   },
   (t) => [
     // Plano 13 (spec v0.5, §10): o parecer nutricional (F3-05) ao lado da receita
-    check('signed_documents_tipo_valido', sql`${t.tipo} in ('receita','parecer')`),
+    // Plano 22 (EP-D49): 'solicitacao_exames' entra no CHECK no PR 1 (expansão); rótulo, tipos e telas só no PR 4
+    check('signed_documents_tipo_valido', sql`${t.tipo} in ('receita','parecer','solicitacao_exames')`),
     check('signed_documents_status_valido', sql`${t.status} in ('rascunho','preparando','aguardando_assinatura','assinado','substituido','cancelado')`),
     check('signed_documents_codigo_so_fora_do_rascunho', sql`(${t.codigo} is null) = (${t.status} = 'rascunho')`),
     check('signed_documents_codigo_formato', sql`${t.codigo} is null or ${t.codigo} ~ '^[0-9A-HJKMNP-TV-Z]{12}$'`),
@@ -180,7 +181,8 @@ export const documentVerifications = pgTable(
     // Plano 10A: só a digitalizada; o Plano 10B amplia (mesma migration que amplia o de signed_documents)
     check('document_verifications_assinatura_tipo_valida', sql`${t.assinaturaTipo} in ('digitalizada')`),
     // Plano 13 (spec v0.5, US-147): a verificação grava o tipo real do documento
-    check('document_verifications_tipo_valido', sql`${t.tipo} in ('receita','parecer')`),
+    // Plano 22 (EP-D49): 'solicitacao_exames' entra no CHECK no PR 1 (expansão); rótulo, tipos e telas só no PR 4
+    check('document_verifications_tipo_valido', sql`${t.tipo} in ('receita','parecer','solicitacao_exames')`),
     unique('document_verifications_documento_unique').on(t.documentoId),
   ],
 );

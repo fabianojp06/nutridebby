@@ -34,7 +34,112 @@ export const MSG_PRESCRICAO = {
   orientacoes: 'Use no máximo 2000 caracteres.',
   /** Minor 11 da revisão de normas (texto novo, rascunho para a Debby): o extrato vegetal não é "Outro". */
   dicaOutro: 'Extrato ou produto vegetal não entra em "Outro": use "Droga ou derivado vegetal classificado como alimento ou suplemento" ou, com a habilitação, "Fitoterápico (forma farmacêutica ou fórmula magistral)".',
+  /** Plano 22 (RN-392, §6.2; rascunho para a Debby): a fórmula magistral fitoterápica (o tipo entra em TIPOS_ITEM só na T9, EP-D48). */
+  compostos: 'Informe de 2 a 10 compostos vegetais.',
+  binomio: 'Use a nomenclatura botânica (Gênero espécie), como Matricaria chamomilla L.',
+  naoVegetal: 'Fórmula fitoterápica não pode ter vitaminas, minerais, aminoácidos ou substâncias isoladas (Resolução CFN nº 680/2021, art. 9º, II).',
 } as const;
+
+/**
+ * Plano 22 (RN-392, EP-D26, EP-D27; Res. CFN 680/2021, art. 9º, II): termos que a nomenclatura e o "Derivado ou
+ * extração" de uma fórmula fitoterápica não podem ter. **Rascunho para a Debby** (e o CRN-3). Conferência de apoio, não
+ * garantia: a responsabilidade pela composição é da nutricionista. A padronização fica de fora (cita o marcador
+ * legitimamente, art. 12, I, "d"). "L-" no começo de palavra é conferido à parte (`temTermoNaoVegetal`).
+ */
+export const TERMOS_NAO_VEGETAIS: readonly string[] = [
+  // nutrientes, sais e formas químicas
+  'vitamina',
+  'mineral',
+  'aminoácido',
+  'isolado',
+  'ácido',
+  'sulfato',
+  'citrato',
+  'quelato',
+  'picolinato',
+  'glicinato',
+  'óxido',
+  'carbonato',
+  'cafeína',
+  // substâncias isoladas comuns em nutrição
+  'creatina',
+  'glutamina',
+  'carnitina',
+  'taurina',
+  'glutationa',
+  'coenzima',
+  'resveratrol',
+  'curcumina',
+  'berberina',
+  'quercetina',
+  'piperina',
+  'melatonina',
+  'colágeno',
+  'whey',
+  'proteína',
+  'peptídeo',
+  'ômega',
+  'cloridrato',
+  // revisão final do PR 1: de origem animal, de síntese ou carotenoides isolados
+  'própolis',
+  'geleia real',
+  'quitosana',
+  'glucosamina',
+  'condroitina',
+  'inositol',
+  'ubiquinol',
+  'licopeno',
+  'luteína',
+  // gêneros de probióticos e leveduras
+  'Lactobacillus',
+  'Lacticaseibacillus',
+  'Bifidobacterium',
+  'Saccharomyces',
+  'Streptococcus',
+  'Bacillus',
+];
+
+const semAcento = (s: string) => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+/** A palavra e o plural ("vitaminas", "minerais", "ácidos"); "isolado" também no feminino ("isolada", "isoladas"). */
+const formas = (termo: string): string[] => {
+  const t = semAcento(termo);
+  const base = [t, `${t}s`, `${t}es`];
+  if (t.endsWith('al')) base.push(`${t.slice(0, -2)}ais`);
+  if (t.endsWith('o')) base.push(`${t.slice(0, -1)}a`, `${t.slice(0, -1)}as`);
+  return base;
+};
+const PALAVRAS_BARRADAS = new Set(TERMOS_NAO_VEGETAIS.filter((t) => !t.includes(' ')).flatMap(formas));
+/** Termos de mais de uma palavra ("geleia real"): a sequência inteira de palavras, sem acento. */
+const EXPRESSOES_BARRADAS = TERMOS_NAO_VEGETAIS.filter((t) => t.includes(' ')).map((t) => ` ${semAcento(t)} `);
+
+/** RN-392: palavra inteira, sem acento e sem diferença de maiúsculas; "L-" no começo de palavra (L-teanina, L-carnitina). */
+export function temTermoNaoVegetal(texto: string): boolean {
+  const t = semAcento(texto);
+  if (/(?:^|[^a-z0-9])l-/.test(t)) return true;
+  const palavras = t.split(/[^a-z0-9]+/).filter(Boolean);
+  if (palavras.some((p) => PALAVRAS_BARRADAS.has(p))) return true;
+  const corrido = ` ${palavras.join(' ')} `;
+  return EXPRESSOES_BARRADAS.some((e) => corrido.includes(e));
+}
+
+/**
+ * RN-392: "Gênero epíteto" — o gênero com inicial maiúscula e o resto minúsculo, o epíteto todo em minúsculas (hífen
+ * vale: bursa-pastoris), ou "×" entre eles (híbrido: "Mentha × piperita", "Mentha ×piperita"); autor e categorias
+ * abaixo de espécie depois ("L.", "var. amara"). Conferência de apoio, não garantia.
+ */
+export function binomioValido(nomenclatura: string): boolean {
+  const [genero, segundo, terceiro] = nomenclatura.trim().split(/\s+/);
+  if (!genero || !/^\p{Lu}\p{Ll}+$/u.test(genero)) return false;
+  const epiteto = /^\p{Ll}+(?:-\p{Ll}+)*$/u;
+  if (segundo === '×') return !!terceiro && epiteto.test(terceiro);
+  if (segundo?.startsWith('×')) return epiteto.test(segundo.slice(1));
+  return !!segundo && epiteto.test(segundo);
+}
+
+/** RN-392: a função única de "exige habilitação em Fitoterapia" — no Zod, no preparo e na assinatura. */
+export function exigeHabilitacao(tipo: string): boolean {
+  return tipo === 'fitoterapico' || tipo === 'formula_fitoterapica';
+}
 
 const esp = (s: string) => s.trim().replace(/\s+/g, ' ');
 const obrig = (rotulo: string, min: number, max: number) =>
@@ -96,16 +201,24 @@ const derivadoVegetal = z.object({
   padronizacao: opc(120),
   extracao: opc(120),
 });
-const fitoterapico = z.object({
-  tipo: z.literal('fitoterapico'),
-  ...botanica,
-  extracao: obrig('a forma ou meio de extração', 1, 120),
-  formaFarmaceutica: obrig('a forma farmacêutica', 1, 60),
-  dose: obrig('a dose', 1, 120),
-  via: escolha(VIAS),
-  posologia: obrig('a posologia', 1, 300),
-  padronizacao: opc(120),
-});
+/** Revisão final do PR 1: a vedação do art. 9º, II (Res. CFN 680/2021) vale também para o fitoterápico de uma planta
+ * só. A vedação é sobre a COMPOSIÇÃO: só a nomenclatura passa pela conferência de apoio da fórmula (/code-review do PR 1).
+ * A extração e a padronização ficam de fora — o marcador de padronização é legítimo ("Extrato seco padronizado a 95% de
+ * curcumina") e barrá-lo travaria rascunhos e retificações já salvos. */
+const fitoterapico = z
+  .object({
+    tipo: z.literal('fitoterapico'),
+    ...botanica,
+    extracao: obrig('a forma ou meio de extração', 1, 120),
+    formaFarmaceutica: obrig('a forma farmacêutica', 1, 60),
+    dose: obrig('a dose', 1, 120),
+    via: escolha(VIAS),
+    posologia: obrig('a posologia', 1, 300),
+    padronizacao: opc(120),
+  })
+  .superRefine((f, c) => {
+    if (temTermoNaoVegetal(f.nomenclatura)) c.addIssue({ code: 'custom', path: ['nomenclatura'], message: MSG_PRESCRICAO.naoVegetal });
+  });
 const item = z.discriminatedUnion('tipo', [suplemento, plantaCha, derivadoVegetal, fitoterapico], { message: MSG_PRESCRICAO.opcao });
 export type ItemPrescricao = z.output<typeof item>;
 
@@ -131,7 +244,7 @@ function erros(error: z.ZodError): Record<string, string> {
 function conferirHabilitacao(itens: ItemPrescricao[], habilitada: boolean): void {
   const e: Record<string, string> = {};
   itens.forEach((it, i) => {
-    if (it.tipo === 'fitoterapico' && !habilitada) e[`itens.${i}.tipo`] = MSG_PRESCRICAO.semHabilitacao;
+    if (exigeHabilitacao(it.tipo) && !habilitada) e[`itens.${i}.tipo`] = MSG_PRESCRICAO.semHabilitacao;
   });
   if (Object.keys(e).length) throw new DocumentoError(e);
 }
