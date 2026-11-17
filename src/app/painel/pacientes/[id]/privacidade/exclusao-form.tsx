@@ -3,16 +3,19 @@
 import { useActionState } from 'react';
 import type { ExclusaoState } from './actions';
 
+/** `instrucao`: o rótulo do campo quando a página pede outro texto (com nome social, o nome de registro — RN-266). */
 export function ExclusaoForm({
   acao,
+  instrucao = 'Digite o nome do paciente para confirmar',
 }: {
   acao: (prev: ExclusaoState, formData: FormData) => Promise<ExclusaoState>;
+  instrucao?: string;
 }) {
   const [state, action, pendente] = useActionState<ExclusaoState, FormData>(acao, {});
   return (
     <form action={action} className="space-y-2">
       <label htmlFor="confirmacao" className="block font-medium">
-        Digite o nome do paciente para confirmar
+        {instrucao}
       </label>
       <input
         id="confirmacao"

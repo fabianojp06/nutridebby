@@ -1,8 +1,8 @@
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { mealPlans } from '@/db/schema';
 import { MSG_FICHA } from '../textos';
 import type { SecaoDaFicha } from '../tipos';
-import { diaNoFuso, LIMITE_DA_SECAO, resumoDasLinhas, totalJunto } from './comum';
+import { diaNoFuso, LIMITE_DA_SECAO, noAppPor, resumoDasLinhas, totalJunto } from './comum';
 
 type StatusPlano = keyof typeof MSG_FICHA.situacaoDoPlano;
 
@@ -28,4 +28,6 @@ export const secaoPlanoAlimentar: SecaoDaFicha = {
     }));
   },
   adicionar: [{ grupo: 'prescricoes', rotulo: MSG_FICHA.itens.planoAlimentar, destino: { href: 'plano-alimentar' } }],
+  // RN-279: só o publicado — a política paciente_sem_rascunho também entrega o arquivado, que `planoDoPaciente` descarta
+  noApp: noAppPor(mealPlans, mealPlans.id, (patientId) => and(eq(mealPlans.patientId, patientId), eq(mealPlans.status, 'publicado'))),
 };

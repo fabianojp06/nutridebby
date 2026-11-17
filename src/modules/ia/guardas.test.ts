@@ -109,6 +109,9 @@ describe('RNF-103 / RNF-105: o SDK, o pdf-lib e o que o provedor pode usar', () 
       'src/modules/ia/nutri-paciente/retencao.ts',
       'src/modules/ia/avaliacao/conversas-ficticias.ts',
       'src/modules/ia/avaliacao/avaliar-conversa.ts',
+      // Plano 18 (RN-282): a leitura do nome social para a máscara da IA Nutri abre o contexto worker sozinho (sem sessão
+      // nem auditRead) — só o contexto da IA Nutri (worker) a importa
+      'src/modules/ia/nome-social-worker.ts',
     ]) {
       expect(existsSync(proibido), `${proibido} existe (a guarda não confere arquivo que sumiu)`).toBe(true);
       expect(g.arquivos.has(proibido), `${proibido} alcançado por: ${caminhoAte(g, proibido).join(' → ')}`).toBe(false);

@@ -20,6 +20,8 @@ export const MOTIVO_RECUSA_TEXTO_MAX = 300;
 export const ENVIO_EXPIRA_DIAS = 90; // D15 = b
 export const ENVIO_LEMBRETE_DIAS = 30; // US-165
 export const AVISO_EXAMES_INTERVALO_MS = 6 * 3600_000; // D16 = a
+/** A lista do portal (`meusEnvios`, `situacoesDosMeusEnvios`): os mais recentes, até este teto (o "No app" conta igual, RN-279). */
+export const ENVIOS_NA_LISTA_DO_PORTAL = 50;
 
 export const STATUS_ENVIO = ['processando', 'recebido', 'aceito', 'recusado', 'cancelado', 'expirado', 'falhou'] as const;
 export type StatusEnvio = (typeof STATUS_ENVIO)[number];

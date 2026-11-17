@@ -72,3 +72,8 @@ isolamento, divergência #3).
   retirar no fechamento seguinte. No PR 1 a orquestradora pediu para não mexer no Docs: a proposta do manual do usuário
   ficou para o fechamento do plano (T12c).
 
+
+- Revisão do PR 2 do Plano 18 (17/11/2026, HEAD `7911508`): o remapeador por símbolo do fechamento só pegou `arq:N`
+  com nome; as citações **soltas** `` `:N` `` depois do arquivo (ex.: `convite-paciente.ts:52`, `:102`; `exportacao-job.ts`
+  … `:113`; `audit.ts` … `:173`; `tenant.ts:15`, recusa em `:49`) ficaram velhas. Checar também `` `:N` `` herdando o
+  último arquivo citado na linha (script `bare.py`: compara base × head só nas linhas do manual que o PR não tocou).

@@ -39,16 +39,20 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'pacientes',
-    versao: 1, // Plano 18: "Reenviar convite" na aba Perfil, só na gaveta (o tour não muda, a versão fica)
+    versao: 2, // Plano 18: abas da lista, Ações e o cadastro em seções
     padrao: /^\/painel\/pacientes(\/novo)?$/,
     titulo: 'Pacientes',
     ajuda: {
       resumo: 'A lista dos seus pacientes. Tudo começa aqui: cadastrar, convidar para o app e abrir o prontuário.',
-      secoes: [{ titulo: 'Passo a passo', itens: ['Clique em "Novo paciente" e preencha nome, data de nascimento, sexo e e-mail.', 'Ao salvar, o paciente recebe o convite para o app por e-mail (e por WhatsApp, se você marcar "Enviar convite por WhatsApp" com a autorização). Se o convite vencer, use "Reenviar convite" em "Acesso ao app", na aba Perfil do prontuário.', 'Use a busca para achar pelo nome; arquivados aparecem no filtro de situação.'] }],
+      secoes: [{ titulo: 'Passo a passo', itens: ['Clique em "Novo paciente" e preencha nome, data de nascimento, sexo e e-mail.', 'Ao salvar, o paciente recebe o convite para o app por e-mail (e por WhatsApp, se você marcar "Enviar convite por WhatsApp" com a autorização). Se o convite vencer, use "Reenviar convite" em "Acesso ao app", na aba Perfil da ficha.', 'Use a busca para achar pelo nome ou pelo e-mail; os arquivados ficam na aba Inativos.'] }],
     },
     passos: [
       { alvo: 'novo-paciente', titulo: 'Novo paciente', texto: 'Comece cadastrando o paciente. O convite para o app sai por e-mail ao salvar.' },
-      { alvo: 'busca-pacientes', titulo: 'Busca', texto: 'Ache um paciente pelo nome ou filtre pela situação (ativo, arquivado).' },
+      { alvo: 'busca-pacientes', titulo: 'Busca', texto: 'Ache um paciente pelo nome ou pelo e-mail. As abas separam ativos e arquivados; os bloqueados ficam em Ver bloqueados.' },
+      // Plano 18 (§8.1): o alvo é a coluna "Ações" da tabela (sem paciente na lista, o passo aparece centralizado)
+      { alvo: 'acoes-paciente', titulo: 'Ações', texto: 'Em Ações você abre a ficha, edita o cadastro, arquiva ou reativa o paciente sem sair da lista.' },
+      // Plano 18 (§8.4): o alvo está em "Novo paciente" (na lista, o passo aparece centralizado)
+      { alvo: 'cadastro-paciente', titulo: 'Cadastro do paciente', texto: 'O cadastro fica em seções. Só nome, nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta.' },
     ],
   },
   {
@@ -145,7 +149,7 @@ export const GUIAS: readonly Guia[] = [
     // Plano 18 (§8.3): só o Início da ficha; antes do `prontuario`, que casa todas as abas (os passos novos só têm alvo aqui).
     // Título "Início do paciente": "Início" é o do guia de boas-vindas (o manual completo lista um h2 por guia).
     id: 'inicio-paciente',
-    versao: 1,
+    versao: 2, // Plano 18, PR 2: o cartão No app
     padrao: new RegExp(`^/painel/pacientes/${ID}$`),
     titulo: 'Início do paciente',
     ajuda: {
@@ -157,6 +161,7 @@ export const GUIAS: readonly Guia[] = [
             'Use "Adicionar" para registrar anamnese, antropometria, gasto energético, exame, atendimento ou prescrição sem procurar a aba.',
             'Abra uma seção para ver os registros mais recentes; "Ver todos" leva à aba com a lista completa.',
             'O cadastro, o acesso ao app e as etiquetas ficam no Perfil.',
+            'O cartão "No app do paciente" mostra o acesso ao app, o plano, os documentos (só quando liberados no consultório) e os conteúdos que o paciente vê; "Ver detalhes" abre a página com notificações, lembretes, evolução, jornada, exames, diário e IA Nutri, contados com as mesmas regras do app.',
           ],
         },
         { titulo: 'Perguntas comuns', itens: ['Paciente bloqueado por pedido de exclusão não tem o botão "Adicionar": o prontuário é só para consulta.'] },
@@ -166,9 +171,39 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'cabecalho-paciente', titulo: 'O paciente', texto: 'Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o paciente está arquivado ou bloqueado.' },
       { alvo: 'abas-prontuario', titulo: 'Abas do prontuário', texto: 'Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento tem a sua aba.' },
       { alvo: 'adicionar-prontuario', titulo: 'Adicionar', texto: 'Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.' },
-      // PR 1 sem o selo: a frase "O selo No app marca o que o paciente vê no app." (spec §8.3) entra na Tarefa 9, com a versao 2.
-      { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes.' },
+      { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes. O selo No app marca o que o paciente vê no app.' },
+      { alvo: 'no-app-cartao', titulo: 'No app do paciente', texto: 'O que o paciente enxerga no app, contado com as mesmas regras do app.' },
     ],
+  },
+  {
+    // Plano 18 (§8.4): só a aba Perfil; antes do `prontuario`, que casa todas as abas. Título "Perfil do paciente":
+    // distinto dos outros (o manual completo lista um h2 por guia; `e2e/manual.spec.ts`).
+    id: 'perfil-paciente',
+    versao: 1,
+    padrao: new RegExp(`^/painel/pacientes/${ID}/perfil$`),
+    titulo: 'Perfil do paciente',
+    ajuda: {
+      resumo: 'O Perfil guarda o cadastro do paciente em seções (dados gerais, contato e endereço, observação), o acesso ao app e as etiquetas.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Só nome, nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta. Depois, use "Salvar cadastro".',
+            'Preencha o nome social só a pedido do paciente.',
+            'Se o convite para o app vencer, use "Reenviar convite" em "Acesso ao app".',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'O CPF não aparece na lista nem no app. Se outro paciente do consultório já tiver o mesmo CPF, o link "Abrir o cadastro existente (abre em nova aba)" mostra o cadastro dele.',
+            'A observação pode ir na cópia dos dados que o paciente pedir (LGPD). Para anotações só suas, use as notas privadas do atendimento.',
+            'Paciente bloqueado por pedido de exclusão tem o cadastro só para consulta.',
+          ],
+        },
+      ],
+    },
+    passos: [{ alvo: 'cadastro-paciente', titulo: 'Cadastro do paciente', texto: 'O cadastro fica em seções. Só nome, nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta.' }],
   },
   {
     id: 'prontuario',

@@ -1,4 +1,5 @@
-// P08-03 (RNF-01, RNF-02, D4): 100 VUs — 70 pacientes, 25 nutricionistas, 5 visitantes da página pública.
+// P08-03 (RNF-01, RNF-02, D4): 100 VUs — 70 pacientes, 25 nutricionistas (20 no roteiro do painel e 5 abrindo fichas,
+// Plano 18, CS-263), 5 visitantes da página pública.
 // docker run --rm -u "$(id -u):$(id -g)" --network host -v "$PWD/test/carga:/carga" -e BASE_URL=http://127.0.0.1:3200 grafana/k6:2.3.0 run /carga/cenario.js
 // Roteiro: docs/operacao/carga.md. As sessões vêm de test/carga/.sessoes.json (seed.ts; fora do git).
 import http from 'k6/http';
@@ -19,6 +20,7 @@ http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 429));
 const ROTAS = [
   '/p/inicio', '/p/jornada', '/p/plano', '/p/agenda', '/p/conteudos', '/p/conteudos/:id', '/p/diario',
   '/painel', '/painel/agenda', '/painel/pacientes', '/painel/pacientes/:id', '/painel/pacientes/:id/antropometria', '/painel/conteudos',
+  '/painel/pacientes/:id/perfil', '/painel/pacientes/:id/app',
   '/n/:slug',
   '/api/p/acesso', '/api/p/push', '/api/painel/planos/:id', '/api/painel/planos/:id/revisao', '/api/painel/alimentos',
 ];
@@ -28,7 +30,8 @@ const rampa = (alvo) => [{ duration: '2m', target: alvo }, { duration: '10m', ta
 export const options = {
   scenarios: {
     paciente: { executor: 'ramping-vus', exec: 'paciente', stages: rampa(70) },
-    nutri: { executor: 'ramping-vus', exec: 'nutri', stages: rampa(25) },
+    nutri: { executor: 'ramping-vus', exec: 'nutri', stages: rampa(20) },
+    ficha: { executor: 'ramping-vus', exec: 'ficha', stages: rampa(5) }, // Plano 18 (CS-263): tirados dos 25 da nutricionista
     publico: { executor: 'ramping-vus', exec: 'publico', stages: rampa(5) },
   },
   thresholds: {
@@ -40,6 +43,9 @@ export const options = {
     'http_req_duration{tipo:pagina}': ['p(95)<800'], // D4 (páginas)
     'http_req_duration{tipo:pagina,area:p}': ['p(95)<800'], // S-7: p95 só das páginas /p/* (portal do paciente)
     'http_req_duration{nome:/api/p/push}': ['p(95)<300'], // B-8: app_soltar_endpoint_push com 50 tenants (linha própria no resumo)
+    // Plano 18 (CS-263, RNF-260): o Início da ficha (as seções do registro, o cabeçalho e o cartão "No app") na meta das
+    // páginas; depois do `...ROTAS` acima, que criou a linha sem meta
+    'http_req_duration{nome:/painel/pacientes/:id}': ['p(95)<800'],
     http_req_failed: ['rate<0.01'],
     checks: ['rate>0.99'],
   },
@@ -92,14 +98,30 @@ export function nutri() {
   pausa();
 }
 
+// Plano 18 (CS-263, RNF-260): "abrir a ficha" — da lista ao Início de um paciente (as seções do registro numa transação,
+// o cabeçalho com a última avaliação e o cartão "No app do paciente", contado no contexto do paciente), o Perfil (o
+// cadastro complementar da semente, com a leitura auditada) e a visão "No app". Pacientes variados a cada iteração (os
+// 50 da sessão da nutricionista, como a semente os deixa: com e sem cadastro, com plano publicado (os 6 primeiros) e com o
+// registro clínico das seções — antropometria, gasto energético, anamneses, atendimentos, exames, envios e documentos —,
+// 1 em 10 sem nenhum registro; a agenda (`appointments`) não é seção do Início)
+export function ficha() {
+  const n = nutris[(__VU * 3 + __ITER) % nutris.length];
+  const pid = n.pacientes[(__VU * 11 + __ITER * 7) % n.pacientes.length];
+  for (const url of ['/painel/pacientes', `/painel/pacientes/${pid}`, `/painel/pacientes/${pid}/perfil`, `/painel/pacientes/${pid}/app`]) {
+    pagina(url, n.cookie);
+    pausa();
+  }
+}
+
 export function publico() {
   pagina(`/n/${slugs[__ITER % slugs.length]}`, '');
   pausa();
 }
 
-// Fumaça (`--vus 3 --duration 30s` na linha de comando troca os cenários por um só, que roda o `default`): os três perfis
+// Fumaça (`--vus 3 --duration 30s` na linha de comando troca os cenários por um só, que roda o `default`): os quatro perfis
 export default function fumaca() {
   paciente();
   nutri();
+  ficha();
   publico();
 }

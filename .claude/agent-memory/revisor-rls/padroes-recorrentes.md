@@ -334,3 +334,43 @@ Plano 20, T1 (Financeiro, 17/11/2026):
   (ex.: prazo `anonimizar_apos` vencido) não vale no gatilho. Conferir se o gatilho repete as pré-condições da função.
 - Função SQL com `now()` do banco × módulo com `now` injetado (anonimizarVencidos): a função recusa onde o módulo aceita
   (testes com data fixa); avisar a tarefa que liga a chamada.
+Plano 18, T5 (patient_cadastro, 17/11/2026): limpo na lente banco (política com_conta, gatilhos, listas, journal ok).
+- Teste negativo de ESCRITA de política RESTRICTIVE nova na sessão de paciente é vácuo: `paciente_sem_*` (0070) já recusa
+  antes. Só o SELECT prova a política; o WITH CHECK fica sem teste — pedir asserção em pg_policies se importar.
+- Gatilho "só apaga com titular anonimizado" não cobre INSERT/UPDATE depois da anonimização: conferir a rede da varredura.
+
+Plano 18, T7a (formulário do cadastro, 17/11/2026):
+- `<select defaultValue>` num `<form action>` com `useActionState`, sem `key`: o React não re-sincroniza o defaultValue do
+  select e o reset automático pós-ação volta à opção da montagem → a tela mostra o valor velho e o próximo "Salvar"
+  reverte o gravado em silêncio. O projeto já usa `key` (consulta-form, alimento-form, regra-form). Conferir todo select
+  novo em formulário de Server Action — testes de `renderToStaticMarkup` e de action não pegam.
+
+Plano 18, T8 (lista de pacientes, 17/11/2026): limpo na lente banco (projeção, auditoria da etiqueta, ILIKE escapado,
+invites com tenant explícito, action pelo withTenant).
+- Função de leitura que ganha coluna nova (ex.: `nomeSocial` em `listarPacientes`) e um chamador antigo que passa o objeto
+  INTEIRO a um componente 'use client' (agenda → ConsultaForm): o payload RSC leva a coluna ao navegador mesmo sem
+  exibi-la. Procurar todos os chamadores e pedir projeção no limite servidor→cliente.
+
+Plano 18, T9 (No app, semConta pela nutricionista, 17/11/2026): limpo na lente banco (papel nutri, helper não exportado,
+cast só no dono, paridade com o portal testada contra as funções reais na sessão com login).
+- Módulo da lista SEM_CONTA importando helper "puro" de um arquivo de UI que importa `../audit` (formatarDataHora de
+  historico-acessos.tsx): a guarda textual não pega. Conferir o grafo de imports do arquivo dono, não só o texto.
+- Paridade de audiência testada só no caso negativo (sem a etiqueta): pedir o positivo, que é o que quebraria em silêncio.
+
+Plano 18, T10 (anonimização do cadastro, 17/11/2026):
+- Em `anonimizarVencidos` há funções com pré-condição OPOSTA sobre `anonimizado_em`: as `app_anonimizar_*` (aceites, IA,
+  financeiro do Plano 20) exigem nulo → ANTES do UPDATE de `patients`; os DELETE com gatilho `*_sem_apagar` (cadastro,
+  exam_submissions, ia_nutri) exigem não nulo → DEPOIS. No rebase entre planos, conferir de que lado cada passo novo caiu.
+Plano 18, T11 (nome social na máscara da IA, 17/11/2026): limpo na lente banco (projeção, worker fora da sessão sem login,
+papel conferido por app_current_role, sem auditRead, espia de contextos no teste).
+- Guarda de fonte que apaga a linha de `import` do schema antes de procurar o nome da tabela não pega import com alias
+  (`{ tabela as t }` → `t.coluna`); regex de "quem importa X" com `(\.\.?)\/` não pega `../../`. Conferir alias e caminho.
+- Helper exportado de leitura "só para a máscara" alcançável pela web sem guarda de quem importa: qualquer módulo pode
+  reutilizá-lo para exibir o dado sem auditRead. Pedir lista fechada de importadores.
+Plano 18, T12c (docs de fechamento, 17/11/2026): CLAUDE.md regras 2/8 e manual §2 batiam com 0124/0125 e o isolamento.
+- Ao acrescentar frase a um parágrafo antigo do manual ("um sétimo arquivo"), a referência `arquivo:linhas` e a contagem
+  ("só seis") da frase anterior ficam velhas. Conferir as refs do parágrafo inteiro, não só da frase nova.
+Plano 18, revisão final do PR 2 (17/11/2026): limpo na lente banco (0124/0125, CPF sob advisory lock, nenhum 23514
+alcançável — tamanho por code point = char_length —, auditRead só no Perfil, rede da anonimização, isolamento com ator).
+- Repetiu "Minor da tarefa que não chega ao backlog": a projeção de `listarPacientes` no limite servidor→cliente
+  (agenda/nova → ConsultaForm) apontada na T8 não entrou na seção de backlog do plano. Conferir item a item na final.

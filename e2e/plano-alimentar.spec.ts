@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
+import { criarPacientePeloFormulario } from './pacientes-form';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
@@ -151,14 +152,9 @@ test('editor: cálculo ao vivo, medida caseira, meta por faixa e salvamento auto
   await nutri.getByRole('button', { name: 'Salvar alimento' }).click();
   await expect(nutri.getByRole('heading', { name: ALIMENTO_130 })).toBeVisible();
 
-  await nutri.goto('/painel/pacientes/novo');
-  await nutri.getByLabel('Nome').fill(`Paciente Plano ${sufixo}`);
-  await nutri.getByLabel('Data de nascimento').fill('1991-03-10');
-  await nutri.getByLabel('Feminino').check();
-  await nutri.getByLabel('E-mail').fill(`plano-${sufixo}@nutridebby.test`);
-  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
+  // Plano 18 (RNF-263 g): pelo helper único do formulário (rótulos do cadastro em seções)
+  prontuario = await criarPacientePeloFormulario(nutri, { nome: `Paciente Plano ${sufixo}`, email: `plano-${sufixo}@nutridebby.test`, nascimento: '1991-03-10' });
   await expect(nutri.getByRole('heading', { level: 1, name: `Paciente Plano ${sufixo}` })).toBeVisible();
-  prontuario = new URL(nutri.url()).pathname;
 
   await nutri.goto(`${prontuario}/plano-alimentar`);
   await nutri.getByRole('button', { name: 'Criar plano' }).click();
@@ -232,14 +228,9 @@ test('editor: edição em outra aba mostra o aviso de conflito e o salvamento n�
 test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o motivo; erro geral do servidor aparece na tela (US-022)', async () => {
   const LIMITE = 'O plano pode ter até 15 refeições e 200 itens.';
   // Paciente próprio: o plano do teste anterior segue como as próximas tarefas esperam
-  await nutri.goto('/painel/pacientes/novo');
-  await nutri.getByLabel('Nome').fill(`Paciente Limites ${sufixo}`);
-  await nutri.getByLabel('Data de nascimento').fill('1991-03-10');
-  await nutri.getByLabel('Feminino').check();
-  await nutri.getByLabel('E-mail').fill(`limites-${sufixo}@nutridebby.test`);
-  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
+  // Plano 18 (RNF-263 g): pelo helper único do formulário (rótulos do cadastro em seções)
+  const pront = await criarPacientePeloFormulario(nutri, { nome: `Paciente Limites ${sufixo}`, email: `limites-${sufixo}@nutridebby.test`, nascimento: '1991-03-10' });
   await expect(nutri.getByRole('heading', { level: 1, name: `Paciente Limites ${sufixo}` })).toBeVisible();
-  const pront = new URL(nutri.url()).pathname;
   await nutri.goto(`${pront}/plano-alimentar`);
   await nutri.getByRole('button', { name: 'Criar plano' }).click();
   await expect(nutri.getByRole('heading', { name: 'Plano alimentar — versão 1' })).toBeVisible();
@@ -529,14 +520,9 @@ test('salvar como modelo e abrir o modelo (US-024)', async () => {
 
 test('criar a partir de modelo: rascunho do paciente com as refeições do modelo; excluir o modelo não muda o plano (US-024)', async () => {
   // Paciente próprio: o rascunho compartilhado das próximas tarefas não pode ser tocado
-  await nutri.goto('/painel/pacientes/novo');
-  await nutri.getByLabel('Nome').fill(`Paciente Modelo ${sufixo}`);
-  await nutri.getByLabel('Data de nascimento').fill('1991-03-10');
-  await nutri.getByLabel('Feminino').check();
-  await nutri.getByLabel('E-mail').fill(`modelo-${sufixo}@nutridebby.test`);
-  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
+  // Plano 18 (RNF-263 g): pelo helper único do formulário (rótulos do cadastro em seções)
+  const pront = await criarPacientePeloFormulario(nutri, { nome: `Paciente Modelo ${sufixo}`, email: `modelo-${sufixo}@nutridebby.test`, nascimento: '1991-03-10' });
   await expect(nutri.getByRole('heading', { level: 1, name: `Paciente Modelo ${sufixo}` })).toBeVisible();
-  const pront = new URL(nutri.url()).pathname;
 
   await nutri.goto(`${pront}/plano-alimentar`);
   await nutri.getByLabel('Modelo', { exact: true }).selectOption({ label: `Modelo ${sufixo}` });
@@ -566,14 +552,9 @@ test('criar a partir de modelo: rascunho do paciente com as refeições do model
 
 test('paciente bloqueado com o editor aberto: salvar e descartar mostram o motivo; o plano abre só para consulta (US-018, US-022)', async () => {
   const nome = `Paciente Bloqueio ${sufixo}`;
-  await nutri.goto('/painel/pacientes/novo');
-  await nutri.getByLabel('Nome').fill(nome);
-  await nutri.getByLabel('Data de nascimento').fill('1991-03-10');
-  await nutri.getByLabel('Feminino').check();
-  await nutri.getByLabel('E-mail').fill(`bloqueio-${sufixo}@nutridebby.test`);
-  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click();
+  // Plano 18 (RNF-263 g): pelo helper único do formulário (rótulos do cadastro em seções)
+  const pront = await criarPacientePeloFormulario(nutri, { nome, email: `bloqueio-${sufixo}@nutridebby.test`, nascimento: '1991-03-10' });
   await expect(nutri.getByRole('heading', { level: 1, name: nome })).toBeVisible();
-  const pront = new URL(nutri.url()).pathname;
   await nutri.goto(`${pront}/plano-alimentar`);
   await nutri.getByRole('button', { name: 'Criar plano' }).click();
   await expect(nutri.getByRole('heading', { name: 'Plano alimentar — versão 1' })).toBeVisible();

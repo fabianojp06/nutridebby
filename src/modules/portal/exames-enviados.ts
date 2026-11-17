@@ -10,7 +10,7 @@ import { inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { idValido } from '@/modules/pacientes/base';
 import { dataValida, hojeNoFuso, somarAnos } from '@/modules/pacientes/datas';
 import {
-  ENVIO_FOTO_MAX_BYTES, ENVIO_MAX_FOTOS, ENVIO_MAX_PIXELS, ENVIO_PDF_MAX_BYTES, ENVIO_TOTAL_MAX_BYTES, ENVIOS_PENDENTES_MAX, ENVIOS_POR_DIA_MAX,
+  ENVIO_FOTO_MAX_BYTES, ENVIO_MAX_FOTOS, ENVIO_MAX_PIXELS, ENVIO_PDF_MAX_BYTES, ENVIO_TOTAL_MAX_BYTES, ENVIOS_NA_LISTA_DO_PORTAL, ENVIOS_PENDENTES_MAX, ENVIOS_POR_DIA_MAX,
   MSG_ENVIO, NOME_ENVIO_MAX, OBSERVACAO_ENVIO_MAX, situacaoParaPaciente, type StatusEnvio,
 } from '@/modules/pacientes/exames-enviados-constantes';
 import { CotaEsgotadaError, salvarArquivos, TipoNaoPermitidoError } from '@/modules/plataforma/armazenamento';
@@ -182,7 +182,7 @@ export async function situacoesDosMeusEnvios(ctx: TenantContext, db: Db = getDb(
         .from(examSubmissions)
         .where(and(eq(examSubmissions.patientId, patientId), ne(examSubmissions.status, 'cancelado')))
         .orderBy(desc(examSubmissions.createdAt))
-        .limit(50),
+        .limit(ENVIOS_NA_LISTA_DO_PORTAL),
     db,
   );
   return linhas.map((e) => ({ id: e.id, status: e.status as StatusEnvio }));
@@ -202,7 +202,7 @@ export async function meusEnvios(ctx: TenantContext, o: { db?: Db; limite?: numb
         .from(examSubmissions)
         .where(and(eq(examSubmissions.patientId, patientId), ne(examSubmissions.status, 'cancelado')))
         .orderBy(desc(examSubmissions.createdAt))
-        .limit(o.limite ?? 50);
+        .limit(o.limite ?? ENVIOS_NA_LISTA_DO_PORTAL);
       if (r.length) await auditRead(tx, { entidade: 'exames_enviados', entidadeId: null, patientId });
       return r;
     },

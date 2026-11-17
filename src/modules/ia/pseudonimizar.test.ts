@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mascarar, respostaDaAnamnese, textoLivre } from './pseudonimizar';
+import { comNomeSocial, mascarar, respostaDaAnamnese, textoLivre } from './pseudonimizar';
 
 const alvo = { nome: 'Maria José da Silva', email: 'maria.jose@exemplo.com.br', telefone: '+5511987654321' };
 
@@ -78,5 +78,29 @@ describe('mascarar com a equipe e o consultório (Plano 15, PM-3, §7.3)', () =>
     const t = 'A Debby, da Clínica Bem Viver, falou com Ana Souza.';
     expect(mascarar(t, ana)).toBe(mascarar(t, { ...ana, outrosNomes: [], frasesExatas: [] }));
     expect(mascarar(t, ana)).toBe('A Debby, da Clínica Bem Viver, falou com [removido].');
+  });
+});
+
+describe('nome social na máscara (Plano 18, RN-282, D7)', () => {
+  const joao = { nome: 'João Silva', email: null, telefone: null };
+
+  it('comNomeSocial soma o nome social a outrosNomes (mantém a equipe); sem nome social, o alvo não muda', () => {
+    expect(comNomeSocial(joao, 'Joana Silva')).toEqual({ ...joao, outrosNomes: ['Joana Silva'] });
+    const comEquipe = { ...joao, outrosNomes: ['Debby Lima'], frasesExatas: ['Consultório Bem Viver'] };
+    expect(comNomeSocial(comEquipe, 'Joana Silva')).toEqual({ ...comEquipe, outrosNomes: ['Debby Lima', 'Joana Silva'] });
+    expect(comNomeSocial(joao, null)).toBe(joao);
+    expect(comNomeSocial(joao, '   ')).toBe(joao);
+  });
+
+  it('o nome social some do texto livre pela regra do nome (completo, com sobrenome e o primeiro nome sozinho)', () => {
+    const alvo = comNomeSocial(joao, 'Joana Silva');
+    expect(textoLivre('Joana Silva relata fome. A Joana trouxe exames; joana silva voltou.', alvo)).toBe('[removido] relata fome. A [removido] trouxe exames; [removido] voltou.');
+    // o nome de registro continua saindo
+    expect(mascarar('João Silva, ou Joana, comeu.', alvo)).toBe('[removido], ou [removido], comeu.');
+  });
+
+  it('o limite declarado vale também para o nome social (primeiro nome que é palavra de alimentação só sai com o sobrenome)', () => {
+    const alvo = comNomeSocial(joao, 'Rosa Lima');
+    expect(mascarar('Uma rosa no prato. Rosa Lima comeu.', alvo)).toBe('Uma rosa no prato. [removido] comeu.');
   });
 });

@@ -496,7 +496,7 @@ Coordenar com o Plano 19 (mexe nos mesmos arquivos de `src/modules/ia/`): quem e
 - Modify: `e2e/pacientes-form.ts` (o helper do PR 1 passa aos rótulos novos: `getByLabel('Nome completo', { exact: true })`, `getByLabel('Celular / WhatsApp (opcional)')`). Os seletores que o formulário novo quebra (spec RNF-263 g) saem de um `grep -rnE "getByLabel\('(Nome|Telefone \(opcional\))'\)" e2e/` **no momento do rebase** (não de lista fixa de linhas: o 17, o 19 e o 20 mexem nesses arquivos); cada ocorrência no formulário de paciente passa ao helper ou ao rótulo novo com `exact: true` (o `getByLabel` do Playwright casa por trecho e "Nome" pegaria "Nome social (opcional)"); os de alimentos (`plano-alimentar.spec.ts` "Nome" do alimento, `e2e/painel.ts:114`) e da página pública (`agenda.spec.ts:222` e `:228`) continuam "Nome". Na revisão de 16/11 eram: `agenda.spec.ts:67`, `:72`, `:320`, `:324`; `pacientes.spec.ts:23`, `:27`, `:36`; `ia-modelos.spec.ts:46`; `plano-alimentar.spec.ts:155`, `:236`, `:533`, `:570`; `acessibilidade.spec.ts:534`; `e2e/portal.ts:21` (já no helper desde o PR 1)
 - Modify: `e2e/acessibilidade-painel.spec.ts` (Início, Perfil, lista e `[id]/app` a 1280 e 360 px, claro e escuro); `scripts/e2e-seed.ts` (paciente com nome social e cadastro completo, e outro incompleto; **idempotente**: o paciente com CPF fixo é sempre o mesmo — busca pelo e-mail — e o cadastro é *upsert* em `(tenant_id, patient_id)`, sem DELETE, porque o gatilho `patient_cadastro_sem_apagar` impede e o banco de dev é reaproveitado)
 
-- [ ] **Step 1: E2E que falha** (`e2e/cadastro.spec.ts`): cadastro com CPF (gerado **válido e novo a cada execução**, pelo algoritmo do dígito verificador sobre um prefixo aleatório: a linha de `patient_cadastro` nunca sai do banco de dev), estado civil e CEP (US-260) → Perfil mostra; CPF repetido (o do paciente da semente) → mensagem e o link em nova aba, o digitado continua; lista: abas, ordem `recentes` mantendo a busca, menu da linha (abre, Esc fecha e devolve o foco ao botão, clique fora fecha), arquivar pela lista (confirmação aceita por `page.on('dialog')`, "Paciente arquivado." na região e foco no título), `?status=arquivado` abre Inativos; Início com a nota "Cadastro incompleto" e o selo "No app"; página "No app" com as contagens do paciente da semente; impressão (`emulateMedia({ media: 'print' })`) com o nome civil antes de "Nome social". Axe (RNF-261) no Início, Perfil, lista e `[id]/app`, a 1280 e 360 px, claro e escuro, mais o menu da linha aberto e o diálogo Adicionar aberto.
+- [ ] **Step 1: E2E que falha** (`e2e/cadastro.spec.ts`): cadastro com CPF (gerado **válido e novo a cada execução**, pelo algoritmo do dígito verificador sobre um prefixo aleatório: a linha de `patient_cadastro` nunca sai do banco de dev), estado civil e CEP (US-260) → Perfil mostra; CPF repetido (o do paciente da semente) → mensagem e o link em nova aba, o digitado continua; lista: abas, ordem `recentes` mantendo a busca, menu da linha (abre, Esc fecha e devolve o foco ao botão, clique fora fecha), arquivar pela lista (confirmação aceita por `page.on('dialog')`, "Paciente arquivado." na região e foco no título), `?status=arquivado` abre Inativos; Início com a nota "Cadastro incompleto" e o selo "No app"; página "No app" com as contagens do paciente da semente; impressão (`emulateMedia({ media: 'print' })`) com o nome civil antes de "Nome social". Axe (RNF-261) no Início, Perfil, lista e `[id]/app`, a 1280 e 360 px, claro e escuro, mais o menu da linha aberto e o diálogo Adicionar aberto. Da revisão da T7a: no Perfil, salvar o estado civil, salvar de novo outro campo sem recarregar e conferir que o estado civil continua o novo (key do `<select>`); digitar na Observação, "Salvar etiquetas" e conferir que o texto digitado continua (o reinício só pela resposta da própria ação); enviar com CEP inválido e conferir o foco no campo do CEP e "Revise os campos marcados." junto do botão; axe também no estado do CPF repetido (o link), claro e escuro. Da revisão da T8: com o menu da linha aberto, Tab depois do último item ("Pedir exclusão (LGPD)") fecha o menu e o foco fica no botão "Ações de …" da linha seguinte (visível, sem painel por cima e sem voltar ao botão do menu); Esc com o foco fora do menu não o puxa de volta; arquivar dois pacientes seguidos pela lista (a URL ganha um `r` novo a cada ação) e conferir que a região esvazia e volta a dizer "Paciente arquivado." na segunda ação.
 - [ ] **Step 2:** worker parado, `pnpm e2e:seed && pnpm build`, `APP_URL=http://localhost:3101 pnpm test:e2e e2e/cadastro.spec.ts e2e/ficha.spec.ts e2e/acessibilidade-painel.spec.ts` → FAIL.
 - [ ] **Step 3:** ajustes que o E2E pedir; seletores dos outros specs pelo `grep`; `pnpm e2e:seed` rodado **duas vezes** seguidas sem erro (idempotência).
 - [ ] **Step 4:** `APP_URL=http://localhost:3101 pnpm test:e2e && pnpm test && pnpm lint && pnpm typecheck` → PASS; o `e2e/cadastro.spec.ts` passa **duas vezes** seguidas no mesmo banco.
@@ -567,3 +567,60 @@ Revisão final do branch (workflow, com `revisor-rls` — política sem conta, `
 - **Seção "Financeiro" no Início:** fica a opção (a). O PR 1 deste plano entrega o contrato estendido do registro (`leitura: { entidade }`, `verTodos`, `href` absoluto, grupo `outros`, `podeAdicionar`), com o `auditRead` feito por `inicio.ts`. O Plano 20 (T12) usa esse contrato.
 - **Trem de merge da onda 1:** 17 → 18 PR 1 → 20 PR 1 → 19 (código) → 18 PR 2 → 20 PR 2 → 20 PR 3 → 19 (seed, sozinho). Os itens do "No app" ficam com quem entrar depois.
 - **Faixa de IP do E2E:** cada plano usa a própria faixa (sufixo = número do plano). Antes, confira em `e2e/` como os IPs são gerados.
+
+## Pendências do rebase (depois do 19) e backlog
+
+Registradas no fechamento (Tarefa 12c, 17/11/2026), com o PR 2 pronto no branch local `plano-18-pr2` (`3799409` antes
+deste commit). **Mudança do trem (orquestradora, 17/11/2026):** o 19 depende de uma avaliação de IA do dono (PM-PA15), e
+o PR 2 do 18 passou a entrar **antes** do 19, rebaseado sobre a `main` sem o 19 (`6c3ee8f`). Por isso os itens 1 e 2
+abaixo **saíram do PR 2 do 18 e passaram à Sessão B (Plano 19)**, que entra depois e os aplica no rebase dela; os itens
+3 a 5 continuam valendo para qualquer rebase do 18 que ainda precise acontecer antes do merge.
+
+**Pendências do rebase (itens 1 e 2: da Sessão B, no rebase do 19 sobre o 18 PR 2):**
+
+1. **T9 condicional — "No app" com os materiais do plano.** Com o 19 na `main`, os conteúdos ligados ao plano
+   (`plano_conteudos`) e a lista de substituição ligada passam a aparecer no plano publicado (RN-253 da spec do 19). O
+   "No app" soma esses materiais **no contexto `nutri`**, pela mesma projeção que `planoDoPaciente` usa (D24: nunca
+   `liberarReceitasDoPlano` no contexto do paciente), e o caso entra no cenário de paridade de `no-app.test.ts`.
+2. **T11 condicional — nome social nos campos novos do 19.** Os campos do 19 que passam por `mascarar`
+   (`descricao_livre`, a lista de substituição com o índice `#L`) também recebem o nome social em `outrosNomes`
+   (`comNomeSocial`), e `campos-enviados.test.ts` cobre o nome social escrito no texto livre do plano.
+3. **Migrations regeneradas pelo §5** (`sessoes-paralelas.md` §5 e a seção "Migration" deste plano): `0124`/`0125`
+   saem do branch, o rebase traz as do 19, e `<G>` e `<R>` são gerados de novo com os números seguintes (snapshot
+   encadeado, `when` maior que o da última entrada da `main`, `drizzle-kit check` limpo); depois, `grep` dos números
+   antigos em `src`, `test`, `docs` e `CLAUDE.md` — o manual técnico cita `0124`–`0125` (§2.5, §4.2.11, §6.8.1, cap. 1)
+   e o índice dos planos também.
+4. **Guia do portal** (`src/modules/ajuda/portal.ts`, `GUIA_PORTAL`, hoje v3 pelo Plano 17): o 19 o leva à v4. O PR 2
+   do 18 não mexe nele; se o rebase precisar mexer (texto que cite o cadastro ou o "No app"), sobe para a **v5**.
+5. **`prontuario-pdf.tsx`:** manter o rodapé do PR #54 (SUS-99, número da página por `top`, branch
+   `fix/sus-99-pdf-exportacao`) e aplicar só a identificação do 18 (`Identificacao`: nome civil, "Nome social: …", os
+   campos da 594, sem CPF e sem a observação). No conflito, o rodapé vem da `main` e o bloco "Identificação" deste branch.
+
+**Backlog Minor** (no backlog geral como P18-B2 e P18-B3):
+
+- `cartaoResumo` abre uma transação própria; juntar à de `secoesDoInicio` (uma transação a menos no Início).
+- `MSG_FICHA.situacaoDoPlano` repete os rótulos de `ROTULO_STATUS` (`editor-plano.tsx:24`) e de `STATUS`
+  (`[id]/plano-alimentar/page.tsx:17`); `MESES` de `ficha/resumo.ts:12` repete o de `portal/datas-portal.ts:6`: uma fonte só.
+- `FocoNaAncora` montado em cada página de destino do Adicionar; um só no layout da ficha bastaria.
+- `MSG_CADASTRO_INCOMPLETO` ("Complete a data de nascimento e o sexo do paciente no cadastro.") não diz que o cadastro
+  agora fica na aba Perfil.
+- O selo "Peso oculto no app" do cabeçalho sai na impressão (a linha de medidas não sai): decidir com o dono se esconde.
+- Página "No app do paciente": o rótulo "Notificações" repetido na linha "Notificações: desligadas em todos os
+  aparelhos." (o texto exato da §8.5 já traz o rótulo).
+- Nome social nas telas e no CSV do Financeiro: decisão do Plano 20 (P18-B4).
+
+**Decisões para o dono e o advogado** (P18-B5):
+
+- **Contagem do diário no "No app" sem `auditRead`.** A página mostra "{n} registros nos últimos 30 dias" sem registrar
+  leitura, como as outras contagens (D16). Destoa da decisão de 04/10/2026 (Plano 08): a contagem do diário no Início do
+  painel é auditada no máximo uma vez por dia, por paciente e ator (manual técnico §2.8.3). Manter assim (só número) ou
+  auditar como no Início?
+- **"Último acesso em {data}"** (o último dia de `access_events`) na visão da nutricionista: conferir com o advogado se
+  o Termo 1.0, §13, cobre mostrar à nutricionista quando o paciente entrou no app (E-09).
+- **DPA 1.0 e os campos novos do cadastro** (spec §14, pergunta 2): se o advogado disser que não cobre, o 18 entra na
+  1.1 do Plano 20 ou vira 1.2, pela ordem dos merges.
+- **p95 do CS-263 ainda não medido:** a pilha de carga não rodou com o PR 2 (cenário `ficha` pronto; meta 800 ms;
+  P18-B1). Precisa de rodada de carga com OK do dono.
+
+**Manual do usuário e Central de Ajuda:** textos prontos para o dono em
+`docs/manual-usuario/2026-11-17-proposta-plano-18.md` (o guardião não edita o Docs nem publica a Central).

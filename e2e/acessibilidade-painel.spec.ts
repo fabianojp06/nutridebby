@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { fichaPelaBusca, SEMENTE_COMPLETA, SEMENTE_INCOMPLETA } from './cadastro';
 import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
 import { escolherTema, prepararTelasComId } from './painel';
@@ -32,12 +33,25 @@ test.afterAll(async () => {
   await nutri?.context().close();
 });
 
-async function violacoes(page: Page, incluir?: string): Promise<string[]> {
+async function violacoes(page: Page, incluir?: string, opcoes: { ignorarForaDaTela?: boolean } = {}): Promise<string[]> {
   const axe = new AxeBuilder({ page }).withTags(TAGS);
   const r = await (incluir ? axe.include(incluir) : axe).analyze();
   expect(r.passes.length, 'o axe rodou regras na página').toBeGreaterThan(0);
   // fundos com transparência caem em "incomplete" no color-contrast: não podem passar calados
-  const contrasteIncerto = r.incomplete.filter((i) => i.id === 'color-contrast').flatMap((i) => i.nodes.map((n) => `incompleto color-contrast: ${n.target.join(' ')}`));
+  let incertos = r.incomplete.filter((i) => i.id === 'color-contrast').flatMap((i) => i.nodes.map((n) => n.target.join(' ')));
+  if (opcoes.ignorarForaDaTela) {
+    // Plano 18: a 360 px a faixa de abas da ficha e a tabela da lista rolam na horizontal; o axe não calcula o contraste do
+    // que não cabe inteiro na largura da tela (fora dela ou cortado na borda do contêiner que rola: "incomplete"). Só esses
+    // saem; o que aparece inteiro na tela continua conferido, e a 1280 px (tudo cabe) nada sai.
+    const fora = await page.evaluate((alvos) => alvos.map((a) => {
+      const el = document.querySelector(a);
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.left < 0 || r.right > window.innerWidth;
+    }), incertos);
+    incertos = incertos.filter((_, i) => !fora[i]);
+  }
+  const contrasteIncerto = incertos.map((alvo) => `incompleto color-contrast: ${alvo}`);
   return [...r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`), ...contrasteIncerto];
 }
 
@@ -95,7 +109,8 @@ test('Plano 18: a faixa de abas da ficha cabe a 1280 px sem "incomplete"; o cada
     const r = await new AxeBuilder({ page: nutri }).withTags(TAGS).include('nav[aria-label="Seções do prontuário"]').analyze();
     expect(r.violations.map((v) => v.id)).toEqual([]);
     expect(r.incomplete.map((i) => `${i.id}: ${i.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
-    await expect(nutri.getByRole('heading', { level: 2, name: 'Cadastro' })).toBeVisible();
+    // Plano 18 (§8.4, T7a): o cadastro em seções — os títulos são as legendas dos fieldsets
+    for (const secao of ['Dados gerais', 'Contato e endereço', 'Observação']) await expect(nutri.getByRole('heading', { level: 2, name: secao })).toBeVisible();
     await expect(nutri.getByRole('button', { name: 'Salvar cadastro' })).toBeVisible();
     await expect(nutri.getByRole('heading', { level: 2, name: 'Acesso ao app' })).toBeVisible();
     await expect(nutri.getByRole('heading', { level: 2, name: 'Etiquetas' })).toBeVisible();
@@ -105,6 +120,44 @@ test('Plano 18: a faixa de abas da ficha cabe a 1280 px sem "incomplete"; o cada
   } finally {
     await escolherTema(nutri, 'Igual ao aparelho');
   }
+});
+
+/**
+ * Plano 18 (RNF-261): o Início (com o cartão e o selo "No app"; com a nota "Cadastro incompleto"), o Perfil com o cadastro
+ * inteiro, a lista e a página "No app do paciente", a 1280 e a 360 px, claro e escuro. As pacientes do cadastro do seed
+ * (e2e/cadastro.ts): a completa tem conta, nome social, CPF e uma avaliação; a incompleta mostra a nota. Os estados abertos
+ * (menu da linha, diálogo Adicionar, CPF repetido) ficam no cadastro.spec e no ficha.spec.
+ */
+test('Plano 18: Início, Perfil, lista e "No app do paciente" a 1280 e 360 px, claro e escuro', async () => {
+  test.setTimeout(240_000);
+  const completa = await fichaPelaBusca(nutri, SEMENTE_COMPLETA.email, SEMENTE_COMPLETA.nomeSocial);
+  const incompleta = await fichaPelaBusca(nutri, SEMENTE_INCOMPLETA.email, SEMENTE_INCOMPLETA.nome);
+  const telas = [
+    { url: '/painel/pacientes', pronta: () => expect(nutri.getByRole('heading', { level: 1, name: 'Pacientes' })).toBeVisible() },
+    { url: completa, pronta: () => expect(nutri.getByRole('region', { name: 'No app do paciente' })).toBeVisible() },
+    { url: incompleta, pronta: () => expect(nutri.getByText('Cadastro incompleto: faltam estado civil e endereço.')).toBeVisible() },
+    { url: `${completa}/perfil`, pronta: () => expect(nutri.getByLabel('CPF (opcional)')).toHaveValue(SEMENTE_COMPLETA.cpf) },
+    { url: `${completa}/app`, pronta: () => expect(nutri.getByRole('heading', { name: 'No app do paciente' })).toBeVisible() },
+  ];
+  const falhas: string[] = [];
+  try {
+    for (const [largura, altura] of [[1280, 720], [360, 800]] as const) {
+      await nutri.setViewportSize({ width: largura, height: altura });
+      for (const tema of ['Claro', 'Escuro'] as const) {
+        await escolherTema(nutri, tema);
+        for (const t of telas) {
+          await nutri.goto(t.url);
+          await t.pronta();
+          await nutri.waitForLoadState('networkidle');
+          for (const v of await violacoes(nutri, undefined, { ignorarForaDaTela: largura < 1280 })) falhas.push(`${largura} px ${tema} ${t.url} — ${v}`);
+        }
+      }
+    }
+  } finally {
+    await nutri.setViewportSize({ width: 1280, height: 720 });
+    await escolherTema(nutri, 'Igual ao aparelho');
+  }
+  expect(falhas).toEqual([]);
 });
 
 /**

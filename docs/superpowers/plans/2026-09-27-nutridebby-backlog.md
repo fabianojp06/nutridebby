@@ -660,6 +660,27 @@ Depende do 10A e, para o uso real de cada assinador, dos PDFs reais assinados do
 | P10B-06 | (Condicional) Conferência de conteúdo assíncrona no worker | D16 (a) | P10B-02 (relatório) | Dev | S | ⬜ |
 | P10B-07 | Débitos do Plano 10B (Minors da revisão do PR; isolamento da conferência em `worker_threads`, se preciso) | — | P10B-05 | Dev | S | ⬜ |
 
+### Plano 18 — Ficha e cadastro do paciente (PD-10 a PD-13)
+
+Plano 18 ([`2026-11-16-nutridebby-18-ficha-cadastro.md`](2026-11-16-nutridebby-18-ficha-cadastro.md), Tarefas 1–4 no
+PR 1 e 5–12c no PR 2), a partir da spec da ficha e do cadastro v0.3 (US-260 a US-264, RN-260 a RN-284), paridade Dietbox,
+onda 1. PR 1 (fundação, sem migration) em produção pelo PR #52 (17/11/2026, `9eeacaf`); PR 2 pronto no branch local
+`plano-18-pr2` (migrations `0124`–`0125`, geradas de novo no rebase), à espera da revisão final, do rebase depois do
+Plano 19 e do OK do dono no merge. Pendências do rebase e as decisões para o dono/advogado na seção final do plano.
+
+| ID | Tarefa | Refs | Depende de | Resp. | Prior. | Status |
+|---|---|---|---|---|---|---|
+| PD-12 | Ficha "Início": abas Início/Perfil, cabeçalho com a última avaliação, botão Adicionar e o registro de seções (P18-01 a P18-04, PR #52) | US-262, US-263, D12–D15, RN-274–RN-280 | Plano 17 | Dev | M | ✅ |
+| PD-10 | Cadastro ampliado (Res. CFN 594/2017) em `patient_cadastro`, CPF opcional, validado e único, formulário em seções, nome social (P18-05 a P18-07b) | US-260, D1, D4, D7, D23, RN-260–RN-269 | PD-12 | Dev | M | ✅ (branch; falta o merge do PR 2) |
+| PD-11 | Lista de pacientes com abas, ordem, "Desde" e menu por linha (P18-08) | US-261, D26, RN-270–RN-273 | PD-10 | Dev | M | ✅ (branch; falta o merge do PR 2) |
+| PD-13 | "No app do paciente": cartão, selo e página, contados no contexto do paciente (P18-09) | US-264, D16, D24, RN-279, RN-281 | PD-12 | Dev | M | ✅ (branch; falta o merge do PR 2) |
+| P18-10 a P18-12c | LGPD (exportação, PDF, anonimização com rede), nome social na máscara da IA, E2E, cenário de carga e o fechamento (manuais, CLAUDE.md, este backlog) | §10, RN-282, RN-283, CS-263 | PD-10 | Dev | M | ✅ (branch) |
+| P18-B1 | Medir o p95 do CS-263 (cenário `ficha` da pilha de carga, meta 800 ms) na próxima rodada de carga | CS-263, RNF-260; `docs/operacao/carga.md` | merge do PR 2 | Dev + Você (OK da rodada) | S | ⬜ |
+| P18-B2 | Minors do PR 2 — código: `cartaoResumo` numa transação própria (juntar às seções do Início); `situacaoDoPlano`/`MESES` repetidos entre módulos; `FocoNaAncora` montado por página (um só no layout da ficha) | revisões das T7a–T12b | — | Dev | S | ⬜ |
+| P18-B3 | Minors do PR 2 — textos e interface: `MSG_CADASTRO_INCOMPLETO` ("Complete a data de nascimento e o sexo do paciente no cadastro.", `src/modules/pacientes/base.ts:8`, nas abas Antropometria e Gasto energético) sem dizer que o cadastro agora fica na aba Perfil; a página "No app" com o rótulo "Notificações" repetido na linha "Notificações: desligadas em todos os aparelhos."; o selo "Peso oculto no app" do cabeçalho sai na impressão (a linha de medidas não sai) — decidir com o dono se esconde | revisões das T7b e T9 | — | Dev | S | ⬜ |
+| P18-B4 | Nome social nas telas e no CSV do Financeiro (decisão do Plano 20) | Plano 18, "Coordenação"; Plano 20 | merge dos dois | Dev (Plano 20) | S | ⬜ |
+| P18-B5 | Dono/advogado: (a) a contagem do diário no "No app" sem `auditRead` (destoa da decisão de 04/10/2026, Plano 08: a contagem do diário no Início do painel é auditada no máximo uma vez por dia, por paciente e ator — manual técnico §2.8.3); (b) "Último acesso em {data}" no "No app" (Termo 1.0, §13; E-09); (c) se o DPA 1.0 cobre os campos novos do cadastro (spec §14, pergunta 2) | spec §14; E-09 | — | Você + advogado | S | ⬜ |
+
 ## Pós-MVP — Fase 3 (Engajamento) e Fase 4 (Expansão)
 
 Itens **confirmados pelo dono em 03/10/2026**, a **especificar com brainstorming depois do Plano 05** (espelham o painel; não entram na contagem do MVP). Todos com IA ou dado de saúde enviado a terceiros exigem, ao especificar: suboperador declarado no DPA e no aviso de privacidade (LGPD), provedor sem retenção, cota/custo por tenant, nada de conteúdo em log e auditoria.

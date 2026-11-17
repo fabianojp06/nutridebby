@@ -15,7 +15,7 @@ import { sha256 } from '@/lib/crypto';
 import { aceitarConvite, CONVITE_INVALIDO, inspecionarConvite } from '@/modules/plataforma/convites';
 import { PacienteNaoEncontradoError } from './base';
 import { anonimizarContaSemVinculo, contaSemOutroVinculo } from './conta-titular';
-import { aceitarConvitePaciente, ConvitePacienteError, inspecionarConvitePaciente, MSG_CONVITE_PACIENTE, reenviarConvitePaciente, situacaoDoAcesso, vincularContaExistente } from './convite-paciente';
+import { aceitarConvitePaciente, ConvitePacienteError, inspecionarConvitePaciente, MSG_CONVITE_PACIENTE, reenviarConvitePaciente, situacaoDoAcesso, situacoesDoAcesso, vincularContaExistente } from './convite-paciente';
 import { atualizarPaciente, buscarPaciente, criarPaciente, listarPacientes } from './pacientes';
 import { MSG_TERMO_NAO_ACEITO } from './termo-paciente';
 
@@ -293,5 +293,25 @@ describe('aceite do convite — quem já tem conta (US-010 "E-mail já usado por
     const token = tokenDe((await emailsNaFila('convite_paciente', emailDaNutri))[0].link);
     expect(await inspecionarConvitePaciente(app.db, token, now)).toMatchObject({ estado: 'valido', conta: 'equipe' });
     await expect(aceite(token)).rejects.toThrow(MSG_CONVITE_PACIENTE.contaDeEquipe);
+  });
+});
+
+describe('situacoesDoAcesso (Plano 18, §8.1: a coluna "Acesso ao app" da lista)', () => {
+  it('as mesmas regras de situacaoDoAcesso, numa consulta só, sem ver convite de outro consultório', async () => {
+    const T = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const pendente = await criarPaciente(T.ctx, T.tenant, dados(`sp-${s()}@ex.com`), deps);
+    const vencido = await criarPaciente(T.ctx, T.tenant, dados(`sv-${s()}@ex.com`), { ...deps, now: new Date('2026-09-01T15:00:00Z') });
+    const semConvite = await novoPaciente(app.db, T.ctx);
+    const comSenha = { id: randomUUID(), userId: randomUUID() };
+    const deB = await criarPaciente(B.ctx, B.tenant, dados(`sb-${s()}@ex.com`), deps);
+    const r = await situacoesDoAcesso(T.ctx, [pendente, vencido, semConvite, comSenha, { id: deB.id, userId: null }], app.db, now);
+    for (const p of [pendente, vencido, semConvite]) expect(r.get(p.id), p.id).toEqual(await situacaoDoAcesso(T.ctx, p, app.db, now));
+    expect(r.get(pendente.id)?.estado).toBe('pendente');
+    expect(r.get(vencido.id)).toEqual({ estado: 'expirado' });
+    expect(r.get(semConvite.id)).toEqual({ estado: 'sem_convite' });
+    expect(r.get(comSenha.id)).toEqual({ estado: 'ativo' });
+    expect(r.get(deB.id)).toEqual({ estado: 'sem_convite' }); // o convite de B não aparece para A
+    expect((await situacoesDoAcesso(T.ctx, [], app.db, now)).size).toBe(0);
   });
 });

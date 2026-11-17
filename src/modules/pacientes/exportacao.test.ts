@@ -31,6 +31,7 @@ import { COTA_BYTES, salvarArquivo } from '@/modules/plataforma/armazenamento';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { buscarModelo, preencherAnamnese, salvarModelo } from './anamnese';
+import { gravarCadastro } from './cadastro';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
 import { registrarAtendimento } from './atendimentos';
 import { salvarEtiquetasDoPaciente } from './etiquetas';
@@ -624,6 +625,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           autorizacoesIa: [],
           pesoOcultoNoAppEm: null,
           lembretesPausadosEm: null,
+          cadastro: null,
         },
         anamneses: [{ data: '2026-09-01', modelo: 'Longa', respostas }],
         antropometria: [],
@@ -1047,6 +1049,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
           autorizacoesIa: [],
           pesoOcultoNoAppEm: null,
           lembretesPausadosEm: null,
+          cadastro: null,
         },
         anamneses: [],
         antropometria: [
@@ -1259,3 +1262,116 @@ describe('Plano 15 (§7.6 "Exportação", US-018, US-046, RN-109) — a IA Nutri
   });
 });
 
+
+describe('Plano 18 (§10, D7, D18, RN-262, RN-266) — o cadastro complementar no dados.json e no prontuario.pdf', () => {
+  const CPF = '52998224725';
+  const OBSERVACAO = 'Prefere atendimento pela manhã';
+  const CADASTRO = {
+    cpf: '529.982.247-25',
+    nomeSocial: 'Joana Silva',
+    identidadeGenero: 'mulher',
+    estadoCivil: 'casado',
+    escolaridade: 'superior_completo',
+    ocupacao: 'Professora',
+    nacionalidade: 'brasileira',
+    naturalidade: 'Campinas (SP)',
+    telefoneFixo: '(11) 3123-4567',
+    cep: '01310-100',
+    logradouro: 'Avenida Paulista',
+    numero: '1000',
+    complemento: 'apto 12',
+    bairro: 'Bela Vista',
+    cidade: 'São Paulo',
+    uf: 'SP',
+    observacao: OBSERVACAO,
+  } as const;
+  const comCadastro = async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { telefoneE164: '+5511912345678' });
+    await withTenant(T.ctx, (tx) => gravarCadastro(tx, { tenantId: T.tenantId, patientId: p.id, valor: CADASTRO }), app.db);
+    return { T, p };
+  };
+
+  it('dados.json dos dois escopos traz paciente.cadastro (CPF e fixo formatados, os três com o rótulo da tela); sem linha, cadastro: null', async () => {
+    const { T, p } = await comCadastro();
+    const semCadastro = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(dados.paciente.cadastro, escopo).toEqual({
+        cpf: '529.982.247-25',
+        nomeSocial: 'Joana Silva',
+        identidadeDeGenero: 'Mulher',
+        estadoCivil: 'Casado(a)',
+        escolaridade: 'Ensino superior completo',
+        ocupacao: 'Professora',
+        nacionalidade: 'brasileira',
+        naturalidade: 'Campinas (SP)',
+        telefoneFixo: '(11) 3123-4567',
+        endereco: { cep: '01310-100', rua: 'Avenida Paulista', numero: '1000', complemento: 'apto 12', bairro: 'Bela Vista', cidade: 'São Paulo', uf: 'SP' },
+        observacao: OBSERVACAO,
+      });
+      // RN-262: no dados.json, só o formatado (o valor cru do banco não sai)
+      expect(JSON.stringify(dados), escopo).not.toContain(CPF);
+      const vazio = await withTenant(T.ctx, (tx) => montarDados(tx, semCadastro.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(vazio.dados.paciente.cadastro, escopo).toBeNull();
+    }
+  });
+
+  it('cadastro com a linha toda vazia (esvaziado depois de nascer): os campos nulos, o endereço com as chaves nulas', async () => {
+    const { T, p } = await comCadastro();
+    const vazio = Object.fromEntries(Object.keys(CADASTRO).map((k) => [k, null]));
+    await withTenant(T.ctx, (tx) => gravarCadastro(tx, { tenantId: T.tenantId, patientId: p.id, valor: vazio }), app.db);
+    const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(dados.paciente.cadastro).toEqual({
+      cpf: null, nomeSocial: null, identidadeDeGenero: null, estadoCivil: null, escolaridade: null, ocupacao: null, nacionalidade: null,
+      naturalidade: null, telefoneFixo: null, endereco: { cep: null, rua: null, numero: null, complemento: null, bairro: null, cidade: null, uf: null }, observacao: null,
+    });
+  });
+
+  // Review Focus 5 (D7, RN-266; Res. CFN 594/2017, art. 4º, § 1º, I): o nome civil primeiro e "Nome social: …" logo depois
+  it('prontuario.pdf: Identificação com o nome civil e "Nome social: …" logo depois e os campos da 594; sem CPF e sem a observação', async () => {
+    const { T, p } = await comCadastro();
+    const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    const texto = textoDoPdf(await renderizarProntuario(dados, 'Debby Silva'));
+    const identificacao = texto.slice(texto.indexOf('Identificação'), texto.indexOf('Anamneses'));
+    // textoDoPdf junta as linhas da página sem separador: o título da seção, o nome civil e, logo depois, o nome social
+    expect(identificacao.startsWith('IdentificaçãoNome: Ana SouzaNome social: Joana Silva'), identificacao).toBe(true);
+    expect(texto.indexOf('Ana Souza')).toBeLessThan(texto.indexOf('Nome social:'));
+    for (const t of [
+      'Identidade de gênero: Mulher',
+      'Estado civil: Casado(a)',
+      'Nacionalidade: brasileira',
+      'Naturalidade: Campinas (SP)',
+      'Escolaridade: Ensino superior completo',
+      'Ocupação: Professora',
+      'Endereço: Avenida Paulista, 1000, apto 12 · Bela Vista · São Paulo (SP) · CEP 01310-100',
+      'Celular: (11) 91234-5678',
+      'Telefone fixo: (11) 3123-4567',
+    ])
+      expect(identificacao).toContain(t);
+    // RN-262: o CPF só no dados.json; a observação também fica só lá (§10)
+    for (const fora of [CPF, '529.982.247-25', 'CPF', OBSERVACAO, 'Observação']) expect(texto, fora).not.toContain(fora);
+  });
+
+  it('prontuario.pdf sem cadastro complementar: sem "Nome social:", os campos da 594 com "-"', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'equipe'), app.db);
+    const texto = textoDoPdf(await renderizarProntuario(dados, 'Debby Silva'));
+    expect(texto).toContain('Nome: Ana Souza');
+    expect(texto).not.toContain('Nome social:');
+    for (const t of ['Estado civil: -', 'Escolaridade: -', 'Endereço: -', 'Telefone fixo: -']) expect(texto).toContain(t);
+  });
+
+  it('o ZIP do job leva o cadastro no dados.json e o PDF sem o CPF', async () => {
+    const { T, p } = await comCadastro();
+    const id = await solicitarExportacao(T.ctx, p.id, deps);
+    expect(await gerarExportacao({ tenantId: T.tenantId, exportId: id }, { ...deps, ultimaTentativa: false })).toBe('pronta');
+    const zip = await zipDoPedido(T, id);
+    expect(JSON.parse(strFromU8(zip['dados.json'])).paciente.cadastro).toMatchObject({ cpf: '529.982.247-25', nomeSocial: 'Joana Silva' });
+    const texto = textoDoPdf(Buffer.from(zip['prontuario.pdf']));
+    expect(texto).toContain('Nome social: Joana Silva');
+    expect(texto).not.toContain('529.982.247-25');
+    expect(texto).not.toContain(CPF);
+  });
+});

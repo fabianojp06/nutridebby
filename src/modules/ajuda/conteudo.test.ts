@@ -169,28 +169,55 @@ describe('conteúdo do manual (P08-10)', () => {
     const passoAPasso = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens;
     expect(passoAPasso[0]).toMatch(/Início.*Perfil.*anamnese/);
   });
-  it('Plano 18: o guia de Pacientes manda ao "Reenviar convite" da aba Perfil, só na gaveta (o tour não muda, versão 1)', () => {
+  it('Plano 18 (§8.1): o guia de Pacientes na versão 2 — busca com as abas, o passo novo "Ações" e as ajudas que ficariam falsas', () => {
     const g = GUIAS.find((x) => x.id === 'pacientes')!;
-    expect(g.versao).toBe(1);
+    expect(g.versao).toBe(2);
+    expect(g.passos.map((p) => p.alvo)).toEqual(['novo-paciente', 'busca-pacientes', 'acoes-paciente', 'cadastro-paciente']);
+    expect(g.passos.find((p) => p.alvo === 'busca-pacientes')?.texto).toBe(
+      'Ache um paciente pelo nome ou pelo e-mail. As abas separam ativos e arquivados; os bloqueados ficam em Ver bloqueados.',
+    );
+    expect(g.passos.find((p) => p.alvo === 'acoes-paciente')?.texto).toBe('Em Ações você abre a ficha, edita o cadastro, arquiva ou reativa o paciente sem sair da lista.');
     const itens = g.ajuda.secoes.flatMap((s) => s.itens);
-    expect(itens).toContainEqual(expect.stringContaining('use "Reenviar convite" em "Acesso ao app", na aba Perfil do prontuário.'));
+    const texto = itens.join(' ');
+    expect(texto).not.toContain('filtro de situação');
+    expect(texto).toContain('ficam na aba Inativos');
+    expect(itens).toContainEqual(expect.stringContaining('use "Reenviar convite" em "Acesso ao app", na aba Perfil da ficha.'));
+    expect(texto).not.toContain('no prontuário');
     expect(g.passos.map((p) => p.texto).join(' ')).not.toContain('Reenviar convite');
   });
   it('Plano 18 (§8.3): o guia "Início do paciente" casa só o Início da ficha, vem antes do prontuário e traz os passos da spec', () => {
     const g = GUIAS.find((x) => x.id === 'inicio-paciente')!;
     expect(g.titulo).toBe('Início do paciente');
-    expect(g.versao).toBe(1);
+    expect(g.versao).toBe(2); // 2 no PR 2 do Plano 18: o cartão No app e o selo
     expect(guiaDaRota(`/painel/pacientes/${UUID}`)?.id).toBe('inicio-paciente');
-    expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil`)?.id).toBe('prontuario');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil`)?.id).toBe('perfil-paciente'); // guia próprio desde a Tarefa 7a
     expect(guiaDaRota(`/painel/pacientes/${UUID}/app`)?.id).toBe('prontuario');
     expect(GUIAS.findIndex((x) => x.id === 'inicio-paciente')).toBeLessThan(GUIAS.findIndex((x) => x.id === 'prontuario'));
-    expect(g.passos.map((p) => p.alvo)).toEqual(['cabecalho-paciente', 'abas-prontuario', 'adicionar-prontuario', 'secoes-inicio']);
+    expect(g.passos.map((p) => p.alvo)).toEqual(['cabecalho-paciente', 'abas-prontuario', 'adicionar-prontuario', 'secoes-inicio', 'no-app-cartao']);
     const prontuario = GUIAS.find((x) => x.id === 'prontuario')!;
     for (const alvo of ['cabecalho-paciente', 'abas-prontuario']) expect(g.passos.find((p) => p.alvo === alvo)?.texto).toBe(prontuario.passos.find((p) => p.alvo === alvo)?.texto);
     expect(g.passos.find((p) => p.alvo === 'adicionar-prontuario')?.texto).toBe('Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.');
-    expect(g.passos.find((p) => p.alvo === 'secoes-inicio')?.texto).toBe('Cada seção mostra quantos registros há e os três mais recentes.');
-    // O selo "No app" só existe a partir da Tarefa 9 (PR 2): na versao 1 nenhum texto do guia fala dele.
-    expect(JSON.stringify({ ajuda: g.ajuda, passos: g.passos })).not.toMatch(/No app/);
+    // Tarefa 9 (PR 2, versao 2): a frase do selo volta ao passo das seções, e o passo do cartão entra (spec §8.3)
+    expect(g.passos.find((p) => p.alvo === 'secoes-inicio')?.texto).toBe('Cada seção mostra quantos registros há e os três mais recentes. O selo No app marca o que o paciente vê no app.');
+    expect(g.passos.find((p) => p.alvo === 'no-app-cartao')?.texto).toBe('O que o paciente enxerga no app, contado com as mesmas regras do app.');
+    // a explicação da página "No app do paciente" fica nas ajudas deste guia (a página cai no guia `prontuario`)
+    expect(g.ajuda.secoes.flatMap((s) => s.itens)).toContainEqual(expect.stringContaining('"No app do paciente"'));
+    // os documentos só aparecem com a liberação no consultório (a linha some sem ela, §8.5); só a gaveta: sem subir versão
+    expect(g.ajuda.secoes.flatMap((s) => s.itens)).toContainEqual(expect.stringContaining('os documentos (só quando liberados no consultório)'));
+  });
+  it('Plano 18 (§8.4): o guia "Perfil do paciente" casa só o Perfil, vem antes do prontuário e traz o passo do cadastro em seções; o de Pacientes tem o mesmo passo (Novo paciente)', () => {
+    const g = GUIAS.find((x) => x.id === 'perfil-paciente')!;
+    expect(g.titulo).toBe('Perfil do paciente');
+    expect(g.versao).toBe(1);
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil`)?.id).toBe('perfil-paciente');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil/x`)?.id).toBe('prontuario');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}`)?.id).toBe('inicio-paciente');
+    expect(GUIAS.findIndex((x) => x.id === 'perfil-paciente')).toBeLessThan(GUIAS.findIndex((x) => x.id === 'prontuario'));
+    const passo = { alvo: 'cadastro-paciente', titulo: 'Cadastro do paciente', texto: 'O cadastro fica em seções. Só nome, nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta.' };
+    expect(g.passos).toContainEqual(passo);
+    const pacientes = GUIAS.find((x) => x.id === 'pacientes')!;
+    expect(guiaDaRota('/painel/pacientes/novo')?.id).toBe('pacientes');
+    expect(pacientes.passos).toContainEqual(passo);
   });
   it('nenhum título de guia repetido (o manual completo lista um h2 por guia; "Início" é o de boas-vindas)', () => {
     expect(new Set(GUIAS.map((g) => g.titulo)).size).toBe(GUIAS.length);

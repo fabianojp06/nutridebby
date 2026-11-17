@@ -15,7 +15,7 @@ import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
-import { accessEvents, account, appointments, auditLog, consents, diaryEntries, exams, iaAutorizacoes, iaNutriConsentimentos, iaTarefas, iaUso, invites, lembretesRotina, lembretesRotinaEnvios, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
+import { accessEvents, account, appointments, auditLog, patientCadastro, consents, diaryEntries, exams, iaAutorizacoes, iaNutriConsentimentos, iaTarefas, iaUso, invites, lembretesRotina, lembretesRotinaEnvios, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { sealSecret } from '@/lib/crypto';
 import { reservar } from '@/modules/ia/cota';
@@ -31,6 +31,7 @@ import { registrarAtendimento } from './atendimentos';
 import { PacienteBloqueadoError } from './base';
 import { criarExame } from './exames';
 import { anexosDoPaciente, anonimizarVencidos, apagarFotosDoDiario, arquivarPaciente, atenderPedidoExclusao, concluirExclusaoAtendida, desarquivarPaciente, LgpdError, MSG_LGPD, pedidosDoTitularAbertos, PRAZO_GUARDA_ANOS } from './lgpd';
+import { gravarCadastro } from './cadastro';
 import { criarPaciente } from './pacientes';
 
 // Rodada 2 da T13: a varredura da anonimização (listarTenantsParaVarredura) só passa pelos tenants deste arquivo — os
@@ -52,6 +53,31 @@ vi.mock('@/modules/documentos/lgpd-documentos', async (importOriginal) => {
 vi.mock('@/modules/ia/nutri-paciente/lgpd', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/modules/ia/nutri-paciente/lgpd')>();
   return { ...real, apagarIaNutriDoTitular: vi.fn(real.apagarIaNutriDoTitular) };
+});
+
+// Plano 18 (RN-283): falhas simuladas na varredura, pelo `withTenant` de verdade — no contexto worker de um tenant
+// marcado, a transação recusa um método do `tx`: `select` (a listagem dos vencidos usa; a rede do cadastro, as fotos e os
+// envios não) ou, uma vez só, `execute` (a rede do cadastro, o primeiro passo do tenant)
+const falhas = vi.hoisted(() => ({ porTenant: new Map<string, { metodo: 'select' | 'execute'; umaVez: boolean }>() }));
+vi.mock('@/db/tenant', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/db/tenant')>();
+  const withTenant: typeof real.withTenant = (ctx, fn, db) => {
+    const f = ctx.role === 'worker' ? falhas.porTenant.get(ctx.tenantId) : undefined;
+    if (!f) return real.withTenant(ctx, fn, db);
+    const comFalha = (tx: Parameters<typeof fn>[0]) =>
+      new Proxy(tx, {
+        get(alvo, chave) {
+          if (chave === f.metodo) {
+            if (f.umaVez) falhas.porTenant.delete(ctx.tenantId);
+            throw new Error(`falha simulada (${f.metodo}) 52998224725`);
+          }
+          const v = Reflect.get(alvo, chave, alvo) as unknown;
+          return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(alvo) : v;
+        },
+      });
+    return real.withTenant(ctx, (tx) => fn(comFalha(tx)), db);
+  };
+  return { ...real, withTenant };
 });
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -871,5 +897,148 @@ describe('Plano 15 — a IA Nutri na LGPD (§7.6, §13.3, D22)', () => {
     const consentimentos = await withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => tx.select().from(iaNutriConsentimentos).where(eq(iaNutriConsentimentos.patientId, p.id)), app.db);
     expect(consentimentos).toEqual([expect.objectContaining({ evento: 'aceite', versao: '1.0', destino: 'teste', ip: null, userAgent: null, registradoPor: null })]);
     expect((await ler(T.ctx, p.id)).anonimizadoEm).not.toBeNull();
+  });
+});
+
+describe('Plano 18 — o cadastro complementar na LGPD (D18, RN-283)', () => {
+  const worker = (T: TenantDeTeste) => ({ tenantId: T.tenantId, role: 'worker' as const });
+  /** O cadastro complementar gravado pela nutricionista (a gravação de sempre, com o gatilho de auditoria). */
+  const comCadastro = async (T: TenantDeTeste, patientId: string, cpf: string | null = '529.982.247-25') => {
+    await withTenant(
+      T.ctx,
+      (tx) => gravarCadastro(tx, { tenantId: T.tenantId, patientId, valor: { cpf, nomeSocial: 'Joana Silva', estadoCivil: 'casado', cep: '01310-100', observacao: 'Prefere atendimento pela manhã' } }),
+      app.db,
+    );
+    const [c] = await withTenant(T.ctx, (tx) => tx.select().from(patientCadastro).where(eq(patientCadastro.patientId, patientId)), app.db);
+    return c;
+  };
+  const cadastrosDe = (T: TenantDeTeste, patientId: string) =>
+    withTenant(T.ctx, (tx) => tx.select().from(patientCadastro).where(eq(patientCadastro.patientId, patientId)), app.db);
+  /** A trilha da linha do cadastro (entidade `patients`, entidade_id = id da linha), lida pela equipe. */
+  const trilhaDoCadastro = (T: TenantDeTeste, cadastroId: string) =>
+    withTenant(
+      T.ctx,
+      async (tx) =>
+        (await tx.select({ acao: auditLog.acao, ator: auditLog.actorUserId, patientId: auditLog.patientId }).from(auditLog).where(and(eq(auditLog.entidade, 'patients'), eq(auditLog.entidadeId, cadastroId))))
+          .sort((a, b) => a.acao.localeCompare(b.acao)),
+      app.db,
+    );
+  /** A imagem antiga (sem o apagamento do cadastro): marca o titular como anonimizado e deixa a linha. */
+  const anonimizarPelaImagemAntiga = (T: TenantDeTeste, patientId: string) =>
+    withTenant(worker(T), (tx) => tx.update(patients).set({ nome: 'Paciente anonimizado', userId: null, anonimizadoEm: now, updatedAt: now }).where(eq(patients.id, patientId)), app.db);
+
+  it('pedido de exclusão com nome social: o nome errado (ou o social) recusa pedindo o nome de registro; sem nome social, a mensagem de sempre', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Registro' });
+    const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    await comCadastro(T, ana.id, null);
+    for (const digitado of ['Joana Silva', 'Outro nome'])
+      await expect(atenderPedidoExclusao(T.ctx, T.tenant, ana.id, digitado, deps)).rejects.toThrow(MSG_LGPD.confirmarNomeDeRegistro('Ana Registro'));
+    await expect(atenderPedidoExclusao(T.ctx, T.tenant, bia.id, 'Outro nome', deps)).rejects.toThrow(MSG_LGPD.confirmarNome);
+    // com o nome de registro, atende
+    await atenderPedidoExclusao(T.ctx, T.tenant, ana.id, 'Ana Registro', deps);
+    expect((await withTenant(T.ctx, (tx) => tx.select({ status: patients.status }).from(patients).where(eq(patients.id, ana.id)), app.db))[0].status).toBe('bloqueado');
+  });
+
+  it('a anonimização apaga a linha do titular e grava o "excluir" de ator nulo; o cadastro de outro paciente fica', async () => {
+    const T = await novoTenant(app.db);
+    const vencido = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-01' });
+    const outro = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const c = await comCadastro(T, vencido.id);
+    const doOutro = await comCadastro(T, outro.id, '111.444.777-35');
+    // controle positivo: a trilha da linha é lida (o "criar" da nutricionista) antes da anonimização
+    expect(await trilhaDoCadastro(T, c.id)).toEqual([{ acao: 'criar', ator: T.nutriId, patientId: vencido.id }]);
+
+    await anonimizarSo(T);
+
+    expect((await ler(T.ctx, vencido.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
+    expect(await cadastrosDe(T, vencido.id)).toEqual([]);
+    expect(await trilhaDoCadastro(T, c.id)).toEqual([
+      { acao: 'criar', ator: T.nutriId, patientId: vencido.id },
+      { acao: 'excluir', ator: null, patientId: vencido.id },
+    ]);
+    expect((await cadastrosDe(T, outro.id)).map((x) => x.id)).toEqual([doOutro.id]);
+    expect(await trilhaDoCadastro(T, doOutro.id)).toEqual([{ acao: 'criar', ator: T.nutriId, patientId: outro.id }]);
+  });
+
+  it('o bloqueio (pedido de exclusão atendido) não muda o cadastro — nem o job do aviso nem a varredura antes do prazo', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const c = await comCadastro(T, p.id);
+    await atenderPedidoExclusao(T.ctx, T.tenant, p.id, 'Ana Souza', deps);
+    await concluirExclusaoAtendida({ tenantId: T.tenantId, patientId: p.id }, { db: app.db, dataDir, ultimaTentativa: false });
+    await anonimizarSo(T); // a guarda de 20 anos não venceu: só as redes passam
+    expect((await ler(T.ctx, p.id))).toMatchObject({ status: 'bloqueado', anonimizadoEm: null });
+    expect(await cadastrosDe(T, p.id)).toEqual([c]);
+    expect(await trilhaDoCadastro(T, c.id)).toEqual([{ acao: 'criar', ator: T.nutriId, patientId: p.id }]);
+  });
+
+  it('rede: a linha de titular já anonimizado (deixada pela imagem antiga) some na varredura seguinte; a de quem não foi anonimizado fica', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-01' });
+    const guardado = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima', status: 'bloqueado', anonimizarApos: '2046-09-01' });
+    const c = await comCadastro(T, p.id);
+    const doGuardado = await comCadastro(T, guardado.id, null);
+    await anonimizarPelaImagemAntiga(T, p.id);
+    expect((await cadastrosDe(T, p.id)).map((x) => x.id)).toEqual([c.id]);
+
+    await anonimizarSo(T);
+
+    expect(await cadastrosDe(T, p.id)).toEqual([]);
+    expect(await trilhaDoCadastro(T, c.id)).toEqual([
+      { acao: 'criar', ator: T.nutriId, patientId: p.id },
+      { acao: 'excluir', ator: null, patientId: p.id },
+    ]);
+    expect((await cadastrosDe(T, guardado.id)).map((x) => x.id)).toEqual([doGuardado.id]);
+    // idempotente: a varredura do dia seguinte não acha nada
+    await anonimizarSo(T);
+    expect((await trilhaDoCadastro(T, c.id)).filter((l) => l.acao === 'excluir')).toHaveLength(1);
+  });
+
+  it('rede: roda também quando a listagem dos vencidos daquele tenant falha (antes do continue)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-01' });
+    const vencido = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima', status: 'bloqueado', anonimizarApos: '2026-09-01' });
+    const c = await comCadastro(T, p.id);
+    await comCadastro(T, vencido.id, null);
+    await anonimizarPelaImagemAntiga(T, p.id);
+    const erro = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    falhas.porTenant.set(T.tenantId, { metodo: 'select', umaVez: false });
+    try {
+      await anonimizarSo(T);
+      // a listagem falhou de verdade: o erro foi para o log, sem dado do paciente
+      expect(erro).toHaveBeenCalledWith({ motivo: expect.any(String), tenantId: T.tenantId }, 'falha ao listar pacientes a anonimizar');
+    } finally {
+      falhas.porTenant.delete(T.tenantId);
+      erro.mockRestore();
+    }
+    // e o vencido não foi anonimizado
+    expect((await ler(T.ctx, vencido.id)).anonimizadoEm).toBeNull();
+    expect((await cadastrosDe(T, vencido.id))).toHaveLength(1);
+    // a rede, sim
+    expect(await cadastrosDe(T, p.id)).toEqual([]);
+    expect(await trilhaDoCadastro(T, c.id)).toEqual([
+      { acao: 'criar', ator: T.nutriId, patientId: p.id },
+      { acao: 'excluir', ator: null, patientId: p.id },
+    ]);
+  });
+
+  it('a falha da rede vai para o log sem dado e não para a anonimização do tenant', async () => {
+    const T = await novoTenant(app.db);
+    const vencido = await novoPaciente(app.db, T.ctx, { status: 'bloqueado', anonimizarApos: '2026-09-01' });
+    await comCadastro(T, vencido.id);
+    const erro = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    falhas.porTenant.set(T.tenantId, { metodo: 'execute', umaVez: true });
+    try {
+      await anonimizarSo(T);
+      expect(erro).toHaveBeenCalledWith({ motivo: expect.any(String), tenantId: T.tenantId }, 'falha ao apagar o cadastro de titular anonimizado');
+      expect(JSON.stringify(erro.mock.calls)).not.toContain('52998224725');
+    } finally {
+      falhas.porTenant.delete(T.tenantId);
+      erro.mockRestore();
+    }
+    // a anonimização do tenant seguiu (e apagou a linha do vencido no caminho normal)
+    expect((await ler(T.ctx, vencido.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
+    expect(await cadastrosDe(T, vencido.id)).toEqual([]);
   });
 });

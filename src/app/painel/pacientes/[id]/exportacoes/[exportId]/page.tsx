@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { signFileUrl } from '@/lib/signed-url';
 import { estadoDaExportacao } from '@/modules/pacientes/exportacao';
-import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
+import { formatarDataHora } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../../prontuario';
 
 export const dynamic = 'force-dynamic';

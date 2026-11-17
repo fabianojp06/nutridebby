@@ -13,6 +13,7 @@ import {
   lembretesRotina,
   mealPlans,
   notifications,
+  patientCadastro,
   patients,
   privacyRequests,
   pushSubscriptions,
@@ -46,6 +47,8 @@ export const PRAZO_RESPOSTA_DIAS = 15;
 
 export const MSG_LGPD = {
   confirmarNome: 'Digite o nome do paciente exatamente como está no cadastro para confirmar.',
+  /** Plano 18 (D7, RN-266): com nome social, a instrução pede e mostra o nome de registro (a conferência é com `patients.nome`). */
+  confirmarNomeDeRegistro: (nome: string) => `Digite o nome de registro do paciente (${nome}) exatamente como está no cadastro para confirmar.`,
 } as const;
 
 export class LgpdError extends Error {
@@ -120,8 +123,11 @@ export async function atenderPedidoExclusao(
     ctx,
     async (tx) => {
       const p = await carregarPacienteParaEscrita(tx, patientId);
-      if (!nomeDigitado.trim() || nomeParaConferir(nomeDigitado) !== nomeParaConferir(p.nome))
-        throw new LgpdError(MSG_LGPD.confirmarNome);
+      if (!nomeDigitado.trim() || nomeParaConferir(nomeDigitado) !== nomeParaConferir(p.nome)) {
+        // Plano 18 (D7, RN-266): com nome social, o erro pede o nome de registro, como a instrução da Privacidade
+        const [c] = await tx.select({ nomeSocial: patientCadastro.nomeSocial }).from(patientCadastro).where(eq(patientCadastro.patientId, p.id));
+        throw new LgpdError(c?.nomeSocial ? MSG_LGPD.confirmarNomeDeRegistro(p.nome) : MSG_LGPD.confirmarNome);
+      }
       const hoje = hojeNoFuso(tenant.fuso, now);
       // JUR-01: o bloqueio é o último registro do prontuário — depois dele nada mais é registrado —, então o prazo de
       // guarda conta de hoje (a data do bloqueio no fuso do consultório), não da última consulta
@@ -501,6 +507,8 @@ export async function anonimizarVencidos(
   for (const t of await listarTenantsParaVarredura(db)) {
     const ctx: TenantContext = { tenantId: t.id, role: 'worker' };
     const hoje = hojeNoFuso(t.fuso, now);
+    // Plano 18 (RN-283): a rede do cadastro complementar roda aqui, antes da listagem — o `continue` abaixo pula o tenant
+    await apagarCadastrosDosAnonimizados(ctx, db);
     await apagarFotosDosBloqueados(ctx, db, deps);
     await apagarEnviosDosBloqueados(ctx, db, deps);
     let vencidos: { id: string }[];
@@ -576,6 +584,11 @@ export async function anonimizarVencidos(
             if (r.length && (await pdfsDeDocumentosRestantes(tx, id))) throw new Error('documento novo durante a anonimização');
             // Plano 14A (US-113): nenhum termo em papel da autorização de IA pode ter sobrado
             if (r.length && (await termosDeAutorizacaoRestantes(tx, id))) throw new Error('termo de autorização novo durante a anonimização');
+            // Plano 18 (D18, RN-283): o cadastro complementar (CPF, endereço, observação…) sai inteiro — depois do UPDATE
+            // acima, que grava anonimizado_em (o gatilho patient_cadastro_sem_apagar só deixa o worker apagar com o titular
+            // já anonimizado; o patient_cadastro_titular_ativo recusa gravar de novo). O gatilho de auditoria registra o
+            // "excluir" de ator nulo. Manter esta ordem no rebase (os Planos 17 e 20 mexem neste trecho).
+            if (r.length) await tx.delete(patientCadastro).where(eq(patientCadastro.patientId, id));
             // rodada 1 (T13): inscrições de push gravadas depois do pedido de exclusão também saem (D14: só as do vínculo)
             if (r.length) await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, id));
             // Plano 17 (§5.5): os lembretes de rotina gravados depois do bloqueio também saem (as marcas em cascata) — mesma
@@ -622,6 +635,28 @@ export async function anonimizarVencidos(
     }
   }
   return { anonimizados };
+}
+
+/**
+ * Plano 18 (RN-283): rede de segurança do cadastro complementar. Na janela do deploy (ou numa volta atrás para a imagem
+ * anterior ao Plano 18), a anonimização da imagem antiga marca `anonimizado_em` sem apagar a linha de `patient_cadastro`;
+ * esta varredura apaga a linha de todo titular já anonimizado do tenant (idempotente: em dia normal, nada a apagar). Roda
+ * no início de cada tenant, num `withTenant` worker próprio, antes da listagem dos vencidos — se a listagem falhar, a rede
+ * já passou. Erro só no log, sem dado (RNF-11, RNF-262).
+ */
+async function apagarCadastrosDosAnonimizados(ctx: TenantContext, db: Db): Promise<void> {
+  try {
+    await withTenant(
+      ctx,
+      (tx) =>
+        tx.execute(
+          sql`delete from patient_cadastro c using patients p where p.tenant_id = c.tenant_id and p.id = c.patient_id and p.anonimizado_em is not null`,
+        ),
+      db,
+    );
+  } catch (err) {
+    logger.error({ motivo: motivoDoErro(err), tenantId: ctx.tenantId }, 'falha ao apagar o cadastro de titular anonimizado');
+  }
 }
 
 /** Rede de segurança (US-018): bloqueado com foto no diário perde as fotos; erro só no log, como o resto da varredura. */

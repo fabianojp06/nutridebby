@@ -80,6 +80,23 @@ describe('seção do Início (spec §8.3)', () => {
     expect(h).toContain('Nenhum registro ainda.');
   });
 
+  it('Tarefa 9 (RN-279): o selo "No app" só no item que o paciente vê, fora do link', () => {
+    const comSelo: SecaoNoInicio = { ...ANTROPOMETRIA, resumo: { ...ANTROPOMETRIA.resumo, ultimos: ANTROPOMETRIA.resumo.ultimos.map((i) => ({ ...i, noApp: i.id === 'a2' })) } };
+    const h = html(comSelo);
+    const itens = [...h.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
+    expect(itens).toHaveLength(3);
+    expect(itens.map((i) => /<span[^>]*>No app<\/span>/.test(i))).toEqual([false, true, false]);
+    expect(itens[1]).toMatch(/<\/a><span[^>]*>No app<\/span>$/);
+    expect(html(ANTROPOMETRIA)).not.toContain('No app');
+  });
+
+  it('Tarefa 9 (RN-279, §8.3): a `nota` da seção no corpo (peso oculto), antes dos itens; sem nota, nada', () => {
+    const h = renderToStaticMarkup(createElement(Secao, { secao: ANTROPOMETRIA, patientId: PACIENTE, nota: 'Peso e IMC ocultos no app.' }));
+    expect(summary(h)).not.toContain('Peso e IMC');
+    expect(h).toMatch(/<p class="[^"]*">Peso e IMC ocultos no app\.<\/p><ul/);
+    expect(html(ANTROPOMETRIA)).not.toContain('Peso e IMC');
+  });
+
   it('guarda de fonte: todo <Link> de secao.tsx tem prefetch={false} (a página de destino grava auditRead)', () => {
     const src = readFileSync(path.resolve('src/app/painel/pacientes/[id]/inicio/secao.tsx'), 'utf8');
     const links = src.match(/<Link\b[^>]*>/g) ?? [];

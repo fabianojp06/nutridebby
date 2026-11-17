@@ -5,7 +5,7 @@ import { consultaDireta, em, perdeCorridaNoBanco, semanaToda, SP } from '../../.
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, consents, notifications, patients, publicBookingRequests, tenants, user } from '@/db/schema';
+import { appointments, consents, notifications, patientCadastro, patients, publicBookingRequests, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { agendarLembretes, avisarPaciente } from '@/modules/notificacoes/agendar';
@@ -128,6 +128,8 @@ describe('página pública (US-032, RN-16)', () => {
     expect(c).toMatchObject({ origem: 'paciente', status: 'agendada', inicio: em('2026-10-16', '09:00'), modalidade: 'presencial' });
     const [aceite] = await app.db.select().from(consents).where(eq(consents.patientId, p.id));
     expect(aceite).toMatchObject({ userId: null, tenantId: T.tenantId, termoVersao: 'termo-paciente-1.0' });
+    // Plano 18 (US-260, RN-260): a página pública nunca cria o cadastro complementar
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(patientCadastro).where(eq(patientCadastro.patientId, p.id)), app.db)).toEqual([]);
     const [nutri] = await app.db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId));
     expect((await emailsNaFila('aviso_agenda', nutri.email)).map((m) => m.evento)).toEqual(['novo_paciente_publico']);
     // o pedido fica concluído e apontando para a consulta; repetir não marca outra

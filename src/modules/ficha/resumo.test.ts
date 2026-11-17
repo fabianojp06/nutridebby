@@ -4,6 +4,7 @@ import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { auditLog, mealPlans } from '@/db/schema';
 import { TenantContextError, withTenant } from '@/db/tenant';
+import { auditRead } from '@/modules/plataforma/audit';
 import { cartaoResumo, linhasDoResumo } from './resumo';
 
 // Plano 18 (RN-276): o cartão Resumo do Início — aniversário, paciente desde e o plano publicado —, sem auditRead.
@@ -20,7 +21,10 @@ async function plano(T: TenantDeTeste, patientId: string, o: { status: 'rascunho
   );
 }
 
-const trilha = async (T: TenantDeTeste) => (await app.db.select({ n: count() }).from(auditLog).where(eq(auditLog.tenantId, T.tenantId)))[0].n;
+// Conta dentro de withTenant: o nutri_app (NOBYPASSRLS) fora dele não vê linha nenhuma de audit_log (tenant_isolation),
+// e a contagem daria sempre 0.
+const trilha = async (T: TenantDeTeste) =>
+  (await withTenant(T.ctx, (tx) => tx.select({ n: count() }).from(auditLog).where(eq(auditLog.tenantId, T.tenantId)), app.db))[0].n;
 
 describe('cartaoResumo e linhasDoResumo (RN-276)', () => {
   it('chaves exatas; aniversário "{dia} de {mês}", paciente desde no fuso e o plano publicado no fuso', async () => {
@@ -51,8 +55,12 @@ describe('cartaoResumo e linhasDoResumo (RN-276)', () => {
     const p = await novoPaciente(app.db, T.ctx);
     await plano(T, p.id, { status: 'publicado', versao: 1, publicadoEm: new Date('2026-11-11T12:00:00Z') });
     const antes = await trilha(T);
+    expect(antes).toBeGreaterThan(0); // o "criar" do plano (gatilho de auditoria) já está na trilha
     await cartaoResumo(T.ctx, FUSO, p, { db: app.db });
     expect(await trilha(T)).toBe(antes);
+    // controle positivo: um auditRead explícito sobe a contagem
+    await withTenant(T.ctx, (tx) => auditRead(tx, { entidade: 'patients', entidadeId: p.id, patientId: p.id }), app.db);
+    expect(await trilha(T)).toBe(antes + 1);
   });
 
   it('outro tenant: o plano publicado de B não aparece pelo ctx de A', async () => {

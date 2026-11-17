@@ -2,7 +2,24 @@ import { randomUUID } from 'node:crypto';
 import { symmetricEncrypt } from 'better-auth/crypto';
 import { and, eq, inArray, isNotNull, like, sql } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { account, consents, finCategorias, finConfiguracoes, iaNutriConsentimentos, iaNutriMensagens, iaNutriParticipacoes, lembretesRotina, mealPlans, patients, rateLimit, tenants, twoFactor, user } from '@/db/schema';
+import {
+  account,
+  anthropometry,
+  consents,
+  finCategorias,
+  finConfiguracoes,
+  iaNutriConsentimentos,
+  iaNutriMensagens,
+  iaNutriParticipacoes,
+  lembretesRotina,
+  mealPlans,
+  patientCadastro,
+  patients,
+  rateLimit,
+  tenants,
+  twoFactor,
+  user,
+} from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { stopBoss } from '@/jobs/boss';
@@ -16,6 +33,7 @@ import { consentimentoVigente, ultimoEvento } from '@/modules/ia/nutri-paciente/
 import { IA_ADITIVO_VERSAO, IA_NUTRI_TERMO_VERSAO } from '@/modules/ia/textos-legais';
 import { publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
+import { cpfValido } from '@/modules/pacientes/cpf';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
 
@@ -47,6 +65,22 @@ export const E2E_IA_NUTRI_2 = { email: 'ia-nutri-2-e2e@nutridebby.test', passwor
  */
 export const E2E_FIN_NOVO = { email: 'fin-novo-e2e@nutridebby.test', password: 'Nutri2026segura' };
 export const E2E_FIN_AXE = { email: 'fin-axe-e2e@nutridebby.test', password: 'Nutri2026segura' };
+/**
+ * Plano 18 (T12a): as duas pacientes do cadastro complementar (cadastro.spec e o axe do Início, do Perfil e do "No app" no
+ * acessibilidade-painel.spec). A COMPLETA tem conta (o "No app" só conta com o acesso ativo), o cadastro inteiro com nome
+ * social, o CPF fixo (o "CPF repetido" do cadastro.spec; válido pelo dígito verificador, fictício) e uma avaliação (o selo
+ * "No app" do Início). A INCOMPLETA, sem conta, tem o cadastro sem estado civil e sem endereço (a nota "Cadastro incompleto:
+ * faltam estado civil e endereço."). Os nomes não contêm o de outra paciente do seed. As specs copiam os dados (importar
+ * este arquivo roda o seed).
+ */
+export const E2E_CADASTRO_COMPLETO = {
+  email: 'cadastro-completo-e2e@nutridebby.test',
+  password: 'Nutri2026segura',
+  nome: 'João Cadastro Semente',
+  nomeSocial: 'Joana Cadastro Semente',
+  cpf: '18018018006',
+};
+export const E2E_CADASTRO_INCOMPLETO = { email: 'cadastro-incompleto-e2e@nutridebby.test', nome: 'Iris Cadastro Incompleto' };
 
 const db = getDb();
 
@@ -335,6 +369,95 @@ await withTenant(
   },
   db,
 );
+
+// Plano 18 (T12a): as pacientes do cadastro complementar (E2E_CADASTRO_COMPLETO e E2E_CADASTRO_INCOMPLETO). Idempotente no
+// banco de dev reaproveitado: cada uma é achada pelo e-mail (upsert em patients), a conta da completa é reaproveitada (como a
+// MULTI) e o cadastro é upsert em (tenant_id, patient_id) com todos os campos — nunca DELETE: o gatilho
+// patient_cadastro_sem_apagar só deixa apagar na anonimização. A avaliação só entra se a completa não tiver nenhuma.
+if (!cpfValido(E2E_CADASTRO_COMPLETO.cpf)) throw new Error('CPF da semente do cadastro inválido');
+const VAZIO_DO_CADASTRO = {
+  cpf: null, nomeSocial: null, identidadeGenero: null, estadoCivil: null, escolaridade: null, ocupacao: null, nacionalidade: null, naturalidade: null,
+  telefoneFixoE164: null, cep: null, logradouro: null, numero: null, complemento: null, bairro: null, cidade: null, uf: null, observacao: null,
+};
+const senhaCompleta = await hashPassword(E2E_CADASTRO_COMPLETO.password);
+const [jaCompleta] = await db.select({ id: user.id }).from(user).where(eq(user.email, E2E_CADASTRO_COMPLETO.email));
+const completaUserId = jaCompleta?.id ?? randomUUID();
+if (jaCompleta) {
+  await db.update(account).set({ password: senhaCompleta }).where(eq(account.userId, completaUserId));
+} else {
+  await db.insert(user).values({ id: completaUserId, name: E2E_CADASTRO_COMPLETO.nome, email: E2E_CADASTRO_COMPLETO.email, emailVerified: true, appRole: 'paciente' });
+  await db.insert(account).values({ id: randomUUID(), userId: completaUserId, accountId: completaUserId, providerId: 'credential', password: senhaCompleta });
+}
+await db.insert(consents).values({ userId: completaUserId, tenantId: consultorio.id, termoVersao: TERMO_PACIENTE, ip: null }).onConflictDoNothing();
+const pacientesDoCadastro = [
+  {
+    userId: completaUserId,
+    email: E2E_CADASTRO_COMPLETO.email,
+    nome: E2E_CADASTRO_COMPLETO.nome,
+    dataNascimento: '1985-05-17',
+    sexo: 'M' as const,
+    cadastro: {
+      ...VAZIO_DO_CADASTRO,
+      cpf: E2E_CADASTRO_COMPLETO.cpf,
+      nomeSocial: E2E_CADASTRO_COMPLETO.nomeSocial,
+      identidadeGenero: 'mulher',
+      estadoCivil: 'casado',
+      escolaridade: 'superior_completo',
+      ocupacao: 'Professora',
+      nacionalidade: 'brasileira',
+      naturalidade: 'Campinas (SP)',
+      telefoneFixoE164: '+551131234567',
+      cep: '13015904',
+      logradouro: 'Rua da Semente',
+      numero: '18',
+      complemento: 'Sala 2',
+      bairro: 'Centro',
+      cidade: 'Campinas',
+      uf: 'SP',
+      observacao: 'Paciente fictícia do E2E.',
+    },
+  },
+  {
+    userId: null,
+    email: E2E_CADASTRO_INCOMPLETO.email,
+    nome: E2E_CADASTRO_INCOMPLETO.nome,
+    dataNascimento: '1992-08-03',
+    sexo: 'F' as const,
+    // sem estado civil e sem endereço; o telefone conta pelo fixo
+    cadastro: { ...VAZIO_DO_CADASTRO, identidadeGenero: 'mulher', escolaridade: 'medio_completo', ocupacao: 'Analista', nacionalidade: 'brasileira', naturalidade: 'Santos (SP)', telefoneFixoE164: '+551332345678' },
+  },
+];
+for (const p of pacientesDoCadastro) {
+  const [linha] = await withTenant(
+    { tenantId: consultorio.id, role: 'worker' },
+    async (tx) => {
+      const [paciente] = await tx
+        .insert(patients)
+        .values({ tenantId: consultorio.id, userId: p.userId, nome: p.nome, dataNascimento: p.dataNascimento, sexo: p.sexo, email: p.email })
+        .onConflictDoUpdate({
+          target: [patients.tenantId, patients.email],
+          set: { userId: p.userId, nome: p.nome, dataNascimento: p.dataNascimento, sexo: p.sexo, status: 'ativo', pesoOcultoNoAppEm: null, updatedAt: new Date() },
+        })
+        .returning({ id: patients.id });
+      await tx
+        .insert(patientCadastro)
+        .values({ tenantId: consultorio.id, patientId: paciente.id, ...p.cadastro })
+        .onConflictDoUpdate({ target: [patientCadastro.tenantId, patientCadastro.patientId], set: { ...p.cadastro, updatedAt: new Date() } });
+      return [paciente];
+    },
+    db,
+  );
+  if (p.userId) {
+    await withTenant(
+      ctxNutri,
+      async (tx) => {
+        const [ja] = await tx.select({ id: anthropometry.id }).from(anthropometry).where(eq(anthropometry.patientId, linha.id)).limit(1);
+        if (!ja) await tx.insert(anthropometry).values({ tenantId: consultorio.id, patientId: linha.id, data: '2026-10-12', pesoKg: 72.4, alturaCm: 165 });
+      },
+      db,
+    );
+  }
+}
 
 await stopBoss(); // a publicação do plano enfileira o PDF
 await closeDb();

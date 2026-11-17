@@ -1,10 +1,9 @@
 import { FocoNaAncora } from '@/components/foco-na-ancora';
 import { formatarDecimal } from '@/lib/numero';
 import { MSG_CADASTRO_INCOMPLETO } from '@/modules/pacientes/base';
-import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
+import { formatarDataHora, hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
 import { FORMULAS_TMB, kcal, type Sexo } from '@/modules/pacientes/formulas';
 import { listarCalculos, medidasRecentes, MSG_GASTO } from '@/modules/pacientes/gasto-energetico';
-import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
 import { carregarProntuario } from '../prontuario';
 import { salvarCalculoAction } from './actions';
 import { CalculoForm } from './calculo-form';

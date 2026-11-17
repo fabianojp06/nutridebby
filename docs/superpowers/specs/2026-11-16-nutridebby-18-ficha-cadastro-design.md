@@ -849,32 +849,41 @@ isolamento, cuja sessão de paciente usa um `actorUserId` que não é a conta do
 
 ## 16. Critérios de aceite do plano (resumo para o fechamento)
 
-- [ ] `patient_cadastro` com RLS de tenant e de paciente, política `patient_cadastro_paciente_com_conta`, auditoria
+Marcados na Tarefa 12c (17/11/2026) contra o branch local `plano-18-pr2` em `3799409`, pelos testes de unidade e de
+integração (Testcontainers) de cada tarefa e pelo código; o E2E do PR 2 (`e2e/cadastro.spec.ts`, `ficha.spec.ts`,
+`acessibilidade-painel.spec.ts`) e o axe rodam com o controlador, antes do PR. Os dois itens abertos estão anotados.
+
+- [x] `patient_cadastro` com RLS de tenant e de paciente, política `patient_cadastro_paciente_com_conta`, auditoria
       (`patients`), colunas fixas, DELETE só do worker com titular anonimizado; fora de `PUBLICO_LIBERADO`,
       `PACIENTE_ESCREVE` e `STAFF_ONLY`; guardas e isolamento verdes.
-- [ ] Público e sessão de paciente não gravam o cadastro complementar; paciente com login lê só a própria linha;
+- [x] Público e sessão de paciente não gravam o cadastro complementar; paciente com login lê só a própria linha;
       paciente `semConta` não lê nada (teste).
-- [ ] CPF opcional, validado, único por consultório e conferido antes do INSERT; nunca na lista, em URL, em log (da
+- [x] CPF opcional, validado, único por consultório e conferido antes do INSERT; nunca na lista, em URL, em log (da
       aplicação e do Postgres), em mensagem ou na IA (CS-262).
-- [ ] Formulário em seções no Perfil e em "Novo paciente", com os rótulos e dicas da §8.4; agendamento público
+- [x] Formulário em seções no Perfil e em "Novo paciente", com os rótulos e dicas da §8.4; agendamento público
       continua sem os campos novos.
-- [ ] Lista com abas, "Ver bloqueados", ordenação, "Desde", nome social e menu por linha; arquivar pela lista apaga os
+- [x] Lista com abas, "Ver bloqueados", ordenação, "Desde", nome social e menu por linha; arquivar pela lista apaga os
       convites pendentes e avisa; "Pedir exclusão (LGPD)" só leva à Privacidade.
-- [ ] Abas "Início" e "Perfil"; última aba "Histórico" (nome acessível "Histórico de acessos"); faixa inteira a 1280 px no axe.
-- [ ] Cabeçalho com a última antropometria e a data, uma leitura auditada por requisição, fora da impressão.
-- [ ] Registro de seções com as 8 seções, contador, 3 últimos com rótulo genérico, selo "No app" e "Ver todos"; sem
+- [x] Abas "Início" e "Perfil"; última aba "Histórico" (nome acessível "Histórico de acessos"); faixa inteira a 1280 px no axe.
+- [x] Cabeçalho com a última antropometria e a data, uma leitura auditada por requisição, fora da impressão.
+- [x] Registro de seções com as 8 seções, contador, 3 últimos com rótulo genérico, selo "No app" e "Ver todos"; sem
       `auditRead` nas 8; o ponto de extensão `leitura` grava uma leitura só com itens; teste das chaves.
-- [ ] Botão "Adicionar" com os grupos e a dica; sem Receita/Parecer quando os documentos estão desligados; ausente para
+- [x] Botão "Adicionar" com os grupos e a dica; sem Receita/Parecer quando os documentos estão desligados; ausente para
       bloqueado.
-- [ ] "No app do paciente" (cartão e página) com contagens no contexto de paciente, a linha "Plano" com a data e a lista
+- [x] "No app do paciente" (cartão e página) com contagens no contexto de paciente, a linha "Plano" com a data e a lista
       de compras e a linha "Lembretes" do Plano 17; teste de paridade verde (CS-261).
-- [ ] `dados.json` com `paciente.cadastro` nos dois escopos; anonimização apaga a linha; teste de cobertura de colunas.
-- [ ] `nome_social` na máscara da IA; guarda de fonte e `campos-enviados.test.ts` atualizados.
+- [x] `dados.json` com `paciente.cadastro` nos dois escopos; anonimização apaga a linha; teste de cobertura de colunas.
+- [x] `nome_social` na máscara da IA; guarda de fonte e `campos-enviados.test.ts` atualizados.
 - [ ] Manual guiado (`data-guia` da §8, guias `inicio-paciente` e `perfil-paciente`, `pacientes` v2, `prontuario`
       v3), manual técnico (§2.5.4, §4.2, cap. 05 §5.8.1, §6.8.1, README), CLAUDE.md (regras 1, 2 e 8,
       `patient_cadastro`), `SEM_CONTA_PERMITIDOS` e os comentários de `semConta`, manual do usuário e Central de Ajuda
       atualizados.
+      *(17/11/2026: manual guiado, manual técnico, CLAUDE.md, `SEM_CONTA_PERMITIDOS` e os comentários feitos; o manual do
+      usuário (Docs) e a Central de Ajuda têm o texto pronto para o dono em
+      `docs/manual-usuario/2026-11-17-proposta-plano-18.md` — falta aplicar, o que fecha o item.)*
 - [ ] Pilha de carga com o cenário "abrir a ficha" dentro da meta (CS-263).
+      *(17/11/2026: cenário `ficha`, threshold de 800 ms e semente idempotente prontos (Tarefa 12b); o p95 ainda não foi
+      medido — a pilha de carga não rodou com o PR 2. Pendência para a próxima rodada, com OK do dono.)*
 
 ---
 

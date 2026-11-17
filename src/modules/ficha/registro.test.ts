@@ -33,7 +33,29 @@ const IMPORTS_PERMITIDOS = [
   '../textos',
   '../tipos',
   './comum',
+  // Tarefa 9 (comum.ts, `noAppPor`): os tipos da tabela e da coluna (só `import type`) e o `idValido` dos ids pedidos — o
+  // módulo base não grava trilha (só a checagem do id e os erros do paciente)
+  'drizzle-orm/pg-core',
+  // só o `idValido` (NOMES_PERMITIDOS, abaixo)
+  '@/modules/pacientes/base',
 ];
+/**
+ * Módulos da lista em que só alguns nomes podem vir (o resto do módulo fica fora): de `pacientes/base`, só o `idValido`
+ * (não `carregarPacienteParaEscrita` nem outro helper que leia o banco).
+ */
+const NOMES_PERMITIDOS: Record<string, readonly string[]> = { '@/modules/pacientes/base': ['idValido'] };
+/** Os nomes de `import { a, b as c } from '<de>'` (sem `type`, sem `* as`, sem default). */
+const nomesImportadosDe = (src: string, de: string) =>
+  [...src.matchAll(new RegExp(`^\\s*import\\s+([^;]*?)\\s+from\\s+['"]${de.replace(/[/.@]/g, '\\$&')}['"]`, 'gm'))].map((m) => {
+    const clausula = m[1].trim();
+    const chaves = /^\{([^}]*)\}$/.exec(clausula);
+    if (!chaves) return [`<${clausula}>`]; // default, namespace ou misto: não está na lista de nomes
+    return chaves[1]
+      .split(',')
+      .map((n) => n.trim())
+      .filter(Boolean)
+      .map((n) => n.split(/\s+as\s+/)[0].trim());
+  }).flat();
 /** `index.ts` também importa cada arquivo de seção (`./<id>`). */
 const IMPORTS_DO_INDEX = FONTES.map((x) => `./${x.f.replace(/\.ts$/, '')}`).filter((de) => de !== './index');
 /** Os módulos de `import … from '…'`, `export … from '…'` e `import '…'` (sem nome). */
@@ -56,6 +78,13 @@ describe('registro de seções (RN-277, RN-278)', () => {
     expect(SECOES_18.map((s) => s.titulo)).toEqual(Object.values(MSG_FICHA.titulos));
   });
 
+  it('a lista de nomes por módulo pega o que vier além do permitido (controle da guarda)', () => {
+    expect(nomesImportadosDe("import { idValido } from '@/modules/pacientes/base';", '@/modules/pacientes/base')).toEqual(['idValido']);
+    expect(nomesImportadosDe("import { idValido, carregarPacienteParaEscrita as c } from '@/modules/pacientes/base';", '@/modules/pacientes/base')).toEqual(['idValido', 'carregarPacienteParaEscrita']);
+    expect(nomesImportadosDe("import * as base from '@/modules/pacientes/base';", '@/modules/pacientes/base')).toEqual(['<* as base>']);
+    expect(nomesImportadosDe("import { idValido } from '@/modules/pacientes/datas';", '@/modules/pacientes/base')).toEqual([]);
+  });
+
   it('ids únicos', () => {
     const ids = SECOES_DA_FICHA.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -73,6 +102,7 @@ describe('registro de seções (RN-277, RN-278)', () => {
       expect(imports.length, f).toBeGreaterThan(0);
       const permitidos = f === 'index.ts' ? [...IMPORTS_PERMITIDOS, ...IMPORTS_DO_INDEX] : IMPORTS_PERMITIDOS;
       for (const de of imports) expect(permitidos, `${f}: ${de}`).toContain(de);
+      for (const [de, nomes] of Object.entries(NOMES_PERMITIDOS)) for (const n of nomesImportadosDe(src, de)) expect(nomes, `${f}: ${n} de ${de}`).toContain(n);
     }
   });
 

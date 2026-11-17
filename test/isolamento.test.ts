@@ -180,6 +180,8 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
     sql`with c as (insert into fin_categorias (tenant_id, tipo, nome) values (${t}, 'entrada', 'Iso ' || gen_random_uuid()::text) returning id)
         insert into fin_lancamentos (tenant_id, tipo, categoria_id, valor_centavos, vencimento, patient_id, criado_por)
         select ${t}, 'entrada', c.id, 100, '2026-11-10', ${p}, coalesce(app_current_user(), gen_random_uuid()) from c`,
+  // Plano 18: cpf nulo (com CPF fixo, a fábrica de P1 e P2 cairia em patient_cadastro_cpf_unico)
+  patient_cadastro: (t, p) => sql`insert into patient_cadastro (tenant_id, patient_id, estado_civil) values (${t}, ${p}, 'casado')`,
 };
 /** Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). */
 const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker' };
@@ -192,9 +194,11 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autoriza
  * Plano 15: ia_nutri_mensagens — gatilho ia_nutri_mensagens_sem_apagar (0116): só o worker apaga, com a mensagem vencida, o
  * titular bloqueado ou anonimizado, ou na revogação (e a equipe, só a pergunta com risco de quem revogou, depois de aberta —
  * D22; a fábrica não grava essa).
+ * Plano 18: patient_cadastro_colunas_fixas recusa mudar id/tenant_id/patient_id com 42501 antes da RLS; patient_cadastro_sem_apagar
+ * recusa o DELETE fora do worker (e, no worker, sem o titular anonimizado).
  */
 // Plano 20: fin_lancamentos (cancela-se, nunca se apaga) e fin_configuracoes (a linha do consultório) — DELETE revogado (0123)
-const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes']);
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro']);
 /**
  * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
  * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
@@ -213,6 +217,8 @@ const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancament
 // Plano 15: ia_nutri_mensagens_regras (0116) recusa mudar tenant_id/patient_id (colunas fixas) com 42501 antes da RLS.
 // Plano 17: lembretes_rotina_regras (0119) recusa mudar tenant_id/patient_id (colunas fixas) com 42501 antes da RLS; o
 // lembretes_rotina_envios_do_worker (0119) também (tenant, paciente e lembrete fixos para todos).
+// Plano 18: patient_cadastro_colunas_fixas recusa mudar id/tenant_id/patient_id com 42501 antes da RLS; patient_cadastro_sem_apagar
+// recusa o DELETE fora do worker.
 const IMUTAVEIS = new Set([
   'signed_documents',
   'signed_document_notes',
@@ -225,6 +231,7 @@ const IMUTAVEIS = new Set([
   'lembretes_rotina_envios',
   // Plano 20: fin_lancamentos_regras recusa mudar tenant_id/patient_id com 42501 antes da RLS
   'fin_lancamentos',
+  'patient_cadastro',
 ]);
 /**
  * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
@@ -241,7 +248,8 @@ const SO_APAGA: Record<string, SQL> = {
                 and not exists (select 1 from ia_nutri_participacoes x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
                 and not exists (select 1 from ia_nutri_mensagens x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
                 and not exists (select 1 from ia_nutri_consentimentos x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
-                and not exists (select 1 from fin_lancamentos f where f.tenant_id = patients.tenant_id and f.patient_id = patients.id)`,
+                and not exists (select 1 from fin_lancamentos f where f.tenant_id = patients.tenant_id and f.patient_id = patients.id)
+                and not exists (select 1 from patient_cadastro c where c.tenant_id = patients.tenant_id and c.patient_id = patients.id)`,
   // Plano 20: a categoria com lançamento não se apaga (FK NO ACTION de fin_lancamentos, que está em SEM_DELETE) e "Consultas"
   // (chave preenchida) nunca (gatilho fin_categorias_fixas)
   fin_categorias: sql`chave is null and not exists (select 1 from fin_lancamentos f where f.tenant_id = fin_categorias.tenant_id and f.categoria_id = fin_categorias.id)`,

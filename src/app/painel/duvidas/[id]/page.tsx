@@ -7,7 +7,7 @@ import { requireNutri } from '@/lib/tenant-session';
 import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
 import { abrirDuvida } from '@/modules/ia/nutri-paciente/duvidas';
 import { TEXTOS_FIXOS } from '@/modules/ia/nutri-paciente/textos';
-import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
+import { formatarDataHora } from '@/modules/pacientes/datas';
 import { marcarVistaAction } from '../actions';
 import { horasDesde, ROTULO_DO_SELO } from '../apresentacao';
 

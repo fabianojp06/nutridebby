@@ -6,10 +6,9 @@ import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
 import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
 import { NOME_IA_NUTRI, RISCO_REVOGADO_MAX_DIAS } from '@/modules/ia/nutri-paciente/constantes';
 import { AUTORIZACAO_IA_VERSAO, responsavelDoTenant, textoDaAutorizacao } from '@/modules/ia/textos-legais';
-import { formatarData } from '@/modules/pacientes/datas';
+import { formatarData, formatarDataHora } from '@/modules/pacientes/datas';
 import { exportacoesRecentes, MSG_EXPORTACAO } from '@/modules/pacientes/exportacao';
-import { PRAZO_GUARDA_ANOS } from '@/modules/pacientes/lgpd';
-import { formatarDataHora } from '@/modules/plataforma/ui/historico-acessos';
+import { MSG_LGPD, PRAZO_GUARDA_ANOS } from '@/modules/pacientes/lgpd';
 import { carregarProntuario } from '../prontuario';
 import {
   arquivarAction,
@@ -126,7 +125,11 @@ export default async function PrivacidadePage({
             <p>
               {`Durante o prazo de guarda do prontuário (${PRAZO_GUARDA_ANOS} anos contados da data do bloqueio, considerada o último registro do prontuário — Res. CFN 594/2017, art. 3º, VI, b), os dados clínicos ficam guardados, identificados e só para sua consulta. Na hora são apagadas as fotos do diário, os exames enviados pelo app que ainda não foram aceitos, as autorizações de WhatsApp, as notificações no app, os convites e as conversas com a ${NOME_IA_NUTRI} (salvo a mensagem com sinal de risco ainda não aberta, que fica guardada até ser aberta, por no máximo ${RISCO_REVOGADO_MAX_DIAS} dias, para a proteção do paciente); as consultas futuras são canceladas, o paciente perde o acesso ao portal deste acompanhamento e recebe um e-mail explicando. No fim do prazo, os dados de identificação são anonimizados.`}
             </p>
-            <ExclusaoForm acao={atenderExclusaoAction.bind(null, paciente.id)} />
+            {/* Plano 18 (RN-266): com nome social, a instrução pede o nome de registro, que é o que atenderPedidoExclusao confere */}
+            <ExclusaoForm
+              acao={atenderExclusaoAction.bind(null, paciente.id)}
+              instrucao={paciente.nomeSocial ? MSG_LGPD.confirmarNomeDeRegistro(paciente.nome) : undefined}
+            />
           </>
         )}
       </section>

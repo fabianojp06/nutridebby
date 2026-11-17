@@ -6,19 +6,26 @@
  * pilha (o worker dela decifra) e o produtor do pg-boss (`getBoss`) abre o banco por DATABASE_URL.
  * Uso, na raiz do repositório (no commit da imagem): pnpm tsx --env-file=.env.carga test/carga/seed.ts
  * Nunca importado pelo app nem pelo Vitest (não termina em `.test.ts`).
+ * Plano 18 (P18-12b, CS-263): os pacientes ganham o cadastro complementar (`semearCadastro`) e o registro clínico que as
+ * seções do Início leem (`semearRegistros`). Rodar de novo na mesma pilha (consultórios já semeados) refaz o cadastro, por
+ * upsert, grava o registro clínico só no consultório que ainda não tem (pilha semeada antes da P18-12b) e mantém o
+ * `.sessoes.json`; o resto da semente é de uma vez por pilha (recriada com `down -v`, roteiro passo 10).
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import * as schema from '@/db/schema';
-import { account, accessEvents, consents, patients, pushSubscriptions, tenants, user } from '@/db/schema';
+import { account, accessEvents, anamneses, anamnesisTemplates, anthropometry, consents, consultations, energyCalcs, exams, patients, pushSubscriptions, tenants, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { createAuth } from '@/lib/auth';
 import { hashPassword } from '@/lib/password.server';
 import { agendarLembretes } from '@/modules/notificacoes/agendar';
+import { garantirModeloPadrao } from '@/modules/pacientes/anamnese';
+import { gravarCadastro, type CadastroComplementar } from '@/modules/pacientes/cadastro';
+import { cpfValido } from '@/modules/pacientes/cpf';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
 import { revisaoDoPlano } from '@/modules/plano-alimentar/carregar';
 import { publicarPlano } from '@/modules/plano-alimentar/publicacao';
@@ -26,6 +33,8 @@ import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunh
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
 import { consultaDireta } from '../agenda';
 import { novaEtiqueta, novoConteudo } from '../conteudos';
+import { documentoNoBanco } from '../documentos';
+import { envioNoBanco } from '../exames-enviados';
 import type { TenantDeTeste } from '../pacientes';
 import { entrar, SENHA_TESTE } from '../sessao';
 
@@ -54,10 +63,210 @@ type Inscricao = { endpoint: string; keys: { p256dh: string; auth: string } };
 const sessoes: { pacientes: { cookie: string; conteudo: string; inscricao: Inscricao }[]; nutris: { cookie: string; pacientes: string[]; planos: { id: string; paciente: string }[] }[]; slugs: string[] } = { pacientes: [], nutris: [], slugs: [] };
 const tenantIds: string[] = [];
 let alimentos: string[] = []; // TACO (tenant_id nulo), lida na sessão do primeiro consultório (RLS de foods)
+const slugDo = (t: number) => `carga-${String(t).padStart(2, '0')}`;
+
+// Plano 18 (P18-12b, CS-263): cadastro complementar sintético, determinístico por (consultório, paciente) — a segunda
+// rodada grava os mesmos valores. CPF fictício com os dígitos verificadores certos, único no consultório (índice
+// patient_cadastro_cpf_unico) ou nulo; nunca impresso (regra 3). Variado como num consultório real: 1 em 5 sem linha
+// (paciente antigo), metade sem endereço (nota "Cadastro incompleto"), 1 em 10 com nome social (lista e busca).
+if (PACIENTES > 100_000) throw new Error('CARGA_PACIENTES acima de 100 mil: o CPF sintético repetiria');
+const digito = (base: string) => {
+  let soma = 0;
+  for (let i = 0; i < base.length; i++) soma += Number(base[i]) * (base.length + 1 - i);
+  const resto = soma % 11;
+  return resto < 2 ? 0 : 11 - resto;
+};
+function cpfSintetico(t: number, p: number): string {
+  const base = String(200_000_000 + t * 100_000 + p); // 9 dígitos, nunca todos iguais (2xx… até 204.999.999)
+  const comPrimeiro = `${base}${digito(base)}`;
+  const cpf = `${comPrimeiro}${digito(comPrimeiro)}`;
+  if (!cpfValido(cpf)) throw new Error('CPF sintético inválido'); // sem o valor (regra 3)
+  return cpf;
+}
+const IDENTIDADES = ['mulher', 'homem', 'nao_binario', 'prefere_nao_informar'] as const;
+const ESTADOS = ['solteiro', 'casado', 'uniao_estavel', 'divorciado'] as const;
+const ESCOLAS = ['medio_completo', 'superior_incompleto', 'superior_completo', 'pos_graduacao'] as const;
+function cadastroSintetico(t: number, p: number): Partial<CadastroComplementar> | null {
+  if (p % 5 === 4) return null;
+  const endereco = p % 2 === 0;
+  return {
+    cpf: p % 3 === 0 ? null : cpfSintetico(t, p),
+    nomeSocial: p % 10 === 1 ? `Social ${p} ${slugDo(t)}` : null,
+    identidadeGenero: IDENTIDADES[p % IDENTIDADES.length],
+    estadoCivil: p % 7 === 0 ? null : ESTADOS[p % ESTADOS.length],
+    escolaridade: ESCOLAS[p % ESCOLAS.length],
+    ocupacao: 'Analista de carga',
+    nacionalidade: 'brasileira',
+    naturalidade: 'São Paulo (SP)',
+    telefoneFixo: `+5511${String(30_000_000 + t * 1_000 + p)}`,
+    cep: endereco ? '01310100' : null,
+    logradouro: endereco ? 'Avenida da Carga' : null,
+    numero: endereco ? String(p + 1) : null,
+    complemento: null,
+    bairro: endereco ? 'Centro' : null,
+    cidade: endereco ? 'São Paulo' : null,
+    uf: endereco ? 'SP' : null,
+    observacao: p % 4 === 0 ? 'Paciente sintético da pilha de carga.' : null,
+  };
+}
+/**
+ * Pelo `gravarCadastro` da tela (validação dos CHECKs e pré-checagem do CPF sob trava, D23), na sessão da nutricionista:
+ * upsert em (tenant_id, patient_id), nunca DELETE (gatilho patient_cadastro_sem_apagar). `pacientes[p]` é o paciente `p`.
+ */
+async function semearCadastro(ctx: TenantContext, t: number, pacientes: string[]): Promise<number> {
+  return withTenant(
+    ctx,
+    async (tx) => {
+      let n = 0;
+      for (const [p, patientId] of pacientes.entries()) {
+        const valor = cadastroSintetico(t, p);
+        if (!valor) continue;
+        await gravarCadastro(tx, { tenantId: ctx.tenantId, patientId, valor, now: agora });
+        n++;
+      }
+      return n;
+    },
+    db,
+  );
+}
+
+// Plano 18 (CS-263, RNF-260, R-270): o registro clínico que as 8 seções do Início leem (antropometria, gasto energético,
+// anamneses, atendimentos, exames, exames enviados e documentos; o plano alimentar vem dos planos publicados abaixo).
+// Sem ele, 7 das 8 consultas iriam a tabelas vazias e o p95 do Início sairia baixo sem medir o risco. Determinístico por
+// paciente: os 50 da sessão da nutricionista (os que o k6 abre) com o histórico de um acompanhamento — 1 em 10 sem nenhum
+// registro (paciente novo, seções vazias) —, e metade dos outros 250 com pouco, para os índices
+// (`anthropometry_paciente_data_idx`, `consultations_paciente_data_idx` e equivalentes) trabalharem com o consultório cheio.
+const NA_SESSAO = 50; // ids.slice(0, 50) de `sessoes.nutris[].pacientes`
+const diaAntes = (dias: number) => new Date(agora.getTime() - dias * 86_400_000).toISOString().slice(0, 10);
+const meioDia = (dia: string) => new Date(`${dia}T15:00:00Z`);
+const FORMULAS = ['mifflin', 'harris_benedict', 'fao_oms'] as const;
+const EXAMES = ['Hemograma', 'Glicemia de jejum', 'Perfil lipídico', 'TSH'] as const;
+function registrosDe(p: number) {
+  if (p < NA_SESSAO) {
+    if (p % 10 === 9) return { antropometria: 0, atendimentos: 0, gasto: 0, anamneses: 0, exames: 0, envios: 0, documentos: 0 };
+    return { antropometria: 4 + (p % 9), atendimentos: 3 + (p % 6), gasto: 1 + (p % 3), anamneses: 1 + (p % 2), exames: 2 + (p % 4), envios: p % 3 === 0 ? 1 + (p % 2) : 0, documentos: p % 4 === 0 ? 1 : 0 };
+  }
+  const algum = p % 2 === 0;
+  return { antropometria: algum ? 2 : 0, atendimentos: algum ? 1 : 0, gasto: 0, anamneses: 0, exames: p % 6 === 0 ? 1 : 0, envios: 0, documentos: 0 };
+}
+/**
+ * Grava o registro clínico do consultório na sessão da nutricionista (as escritas passam pelo gatilho de auditoria, como
+ * na tela). Envios do paciente pelo caminho legal das transições (`envioNoBanco`: "Recusado" pela nutricionista ou
+ * "Expirado" pelo worker, sem arquivo) e documentos em rascunho (`documentoNoBanco`: sem PDF, nada em `stored_files`).
+ * Uma vez por consultório: se já houver antropometria, não grava nada (segunda rodada da semente). Devolve as linhas gravadas.
+ */
+async function semearRegistros(ctx: TenantContext, pacientes: string[]): Promise<number> {
+  const ja = await withTenant(ctx, async (tx) => (await tx.select({ id: anthropometry.id }).from(anthropometry).limit(1)).length > 0, db);
+  if (ja) return 0;
+  const tenantId = ctx.tenantId;
+  const linhas = {
+    antropometria: [] as (typeof anthropometry.$inferInsert)[],
+    atendimentos: [] as (typeof consultations.$inferInsert)[],
+    gasto: [] as (typeof energyCalcs.$inferInsert)[],
+    anamneses: [] as (typeof anamneses.$inferInsert)[],
+    exames: [] as (typeof exams.$inferInsert)[],
+  };
+  const extras: { patientId: string; p: number; envios: number; documentos: number }[] = [];
+  for (const [p, patientId] of pacientes.entries()) {
+    const r = registrosDe(p);
+    const sexo = p % 2 ? 'F' : 'M'; // o mesmo do cadastro do paciente (insert de `patients` abaixo)
+    for (let i = 0; i < r.antropometria; i++) {
+      const data = diaAntes(i * 21 + (p % 5) + 1);
+      linhas.antropometria.push({ tenantId, patientId, data, pesoKg: 60 + (p % 30) + i * 0.4, alturaCm: 150 + (p % 40), createdAt: meioDia(data) });
+    }
+    for (let i = 0; i < r.atendimentos; i++) {
+      const data = diaAntes(i * 28 + (p % 3) + 1);
+      linhas.atendimentos.push({ tenantId, patientId, data, orientacoesPaciente: 'Orientações sintéticas da pilha de carga.', createdAt: meioDia(data) });
+    }
+    for (let i = 0; i < r.gasto; i++) {
+      const criado = meioDia(diaAntes(i * 60 + 2));
+      linhas.gasto.push({ tenantId, patientId, formula: FORMULAS[(p + i) % FORMULAS.length], pesoKg: 70, alturaCm: 165, idade: 36, sexo, fatorAtividade: 1.4, tmb: 1450.5, get: 2030.7, createdAt: criado });
+    }
+    for (let i = 0; i < r.exames; i++) {
+      const data = diaAntes(i * 45 + 3);
+      linhas.exames.push({ tenantId, patientId, data, titulo: EXAMES[(p + i) % EXAMES.length], valores: [{ nome: 'Glicose', valor: 88 + (p % 10), unidade: 'mg/dL', referencia: '70 a 99' }], createdAt: meioDia(data) });
+    }
+    if (r.anamneses || r.envios || r.documentos) extras.push({ patientId, p, envios: r.envios, documentos: r.documentos });
+  }
+  const gravadas = await withTenant(
+    ctx,
+    async (tx) => {
+      await garantirModeloPadrao(tx, tenantId); // o "Anamnese geral" que a tela usa (anamneses guardam o snapshot)
+      const [modelo] = await tx.select().from(anamnesisTemplates).where(eq(anamnesisTemplates.padrao, true));
+      for (const e of extras) {
+        for (let i = 0; i < registrosDe(e.p).anamneses; i++) {
+          const data = diaAntes(i * 90 + 2);
+          linhas.anamneses.push({ tenantId, patientId: e.patientId, templateId: modelo.id, templateSnapshot: { nome: modelo.nome, perguntas: modelo.schema.perguntas }, data, createdAt: meioDia(data) });
+        }
+      }
+      let n = 0;
+      const lote = async <T>(valores: T[], inserir: (parte: T[]) => Promise<unknown>) => {
+        for (let i = 0; i < valores.length; i += 1000) await inserir(valores.slice(i, i + 1000));
+        n += valores.length;
+      };
+      await lote(linhas.antropometria, (v) => tx.insert(anthropometry).values(v));
+      await lote(linhas.atendimentos, (v) => tx.insert(consultations).values(v));
+      await lote(linhas.gasto, (v) => tx.insert(energyCalcs).values(v));
+      await lote(linhas.anamneses, (v) => tx.insert(anamneses).values(v));
+      await lote(linhas.exames, (v) => tx.insert(exams).values(v));
+      return n;
+    },
+    db,
+  );
+  let outras = 0;
+  for (const e of extras) {
+    for (let i = 0; i < e.envios; i++) {
+      const recusado = (e.p + i) % 2 === 0;
+      await envioNoBanco(db, ctx, e.patientId, {
+        status: recusado ? 'recusado' : 'expirado',
+        ...(recusado ? { motivoRecusa: 'ilegivel' } : {}),
+        nome: EXAMES[(e.p + i) % EXAMES.length],
+        dataColeta: diaAntes(i * 30 + 10),
+        createdAt: meioDia(diaAntes(i * 30 + 8)),
+      });
+      outras++;
+    }
+    for (let i = 0; i < e.documentos; i++) {
+      await documentoNoBanco(db, ctx, e.patientId, { status: 'rascunho', tipo: e.p % 8 === 0 ? 'parecer' : 'receita' });
+      outras++;
+    }
+  }
+  return gravadas + outras;
+}
+// D20 do Plano 10A e D18 do Plano 12: documentos liberados e recebimento de exames ligado, para as 8 seções do Início
+// serem consultadas (como num consultório que usa tudo); só a admin muda, então fora de withTenant, como o insert do tenant
+const TUDO_LIGADO = { documentosLiberados: true, examesPacienteAtivadoEm: agora } as const;
+
+// Segunda rodada na mesma pilha: o cadastro (upsert), pelos mesmos índices (o `p` do e-mail `p<p>-<slug>@carga.test`), e o
+// registro clínico só se o consultório ainda não tiver (pilha semeada antes da P18-12b)
+const [jaSemeado] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, slugDo(0)));
+if (jaSemeado) {
+  for (let t = 0; t < TENANTS; t++) {
+    const slug = slugDo(t);
+    const [tn] = await db.select({ id: tenants.id, documentosLiberados: tenants.documentosLiberados, examesPacienteAtivadoEm: tenants.examesPacienteAtivadoEm }).from(tenants).where(eq(tenants.slug, slug));
+    const [nutri] = await db.select({ id: user.id }).from(user).where(eq(user.email, `nutri-${slug}@carga.test`));
+    if (!tn || !nutri) throw new Error(`${slug} não está na pilha: semente incompleta, recrie a pilha (down -v) e rode de novo`);
+    if (!tn.documentosLiberados || !tn.examesPacienteAtivadoEm) await db.update(tenants).set(TUDO_LIGADO).where(eq(tenants.id, tn.id));
+    const ctx: TenantContext = { tenantId: tn.id, role: 'nutri', actorUserId: nutri.id, ip: '127.0.0.1' };
+    const linhas = await withTenant(ctx, (tx) => tx.select({ id: patients.id, email: patients.email }).from(patients), db);
+    const pacientes: string[] = [];
+    for (const l of linhas) {
+      const m = new RegExp(`^p(\\d+)-${slug}@carga\\.test$`).exec(l.email);
+      if (m) pacientes[Number(m[1])] = l.id;
+    }
+    if (pacientes.length !== PACIENTES || Object.keys(pacientes).length !== PACIENTES) throw new Error(`${slug}: pacientes diferentes de CARGA_PACIENTES`);
+    const comCadastro = await semearCadastro(ctx, t, pacientes);
+    console.log(`${slug}: cadastro de ${comCadastro} pacientes (upsert), ${await semearRegistros(ctx, pacientes)} registros clínicos novos`);
+  }
+  await stopBoss();
+  await pool.end();
+  console.log('pronto: cadastro refeito e registro clínico conferido (a pilha já estava semeada; .sessoes.json mantido)');
+  process.exit(0);
+}
 
 for (let t = 0; t < TENANTS; t++) {
-  const slug = `carga-${String(t).padStart(2, '0')}`;
-  const [tn] = await db.insert(tenants).values({ slug, nomeExibicao: `Consultório Carga ${t}`, dpaVersao: DPA_VERSAO, dpaAceitoEm: agora, agendamentoPublicoAtivo: true }).returning({ id: tenants.id });
+  const slug = slugDo(t);
+  const [tn] = await db.insert(tenants).values({ slug, nomeExibicao: `Consultório Carga ${t}`, dpaVersao: DPA_VERSAO, dpaAceitoEm: agora, agendamentoPublicoAtivo: true, ...TUDO_LIGADO }).returning({ id: tenants.id });
   tenantIds.push(tn.id);
   const nutriId = randomUUID();
   const emailNutri = `nutri-${slug}@carga.test`;
@@ -81,6 +290,8 @@ for (let t = 0; t < TENANTS; t++) {
   await db.insert(account).values(ids.map((x) => ({ id: randomUUID(), userId: x.userId, accountId: x.userId, providerId: 'credential', password: hash })));
   await withTenant(ctx, (tx) => tx.insert(patients).values(ids.map((x, i) => ({ id: x.id, tenantId: tn.id, nome: `Paciente ${i} ${slug}`, email: x.email, userId: x.userId, dataNascimento: '1990-01-01', sexo: i % 2 ? 'F' : 'M' }))), db);
   await db.insert(consents).values(ids.map((x) => ({ userId: x.userId, tenantId: tn.id, termoVersao: TERMO_PACIENTE, ip: null })));
+  const comCadastro = await semearCadastro(ctx, t, ids.map((x) => x.id));
+  const registros = await semearRegistros(ctx, ids.map((x) => x.id));
 
   // agenda do mês: 8 consultas por dia útil, espalhadas entre os pacientes (varredura de notificações, N9).
   // consultaDireta grava "sem regra, sem lembrete" (test/agenda.ts): as futuras ganham os lembretes pela função real
@@ -136,7 +347,7 @@ for (let t = 0; t < TENANTS; t++) {
   }
   sessoes.nutris.push({ cookie: await entrar(auth, emailNutri), pacientes: ids.slice(0, 50).map((x) => x.id), planos });
   sessoes.slugs.push(slug);
-  console.log(`${slug}: ${PACIENTES} pacientes, ${acessos.length} acessos, 100 conteúdos`);
+  console.log(`${slug}: ${PACIENTES} pacientes (${comCadastro} com cadastro), ${registros} registros clínicos, ${acessos.length} acessos, 100 conteúdos`);
 }
 
 // D4: parte dos lembretes vence DURANTE a rodada (o job `notificacoes` varre e envia de verdade, para o Mailpit).

@@ -51,6 +51,35 @@ const medidas = (
     .map((x) => `${x.rotulo} ${num(m[x.id])} ${unidade}`)
     .join(' · ');
 
+const ou = (v: string | null | undefined) => v || '-';
+/** "Rua, número, complemento · bairro · cidade (UF) · CEP 00000-000", só com o que foi preenchido; nada → "-". */
+function endereco(e: NonNullable<DadosExportacao['paciente']['cadastro']>['endereco'] | undefined): string {
+  if (!e) return '-';
+  const cidade = e.cidade && e.uf ? `${e.cidade} (${e.uf})` : e.cidade || e.uf;
+  const partes = [[e.rua, e.numero, e.complemento].filter(Boolean).join(', '), e.bairro, cidade, e.cep ? `CEP ${e.cep}` : null].filter(Boolean);
+  return partes.length ? partes.join(' · ') : '-';
+}
+
+/**
+ * Plano 18 (§10, D7, RN-262, RN-266; Res. CFN 594/2017, art. 4º, § 1º, I): a identificação que a 594 pede, com o nome
+ * civil primeiro e "Nome social: …" logo depois (como a impressão). Sem o CPF (só no dados.json, RN-262) e sem a
+ * observação do cadastro (fica no dados.json).
+ */
+function Identificacao({ p }: { p: DadosExportacao['paciente'] }) {
+  const c = p.cadastro;
+  return (
+    <View>
+      <Text>{`Nome: ${p.nome}`}</Text>
+      {c?.nomeSocial && <Text>{`Nome social: ${c.nomeSocial}`}</Text>}
+      <Text>{`Nascimento: ${p.dataNascimento ? br(p.dataNascimento) : '-'} · Sexo: ${SEXO[p.sexo ?? ''] ?? '-'} · Identidade de gênero: ${ou(c?.identidadeDeGenero)}`}</Text>
+      <Text>{`Estado civil: ${ou(c?.estadoCivil)} · Nacionalidade: ${ou(c?.nacionalidade)} · Naturalidade: ${ou(c?.naturalidade)}`}</Text>
+      <Text>{`Escolaridade: ${ou(c?.escolaridade)} · Ocupação: ${ou(c?.ocupacao)}`}</Text>
+      <Text>{`Endereço: ${endereco(c?.endereco)}`}</Text>
+      <Text>{`E-mail: ${p.email} · Celular: ${ou(p.telefone)} · Telefone fixo: ${ou(c?.telefoneFixo)}`}</Text>
+    </View>
+  );
+}
+
 function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
   return (
     <Document title="Prontuário" author={nutri} creator="NutriDebby" producer="NutriDebby">
@@ -59,7 +88,7 @@ function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
         <Text>{`${d.paciente.nome} · emitido em ${br(d.dataEmissao)} · ${nutri}`}</Text>
 
         <Text style={s.secao}>Identificação</Text>
-        <Text>{`Nascimento: ${d.paciente.dataNascimento ? br(d.paciente.dataNascimento) : '-'} · Sexo: ${SEXO[d.paciente.sexo ?? ''] ?? '-'} · E-mail: ${d.paciente.email} · Telefone: ${d.paciente.telefone ?? '-'}`}</Text>
+        <Identificacao p={d.paciente} />
 
         <Text style={s.secao}>Anamneses</Text>
         {d.anamneses.length === 0 && <Text>Nenhuma.</Text>}
