@@ -4,7 +4,7 @@ import { doTitular, titularVisivel } from '@/modules/pacientes/exames-enviados';
 import type { StatusEnvio } from '@/modules/pacientes/exames-enviados-constantes';
 import { MSG_FICHA } from '../textos';
 import type { SecaoDaFicha } from '../tipos';
-import { diaNoFuso, LIMITE_DA_SECAO, resumoDasLinhas, totalJunto } from './comum';
+import { diaNoFuso, LIMITE_DA_SECAO, noAppPor, resumoDasLinhas, totalJunto } from './comum';
 
 /**
  * Situações em que a página da revisão (/painel/exames-recebidos/{id}) diz algo certo: "recebido" abre a revisão, "aceito" e
@@ -43,4 +43,6 @@ export const secaoExamesEnviados: SecaoDaFicha = {
       href: ABRE_A_REVISAO.has(e.status as StatusEnvio) ? `/painel/exames-recebidos/${e.id}` : 'exames',
     }));
   },
+  // RN-279: o filtro de `meusEnvios` — o cancelado some da lista do paciente
+  noApp: noAppPor(examSubmissions, examSubmissions.id, (patientId) => and(eq(examSubmissions.patientId, patientId), ne(examSubmissions.status, 'cancelado'))),
 };

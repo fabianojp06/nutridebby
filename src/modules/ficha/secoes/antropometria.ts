@@ -2,7 +2,7 @@ import { desc, eq } from 'drizzle-orm';
 import { anthropometry } from '@/db/schema';
 import { MSG_FICHA } from '../textos';
 import type { SecaoDaFicha } from '../tipos';
-import { LIMITE_DA_SECAO, resumoDasLinhas, totalJunto } from './comum';
+import { LIMITE_DA_SECAO, noAppPor, resumoDasLinhas, totalJunto } from './comum';
 
 /** Antropometria: "Avaliação" e a data (sem as medidas: o cabeçalho é que mostra a última, com a leitura auditada). */
 export const secaoAntropometria: SecaoDaFicha = {
@@ -20,4 +20,6 @@ export const secaoAntropometria: SecaoDaFicha = {
     return resumoDasLinhas(linhas, (a) => ({ id: a.id, rotulo: MSG_FICHA.rotulos.avaliacao, data: a.data, href: 'antropometria' }));
   },
   adicionar: [{ grupo: 'avaliacoes', rotulo: MSG_FICHA.itens.antropometria, destino: { href: 'antropometria#nova-avaliacao' } }],
+  // RN-279: toda avaliação do paciente (`evolucaoParaPaciente`); com o peso oculto, a avaliação continua no app sem peso e IMC
+  noApp: noAppPor(anthropometry, anthropometry.id, (patientId) => eq(anthropometry.patientId, patientId)),
 };

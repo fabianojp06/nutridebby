@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Selo } from '@/components/ui/selo';
 import { caminhoNaFicha } from '@/modules/ficha/adicionar';
 import type { SecaoNoInicio } from '@/modules/ficha/inicio';
 import { MSG_FICHA } from '@/modules/ficha/textos';
@@ -8,9 +9,10 @@ import { formatarData } from '@/modules/pacientes/datas';
  * Plano 18 (RN-277, RN-278, spec §8.3): uma seção do Início num `<details>` — aberto quando há registro —, com o `<h3>`
  * "{Título} ({n})" no `<summary>` (block, sem flex: o leitor de tela lê o título como cabeçalho e como o botão) e, no corpo,
  * os 3 últimos (rótulo genérico, data e situação) e o "Ver todos". Os links não pré-carregam: as páginas de destino gravam
- * auditRead (como ia-nutri/page.tsx).
+ * auditRead (como ia-nutri/page.tsx). Tarefa 9 (RN-279): o selo "No app" no item que o paciente vê (decidido no contexto
+ * de paciente, `noAppDoPaciente`) e a `nota` da seção (Antropometria com o peso oculto: "Peso e IMC ocultos no app.").
  */
-export function Secao({ secao, patientId }: { secao: SecaoNoInicio; patientId: string }) {
+export function Secao({ secao, patientId, nota }: { secao: SecaoNoInicio; patientId: string; nota?: string }) {
   const { total, ultimos } = secao.resumo;
   return (
     <details open={total > 0} className="group border-t border-linha first-of-type:border-t-0">
@@ -23,16 +25,18 @@ export function Secao({ secao, patientId }: { secao: SecaoNoInicio; patientId: s
         <h3 className="inline font-semibold">{MSG_FICHA.secao(secao.titulo, total)}</h3>
       </summary>
       <div className="space-y-1 pb-3 pl-6">
+        {nota && <p className="text-sm text-suave">{nota}</p>}
         {total === 0 ? (
           <p className="text-sm text-suave">{MSG_FICHA.vazio}</p>
         ) : (
           <>
             <ul className="space-y-1">
               {ultimos.map((i) => (
-                <li key={i.id}>
+                <li key={i.id} className="flex flex-wrap items-center gap-x-2">
                   <Link href={caminhoNaFicha(patientId, i.href)} prefetch={false} className="inline-flex min-h-11 items-center text-link underline">
                     {[i.rotulo, formatarData(i.data), i.situacao].filter(Boolean).join(' · ')}
                   </Link>
+                  {i.noApp && <Selo>{MSG_FICHA.seloNoApp}</Selo>}
                 </li>
               ))}
             </ul>

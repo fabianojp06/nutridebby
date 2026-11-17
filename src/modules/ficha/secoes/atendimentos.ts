@@ -2,7 +2,7 @@ import { desc, eq } from 'drizzle-orm';
 import { consultations } from '@/db/schema';
 import { MSG_FICHA } from '../textos';
 import type { SecaoDaFicha } from '../tipos';
-import { LIMITE_DA_SECAO, resumoDasLinhas, totalJunto } from './comum';
+import { LIMITE_DA_SECAO, noAppPor, resumoDasLinhas, totalJunto } from './comum';
 
 /** Atendimentos: "Atendimento" e a data (sem orientações nem notas). */
 export const secaoAtendimentos: SecaoDaFicha = {
@@ -20,4 +20,6 @@ export const secaoAtendimentos: SecaoDaFicha = {
     return resumoDasLinhas(linhas, (c) => ({ id: c.id, rotulo: MSG_FICHA.rotulos.atendimento, data: c.data, href: `atendimentos/${c.id}` }));
   },
   adicionar: [{ grupo: 'avaliacoes', rotulo: MSG_FICHA.itens.atendimento, destino: { href: 'atendimentos#novo-atendimento' } }],
+  // RN-279: os atendimentos da Jornada (`jornadaDoPaciente`), sem filtro além da RLS do paciente
+  noApp: noAppPor(consultations, consultations.id, (patientId) => eq(consultations.patientId, patientId)),
 };

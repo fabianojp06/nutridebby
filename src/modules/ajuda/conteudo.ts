@@ -149,7 +149,7 @@ export const GUIAS: readonly Guia[] = [
     // Plano 18 (§8.3): só o Início da ficha; antes do `prontuario`, que casa todas as abas (os passos novos só têm alvo aqui).
     // Título "Início do paciente": "Início" é o do guia de boas-vindas (o manual completo lista um h2 por guia).
     id: 'inicio-paciente',
-    versao: 1,
+    versao: 2, // Plano 18, PR 2: o cartão No app
     padrao: new RegExp(`^/painel/pacientes/${ID}$`),
     titulo: 'Início do paciente',
     ajuda: {
@@ -161,6 +161,7 @@ export const GUIAS: readonly Guia[] = [
             'Use "Adicionar" para registrar anamnese, antropometria, gasto energético, exame, atendimento ou prescrição sem procurar a aba.',
             'Abra uma seção para ver os registros mais recentes; "Ver todos" leva à aba com a lista completa.',
             'O cadastro, o acesso ao app e as etiquetas ficam no Perfil.',
+            'O cartão "No app do paciente" mostra o acesso ao app, o plano, os documentos e os conteúdos que o paciente vê; "Ver detalhes" abre a página com notificações, lembretes, evolução, jornada, exames, diário e IA Nutri, contados com as mesmas regras do app.',
           ],
         },
         { titulo: 'Perguntas comuns', itens: ['Paciente bloqueado por pedido de exclusão não tem o botão "Adicionar": o prontuário é só para consulta.'] },
@@ -170,8 +171,8 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'cabecalho-paciente', titulo: 'O paciente', texto: 'Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o paciente está arquivado ou bloqueado.' },
       { alvo: 'abas-prontuario', titulo: 'Abas do prontuário', texto: 'Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento tem a sua aba.' },
       { alvo: 'adicionar-prontuario', titulo: 'Adicionar', texto: 'Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.' },
-      // PR 1 sem o selo: a frase "O selo No app marca o que o paciente vê no app." (spec §8.3) entra na Tarefa 9, com a versao 2.
-      { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes.' },
+      { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes. O selo No app marca o que o paciente vê no app.' },
+      { alvo: 'no-app-cartao', titulo: 'No app do paciente', texto: 'O que o paciente enxerga no app, contado com as mesmas regras do app.' },
     ],
   },
   {

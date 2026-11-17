@@ -22,8 +22,9 @@ export type TenantContext = {
   actorUserId?: string;
   /**
    * N7 (Plano 08): paciente agindo **sem sessão de login** (link assinado da consulta, resposta pelo WhatsApp, leitura do
-   * convite antes da conta existir) e a leitura do contexto da IA Nutri no worker, sem escrita (Plano 15, §4.2). Mantém a
-   * RLS por paciente; o `audit_log` sai sem ator, como a D20 do Plano 05 define.
+   * convite antes da conta existir), a leitura do contexto da IA Nutri no worker, sem escrita (Plano 15, §4.2), e a contagem
+   * do No app, pela nutricionista, no contexto do paciente (Plano 18, D16: só contagens e ids, em src/modules/ficha/no-app.ts).
+   * Mantém a RLS por paciente; o `audit_log` sai sem ator, como a D20 do Plano 05 define.
    * Só os arquivos de `SEM_CONTA_PERMITIDOS` usam (guarda em sem-conta-guarda.test.ts).
    */
   semConta?: true;
@@ -31,7 +32,10 @@ export type TenantContext = {
   ip?: string | null;
 };
 
-/** N7: lista fechada dos fluxos de paciente sem sessão de login (sem-conta-guarda.test.ts). */
+/**
+ * N7: lista fechada dos fluxos de paciente sem sessão de login (sem-conta-guarda.test.ts) e da contagem do No app, pela
+ * nutricionista, no contexto do paciente (Plano 18, D16).
+ */
 export const SEM_CONTA_PERMITIDOS: readonly string[] = [
   'src/modules/agenda/acoes-link.ts',
   'src/modules/documentos/link-documento.ts',
@@ -39,6 +43,7 @@ export const SEM_CONTA_PERMITIDOS: readonly string[] = [
   'src/modules/ia/nutri-paciente/contexto.ts',
   'src/modules/notificacoes/whatsapp/webhook.ts',
   'src/modules/pacientes/convite-paciente.ts',
+  'src/modules/ficha/no-app.ts',
 ];
 
 export class TenantContextError extends Error {

@@ -4,7 +4,8 @@ import { BotaoLink } from '@/components/ui/botao';
 import { Cartao } from '@/components/ui/cartao';
 import { montarAdicionar } from '@/modules/ficha/adicionar';
 import { cadastroIncompleto } from '@/modules/ficha/incompleto';
-import { secoesDoInicio } from '@/modules/ficha/inicio';
+import { secoesDoInicio, type SecaoNoInicio } from '@/modules/ficha/inicio';
+import { noAppDoPaciente, type NoApp } from '@/modules/ficha/no-app';
 import { cartaoResumo, linhasDoResumo } from '@/modules/ficha/resumo';
 import { MSG_FICHA } from '@/modules/ficha/textos';
 import { MSG_RESUMO } from '@/modules/ia/constantes';
@@ -12,15 +13,30 @@ import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
 import { iaDoAssistente } from './ia-assistente';
 import { acoesDoAdicionar } from './inicio/acoes';
 import { Adicionar } from './inicio/adicionar';
+import { CartaoNoApp } from './inicio/cartao-no-app';
 import { Secao } from './inicio/secao';
 import { carregarProntuario } from './prontuario';
 
 export const dynamic = 'force-dynamic';
 
 /**
+ * RN-279: as seções com o selo "No app" nos itens que o paciente vê — os ids que `noAppDoPaciente` achou no contexto do
+ * paciente (nunca reproduzido aqui, na sessão `nutri`).
+ */
+async function secoesComSelo(ctx: Parameters<typeof noAppDoPaciente>[0], secoes: SecaoNoInicio[], patientId: string): Promise<{ secoes: SecaoNoInicio[]; noApp: NoApp }> {
+  const itens = Object.fromEntries(secoes.map((s) => [s.id, s.resumo.ultimos.map((i) => i.id)]));
+  const noApp = await noAppDoPaciente(ctx, patientId, itens);
+  const comSelo = secoes.map((s) => {
+    const visiveis = new Set(noApp.visiveis[s.id] ?? []);
+    return { ...s, resumo: { ...s.resumo, ultimos: s.resumo.ultimos.map((i) => ({ ...i, noApp: visiveis.has(i.id) })) } };
+  });
+  return { secoes: comSelo, noApp };
+}
+
+/**
  * Aba Início (Plano 18, US-262, US-263): o aviso do paciente bloqueado, o botão Adicionar (nunca para bloqueado ou anonimizado; arquivado registra, como
- * cada aba), o cartão Resumo (RN-276), o bloco da IA (US-120) e as seções do registro, na ordem dele (RN-277, RN-278). O
- * cadastro, o acesso ao app e as etiquetas ficam no Perfil (D12).
+ * cada aba), o cartão Resumo (RN-276), o cartão "No app do paciente" (D16, US-264), o bloco da IA (US-120) e as seções do
+ * registro, na ordem dele (RN-277, RN-278), com o selo "No app" (RN-279). O cadastro e as etiquetas ficam no Perfil (D12).
  */
 export default async function InicioPage({ params }: PageProps<'/painel/pacientes/[id]'>) {
   const { id } = await params;
@@ -28,9 +44,9 @@ export default async function InicioPage({ params }: PageProps<'/painel/paciente
   const bloqueado = paciente.status === 'bloqueado';
   // RN-269: a nota "Cadastro incompleto" só onde dá para completar (o Perfil de bloqueado ou anonimizado é só para consulta)
   const completavel = !bloqueado && !paciente.anonimizadoEm;
-  const [ia, secoes, resumo, incompleto] = await Promise.all([
+  const [ia, { secoes, noApp }, resumo, incompleto] = await Promise.all([
     iaDoAssistente(ctx, tenant, paciente, 'resumo_historico'),
-    secoesDoInicio(ctx, tenant, paciente),
+    secoesDoInicio(ctx, tenant, paciente).then((s) => secoesComSelo(ctx, s, paciente.id)),
     cartaoResumo(ctx, tenant.fuso, paciente),
     completavel ? cadastroIncompleto(ctx, paciente.id) : null,
   ]);
@@ -57,6 +73,7 @@ export default async function InicioPage({ params }: PageProps<'/painel/paciente
             </div>
           )}
         </Cartao>
+        <CartaoNoApp noApp={noApp} patientId={paciente.id} documentos={tenant.documentosLiberados} />
       </div>
       {/* US-120 (Plano 14B): só com a IA da plataforma presente e o paciente ativo; sem poder pedir, o motivo (texto da aba Exames) */}
       {ia && (
@@ -71,7 +88,8 @@ export default async function InicioPage({ params }: PageProps<'/painel/paciente
       )}
       <section aria-labelledby="secoes-titulo" data-guia="secoes-inicio" className="rounded-3xl border border-borda bg-cartao px-5 py-2">
         <h2 id="secoes-titulo" className="sr-only">{MSG_FICHA.secoesTitulo}</h2>
-        {secoes.map((s) => <Secao key={s.id} secao={s} patientId={paciente.id} />)}
+        {/* RN-279, §8.3: com o peso oculto, a seção Antropometria avisa que peso e IMC não aparecem no app */}
+        {secoes.map((s) => <Secao key={s.id} secao={s} patientId={paciente.id} nota={s.id === 'antropometria' && noApp.pesoOculto ? MSG_FICHA.pesoOcultoNaSecao : undefined} />)}
       </section>
     </div>
   );

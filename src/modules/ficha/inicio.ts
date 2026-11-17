@@ -29,8 +29,8 @@ const verTodosDa = (s: SecaoDaFicha, patientId: string): string => {
  * Plano 18 (D14, RN-277): as seções do Início da ficha, todas numa transação da sessão `nutri`, uma consulta por seção.
  * Só contador e rótulos genéricos; os arquivos das seções nunca gravam leitura. A seção que declara `leitura` (nenhuma das
  * 8 do Plano 18; o Financeiro do Plano 20) ganha aqui UM auditRead da entidade, na mesma transação, só quando devolve itens.
- * Seção indisponível nem com algum registro (documentos desligados) não é consultada. O selo "No app" chega na Tarefa 9:
- * até lá, `noApp: false` em todo item.
+ * Seção indisponível nem com algum registro (documentos desligados) não é consultada. Aqui todo item sai com
+ * `noApp: false`: o selo é decidido no contexto do paciente (`noAppDoPaciente`, RN-279), e a página Início o aplica.
  */
 export async function secoesDoInicio(
   ctx: TenantContext,

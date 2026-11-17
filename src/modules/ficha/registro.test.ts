@@ -33,6 +33,10 @@ const IMPORTS_PERMITIDOS = [
   '../textos',
   '../tipos',
   './comum',
+  // Tarefa 9 (comum.ts, `noAppPor`): os tipos da tabela e da coluna (só `import type`) e o `idValido` dos ids pedidos — o
+  // módulo base não grava trilha (só a checagem do id e os erros do paciente)
+  'drizzle-orm/pg-core',
+  '@/modules/pacientes/base',
 ];
 /** `index.ts` também importa cada arquivo de seção (`./<id>`). */
 const IMPORTS_DO_INDEX = FONTES.map((x) => `./${x.f.replace(/\.ts$/, '')}`).filter((de) => de !== './index');
