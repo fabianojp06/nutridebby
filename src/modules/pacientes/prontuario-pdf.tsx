@@ -7,19 +7,27 @@ import { DOBRAS } from './formulas';
 
 // Helvetica padrão do PDF (WinAnsi): cobre os acentos do português; o resto passa por paraWinAnsi (abaixo)
 const s = StyleSheet.create({
-  pagina: { padding: 36, fontSize: 10, fontFamily: 'Helvetica', lineHeight: 1.4 },
+  // paddingBottom 48: o corpo termina em 841,89 − 48 = 793,89 pt, 14 pt acima do rodapé (que começa em 807,89)
+  pagina: { padding: 36, paddingBottom: 48, fontSize: 10, fontFamily: 'Helvetica', lineHeight: 1.4 },
   titulo: { fontSize: 16, fontFamily: 'Helvetica-Bold', marginBottom: 4 },
   secao: { fontSize: 12, fontFamily: 'Helvetica-Bold', marginTop: 14, marginBottom: 4 },
   linha: { flexDirection: 'row', gap: 8 },
   rotulo: { fontFamily: 'Helvetica-Bold' },
-  // `right: 84` deixa espaço para o número da página (36 + 48 de largura)
-  rodape: { position: 'absolute', bottom: 20, left: 36, right: 84, fontSize: 8, color: '#555555' },
-  // SUS-99: o número da página vai por `top`, fora do rodapé: o @react-pdf 4.9 quebra ("unsupported number") com um
-  // `render` em nó absoluto por `bottom` num documento de mais de ~10 páginas. A4 tem 841,89 pt de altura e a linha do
-  // rodapé tem 14 pt (o `lineHeight: 1.4` da página vale sobre os 10 pt dela e é herdado assim pelo texto de 8 pt): com
-  // `bottom: 20` ela começa em 841,89 − 20 − 14 = 807,89 pt, então `top: 808` põe o número na mesma linha do texto do
-  // rodapé (medido no PDF: linha de base 0,1 pt abaixo)
-  paginaN: { position: 'absolute', top: 808, right: 36, width: 48, textAlign: 'right', fontSize: 8, color: '#555555' },
+  // SUS-99: o rodapé vai por `top`, não por `bottom`. Com o número da página (`render`) dentro de um nó absoluto por
+  // `bottom`, o @react-pdf 4.9 desenhava o rodapé fora da página (y de milhares de pt) e, acima de ~10 páginas, quebrava
+  // ("unsupported number"). Premissa: `size="A4"` (841,89 pt de altura) — mudou o tamanho da página, refaça a conta.
+  // A linha do rodapé tem 14 pt (o `lineHeight: 1.4` da página vale sobre os 10 pt dela e é herdado assim pelo texto de
+  // 8 pt): o `bottom: 20` de antes punha a linha em 841,89 − 20 − 14 = 807,89 pt.
+  rodape: {
+    position: 'absolute',
+    top: 807.89,
+    left: 36,
+    right: 36,
+    fontSize: 8,
+    color: '#555555',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
 });
 
 const SEXO: Record<string, string> = { F: 'Feminino', M: 'Masculino' };
@@ -153,8 +161,8 @@ function Prontuario({ d, nutri }: { d: DadosExportacao; nutri: string }) {
 
         <View style={s.rodape} fixed>
           <Text>Dados exportados do NutriDebby (LGPD, art. 18)</Text>
+          <Text render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} />
         </View>
-        <Text style={s.paginaN} fixed render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} />
       </Page>
     </Document>
   );
