@@ -21,6 +21,7 @@ function dados(atendimentos: number, exames: number): DadosExportacao {
       autorizacoesIa: [],
       pesoOcultoNoAppEm: null,
       lembretesPausadosEm: null,
+      cadastro: null,
     },
     anamneses: [],
     antropometria: [],
@@ -87,10 +88,13 @@ describe('PDF do prontuário (exportação do titular, US-018)', () => {
     }
   });
 
-  it('SUS-99: prontuário curto (1 e 2 páginas): o rodapé e o número ficam dentro da página, não abaixo dela', async () => {
+  it('SUS-99: prontuário curto (1 a poucas páginas): o rodapé e o número ficam dentro da página, não abaixo dela', async () => {
     for (const atendimentos of [3, 80]) {
       const pdf = await renderizarProntuario(dados(atendimentos, 0), 'Debby Silva');
-      expect(paginasDoPdf(pdf)).toBe(atendimentos === 3 ? 1 : 2);
+      // curtos, abaixo das ~10 páginas em que o padrão antigo quebrava; a contagem exata muda com as seções do prontuário
+      const n = paginasDoPdf(pdf);
+      if (atendimentos === 3) expect(n).toBe(1);
+      else expect(n).toSatisfy((p: number) => p >= 2 && p < 10);
       confereRodapes(pdf);
     }
   });
