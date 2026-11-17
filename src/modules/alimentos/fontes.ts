@@ -15,8 +15,15 @@ export type FontePublica = Exclude<Fonte, 'propria'>;
  */
 export const TBCA_AUTORIZADA: boolean = false;
 
-/** Ano da versão do FoodData Central do seed (RN-231): preenchido na Tarefa 12, com o seed. Até lá não há linha `usda`. */
+/**
+ * Ano da versão do FoodData Central do seed (RN-231): preenchido na Tarefa 12, com o seed. Até lá não há linha `usda`
+ * (guarda em `fontes.test.ts`) e a publicação recusa item da USDA (`exigirVersaoDasTabelas`, `publicacao.ts`): a
+ * versão congela no plano publicado (RN-237) e "{ano}" ficaria para sempre.
+ */
 const USDA_ANO = '{ano}';
+
+/** Versão ou citação com marcador ainda não preenchido (`{ano}`, `{data}`). */
+export const temMarcador = (texto: string): boolean => /\{[a-z]+\}/.test(texto);
 
 export type DadosDaFonte = {
   selo: string;

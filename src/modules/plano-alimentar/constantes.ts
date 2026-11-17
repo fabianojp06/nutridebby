@@ -39,6 +39,8 @@ export const MSG_PLANO = {
   publicarVazio: 'Inclua pelo menos uma refeição com um alimento para publicar.',
   publicarHorario: 'Informe o horário de todas as refeições.',
   publicarRefeicaoVazia: (nome: string) => `A refeição "${nome}" não tem alimentos.`,
+  /** RN-237 (code review do PR #57): a versão da tabela congela no publicado; sem ela, o item não é publicado. Texto fora da spec. */
+  publicarSemVersao: 'A versão da tabela da USDA ainda não foi registrada. Tire os alimentos da USDA para publicar.',
   /** RN-230: "Sem valor na {sigla}" pela fonte do item ou do ingrediente ("Sem valor na USDA"). */
   semValor: semValorNa,
   semPeso: 'Registre a antropometria para ver g/kg',

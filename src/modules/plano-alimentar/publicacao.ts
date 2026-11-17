@@ -6,7 +6,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { getBoss } from '@/jobs/boss';
 import { FILA_DO_PDF_DO_PLANO } from '@/jobs/queues';
-import { FONTES, FONTES_DE_ALIMENTO, seloDaFonte } from '@/modules/alimentos/fontes';
+import { FONTES, FONTES_DE_ALIMENTO, seloDaFonte, temMarcador, type DadosDaFonte, type FontePublica } from '@/modules/alimentos/fontes';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { avisarPlanoNovo } from '@/modules/portal/avisos';
 import { lerPlanoNaTransacao } from './carregar';
@@ -33,6 +33,18 @@ function exigirPublicavel(p: PlanoCompleto) {
   if (p.refeicoes.some((r) => !r.horario)) throw new PlanoError({ geral: MSG_PLANO.publicarHorario });
   const vazia = p.refeicoes.find((r) => !r.itens.some((i) => !i.substituiItemId));
   if (vazia) throw new PlanoError({ geral: MSG_PLANO.publicarRefeicaoVazia(vazia.nome) });
+}
+
+/**
+ * RN-237/RN-01 (code review do PR #57): a versão da tabela congela no item publicado (e na cópia da lista ligada, RN-252),
+ * e o publicado é imutável. Enquanto a versão da tabela pública ainda tem o marcador (`FONTES.usda` com "{ano}", antes
+ * da Tarefa 12), nenhum item dela é publicado — nem a cópia da lista ligada que já levou o marcador.
+ */
+export function exigirVersaoDasTabelas(p: Pick<PlanoCompleto, 'refeicoes' | 'listas'>, fontes: Record<FontePublica, DadosDaFonte> = FONTES): void {
+  const semVersao =
+    p.refeicoes.some((r) => r.itens.some((i) => i.fonte !== 'propria' && temMarcador(fontes[i.fonte].versao))) ||
+    p.listas.some((l) => l.grupos.some((g) => g.itens.some((i) => i.fonteVersao !== null && temMarcador(i.fonteVersao))));
+  if (semVersao) throw new PlanoError({ geral: MSG_PLANO.publicarSemVersao });
 }
 
 /** D31: o que não barra a publicação, mas a nutricionista precisa ver antes ("Publicar mesmo assim"). */
@@ -90,6 +102,7 @@ export async function publicarPlano(
       if (p.status !== 'rascunho') throw new PlanoNaoEditavelError();
       const completo = (await lerPlanoNaTransacao(tx, planId, { auditar: false, comMedidas: false }))!;
       exigirPublicavel(completo);
+      exigirVersaoDasTabelas(completo);
       const avisos = avisosDaPublicacao(completo);
       if (avisos.some((a) => !o.confirmarAvisos?.includes(a))) return { avisos };
 

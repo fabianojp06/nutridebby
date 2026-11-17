@@ -1,21 +1,40 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FONTES, FONTES_DE_ALIMENTO, fontesVisiveis, MSG_FONTES, seloDaFonte, semValorNa, TBCA_AUTORIZADA } from './fontes';
+import { FONTES, FONTES_DE_ALIMENTO, fontesVisiveis, MSG_FONTES, seloDaFonte, semValorNa, TBCA_AUTORIZADA, temMarcador } from './fontes';
 import { FONTE_TACO_TEXTO } from './taco';
 
 /** Comando SQL que grava linhas: INSERT INTO, UPDATE … SET (um UPDATE pode trocar a fonte para tbca) e COPY … (FROM). */
 const ESCRITA = /\binsert\s+into\b|\bupdate\s+[\w."]+\s+set\b|\bcopy\s+[\w."]+\s*(?:\(|from\b)/i;
 
-/** Comandos SQL (separados por `;`) que gravam e citam a fonte `tbca` (RN-232). */
-const escritasComTbca = (sql: string): string[] =>
+/** Comandos SQL (separados por `;`) que gravam e citam a fonte (`tbca`, RN-232; `usda` com o marcador, RN-231). */
+const escritasComFonte = (sql: string, fonte: string): string[] =>
   sql
     .split(';')
-    .filter((c) => ESCRITA.test(c) && /'tbca'/i.test(c))
+    .filter((c) => ESCRITA.test(c) && new RegExp(`'${fonte}'`, 'i').test(c))
     .map((c) => c.trim().slice(0, 120));
+const escritasComTbca = (sql: string) => escritasComFonte(sql, 'tbca');
 
-/** Linhas de CSV com algum campo igual a `tbca` (seed de alimentos com a fonte TBCA). */
-const linhasCsvComTbca = (csv: string): string[] => csv.split('\n').filter((l) => l.split(',').some((c) => c.trim().replace(/^"|"$/g, '').toLowerCase() === 'tbca'));
+/** Linhas de CSV com algum campo igual à fonte (seed de alimentos com a fonte TBCA ou USDA). */
+const linhasCsvComFonte = (csv: string, fonte: string): string[] =>
+  csv.split('\n').filter((l) => l.split(',').some((c) => c.trim().replace(/^"|"$/g, '').toLowerCase() === fonte));
+const linhasCsvComTbca = (csv: string) => linhasCsvComFonte(csv, 'tbca');
+
+/** As gravações da fonte nas migrations (`drizzle/*.sql`) e em `seeds/` (SQL, CSV e, para a USDA, o arquivo `usda-*`). */
+function gravacoesDaFonte(fonte: 'tbca' | 'usda'): string[] {
+  const achados: string[] = [];
+  for (const f of readdirSync(path.resolve('drizzle')).filter((n) => n.endsWith('.sql'))) {
+    for (const c of escritasComFonte(readFileSync(path.resolve('drizzle', f), 'utf8'), fonte)) achados.push(`drizzle/${f}: ${c}`);
+  }
+  for (const f of arquivos('seeds')) {
+    const rel = path.relative(path.resolve('.'), f);
+    if (/\.sql$/i.test(f)) for (const c of escritasComFonte(readFileSync(f, 'utf8'), fonte)) achados.push(`${rel}: ${c}`);
+    else if (/\.csv$/i.test(f)) for (const l of linhasCsvComFonte(readFileSync(f, 'utf8'), fonte)) achados.push(`${rel}: ${l.slice(0, 120)}`);
+    // o seed da USDA (D29, `seeds/usda-*.csv`) pode não ter a coluna fonte: o arquivo já conta
+    if (fonte === 'usda' && /^usda[-_.]/i.test(path.basename(f))) achados.push(`${rel}: arquivo do seed da USDA`);
+  }
+  return achados;
+}
 
 const arquivos = (pasta: string): string[] =>
   readdirSync(path.resolve(pasta), { recursive: true, withFileTypes: true })
@@ -71,15 +90,21 @@ describe('RN-232: guarda da TBCA (nenhuma linha tbca sem autorização)', () => 
   });
 
   it.skipIf(TBCA_AUTORIZADA)('nenhuma migration (drizzle/*.sql) nem arquivo de seeds/ insere a fonte tbca', () => {
-    const achados: string[] = [];
-    for (const f of readdirSync(path.resolve('drizzle')).filter((n) => n.endsWith('.sql'))) {
-      for (const c of escritasComTbca(readFileSync(path.resolve('drizzle', f), 'utf8'))) achados.push(`drizzle/${f}: ${c}`);
-    }
-    for (const f of arquivos('seeds')) {
-      const rel = path.relative(path.resolve('.'), f);
-      if (/\.sql$/i.test(f)) for (const c of escritasComTbca(readFileSync(f, 'utf8'))) achados.push(`${rel}: ${c}`);
-      else if (/\.csv$/i.test(f)) for (const l of linhasCsvComTbca(readFileSync(f, 'utf8'))) achados.push(`${rel}: ${l.slice(0, 120)}`);
-    }
-    expect(achados).toEqual([]);
+    expect(gravacoesDaFonte('tbca')).toEqual([]);
+  });
+});
+
+describe('RN-231/RN-237: guarda do marcador {ano} da USDA (code review do PR #57)', () => {
+  it('o detector de marcador e o de gravação da USDA não são vazios', () => {
+    expect(temMarcador('FoodData Central {ano}')).toBe(true);
+    expect(temMarcador('FoodData Central 2024')).toBe(false);
+    expect(escritasComFonte(`INSERT INTO "foods" ("fonte") VALUES ('usda');`, 'usda')).toHaveLength(1);
+    expect(escritasComFonte(`ALTER TABLE foods ADD CONSTRAINT c CHECK (fonte in ('taco','usda'));`, 'usda')).toEqual([]);
+    expect(linhasCsvComFonte('fonte,nome\nusda,Quinoa', 'usda')).toEqual(['usda,Quinoa']);
+  });
+
+  it('com "{ano}" ainda em FONTES.usda (versão ou citação), nenhuma migration nem seed grava linha da USDA', () => {
+    const marcador = temMarcador(FONTES.usda.versao) || temMarcador(FONTES.usda.citacao);
+    expect(marcador ? gravacoesDaFonte('usda') : []).toEqual([]);
   });
 });

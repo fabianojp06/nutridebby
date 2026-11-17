@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import { afterAll, describe, expect, inject, it } from 'vitest';
+import { apagarPublicos, inserirPublicos } from '../../../test/alimentos-publicos';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
@@ -12,7 +13,7 @@ import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { criarAlimento, duplicarComoMeu, editarAlimento, excluirAlimento } from '@/modules/alimentos/alimentos';
 import { MSG_ALIMENTO } from '@/modules/alimentos/alimentos-constantes';
-import { FONTES } from '@/modules/alimentos/fontes';
+import { FONTES, temMarcador } from '@/modules/alimentos/fontes';
 import { idTaco } from '@/modules/alimentos/taco';
 import { carregarPacienteParaEscrita, PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { carregarPlano } from './carregar';
@@ -20,7 +21,7 @@ import { lerCongelados } from './congelados';
 import { MSG_PLANO, MSG_TEXTO_LIVRE } from './constantes';
 import { PlanoError, PlanoNaoEditavelError, PlanoNaoEncontradoError } from './erros';
 import { criarDeModelo, criarModelo, salvarComoModelo } from './modelos';
-import { editarPublicado, pedirNovoPdf, publicarPlano } from './publicacao';
+import { editarPublicado, exigirVersaoDasTabelas, pedirNovoPdf, publicarPlano } from './publicacao';
 import { criarRascunho, criarRascunhoTx, descartarRascunho, salvarRascunho } from './rascunho';
 import type { CorpoSalvamento } from './tipos';
 
@@ -377,5 +378,32 @@ describe('Plano 19 — publicação: congelação, perfil e avisos em dois passo
     await salvarRascunho(T.ctx, id, livre(2, []), deps);
     await expect(publicarPlano(T.ctx, p.id, id, deps)).rejects.toEqual(new PlanoError({ geral: MSG_TEXTO_LIVRE.publicarVazio }));
     expect((await linhaDoPlano(T, id)).status).toBe('rascunho');
+  });
+
+  it('code review do PR #57 (RN-237): versão da tabela com marcador → "A versão da tabela da USDA…"; a regra pura vale para item e cópia da lista', () => {
+    const comMarcador = { ...FONTES, taco: { ...FONTES.taco, versao: 'TACO {ano}' } };
+    const doItem = (fonte: 'taco' | 'propria') => ({ refeicoes: [{ itens: [{ fonte }] }], listas: [] }) as unknown as Parameters<typeof exigirVersaoDasTabelas>[0];
+    expect(() => exigirVersaoDasTabelas(doItem('taco'), comMarcador)).toThrow(new PlanoError({ geral: MSG_PLANO.publicarSemVersao }));
+    expect(() => exigirVersaoDasTabelas(doItem('propria'), comMarcador)).not.toThrow();
+    expect(() => exigirVersaoDasTabelas(doItem('taco'))).not.toThrow();
+    const daLista = (fonteVersao: string | null) =>
+      ({ refeicoes: [], listas: [{ grupos: [{ itens: [{ fonteVersao }] }] }] }) as unknown as Parameters<typeof exigirVersaoDasTabelas>[0];
+    expect(() => exigirVersaoDasTabelas(daLista('FoodData Central {ano}'))).toThrow(new PlanoError({ geral: MSG_PLANO.publicarSemVersao }));
+    expect(() => exigirVersaoDasTabelas(daLista(FONTES.taco.versao))).not.toThrow();
+    expect(() => exigirVersaoDasTabelas(daLista(null))).not.toThrow();
+    expect(MSG_PLANO.publicarSemVersao).toBe('A versão da tabela da USDA ainda não foi registrada. Tire os alimentos da USDA para publicar.');
+  });
+
+  it.skipIf(!temMarcador(FONTES.usda.versao))('code review do PR #57 (RN-01): com "{ano}" em FONTES.usda, plano com alimento da USDA não é publicado e fica rascunho', async () => {
+    const T = await novoTenant(app.db);
+    const [usda] = await inserirPublicos(owner.pool, [{ nome: 'Quinoa, cozida', nomeOriginal: 'Quinoa, cooked', kcal: 120 }]);
+    const { p, id } = await rascunhoCom(T, (r) => corpo(r, [item(idTaco(3)), item(usda)]));
+    try {
+      await expect(publicarPlano(T.ctx, p.id, id, deps)).rejects.toEqual(new PlanoError({ geral: MSG_PLANO.publicarSemVersao }));
+      expect((await linhaDoPlano(T, id)).status).toBe('rascunho');
+    } finally {
+      await descartarRascunho(T.ctx, p.id, id, deps); // a FK RESTRICT de meal_items prenderia a linha pública de teste
+      await apagarPublicos(owner.pool, [usda]);
+    }
   });
 });
