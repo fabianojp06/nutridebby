@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { Botao } from '@/components/ui/botao';
-import { aoFecharPeloNavegador, devolveFocoAoDesmontar } from './dialogo-fechar';
+import { alvoDoFocoAoFechar, aoFecharPeloNavegador, devolveFocoAoDesmontar } from './dialogo-fechar';
 
 /** O `[data-foco-inicial]` do próprio diálogo — nunca o de um diálogo aninhado dentro dele. */
 function focoInicialDe(d: HTMLDialogElement): HTMLElement | undefined {
@@ -73,6 +73,8 @@ export function Dialogo({
   const aoFecharAgora = useRef(aoFechar);
   const ocupadoAgora = useRef(ocupado);
   const focoAoFecharAgora = useRef(focoAoFechar);
+  /** O foco já voltou nesta abertura (o `close` devolveu): a desmontagem logo depois não devolve de novo. */
+  const devolvido = useRef(false);
   const id = useId();
   const idTitulo = `${id}-titulo`;
   const idDescricao = `${id}-descricao`;
@@ -85,10 +87,11 @@ export function Dialogo({
 
   /** O foco de volta (ao fechar ou ao desmontar aberto): o elemento que abriu, se ainda está no DOM; senão, `focoAoFechar`. */
   const devolverFoco = useRef(() => {
+    if (devolvido.current) return;
+    devolvido.current = true;
     const volta = anterior.current;
     anterior.current = null;
-    const alvo = volta?.isConnected ? volta : (focoAoFecharAgora.current?.() ?? null);
-    alvo?.focus();
+    alvoDoFocoAoFechar<HTMLElement>(volta, focoAoFecharAgora.current)?.focus();
   });
 
   // Minor do /code-review do PR 1: o pai desmontou o <Dialogo> aberto — o `close` não dispara e o foco ficaria no `body`
@@ -96,7 +99,7 @@ export function Dialogo({
     const d = ref.current;
     const devolver = devolverFoco.current;
     return () => {
-      if (devolveFocoAoDesmontar({ aberto: abertoAgora.current, conectado: d?.isConnected ?? false })) devolver();
+      if (devolveFocoAoDesmontar({ aberto: abertoAgora.current, conectado: d?.isConnected ?? false, devolvido: devolvido.current })) devolver();
     };
   }, []);
 
@@ -107,6 +110,7 @@ export function Dialogo({
     if (aberto && !d.open) {
       const ativo = document.activeElement;
       anterior.current = ativo instanceof HTMLElement && ativo !== document.body ? ativo : null;
+      devolvido.current = false;
       d.showModal();
       focoInicialDe(d)?.focus();
     } else if (!aberto && d.open) {

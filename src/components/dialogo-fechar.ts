@@ -22,7 +22,27 @@ export function aoFecharPeloNavegador(s: { ocupado: boolean; aberto: boolean }):
  * O `<Dialogo>` desmontou (o pai o tirou da tela, ou a tela inteira saiu): o `close` não dispara, então o foco volta pela
  * limpeza do efeito — só se ele estava aberto e o `<dialog>` saiu mesmo do DOM (`conectado` falso). No Strict Mode, a
  * desmontagem simulada deixa o `<dialog>` no DOM: o foco fica onde está.
+ *
+ * Plano 22 (T3, primeiro uso): `devolvido` — o foco já voltou nesta abertura (o `close` do navegador devolveu e avisou
+ * `aoFechar`, e o pai desmontou o `<Dialogo>` em seguida, ainda com `aberto`): não devolve de novo (a segunda chamada
+ * iria para `focoAoFechar` e tiraria o foco de onde a primeira o pôs).
  */
-export function devolveFocoAoDesmontar(s: { aberto: boolean; conectado: boolean }): boolean {
-  return s.aberto && !s.conectado;
+export function devolveFocoAoDesmontar(s: { aberto: boolean; conectado: boolean; devolvido?: boolean }): boolean {
+  return s.aberto && !s.conectado && !s.devolvido;
+}
+
+/**
+ * Plano 22 (T3): o alvo do foco ao fechar — o elemento que abriu, se ainda está no DOM; senão, o que `focoAoFechar`
+ * devolver, só se estiver no DOM. `focoAoFechar` pode rodar depois de o pai desmontar (as refs dele já são nulas): erro
+ * ou retorno nulo/desconectado vira `null` (o foco fica onde está), nunca uma exceção na limpeza do efeito.
+ */
+export function alvoDoFocoAoFechar<T extends { isConnected: boolean }>(volta: T | null, focoAoFechar?: () => T | null | undefined): T | null {
+  if (volta?.isConnected) return volta;
+  let alvo: T | null | undefined = null;
+  try {
+    alvo = focoAoFechar?.();
+  } catch {
+    alvo = null;
+  }
+  return alvo?.isConnected ? alvo : null;
 }
