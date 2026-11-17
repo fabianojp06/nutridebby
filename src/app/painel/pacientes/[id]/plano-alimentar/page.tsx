@@ -9,6 +9,7 @@ import { iaDoAssistente } from '../ia-assistente';
 import { carregarProntuario } from '../prontuario';
 import { BotaoAcao } from './botao-acao';
 import { CriarDeModelo } from './criar-de-modelo';
+import { SecaoLembretes } from './lembretes/secao';
 import { criarRascunhoAction, editarPublicadoAction } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -26,42 +27,46 @@ export default async function PlanoAlimentarPage({ params }: PageProps<'/painel/
   // US-121 (Plano 14B): com a IA presente e o paciente ativo; sem poder pedir, o motivo (texto da aba Exames, uso rascunho_plano)
   const ia = await iaDoAssistente(ctx, tenant, paciente, 'rascunho_plano');
   return (
-    <section className="space-y-4">
-      <h2 className="text-xl font-semibold">Plano alimentar</h2>
-      {!bloqueado && (
-        <div className="flex flex-wrap gap-3">
-          {rascunho ? (
-            <Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${rascunho.id}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Continuar o rascunho (versão {rascunho.versao})</Link>
-          ) : publicado ? (
-            <BotaoAcao acao={editarPublicadoAction.bind(null, paciente.id, publicado.id)} rotulo="Editar o plano publicado" />
-          ) : (
-            <BotaoAcao acao={criarRascunhoAction.bind(null, paciente.id)} rotulo="Criar plano" />
-          )}
-          {!rascunho && modelos.length > 0 && <CriarDeModelo acao={criarDeModeloAction.bind(null, paciente.id)} modelos={modelos} />}
-          {ia?.podePedir && <BotaoLink href={`/painel/pacientes/${paciente.id}/plano-alimentar/rascunho-ia`} variante="secundario">{MSG_RASCUNHO_IA.botao}</BotaoLink>}
-        </div>
-      )}
-      {ia && !ia.podePedir && <p className="text-sm text-suave">{ia.aviso}</p>}
-      {planos.length === 0 ? (
-        <p>Nenhum plano ainda.</p>
-      ) : (
-        <table className="w-full text-left">
-          <caption className="sr-only">Versões do plano</caption>
-          <thead className="text-sm text-suave">
-            <tr><th scope="col">Versão</th><th scope="col">Título</th><th scope="col">Situação</th><th scope="col">Publicado em</th></tr>
-          </thead>
-          <tbody>
-            {planos.map((p) => (
-              <tr key={p.id}>
-                <td><Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${p.id}`} className="text-link underline">Versão {p.versao}</Link></td>
-                <td>{p.titulo}</td>
-                <td>{STATUS[p.status]}</td>
-                <td>{p.publicadoEm ? formatarDataNoFuso(p.publicadoEm, tenant.fuso) : '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </section>
+    <div className="space-y-6">
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Plano alimentar</h2>
+        {!bloqueado && (
+          <div className="flex flex-wrap gap-3">
+            {rascunho ? (
+              <Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${rascunho.id}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Continuar o rascunho (versão {rascunho.versao})</Link>
+            ) : publicado ? (
+              <BotaoAcao acao={editarPublicadoAction.bind(null, paciente.id, publicado.id)} rotulo="Editar o plano publicado" />
+            ) : (
+              <BotaoAcao acao={criarRascunhoAction.bind(null, paciente.id)} rotulo="Criar plano" />
+            )}
+            {!rascunho && modelos.length > 0 && <CriarDeModelo acao={criarDeModeloAction.bind(null, paciente.id)} modelos={modelos} />}
+            {ia?.podePedir && <BotaoLink href={`/painel/pacientes/${paciente.id}/plano-alimentar/rascunho-ia`} variante="secundario">{MSG_RASCUNHO_IA.botao}</BotaoLink>}
+          </div>
+        )}
+        {ia && !ia.podePedir && <p className="text-sm text-suave">{ia.aviso}</p>}
+        {planos.length === 0 ? (
+          <p>Nenhum plano ainda.</p>
+        ) : (
+          <table className="w-full text-left">
+            <caption className="sr-only">Versões do plano</caption>
+            <thead className="text-sm text-suave">
+              <tr><th scope="col">Versão</th><th scope="col">Título</th><th scope="col">Situação</th><th scope="col">Publicado em</th></tr>
+            </thead>
+            <tbody>
+              {planos.map((p) => (
+                <tr key={p.id}>
+                  <td><Link href={`/painel/pacientes/${paciente.id}/plano-alimentar/${p.id}`} className="text-link underline">Versão {p.versao}</Link></td>
+                  <td>{p.titulo}</td>
+                  <td>{STATUS[p.status]}</td>
+                  <td>{p.publicadoEm ? formatarDataNoFuso(p.publicadoEm, tenant.fuso) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+      {/* Plano 17 (Tarefa 5): os lembretes de rotina por push, abaixo da lista de planos */}
+      <SecaoLembretes ctx={ctx} tenant={tenant} patientId={paciente.id} status={paciente.status} />
+    </div>
   );
 }

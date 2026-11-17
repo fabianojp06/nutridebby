@@ -108,7 +108,7 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(itens('plano-alimentar')).toContain(
       '"Gerar rascunho com IA": informe a meta, os macronutrientes e as refeições; a IA escolhe alimentos da TACO e da sua tabela, e todas as contas são do sistema. O plano publicado leva o selo "Elaborado com apoio de IA e revisado pela nutricionista".',
     );
-    expect(GUIAS.find((x) => x.id === 'plano-alimentar')!.versao).toBe(1);
+    expect(GUIAS.find((x) => x.id === 'plano-alimentar')!.versao).toBe(2); // 2 desde o Plano 17 (a seção Lembretes no app, abaixo)
     // as telas novas ficam no guia do prontuário e no do plano alimentar
     expect(guiaDaRota(`/painel/pacientes/${UUID}/resumo-ia`)?.id).toBe('prontuario');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/plano-alimentar/rascunho-ia`)?.id).toBe('plano-alimentar');
@@ -141,6 +141,19 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota(`/painel/pacientes/${UUID}/ia-nutri`)?.id).toBe('ia-nutri');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/ia-nutri-x`)?.id).toBe('prontuario');
     expect(GUIAS.find((x) => x.id === 'duvidas')!.passos.map((p) => p.alvo)).toEqual(['fila-duvidas']);
+  });
+  it('Plano 17: a seção "Lembretes no app" no guia do plano alimentar (versão 2, passo depois de Publicar e o limite nas perguntas comuns)', () => {
+    const g = GUIAS.find((x) => x.id === 'plano-alimentar')!;
+    expect(g.versao).toBe(2);
+    expect(g.passos.map((p) => p.alvo)).toEqual(['editor-plano', 'publicar-plano', 'lembretes-app']);
+    expect(g.passos.find((p) => p.alvo === 'lembretes-app')).toEqual({
+      alvo: 'lembretes-app',
+      titulo: 'Lembretes no app',
+      texto: 'Configure água, avisos das refeições do plano, suplemento e lembrete livre. O paciente pode desligar qualquer um; o nome do suplemento e o texto livre aparecem só dentro do app.',
+    });
+    const perguntas = g.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')!.itens.join(' ');
+    expect(perguntas).toContain('24 lembretes por dia');
+    expect(perguntas).toContain('entre 6h e 22h');
   });
   it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
     expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');
