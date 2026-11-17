@@ -21,6 +21,11 @@ describe('lerMarcacao (RN-395)', () => {
       { tipo: 'paragrafo', trechos: [t('-sem espaço não é lista')] },
     ]);
   });
+  it('linha "- " sem texto não vira item vazio (é descartada)', () => {
+    expect(lerMarcacao('- jejum de 8 h\n- \n-    \n- sem exercício')).toEqual([{ tipo: 'lista', itens: [[t('jejum de 8 h')], [t('sem exercício')]] }]);
+    expect(lerMarcacao('- ')).toEqual([]);
+    expect(lerMarcacao('Preparo:\n- \nVenha cedo.')).toEqual([{ tipo: 'paragrafo', trechos: [t('Preparo:\nVenha cedo.')] }]);
+  });
   it('negrito **…**, também dentro da lista', () => {
     expect(lerMarcacao('Tome **2 cápsulas** ao dia e **beba água**.')).toEqual([
       { tipo: 'paragrafo', trechos: [t('Tome '), t('2 cápsulas', true), t(' ao dia e '), t('beba água', true), t('.')] },

@@ -71,4 +71,64 @@ describe('Dialogo e DialogoConfirmar (src/components/dialogo.tsx)', () => {
     expect(html).not.toContain('Cancelar');
     expect(html).toMatch(botao('Mostrar no app', 'data-foco-inicial=""'));
   });
+
+  it('children só com aberto (nada oculto no DOM fechado); título e rodapé ficam', () => {
+    const fechado = renderToStaticMarkup(createElement(Dialogo, { aberto: false, titulo: 'Buscar', aoFechar: nada }, createElement('ul', null, createElement('li', null, 'Ferritina'))));
+    expect(fechado).not.toContain('Ferritina');
+    expect(fechado).not.toContain('<ul');
+    expect(fechado).toMatch(/<h2[^>]*>Buscar<\/h2>/);
+    expect(fechado).toMatch(botao('Fechar'));
+    expect(renderToStaticMarkup(createElement(Dialogo, { aberto: true, titulo: 'Buscar', aoFechar: nada }, createElement('ul', null, createElement('li', null, 'Ferritina'))))).toContain('<li>Ferritina</li>');
+  });
+
+  it('rodapé fora da rolagem: open:flex open:flex-col no <dialog> (nunca flex puro), só o corpo rola, rodapé shrink-0', () => {
+    const html = renderToStaticMarkup(createElement(Dialogo, { aberto: true, titulo: 'T', aoFechar: nada }, createElement('p', null, 'corpo')));
+    const classe = /<dialog[^>]* class="([^"]+)"/.exec(html)?.[1] ?? '';
+    const classes = classe.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(['open:flex', 'open:flex-col', 'overflow-hidden']));
+    expect(classes).not.toContain('flex');
+    expect(classes).not.toContain('overflow-y-auto');
+    expect(html).toMatch(/<div class="[^"]*\boverflow-y-auto\b[^"]*\bmin-h-0\b|<div class="[^"]*\bmin-h-0\b[^"]*\boverflow-y-auto\b/);
+    expect(html).toMatch(/<div class="[^"]*overflow-y-auto[^"]*"><p>corpo<\/p><\/div>/);
+    expect(html).toMatch(/<div class="[^"]*\bshrink-0\b[^"]*"><button[^>]*>Fechar<\/button><\/div><\/dialog>/);
+  });
+
+  it('ocupado: "Fechar" fica aria-disabled (sem disabled, o foco não sai) e o diálogo, aria-busy', () => {
+    const html = renderToStaticMarkup(createElement(Dialogo, { aberto: true, titulo: 'T', aoFechar: nada, ocupado: true }, 'x'));
+    expect(html).toMatch(botao('Fechar', 'aria-disabled="true"'));
+    expect(html).not.toContain(' disabled=""');
+    expect(html).toMatch(/<dialog[^>]* aria-busy="true"/);
+    const livre = renderToStaticMarkup(createElement(Dialogo, { aberto: true, titulo: 'T', aoFechar: nada }, 'x'));
+    expect(livre).not.toContain('aria-disabled="');
+    expect(livre).not.toContain('aria-busy');
+  });
+
+  it('DialogoConfirmar: perigo → role="alertdialog"; sem perigo, sem role (o papel do <dialog>)', () => {
+    const base = { aberto: true, titulo: 'T', texto: 'x', confirmar: 'Remover', aoConfirmar: nada, aoFechar: nada };
+    expect(renderToStaticMarkup(createElement(DialogoConfirmar, { ...base, perigo: true }))).toMatch(/<dialog[^>]* role="alertdialog"/);
+    expect(renderToStaticMarkup(createElement(DialogoConfirmar, base))).not.toContain('role=');
+  });
+
+  it('DialogoConfirmar ocupado: os dois botões aria-disabled e o clique não chama nada; livre, "Cancelar" chama aoFechar sem argumentos', () => {
+    const chamadas: unknown[][] = [];
+    const registra = (...a: unknown[]) => {
+      chamadas.push(a);
+    };
+    const html = renderToStaticMarkup(createElement(DialogoConfirmar, { aberto: true, titulo: 'T', texto: 'x', confirmar: 'Remover', aoConfirmar: nada, aoFechar: nada, perigo: true, ocupado: true }));
+    expect(html).toMatch(botao('Cancelar', 'aria-disabled="true"'));
+    expect(html).toMatch(botao('Remover', 'aria-disabled="true"'));
+    // os onClick, pelos props do rodapé (sem DOM)
+    const rodape = (props: Record<string, unknown>) => {
+      const el = DialogoConfirmar(props as Parameters<typeof DialogoConfirmar>[0]) as { props: { rodape: { props: { children: { props: { onClick: (e?: unknown) => void } }[] } } } };
+      return el.props.rodape.props.children.map((b) => b.props.onClick);
+    };
+    const [cancelarOcupado, confirmarOcupado] = rodape({ aberto: true, titulo: 'T', texto: 'x', confirmar: 'Remover', aoConfirmar: registra, aoFechar: registra, ocupado: true });
+    cancelarOcupado({ type: 'click' });
+    confirmarOcupado({ type: 'click' });
+    expect(chamadas).toEqual([]);
+    const [cancelar, confirmar] = rodape({ aberto: true, titulo: 'T', texto: 'x', confirmar: 'Remover', aoConfirmar: registra, aoFechar: registra });
+    cancelar({ type: 'click' });
+    confirmar({ type: 'click' });
+    expect(chamadas).toEqual([[], []]);
+  });
 });

@@ -74,7 +74,7 @@ const HEMOGRAMA = [
  * RN-372: **rascunho para a Debby.** Só nomes de exames laboratoriais e os outros nomes — os 14 grupos de `SINONIMOS`
  * (`src/modules/ia/correspondencia.ts`, todos os nomes de cada grupo) e os componentes do hemograma —, **sem unidade,
  * faixa, nota ou ordem por importância** (a ordem é a dos grupos), sem testes sem respaldo científico (mineralograma
- * capilar, IgG para "intolerância alimentar"; Res. CFN 306/2003, art. 2º, V). Só entra no catálogo o que a nutricionista
+ * capilar, IgG para "intolerância alimentar"; Res. CFN 306/2003, art. 2º, parágrafo único, V). Só entra no catálogo o que a nutricionista
  * marcar. O teste `constantes.test.ts` confere os grupos e a unicidade normalizada (RN-371).
  */
 export const NOMES_PARA_COMECAR: readonly { nome: string; sinonimos: string[] }[] = [

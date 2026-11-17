@@ -135,6 +135,20 @@ describe('Plano 22 (P22-02): regras puras da fórmula fitoterápica (RN-392, EP-
       expect(temTermoNaoVegetal(n), n).toBe(false);
     }
   });
+  it('TERMOS_NAO_VEGETAIS (revisão final do PR 1): própolis, geleia real, quitosana, glucosamina, condroitina, inositol, ubiquinol, coenzima Q10, licopeno e luteína, com e sem acento', () => {
+    for (const t of ['própolis', 'geleia real', 'quitosana', 'glucosamina', 'condroitina', 'inositol', 'ubiquinol', 'coenzima Q10', 'licopeno', 'luteína']) expect(TERMOS_NAO_VEGETAIS, t).toContain(t);
+    for (const n of ['Própolis verde', 'extrato de propolis', 'Geleia real liofilizada', 'GELÉIA REAL', 'Quitosana', 'Glucosamina', 'Condroitina', 'Mio-inositol', 'Ubiquinol', 'Coenzima Q10', 'Licopeno', 'Luteina', 'luteína e zeaxantina']) {
+      expect(temTermoNaoVegetal(n), n).toBe(true);
+    }
+    for (const n of ['Geleia de frutas', 'Real', 'Matricaria chamomilla L.']) expect(temTermoNaoVegetal(n), n).toBe(false);
+  });
+  it('fitoterapico (revisão final do PR 1; Res. CFN 680/2021, art. 9º, II): nomenclatura e extração com termo não vegetal são recusadas com naoVegetal; a padronização fica de fora', () => {
+    const fito = { tipo: 'fitoterapico', nomenclatura: 'Passiflora incarnata L.', parte: 'Folhas', extracao: 'Extrato seco', formaFarmaceutica: 'Cápsula', dose: '300 mg', via: 'oral', posologia: '1 cápsula à noite' };
+    expect(lanca('itens.0.nomenclatura', MSG_PRESCRICAO.naoVegetal)(() => validarRascunho({ itens: [{ ...fito, nomenclatura: 'Picolinato de cromo' }] }, { habilitada: true }))).toBe(true);
+    expect(lanca('itens.0.extracao', MSG_PRESCRICAO.naoVegetal)(() => validarRascunho({ itens: [{ ...fito, extracao: 'Curcumina isolada' }] }, { habilitada: true }))).toBe(true);
+    expect(lanca('itens.0.extracao', MSG_PRESCRICAO.naoVegetal)(() => validarRascunho({ itens: [{ ...fito, extracao: 'Própolis em extrato' }] }, { habilitada: true }))).toBe(true);
+    expect(validarRascunho({ itens: [{ ...fito, padronizacao: '3,5% de vitexina; ácido valerênico 0,8%' }] }, { habilitada: true }).itens).toHaveLength(1);
+  });
   it('TERMOS_NAO_VEGETAIS tem a lista da RN-392 (rascunho para a Debby); MSG_PRESCRICAO ganha compostos, binomio e naoVegetal (§6.2)', () => {
     for (const t of ['vitamina', 'mineral', 'aminoácido', 'isolado', 'ácido', 'sulfato', 'citrato', 'quelato', 'picolinato', 'glicinato', 'óxido', 'carbonato', 'cafeína', 'creatina', 'glutamina', 'carnitina', 'taurina', 'glutationa', 'coenzima', 'resveratrol', 'curcumina', 'berberina', 'quercetina', 'piperina', 'melatonina', 'colágeno', 'whey', 'proteína', 'peptídeo', 'ômega', 'cloridrato', 'Lactobacillus', 'Lacticaseibacillus', 'Bifidobacterium', 'Saccharomyces', 'Streptococcus', 'Bacillus']) {
       expect(TERMOS_NAO_VEGETAIS, t).toContain(t);

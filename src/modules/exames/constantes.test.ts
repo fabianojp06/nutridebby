@@ -24,7 +24,7 @@ describe('constantes do Plano 22 (RN-372, RN-381, §6.2)', () => {
     expect(texto).not.toMatch(/unidade|faixa|ordem|refMin|refMax|referencia/i);
   });
 
-  it('sem testes sem respaldo científico: nada de "mineralograma" nem "IgG" (RN-372; Res. 306/2003, art. 2º, V)', () => {
+  it('sem testes sem respaldo científico: nada de "mineralograma" nem "IgG" (RN-372; Res. CFN 306/2003, art. 2º, parágrafo único, V)', () => {
     const texto = JSON.stringify([NOMES_PARA_COMECAR, PAINEIS_PARA_COMECAR]).toLowerCase();
     expect(texto).not.toContain('mineralograma');
     expect(texto).not.toContain('igg');
