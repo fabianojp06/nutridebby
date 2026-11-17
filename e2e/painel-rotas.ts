@@ -39,7 +39,8 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/exames-recebidos/[id]': (i) => `/painel/exames-recebidos/${i.envio}`,
   '/painel/pacientes': () => '/painel/pacientes',
   '/painel/pacientes/novo': () => '/painel/pacientes/novo',
-  '/painel/pacientes/[id]': (i) => `/painel/pacientes/${i.paciente}`,
+  '/painel/pacientes/[id]': (i) => `/painel/pacientes/${i.paciente}`, // a aba Início (Plano 18; era o Resumo)
+  '/painel/pacientes/[id]/perfil': (i) => `/painel/pacientes/${i.paciente}/perfil`, // Plano 18 (D12): cadastro, Acesso ao app e Etiquetas
   '/painel/pacientes/[id]/anamnese': (i) => `/painel/pacientes/${i.paciente}/anamnese`,
   '/painel/pacientes/[id]/anamnese/nova': (i) => `/painel/pacientes/${i.paciente}/anamnese/nova`,
   '/painel/pacientes/[id]/anamnese/[anamneseId]': (i) => `/painel/pacientes/${i.paciente}/anamnese/${i.anamnese}`,

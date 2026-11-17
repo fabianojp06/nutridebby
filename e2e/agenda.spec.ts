@@ -335,7 +335,8 @@ test('convite por WhatsApp no cadastro: aviso sem link, com o e-mail mascarado; 
   expect(msg.texto).not.toMatch(/https?:|\/convite\//);
   const convite = await esperarEmail(email);
   expect(primeiroLink(convite.texto, '/convite/paciente/')).toMatch(/\/convite\/paciente\/[A-Za-z0-9_-]{43}$/);
-  // o worker grava "enviada" logo depois de o sandbox aceitar a mensagem
+  // o worker grava "enviada" logo depois de o sandbox aceitar a mensagem; a situação fica no "Acesso ao app" do Perfil (Plano 18, D12)
+  await nutri.goto(`${new URL(nutri.url()).pathname}/perfil`);
   await expect(async () => {
     await nutri.reload();
     await expect(nutri.getByText(/^Convite por WhatsApp: enviado em /)).toBeVisible({ timeout: 1000 });

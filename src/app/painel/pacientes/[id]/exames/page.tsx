@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
+import { FocoNaAncora } from '@/components/foco-na-ancora';
 import { Aviso } from '@/components/ui/aviso';
 import { Selo } from '@/components/ui/selo';
 import { getEnv } from '@/env';
@@ -52,6 +53,7 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
   const pediuConferir = typeof busca.conferir === 'string';
   return (
     <div className="space-y-8">
+      <FocoNaAncora />
       {busca.envio === 'salvo' && <Aviso tipo="ok">{MSG_REVISAO.salvo}</Aviso>}
       {iaRecusou && <Aviso tipo="aviso">{iaRecusou}</Aviso>}
       {enviados > 0 && (
@@ -97,7 +99,7 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
       )}
       {!bloqueado && (
         <section aria-labelledby="novo-exame" className="max-w-4xl space-y-3">
-          <h2 id="novo-exame" className="text-lg font-semibold">Novo exame</h2>
+          <h2 id="novo-exame" tabIndex={-1} className="text-lg font-semibold">Novo exame</h2>
           <ExameForm patientId={paciente.id} hoje={hojeNoFuso(tenant.fuso)} />
         </section>
       )}

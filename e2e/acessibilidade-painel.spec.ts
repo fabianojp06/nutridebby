@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
 import { escolherTema, prepararTelasComId } from './painel';
-import { ROTAS_DO_PAINEL } from './painel-rotas';
+import { ROTAS_DO_PAINEL, type IdsDoPainel } from './painel-rotas';
 import { avaliar, pacienteNoPortal } from './portal';
 
 // RNF-10 (D25): o painel com zero violação WCAG 2.1 AA (+ alvo de toque da 2.2) nos três modos, em TODAS as telas
@@ -15,6 +15,7 @@ const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 test.describe.configure({ mode: 'serial', timeout: 240_000 }); // cada teste visita as ~44 telas do painel
 let nutri: Page;
 let rotas: string[] = [];
+let ids: IdsDoPainel;
 let errosCsp: string[] = []; // D7: a CSP vale direto porque o E2E abre todas as telas sem violação — a prova é este laço
 
 test.beforeAll(async ({ browser }) => {
@@ -22,7 +23,7 @@ test.beforeAll(async ({ browser }) => {
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.13.84');
   await expect(nutri).toHaveURL(/\/painel$/);
   errosCsp = vigiarCsp(nutri);
-  const ids = await prepararTelasComId(browser, nutri, '10.9.13.83', '10.9.29.51');
+  ids = await prepararTelasComId(browser, nutri, '10.9.13.83', '10.9.29.51');
   // a Segurança da conta fica fora do /painel, mas segue o tema da conta (D17, achado 9 do /code-review do PR #12)
   rotas = [...Object.values(ROTAS_DO_PAINEL).map((f) => f(ids)), '/conta/seguranca'];
 });
@@ -72,6 +73,35 @@ test('estados abertos também passam: menu da conta, aviso de erro de formulári
   await nutri.goto('/painel/pacientes/novo');
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click(); // vazio: erros por campo (role="alert")
   expect(await violacoes(nutri)).toEqual([]);
+});
+
+/**
+ * Plano 18 (D12, US-262 "Abas"): com Documentos e IA Nutri ligados (seed), as 13 abas da ficha — Início e Perfil na frente,
+ * "Histórico" por último — cabem inteiras a 1280 px (a faixa não rola e o axe não deixa nada em "incomplete"); o cadastro,
+ * o "Acesso ao app" e as "Etiquetas" ficam no Perfil, e o Início não tem mais o formulário.
+ */
+test('Plano 18: a faixa de abas da ficha cabe a 1280 px sem "incomplete"; o cadastro fica no Perfil', async () => {
+  await escolherTema(nutri, 'Claro');
+  await nutri.setViewportSize({ width: 1280, height: 720 });
+  await nutri.goto(`/painel/pacientes/${ids.paciente}/perfil`);
+  const faixa = nutri.getByRole('navigation', { name: 'Seções do prontuário' });
+  await expect(faixa.getByRole('link')).toHaveCount(13);
+  await expect(faixa.getByRole('link').first()).toHaveText('Início');
+  await expect(faixa.getByRole('link', { name: 'Perfil', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(faixa.getByRole('link').last()).toHaveText('Histórico');
+  await expect(faixa.getByRole('link').last()).toHaveAccessibleName('Histórico de acessos');
+  expect(await faixa.locator('ul').evaluate((ul) => ul.scrollWidth <= ul.clientWidth), 'a faixa de abas rola a 1280 px').toBe(true);
+  const r = await new AxeBuilder({ page: nutri }).withTags(TAGS).include('nav[aria-label="Seções do prontuário"]').analyze();
+  expect(r.violations.map((v) => v.id)).toEqual([]);
+  expect(r.incomplete.map((i) => `${i.id}: ${i.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
+  await expect(nutri.getByRole('heading', { level: 2, name: 'Cadastro' })).toBeVisible();
+  await expect(nutri.getByRole('button', { name: 'Salvar cadastro' })).toBeVisible();
+  await expect(nutri.getByRole('heading', { level: 2, name: 'Acesso ao app' })).toBeVisible();
+  await expect(nutri.getByRole('heading', { level: 2, name: 'Etiquetas' })).toBeVisible();
+  await nutri.goto(`/painel/pacientes/${ids.paciente}`);
+  await expect(faixa.getByRole('link', { name: 'Início', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(nutri.getByRole('button', { name: 'Salvar cadastro' })).toHaveCount(0);
+  await escolherTema(nutri, 'Igual ao aparelho');
 });
 
 /**

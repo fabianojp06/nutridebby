@@ -1,4 +1,5 @@
 import { ConfirmarBotao } from '@/components/confirmar-botao';
+import { FocoNaAncora } from '@/components/foco-na-ancora';
 import { formatarDecimal } from '@/lib/numero';
 import { listarAntropometrias } from '@/modules/pacientes/antropometria';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
@@ -19,8 +20,9 @@ export default async function AntropometriaPage({ params, searchParams }: PagePr
   const bloqueado = paciente.status === 'bloqueado';
   return (
     <div className="space-y-8">
+      <FocoNaAncora />
       <section aria-labelledby="nova-avaliacao" className="max-w-3xl space-y-3">
-        <h2 id="nova-avaliacao" className="text-lg font-semibold">Nova avaliação</h2>
+        <h2 id="nova-avaliacao" tabIndex={-1} className="text-lg font-semibold">Nova avaliação</h2>
         <AntropometriaForm
           acao={registrarAntropometriaAction.bind(null, paciente.id)}
           hoje={hojeNoFuso(tenant.fuso)}
