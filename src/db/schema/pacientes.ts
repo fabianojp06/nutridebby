@@ -399,8 +399,8 @@ const naLista = (lista: readonly string[]) => sql.raw(lista.map((v) => `'${v}'`)
  * que a ficha precisa além do cadastro de sempre. Tabela filha para que o contexto de paciente sem login (convite, links,
  * webhook, contexto da IA Nutri, "No app") nunca leia CPF, endereço nem observação: política RESTRICTIVE
  * `patient_cadastro_paciente_com_conta`. Auditada como `patients` ("Cadastro do paciente"; o `criar` aparece como "Alterou").
- * Gatilhos: `patient_cadastro_colunas_fixas` (id, tenant e paciente não mudam) e `patient_cadastro_sem_apagar` (só o worker
- * apaga, com o titular anonimizado). Toda regra dos CHECKs é conferida no servidor antes de gravar (D23: o 23514 leva a
+ * Gatilhos: `patient_cadastro_colunas_fixas` (id, tenant e paciente não mudam), `patient_cadastro_sem_apagar` (só o worker
+ * apaga, com o titular anonimizado) e `patient_cadastro_titular_ativo` (titular anonimizado não ganha INSERT nem UPDATE). Toda regra dos CHECKs é conferida no servidor antes de gravar (D23: o 23514 leva a
  * linha inteira ao log do Postgres).
  */
 export const patientCadastro = pgTable(

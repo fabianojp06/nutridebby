@@ -120,6 +120,39 @@ describe('patient_cadastro: colunas fixas e apagar (gatilhos)', () => {
     expect((await apagar(worker)).rowCount).toBe(1);
     expect(await lerUma(T.ctx, c.id)).toEqual([]);
   });
+  it('titular anonimizado não ganha cadastro de volta (INSERT nem UPDATE)', async () => {
+    const { T, p, worker, exec, criar } = await cenario();
+    const c = await criar();
+    const outro = await novoPaciente(app.db, T.ctx);
+    const anonimizar = (id: string) => exec(worker, sql`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizado_em = now() where id = ${id}`);
+    // bloqueado, ainda sem anonimizado_em: o banco não segura (a aplicação recusa com PacienteBloqueadoError)
+    await exec(worker, sql`update patients set status = 'bloqueado', bloqueado_em = now() where id = ${p.id}`);
+    expect((await exec(T.ctx, sql`update patient_cadastro set ocupacao = 'Professora' where id = ${c.id}`)).rowCount).toBe(1);
+    await anonimizar(p.id);
+    for (const ctx of [T.ctx, worker]) {
+      expect(await falhaCom(exec(ctx, sql`update patient_cadastro set ocupacao = 'Outra' where id = ${c.id}`))).toBe('42501');
+      expect(await falhaCom(exec(ctx, sql`update patient_cadastro set ocupacao = null where id = ${c.id}`))).toBe('42501');
+    }
+    await anonimizar(outro.id);
+    expect(await falhaCom(criar({}, T.ctx, outro.id))).toBe('42501');
+    expect(await falhaCom(criar({}, worker, outro.id))).toBe('42501');
+    // o apagamento da anonimização continua passando
+    expect((await exec(worker, sql`delete from patient_cadastro where id = ${c.id}`)).rowCount).toBe(1);
+  });
+
+  it('a política sem conta é RESTRICTIVE, FOR ALL, com USING e WITH CHECK', async () => {
+    const r = await app.db.execute(
+      sql`select permissive, cmd, roles::text[] as roles, qual, with_check from pg_policies
+          where schemaname = 'public' and tablename = 'patient_cadastro' and policyname = 'patient_cadastro_paciente_com_conta'`,
+    );
+    expect(r.rows).toHaveLength(1);
+    const pol = r.rows[0] as { permissive: string; cmd: string; qual: string | null; with_check: string | null };
+    expect(pol).toMatchObject({ permissive: 'RESTRICTIVE', cmd: 'ALL' });
+    for (const expr of [pol.qual, pol.with_check]) {
+      expect(expr).toMatch(/app_current_role\(\) IS DISTINCT FROM 'paciente'/);
+      expect(expr).toMatch(/app_current_user\(\) IS NOT NULL/);
+    }
+  });
 });
 
 describe('patient_cadastro: auditoria como o cadastro do paciente (regra 8)', () => {
