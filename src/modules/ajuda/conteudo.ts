@@ -234,13 +234,24 @@ export const GUIAS: readonly Guia[] = [
     ajuda: {
       resumo: 'As consultas do dia e da semana, marcadas por você, pelo paciente no app ou pela sua página pública.',
       secoes: [
-        { titulo: 'Passo a passo', itens: ['Use "Nova consulta" para marcar; o paciente recebe a confirmação e os lembretes.', 'Abra a consulta para remarcar, cancelar, registrar a presença ou iniciar o atendimento.', 'Ao marcar "Realizada" (ou registrar o atendimento da consulta), a cobrança é criada no Financeiro com o valor da consulta; a seção "Cobrança" da consulta mostra o valor e o recebimento.', 'Consultas sem registro de presença aparecem em "Pendências".'] },
-        { titulo: 'Perguntas comuns', itens: ['Os lembretes saem 24 h e 2 h antes, por e-mail, notificação no app e WhatsApp (se conectado e autorizado).'] },
+        { titulo: 'Passo a passo', itens: ['Use "Nova consulta" para marcar; o paciente recebe a confirmação e os lembretes.', 'Abra a consulta para remarcar, cancelar, registrar a presença ou iniciar o atendimento.', 'Ao marcar "Realizada" (ou registrar o atendimento ligado à consulta), a cobrança é criada no Financeiro com o valor da consulta, se ele estiver configurado. A seção "Cobrança" da consulta mostra o valor e o recebimento.', 'Consultas sem registro de presença aparecem em "Pendências".'] },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Os lembretes saem 24 h e 2 h antes, por e-mail, notificação no app e WhatsApp (se conectado e autorizado).',
+            'Marcar "Faltou" não cria cobrança. Se a consulta já tinha uma, o aviso na tela diz o que fazer no Financeiro.',
+          ],
+        },
       ],
     },
     passos: [
       { alvo: 'periodo-agenda', titulo: 'Dia, semana ou lista', texto: 'Troque a visão e navegue entre os dias. "Hoje" volta para o dia atual.' },
       { alvo: 'nova-consulta', titulo: 'Nova consulta', texto: 'Marque uma consulta presencial ou online; o horário respeita os seus horários de atendimento.' },
+      // Plano 20: sem alvo (não há `data-guia` na lista nem no "Realizada"): abre no centro em qualquer tela da agenda
+      {
+        titulo: 'Cobrança da consulta',
+        texto: 'Quando você marca a consulta como "Realizada", a cobrança é criada sozinha no Financeiro, com o valor da consulta. Confira o valor e o recebimento na seção "Cobrança" da consulta. Sem o valor configurado, nada é criado.',
+      },
     ],
   },
   {
@@ -425,8 +436,9 @@ export const GUIAS: readonly Guia[] = [
     passos: [{ alvo: 'ativar-2fa', titulo: 'Ativar', texto: 'Confirme a senha, leia o QR Code com o aplicativo autenticador e digite o código de 6 dígitos.' }],
   },
   {
-    // Plano 20: no FIM da lista (o Plano 18 insere guias antes de 'prontuario'). Texto em rascunho até a revisão do
-    // revisor-interface e da Debby (spec §6.2). Os passos das Configurações abrem no centro quando o alvo não está na tela.
+    // Plano 20: no FIM da lista (o Plano 18 insere guias antes de 'prontuario'). Textos finais do revisor-interface
+    // (17/11/2026). O tour mostra todos os passos em qualquer tela do Financeiro: o passo cujo alvo não está na tela abre
+    // no centro, e por isso o título dos passos de outras telas começa pelo nome da tela.
     id: 'financeiro',
     versao: 1,
     padrao: /^\/painel\/financeiro(\/.*)?$/,
@@ -439,32 +451,35 @@ export const GUIAS: readonly Guia[] = [
           itens: [
             'Em "Configurações", informe a data e o valor do saldo do caixa e o valor da sua consulta.',
             'Com o valor da consulta informado, cada consulta marcada como Realizada gera a cobrança sozinha, na categoria Consultas.',
+            'Não escreva informações de saúde na descrição dos lançamentos.',
           ],
         },
         {
           titulo: 'Perguntas comuns',
           itens: [
             'O saldo atual soma ao saldo do caixa tudo o que foi recebido e pago a partir da data do saldo.',
+            'Lançamento não se apaga: "Cancelar lançamento" tira o lançamento dos totais e do saldo, mas ele continua na lista, como Cancelado.',
             'Categoria com lançamentos não pode ser excluída: use "Arquivar" para que ela não apareça nos formulários.',
             'A categoria Consultas pode mudar de nome, mas não pode ser arquivada nem excluída.',
             'Um lançamento recebido ou pago conta no mês do pagamento; em aberto, no mês do vencimento.',
+            'Se você incluir o nome dos pacientes no CSV, o download fica registrado no Histórico de acessos de cada paciente.',
           ],
         },
       ],
     },
     passos: [
       { alvo: 'financeiro-secoes', titulo: 'Seções do Financeiro', texto: 'Resumo, Lançamentos, Pagamentos pendentes, Relatórios e Configurações ficam nesta barra, em todas as telas do Financeiro.' },
-      { alvo: 'financeiro-cartoes', titulo: 'Resumo do mês', texto: 'O saldo atual, as entradas e as saídas do mês e os pagamentos pendentes dos pacientes. Os cartões aparecem depois que você configura o Financeiro.' },
-      { alvo: 'financeiro-saldo', titulo: 'Saldo do caixa', texto: 'Informe quanto havia no caixa numa data. O saldo atual soma a este valor tudo o que foi recebido e pago a partir dela.' },
-      { alvo: 'financeiro-valor-consulta', titulo: 'Valor da consulta', texto: 'Sugerido em toda cobrança criada ao marcar a consulta como Realizada. Sem ele, as consultas não geram cobrança.' },
-      { alvo: 'financeiro-categorias', titulo: 'Categorias', texto: 'Organize as entradas e as saídas: crie, renomeie ou arquive categorias. A categoria Consultas é a das cobranças das consultas.' },
-      { alvo: 'financeiro-filtros', titulo: 'Filtros da lista', texto: 'Escolha o mês, o tipo, a categoria, a situação ou a forma de pagamento e toque em "Filtrar". Os totais acima da lista seguem o filtro, sem os cancelados.' },
-      { alvo: 'financeiro-novo', titulo: 'Lançamento', texto: 'Valor, categoria e vencimento. Marque "Já foi recebido" (ou "Já foi pago") quando o dinheiro já entrou ou saiu. O paciente é opcional e só aparece na entrada.' },
-      { alvo: 'financeiro-receber', titulo: 'Receber', texto: 'Use "Marcar como recebido" com a data e a forma de pagamento. Lançou por engano? "Desfazer recebimento" volta o lançamento para em aberto.' },
-      { alvo: 'financeiro-cancelar', titulo: 'Cancelar', texto: 'Lançamento não se apaga: "Cancelar lançamento" pede o motivo e não tem volta. Ele continua na lista, como Cancelado, fora dos totais e do saldo.' },
-      { alvo: 'financeiro-pendentes', titulo: 'Pagamentos pendentes', texto: 'As cobranças dos pacientes ainda não recebidas, por paciente, da mais antiga para a mais nova. Toque em "Ver" para receber cada uma. Nada é enviado ao paciente.' },
-      { alvo: 'financeiro-relatorios', titulo: 'Relatórios', texto: 'O fluxo de caixa do ano, mês a mês, e as entradas e saídas dos últimos 12 meses. Só entram os lançamentos recebidos ou pagos. Escolha o ano em "Ano".' },
-      { alvo: 'financeiro-csv', titulo: 'CSV para o contador', texto: 'Escolha o período, de até 12 meses, e toque em "Baixar CSV". Sem "Incluir o nome dos pacientes", o arquivo sai sem os nomes e sem a descrição das entradas de pacientes.' },
+      { alvo: 'financeiro-cartoes', titulo: 'Resumo do mês', texto: 'No Resumo: o saldo atual, as entradas e as saídas do mês e os pagamentos pendentes dos pacientes. Os cartões só aparecem depois que você configura o Financeiro.' },
+      { alvo: 'financeiro-saldo', titulo: 'Configurações: saldo do caixa', texto: 'Em "Configurações", informe quanto havia no caixa numa data. O saldo atual soma a esse valor tudo o que foi recebido e pago a partir dela.' },
+      { alvo: 'financeiro-valor-consulta', titulo: 'Configurações: valor da consulta', texto: 'Em "Configurações", o valor é sugerido em toda cobrança criada ao marcar a consulta como Realizada, e você pode mudá-lo em cada cobrança. Sem o valor, a consulta não gera cobrança.' },
+      { alvo: 'financeiro-categorias', titulo: 'Configurações: categorias', texto: 'Crie, renomeie ou arquive as categorias das entradas e das saídas. A categoria Consultas é a das cobranças das consultas: pode mudar de nome, mas não pode ser arquivada.' },
+      { alvo: 'financeiro-filtros', titulo: 'Lançamentos: filtros', texto: 'Escolha o mês, o tipo, a categoria, a situação ou a forma de pagamento e clique em "Filtrar". Os totais acima da lista seguem o filtro e não contam os cancelados.' },
+      { alvo: 'financeiro-novo', titulo: 'Novo lançamento', texto: 'Informe valor, categoria e vencimento. Marque "Já foi recebido" (ou "Já foi pago") se o dinheiro já entrou ou saiu. Na entrada, você pode ligar o lançamento a um paciente. Não escreva informações de saúde na descrição.' },
+      { alvo: 'financeiro-receber', titulo: 'Receber ou pagar', texto: 'Use "Marcar como recebido" (ou "Marcar como pago") e informe a data e a forma de pagamento. Foi engano? "Desfazer recebimento" volta o lançamento para em aberto.' },
+      { alvo: 'financeiro-cancelar', titulo: 'Cancelar', texto: 'Lançamento não se apaga: "Cancelar lançamento" pede o motivo e não tem volta. Ele continua na lista, como Cancelado, e sai dos totais e do saldo.' },
+      { alvo: 'financeiro-pendentes', titulo: 'Pagamentos pendentes', texto: 'As cobranças que os pacientes ainda não pagaram, uma linha por paciente, começando pela mais antiga. Clique em "Ver" para receber cada uma. Esta lista é só sua: nada é enviado ao paciente.' },
+      { alvo: 'financeiro-relatorios', titulo: 'Relatórios', texto: 'O fluxo de caixa do ano, mês a mês, e as entradas e saídas dos últimos 12 meses. Só entram os lançamentos recebidos ou pagos. Troque o ano em "Ano".' },
+      { alvo: 'financeiro-csv', titulo: 'CSV para o contador', texto: 'Escolha o período (até 12 meses) e clique em "Baixar CSV". Sem marcar "Incluir o nome dos pacientes", o arquivo sai sem os nomes e sem a descrição das entradas de pacientes.' },
     ],
   },
 ];
