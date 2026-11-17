@@ -679,9 +679,12 @@ flowchart TD
 não há aba nova (as 12 abas já não cabem a 1280 px).
 
 - Primeira visão (nenhum lembrete): "Sugestão — confira e salve", com água 08:00–20:00 a cada 2 h, todos os dias, e
-  refeições na hora, sem diário; só vale depois de "Salvar". Depois: "Adicionar água", "Adicionar refeições" (abrem com o
-  item da sugestão), "Adicionar suplemento" e "Adicionar lembrete livre" (no limite, "Limite de 5 suplementos." / "Limite
-  de 5 lembretes livres.").
+  refeições na hora, sem diário; só vale depois de "Salvar". A sugestão fica guardada no cliente (`ListaDeLembretes`):
+  cada cartão sai quando é salvo e o outro fica na tela com o que foi editado nele (o servidor manda `sugestao: null`
+  assim que existe um lembrete); a sugestão some quando os dois estão salvos. Depois: "Adicionar água", "Adicionar
+  refeições" (abrem com o item da sugestão; cada um só aparece sem o lembrete salvo e sem o cartão do mesmo tipo na
+  sugestão), "Adicionar suplemento" e "Adicionar lembrete livre" (no limite, "Limite de 5 suplementos." / "Limite de 5
+  lembretes livres.").
 - Cada linha: nome do tipo, resumo, interruptor da equipe (`role="switch"`, "Ligado"/"Desligado"), "Editar" e "Apagar"
   (confirmação "Apagar este lembrete? O paciente deixa de recebê-lo."); "Desligado pelo paciente em {data}" e, no de
   refeições, os avisos "{refeição} sem horário — não gera lembrete", "{refeição} fora do horário dos lembretes (6h às 22h)" e
@@ -698,7 +701,9 @@ suplemento e livre; §5.5.2):
 
 - Lista só os lembretes **ligados pela equipe** (o desligado por ela não aparece; o desligado pelo paciente aparece
   "Desligado"), com o resumo ("Água: das 08:00 às 20:00, a cada 2 h · todos os dias", "Refeições: aviso na hora, nas
-  refeições do seu plano", "Suplemento: 08:00 e 20:00 · seg a sex", "Lembrete: 08:00 · todos os dias"), "Sua
+  refeições do seu plano" — com o pedido do diário ligado, "Refeições: aviso 15 min antes e pedido de registro no diário
+  30 min depois, nas refeições do seu plano" (`rotuloDoDiarioNoPortal`) —, "Suplemento: 08:00 e 20:00 · seg a sex",
+  "Lembrete: 08:00 · todos os dias"), "Sua
   nutricionista: {texto}" no suplemento e no livre, o interruptor e "Pausar todos os lembretes"/"Retomar os lembretes"
   (o mesmo botão, o foco fica). Com a pausa: "Lembretes pausados. Você não vai receber avisos até retomar." no topo, e os
   interruptores continuam usáveis. Sem nenhum: "Sua nutricionista ainda não configurou lembretes para você." (sem
@@ -1846,8 +1851,8 @@ Plano 17 (lembretes de rotina; spec `docs/superpowers/specs/2026-11-13-nutridebb
 
 20. **Nome da refeição no push.** A spec (§5.1, §7) põe "{nome da refeição}" no push. O código usa só o rótulo da lista
     fechada do diário (`refeicaoDoDiario`) e, fora dela, o texto genérico; na hora (antecedência 0) o texto é "Hora de:
-    {rótulo}" (NORMAS-DECISAO-1 da revisão do plano; `payloadDoSlot`, `src/modules/lembretes/envio.ts:42`). A spec não foi
-    emendada.
+    {rótulo}" (NORMAS-DECISAO-1 da revisão do plano; `payloadDoSlot`, `src/modules/lembretes/envio.ts:42`). Spec emendada (§9,
+    17/11/2026).
 21. **Prioridade da fusão.** A spec (§5.2) lista "refeição > suplemento > livre > água" na fusão do mesmo minuto; o código
     (e o plano) põe o pedido do diário entre o livre e a água (`PRIORIDADE`, `src/modules/lembretes/constantes.ts:26`).
 22. **Apagamento.** A spec (§5.5) diz que as duas tabelas "saem na anonimização". O código também as apaga na exclusão

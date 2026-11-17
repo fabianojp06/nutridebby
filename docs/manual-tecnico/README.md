@@ -645,7 +645,7 @@ divergências 20–27 do [cap. 5](05-agenda-portal-conteudo.md#divergências-enc
 
 | # | Fonte | Diz | Código | Tipo | Cap. |
 |---|---|---|---|---|---|
-| 121 | Spec §5.1, §7 | Push "Está chegando a hora: {nome da refeição}" | Só o rótulo da lista fechada do diário (`refeicaoDoDiario`), "Hora de: {rótulo}" na hora e texto genérico fora da lista (NORMAS-DECISAO-1); a spec não foi emendada | Reg. | 5 |
+| 121 | Spec §5.1, §7 | Push "Está chegando a hora: {nome da refeição}" | Só o rótulo da lista fechada do diário (`refeicaoDoDiario`), "Hora de: {rótulo}" na hora e texto genérico fora da lista (NORMAS-DECISAO-1); spec emendada (§9, 17/11/2026) | Reg. | 5 |
 | 122 | Spec §5.2 | Fusão: refeição > suplemento > livre > água | O pedido do diário entra entre o livre e a água (`PRIORIDADE`) | Doc | 5 |
 | 123 | Spec §5.5 | As tabelas "saem na anonimização" | Também na exclusão atendida, e a equipe apaga de fato (NORMAS-03: ajuste do app, não prontuário), salvo o lembrete desligado pelo paciente | Reg. | 5 |
 | 124 | Plano, "Estrutura de arquivos" | Migrations `0118` e `0119` | Também a `0120` (`lembretes_rotina_sem_apagar`, revisão da Tarefa 1) | Doc | 5 |
@@ -654,7 +654,7 @@ divergências 20–27 do [cap. 5](05-agenda-portal-conteudo.md#divergências-enc
 | 127 | Spec §5.2 | Só "…alguns lembretes de água não serão enviados." | Essa frase quando só a água é cortada; "…alguns lembretes não serão enviados." quando outro tipo também | Doc | 5 |
 | 128 | Spec §5.5 | "Configuração" no `dados.json` | Chave nova `lembretesDeRotina` (a `lembretes` é das consultas, Plano 05) e `paciente.lembretesPausadosEm` | Doc | 5 |
 | 129 | Spec §5.5 e comentário da `0119` | A configuração "é parte da conduta" | Auditada como escrita sobre o titular, mas, para a guarda, "ajuste do app, não prontuário" (`lgpd.ts`): as duas leituras valem juntas | Doc | 2, 5 |
-| 130 | `CLAUDE.md`, regras 2 e 8 | Cada plano anota as tabelas novas, listas e gatilhos | O Plano 17 não anotou `lembretes_rotina` nem `lembretes_rotina_envios` | Doc | 2 |
+| 130 | `CLAUDE.md`, regras 2 e 8 | Cada plano anota as tabelas novas, listas e gatilhos | **Resolvida (revisão final do Plano 17, 17/11/2026):** a anotação do Plano 17 entrou no fim das regras 2 e 8 | — | 2 |
 | 131 | `playwright.config.ts` | O `webServer` do E2E define `IA_RETENCAO_ZERO`, não `IA_PROVEDOR` | Local, `e2e/acessibilidade.spec.ts` (que ganhou Eu › Lembretes) só passa com `IA_PROVEDOR=sandbox` no ambiente do `next start` e do worker (o trecho da IA Nutri), se o `.env.local` não a definir; o CI já define a variável no job `e2e` | Pend. | 7 |
 
 ### CI no runner próprio (12/10/2026)

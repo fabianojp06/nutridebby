@@ -1,6 +1,6 @@
 # NutriDebby — Lembretes de rotina no app do paciente (design)
 
-Data: 13/11/2026 · Situação: rascunho para aprovação do dono · Plano previsto: Plano 17
+Data: 13/11/2026 · Situação: aprovada pelo dono em 13/11/2026; emendas pós-revisão em 17/11/2026 (§9) · Plano previsto: Plano 17
 
 ## 1. Intenção
 
@@ -191,3 +191,42 @@ Nomes de tabela/colunas e formato de `config`; desenho exato do formulário (com
 dos avisos dentro dos limites acima; tamanho do lote e concorrência do envio; testes (unidade do cálculo de slots com
 fuso e dias da semana; isolamento/RLS; E2E do painel e do portal); entrada no manual técnico, no manual do usuário e
 na Central de Ajuda no fechamento.
+
+## 9. Emendas pós-revisão (17/11/2026)
+
+O corpo acima fica como foi aprovado; onde o código decidiu diferente (revisões do plano e das tarefas do Plano 17), vale
+o que segue. Detalhe no manual técnico (§5.3.9 e divergências 121–131 do `README.md`).
+
+- **§5.1, §7 — nome da refeição no push (NORMAS-DECISAO-1):** só o rótulo da lista fechada do diário (`refeicaoDoDiario`):
+  "Está chegando a hora: {rótulo}" (15/30 min antes) ou "Hora de: {rótulo}" (na hora); fora da lista, "Está chegando a
+  hora da sua refeição" / "Hora da sua refeição". O nome digitado no plano nunca vai ao push.
+- **§5.1 — suplemento (NORMAS-DECISAO-2):** nome livre, sem vínculo com a receita; o formulário do painel mostra "O
+  lembrete não substitui a prescrição: composição, via e posologia vão na receita e no prontuário."
+- **§5.2 — prioridade na fusão e no corte:** refeição > suplemento > livre > diário > água (o pedido do diário entra entre
+  o livre e a água); no mesmo tipo, saem os mais tarde. O pedido do diário de refeição já registrada sai antes da janela,
+  da fusão e do teto.
+- **§5.2 — teto ao salvar e aviso do corte:** o teto conta o maior dia de uma semana de referência, com todos os lembretes
+  como ativos (inclusive desligados) e as refeições do plano publicado; o "Previsto para hoje" do painel é outro número.
+  Com um plano publicado acima de 24, só salva o que deixar o total em 24 ou menos. Duas frases: "Acima do limite de 24
+  por dia: alguns lembretes de água não serão enviados." quando só a água é cortada; "Acima do limite de 24 por dia:
+  alguns lembretes não serão enviados." quando outro tipo também.
+- **§5.2 — envio:** um push por paciente por minuto (o slot devido mais antigo, até 10 min de atraso). Slot anterior à
+  última edição, ao ligar ou ao religar não sai; retomar a pausa e ativar as notificações não renovam essa marca (a
+  tolerância de 10 min continua valendo depois de retomar a pausa).
+- **§5.3 — o que o paciente desligou (migration 0120):** a equipe não apaga o lembrete que o paciente desligou (só o
+  desliga do lado dela), salvo na exclusão atendida. A regra vale no banco (0119 e 0120), inclusive para criar lembrete
+  já desligado ou com o paciente já pausado. Botão do paciente: "Pausar todos os lembretes" / "Retomar os lembretes".
+- **§5.4 — seção de Eu:** aparece com `temLembretesNaTela` (algum lembrete ligado pela equipe, mesmo com tudo desligado
+  ou pausado pelo paciente: é o único caminho para religar); o cartão de Hoje segue com `temLembretes`.
+- **§5.5 — marca de envio e pausa:** a marca só é gravada pelo worker (INSERT/UPDATE; também a migration) e sai em
+  cascata com o lembrete. A pausa (`patients.lembretes_pausados_em`) também passa pelo gatilho
+  `patients_lembretes_do_paciente`: só o paciente pausa e retoma; o worker limpa na anonimização; a sessão `nutri` só a
+  limpa na ida a `bloqueado`.
+- **§5.5 — apagamento (NORMAS-03):** a configuração é auditada como escrita sobre o titular (CLAUDE.md, regra 8), mas, para
+  a guarda, é ajuste do app, não prontuário: a equipe apaga de fato, e as linhas saem também na exclusão atendida, além
+  da anonimização.
+- **§5.5 — exportação:** chave `lembretesDeRotina` no `dados.json` (a `lembretes` já é das consultas, Plano 05), com a
+  configuração, o texto, `ligado` e a escolha do titular, sem a marca de envio nem quem criou; e
+  `paciente.lembretesPausadosEm`.
+- **§5.6 — worker:** concorrência de 10 pacientes por vez; o log por tenant só sai nas execuções com slot devido
+  (`enviados`, `pulados`, `falhas`), não a cada execução.
