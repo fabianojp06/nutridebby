@@ -1,9 +1,12 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Revisão da T7 (Plano 14A): só o termo da IA impresso sai sem o cabeçalho do paciente e sem as abas (US-108); as outras
 // abas do prontuário (Anamnese, Atendimentos, Antropometria…) continuam saindo no papel com o nome do paciente.
 const PACIENTE = '00000000-0000-4000-8000-0000000000a1';
+const MEDIDAS = { data: '12/10/2026', alturaM: '1,65', pesoKg: '72,4', imc: '26,6', gordura: '28,1' };
+// Plano 18 (revisão da P18-03): o peso oculto no app e a ausência de avaliação mudam por caso
+const estado = vi.hoisted(() => ({ pesoOcultoNoAppEm: null as Date | null, cabecalho: null as unknown }));
 vi.mock('server-only', () => ({}));
 vi.mock('./prontuario', () => ({
   carregarProntuario: async () => ({
@@ -12,10 +15,10 @@ vi.mock('./prontuario', () => ({
       fuso: 'America/Sao_Paulo', documentosLiberados: false, status: 'ativa', iaLiberada: true, iaAtivadaEm: new Date('2026-10-01T12:00:00Z'), iaAditivoVersao: '9.9',
       nomeExibicao: 'Consultório', nomeProfissional: 'Débora', crn: 'CRN-3 1', contatoEmail: 'c@ex.com',
     },
-    paciente: { id: PACIENTE, nome: 'Ana Teste', status: 'ativo', anonimizadoEm: null, email: 'ana@ex.com', dataNascimento: null, sexo: 'F', pesoOcultoNoAppEm: null },
+    paciente: { id: PACIENTE, nome: 'Ana Teste', status: 'ativo', anonimizadoEm: null, email: 'ana@ex.com', dataNascimento: null, sexo: 'F', pesoOcultoNoAppEm: estado.pesoOcultoNoAppEm },
   }),
   // Plano 18 (D13, RN-275): a linha de medidas da última avaliação, que não sai no papel
-  carregarCabecalho: async () => ({ data: '12/10/2026', alturaM: '1,65', pesoKg: '72,4', imc: '26,6', gordura: '28,1' }),
+  carregarCabecalho: async () => estado.cabecalho,
 }));
 vi.mock('@/env', () => ({ getEnv: () => ({ IA_PROVEDOR: 'sandbox' }) }));
 vi.mock('@/modules/ia/autorizacao', () => ({ painelDaAutorizacao: async () => ({ codigoDeReferencia: 'ABCD-EFGH-JKMN' }) }));
@@ -44,9 +47,16 @@ function dentroDePrintHidden(html: string, marca: string): boolean {
   return pilha.some(Boolean);
 }
 
+const renderizarLayout = async () => renderToStaticMarkup(await ProntuarioLayout({ children: null, params: Promise.resolve({ id: PACIENTE }) } as never));
+
 describe('impressão do prontuário', () => {
+  beforeEach(() => {
+    estado.pesoOcultoNoAppEm = null;
+    estado.cabecalho = MEDIDAS;
+  });
+
   it('o layout não esconde o cabeçalho do paciente nem as abas na impressão (Ctrl+P da Anamnese sai com o nome), só as medidas', async () => {
-    const html = renderToStaticMarkup(await ProntuarioLayout({ children: null, params: Promise.resolve({ id: PACIENTE }) } as never));
+    const html = await renderizarLayout();
     expect(html).toContain('data-guia="cabecalho-paciente"');
     expect(html).toContain('Ana Teste');
     expect(html).toContain('data-guia="abas-prontuario"');
@@ -56,6 +66,23 @@ describe('impressão do prontuário', () => {
     const medidas = html.match(/<p[^>]*>Última avaliação em [^<]*<\/p>/)?.[0] ?? '';
     expect(medidas).toContain('Última avaliação em 12/10/2026: altura 1,65 m · peso 72,4 kg · IMC 26,6 · gordura 28,1%');
     expect(medidas).toMatch(/class="[^"]*\bprint:hidden\b/);
+    expect(html.match(/\bprint:hidden\b/g)).toHaveLength(1);
+  });
+
+  it('selo "Peso oculto no app": aparece com pesoOcultoNoAppEm preenchido e some com nulo', async () => {
+    expect(await renderizarLayout()).not.toContain('Peso oculto no app');
+    estado.pesoOcultoNoAppEm = new Date('2026-10-01T12:00:00Z');
+    const html = await renderizarLayout();
+    expect(html).toContain('Peso oculto no app');
+    expect(dentroDePrintHidden(html, 'Peso oculto no app')).toBe(false);
+  });
+
+  it('sem avaliação: "Sem avaliação antropométrica." dentro do elemento print:hidden', async () => {
+    estado.cabecalho = null;
+    const html = await renderizarLayout();
+    expect(html).toContain('Sem avaliação antropométrica.');
+    expect(html).not.toContain('Última avaliação em');
+    expect(dentroDePrintHidden(html, 'Sem avaliação antropométrica.')).toBe(true);
     expect(html.match(/\bprint:hidden\b/g)).toHaveLength(1);
   });
 

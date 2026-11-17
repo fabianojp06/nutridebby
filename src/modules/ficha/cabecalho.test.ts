@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
-import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { anthropometry, auditLog } from '@/db/schema';
-import { withTenant } from '@/db/tenant';
+import { TenantContextError, withTenant } from '@/db/tenant';
 import { lerCabecalho, linhaDoCabecalho } from './cabecalho';
 
 // Plano 18 (D13, RN-275): o cabeçalho da ficha com a última antropometria, formatada, e UMA leitura de `antropometria`.
@@ -56,6 +56,20 @@ describe('lerCabecalho e linhaDoCabecalho (RN-275)', () => {
     expect((await lerCabecalho(T.ctx, p.id, { db: app.db }))?.pesoKg).toBe('74,0');
   });
 
+  it('empate de data e de criação: desempata pelo id (o maior), sempre a mesma', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const quando = new Date('2026-10-12T12:00:00Z');
+    const ids = [
+      { id: await avaliacao(T, p.id, { data: '2026-10-12', pesoKg: 70, alturaCm: 170, createdAt: quando }), peso: '70,0' },
+      { id: await avaliacao(T, p.id, { data: '2026-10-12', pesoKg: 71, alturaCm: 170, createdAt: quando }), peso: '71,0' },
+      { id: await avaliacao(T, p.id, { data: '2026-10-12', pesoKg: 72, alturaCm: 170, createdAt: quando }), peso: '72,0' },
+    ];
+    const maior = ids.reduce((a, b) => (b.id > a.id ? b : a));
+    expect((await lerCabecalho(T.ctx, p.id, { db: app.db }))?.pesoKg).toBe(maior.peso);
+    expect(await leituras(T, p.id)).toEqual([{ entidade: 'antropometria', entidadeId: maior.id }]);
+  });
+
   it('sem gordura: a linha não tem o trecho "gordura"', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
@@ -93,6 +107,17 @@ describe('lerCabecalho e linhaDoCabecalho (RN-275)', () => {
     expect(await lerCabecalho(A.ctx, pb.id, { db: app.db })).toBeNull();
     expect(await leituras(A, pb.id)).toEqual([]);
     expect(await leituras(B, pb.id)).toEqual([]);
+  });
+
+  it('papel: só a sessão da nutricionista (paciente e worker recusados, sem leitura gravada)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await avaliacao(T, p.id, { data: '2026-10-12', pesoKg: 72.4, alturaCm: 165 });
+    const SO_DA_NUTRI = 'o cabeçalho da ficha é só da sessão da nutricionista';
+    await expect(lerCabecalho(ctxPaciente(T.tenantId, p.id), p.id, { db: app.db })).rejects.toThrow(TenantContextError);
+    await expect(lerCabecalho(ctxPaciente(T.tenantId, p.id), p.id, { db: app.db })).rejects.toThrow(SO_DA_NUTRI);
+    await expect(lerCabecalho({ tenantId: T.tenantId, role: 'worker' }, p.id, { db: app.db })).rejects.toThrow(TenantContextError);
+    expect(await leituras(T, p.id)).toEqual([]);
   });
 
   it('id malformado: null, sem consultar', async () => {

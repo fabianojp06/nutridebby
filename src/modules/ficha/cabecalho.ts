@@ -1,7 +1,7 @@
 import { desc, eq } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { anthropometry } from '@/db/schema';
-import { withTenant, type TenantContext } from '@/db/tenant';
+import { TenantContextError, withTenant, type TenantContext } from '@/db/tenant';
 import { formatarDecimal } from '@/lib/numero';
 import { idValido } from '@/modules/pacientes/base';
 import { formatarData } from '@/modules/pacientes/datas';
@@ -14,12 +14,13 @@ export type Cabecalho = { data: string; alturaM: string | null; pesoKg: string |
 const casas = (v: number | null, n: number): string | null => (v === null ? null : formatarDecimal(v, n));
 
 /**
- * Plano 18 (D13, RN-275): a última antropometria do paciente (`data desc, created_at desc`), só as medidas e a data, com
+ * Plano 18 (D13, RN-275): a última antropometria do paciente (`data desc, created_at desc, id desc`: o id só desempata), só as medidas e a data, com
  * UM auditRead (entidade `antropometria`, id da avaliação) na mesma transação; sem avaliação, nenhuma leitura gravada.
  * Na ficha, só por `carregarCabecalho` (`cache()` por id, `src/app/painel/pacientes/[id]/prontuario.ts`): uma linha
- * "Visualizou" por execução do layout.
+ * "Visualizou" por execução do layout. Só a sessão da nutricionista (como `secoesDoInicio`).
  */
 export async function lerCabecalho(ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<Cabecalho> {
+  if (ctx.role !== 'nutri') throw new TenantContextError('o cabeçalho da ficha é só da sessão da nutricionista');
   if (!idValido(patientId)) return null;
   return withTenant(
     ctx,
@@ -28,7 +29,7 @@ export async function lerCabecalho(ctx: TenantContext, patientId: string, deps: 
         .select({ id: anthropometry.id, data: anthropometry.data, pesoKg: anthropometry.pesoKg, alturaCm: anthropometry.alturaCm, imc: anthropometry.imc, percGordura: anthropometry.percGordura })
         .from(anthropometry)
         .where(eq(anthropometry.patientId, patientId))
-        .orderBy(desc(anthropometry.data), desc(anthropometry.createdAt))
+        .orderBy(desc(anthropometry.data), desc(anthropometry.createdAt), desc(anthropometry.id))
         .limit(1);
       if (!a) return null;
       await auditRead(tx, { entidade: 'antropometria', entidadeId: a.id, patientId });
