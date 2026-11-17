@@ -99,8 +99,9 @@ test('estados abertos também passam: menu da conta, aviso de erro de formulári
  * Plano 20 (RNF-302): os estados do Financeiro fora de ROTAS_DO_PAINEL — o primeiro acesso ("Comece por aqui": Resumo,
  * Pagamentos pendentes e Configurações sem categorias) com a conta E2E_FIN_AXE, o detalhe de pagamentos pendentes vazio (um
  * paciente sem cobrança no mesmo consultório) e o formulário de lançamento com erro (a nutricionista do E2E, que tem o
- * Financeiro configurado pela semente) — nos modos claro e escuro, a 1280 e a 360 px (a 360 px, sem rolagem lateral). As telas
- * do Financeiro de ROTAS_DO_PAINEL entram também a 360 px (a 1280 px já estão no laço de cima).
+ * Financeiro configurado pela semente: valor vazio e "Já foi recebido" sem a forma) — nos modos claro e escuro, a 1280 e
+ * a 360 px (a 360 px, sem rolagem lateral). As telas do Financeiro de ROTAS_DO_PAINEL entram também a 360 px (a 1280 px
+ * já estão no laço de cima).
  */
 test('Plano 20: Financeiro não configurado, pagamentos pendentes vazios e lançamento com erro, claro e escuro, 1280 e 360 px', async ({ browser }) => {
   test.setTimeout(240_000);
@@ -120,9 +121,12 @@ test('Plano 20: Financeiro não configurado, pagamentos pendentes vazios e lanç
       page: nutri,
       url: '/painel/financeiro/lancamentos/novo?tipo=entrada',
       pronta: async (p) => {
-        await p.getByRole('button', { name: 'Salvar entrada' }).click(); // vazio: erros junto dos campos (role="alert")
+        // A categoria já vem escolhida (a primeira ativa) e o vencimento vem com hoje: os erros que o formulário dá de fato
+        // são o valor vazio e, com "Já foi recebido" marcado, a forma em "Selecione" (role="alert", junto dos campos).
+        await p.getByLabel('Já foi recebido').check();
+        await p.getByRole('button', { name: 'Salvar entrada' }).click();
         await expect(p.getByRole('alert').filter({ hasText: 'Informe o valor.' })).toBeVisible();
-        await expect(p.getByRole('alert').filter({ hasText: 'Escolha a categoria.' })).toBeVisible();
+        await expect(p.getByRole('alert').filter({ hasText: 'Escolha a forma de pagamento.' })).toBeVisible();
       },
     },
   ];
