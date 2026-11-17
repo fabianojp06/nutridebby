@@ -257,3 +257,51 @@ Plano 14B-1, T4 (modelos sugeridos, 10/10/2026):
   DEPOIS do estorno do 1º (linha global do mês em ia_gasto_plataforma) → ciclo com a varredura da 2ª tabela, que trava a
   linha sem o tenant e estorna. Conferir a ordem "linhas → plataforma" em cada transação com mais de um grupo de estornos;
   trocar a ordem das chamadas só move o ciclo para a outra varredura. Correção: a varredura trava o tenant antes.
+
+Plano 17 (lembretes de rotina, revisão do plano 16/11/2026):
+- Tabela nova com gatilho "INSERT/UPDATE só o worker": as FABRICAS de test/isolamento.test.ts semeiam como `nutri` e o teste
+  faz UPDATE no-op (`set tenant_id = tenant_id`) como nutri → beforeAll quebra. Gatilho que recusa mudar tenant/paciente com
+  42501 próprio exige IMUTAVEIS. Mãe com FK CASCADE para filha nova → ULTIMAS (a ordem de exclusão é alfabética: a mãe
+  `x` vem antes de `x_envios` e zera as linhas de B que o teste ainda conta). Fábrica COM_MAE não pode colidir com índice
+  único parcial da fábrica da própria mãe.
+- Chave nova no dados.json da exportação com nome já usado (`lembretes` = notificações de consulta). Conferir o tipo.
+- "Marca gravada antes do envio" sem upsert condicional (WHERE ultimo < novo RETURNING): dois jobs sobrepostos (deploy com
+  dois workers, job lento) mandam o mesmo push.
+- Decisão de autonomia do titular ("a nutricionista não religa") só no módulo: gatilho 0085 volta cedo para quem não é paciente.
+
+Plano 17, T1 (lembretes, 16/11/2026):
+- Autonomia do titular guardada por gatilho de UPDATE numa coluna da linha (desligado_pelo_paciente_em) enquanto a equipe
+  pode DELETE + INSERT a mesma linha: a recriação nasce "ligada" e contorna o gatilho. Conferir DELETE/INSERT, não só UPDATE.
+- Exceção "worker/contexto vazio muda a marca do paciente (anonimização)" sem condição de estado: o worker roda também no web.
+- Tabela "escrita só pelo worker" com gatilho de INSERT/UPDATE, mas DELETE deixado à RLS da equipe: apagar a marca de
+  "já enviado" reabre o slot (push duplicado). Conferir os três comandos.
+
+Plano 17, T3 (módulo da equipe, 16/11/2026):
+- Teto/limite conferido só na escrita contra estado que muda por fora (plano republicado com mais refeições): a edição que
+  só renomeia ou que reduz, mas não desce abaixo do teto, é recusada. Conferir se a regra compara "antes × depois" na edição.
+- Interruptor que trava a linha com FOR UPDATE sem mudar chave: conflita à toa com o KEY SHARE da FK das marcas do worker
+  (envios); FOR NO KEY UPDATE basta. Módulo bem feito no resto (trava do paciente, 23505 por nome, set() sem a marca).
+
+Plano 17, T4 (job do worker, 16/11/2026):
+- Marca do worker gravada com INSERT … VALUES a partir de uma leitura feita em OUTRA transação: não reconfere o estado
+  (pausa, desligado, exclusão) e uma linha-mãe apagada no meio vira 23503 que aborta o lote do tenant inteiro. Sugerir
+  INSERT … SELECT FROM a tabela-mãe com as condições (linha some = slot não sai). Teste de "suspenso" que suspende ANTES
+  da leitura não cobre o getTenantStatus da marca — conferir se a reconferência tem teste próprio.
+
+Plano 17, T6 (portal Eu › Lembretes, 17/11/2026):
+- Entrada de navegação (seção de Eu, link) condicionada a "algum ATIVO" (`temLembretes` sem desligados pelo paciente): o
+  titular que desliga tudo perde o único caminho para religar (dead end de autonomia), e o predicado veio do brief. Conferir
+  se o predicado do link é o mesmo da LISTA da tela (o que ela mostra), não o do "ainda recebe aviso" (que serve ao cartão).
+- Escrita do paciente por id sem o mesmo filtro da leitura (`ligado = true`): aba velha mexe em linha que a tela já não mostra.
+
+Plano 17, T7 (LGPD dos lembretes, 17/11/2026):
+- DELETE novo na exclusão atendida (linha que o worker referencia por FK → KEY SHARE na marca) posto ANTES de cancelarTarefas
+  (tenant FOR NO KEY UPDATE), enquanto o worker segura tenant FOR SHARE (getTenantStatus aguardarSuspensao) e insere a marca:
+  ciclo. Conferir onde o DELETE novo cai em relação à trava do tenant em atenderPedidoExclusao (mover para depois).
+
+Plano 17, revisão final do branch (17/11/2026):
+- Fechamento de plano com tabela nova SEM a anotação no CLAUDE.md (regras 2 e 8: listas, gatilhos, entidade de auditoria,
+  exceção de papel em gatilho de `patients`); o manual só registrou como divergência. Conferir `git diff main -- CLAUDE.md`
+  em toda revisão final e entregar o texto proposto.
+- Limpeza LGPD nova (DELETE na exclusão/anonimização) que a imagem antiga não faz: na volta atrás (§6.8.1) o dado fica.
+  Conferir se o fechamento registra isso, junto com o gatilho novo que a imagem antiga atravessa sem saber.

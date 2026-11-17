@@ -18,3 +18,6 @@
 - [print:hidden no layout](feedback_print-hidden-no-layout.md) — limpar a impressão de uma página no layout compartilhado tira o nome do paciente de todas as abas
 - [Base legal no roteiro do manual](feedback_base-legal-no-roteiro.md) — "a lei exige o consentimento" contradiz o bedrock-eu (adequação); runbook proíbe
 - [Redirect silencioso no consentimento](feedback_redirect-silencioso-no-consentimento.md) — action recusa por texto mudado e redireciona sem a frase que já existe; recorrências do 14A
+- [Plano cita guia errado e textos fora do TSX](feedback_plano-cita-guia-e-textos-fora-do-tsx.md) — guia plano-alimentar x prontuário; constantes fora de TSX_FORA; versão fixada em teste; botões repetidos
+- [Entrada some pelo estado da tela](feedback_entrada-some-pelo-estado-da-tela.md) — seção de Eu condicionada a "algum ativo" some quando o paciente desliga tudo
+- [Cartões irmãos somem no revalidate](feedback_cartoes-irmaos-somem-no-revalidate.md) — sugestão inicial some inteira quando um cartão salva; resumo do portal omite push de diário

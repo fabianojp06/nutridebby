@@ -57,3 +57,10 @@ isolamento, divergência #3).
   workflow, `grep -n "ci.yml:[0-9]\|deploy.yml:[0-9]" docs/manual-tecnico/*.md` e conferir com `sed -n`. No runner próprio
   (12/10/2026) o controlador comitou correções no meio da minha tarefa (`bbd7728`): reler `git log -1` e o diff antes de
   entregar, e retirar divergências que o commit novo já resolveu.
+
+- Plano 17 (17/11/2026): muitas citações `src/worker/index.ts:N` e `index.ts:N` (sem prefixo, caps. 1 e 6) já estavam
+  velhas antes do plano. Remapear por difflib (base × head, blocos `equal`) só preserva o erro antigo; para filas, use
+  `grep -n "boss.schedule\|await work" src/worker/index.ts`. Refazer no scratchpad o remapeador e o checador de âncoras e
+  colunas; `\|` escapado (cap. 4, `indicadorMeta`) é falso positivo de colunas.
+- Plano cujas decisões são NORMAS-DECISAO-n/NORMAS-0n (lente de normas) em vez de Dx: citar esses rótulos.
+- Tela de portal nova sob `/p/perfil/*` marca Eu pelo prefixo; não precisa de `tambem` nem de `SEM_AJUDA`.
