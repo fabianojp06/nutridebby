@@ -1,10 +1,14 @@
-/** D20: os seis itens do topo. O resto das configurações fica no hub "Configurações". Puro (o MenuPainel é cliente). */
+/**
+ * D20: os itens do topo. O resto das configurações fica no hub "Configurações". Puro (o MenuPainel é cliente). Plano 20
+ * (RN-327): "Financeiro" para toda nutricionista, entre "Conteúdos" e "Configurações", sem contador.
+ */
 export const ITENS_DO_MENU = [
   { href: '/painel', rotulo: 'Início' },
   { href: '/painel/pacientes', rotulo: 'Pacientes' },
   { href: '/painel/agenda', rotulo: 'Agenda' },
   { href: '/painel/diarios', rotulo: 'Diários' },
   { href: '/painel/conteudos', rotulo: 'Conteúdos' },
+  { href: '/painel/financeiro', rotulo: 'Financeiro' },
   { href: '/painel/configuracoes', rotulo: 'Configurações' },
 ] as const;
 
