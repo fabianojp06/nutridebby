@@ -32,7 +32,15 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
   // paciente bloqueado (US-018): o prontuário é só para consulta, como nas outras abas; o servidor também recusa
   const bloqueado = paciente.status === 'bloqueado';
   const editavel = rascunho && !bloqueado;
-  const contexto = await contextoDoPaciente(ctx, paciente.id, tenant.fuso);
+  // leituras independentes em paralelo (code review do PR #57); as do editor só no rascunho editável
+  const [contexto, receitas, perfis, minhasRefeicoes, listas, conteudos] = await Promise.all([
+    contextoDoPaciente(ctx, paciente.id, tenant.fuso),
+    listarReceitasPublicadas(ctx),
+    referenciasParaPlano(ctx),
+    editavel ? listarMinhasRefeicoes(ctx) : undefined,
+    editavel ? listarListas(ctx) : undefined,
+    editavel ? conteudosParaLigar(ctx) : undefined,
+  ]);
   // "Usar como rascunho" (US-121, D15): quantos itens ficaram de fora porque o alimento saiu do catálogo
   const foraDoCatalogo = typeof fora === 'string' && /^\d{1,3}$/.test(fora) ? Number(fora) : 0;
   return (
@@ -52,12 +60,12 @@ export default async function PlanoPage({ params, searchParams }: PageProps<'/pa
       <EditorPlano
         plano={paraCliente(plano)}
         contexto={contexto}
-        receitas={await listarReceitasPublicadas(ctx)}
+        receitas={receitas}
         somenteLeitura={!editavel}
-        perfis={await referenciasParaPlano(ctx)}
-        minhasRefeicoes={editavel ? await listarMinhasRefeicoes(ctx) : undefined}
+        perfis={perfis}
+        minhasRefeicoes={minhasRefeicoes}
         fuso={tenant.fuso}
-        ligaveis={editavel ? { listas: await listarListas(ctx), conteudos: await conteudosParaLigar(ctx) } : undefined}
+        ligaveis={listas && conteudos ? { listas, conteudos } : undefined}
         acoes={
           <div className="flex flex-wrap items-start gap-4">
             {editavel && (

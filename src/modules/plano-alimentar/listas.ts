@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { asc, count, eq, inArray } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { fkViolation, uniqueViolation } from '@/db/errors';
 import { listasSubstituicao, listasSubstituicaoGrupos, listasSubstituicaoItens } from '@/db/schema';
@@ -141,10 +141,11 @@ export async function listarListas(ctx: TenantContext, db: Db = getDb()): Promis
     ctx,
     async (tx) => {
       const ls = await tx.select({ id: listasSubstituicao.id, nome: listasSubstituicao.nome }).from(listasSubstituicao).orderBy(asc(listasSubstituicao.nome));
-      const gs = await tx.select({ listaId: listasSubstituicaoGrupos.listaId }).from(listasSubstituicaoGrupos);
-      const is = await tx.select({ listaId: listasSubstituicaoItens.listaId }).from(listasSubstituicaoItens);
-      const contar = (linhas: { listaId: string }[], id: string) => linhas.filter((x) => x.listaId === id).length;
-      return ls.map((l) => ({ id: l.id, nome: l.nome, grupos: contar(gs, l.id), itens: contar(is, l.id) }));
+      // contagens no banco, sem trazer as linhas (code review do PR #57)
+      const porLista = (linhas: { listaId: string; n: number }[]) => new Map(linhas.map((x) => [x.listaId, x.n]));
+      const gs = porLista(await tx.select({ listaId: listasSubstituicaoGrupos.listaId, n: count() }).from(listasSubstituicaoGrupos).groupBy(listasSubstituicaoGrupos.listaId));
+      const is = porLista(await tx.select({ listaId: listasSubstituicaoItens.listaId, n: count() }).from(listasSubstituicaoItens).groupBy(listasSubstituicaoItens.listaId));
+      return ls.map((l) => ({ id: l.id, nome: l.nome, grupos: gs.get(l.id) ?? 0, itens: is.get(l.id) ?? 0 }));
     },
     db,
   );

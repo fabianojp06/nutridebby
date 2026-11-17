@@ -2,13 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { asc, eq, inArray } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { fkViolation } from '@/db/errors';
-import { refeicoesModelo, refeicoesModeloItens } from '@/db/schema';
+import { foods, refeicoesModelo, refeicoesModeloItens } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { normalizarTexto } from '@/lib/text';
 import { idValido } from '@/modules/pacientes/base';
 import { alimentosInvisiveis, itensComValoresAtuais, lerItem, travarConsultorio, type ItemLido } from './biblioteca';
 import { MAX_ITENS_MINHA_REFEICAO, MAX_MINHAS_REFEICOES, MSG_MINHAS_REFEICOES, NOME_MINHA_REFEICAO_MAX, type MinhaRefeicaoDaLista } from './biblioteca-constantes';
-import { itensComoTexto, totalDosItens } from './calculo';
+import { itensComoTexto, totalDosItens, type ItemCalculo } from './calculo';
 import { MAX_TEXTO, MSG_PLANO } from './constantes';
 import { TODOS_OS_DIAS } from './dias';
 import { TIPOS_DE_REFEICAO, type TipoDeRefeicao } from './tipos-de-refeicao';
@@ -220,11 +220,37 @@ const ORDEM_TIPO = new Map<string, number>(TIPOS_DE_REFEICAO.map((t, k) => [t, k
  * nome, com "Cerca de {kcal} kcal" calculada na hora (texto livre: sem kcal). `tipo` filtra a lista.
  */
 export async function listarMinhasRefeicoes(ctx: TenantContext, o: { tipo?: TipoDeRefeicao } = {}, db: Db = getDb()): Promise<MinhaRefeicaoDaLista[]> {
-  const rs = await withTenant(ctx, (tx) => lerRefeicoes(tx, null), db);
+  // leitura leve (code review do PR #57): só os campos da lista e, dos itens, o que a kcal usa — sem medidas nem micros
+  const { rs, its } = await withTenant(
+    ctx,
+    async (tx) => {
+      const rs = await tx
+        .select({ id: refeicoesModelo.id, nome: refeicoesModelo.nome, tipo: refeicoesModelo.tipo, horario: refeicoesModelo.horario, modo: refeicoesModelo.modo })
+        .from(refeicoesModelo)
+        .where(o.tipo ? eq(refeicoesModelo.tipo, o.tipo) : undefined);
+      // innerJoin: o item cujo alimento a sessão não enxerga fica de fora, como em `itensComValoresAtuais`
+      const its = rs.some((r) => r.modo !== 'livre')
+        ? await tx
+            .select({ refeicaoId: refeicoesModeloItens.refeicaoId, quantidadeG: refeicoesModeloItens.quantidadeG, substituiItemId: refeicoesModeloItens.substituiItemId, kcal: foods.kcal })
+            .from(refeicoesModeloItens)
+            .innerJoin(foods, eq(foods.id, refeicoesModeloItens.foodId))
+            .where(inArray(refeicoesModeloItens.refeicaoId, rs.map((r) => r.id)))
+        : [];
+      return { rs, its };
+    },
+    db,
+  );
+  const itensDe = new Map<string, ItemCalculo[]>();
+  for (const i of its) {
+    const lista = itensDe.get(i.refeicaoId) ?? [];
+    lista.push({ id: '', quantidadeG: i.quantidadeG, substituiItemId: i.substituiItemId, porCem: { kcal: i.kcal, proteinaG: null, carboidratoG: null, lipidioG: null, fibraG: null } });
+    itensDe.set(i.refeicaoId, lista);
+  }
+  const kcal = (id: string) => totalDosItens(itensDe.get(id) ?? []).kcal;
   return rs
-    .filter((r) => !o.tipo || r.tipo === o.tipo)
+    .map((r) => ({ id: r.id, nome: r.nome, tipo: r.tipo as TipoDeRefeicao, horario: hhmm(r.horario), modo: r.modo as ModoPlano }))
     .sort((a, b) => ORDEM_TIPO.get(a.tipo)! - ORDEM_TIPO.get(b.tipo)! || a.nome.localeCompare(b.nome, 'pt-BR'))
-    .map((r) => ({ id: r.id, nome: r.nome, tipo: r.tipo, horario: r.horario, modo: r.modo, kcal: r.modo === 'livre' ? null : totalDosItens(r.itens).kcal }));
+    .map((r) => ({ ...r, kcal: r.modo === 'livre' ? null : kcal(r.id) }));
 }
 
 /** A minha refeição do consultório (RLS: a de outro consultório não aparece); id inválido ou de outro → null. */

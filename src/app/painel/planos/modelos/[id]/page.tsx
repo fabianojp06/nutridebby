@@ -23,6 +23,14 @@ export default async function ModeloPage({ params }: PageProps<'/painel/planos/m
   const modelo = await carregarPlano(ctx, id);
   if (!modelo || !modelo.isTemplate) notFound();
   const origem = modelo.origemIa; // US-123: modelo sugerido pela IA
+  // leituras independentes em paralelo (code review do PR #57)
+  const [receitas, perfis, minhasRefeicoes, listas, conteudos] = await Promise.all([
+    listarReceitasPublicadas(ctx),
+    referenciasParaPlano(ctx),
+    listarMinhasRefeicoes(ctx),
+    listarListas(ctx),
+    conteudosParaLigar(ctx),
+  ]);
   return (
     <>
       <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
@@ -38,11 +46,11 @@ export default async function ModeloPage({ params }: PageProps<'/painel/planos/m
         <EditorPlano
           plano={paraCliente(modelo)}
           contexto={null}
-          receitas={await listarReceitasPublicadas(ctx)}
-          perfis={await referenciasParaPlano(ctx)}
-          minhasRefeicoes={await listarMinhasRefeicoes(ctx)}
+          receitas={receitas}
+          perfis={perfis}
+          minhasRefeicoes={minhasRefeicoes}
           fuso={tenant.fuso}
-          ligaveis={{ listas: await listarListas(ctx), conteudos: await conteudosParaLigar(ctx) }}
+          ligaveis={{ listas, conteudos }}
           acoes={
             <div className="flex flex-wrap items-center gap-4">
               {origem?.sugestao && <AprovarModelo acao={aprovarModeloPlanoAction.bind(null, modelo.id)} />}
