@@ -325,3 +325,11 @@ Plano 18 (ficha, re-revisão do code review do PR 1, 17/11/2026):
   inteiro (que exporta funções que auditam/escrevem) só para reaproveitar um filtro puro. A guarda textual
   (`auditRead|recordAudit`) não pega a chamada indireta. Sugerir mover o helper puro para um módulo sem efeitos
   (constantes/filtro) ou restringir os nomes importados.
+Plano 20, T1 (Financeiro, 17/11/2026):
+- Gatilho BEFORE ROW UPDATE que trava a mãe (paciente FOR KEY SHARE) "como defesa" roda DEPOIS da trava da própria linha:
+  inverte a ordem paciente → linha se o módulo não travar o paciente antes; ciclo com a anonimização (paciente FOR UPDATE →
+  linhas). Conferir em cada UPDATE do módulo que o paciente é travado primeiro.
+- Marcador local (`set_config('app.x','1',true)`) é gravável por qualquer sessão: a condição extra que só mora na função
+  (ex.: prazo `anonimizar_apos` vencido) não vale no gatilho. Conferir se o gatilho repete as pré-condições da função.
+- Função SQL com `now()` do banco × módulo com `now` injetado (anonimizarVencidos): a função recusa onde o módulo aceita
+  (testes com data fixa); avisar a tarefa que liga a chamada.
