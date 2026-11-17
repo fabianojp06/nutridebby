@@ -350,6 +350,23 @@ describe('Plano 19 — texto livre e dias da semana no editor (RN-243, RN-245, R
     expect(umPerfil).toMatchObject({ total: { kcal: 260 }, perfis: [] });
   });
 
+  it('filtro "sáb": a refeição fixada (dias mexidos com o filtro) fica na tela sem o dia, com o erro dos dias ao lado', () => {
+    // desmarcar "sáb" no Almoço de sáb e dom com o filtro em "sáb": sem a fixada, o cartão sairia da tela (foco no body)
+    const semSabado = reduzir(semana(), { tipo: 'dia', id: 'alm2', dia: 6, marcado: false });
+    expect(refeicoesDoFiltro(semSabado, 6).map((r) => r.id)).toEqual(['cafe']);
+    expect(refeicoesDoFiltro(semSabado, 6, new Set(['alm2'])).map((r) => r.id)).toEqual(['cafe', 'alm2']); // ordem do plano
+    // o total de sábado não conta a refeição fixada que não vale mais nele
+    expect(totaisDoFiltro(semSabado, 6).total.kcal).toBe(130);
+    // fixada só vale num dia: "Todos" mostra tudo, e a fixada que vale no dia não aparece duas vezes
+    expect(refeicoesDoFiltro(semSabado, 'todos', new Set(['alm2'])).map((r) => r.id)).toEqual(['cafe', 'alm1', 'alm2']);
+    expect(refeicoesDoFiltro(semana(), 6, new Set(['alm2'])).map((r) => r.id)).toEqual(['cafe', 'alm2']);
+    // último dia desmarcado: o erro dos dias é da refeição na tela, não do aviso do topo
+    const nenhum = reduzir(semSabado, { tipo: 'dia', id: 'alm2', dia: 0, marcado: false });
+    const erros = { 'refeicao:alm2:dias': 'Escolha ao menos um dia da semana.' };
+    expect(errosSemCampo(nenhum, erros, 6)).toEqual(['Escolha ao menos um dia da semana.']);
+    expect(errosSemCampo(nenhum, erros, 6, new Set(['alm2']))).toEqual([]);
+  });
+
   it('legenda com o total de cada perfil e o dia sem refeições', () => {
     const e = semana();
     expect(legendaDosDias(e)).toEqual(['seg a sex: 260 kcal', 'sáb e dom: 390 kcal']);

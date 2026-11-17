@@ -3,7 +3,7 @@ import type { AlimentoEncontrado } from '@/modules/alimentos/busca';
 import { gramasDaMedida, gramasDaMedidaTexto, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos/medidas-constantes';
 import { itensComoTexto, lerQuantidade, totalDoDia, totaisDoDia, ZERO, type ItemCalculo, type Nutrientes } from '@/modules/plano-alimentar/calculo';
 import { MAX_ITENS, MAX_REFEICOES, MSG_DIAS } from '@/modules/plano-alimentar/constantes';
-import { diasSemRefeicao, ORDEM_DIAS, perfisDeDia, refeicoesDoDia, rotuloDosDias, TODOS_OS_DIAS, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
+import { diasSemRefeicao, ORDEM_DIAS, perfisDeDia, rotuloDosDias, TODOS_OS_DIAS, valeNoDia, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
 import type { ItemPlano, ModoPlano, PlanoDoCliente, RascunhoEnviado, ReceitaDaRefeicao } from '@/modules/plano-alimentar/tipos';
 
 /** Estado local do editor: textos como a nutricionista digitou; números só na hora de calcular e enviar. */
@@ -282,11 +282,11 @@ function moverNaRefeicao(its: ItemEstado[], itemId: string, direcao: -1 | 1): It
  * Erros do servidor (D7) que nenhum campo da tela mostra — `geral`, `item:<id>:substituiItemId`, campo de item ou
  * refeição que já saiu da tela. Vão para o aviso do topo, para o "Corrija os campos destacados" nunca ficar sem destaque.
  */
-export function errosSemCampo(e: EstadoEditor, erros: Record<string, string>, filtro: FiltroDia = 'todos'): string[] {
+export function errosSemCampo(e: EstadoEditor, erros: Record<string, string>, filtro: FiltroDia = 'todos', fixadas: ReadonlySet<string> = NENHUMA): string[] {
   const campos = new Set(['titulo', 'metaKcal', 'orientacoes']);
   if (e.modo === 'livre') campos.add('macrosPrescritos');
-  // Plano 19: a refeição escondida pelo filtro de dias não tem campo na tela
-  for (const r of refeicoesDoFiltro(e, filtro)) {
+  // Plano 19: a refeição escondida pelo filtro de dias não tem campo na tela (a fixada continua na tela)
+  for (const r of refeicoesDoFiltro(e, filtro, fixadas)) {
     for (const c of ['nome', 'horario', 'observacao', 'receita', 'dias']) campos.add(`refeicao:${r.id}:${c}`);
     if (e.modo === 'livre') campos.add(`refeicao:${r.id}:descricaoLivre`);
     for (const i of r.itens) for (const c of ['quantidadeG', 'medida', 'foodId']) campos.add(`item:${i.id}:${c}`);
@@ -301,8 +301,16 @@ export const refeicoesParaCalculo = (e: EstadoEditor): { id: string; diasSemana:
     itens: r.itens.map((i) => ({ id: i.id, quantidadeG: gramasDoItem(i), porCem: i.porCem, substituiItemId: i.substituiItemId })),
   }));
 
-/** RN-247 (a): as refeições que o editor mostra — todas em "Todos"; num dia, só as que valem nele. */
-export const refeicoesDoFiltro = (e: EstadoEditor, filtro: FiltroDia): RefeicaoEstado[] => (filtro === 'todos' ? e.refeicoes : refeicoesDoDia(e.refeicoes, filtro));
+const NENHUMA: ReadonlySet<string> = new Set();
+
+/**
+ * RN-247 (a): as refeições que o editor mostra — todas em "Todos"; num dia, só as que valem nele, mais as `fixadas`:
+ * as que a nutricionista mexeu nos dias com este filtro escolhido. Desmarcar o dia filtrado numa refeição não tira o
+ * cartão da tela no meio da edição (o foco não cai no body e o erro "Escolha ao menos um dia da semana." aparece ao
+ * lado); o cartão diz que não vale no dia e sai quando o filtro muda (o editor limpa as fixadas). Ordem do plano.
+ */
+export const refeicoesDoFiltro = (e: EstadoEditor, filtro: FiltroDia, fixadas: ReadonlySet<string> = NENHUMA): RefeicaoEstado[] =>
+  filtro === 'todos' ? e.refeicoes : e.refeicoes.filter((r) => valeNoDia(r, filtro) || fixadas.has(r.id));
 
 export type PerfilComTotal = { rotulo: string; total: Nutrientes };
 

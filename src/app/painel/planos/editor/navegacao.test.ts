@@ -86,4 +86,9 @@ describe('link de erro para um campo escondido pelo filtro de dias (Plano 19, RN
     expect(filtroQueMostra('titulo', refeicoes, 3)).toBe(3);
     expect(filtroQueMostra('44444444-4444-4444-8444-444444444444-nome', refeicoes, 3)).toBe(3); // refeição que saiu da tela
   });
+
+  it('refeição fixada na tela (dias mexidos com o filtro): o campo já aparece, o filtro fica', () => {
+    expect(filtroQueMostra(`${CEIA}-dias`, refeicoes, 1, new Set([CEIA]))).toBe(1);
+    expect(filtroQueMostra(`${ALMOCO}-descricao`, refeicoes, 6, new Set([CEIA]))).toBe('todos'); // outra refeição fixada não conta
+  });
 });

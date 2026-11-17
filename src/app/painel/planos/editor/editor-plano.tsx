@@ -9,7 +9,7 @@ import { MSG_RECEITA } from '@/modules/conteudo/constantes';
 import type { ReceitaParaPlano } from '@/modules/conteudo/receitas';
 import { diferencaKcalDoItem, kcalTexto, nutrientesDoItem, totalDosItens } from '@/modules/plano-alimentar/calculo';
 import { MAX_TEXTO, MSG_DIAS, MSG_PLANO, MSG_TEXTO_LIVRE } from '@/modules/plano-alimentar/constantes';
-import { DIA_CURTO, ORDEM_DIAS, rotuloDosDias } from '@/modules/plano-alimentar/dias';
+import { DIA_CURTO, ORDEM_DIAS, rotuloDosDias, type DiaDaSemana } from '@/modules/plano-alimentar/dias';
 import type { ContextoPaciente } from '@/modules/plano-alimentar/meta';
 import type { ModoPlano, PlanoDoCliente } from '@/modules/plano-alimentar/tipos';
 import { casasDecimais, formatarDecimal, lerDecimal } from '@/lib/numero';
@@ -32,6 +32,7 @@ const CAMPO = 'w-full rounded-xl border border-campo bg-cartao p-2 text-texto';
 const ROTULO_MACRO: Record<keyof MacrosTexto, string> = { proteina: 'Proteína (%)', carboidrato: 'Carboidrato (%)', lipidio: 'Lipídio (%)' };
 /** `aria-describedby` com os ids que existem (dica fixa e erro do campo). */
 const descritoPor = (...ids: (string | false | undefined)[]) => ids.filter(Boolean).join(' ') || undefined;
+const SEM_FIXADAS: ReadonlySet<string> = new Set();
 
 /**
  * Remonta o editor (geração nova na `key`) só quando a conferência ao abrir achou o servidor adiante da página e os
@@ -71,6 +72,18 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
   const salvamento = useSalvamento(plano.id, plano.revisao, (rev) => paraEnvio(estado, rev), somenteLeitura ? 0 : edicoes, somenteLeitura ? null : { paciente: plano.patientId, aoDesatualizar });
   // Plano 19 (RN-247 a): o filtro de dias é da tela, não do plano (não conta como edição nem vai no PUT)
   const [filtro, setFiltro] = useState<FiltroDia>('todos');
+  // Refeições em que a nutricionista mexeu nos dias com este filtro: ficam na tela até o filtro mudar
+  // (`refeicoesDoFiltro`), para o cartão não sumir com o foco no checkbox nem levar junto o erro dos dias.
+  const [fixadas, setFixadas] = useState<ReadonlySet<string>>(SEM_FIXADAS);
+  const escolherFiltro = (f: FiltroDia) => {
+    if (f === filtro) return;
+    setFiltro(f);
+    setFixadas(SEM_FIXADAS);
+  };
+  const despacharNaTela = (a: Acao) => {
+    if (a.tipo === 'dia' && filtro !== 'todos' && !fixadas.has(a.id)) setFixadas(new Set(fixadas).add(a.id));
+    despachar(a);
+  };
   const totais = useMemo(() => totaisDoFiltro(estado, filtro), [estado, filtro]);
   const legenda = useMemo(() => legendaDosDias(estado), [estado]);
   const nomes = useMemo(() => nomesAcessiveis(estado), [estado]);
@@ -81,10 +94,10 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
   const erro = (chave: string) => salvamento.erros[chave];
   const comPaciente = plano.patientId !== null;
   const livre = estado.modo === 'livre';
-  const avisos = errosSemCampo(estado, salvamento.erros, filtro);
+  const avisos = errosSemCampo(estado, salvamento.erros, filtro, fixadas);
   const podeRefeicao = podeAdicionarRefeicao(estado);
   const podeItem = podeAdicionarItem(estado);
-  const visiveis = refeicoesDoFiltro(estado, filtro);
+  const visiveis = refeicoesDoFiltro(estado, filtro, fixadas);
 
   // O link de um erro de campo ("A refeição "Almoço" está sem texto.", BotaoPublicar) não acha o campo escondido pelo
   // filtro de dias e vira âncora (#<id>): o filtro volta para "Todos" e, depois do render, o foco vai ao campo.
@@ -92,14 +105,15 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
   useEffect(() => {
     const aoMudarAncora = () => {
       const alvo = decodeURIComponent(window.location.hash.slice(1));
-      const novo = alvo ? filtroQueMostra(alvo, estado.refeicoes, filtro) : filtro;
+      const novo = alvo ? filtroQueMostra(alvo, estado.refeicoes, filtro, fixadas) : filtro;
       if (novo === filtro) return;
       focoPendente.current = alvo;
       setFiltro(novo);
+      setFixadas(SEM_FIXADAS);
     };
     window.addEventListener('hashchange', aoMudarAncora);
     return () => window.removeEventListener('hashchange', aoMudarAncora);
-  }, [estado.refeicoes, filtro]);
+  }, [estado.refeicoes, filtro, fixadas]);
   useEffect(() => {
     const alvo = focoPendente.current;
     if (!alvo) return;
@@ -205,13 +219,13 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
         )}
       </fieldset>
 
-      <FiltroDias filtro={filtro} aoEscolher={setFiltro} legenda={legenda} />
+      <FiltroDias filtro={filtro} aoEscolher={escolherFiltro} legenda={legenda} />
 
       {!livre && <PainelTotais total={totais.total} perfis={totais.perfis} meta={meta} pesoKg={contexto?.pesoKg ?? null} mostrarGkg={comPaciente} />}
 
       {filtro !== 'todos' && visiveis.length === 0 && <p className="text-suave">{MSG_DIAS.semRefeicoes(DIA_CURTO[filtro])}</p>}
       {visiveis.map((r) => (
-        <Refeicao key={r.id} r={r} nome={nomes.get(r.id) ?? r.nome} livre={livre} despachar={despachar} somenteLeitura={somenteLeitura} erro={erro} podeAdicionarItem={podeItem} receitas={receitas} />
+        <Refeicao key={r.id} r={r} nome={nomes.get(r.id) ?? r.nome} livre={livre} filtroDia={filtro === 'todos' ? null : filtro} despachar={despacharNaTela} somenteLeitura={somenteLeitura} erro={erro} podeAdicionarItem={podeItem} receitas={receitas} />
       ))}
 
       {!somenteLeitura && (
@@ -230,11 +244,13 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
   );
 }
 
-function Refeicao({ r, nome, livre, despachar, somenteLeitura, erro, podeAdicionarItem, receitas }: {
+function Refeicao({ r, nome, livre, filtroDia, despachar, somenteLeitura, erro, podeAdicionarItem, receitas }: {
   r: RefeicaoEstado;
   /** O nome único na tela (`nomesAcessiveis`): "Almoço (seg a sex)" quando o nome se repete. */
   nome: string;
   livre: boolean;
+  /** O dia do filtro (null em "Todos"): a refeição fixada na tela que não vale nele diz isso no cartão. */
+  filtroDia: DiaDaSemana | null;
   despachar: (a: Acao) => void;
   somenteLeitura: boolean;
   erro: (c: string) => string | undefined;
@@ -246,6 +262,7 @@ function Refeicao({ r, nome, livre, despachar, somenteLeitura, erro, podeAdicion
   // RN-246: sem dia nenhum o servidor recusa (CHECK); o aviso já aparece ao desmarcar o último
   const erroDias = erro(`${chave}:dias`) ?? (r.diasSemana.length === 0 ? MSG_DIAS.nenhum : undefined);
   const erroTexto = erro(`${chave}:descricaoLivre`);
+  const foraDoFiltro = filtroDia !== null && !r.diasSemana.includes(filtroDia);
   return (
     <section aria-labelledby={`${r.id}-titulo`} className="space-y-3 rounded-2xl border border-borda bg-cartao p-3">
       <h2 id={`${r.id}-titulo`} className="sr-only">{nome}</h2>
@@ -263,7 +280,7 @@ function Refeicao({ r, nome, livre, despachar, somenteLeitura, erro, podeAdicion
         </div>
         {!livre && <p className="self-end text-sm">Total: {kcalTexto(totalRefeicao.kcal)} kcal</p>}
         {/* RN-246: o id `<refeição>-dias` é o alvo do link do erro da publicação (campo-do-erro.ts) */}
-        <fieldset id={`${r.id}-dias`} tabIndex={-1} aria-describedby={erroDias ? `${r.id}-dias-erro` : undefined} className="space-y-1 sm:col-span-4">
+        <fieldset id={`${r.id}-dias`} tabIndex={-1} aria-describedby={descritoPor(foraDoFiltro && `${r.id}-dias-filtro`, erroDias && `${r.id}-dias-erro`)} className="space-y-1 sm:col-span-4">
           <legend className="font-medium">Dias<span className="sr-only"> de {nome}</span></legend>
           <div className="flex flex-wrap gap-x-3">
             {ORDEM_DIAS.map((d) => (
@@ -273,6 +290,10 @@ function Refeicao({ r, nome, livre, despachar, somenteLeitura, erro, podeAdicion
               </label>
             ))}
           </div>
+          {/* região viva já na tela com o filtro de um dia: o aviso é lido ao desmarcar o dia filtrado */}
+          {filtroDia !== null && (
+            <p id={`${r.id}-dias-filtro`} role="status" className="text-sm font-semibold text-aviso">{foraDoFiltro ? MSG_DIAS.foraDoFiltro(DIA_CURTO[filtroDia]) : ''}</p>
+          )}
           {erroDias && <p id={`${r.id}-dias-erro`} role="alert" className="text-sm text-erro">{erroDias}</p>}
         </fieldset>
         <div className="space-y-1 sm:col-span-4">

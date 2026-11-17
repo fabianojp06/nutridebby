@@ -55,12 +55,17 @@ export function comoSair(status: StatusSalvamento, s: { edicaoEsperando: boolean
 /**
  * Plano 19 (RN-247 a): o link de um erro ("A refeição "Almoço" está sem texto.", D31) leva o foco ao campo pelo id
  * (`<refeição>-descricao`, `<refeição>-dias`, `<item>-g`…). Se o filtro de dias esconde a refeição do campo, ele não
- * está na tela: o filtro volta para "Todos". Campo que já aparece, ou que não é de refeição ("macros", "titulo"), não
- * muda o filtro.
+ * está na tela: o filtro volta para "Todos". Campo que já aparece (inclusive o da refeição fixada na tela, ver
+ * `refeicoesDoFiltro`), ou que não é de refeição ("macros", "titulo"), não muda o filtro.
  */
-export function filtroQueMostra(idDoCampo: string, refeicoes: { id: string; diasSemana: readonly number[]; itens: { id: string }[] }[], filtro: FiltroDia): FiltroDia {
+export function filtroQueMostra(
+  idDoCampo: string,
+  refeicoes: { id: string; diasSemana: readonly number[]; itens: { id: string }[] }[],
+  filtro: FiltroDia,
+  fixadas: ReadonlySet<string> = new Set(),
+): FiltroDia {
   if (filtro === 'todos') return filtro;
   const dono = /^([0-9a-f-]{36})-/i.exec(idDoCampo)?.[1];
   const r = dono ? refeicoes.find((x) => x.id === dono || x.itens.some((i) => i.id === dono)) : undefined;
-  return r && !valeNoDia(r, filtro) ? 'todos' : filtro;
+  return r && !valeNoDia(r, filtro) && !fixadas.has(r.id) ? 'todos' : filtro;
 }

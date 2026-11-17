@@ -73,6 +73,8 @@ export const MSG_DIAS = {
   /** RN-247 (a): legenda do filtro de dias ("dom: sem refeições") e o painel em "Todos" com perfis diferentes. */
   semRefeicoes: (dias: string) => `${dias}: sem refeições`,
   escolhaUmDia: 'Escolha um dia para ver os detalhes.',
+  /** Editor: a refeição que perdeu o dia do filtro fica na tela até o filtro mudar (o foco e o erro ao lado ficam). */
+  foraDoFiltro: (dia: string) => `Não vale em ${dia}. Sai desta lista quando você trocar o filtro.`,
 } as const;
 
 /** Plano 14B (US-123, RN-125): textos do modelo sugerido (os mesmos de MSG_MODELOS_IA; repetidos aqui para o editor, que não importa o módulo da IA). */
