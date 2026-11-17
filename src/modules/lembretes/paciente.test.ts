@@ -7,7 +7,7 @@ import { auditLog, lembretesRotina, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { ligarLembrete, salvarLembrete } from './equipe';
-import { desligarMeuLembrete, LembreteDoPacienteError, meusLembretes, pausarMeusLembretes, temLembretes } from './paciente';
+import { desligarMeuLembrete, LembreteDoPacienteError, meusLembretes, pausarMeusLembretes, temLembretes, temLembretesNaTela } from './paciente';
 
 /** Plano 17 (§5.3, Tarefa 6): o que o portal (Eu › Lembretes) lê e muda, sempre pela sessão do próprio paciente. */
 const app = makeDb(inject('appDatabaseUrl'));
@@ -165,5 +165,25 @@ describe('temLembretes (Eu e Hoje)', () => {
     const { ctx, outro, salvar } = await cenario();
     await salvar(AGUA, outro.id);
     expect(await temLembretes(ctx, db)).toBe(false);
+  });
+
+  it('T6-01: único lembrete desligado pelo paciente → temLembretesNaTela verdadeiro (Eu leva a religar), temLembretes falso; desligado pela equipe (ligado = false) → ambos falsos; a pausa não conta; sem auditRead', async () => {
+    const { T, p, ctx, salvar } = await cenario();
+    expect(await temLembretesNaTela(ctx, db)).toBe(false);
+    const id = await salvar(AGUA);
+    await desligarMeuLembrete(ctx, id, true, db);
+    await pausarMeusLembretes(ctx, true, db);
+    expect(await temLembretesNaTela(ctx, db)).toBe(true);
+    expect(await temLembretes(ctx, db)).toBe(false);
+    await ligarLembrete(T.ctx, p.id, id, false, db);
+    expect(await temLembretesNaTela(ctx, db)).toBe(false);
+    expect(await temLembretes(ctx, db)).toBe(false);
+    expect(await leituras(T, p.id)).toEqual([]);
+  });
+
+  it('T6-01: o lembrete de outro paciente do mesmo consultório não conta para temLembretesNaTela', async () => {
+    const { ctx, outro, salvar } = await cenario();
+    await salvar(AGUA, outro.id);
+    expect(await temLembretesNaTela(ctx, db)).toBe(false);
   });
 });

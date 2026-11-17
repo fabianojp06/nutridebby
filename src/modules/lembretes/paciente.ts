@@ -138,3 +138,23 @@ export async function temLembretes(ctx: TenantContext, deps: { db?: Db } = {}): 
   );
   return r.length > 0;
 }
+
+/**
+ * Revisão da Tarefa 6 (T6-01): Eu mostra a seção Lembretes enquanto houver lembrete ligado pela equipe — o mesmo conjunto
+ * que `meusLembretes` lista —, mesmo que o paciente tenha desligado todos ou pausado: é o único caminho para religar (§5.3,
+ * só o paciente religa o que desligou). Só sim/não, sem `auditRead`. O cartão de Hoje continua com `temLembretes`.
+ */
+export async function temLembretesNaTela(ctx: TenantContext, deps: { db?: Db } = {}): Promise<boolean> {
+  const patientId = pacienteDaSessao(ctx, 'temLembretesNaTela');
+  const r = await withTenant(
+    ctx,
+    (tx) =>
+      tx
+        .select({ id: lembretesRotina.id })
+        .from(lembretesRotina)
+        .where(and(eq(lembretesRotina.patientId, patientId), eq(lembretesRotina.ligado, true)))
+        .limit(1),
+    deps.db ?? getDb(),
+  );
+  return r.length > 0;
+}

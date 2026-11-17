@@ -25,8 +25,9 @@ vi.mock('@/app/p/moldura', () => ({ molduraDaSecao: async () => ({ marca: { nome
 vi.mock('@/modules/portal/perfil', () => ({ situacaoDoWhatsapp: async () => ({ ativo: false }) }));
 vi.mock('@/modules/ia/autorizacao', () => ({ blocoIaDoApp: async () => blocoIa.valor }));
 vi.mock('@/modules/ia/nutri-paciente/estado', () => ({ blocoIaNutriDoApp: async () => blocoNutri.valor }));
-// Plano 17 (Tarefa 6): a seção Lembretes só com algum lembrete ligado pelas duas partes (temLembretes)
-vi.mock('@/modules/lembretes/paciente', () => ({ temLembretes: async () => estado.lembretes }));
+// Plano 17 (Tarefa 6, revisão T6-01): a seção Lembretes com algum lembrete ligado pela equipe (temLembretesNaTela) — também
+// quando o paciente desligou todos; temLembretes (ligado pelas duas partes) é do cartão de Hoje e não decide nada aqui
+vi.mock('@/modules/lembretes/paciente', () => ({ temLembretesNaTela: async () => estado.lembretes, temLembretes: async () => false }));
 vi.mock('./actions', () => ({ meusDadosAction: async () => ({}), exclusaoAction: async () => ({}), whatsappAction: async () => ({}), retirarIaAction: async () => ({}), desativarIaNutriAction: async () => ({}) }));
 // no servidor o Instalar não renderiza nada (o estado vem do navegador): o marcador deixa a posição da seção conferida
 vi.mock('./instalar-no-eu', () => ({ InstalarNoEu: () => 'Instalar o app' }));
@@ -46,7 +47,7 @@ describe('/p/perfil — Eu (US-197, molde D-Assuntos)', () => {
     expect(html).toMatch(/<a[^>]*href="\/p\/ajuda"[^>]*>Como usar o app<\/a>/);
     expect(html).not.toMatch(/peso/i); // RN-214: nenhuma tela diz que o peso está oculto
   });
-  it('Plano 17: a seção Lembretes (h2 e o link para /p/perfil/lembretes) só com temLembretes', async () => {
+  it('Plano 17 (T6-01): a seção Lembretes (h2 e o link para /p/perfil/lembretes) com temLembretesNaTela — inclusive com o único lembrete desligado pelo paciente (temLembretes falso)', async () => {
     blocoIa.valor = null;
     let html = renderToStaticMarkup(await eu());
     expect(html).toMatch(/<section aria-labelledby="eu-lembretes" class="[^"]*"><h2 id="eu-lembretes"[^>]*>Lembretes<\/h2><a[^>]*href="\/p\/perfil\/lembretes"[^>]*>Ver meus lembretes<\/a><\/section>/);

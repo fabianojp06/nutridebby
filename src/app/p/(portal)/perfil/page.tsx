@@ -8,7 +8,7 @@ import { blocoIaDoApp, type SituacaoAutorizacao } from '@/modules/ia/autorizacao
 import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
 import { configIA } from '@/modules/ia/modo';
 import { blocoIaNutriDoApp } from '@/modules/ia/nutri-paciente/estado';
-import { temLembretes } from '@/modules/lembretes/paciente';
+import { temLembretesNaTela } from '@/modules/lembretes/paciente';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { situacaoDoWhatsapp } from '@/modules/portal/perfil';
 import { molduraDaSecao } from '../../moldura';
@@ -48,7 +48,7 @@ function blocoNaTela(b: { situacao: SituacaoAutorizacao; podeDecidir: boolean },
 
 /**
  * Plano 16 (US-197, G-01g, molde D-Assuntos): Eu — a conta, o consultório ("Trocar de nutricionista" com 2+ vínculos,
- * RN-210), Meus documentos (US-146: só com os documentos liberados, D20 do 10A), Lembretes (Plano 17: só com lembretes),
+ * RN-210), Meus documentos (US-146: só com os documentos liberados, D20 do 10A), Lembretes (Plano 17: com lembrete ligado pela equipe),
  * Notificações (push e WhatsApp), Instalar
  * o app, Privacidade (US-046 + RN-214 + o bloco de IA do Plano 14A, US-106/US-109), Como usar o app (/p/ajuda, RN-212) e, no fim, Sair (RN-211). "Meus exames" saiu daqui: Exames
  * é seção (G-D9).
@@ -63,7 +63,7 @@ export default async function Eu({ searchParams }: PageProps<'/p/perfil'>) {
     situacaoDoWhatsapp(ctx),
     blocoIaDoApp(ctx, tenant, ia),
     blocoIaNutriDoApp(ctx, tenant, ia),
-    temLembretes(ctx),
+    temLembretesNaTela(ctx),
   ]);
   const blocoIa = bloco ? blocoNaTela(bloco, tenant.fuso, typeof busca.ia === 'string' ? busca.ia : undefined) : null;
   return (
@@ -96,7 +96,8 @@ export default async function Eu({ searchParams }: PageProps<'/p/perfil'>) {
             </Link>
           </section>
         )}
-        {/* Plano 17 (Tarefa 6): só com algum lembrete ligado pela equipe e não desligado pelo paciente (a pausa geral não conta) */}
+        {/* Plano 17 (Tarefa 6, revisão T6-01): com algum lembrete ligado pela equipe, mesmo que o paciente tenha desligado todos
+            ou pausado — é o caminho para religar (§5.3); o cartão de Hoje usa temLembretes */}
         {comLembretes && (
           <section aria-labelledby="eu-lembretes" className={CARTAO}>
             <h2 id="eu-lembretes" className={H2}>Lembretes</h2>

@@ -35,7 +35,10 @@ describe('/p/perfil/lembretes — Eu › Lembretes (Plano 17, §5.3)', () => {
     expect(html).toContain('Sua nutricionista: Vitamina D');
     // o interruptor: switch com o nome do resumo e o estado no texto visível ao lado
     expect(html).toMatch(/<button type="button" role="switch" aria-checked="true" aria-labelledby="lembrete-l-agua-resumo"/);
-    expect(html).toMatch(/<button type="button" role="switch" aria-checked="false" aria-labelledby="lembrete-l-sup-resumo"/);
+    // T6-02: no suplemento (e no livre) o nome do interruptor leva também o texto da nutricionista
+    expect(html).toMatch(/<button type="button" role="switch" aria-checked="false" aria-labelledby="lembrete-l-sup-resumo lembrete-l-sup-texto"/);
+    expect(html).toMatch(/<p id="lembrete-l-sup-texto"[^>]*>Sua nutricionista: Vitamina D<\/p>/);
+    expect(html).toMatch(/aria-labelledby="lembrete-l-agua-resumo"[ >]/); // água: só o resumo
     expect(html).toMatch(/<p id="lembrete-l-agua-resumo"[^>]*>Água: das 08:00/);
     expect(html).toContain('>Ligado<');
     expect(html).toContain('>Desligado<');
@@ -62,7 +65,7 @@ describe('/p/perfil/lembretes — Eu › Lembretes (Plano 17, §5.3)', () => {
     estado.lembretes = [{ ...SUPLEMENTO, textoDaNutri: 'Polivitamínico'.repeat(5) }];
     estado.pausadoEm = null;
     const html = await pagina();
-    expect(html).toMatch(/<p class="[^"]*\bwrap-break-word\b[^"]*">Sua nutricionista: (Polivitamínico){5}<\/p>/);
+    expect(html).toMatch(/<p id="lembrete-l-sup-texto" class="[^"]*\bwrap-break-word\b[^"]*">Sua nutricionista: (Polivitamínico){5}<\/p>/);
     expect(html).toMatch(/<p id="lembrete-l-sup-resumo" class="[^"]*\bwrap-break-word\b/);
   });
 
@@ -74,5 +77,19 @@ describe('/p/perfil/lembretes — Eu › Lembretes (Plano 17, §5.3)', () => {
     expect(html).not.toContain('Sua nutricionista configurou estes lembretes.');
     expect(html).not.toContain('role="switch"');
     expect(html).not.toContain('Pausar todos os lembretes');
+  });
+
+  it('T6-02: dois suplementos com o mesmo resumo (Vitamina D e Ômega 3 às 08:00, todos os dias) têm interruptores com nomes diferentes', async () => {
+    const resumo = 'Suplemento: 08:00 · todos os dias';
+    estado.lembretes = [
+      { id: 's1', tipo: 'suplemento', resumo, textoDaNutri: 'Vitamina D', desligado: false },
+      { id: 's2', tipo: 'suplemento', resumo, textoDaNutri: 'Ômega 3', desligado: false },
+    ];
+    estado.pausadoEm = null;
+    const html = await pagina();
+    expect(html).toContain('aria-labelledby="lembrete-s1-resumo lembrete-s1-texto"');
+    expect(html).toContain('aria-labelledby="lembrete-s2-resumo lembrete-s2-texto"');
+    expect(html).toContain('<p id="lembrete-s1-texto" class="wrap-break-word">Sua nutricionista: Vitamina D</p>');
+    expect(html).toContain('<p id="lembrete-s2-texto" class="wrap-break-word">Sua nutricionista: Ômega 3</p>');
   });
 });

@@ -35,7 +35,9 @@ function Interruptor({ l, anunciar }: { l: LembreteDoPaciente; anunciar: (texto:
           type="button"
           role="switch"
           aria-checked={ligado}
-          aria-labelledby={`lembrete-${l.id}-resumo`}
+          // T6-02: no suplemento e no livre o nome leva também o texto da nutricionista (dois suplementos no mesmo horário
+          // teriam o mesmo nome só com o resumo — WCAG 2.4.6/1.3.1)
+          aria-labelledby={l.textoDaNutri ? `lembrete-${l.id}-resumo lembrete-${l.id}-texto` : `lembrete-${l.id}-resumo`}
           aria-describedby={erro ? `lembrete-${l.id}-erro` : undefined}
           // aria-disabled, não disabled: o botão desabilitado perde o foco (que cairia no <body>)
           aria-disabled={pendente || undefined}
@@ -114,7 +116,11 @@ export function LembretesDoPaciente({ lembretes, pausado: pausadoSalvo }: { lemb
             <p id={`lembrete-${l.id}-resumo`} className="font-semibold wrap-break-word">
               {l.resumo}
             </p>
-            {l.textoDaNutri && <p className="wrap-break-word">{`Sua nutricionista: ${l.textoDaNutri}`}</p>}
+            {l.textoDaNutri && (
+              <p id={`lembrete-${l.id}-texto`} className="wrap-break-word">
+                {`Sua nutricionista: ${l.textoDaNutri}`}
+              </p>
+            )}
             <Interruptor l={l} anunciar={anunciar} />
           </li>
         ))}
