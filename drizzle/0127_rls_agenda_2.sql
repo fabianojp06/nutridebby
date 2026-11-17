@@ -26,9 +26,12 @@ CREATE POLICY paciente_aniversario_proprio ON aniversario_autorizacoes AS RESTRI
 -- Prova só de inclusão (como ia_autorizacoes e consents): nenhum papel do app altera nem apaga.
 REVOKE UPDATE, DELETE, TRUNCATE ON aniversario_autorizacoes FROM nutri_app_role;
 --> statement-breakpoint
--- RN-425 / RN-424a: o pedido aguardando da pessoa nova some para o publico. O UPDATE com WHERE exige SELECT, e o Postgres
--- confere a linha NOVA contra as políticas de SELECT: o publico não grava o aguardando direto (só app_pedido_aguardar) e o
--- SELECT … FOR UPDATE não devolve a linha. O nome NÃO começa com `publico` (AG-D64): findPublicoViolations lê toda política
--- `publico%` e, numa tabela de PUBLICO_LIBERADO, aceita só as publico_sem_<comando>.
-CREATE POLICY aguardando_fora_do_publico ON public_booking_requests AS RESTRICTIVE FOR SELECT
-  USING (app_current_role() IS DISTINCT FROM 'publico' OR aguardando_desde IS NULL);
+-- RN-425 / RN-424a: o pedido aguardando da pessoa nova some para o publico e só app_pedido_aguardar o grava. FOR ALL, não
+-- só FOR SELECT: a política de SELECT só confere a linha nova quando o comando precisa ler (UPDATE com WHERE, INSERT …
+-- RETURNING); um INSERT sem RETURNING ou um UPDATE sem WHERE passariam. O USING esconde o aguardando no SELECT, no
+-- SELECT … FOR UPDATE e no UPDATE; o WITH CHECK recusa a linha nova aguardando (ou resolvida) em todo INSERT e UPDATE do
+-- publico. O local escolhido na página (local_id) continua livre. O nome NÃO começa com `publico` (AG-D64):
+-- findPublicoViolations lê toda política `publico%` e, numa tabela de PUBLICO_LIBERADO, aceita só as publico_sem_<comando>.
+CREATE POLICY aguardando_fora_do_publico ON public_booking_requests AS RESTRICTIVE FOR ALL
+  USING (app_current_role() IS DISTINCT FROM 'publico' OR aguardando_desde IS NULL)
+  WITH CHECK (app_current_role() IS DISTINCT FROM 'publico' OR (aguardando_desde IS NULL AND resolvido_em IS NULL AND resolucao IS NULL));

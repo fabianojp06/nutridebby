@@ -238,6 +238,32 @@ describe('Plano 23 — Agenda 2 no banco (T1a: RLS, CHECKs e FKs)', () => {
     expect(await findPublicoViolations(owner.pool)).toEqual([]);
   });
 
+  it('aguardando_fora_do_publico (FOR ALL): o publico não insere um pedido já aguardando, nem sem RETURNING, nem vira o aguardando num UPDATE sem WHERE', async () => {
+    const T = await novoTenant(app.db);
+    const local = await criarLocal(T, { principal: true, agendamento: true });
+    const [comum] = await em(T.ctx, inserirPedido(T, { verificado: true }));
+    // INSERT sem RETURNING: só as políticas de INSERT contam — o WITH CHECK da RESTRICTIVE FOR ALL recusa.
+    const inserirSemRetorno = (aguardando: boolean, localId: string | null) =>
+      sql`insert into public_booking_requests (id, tenant_id, token_hash, codigo_hash, email, nome, inicio, fim, modalidade, termo_versao, expira_em,
+                                               verificado_em, local_id, aguardando_desde)
+          values (gen_random_uuid(), ${T.tenantId}, ${randomUUID()}, 'x', ${`pedido-${randomUUID().slice(0, 8)}@teste.dev`}, 'Rita Lima',
+                  '2031-02-01T12:00:00Z', ${aguardando ? sql`'2031-02-01T13:00:00Z'::timestamptz` : null}, 'presencial', 't', now() + interval '10 minutes',
+                  ${aguardando ? sql`now()` : null}, ${localId}, ${aguardando ? sql`now()` : null})`;
+    await expect(em(publico(T), inserirSemRetorno(true, local))).rejects.toSatisfy(rlsDe('public_booking_requests'));
+    await expect(em(publico(T), inserirPedido(T, { aguardando: true, localId: local }))).rejects.toSatisfy(rlsDe('public_booking_requests')); // com RETURNING
+    // o INSERT de sempre do publico continua liberado, também com o local escolhido na página (o pedido guarda local_id)
+    await em(publico(T), inserirSemRetorno(false, null));
+    await em(publico(T), inserirSemRetorno(false, local));
+    // UPDATE sem WHERE não exige SELECT: só o WITH CHECK confere a linha nova
+    await expect(
+      em(publico(T), sql`update public_booking_requests set aguardando_desde = now(), fim = inicio + interval '1 hour', local_id = ${local}, verificado_em = now()`),
+    ).rejects.toSatisfy(rlsDe('public_booking_requests'));
+    const naEquipe = await em(T.ctx, sql`select id from public_booking_requests where aguardando_desde is not null`);
+    expect(naEquipe).toEqual([]);
+    expect((await em(T.ctx, sql`select id from public_booking_requests`)).map((r) => r.id)).toContain(comum.id);
+    expect(await findPublicoViolations(owner.pool)).toEqual([]);
+  });
+
   it('public_booking_requests: CHECKs do aguardando e da resolução (AG-D63); um aguardando por e-mail (RN-425)', async () => {
     const T = await novoTenant(app.db);
     const local = await criarLocal(T, { principal: true, agendamento: true });
