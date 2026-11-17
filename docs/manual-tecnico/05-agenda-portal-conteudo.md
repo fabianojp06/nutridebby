@@ -676,7 +676,8 @@ flowchart TD
 
 **Painel** — seção "Lembretes no app" (`data-guia="lembretes-app"`) no fim da aba Plano alimentar
 (`src/app/painel/pacientes/[id]/plano-alimentar/lembretes/`: `secao.tsx`, `lista.tsx`, `form-lembrete.tsx`, `actions.ts`);
-não há aba nova (as 12 abas já não cabem a 1280 px).
+não há aba nova (com 12 abas, uma 13ª não caberia a 1280 px; desde o Plano 18 a ficha tem 13 — Início e Perfil no lugar do
+Resumo, "Histórico" encurtado — e uma 14ª não cabe, R-266; [§4.2.10](04-modulos-clinicos.md#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)).
 
 - Primeira visão (nenhum lembrete): "Sugestão — confira e salve", com água 08:00–20:00 a cada 2 h, todos os dias, e
   refeições na hora, sem diário; só vale depois de "Salvar". A sugestão fica guardada no cliente (`ListaDeLembretes`):
@@ -1608,9 +1609,9 @@ O portal segue o modo do aparelho, **sem botão**: `data-tema="sistema"` fixo (`
 
 ### 5.8.1 Conteúdo
 
-`src/modules/ajuda/conteudo.ts` exporta `GUIAS`: 17 guias tipados (`boas-vindas`, `pacientes`, `plano-alimentar`,
-`documentos`, `ia-nutri`, `prontuario`, `agenda`, `horarios`, `exames-recebidos`, `duvidas`, `diarios`, `conteudos`, `alimentos`,
-`modelos`, `configuracoes`, `whatsapp` e `seguranca`; `exames-recebidos` do Plano 12, `ia-nutri` e `duvidas` do Plano 15). Plano 10A (D18): `documentos` (v1) antes do `prontuario`; `configuracoes` na v2 (seção "Dados para
+`src/modules/ajuda/conteudo.ts` exporta `GUIAS`: 18 guias tipados (`boas-vindas`, `pacientes`, `plano-alimentar`,
+`documentos`, `ia-nutri`, `inicio-paciente`, `prontuario`, `agenda`, `horarios`, `exames-recebidos`, `duvidas`, `diarios`, `conteudos`, `alimentos`,
+`modelos`, `configuracoes`, `whatsapp` e `seguranca`; `exames-recebidos` do Plano 12, `ia-nutri` e `duvidas` do Plano 15, `inicio-paciente` do Plano 18). Plano 10A (D18): `documentos` (v1) antes do `prontuario`; `configuracoes` na v2 (seção "Dados para
 documentos"); `seguranca` (v1) para `/conta/seguranca`, mostrado na própria tela num bloco "Como funciona"
 (`ajuda-seguranca.tsx`), porque a tela fica fora do layout do painel; o teste do manual passou a cobrir `src/app/conta`. Plano 11:
 `configuracoes` na v3 (seção de ajuda "Inteligência artificial (IA)", quatro itens; os passos do tour não mudaram — a
@@ -1626,6 +1627,31 @@ app: cada paciente recebe no máximo 24 lembretes por dia, sempre entre 6h e 22h
 Plano 14B-2 continua sem ter subido a versão. Guia do portal `portal-novidades` na **v3** (Lembretes em Eu, §5.8.4). A seção
 mora numa aba que já tinha guia: nenhuma tela nova do painel, nada em `SEM_AJUDA` (`src/modules/ajuda/conteudo.test.ts`, caso
 "Plano 17: a seção \"Lembretes no app\" no guia do plano alimentar…").
+
+Plano 18, PR 1 (abas Início e Perfil, [§4.2.10](04-modulos-clinicos.md#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)):
+
+- **Guia novo `inicio-paciente`**, na versão 1 (`conteudo.ts:147`), com título "Início do paciente". O título "Início" é
+  do guia de boas-vindas, e o teste "nenhum título de guia repetido" impede o mesmo h2 duas vezes no manual completo.
+  - `padrao` `^/painel/pacientes/ID$`: só a aba Início da ficha.
+  - Fica **antes** do `prontuario`, porque `guiaDaRota` pega o primeiro que casa, e o `prontuario` casa todas as abas.
+  - Os quatro passos têm os alvos `cabecalho-paciente` (`layout.tsx:28`), `abas-prontuario` (`abas.tsx:37`),
+    `adicionar-prontuario` (o botão Adicionar, `inicio/adicionar.tsx:28`) e `secoes-inicio` (`page.tsx:53`).
+  - Os dois primeiros repetem os textos do `prontuario`. "Adicionar" diz "Um botão só para registrar anamnese, medidas,
+    exames, atendimentos e prescrições."; "Seções", "Cada seção mostra quantos registros há e os três mais recentes."
+  - A frase do selo "No app" da spec §8.3 fica para a Tarefa 9, com a v2. O teste garante que a v1 não fala do selo.
+- **`prontuario` na v3** (`conteudo.ts:178`, comentário "3 = Plano 18: abas Início e Perfil"):
+  - Passo `cabecalho-paciente`: "Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o
+    paciente está arquivado ou bloqueado.".
+  - Passo `abas-prontuario`: "Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento
+    tem a sua aba.".
+  - O resumo e o primeiro item do "Passo a passo" passam a citar o Início e o Perfil.
+  - Quem já viu a v2 recebe de novo o aviso "Primeira vez aqui?".
+- **`pacientes` continua na v1.** Só o item da gaveta mudou, e agora termina em: use "Reenviar convite" em "Acesso ao app",
+  na aba Perfil do prontuário. O tour não muda, e o comentário no arquivo registra a escolha.
+- **Tela nova `/painel/pacientes/[id]/perfil`.** O `prontuario` cobre a tela (o padrão casa qualquer aba): nada em
+  `SEM_AJUDA`. O guia próprio `perfil-paciente` (spec §8.4) chega no PR 2 (Tarefa 7a).
+- **Teste do manual.** O teste dos nomes citados entre aspas passou a ler também `src/modules/ficha` (`TSX_FORA`), onde
+  ficam os textos do Início (`MSG_FICHA`).
 
 | Campo | Papel |
 |---|---|

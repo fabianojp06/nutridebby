@@ -147,6 +147,7 @@ arquivos rodam em paralelo sem pisar um no outro, e a RLS ainda separa os dados.
 | `test/whatsapp.ts` | `whatsappFalso`, `conexaoDeTeste` | Provedor WhatsApp em memória e conexão do tenant |
 | `test/pdf.ts` | `textoDoPdf`, `paginasDoPdf` | Lê o texto e conta as páginas dos PDFs do `@react-pdf` |
 | `test/postgres-teste.ts` | `novoPostgres`, `uriDoPostgres` | Postgres 16 do Testcontainers; com `NUTRI_CI_REDE_DIRETA=1` (runner próprio), URL pelo IP do contêiner e espera só pelo healthcheck. Usado pelo `global-setup` e pelo `migrate-owner.test.ts` |
+| `test/ficha.ts` (Plano 18) | `DO_PLANO_18`, `SECOES_DO_PLANO_18`, `ehDoPlano18` | As 8 seções do Início do Plano 18, na ordem: os testes que conferem só essas filtram por aqui, e uma seção de outro plano acrescentada no fim de `SECOES_DA_FICHA` não os quebra |
 | `test/grafo-de-imports.ts` | `grafoDeImports`, `raizesDoNext`, `caminhoAte`, `fontesDe` | Grafo de imports pela árvore sintática do TypeScript (base das guardas de 7.4.3) |
 
 Os seis testes que vivem em `test/` são transversais: `isolamento.test.ts` (7.4.2), `grafo-de-imports.test.ts`
@@ -295,13 +296,16 @@ fábricas de `COM_MAE` (`:331`; desde o Plano 17, também `lembretes_rotina_envi
 | IA: nada em log, fila ou Sentry (Plano 11, RNF-104) | `src/modules/ia/logs.test.ts` | Uma leitura com textos marcadores (ok, recusa e erro com nova tentativa): o marcador não aparece nos espiões do logger, nos dados dos jobs da fila `ia`, no erro limpo do job nem no evento do Sentry filtrado; a tag `motivo` só com formato de código; o pino tira `apiKey`, `x-api-key`, `parametros` e `resultado` |
 | IA: travas sem ciclo (Plano 11, revisão final) | `src/modules/ia/travas.test.ts` | Transações reais em paralelo, conferidas por `pg_blocking_pids`: worker × "Não usar IA", `cancelarTarefas` × portão do envio, varredura × cancelamento — nenhuma termina em 40P01 |
 | IA: gatilhos e CHECKs do banco (Plano 11) | `src/db/ia-schema.test.ts` | `ia_tarefas_sem_apagar`, `patients_ia_quem`, `ia_tarefas_imutavel`, `tenants_interruptores_da_admin`, os CHECKs de `ia_tarefas`, `admin_actions` e `patients`, com os ramos que liberam |
+| Registro de seções da ficha (Plano 18, D14) | `src/modules/ficha/registro.test.ts` | Ordem da RN-278, com as seções do Plano 18 primeiro e as de outros planos no fim; ids únicos; um arquivo por seção em `src/modules/ficha/secoes/`. Nenhum desses arquivos cita `auditRead`/`recordAudit`, o contexto de paciente sem login, `liberarReceitasDoPlano`, `import()` ou `require`; os imports ficam na lista fechada `IMPORTS_PERMITIDOS`. Todo destino do Adicionar é `href` (relativo sem `/` ou absoluto em `/painel/`) ou uma `ChaveDeAcao`; `verTodos` é absoluto em `/painel/`; nenhuma das 8 seções declara `leitura` |
+| Cabeçalho da ficha por um caminho só (Plano 18, D13) | `src/modules/ficha/cabecalho-fonte.test.ts` | `carregarCabecalho` é `cache(async (patientId: string)` e usa o `ctx` de `carregarProntuario`; em `src/app`, só `prontuario.ts` cita `lerCabecalho`; o layout lê só por `carregarCabecalho`. Uma chamada a mais gravaria outra linha "Visualizou" de antropometria |
+| Links do Início sem pré-carga (Plano 18) | `src/app/painel/pacientes/[id]/inicio/secao.test.ts`, `adicionar.test.ts` | Todo `<Link>` de `secao.tsx` e do diálogo Adicionar tem `prefetch={false}`: as páginas de destino gravam `auditRead` |
 | `web-push` só no worker | `src/modules/notificacoes/push.test.ts:434` | Nada do grafo do Next alcança `push.ts`, `enviar.ts`, `web-push` nem `heic-decode` |
 | Sentry | `src/lib/sentry-guarda.test.ts` | `Sentry.init` só em `src/lib/sentry.ts`; nenhum SDK de navegador, Replay ou tracing; `@sentry/node` fora de componente de cliente |
 | Erro de job sem detalhe | `src/worker/sem-detalhe.test.ts` | Todo job registra por `workSemDetalhe`; nenhum `boss.work(` direto em `src/worker/index.ts` |
 | Axe em toda tela | `src/app/painel/rotas-axe.test.ts:8` | `ROTAS_DO_PAINEL` tem exatamente um caminho por `page.tsx` de `src/app/painel` (Plano 08, D25) |
 | Imagem Docker | `src/app/painel/rotas-axe.test.ts:19` | Todo arquivo de `e2e/` importado por `src/` volta ao contexto do build no `.dockerignore` |
 | Visual V2 | `src/app/painel/cores.test.ts`, `cabecalho.test.ts`, `navegacao.test.ts` | Sem cor fixa nas telas da nutricionista (D24), foco visível, cabeçalho desenhado só pelo layout (D20); todo `page.tsx` do painel chama `requireNutri(` ou `carregarProntuario(` (`cabecalho.test.ts:49-51`, conferência de texto) |
-| Manual guiado | `src/modules/ajuda/conteudo.test.ts:48` | Todo nome de botão citado no manual existe numa tela (desde o Plano 10A, também em `src/app/conta`); toda página de `src/app/painel` e `src/app/conta` tem guia ou está em `SEM_AJUDA`; o guia `prontuario` não cita a aba Documentos (D20) |
+| Manual guiado | `src/modules/ajuda/conteudo.test.ts:51,54` | Todo nome de botão citado no manual existe numa tela (desde o Plano 10A, também em `src/app/conta`); toda página de `src/app/painel` e `src/app/conta` tem guia ou está em `SEM_AJUDA`; o guia `prontuario` não cita a aba Documentos (D20). Plano 18: `TSX_FORA` lê também `src/modules/ficha` (os textos do Início em `MSG_FICHA`), nenhum título de guia se repete e o `inicio-paciente` vem antes do `prontuario` |
 | Workflows no runner próprio (12/10/2026) | `test/runner-proprio.test.ts` | Nenhum workflow com `pull_request_target`, `workflow_run` ou `issue_comment`; todo `runs-on` é `ubuntu-latest` ou `[self-hosted, nutri-ci]`; os jobs `mudancas`, `quality`, `test`, `e2e` e `image` do `ci.yml` no runner próprio; nenhum job fora do `ubuntu-latest` com `secrets`, permissão de escrita ou `EASYPANEL` (texto bruto); `decidir` e `publish` hospedados, `publish` com `packages: write`; emergência só na `main` com `PUBLICAR-SEM-CI`, e o job `confirmar` falha no contrário. Alarme contra engano, não barreira ([§7.7](#77-pipeline-do-ci-e-deploy)) |
 | Variáveis | `src/env.test.ts` | Validação de cada variável por processo (chaves de teste do Turnstile recusadas em produção fora de `localhost`, `AUTH_SECRET` ≥ 32, `DATABASE_URL_MIGRATOR` nunca exposta ao app…) |
 
@@ -327,14 +331,14 @@ que o CI cobra; "nenhuma" quer dizer que só a revisão pega o esquecimento.
 | # | Passo | Onde | Guarda |
 |---|---|---|---|
 | 1 | Primeira linha da página: `await requireNutri('/painel/…')` (`src/lib/tenant-session.ts:22`); use o `ctx` devolvido em `withTenant` | `page.tsx` | `cabecalho.test.ts:49-51` (só confere o texto) |
-| 2 | Aba do prontuário (`/painel/pacientes/[id]/…`): use `carregarProntuario(id)` (`src/app/painel/pacientes/[id]/prontuario.ts:12`) em vez de `requireNutri` + `buscarPaciente`. Ela chama `requireNutri`, faz **uma** leitura auditada do paciente por requisição (o `cache` do React divide a leitura entre o layout e a página) e dá 404 a paciente de outro tenant ou id malformado | `page.tsx` da aba | `cabecalho.test.ts:49-51` |
+| 2 | Aba do prontuário (`/painel/pacientes/[id]/…`): use `carregarProntuario(id)` (`src/app/painel/pacientes/[id]/prontuario.ts:13`) em vez de `requireNutri` + `buscarPaciente`. Ela chama `requireNutri`, faz **uma** leitura auditada do paciente por requisição (o `cache` do React divide a leitura entre o layout e a página) e dá 404 a paciente de outro tenant ou id malformado. Desde o Plano 18, o layout também lê a última avaliação por `carregarCabecalho` (`prontuario.ts:25`, um `auditRead` de antropometria por execução): a aba nova nunca chama `lerCabecalho`. A faixa tem 13 abas e uma 14ª não cabe a 1280 px (R-266) | `page.tsx` da aba | `cabecalho.test.ts:49-51`; `src/modules/ficha/cabecalho-fonte.test.ts` |
 | 3 | Server Action só num arquivo `actions.ts`, e toda função exportada começa pela guarda (`requireNutri`; no admin, `requireUser(['admin'])`). Não declare `'use server'` dentro de `page.tsx` nem em outro arquivo | `actions.ts` | `acoes-de-paciente.test.ts` (só lê arquivos `actions.ts`) |
 | 4 | Rota em `/api/painel/*`: `requireApiNutri(req)` (`tenant-session.ts:37`); escrita: `mesmaOrigem(req)` antes da sessão (`src/lib/mesma-origem.ts:9`) | `route.ts` | `src/app/api/painel/acesso-negado.test.ts` (sessão), `src/app/api/mesma-origem-rotas.test.ts` (origem) |
 | 5 | Entrada em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts:12`) | `e2e/painel-rotas.ts` | `rotas-axe.test.ts:8` |
 | 6 | Tela com `[id]`: campo novo em `IdsDoPainel` (`e2e/painel-rotas.ts:2`) e a criação do registro pela UI em `prepararTelasComId` (`e2e/painel.ts:73`) | `e2e/` | `pnpm typecheck` (o `tsconfig.json` inclui `e2e/`): campo usado em `ROTAS_DO_PAINEL` e não devolvido por `prepararTelasComId` não compila |
 | 7 | Cores só por token (sem `bg-white`, `text-gray-…`); sem cabeçalho próprio (o layout desenha) | `.tsx` | `cores.test.ts`, `cabecalho.test.ts` |
 | 8 | Se a tela é um destino: item em `ITENS_DO_MENU` (6 itens, `src/app/painel/navegacao.ts:2`) ou cartão no hub de Configurações (`DO_HUB`, `navegacao.ts:12`) | `navegacao.ts` | `navegacao.test.ts:10` fixa os 6 itens: item novo no menu exige decisão (P08 D20) |
-| 9 | Guia do manual, se couber: entrada em `GUIAS` (`src/modules/ajuda/conteudo.ts:19`) | `conteudo.ts` | `conteudo.test.ts:48` (nomes de botão) |
+| 9 | Guia do manual, se couber: entrada em `GUIAS` (`src/modules/ajuda/conteudo.ts:17`) | `conteudo.ts` | `conteudo.test.ts:54` (nomes de botão) |
 | 10 | Dado de saúde devolvido: `auditRead(tx, …)` na mesma transação (`src/modules/plataforma/audit.ts:28`, regra 8) | módulo | nenhuma |
 
 **Portal do paciente (`src/app/p/…`, `src/app/api/p/…`)**
@@ -409,6 +413,10 @@ apontado para produção.
 - **CSP vigiada.** `vigiarCsp` (`e2e/csp.ts`) junta toda mensagem de violação do console. O spec de acessibilidade
   do painel abre todas as telas e exige a lista vazia. É a prova de que a CSP pode valer direto (Plano 08, D7).
 - **Admin com 2FA.** `entrarComoAdmin` ativa o 2FA no primeiro login e gera o código TOTP com `otpauth`.
+- **Paciente novo só pelo helper (Plano 18, RNF-263 g).** `criarPacientePeloFormulario(nutri, { nome, email, nascimento?,
+  sexo?, telefone? })` (`e2e/pacientes-form.ts:9`) é o único lugar dos E2E que preenche "Novo paciente" e devolve o
+  caminho do prontuário; `pacienteNoPortal` (`e2e/portal.ts`) já o usa. O PR 2 do Plano 18 troca os rótulos do formulário
+  ("Nome" vira "Nome completo"; muda o telefone) e só o helper muda: spec novo (Planos 19, 20…) cadastra paciente por ele.
 
 ### Acessibilidade (RNF-10)
 
@@ -445,12 +453,13 @@ Detalhes que evitam falso verde:
 | `csp.spec.ts` | 3 | CSP e cabeçalhos |
 | `health.spec.ts` | 1 | `/api/health` (o que o monitor externo confere) |
 | `acessibilidade.spec.ts` | 11 (+ laço) | Portal |
-| `acessibilidade-painel.spec.ts` | 5 (+ laço) | Painel |
+| `acessibilidade-painel.spec.ts` | 6 (+ laço) | Painel; desde o Plano 18, a faixa de 13 abas da ficha a 1280 px sem rolar e sem "incomplete", com o cadastro no Perfil |
 | `documentos.spec.ts` (Plano 10A) | 1 | Receita de ponta a ponta pela digitalizada (rascunho → preparar → fotos + 2FA → portal: abrir e confirmar → situação no painel → verificação pública sem dado do paciente), com axe nos cartões "Aguardando assinatura" e "Documento assinado"; `acessibilidade.spec.ts` ganhou o axe de `/p/documentos`, `/v/<código>` e `/documento/<token>` (claro, escuro, 360 px) |
 
 | `painel-pwa.spec.ts` (Plano 09) | 1 | Painel instalável: manifest próprio, nenhum service worker, HTML sem cache (P09-05) |
 | `ia-laudos.spec.ts` (Plano 11) | 1 | Com `IA_PROVEDOR=sandbox`: aviso em mãos na Privacidade → laudo → "Ler valores com IA" → conferir → salvar só o marcado, com a marca "IA · conferido em {data}" |
 | `conferencia-ia.spec.ts` (Plano 11) | 1 | A conferência guarda marcações e correções depois de um erro e no segundo envio (o React 19 limpava o formulário; revisão da T13) |
+| `ficha.spec.ts` (Plano 18, PR 1) | 5 (+ laço de 2 temas) | Aba Início (US-262, US-263, CS-260): diálogo "Adicionar ao prontuário" (foco no título; Esc e "Fechar" devolvem o foco ao botão); Adicionar → Antropometria (foco em "Nova avaliação") e → Anamnese (foco no seletor de modelo); Adicionar → Receita (rascunho pela Server Action da aba Documentos); seção → item em 2 cliques; axe do diálogo aberto, claro e escuro. Bloco de IP `10.9.18.1`–`.5`. Cadastra o paciente por `criarPacientePeloFormulario` |
 | `lembretes.spec.ts` (Plano 17) | 2 (+ laço de 3 modos) | A nutricionista salva a sugestão na seção "Lembretes no app" ("Previsto para hoje", aviso sem aparelho), o paciente desliga a água em Eu › Lembretes (interruptor otimista com a ação presa na rede, foco e região de status) e a nutricionista vê "Desligado pelo paciente em {data}" sem o "Apagar"; axe da seção com lembretes salvos e com o suplemento aberto com erro nos três modos do painel. IPs `10.9.31.71`–`.75`. O envio do push fica nos testes de `src/modules/lembretes` (o E2E não tem aparelho inscrito); `acessibilidade.spec.ts` ganhou `/p/perfil/lembretes` (com o lembrete livre de link longo, a 320 px com texto a 200%) e a tela vazia (`10.9.10.25`) |
 
 Os números são de chamadas `test(` no arquivo; laços geram mais casos na execução.
