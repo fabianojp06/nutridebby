@@ -1,5 +1,5 @@
 import type { FaixaDoConsultorio } from '@/db/schema/exames-catalogo';
-import { formatarDecimal, casasDecimais } from '@/lib/numero';
+import { formatarDecimal, casasDecimais, lerDecimal } from '@/lib/numero';
 import { normalizarNome, normUnidade } from '@/modules/ia/correspondencia';
 import { idadeEm } from '@/modules/pacientes/datas';
 import { MSG_EXAMES } from './constantes';
@@ -86,14 +86,18 @@ export function categoriaDoConsultorio(
   return faixa ? { categoria: faixa.categoria, faixa } : null;
 }
 
-const NUMERO = String.raw`\d+(?:[.,]\d+)?`;
+// Número com sinal opcional e todos os grupos "[.,]ddd" (para o milhar não ser cortado no meio); o lookbehind impede que o
+// número comece no meio de outro. O '-' entre dois números continua sendo o separador (o separador é obrigatório).
+const NUMERO = String.raw`(?<![\d.,])-?\d+(?:[.,]\d+)*`;
 const PADRAO_FAIXA = new RegExp(`(${NUMERO})\\s*(?:-|–|\\s+a\\s+)\\s*(${NUMERO})`, 'giu');
 const SEM_SUGESTAO = /[<>≤≥;]|\b(?:ate|acima|abaixo)\b/;
-const lerNumero = (s: string) => Number(s.replace(',', '.'));
+/** Ponto de milhar dos laudos ("4.000", "150.000", "1.005"): ambíguo com o ponto decimal, então não sugere (RN-377). */
+const PONTO_DE_MILHAR = /^-?\d{1,3}(?:\.\d{3})+$/;
 
 /**
- * RN-377: só um padrão "a a b", "a - b" ou "a – b" (vírgula ou ponto decimal, unidade opcional depois), e nada de `<`,
- * `>`, `≤`, `≥`, "até", "acima", "abaixo", ";" ou segunda faixa. Nunca preenche sozinha: a tela oferece "Usar a a b".
+ * RN-377: só um padrão "a a b", "a - b" ou "a – b" (vírgula ou ponto decimal, sinal opcional, unidade opcional depois), e
+ * nada de `<`, `>`, `≤`, `≥`, "até", "acima", "abaixo", ";" ou segunda faixa. Número com cara de ponto de milhar
+ * ("4.000 a 11.000", "1.005 a 1.030") não sugere: na dúvida, nada. Nunca preenche sozinha: a tela oferece "Usar a a b".
  */
 export function sugerirFaixa(texto: string | null): { refMin: number; refMax: number } | null {
   if (!texto?.trim()) return null;
@@ -101,9 +105,11 @@ export function sugerirFaixa(texto: string | null): { refMin: number; refMax: nu
   if (SEM_SUGESTAO.test(semAcento)) return null;
   const achados = [...texto.matchAll(PADRAO_FAIXA)];
   if (achados.length !== 1) return null;
-  const refMin = lerNumero(achados[0][1]);
-  const refMax = lerNumero(achados[0][2]);
-  if (!Number.isFinite(refMin) || !Number.isFinite(refMax) || refMin > refMax) return null;
+  const [, textoMin, textoMax] = achados[0];
+  if (PONTO_DE_MILHAR.test(textoMin) || PONTO_DE_MILHAR.test(textoMax)) return null;
+  const refMin = lerDecimal(textoMin);
+  const refMax = lerDecimal(textoMax);
+  if (refMin === null || refMax === null || !Number.isFinite(refMin) || !Number.isFinite(refMax) || refMin > refMax) return null;
   return { refMin, refMax };
 }
 
