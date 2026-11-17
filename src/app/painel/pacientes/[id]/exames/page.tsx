@@ -34,10 +34,11 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const lista = await listarExames(ctx, paciente.id);
   const bloqueado = paciente.status === 'bloqueado';
-  // Plano 22 (T4, RNF-371): catálogo e modelos de solicitação numa transação só; as faixas do consultório ficam no servidor
+  // Plano 22 (T4, RNF-371): catálogo e modelos de solicitação numa transação só; as faixas do consultório vão ao
+  // formulário só para o "Ver referência" das linhas (T5a, RN-382)
   const bibliotecas = bloqueado ? null : await bibliotecasParaExames(ctx);
   const indice = indiceDoCatalogo(bibliotecas?.catalogo ?? []);
-  const catalogo = (bibliotecas?.catalogo ?? []).map(({ nome, unidade, sinonimos, componentes }) => ({ nome, unidade, sinonimos, componentes }));
+  const catalogo = (bibliotecas?.catalogo ?? []).map(({ nome, unidade, sinonimos, componentes, faixas }) => ({ nome, unidade, sinonimos, componentes, faixas }));
   const modelos = (bibliotecas?.modelos ?? []).map((m) => ({ id: m.id, nome: m.nome, linhas: expandirParaAnalise(m.exames, indice) }));
   const busca = await searchParams;
   const ia = configIA(getEnv());
@@ -122,7 +123,10 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
                 <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
                 {doPaciente.has(e.id) && <Selo>{MSG_REVISAO.selo}</Selo>}
               </div>
-              <div className="flex gap-4">
+              <div className="flex flex-wrap gap-4">
+                <Link href={`/painel/pacientes/${paciente.id}/exames/${e.id}`} aria-label={MSG_EXAMES.exame.abrirRotulo(e.titulo, formatarData(e.data))} className="inline-flex min-h-11 items-center text-link underline">
+                  {MSG_EXAMES.exame.abrir}
+                </Link>
                 {e.arquivoPath && (
                   <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="text-link underline">Baixar laudo</a>
                 )}

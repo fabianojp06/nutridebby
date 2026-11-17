@@ -46,7 +46,7 @@ export default async function EditarExamePage({ params }: PageProps<'/painel/pac
           exame={{ titulo: exame.titulo, data: exame.data, valores: exame.valores, updatedAt: exame.updatedAt }}
           conferidoEm={conferidoEm}
           hoje={hojeNoFuso(tenant.fuso)}
-          catalogo={exame.catalogo.map(({ nome, unidade, sinonimos, componentes }) => ({ nome, unidade, sinonimos, componentes }))}
+          catalogo={exame.catalogo.map(({ nome, unidade, sinonimos, componentes, faixas }) => ({ nome, unidade, sinonimos, componentes, faixas }))}
         />
       )}
       <p>

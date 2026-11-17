@@ -1,6 +1,6 @@
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { and, asc, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
 import { strToU8, zipSync } from 'fflate';
 import { fromDrizzle, type PgBoss } from 'pg-boss';
 import type { Db, Tx } from '@/db/client';
@@ -17,6 +17,7 @@ import {
   examSubmissions,
   exams,
   examVersoes,
+  examInterpretacoes,
   foods,
   iaAutorizacoes,
   iaTarefas,
@@ -250,6 +251,14 @@ export type DadosExportacao = {
       valores: { nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string; refMin?: number; refMax?: number }[];
       alteradoEm: string;
     }[];
+    /**
+     * Plano 22 (RN-383, RN-399, EP-D19; Review Focus 6): a nota de interpretação em vigor (`exam_interpretacoes`,
+     * staff_only, por inclusão explícita) — nos dois escopos: é a interpretação clínica do exame do próprio titular
+     * (prontuário), não nota privada; o campo diz isso à nutricionista. `null` sem nota (ou apagada). Nunca vai ao PDF.
+     */
+    notaDeInterpretacao: string | null;
+    /** Só no escopo da equipe: as versões da nota antes da em vigor (`texto` nulo = "Apagar nota"), sem o autor. */
+    notasAnteriores?: { versao: number; texto: string | null; criadoEm: string }[];
   }[];
   /** Só as orientações: notas privadas (staff_only) nunca saem (US-016). */
   atendimentos: { data: string; orientacoes: string | null }[];
@@ -436,8 +445,8 @@ async function planosParaExportacao(tx: Tx, ids: string[], escopo: EscopoExporta
 
 /**
  * Todas as tabelas do paciente, menos as staff_only (notas privadas, etiquetas; ia_tarefas e fin_lancamentos entram por
- * inclusão explícita), salvo `exam_versoes` (Plano 22, EP-D41) — inclusive o cadastro complementar (`patient_cadastro`,
- * Plano 18, por inclusão explícita: `cadastroParaExportacao`). Consultas em sequência:
+ * inclusão explícita), salvo `exam_versoes` (Plano 22, EP-D41) e `exam_interpretacoes` (EP-D19) — inclusive o cadastro
+ * complementar (`patient_cadastro`, Plano 18, por inclusão explícita: `cadastroParaExportacao`). Consultas em sequência:
  * uma transação é uma conexão só, e consultas paralelas nela geram o aviso de descontinuação do pg 8.23
  * (erro no pg 9).
  */
@@ -481,6 +490,18 @@ export async function montarDados(
     const lista = versoesPorExame.get(v.examId) ?? [];
     lista.push({ versao: v.versao, titulo: v.titulo, data: v.data, valores: v.valores, alteradoEm: v.alteradoEm.toISOString() });
     versoesPorExame.set(v.examId, lista);
+  }
+  // Plano 22 (EP-D19): a nota de interpretação, por inclusão explícita (staff_only), sem o autor; da mais nova para a mais antiga
+  const notasDosExames = await tx
+    .select({ examId: examInterpretacoes.examId, versao: examInterpretacoes.versao, texto: examInterpretacoes.texto, criadoEm: examInterpretacoes.criadoEm })
+    .from(examInterpretacoes)
+    .where(eq(examInterpretacoes.patientId, patientId))
+    .orderBy(asc(examInterpretacoes.examId), desc(examInterpretacoes.versao));
+  const notasPorExame = new Map<string, { versao: number; texto: string | null; criadoEm: string }[]>();
+  for (const n of notasDosExames) {
+    const lista = notasPorExame.get(n.examId) ?? [];
+    lista.push({ versao: n.versao, texto: n.texto, criadoEm: n.criadoEm.toISOString() });
+    notasPorExame.set(n.examId, lista);
   }
   const at = await tx
     .select({ data: consultations.data, orientacoes: consultations.orientacoesPaciente })
@@ -651,6 +672,8 @@ export async function montarDados(
       laudo: null,
       valores: e.valores,
       versoesAnteriores: versoesPorExame.get(e.id) ?? [],
+      notaDeInterpretacao: notasPorExame.get(e.id)?.[0]?.texto ?? null,
+      ...(escopo === 'equipe' ? { notasAnteriores: (notasPorExame.get(e.id) ?? []).slice(1) } : {}),
     })),
     atendimentos: at,
     planos,

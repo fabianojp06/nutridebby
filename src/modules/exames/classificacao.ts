@@ -1,7 +1,7 @@
 import type { FaixaDoConsultorio } from '@/db/schema/exames-catalogo';
 import { formatarDecimal, casasDecimais, lerDecimal } from '@/lib/numero';
 import { normalizarNome, normUnidade } from '@/modules/ia/correspondencia';
-import { idadeEm } from '@/modules/pacientes/datas';
+import { formatarData, idadeEm } from '@/modules/pacientes/datas';
 import { MSG_EXAMES } from './constantes';
 
 /**
@@ -145,4 +145,19 @@ export function foraParaOApp(l: { valor: number; referencia: string | null; refM
   const neutra = classificarNeutra(l.valor, l.refMin, l.refMax);
   if (neutra === null || faixaDiverge(l)) return null;
   return neutra !== 'dentro';
+}
+
+/**
+ * RN-382 (REF): uma faixa do consultório como o diálogo "Ver referência" a mostra — "{Feminino|Masculino|Todos},
+ * {idade}: {limites} — {categoria}" (os limites com a unidade do exame do catálogo) e "Fonte: {fonte} · atualizada em
+ * {dd/mm/aaaa}".
+ */
+export function textoDaFaixaDoConsultorio(f: FaixaDoConsultorio, unidade: string | null): { linha: string; fonte: string } {
+  const S = MSG_EXAMES.faixas.sexos;
+  const R = MSG_EXAMES.ref;
+  const publico = f.sexo === 'F' ? S.F : f.sexo === 'M' ? S.M : S.todos;
+  const idade = f.idadeMin === null && f.idadeMax === null ? R.qualquerIdade : R.idade(f.idadeMin, f.idadeMax);
+  const limite = (n: number | null) => (n === null ? null : formatarLimite(n));
+  const limites = `${R.limites(limite(f.aPartirDe), limite(f.abaixoDe))}${unidade ? ` ${unidade}` : ''}`;
+  return { linha: R.linhaFaixa(publico, idade, limites, f.categoria), fonte: R.fonte(f.fonte, formatarData(f.atualizadaEm)) };
 }

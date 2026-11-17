@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { casasDecimais, formatarDecimal } from '@/lib/numero';
 import { MSG_EXAMES } from '@/modules/exames/constantes';
 import { versoesDoExame } from '@/modules/exames/edicao';
+import { notasAnteriores } from '@/modules/exames/interpretacao';
 import { formatarData, formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../../../prontuario';
 
@@ -12,7 +13,7 @@ const X = MSG_EXAMES.exame;
 
 /**
  * Plano 22 (T4, US-371, RN-378): "Versões anteriores" — o estado do exame antes de cada edição (título, data e linhas), a
- * justificativa, quem e quando. Lê só por `versoesDoExame` (pelos dois ids; `auditRead` de `exames_versoes` quando há
+ * justificativa, quem e quando; e (T5a, RN-383) as "Notas anteriores", por `notasAnteriores`. Lê só por `versoesDoExame` (pelos dois ids; `auditRead` de `exames_versoes` quando há
  * versão); exame de outro paciente → 404.
  */
 export default async function VersoesDoExamePage({ params }: PageProps<'/painel/pacientes/[id]/exames/[exameId]/versoes'>) {
@@ -20,6 +21,8 @@ export default async function VersoesDoExamePage({ params }: PageProps<'/painel/
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const r = await versoesDoExame(ctx, paciente.id, exameId);
   if (!r) notFound();
+  // T5a (US-373, RN-383): as versões da nota antes da em vigor, com quem e quando (`auditRead` de `exames_nota` quando há)
+  const notas = await notasAnteriores(ctx, paciente.id, exameId);
   const base = `/painel/pacientes/${paciente.id}/exames`;
   return (
     <section aria-labelledby="versoes-exame" className="max-w-4xl space-y-4">
@@ -67,6 +70,21 @@ export default async function VersoesDoExamePage({ params }: PageProps<'/painel/
           )}
         </article>
       ))}
+      {notas.length > 0 && (
+        <section aria-labelledby="notas-anteriores" className="space-y-3">
+          <h3 id="notas-anteriores" className="font-semibold">
+            {MSG_EXAMES.nota.anteriores}
+          </h3>
+          {notas.map((n) => (
+            <article key={n.versao} aria-labelledby={`nota-${n.versao}`} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
+              <h4 id={`nota-${n.versao}`} className="font-semibold">
+                {X.versao(n.versao, formatarDataNoFuso(n.em, tenant.fuso), n.por)}
+              </h4>
+              <p className="wrap-break-word whitespace-pre-line">{n.texto ?? MSG_EXAMES.nota.versaoApagada}</p>
+            </article>
+          ))}
+        </section>
+      )}
     </section>
   );
 }

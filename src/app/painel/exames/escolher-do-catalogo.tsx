@@ -5,14 +5,17 @@ import { useId, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Dialogo } from '@/components/dialogo';
 import { Botao } from '@/components/ui/botao';
-import type { ExameDaLista } from '@/db/schema/exames-catalogo';
+import type { ExameDaLista, FaixaDoConsultorio } from '@/db/schema/exames-catalogo';
 import { expandirParaAnalise } from '@/modules/exames/catalogo-regras';
 import { indiceDoCatalogo } from '@/modules/exames/classificacao';
 import { MSG_EXAMES } from '@/modules/exames/constantes';
 import { normalizarNome } from '@/modules/ia/correspondencia';
 
-/** O que o diálogo precisa de cada exame do catálogo (as faixas ficam no servidor). */
-export type ItemDoCatalogo = { nome: string; unidade: string | null; sinonimos: string[]; componentes: string[] };
+/**
+ * O que o diálogo precisa de cada exame do catálogo. `faixas` (T5a, RN-382): só o "Ver referência" das linhas do
+ * lançamento e da edição as usa; quem não mostra o REF não as manda ao navegador.
+ */
+export type ItemDoCatalogo = { nome: string; unidade: string | null; sinonimos: string[]; componentes: string[]; faixas?: FaixaDoConsultorio[] };
 export type LinhaDaAnalise = { nome: string; unidade: string | null };
 
 type Props = {

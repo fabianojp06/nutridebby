@@ -90,4 +90,6 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   // Plano 22 (T4): editar exame e "Versões anteriores"
   '/painel/pacientes/[id]/exames/[exameId]/editar': (i) => `/painel/pacientes/${i.paciente}/exames/${i.exame}/editar`,
   '/painel/pacientes/[id]/exames/[exameId]/versoes': (i) => `/painel/pacientes/${i.paciente}/exames/${i.exame}/versoes`,
+  // Plano 22 (T5a): o detalhe do exame (classificação, "Ver referência" e a nota de interpretação)
+  '/painel/pacientes/[id]/exames/[exameId]': (i) => `/painel/pacientes/${i.paciente}/exames/${i.exame}`,
 };

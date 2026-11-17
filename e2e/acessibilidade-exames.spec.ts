@@ -321,3 +321,101 @@ test('Linhas do exame (revisão da T4): o erro do servidor fica na linha que err
   await nutri.getByRole('button', { name: 'Adicionar linha' }).click();
   await expect(nutri.getByLabel('Valor 2', { exact: true })).not.toHaveAttribute('aria-invalid', 'true');
 });
+
+// Plano 22 (T5a, RN-382, RN-383, RNF-372): o detalhe do exame — "Ver referência" aberto no detalhe e no "Novo exame" e o
+// diálogo "Inserir modelo", nos modos claro e escuro, a 1280 e a 360 px; a nota salva com o retorno na região de status e o
+// foco no título. O exame tem uma linha que casa com o exame do catálogo da semente desta spec (faixa "abaixo de 15").
+let detalheDoExame: string;
+let prontuarioDoDetalhe: string;
+
+test('detalhe do exame (T5a): lança um exame que casa com o catálogo e abre pelo "Abrir {título} de {data}"', async () => {
+  await nutri.setViewportSize({ width: 1280, height: 800 });
+  const sufixo = `dt${Date.now().toString(36)}`;
+  prontuarioDoDetalhe = await criarPacientePeloFormulario(nutri, { nome: `Paciente Detalhe ${sufixo}`, email: `detalhe-${sufixo}@nutridebby.test` });
+  await nutri.goto(`${prontuarioDoDetalhe}/exames`);
+  const titulo = `Ferro ${sufixo}`;
+  await nutri.getByLabel('Título do exame').fill(titulo);
+  await nutri.getByLabel('Marcador 1', { exact: true }).fill(nomeExame);
+  await nutri.getByLabel('Valor 1', { exact: true }).fill('10');
+  await nutri.getByLabel('Unidade 1', { exact: true }).fill('ng/mL');
+  await nutri.getByLabel('Faixa do laudo: de 1', { exact: true }).fill('15');
+  await nutri.getByLabel('até 1', { exact: true }).fill('150');
+  await nutri.getByRole('button', { name: 'Salvar exame' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Exame salvo.' })).toBeVisible();
+  await nutri.getByRole('link', { name: new RegExp(`^Abrir ${titulo} de `) }).click();
+  await expect(nutri.getByRole('heading', { level: 2, name: new RegExp(`^${titulo} — `) })).toBeVisible();
+  detalheDoExame = nutri.url();
+  // a neutra e a categoria do consultório, com o aviso fixo e o de gestação antes da tabela
+  const linha = nutri.getByRole('row', { name: new RegExp(nomeExame) });
+  await expect(linha).toContainText('Abaixo da referência');
+  await expect(linha).toContainText('Baixo (faixa do consultório)');
+  await expect(nutri.getByText('Classificação automática pela faixa de referência informada. Não é diagnóstico.')).toBeVisible();
+  await expect(nutri.getByText('As faixas do consultório não consideram gestação.')).toBeVisible();
+});
+
+for (const [modo, tema] of [
+  ['claro', 'Claro'],
+  ['escuro', 'Escuro'],
+] as const) {
+  for (const largura of [1280, 360]) {
+    test(`axe sem violações no detalhe do exame, "Ver referência" e "Inserir modelo" — modo ${modo}, ${largura} px`, async () => {
+      await nutri.setViewportSize({ width: 1280, height: 800 });
+      await escolherTema(nutri, tema);
+      await nutri.setViewportSize({ width: largura, height: 800 });
+      const falhas: string[] = [];
+
+      await nutri.goto(detalheDoExame);
+      for (const v of await violacoes(nutri)) falhas.push(`detalhe — ${v}`);
+      await nutri.getByRole('button', { name: `Referência de ${nomeExame}` }).click();
+      const ref = nutri.getByRole('dialog', { name: `Referência de ${nomeExame}` });
+      await expect(ref).toContainText('Faixas do consultório');
+      await expect(ref).toContainText('Fonte: Laboratório X, 2026');
+      for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`ver referência (detalhe) — ${v}`);
+      await nutri.keyboard.press('Escape');
+
+      await nutri.getByRole('button', { name: 'Inserir modelo' }).click();
+      const modelo = nutri.getByRole('dialog', { name: 'Inserir modelo' });
+      await expect(modelo).toBeVisible();
+      for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`inserir modelo — ${v}`);
+      await nutri.keyboard.press('Escape');
+
+      await nutri.goto(`${prontuarioDoDetalhe}/exames`);
+      await nutri.getByLabel('Marcador 1', { exact: true }).fill(nomeExame);
+      await nutri.getByRole('button', { name: `Referência de ${nomeExame}` }).click();
+      await expect(nutri.getByRole('dialog', { name: `Referência de ${nomeExame}` })).toContainText('Faixas do consultório');
+      for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`ver referência (novo exame) — ${v}`);
+      await nutri.keyboard.press('Escape');
+
+      expect(falhas).toEqual([]);
+    });
+  }
+}
+
+test('Nota de interpretação (T5a): Esc do "Ver referência" devolve o foco; salvar anuncia "Nota salva." e leva o foco ao título; apagar', async () => {
+  await nutri.setViewportSize({ width: 1280, height: 800 });
+  await nutri.goto(detalheDoExame);
+  const verRef = nutri.getByRole('button', { name: `Referência de ${nomeExame}` });
+  await verRef.click();
+  await nutri.keyboard.press('Escape');
+  await expect(verRef).toBeFocused();
+
+  const campo = nutri.getByLabel('Nota de interpretação', { exact: true });
+  await expect(nutri.getByText('Escreva fatores a investigar e encaminhamentos; não afirme doença.')).toBeVisible();
+  await expect(nutri.getByText('Não aparece no app; entra na cópia dos dados que o paciente pedir.')).toBeVisible();
+  // o limite: a mensagem e o texto digitado continuam no campo
+  await campo.fill('x'.repeat(2001));
+  await nutri.getByRole('button', { name: 'Salvar nota' }).click();
+  await expect(nutri.getByRole('alert').filter({ hasText: 'A nota tem no máximo 2000 caracteres.' })).toBeVisible();
+  await expect(campo).toHaveValue('x'.repeat(2001));
+
+  await campo.fill('Investigar a ingestão de ferro.');
+  await nutri.getByRole('button', { name: 'Salvar nota' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Nota salva.' })).toBeVisible();
+  await expect(nutri.getByRole('heading', { level: 2, name: /^Ferro / })).toBeFocused();
+  await expect(campo).toHaveValue('Investigar a ingestão de ferro.');
+
+  await nutri.getByRole('button', { name: 'Apagar nota' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Nota apagada.' })).toBeVisible();
+  await expect(campo).toHaveValue('');
+  await expect(nutri.getByRole('button', { name: 'Apagar nota' })).toHaveCount(0);
+});

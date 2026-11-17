@@ -3,7 +3,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { MSG_EXAMES } from '@/modules/exames/constantes';
 import { lerLinhasComErros } from '@/modules/pacientes/exames';
+import type { FaixaDoConsultorio } from '@/db/schema/exames-catalogo';
+import type { ItemDoCatalogo } from '@/app/painel/exames/escolher-do-catalogo';
 import { linhaDoGravado, linhaParaEnvio, LinhasDoExame, linhaVazia, type LinhaDoForm } from './linhas-do-exame';
+import { ConteudoDaReferencia } from './ver-referencia';
 
 /**
  * Plano 22 (T4, spec §7 "Linhas do lançamento"): só a estrutura (sem DOM; o Vitest roda em `environment: 'node'`). O
@@ -12,8 +15,8 @@ import { linhaDoGravado, linhaParaEnvio, LinhasDoExame, linhaVazia, type LinhaDo
 const L = MSG_EXAMES.lancamento;
 const linha = (o: Partial<LinhaDoForm>, chave = 0): LinhaDoForm => ({ ...linhaVazia(chave), ...o });
 /** `chavesDoEnvio`: por padrão, as linhas de agora (os erros vieram deste mesmo desenho). */
-const montar = (linhas: LinhaDoForm[], erros: Record<string, string> = {}, chavesDoEnvio: number[] = linhas.map((l) => l.chave)) =>
-  renderToStaticMarkup(createElement(LinhasDoExame, { idBase: 'novo', linhas, aoMudar: () => {}, erros, chavesDoEnvio, catalogo: [], modelos: [] }));
+const montar = (linhas: LinhaDoForm[], erros: Record<string, string> = {}, chavesDoEnvio: number[] = linhas.map((l) => l.chave), catalogo: ItemDoCatalogo[] = []) =>
+  renderToStaticMarkup(createElement(LinhasDoExame, { idBase: 'novo', linhas, aoMudar: () => {}, erros, chavesDoEnvio, catalogo, modelos: [] }));
 /** A tag de abertura do controle com o id pedido. */
 const tag = (html: string, id: string) => html.match(new RegExp(`<(?:input|button)[^>]*\\bid="${id}"[^>]*>`))?.[0] ?? '';
 const descritoPor = (html: string, id: string) => (tag(html, id).match(/aria-describedby="([^"]*)"/)?.[1] ?? '').split(' ').filter(Boolean);
@@ -139,5 +142,45 @@ describe('linhaDoGravado → linhaParaEnvio → lerLinhasComErros (revisão da T
   it('a linha da IA leva a data da conferência; a que não é da IA, nunca', () => {
     expect(linhaDoGravado({ nome: 'G', valor: 92, unidade: null, referencia: null, iaTarefaId: 't' }, 0, '02/09/2026')).toMatchObject({ daIa: true, iaConferidoEm: '02/09/2026' });
     expect(linhaDoGravado({ nome: 'G', valor: 92, unidade: null, referencia: null }, 0, '02/09/2026')).toMatchObject({ daIa: false, iaConferidoEm: null });
+  });
+});
+
+const R = MSG_EXAMES.ref;
+const DEFICIENCIA: FaixaDoConsultorio = { sexo: null, idadeMin: 18, idadeMax: 120, aPartirDe: null, abaixoDe: 20, categoria: 'Deficiência', fonte: 'Diretriz X, 2024', atualizadaEm: '2026-01-10' };
+const conteudo = (p: Parameters<typeof ConteudoDaReferencia>[0]) => renderToStaticMarkup(createElement(ConteudoDaReferencia, p));
+
+describe('"Ver referência" (T5a, RN-382, R22-05)', () => {
+  it('cada linha com marcador tem o botão "Ver referência" com o nome acessível "Referência de {marcador}"; a linha sem marcador, não', async () => {
+    const html = montar([linha({ nome: 'Vitamina D', valor: '15' }, 0), linha({ nome: 'Ferritina' }, 1), linha({}, 2)]);
+    expect(html).toContain(`aria-label="${R.rotulo('Vitamina D')}"`);
+    expect(html).toContain(`aria-label="${R.rotulo('Ferritina')}"`);
+    expect(html.match(/>Ver referência<\/button>/g)).toHaveLength(2);
+    // o diálogo só existe aberto (fora do <form> da tela)
+    expect(html).not.toContain('<dialog');
+  });
+
+  it('o conteúdo: referência e faixa do laudo, as faixas do consultório com público, idade, limites, categoria, fonte e data', () => {
+    const html = conteudo({ referencia: '30 a 100', refMin: 30, refMax: 100, faixas: [DEFICIENCIA], unidadeDoCatalogo: 'ng/mL' });
+    expect(html).toContain(R.doLaudo('30 a 100'));
+    expect(html).toContain(R.faixaDoLaudo('30 a 100'));
+    expect(html).toContain(R.faixasDoConsultorio);
+    expect(html).toContain(R.linhaFaixa('Todos', '18 a 120 anos', 'abaixo de 20 ng/mL', 'Deficiência'));
+    expect(html).toContain(R.fonte('Diretriz X, 2024', '10/01/2026'));
+    expect(html).not.toContain(R.semReferencia);
+  });
+
+  it('sem catálogo (ou sem faixas do consultório), o diálogo diz "Sem referência."; sem texto nem faixa do laudo, "—"', () => {
+    const html = conteudo({ referencia: null, faixas: [], unidadeDoCatalogo: null });
+    expect(html).toContain(R.semReferencia);
+    expect(html).toContain(R.doLaudo('—'));
+    expect(html).toContain(R.faixaDoLaudo('—'));
+    expect(html).not.toContain(R.faixasDoConsultorio);
+  });
+
+  it('no formulário (lançar e editar): só a faixa digitada e as faixas do consultório, sem a "Referência do laudo" (o campo está à vista)', () => {
+    const html = conteudo({ refMin: 70, faixas: [{ ...DEFICIENCIA, sexo: 'F', idadeMin: null, idadeMax: null, aPartirDe: 20, abaixoDe: 30, categoria: 'Insuficiente' }], unidadeDoCatalogo: 'ng/mL' });
+    expect(html).not.toContain('Referência do laudo');
+    expect(html).toContain(R.faixaDoLaudo('a partir de 70'));
+    expect(html).toContain(R.linhaFaixa('Feminino', R.qualquerIdade, 'a partir de 20 e abaixo de 30 ng/mL', 'Insuficiente'));
   });
 });

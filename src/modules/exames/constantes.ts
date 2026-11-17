@@ -282,6 +282,10 @@ export const MSG_EXAMES = {
     justificativaDe: (texto: string) => `Justificativa: ${texto}`,
     semJustificativa: 'Só acrescentou linhas (sem justificativa).',
     valoresDaVersao: (n: number) => `Valores da versão ${n}`,
+    /** Texto novo (T5a): o detalhe de um exame sem linhas (o aceito do app antes do lançamento). Rascunho para a Debby. */
+    semValores: 'Nenhum valor lançado neste exame.',
+    /** Texto novo (T5a): a legenda da tabela do detalhe (só para o leitor de tela). */
+    valoresDoExame: (titulo: string) => `Valores do exame ${titulo}`,
   },
   classificacao: {
     abaixo: 'Abaixo da referência',
@@ -301,6 +305,11 @@ export const MSG_EXAMES = {
     linhaFaixa: (publico: string, idade: string, limites: string, categoria: string) => `${publico}, ${idade}: ${limites} — ${categoria}`,
     fonte: (fonte: string, data: string) => `Fonte: ${fonte} · atualizada em ${data}`,
     semReferencia: 'Sem referência.',
+    /** Texto novo (T5a): a idade e os limites de "{público}, {idade}: {limites}" (a §6.2 só traz o molde). Rascunho para a Debby. */
+    idade: (de: number | null, ate: number | null) => (de !== null && ate !== null ? `${de} a ${ate} anos` : de !== null ? `a partir de ${de} anos` : `até ${ate} anos`),
+    qualquerIdade: 'qualquer idade',
+    limites: (aPartirDe: string | null, abaixoDe: string | null) =>
+      aPartirDe !== null && abaixoDe !== null ? `a partir de ${aPartirDe} e abaixo de ${abaixoDe}` : aPartirDe !== null ? `a partir de ${aPartirDe}` : `abaixo de ${abaixoDe}`,
   },
   nota: {
     titulo: 'Nota de interpretação',
@@ -315,6 +324,10 @@ export const MSG_EXAMES = {
     apagada: 'Nota apagada.',
     anteriores: 'Notas anteriores',
     max: 'A nota tem no máximo 2000 caracteres.',
+    /** Texto novo (T5a): "Salvar nota" com o campo vazio (para tirar a nota, "Apagar nota"). Rascunho para a Debby. */
+    vazia: 'Escreva a nota antes de salvar.',
+    /** Texto novo (T5a): a versão anterior que foi um "Apagar nota", em "Notas anteriores". Rascunho para a Debby. */
+    versaoApagada: 'A nota foi apagada nesta versão.',
   },
   comparativo: {
     titulo: 'Comparativo de exames',

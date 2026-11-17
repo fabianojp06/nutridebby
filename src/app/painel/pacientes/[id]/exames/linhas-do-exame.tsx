@@ -1,14 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Dialogo, DialogoConfirmar } from '@/components/dialogo';
 import { Botao } from '@/components/ui/botao';
 import { lerDecimal, numeroParaCampo } from '@/lib/numero';
-import { classificarNeutra, faixaDiverge, formatarLimite, ROTULO_NEUTRA, sugerirFaixa } from '@/modules/exames/classificacao';
+import { casarComCatalogo, classificarNeutra, faixaDiverge, formatarLimite, indiceDoCatalogo, ROTULO_NEUTRA, sugerirFaixa, type IndiceDoCatalogo } from '@/modules/exames/classificacao';
 import { MSG_EXAMES } from '@/modules/exames/constantes';
 import { normalizarNome } from '@/modules/ia/correspondencia';
 import { EscolherDoCatalogo, type ItemDoCatalogo, type LinhaDaAnalise } from '@/app/painel/exames/escolher-do-catalogo';
+import { VerReferencia } from './ver-referencia';
 
 /**
  * Plano 22 (T4, US-371, spec §7 "Linhas do lançamento"): os campos das linhas do exame, compartilhados por "Novo exame"
@@ -20,6 +21,9 @@ import { EscolherDoCatalogo, type ItemDoCatalogo, type LinhaDaAnalise } from '@/
  *
  * Os diálogos ("Adicionar do catálogo", "Carregar modelo de solicitação", "Remover todos") são levados para fora do
  * `<form>` da tela por `createPortal`, no contêiner do tema, e só existem abertos (contrato do `Dialogo`, EP-D42).
+ *
+ * "Ver referência" (T5a, RN-382, R22-05): por linha com marcador, com a faixa digitada e as faixas do consultório do
+ * exame do catálogo que casa com o nome (casamento único, `casarComCatalogo`); o diálogo também vai para fora do `<form>`.
  *
  * Foco (revisão da T4): o botão que some no próprio clique nunca deixa o foco no `body` — "Remover" da linha leva à
  * linha vizinha (ou a "Adicionar linha"), "Remover todos" a "Adicionar linha" e "Usar {a} a {b}" ao "de" já preenchido.
@@ -198,6 +202,8 @@ export function LinhasDoExame({
   const idAviso = `${idBase}-aviso-classificacao`;
   const idAjudaFaixa = `${idBase}-ajuda-faixa`;
   const idAdicionarLinha = `${idBase}-adicionar-linha`;
+  // o índice do catálogo para o "Ver referência" (montado uma vez por catálogo, não por tecla)
+  const indice = useMemo(() => indiceDoCatalogo(catalogo.map((e) => ({ ...e, id: e.nome, faixas: e.faixas ?? [] }))), [catalogo]);
   const mudar = (chave: number, campo: CampoDeTexto, v: string) => aoMudar((ls) => ls.map((l) => (l.chave === chave ? { ...l, [campo]: v } : l)));
   const adicionar = (novas: LinhaDaAnalise[]) => aoMudar((ls) => acrescentarLinhas(ls, novas));
   /** O id a focar depois do próximo desenho (o rótulo do grupo e o valor do campo já atualizados quando o leitor anunciar). */
@@ -243,6 +249,7 @@ export function LinhasDoExame({
           idAviso={idAviso}
           idAjudaFaixa={idAjudaFaixa}
           mudar={mudar}
+          indice={indice}
           remover={() => remover(l.chave)}
           focar={(id) => {
             focarDepois.current = id;
@@ -267,6 +274,7 @@ function Linha({
   idAviso,
   idAjudaFaixa,
   mudar,
+  indice,
   remover,
   focar,
 }: {
@@ -279,6 +287,7 @@ function Linha({
   idAviso: string;
   idAjudaFaixa: string;
   mudar: (chave: number, campo: CampoDeTexto, v: string) => void;
+  indice: IndiceDoCatalogo;
   remover: () => void;
   /** Foca o elemento com este id depois do próximo desenho. */
   focar: (id: string) => void;
@@ -293,6 +302,8 @@ function Linha({
   const neutra = typeof valor === 'number' && Number.isFinite(valor) ? classificarNeutra(valor, numero(refMin), numero(refMax)) : null;
   const sugestao = !l.refMin.trim() && !l.refMax.trim() ? sugerirFaixa(l.referencia) : null;
   const diverge = faixaDiverge({ referencia: l.referencia.trim() || null, refMin: numero(refMin), refMax: numero(refMax) });
+  const marcador = l.nome.trim();
+  const casado = marcador ? casarComCatalogo(marcador, l.unidade.trim() || null, indice) : null;
 
   const campo = (c: CampoDeTexto, rotulo: string, o: { extra?: string[]; somenteLeitura?: boolean; decimal?: boolean; max?: number; classe?: string } = {}): ReactNode => {
     const msg = erro(c);
@@ -357,6 +368,15 @@ function Linha({
           >
             {L.usarFaixa(formatarLimite(sugestao.refMin), formatarLimite(sugestao.refMax))}
           </Botao>
+        )}
+        {marcador && (
+          <VerReferencia
+            marcador={marcador}
+            refMin={numero(refMin)}
+            refMax={numero(refMax)}
+            faixas={casado?.exame.faixas ?? []}
+            unidadeDoCatalogo={casado?.exame.unidade ?? null}
+          />
         )}
         {diverge && (
           <p id={id('diverge')} className="text-aviso">

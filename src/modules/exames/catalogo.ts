@@ -60,6 +60,25 @@ export async function catalogoParaLancamentoNaTransacao(tx: Tx): Promise<ItemPar
     .orderBy(ordem);
 }
 
+export type ItemParaDetalhe = ItemParaLancamento & { modeloNotaAbaixo: string | null; modeloNotaAcima: string | null };
+
+/** O catálogo do detalhe do exame (T5a): o de lançamento mais os modelos de nota (RN-375), lido uma vez (RNF-371). */
+export async function catalogoParaDetalheNaTransacao(tx: Tx): Promise<ItemParaDetalhe[]> {
+  return tx
+    .select({
+      id: examesCatalogo.id,
+      nome: examesCatalogo.nome,
+      unidade: examesCatalogo.unidade,
+      sinonimos: examesCatalogo.sinonimos,
+      componentes: examesCatalogo.componentes,
+      faixas: examesCatalogo.faixas,
+      modeloNotaAbaixo: examesCatalogo.modeloNotaAbaixo,
+      modeloNotaAcima: examesCatalogo.modeloNotaAcima,
+    })
+    .from(examesCatalogo)
+    .orderBy(ordem);
+}
+
 type Resumo = Pick<ExameCatalogoRow, 'id' | 'nome' | 'sinonimos'>;
 /** Nome normalizado (nome e outros nomes) → nome do exame do catálogo que o usa. */
 function nomesUsados(itens: Resumo[], fora?: string): Map<string, string> {
