@@ -451,6 +451,43 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
     }
   });
 
+  it('Plano 20: o app executa app_anonimizar_financeiro sob FORCE RLS com o dono sem superusuário; DELETE em fin_lancamentos e fin_configuracoes → 42501', async () => {
+    const c = await app.connect();
+    const nutri = '00000000-0000-4000-8000-0000000000f1';
+    const ctx = async (t: string, role: string, user = '') => {
+      await c.query('begin');
+      await c.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', $2, true), set_config('app.user_id', $3, true)`, [t, role, user]);
+    };
+    try {
+      const t = (await c.query(`insert into tenants (slug, nome_exibicao) values ('fin-dono', 'F') returning id`)).rows[0].id as string;
+      await ctx(t, 'worker');
+      const p = (await c.query(`insert into patients (tenant_id, nome, data_nascimento, sexo, email) values ($1, 'Pac', '1990-01-01', 'F', 'pac@fin.dev') returning id`, [t])).rows[0].id as string;
+      await c.query(`insert into fin_configuracoes (tenant_id, saldo_inicial_centavos, saldo_inicial_em) values ($1, 0, '2026-11-01')`, [t]);
+      const cat = (await c.query(`insert into fin_categorias (tenant_id, tipo, nome) values ($1, 'entrada', 'Outras entradas') returning id`, [t])).rows[0].id as string;
+      await c.query('commit');
+      await ctx(t, 'nutri', nutri);
+      const l = (await c.query(
+        `insert into fin_lancamentos (tenant_id, tipo, categoria_id, valor_centavos, vencimento, patient_id, descricao, criado_por) values ($1, 'entrada', $2, 100, '2026-11-10', $3, 'Retorno', $4) returning id`,
+        [t, cat, p, nutri],
+      )).rows[0].id as string;
+      await c.query('commit');
+      for (const tabela of ['fin_lancamentos', 'fin_configuracoes']) {
+        await ctx(t, 'nutri', nutri);
+        await expect(c.query(`delete from ${tabela}`)).rejects.toMatchObject({ code: '42501' });
+        await c.query('rollback');
+      }
+      await ctx(t, 'worker');
+      await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2026-01-01' where id = $1`, [p]);
+      await c.query('select app_anonimizar_financeiro($1)', [p]);
+      const { rows } = await c.query(`select descricao, anonimizado_em is not null as anon, cancelado_em is not null as cancelado, cancelado_por from fin_lancamentos where id = $1`, [l]);
+      expect(rows).toEqual([{ descricao: null, anon: true, cancelado: true, cancelado_por: null }]);
+      await c.query('commit');
+    } finally {
+      await c.query('rollback').catch(() => undefined);
+      c.release();
+    }
+  });
+
   // JUR-01 (dono, 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"): o prazo de guarda conta do último registro do
   // prontuário — no pedido de exclusão, o próprio bloqueio. A 0110 recalcula quem já está bloqueado: data do bloqueio no
   // fuso do tenant + 20 anos, só para mais (GREATEST), com o gatilho de auditoria ligado, sob FORCE RLS (dono sem

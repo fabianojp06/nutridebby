@@ -73,6 +73,17 @@ describe('migrations de base', () => {
     await expect(app.pool.query('select count(*) from drizzle.__drizzle_migrations')).rejects.toMatchObject({ code: '42501' });
   });
 
+  // Plano 20 (spec §9, §5 de docs/operacao/sessoes-paralelas.md): o migrador do Drizzle só aplica a migration cujo `when` é
+  // maior que o da última aplicada — uma migration de branch paralelo com `when` antigo seria pulada em silêncio em produção
+  it('journal: when estritamente crescente e idx sem buraco', () => {
+    const journal = JSON.parse(readFileSync(new URL('../../drizzle/meta/_journal.json', import.meta.url), 'utf8')) as { entries: { idx: number; when: number; tag: string }[] };
+    expect(journal.entries.length).toBeGreaterThan(0);
+    journal.entries.forEach((e, i) => {
+      expect(e.idx, e.tag).toBe(i);
+      if (i > 0) expect(e.when, e.tag).toBeGreaterThan(journal.entries[i - 1].when);
+    });
+  });
+
   it('P09-02 (b): admin_actions é só de inclusão para a aplicação', async () => {
     const { rows } = await app.pool.query(
       `select has_table_privilege('nutri_app', 'admin_actions', 'INSERT') as i, has_table_privilege('nutri_app', 'admin_actions', 'UPDATE') as u, has_table_privilege('nutri_app', 'admin_actions', 'DELETE') as d`,

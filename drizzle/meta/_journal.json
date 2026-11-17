@@ -855,6 +855,20 @@
       "when": 1794879235584,
       "tag": "0121_diario_refeicao_slot",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1794890399399,
+      "tag": "0122_financeiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1794890410056,
+      "tag": "0123_rls_financeiro",
+      "breakpoints": true
     }
   ]
 }

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { symmetricEncrypt } from 'better-auth/crypto';
 import { and, eq, inArray, isNotNull, like, sql } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { account, consents, iaNutriConsentimentos, iaNutriMensagens, iaNutriParticipacoes, lembretesRotina, mealPlans, patients, rateLimit, tenants, twoFactor, user } from '@/db/schema';
+import { account, consents, finCategorias, finConfiguracoes, iaNutriConsentimentos, iaNutriMensagens, iaNutriParticipacoes, lembretesRotina, mealPlans, patients, rateLimit, tenants, twoFactor, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { stopBoss } from '@/jobs/boss';
@@ -39,6 +39,14 @@ export const E2E_DOCS = { email: 'docs-e2e@nutridebby.test', password: 'Nutri202
  */
 export const E2E_IA_NUTRI_1 = { email: 'ia-nutri-1-e2e@nutridebby.test', password: 'Nutri2026segura', nome: 'Paciente IA Nutri Um' };
 export const E2E_IA_NUTRI_2 = { email: 'ia-nutri-2-e2e@nutridebby.test', password: 'Nutri2026segura', nome: 'Paciente IA Nutri Dois' };
+/**
+ * Plano 20 (spec §9.5, revisão do plano §18): o primeiro acesso do Financeiro repetível no banco de dev reaproveitado. A linha
+ * de fin_configuracoes não se apaga (DELETE/TRUNCATE revogados), então cada execução cria dois consultórios NOVOS, sem
+ * Financeiro, e aponta para eles estas contas: `E2E_FIN_NOVO` (o financeiro.spec configura) e `E2E_FIN_AXE` (o axe do estado
+ * "não configurado", que nunca configura). Os consultórios das execuções anteriores ficam no banco (sem conta).
+ */
+export const E2E_FIN_NOVO = { email: 'fin-novo-e2e@nutridebby.test', password: 'Nutri2026segura' };
+export const E2E_FIN_AXE = { email: 'fin-axe-e2e@nutridebby.test', password: 'Nutri2026segura' };
 
 const db = getDb();
 
@@ -67,7 +75,22 @@ const AGENDA_E2E = ['whatsapp_conexoes', 'public_booking_requests', 'notificatio
 await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
   // Tarefa 15: atendimentos iniciados pela agenda apontam para a consulta (FK NO ACTION): soltar antes de apagar
   await tx.execute(sql`update consultations set appointment_id = null where appointment_id is not null`);
-  for (const t of AGENDA_E2E) await tx.execute(sql`delete from ${sql.identifier(t)}`);
+  // Plano 20 (spec §9.5): a cobrança aponta para a consulta (FK NO ACTION), fin_lancamentos não se apaga (DELETE revogado) e o
+  // appointment_id é fixo. A consulta com lançamento fica, cancelada pelo sistema (o EXCLUDE ignora as canceladas e libera o
+  // horário) e sem `remarcada_de` (a consulta de origem é apagada abaixo); as outras saem. Os lançamentos antigos ficam: o E2E
+  // do Financeiro confere só os valores do paciente que ele cria.
+  const comLancamento = sql`exists (select 1 from fin_lancamentos f where f.tenant_id = appointments.tenant_id and f.appointment_id = appointments.id)`;
+  for (const t of AGENDA_E2E) {
+    if (t !== 'appointments') {
+      await tx.execute(sql`delete from ${sql.identifier(t)}`);
+      continue;
+    }
+    await tx.execute(sql`update appointments set remarcada_de = null where remarcada_de is not null and ${comLancamento}`);
+    await tx.execute(
+      sql`update appointments set status = 'cancelada', cancelado_por = 'sistema', cancelada_em = now(), updated_at = now() where status <> 'cancelada' and ${comLancamento}`,
+    );
+    await tx.execute(sql`delete from appointments where not ${comLancamento}`);
+  }
   // Os pacientes ativos das execuções anteriores vão para "arquivado": a lista de pacientes da nova consulta tem teto
   // (LIMITE_LISTA, por nome) e, no banco de dev reaproveitado, o paciente criado agora ficava fora dela (portal.spec, agenda)
   await tx.execute(sql`update patients set status = 'arquivado', updated_at = now() where status = 'ativo'`);
@@ -122,6 +145,55 @@ await db.delete(user).where(eq(user.email, E2E_MANUAL.email));
 const manualId = randomUUID();
 await db.insert(user).values({ id: manualId, name: 'Manual E2E', email: E2E_MANUAL.email, emailVerified: true, appRole: 'nutri', tenantId: consultorio.id });
 await db.insert(account).values({ id: randomUUID(), userId: manualId, accountId: manualId, providerId: 'credential', password: await hashPassword(E2E_MANUAL.password) });
+
+// Plano 20: o consultório do E2E sai com o Financeiro configurado — saldo de R$ 1.000,00 no dia 1º do mês corrente (no fuso do
+// consultório), consulta a R$ 250,00 e as categorias iniciais da RN-302 (a T2 passa a lista para CATEGORIAS_INICIAIS). Tudo com
+// ON CONFLICT DO NOTHING: a linha de configuração e as categorias das execuções anteriores ficam como estão.
+const CATEGORIAS_DO_E2E: { tipo: 'entrada' | 'saida'; nome: string; chave: 'consultas' | null }[] = [
+  { tipo: 'entrada', nome: 'Consultas', chave: 'consultas' },
+  { tipo: 'entrada', nome: 'Outras entradas', chave: null },
+  ...[
+    'Aluguel e condomínio',
+    'Contas de consumo (água, luz, internet, telefone)',
+    'Material e insumos',
+    'Equipamentos',
+    'Software e assinaturas',
+    'Divulgação',
+    'Impostos e taxas',
+    'Conselho e associações',
+    'Cursos e eventos',
+    'Outras saídas',
+  ].map((nome) => ({ tipo: 'saida' as const, nome, chave: null })),
+];
+await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
+  await tx
+    .insert(finConfiguracoes)
+    .values({
+      tenantId: consultorio.id,
+      saldoInicialCentavos: 100_000,
+      saldoInicialEm: sql`date_trunc('month', now() at time zone (select fuso from tenants where id = ${consultorio.id}))::date`,
+      valorConsultaCentavos: 25_000,
+    })
+    .onConflictDoNothing();
+  await tx
+    .insert(finCategorias)
+    .values(CATEGORIAS_DO_E2E.map((c) => ({ tenantId: consultorio.id, ...c })))
+    .onConflictDoNothing();
+}, db);
+
+// Plano 20: os dois consultórios do primeiro acesso desta execução (sem linha em fin_configuracoes) e as contas que apontam
+// para eles, recriadas como a E2E_NUTRI
+const sufixo = Date.now();
+for (const [cred, slug, nome] of [
+  [E2E_FIN_NOVO, `e2e-fin-novo-${sufixo}`, 'Fin Novo E2E'],
+  [E2E_FIN_AXE, `e2e-fin-axe-${sufixo}`, 'Fin Axe E2E'],
+] as const) {
+  const [t] = await db.insert(tenants).values({ slug, nomeExibicao: `Consultório ${nome}`, dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date() }).returning({ id: tenants.id });
+  await db.delete(user).where(eq(user.email, cred.email));
+  const id = randomUUID();
+  await db.insert(user).values({ id, name: nome, email: cred.email, emailVerified: true, appRole: 'nutri', tenantId: t.id, guia: TUDO_VISTO, tema: 'sistema' });
+  await db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(cred.password) });
+}
 
 await db.delete(user).where(eq(user.email, E2E_ADMIN_PLATAFORMA.email));
 const admin2Id = randomUUID();

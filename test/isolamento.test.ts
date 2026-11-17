@@ -169,6 +169,17 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
     sql`with l as (insert into lembretes_rotina (tenant_id, patient_id, tipo, config, texto, criado_por)
                    values (${t}, ${p}, 'suplemento', '{"horarios":["08:00"],"dias":[1,2,3,4,5]}', 'Iso', coalesce(app_current_user(), gen_random_uuid())) returning id)
         insert into lembretes_rotina_envios (lembrete_id, tenant_id, patient_id, ultimo_slot_em) select l.id, ${t}, ${p}, now() from l`,
+  // Plano 20 (spec §9.5): uma linha por consultório (a fábrica roda duas vezes por tenant) — ON CONFLICT DO NOTHING
+  fin_configuracoes: (t) =>
+    sql`insert into fin_configuracoes (tenant_id, saldo_inicial_centavos, saldo_inicial_em) values (${t}, 0, '2026-11-01') on conflict do nothing`,
+  // nome único por consultório e tipo: um por chamada
+  fin_categorias: (t) => sql`insert into fin_categorias (tenant_id, tipo, nome) values (${t}, 'saida', 'Iso ' || gen_random_uuid()::text)`,
+  // entrada com paciente e sem consulta (a FK da consulta é anulável: fica de fora); a categoria (FK NOT NULL) no mesmo comando
+  // (COM_MAE). O gatilho fin_lancamentos_regras grava criado_por com a usuária da sessão
+  fin_lancamentos: (t, p) =>
+    sql`with c as (insert into fin_categorias (tenant_id, tipo, nome) values (${t}, 'entrada', 'Iso ' || gen_random_uuid()::text) returning id)
+        insert into fin_lancamentos (tenant_id, tipo, categoria_id, valor_centavos, vencimento, patient_id, criado_por)
+        select ${t}, 'entrada', c.id, 100, '2026-11-10', ${p}, coalesce(app_current_user(), gen_random_uuid()) from c`,
 };
 /** Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). */
 const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker' };
@@ -182,13 +193,15 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autoriza
  * titular bloqueado ou anonimizado, ou na revogação (e a equipe, só a pergunta com risco de quem revogou, depois de aberta —
  * D22; a fábrica não grava essa).
  */
-const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens']);
+// Plano 20: fin_lancamentos (cancela-se, nunca se apaga) e fin_configuracoes (a linha do consultório) — DELETE revogado (0123)
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes']);
 /**
  * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
  * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
  */
 // Plano 14B: ia_geracoes_modelos também tem DELETE/TRUNCATE revogados (0112).
-const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos']);
+// Plano 20: fin_lancamentos e fin_configuracoes também (0123).
+const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancamentos', 'fin_configuracoes']);
 /**
  * D19 (Plano 10A): os gatilhos de imutabilidade (0091, T2) — app_documento_imutavel, o das notas e app_codigo_acesso_regras
  * (colunas do código do link, R1 do pre-flight) — recusam mudar tenant_id/patient_id com 42501 ANTES do WITH CHECK da RLS
@@ -210,6 +223,8 @@ const IMUTAVEIS = new Set([
   'ia_nutri_mensagens',
   'lembretes_rotina',
   'lembretes_rotina_envios',
+  // Plano 20: fin_lancamentos_regras recusa mudar tenant_id/patient_id com 42501 antes da RLS
+  'fin_lancamentos',
 ]);
 /**
  * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
@@ -225,7 +240,11 @@ const SO_APAGA: Record<string, SQL> = {
                 and not exists (select 1 from ia_autorizacoes a where a.tenant_id = patients.tenant_id and a.patient_id = patients.id)
                 and not exists (select 1 from ia_nutri_participacoes x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
                 and not exists (select 1 from ia_nutri_mensagens x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
-                and not exists (select 1 from ia_nutri_consentimentos x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)`,
+                and not exists (select 1 from ia_nutri_consentimentos x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
+                and not exists (select 1 from fin_lancamentos f where f.tenant_id = patients.tenant_id and f.patient_id = patients.id)`,
+  // Plano 20: a categoria com lançamento não se apaga (FK NO ACTION de fin_lancamentos, que está em SEM_DELETE) e "Consultas"
+  // (chave preenchida) nunca (gatilho fin_categorias_fixas)
+  fin_categorias: sql`chave is null and not exists (select 1 from fin_lancamentos f where f.tenant_id = fin_categorias.tenant_id and f.categoria_id = fin_categorias.id)`,
 };
 /**
  * Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`;
@@ -344,6 +363,9 @@ const COM_MAE = new Set([
   'document_access_codes',
   'exam_submission_files',
   'lembretes_rotina_envios',
+  // Plano 20: escolha registrada na spec §9.5 — a recusa dos negativos de INSERT vem da política de fin_categorias; a prova
+  // da política da própria fin_lancamentos está em src/modules/financeiro/banco.test.ts
+  'fin_lancamentos',
 ]);
 /** violaRls, e a recusa veio da política da própria tabela `t` (não da mãe criada no CTE da fábrica). */
 const violaRlsDe = (t: string) => (e: unknown) => {
