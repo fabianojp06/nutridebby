@@ -356,3 +356,21 @@ cast só no dono, paridade com o portal testada contra as funções reais na ses
 - Módulo da lista SEM_CONTA importando helper "puro" de um arquivo de UI que importa `../audit` (formatarDataHora de
   historico-acessos.tsx): a guarda textual não pega. Conferir o grafo de imports do arquivo dono, não só o texto.
 - Paridade de audiência testada só no caso negativo (sem a etiqueta): pedir o positivo, que é o que quebraria em silêncio.
+
+Plano 18, T10 (anonimização do cadastro, 17/11/2026):
+- Em `anonimizarVencidos` há funções com pré-condição OPOSTA sobre `anonimizado_em`: as `app_anonimizar_*` (aceites, IA,
+  financeiro do Plano 20) exigem nulo → ANTES do UPDATE de `patients`; os DELETE com gatilho `*_sem_apagar` (cadastro,
+  exam_submissions, ia_nutri) exigem não nulo → DEPOIS. No rebase entre planos, conferir de que lado cada passo novo caiu.
+Plano 18, T11 (nome social na máscara da IA, 17/11/2026): limpo na lente banco (projeção, worker fora da sessão sem login,
+papel conferido por app_current_role, sem auditRead, espia de contextos no teste).
+- Guarda de fonte que apaga a linha de `import` do schema antes de procurar o nome da tabela não pega import com alias
+  (`{ tabela as t }` → `t.coluna`); regex de "quem importa X" com `(\.\.?)\/` não pega `../../`. Conferir alias e caminho.
+- Helper exportado de leitura "só para a máscara" alcançável pela web sem guarda de quem importa: qualquer módulo pode
+  reutilizá-lo para exibir o dado sem auditRead. Pedir lista fechada de importadores.
+Plano 18, T12c (docs de fechamento, 17/11/2026): CLAUDE.md regras 2/8 e manual §2 batiam com 0124/0125 e o isolamento.
+- Ao acrescentar frase a um parágrafo antigo do manual ("um sétimo arquivo"), a referência `arquivo:linhas` e a contagem
+  ("só seis") da frase anterior ficam velhas. Conferir as refs do parágrafo inteiro, não só da frase nova.
+Plano 18, revisão final do PR 2 (17/11/2026): limpo na lente banco (0124/0125, CPF sob advisory lock, nenhum 23514
+alcançável — tamanho por code point = char_length —, auditRead só no Perfil, rede da anonimização, isolamento com ator).
+- Repetiu "Minor da tarefa que não chega ao backlog": a projeção de `listarPacientes` no limite servidor→cliente
+  (agenda/nova → ConsultaForm) apontada na T8 não entrou na seção de backlog do plano. Conferir item a item na final.

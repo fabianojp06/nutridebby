@@ -25,3 +25,4 @@
 - [Form longo: estado por props e text-destaque](feedback_form-longo-estado-por-props-e-destaque.md) — text-destaque como link; controlado reiniciado por refresh; sem foco no erro; alvos 42 px
 - [Menu flutuante e sucesso repetido](feedback_menu-flutuante-e-sucesso-repetido.md) — painel fixed aberto apos Tab cobre o proximo botao; status igual na 2a acao nao anuncia
 - [No app: config sem conta e cartão frágil](feedback_no-app-config-sem-conta.md) — T9 Plano 18: linhas de configuração sob "vê hoje"; cartão no Promise.all do Início
+- [Filtro da lista e Perfil em grid](feedback_filtro-da-lista-e-perfil-grid.md) — PR2 Plano 18: CAMPO local sem min-h-11; Cadastro salvo montado com o texto; ordem visual do Perfil
