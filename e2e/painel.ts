@@ -210,7 +210,12 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
       return idDoLink(nutri, '/painel/exames-recebidos', new RegExp(`/painel/exames-recebidos/(${UUID})$`));
     })(),
     referencia,
-    minhaRefeicao: await idDoLink(nutri, '/painel/planos/refeicoes', new RegExp(`/painel/planos/refeicoes/(${UUID})$`)),
+    minhaRefeicao: await (async () => {
+      // pelo nome desta execução (não o primeiro da lista): o afterAll do acessibilidade-painel apaga esta, não outra
+      await nutri.goto('/painel/planos/refeicoes');
+      const href = await nutri.getByRole('link', { name: `Almoço axe ${sufixo}`, exact: true }).getAttribute('href');
+      return new RegExp(`/painel/planos/refeicoes/(${UUID})$`).exec(href ?? '')![1];
+    })(),
     lista,
   };
 }

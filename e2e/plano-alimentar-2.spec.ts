@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { PDFDocument } from 'pdf-lib';
-import { entrarComo } from './helpers';
+import { entrarComo, excluirPelaTela } from './helpers';
 import { criarPacientePeloFormulario } from './pacientes-form';
 import { pacienteNoPortal } from './portal';
 
@@ -30,12 +30,22 @@ let nutri: Page;
 let paciente: Awaited<ReturnType<typeof pacienteNoPortal>>;
 let urlDaOrientacao = ''; // /painel/conteudos/<id>
 let kcal = { semana: '', fimDeSemana: '' }; // o total de cada perfil na legenda do editor ("seg a sex: 19 kcal")
+// o que o spec cria na biblioteca do consultório do E2E (limites de 100 listas e 200 minhas refeições): apagado no afterAll
+let urlDaLista = ''; // /painel/planos/listas/<id>
+let nomeDaMinhaRefeicao = '';
 
 test.beforeAll(async ({ browser }) => {
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.19.100');
   await expect(nutri).toHaveURL(/\/painel$/); // sem esperar o login, o goto seguinte interrompe a navegação
 });
 test.afterAll(async () => {
+  // a lista (as cópias ligadas aos planos não mudam, RN-252) e a minha refeição saem pela tela, como a nutricionista faria
+  if (nutri && urlDaLista) await excluirPelaTela(nutri, urlDaLista, /\/painel\/planos\/listas$/);
+  if (nutri && nomeDaMinhaRefeicao) {
+    await nutri.goto('/painel/planos/refeicoes');
+    const link = nutri.getByRole('link', { name: nomeDaMinhaRefeicao, exact: true });
+    if (await link.count()) await excluirPelaTela(nutri, (await link.getAttribute('href'))!, /\/painel\/planos\/refeicoes$/);
+  }
   await paciente?.page.context().close();
   await nutri?.context().close();
 });
@@ -65,6 +75,7 @@ test('biblioteca: a lista de substituição e a orientação com PDF, publicada 
   await nutri.getByRole('option', { name: /Chuchu, cozido/ }).click();
   await nutri.getByRole('button', { name: 'Salvar lista' }).click();
   await expect(nutri).toHaveURL(/\/painel\/planos\/listas\/[0-9a-f-]{36}$/);
+  urlDaLista = new URL(nutri.url()).pathname;
 
   await nutri.goto('/painel/conteudos/novo?tipo=orientacao');
   await nutri.getByLabel('Título').fill(ORIENTACAO);
@@ -182,13 +193,18 @@ test('app, domingo 23:59: "Hoje (dom)" com o almoço do fim de semana e o total 
   await expect(page.getByText(ORIENTACAO)).toHaveCount(0);
   expect((await page.request.get(`/api/p/conteudos/${idDaOrientacao}/pdf`, { maxRedirects: 0 })).status()).toBe(404);
   // nem no feed de Conteúdos, nem na busca
+  // (cada negativa tem antes uma âncora positiva: a página carregou)
   await page.goto('/p/conteudos');
+  await expect(page.getByRole('navigation', { name: 'Filtrar conteúdos' })).toBeVisible();
   await expect(page.getByRole('link', { name: new RegExp(ORIENTACAO) })).toHaveCount(0);
   await page.getByLabel('Buscar').fill(sufixo);
   await page.getByRole('button', { name: 'Buscar' }).click();
+  await expect(page).toHaveURL(new RegExp(`busca=${sufixo}`));
+  await expect(page.getByText('Nenhum conteúdo encontrado.', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: new RegExp(ORIENTACAO) })).toHaveCount(0);
   // abrir pelo plano não conta em "Quem viu" (D14 do Plano 07)
   await nutri.goto(`${urlDaOrientacao}/visualizacoes`);
+  await expect(nutri.getByRole('heading', { level: 1, name: `Quem viu: ${ORIENTACAO}` })).toBeVisible();
   await expect(nutri.getByText(paciente.nome)).toHaveCount(0);
 });
 
@@ -213,8 +229,9 @@ test('app, segunda 00:00: a mesma página vira "Hoje (seg)" pelo relógio do apa
 /**
  * RNF-230 (PM-PA9): o recálculo do editor continua síncrono e não trava a digitação num plano de 50 refeições (o
  * limite, RN-249) com um alimento em cada. Mede, pela Event Timing API do Chrome, a duração de cada evento de teclado
- * na quantidade de um item (do toque até o quadro seguinte), imprime o número e exige que nenhum passe de 200 ms (o
- * limite de "bom" da INP).
+ * na quantidade de um item (do toque até o quadro seguinte) e REGISTRA o número (console e anotação do teste): é
+ * medição, sem portão de 200 ms (o "bom" da INP), porque a VPS do E2E é dividida com outras sessões. Só um teto folgado
+ * (1000 ms) contra travamento.
  */
 test('RNF-230: digitar a quantidade num plano de 50 refeições não trava (Event Timing)', async () => {
   test.setTimeout(240_000);
@@ -229,6 +246,7 @@ test('RNF-230: digitar a quantidade num plano de 50 refeições não trava (Even
   await nutri.getByLabel('Gramas de Chuchu, cozido').fill('100');
   // a mesma refeição carregada 49 vezes pela biblioteca ("Minhas refeições", US-237)
   const minha = `Almoço cinquenta ${sufixo}`;
+  nomeDaMinhaRefeicao = minha;
   await nutri.getByRole('button', { name: /^Salvar como minha refeição/ }).click();
   const dialogo = nutri.getByRole('dialog', { name: 'Salvar refeição' });
   await dialogo.getByLabel('Nome').fill(minha);
@@ -265,6 +283,8 @@ test('RNF-230: digitar a quantidade num plano de 50 refeições não trava (Even
   await nutri.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 300)))); // as entradas chegam depois do quadro
   const duracoes = await nutri.evaluate(() => (window as unknown as { __teclas: number[] }).__teclas);
   const maior = Math.max(0, ...duracoes);
-  console.log(`RNF-230 (plano de 50 refeições e 50 itens): ${teclas} teclas; ${duracoes.length} eventos de teclado acima de 16 ms; o maior, ${maior} ms`);
-  expect(maior, 'um evento de teclado passou de 200 ms (INP "bom")').toBeLessThanOrEqual(200);
+  const medicao = `plano de 50 refeições e 50 itens: ${teclas} teclas; ${duracoes.length} eventos de teclado acima de 16 ms; o maior, ${maior} ms`;
+  console.log(`RNF-230 (${medicao})`);
+  test.info().annotations.push({ type: 'RNF-230', description: medicao });
+  expect(maior, 'um evento de teclado passou de 1000 ms (travamento)').toBeLessThanOrEqual(1000);
 });

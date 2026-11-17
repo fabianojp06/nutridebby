@@ -230,6 +230,9 @@ test('editor: edição em outra aba mostra o aviso de conflito e o salvamento n�
 });
 
 test('editor: limites de 50 refeições e 400 itens bloqueiam "Adicionar" com o motivo; erro geral do servidor aparece na tela (US-022)', async () => {
+  // a tela com 50 refeições e 400 itens leva ~1 s por ação com os workers do E2E em paralelo: os 30 s padrão acabavam na
+  // última asserção (Plano 19, P19-11)
+  test.setTimeout(90_000);
   const LIMITE = 'O plano pode ter até 50 refeições e 400 itens.'; // RN-249 (Plano 19)
   // Paciente próprio: o plano do teste anterior segue como as próximas tarefas esperam
   await nutri.goto('/painel/pacientes/novo');

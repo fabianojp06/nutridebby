@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { vigiarCsp } from './csp';
-import { entrarComo } from './helpers';
+import { entrarComo, excluirPelaTela } from './helpers';
 import { escolherTema, prepararTelasComId } from './painel';
 import { ROTAS_DO_PAINEL, type IdsDoPainel } from './painel-rotas';
 import { avaliar, pacienteNoPortal } from './portal';
@@ -28,6 +28,9 @@ test.beforeAll(async ({ browser }) => {
   rotas = [...Object.values(ROTAS_DO_PAINEL).map((f) => f(ids)), '/conta/seguranca'];
 });
 test.afterAll(async () => {
+  // Plano 19: a lista e a minha refeição do preparo saem pela tela (limites de 100 listas e 200 minhas refeições do consultório)
+  if (ids?.lista) await excluirPelaTela(nutri, `/painel/planos/listas/${ids.lista}`, /\/painel\/planos\/listas$/);
+  if (ids?.minhaRefeicao) await excluirPelaTela(nutri, `/painel/planos/refeicoes/${ids.minhaRefeicao}`, /\/painel\/planos\/refeicoes$/);
   await escolherTema(nutri, 'Igual ao aparelho'); // o seed e as outras specs esperam o padrão
   await nutri?.context().close();
 });
