@@ -5,10 +5,10 @@ import { makeDb } from '../../../test/db';
 import { documentoNoBanco } from '../../../test/documentos';
 import { envioNoBanco } from '../../../test/exames-enviados';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
-import { anamneses, anamnesisTemplates, anthropometry, auditLog, consultations, energyCalcs, exams, mealPlans } from '@/db/schema';
-import { withTenant } from '@/db/tenant';
+import { DO_PLANO_18, ehDoPlano18 } from '../../../test/ficha';
+import { anamneses, anamnesisTemplates, anthropometry, auditLog, consultations, energyCalcs, exams, mealPlans, patients } from '@/db/schema';
+import { TenantContextError, withTenant } from '@/db/tenant';
 import { secoesDoInicio, type SecaoNoInicio } from './inicio';
-import { SECOES_DA_FICHA } from './secoes';
 import type { PacienteDaSecao, SecaoDaFicha, TenantDaSecao } from './tipos';
 
 // Plano 18 (D14, RN-277, RN-278): as seções do Início numa transação `nutri`, só contador e rótulos genéricos, sem trilha.
@@ -73,8 +73,9 @@ describe('secoesDoInicio (RN-277, RN-278)', () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
     const ids = await umDeCada(T, p.id);
-    const r = await secoesDoInicio(T.ctx, TUDO_LIGADO, comoPaciente(p), { db: app.db });
-    expect(r.map((s) => s.id)).toEqual(SECOES_DA_FICHA.map((s) => s.id));
+    // só as 8 do Plano 18: as seções de outros planos (o Financeiro do Plano 20) vêm depois e têm os próprios testes
+    const r = (await secoesDoInicio(T.ctx, TUDO_LIGADO, comoPaciente(p), { db: app.db })).filter((s) => ehDoPlano18(s.id));
+    expect(r.map((s) => s.id)).toEqual([...DO_PLANO_18]);
     for (const s of r) {
       expect(Object.keys(s).sort(), s.id).toEqual(['aba', 'id', 'podeAdicionar', 'resumo', 'titulo', 'verTodos']);
       expect(Object.keys(s.resumo).sort(), s.id).toEqual(['total', 'ultimos']);
@@ -210,6 +211,17 @@ describe('secoesDoInicio (RN-277, RN-278)', () => {
     expect(s.resumo).toEqual({ total: 1, ultimos: [expect.objectContaining({ id: aceito, situacao: 'Aceito', href: `/painel/exames-recebidos/${aceito}` })] });
   });
 
+  it('envios (RN-192): o envio "recebido" do titular bloqueado não conta — total 0 e, sem o recebimento ligado, a seção some', async () => {
+    const T = await novoTenant(app.db);
+    const desligado: TenantDaSecao = { ...TUDO_LIGADO, examesPacienteAtivadoEm: null };
+    const p = await novoPaciente(app.db, T.ctx);
+    await envioNoBanco(app.db, T.ctx, p.id, { status: 'recebido' });
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado' }).where(eq(patients.id, p.id)), app.db);
+    const bloqueado = comoPaciente({ ...p, status: 'bloqueado' });
+    expect(secao(await secoesDoInicio(T.ctx, TUDO_LIGADO, bloqueado, { db: app.db }), 'exames-enviados')!.resumo).toEqual({ total: 0, ultimos: [] });
+    expect(secao(await secoesDoInicio(T.ctx, desligado, bloqueado, { db: app.db }), 'exames-enviados')).toBeUndefined();
+  });
+
   it('plano: rascunho, publicado e arquivado com a situação, a versão mais nova primeiro', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
@@ -234,15 +246,18 @@ describe('secoesDoInicio (RN-277, RN-278)', () => {
     const B = await novoTenant(app.db);
     const pb = await novoPaciente(app.db, B.ctx);
     await umDeCada(B, pb.id);
-    const r = await secoesDoInicio(A.ctx, TUDO_LIGADO, comoPaciente(pb), { db: app.db });
-    expect(r.length).toBe(SECOES_DA_FICHA.length);
+    const r = (await secoesDoInicio(A.ctx, TUDO_LIGADO, comoPaciente(pb), { db: app.db })).filter((s) => ehDoPlano18(s.id));
+    expect(r.map((s) => s.id)).toEqual([...DO_PLANO_18]);
     for (const s of r) expect(s.resumo, s.id).toEqual({ total: 0, ultimos: [] });
   });
 
   it('papel: só a sessão da nutricionista', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
-    await expect(secoesDoInicio(ctxPaciente(T.tenantId, p.id), TUDO_LIGADO, comoPaciente(p), { db: app.db })).rejects.toThrow();
-    await expect(secoesDoInicio({ tenantId: T.tenantId, role: 'worker' }, TUDO_LIGADO, comoPaciente(p), { db: app.db })).rejects.toThrow();
+    const SO_DA_NUTRI = 'o Início da ficha é só da sessão da nutricionista';
+    await expect(secoesDoInicio(ctxPaciente(T.tenantId, p.id), TUDO_LIGADO, comoPaciente(p), { db: app.db })).rejects.toThrow(TenantContextError);
+    await expect(secoesDoInicio(ctxPaciente(T.tenantId, p.id), TUDO_LIGADO, comoPaciente(p), { db: app.db })).rejects.toThrow(SO_DA_NUTRI);
+    await expect(secoesDoInicio({ tenantId: T.tenantId, role: 'worker' }, TUDO_LIGADO, comoPaciente(p), { db: app.db })).rejects.toThrow(TenantContextError);
+    await expect(secoesDoInicio({ tenantId: T.tenantId, role: 'worker' }, TUDO_LIGADO, comoPaciente(p), { db: app.db })).rejects.toThrow(SO_DA_NUTRI);
   });
 });

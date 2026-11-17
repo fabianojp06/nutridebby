@@ -42,7 +42,11 @@ export type SecaoDaFicha = {
   aba: string;
   /** "Ver todos" fora da ficha: caminho absoluto em /painel/ (ex.: Financeiro, Plano 20). */
   verTodos?: (patientId: string) => string;
-  /** `total` só para a RN-192 (envios do paciente). */
+  /**
+   * `total` só para a RN-192 (envios do paciente). Tem de ser monótona no `total`: se o total cresce, nunca passa de true a
+   * false — `inicio.ts` chama `disponivel(t, p, Number.POSITIVE_INFINITY)` antes de consultar, para pular a seção que não aparece com
+   * nenhum total, e só depois confere com o total real.
+   */
   disponivel(t: TenantDaSecao, p: PacienteDaSecao, total: number): boolean;
   /**
    * Contador e os 3 últimos, numa consulta. `podeAdicionar: false` esconde o `adicionar` desta seção (ex.: Financeiro não

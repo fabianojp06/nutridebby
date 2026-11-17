@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { DO_PLANO_18, SECOES_DO_PLANO_18 as SECOES_18 } from '../../../test/ficha';
 import { SECOES_DA_FICHA } from './secoes';
 import { MSG_FICHA } from './textos';
 import type { ChaveDeAcao, GrupoDoAdicionar } from './tipos';
@@ -15,13 +16,29 @@ const PALAVRA_DO_CONTEXTO_SEM_LOGIN = new RegExp(`\\bsem${'Conta'}\\b`);
 const ACOES: readonly ChaveDeAcao[] = ['criar-receita', 'criar-parecer'];
 const GRUPOS: readonly GrupoDoAdicionar[] = ['avaliacoes', 'prescricoes', 'outros'];
 const UUID = '0b6c3c9e-8a3f-4a1d-9a54-6f7c2a1e9d11';
-/** As 8 seções do Plano 18, na ordem da RN-278; os outros planos acrescentam as suas no fim (spec §11). */
-const DO_PLANO_18 = ['plano-alimentar', 'antropometria', 'gasto-energetico', 'anamneses', 'atendimentos', 'exames', 'exames-enviados', 'documentos'];
-const SECOES_18 = SECOES_DA_FICHA.filter((s) => DO_PLANO_18.includes(s.id));
+/**
+ * Lista fechada do que um arquivo de `secoes/` pode importar. Plano que precisar de import novo acrescenta aqui, de
+ * propósito e com a revisão vendo: nunca um helper que audite por padrão (o arquivo da seção não grava trilha; quem grava
+ * a leitura de uma seção com `leitura` é `inicio.ts`).
+ */
+const IMPORTS_PERMITIDOS = [
+  'drizzle-orm',
+  '@/db/schema',
+  '@/modules/pacientes/datas',
+  '@/modules/documentos/constantes',
+  '../textos',
+  '../tipos',
+  './comum',
+];
+/** `index.ts` também importa cada arquivo de seção (`./<id>`). */
+const IMPORTS_DO_INDEX = FONTES.map((x) => `./${x.f.replace(/\.ts$/, '')}`).filter((de) => de !== './index');
+/** Os módulos de `import … from '…'`, `export … from '…'` e `import '…'` (sem nome). */
+const importsDe = (src: string) =>
+  [...src.matchAll(/^\s*(?:import|export)\b[^;'"]*?\bfrom\s+['"]([^'"]+)['"]|^\s*import\s+['"]([^'"]+)['"]/gm)].map((m) => m[1] ?? m[2]);
 
 describe('registro de seções (RN-277, RN-278)', () => {
   it('ordem da RN-278 (as do Plano 18 primeiro; as de outros planos no fim) e títulos da spec §8.3', () => {
-    expect(SECOES_DA_FICHA.slice(0, DO_PLANO_18.length).map((s) => s.id)).toEqual(DO_PLANO_18);
+    expect(SECOES_DA_FICHA.slice(0, DO_PLANO_18.length).map((s) => s.id)).toEqual([...DO_PLANO_18]);
     expect(SECOES_18.map((s) => s.titulo)).toEqual([
       'Plano alimentar',
       'Antropometria',
@@ -40,13 +57,18 @@ describe('registro de seções (RN-277, RN-278)', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('um arquivo por seção (mais index.ts e comum.ts), e nenhum chama auditRead nem usa o contexto de paciente sem login', () => {
+  it('um arquivo por seção (mais index.ts e comum.ts), nenhum chama auditRead nem usa o contexto de paciente sem login, e os imports ficam na lista fechada', () => {
     const arquivos = FONTES.map((x) => x.f).filter((f) => f !== 'index.ts' && f !== 'comum.ts');
     expect(arquivos.map((f) => f.replace(/\.ts$/, '')).sort()).toEqual(SECOES_DA_FICHA.map((s) => s.id).sort());
     for (const { f, src } of FONTES) {
       expect(src, f).not.toMatch(/auditRead|recordAudit/);
       expect(src, f).not.toMatch(PALAVRA_DO_CONTEXTO_SEM_LOGIN);
       expect(src, f).not.toMatch(/liberarReceitasDoPlano/);
+      expect(src, f).not.toMatch(/\bimport\s*\(|\brequire\s*\(/);
+      const imports = importsDe(src);
+      expect(imports.length, f).toBeGreaterThan(0);
+      const permitidos = f === 'index.ts' ? [...IMPORTS_PERMITIDOS, ...IMPORTS_DO_INDEX] : IMPORTS_PERMITIDOS;
+      for (const de of imports) expect(permitidos, `${f}: ${de}`).toContain(de);
     }
   });
 
