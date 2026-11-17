@@ -61,3 +61,14 @@ export async function financeiroParaExportacao(tx: Tx, patientId: string, hoje: 
     };
   });
 }
+
+/**
+ * RN-316 (F-D23): o titular tem algum lançamento do Financeiro? `anonimizarVencidos` (`src/modules/pacientes/lgpd.ts`, contexto
+ * `worker`) só chama `app_anonimizar_financeiro` com lançamento: a função confere o prazo pelo relógio do banco, e o `now`
+ * do job pode ser outro (testes). A leitura fica aqui, no módulo do Financeiro (regra 1 do CLAUDE.md: no contexto `worker`,
+ * só este arquivo e a função leem as tabelas `fin_*`).
+ */
+export async function temLancamentos(tx: Tx, patientId: string): Promise<boolean> {
+  const [linha] = await tx.select({ id: finLancamentos.id }).from(finLancamentos).where(eq(finLancamentos.patientId, patientId)).limit(1);
+  return linha !== undefined;
+}
