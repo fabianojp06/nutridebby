@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from '../../test/db';
 import { bancoProprioParaDdl } from '../../test/ddl';
-import { novoPaciente, novoTenant, type TenantDeTeste } from '../../test/pacientes';
+import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../test/pacientes';
 import { TIPOS_DA_AGENDA, TIPOS_FORA_DA_RECEPCAO } from '@/modules/notificacoes/tipos';
 import { withConta, withTenant, type TenantContext } from './tenant';
 
@@ -14,7 +14,8 @@ import { withConta, withTenant, type TenantContext } from './tenant';
  * (app_deny_recepcao, app_allow_recepcao, app_enable_tenant_rls e o laço), a tabela equipe_membros com o gatilho
  * equipe_membros_regras e os CHECKs novos de `user` e `invites` (blocos 1 e 2, T4); as liberações da §4.3 e as condições
  * recepcao_cond_* — paciente visível, Financeiro, notificações da agenda — e o fin_lancamentos_regras refeito (bloco 3, T5a).
- * Os gatilhos de colunas e as funções SECURITY DEFINER (T5b) têm testes próprios.
+ * Bloco 4 (T5b): os gatilhos de colunas da recepção, o aceite e a recusa dos pedidos do Plano 23 e o tenants_so_nutri; as
+ * funções SECURITY DEFINER do bloco 5 são provadas em migrate-owner.test.ts (dono NOBYPASSRLS, RE-D56).
  */
 const ddl = bancoProprioParaDdl(); // DDL (tabela de rascunho, laço): banco próprio, sem disputar travas (SUS-100)
 const app = makeDb(inject('appDatabaseUrl'));
@@ -409,7 +410,7 @@ describe('liberações e condições da recepção (bloco 3, RN-506 a RN-508)', 
       await expect(em(T.ctx, lancamento(PB))).rejects.toSatisfy((e: unknown) => doGatilho(e) && /bloqueado ou anonimizado/.test(erro(e).message));
     });
 
-    it('UPDATE das linhas do escondido → 0 linhas; a recepção não leva o paciente visível a bloqueado (WITH CHECK)', async () => {
+    it('UPDATE das linhas do escondido → 0 linhas; a recepção não leva o paciente visível a bloqueado (gatilho e WITH CHECK)', async () => {
       for (const p of [PB, PA]) {
         expect(await em(rec(R1), sql`update patients set nome = nome where id = ${p} returning id`), `patients ${p}`).toEqual([]);
         expect(await em(rec(R1), sql`update appointments set status = 'confirmada' where id = ${consultaDe[p].id} returning id`), `appointments ${p}`).toEqual([]);
@@ -419,7 +420,9 @@ describe('liberações e condições da recepção (bloco 3, RN-506 a RN-508)', 
       }
       const { rows } = await owner.pool.query(`select status from appointments where id = any($1::uuid[])`, [[consultaDe[PB].id, consultaDe[PA].id]]);
       expect(rows.map((r) => r.status)).toEqual(['agendada', 'agendada']);
-      await expect(em(rec(R1), sql`update patients set status = 'bloqueado', bloqueado_em = now() where id = ${P}`)).rejects.toSatisfy(rlsDe('patients'));
+      // T5b: o gatilho patients_da_recepcao (status fixo para ela) recusa antes do WITH CHECK, que segue como segunda defesa
+      // (a expressão dele é conferida inteira por findRecepcaoViolations)
+      await expect(em(rec(R1), sql`update patients set status = 'bloqueado', bloqueado_em = now() where id = ${P}`)).rejects.toSatisfy(doGatilho);
       // a nutricionista continua alcançando a consulta do bloqueado, como hoje
       expect(await em(T.ctx, sql`update appointments set status = status where id = ${consultaDe[PB].id} returning id`)).toHaveLength(1);
     });
@@ -561,3 +564,296 @@ describe('liberações e condições da recepção (bloco 3, RN-506 a RN-508)', 
 
 /** Tipos de notificação ligados a uma consulta (appointment_id e inicio_consulta preenchidos) — os da agenda e o convite não. */
 const ehDaConsulta = (tipo: string) => (TIPOS_DA_AGENDA as readonly string[]).includes(tipo);
+
+/**
+ * Bloco 4 (T5b; RN-508, RN-509, RN-512, RE-D41, RE-D59, RE-D62): os gatilhos de colunas da recepção por lista branca e o
+ * aceite/recusa dos pedidos do Plano 23. Um consultório com a nutricionista, a recepção R e os pacientes P e P2 (visíveis).
+ */
+describe('gatilhos de colunas da recepção (bloco 4)', () => {
+  let T: TenantDeTeste;
+  let R: string;
+  let P: string;
+  let P2: string;
+  let seq = 0;
+  const rec = (): TenantContext => ({ tenantId: T.tenantId, role: 'recepcao', actorUserId: R, ip: '203.0.113.37' });
+  const worker = (): TenantContext => ({ tenantId: T.tenantId, role: 'worker' });
+  /** Um horário próprio por consulta (EXCLUDE appointments_sem_sobreposicao); `passado` = já começou. */
+  const hora = (passado = false) =>
+    passado ? sql`'2026-01-05T12:00:00Z'::timestamptz + ${++seq} * interval '2 hours'` : sql`'2031-05-05T12:00:00Z'::timestamptz + ${++seq} * interval '2 hours'`;
+  const consulta = (paciente: string, o: { status?: string; origem?: string; passado?: boolean; extra?: SQL } = {}) => {
+    const h = hora(o.passado);
+    return sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status)
+               values (${T.tenantId}, ${paciente}, ${h}, ${h} + interval '1 hour', 'presencial', ${o.origem ?? 'nutri'}, ${o.status ?? 'agendada'}) returning id`;
+  };
+  const marcar = async (ctx: TenantContext, paciente: string, o: Parameters<typeof consulta>[1] = {}) => (await em(ctx, consulta(paciente, o)))[0].id as string;
+  const recusaDoGatilho = (e: unknown) => doGatilho(e);
+
+  beforeAll(async () => {
+    T = await novoTenant(app.db);
+    P = (await novoPaciente(app.db, T.ctx)).id;
+    P2 = (await novoPaciente(app.db, T.ctx)).id;
+    R = randomUUID();
+    await owner.pool.query(`insert into "user" (id, name, email, app_role, tenant_id) values ($1, 'Rec', $2, 'recepcao', $3)`, [R, `rec-${R.slice(0, 8)}@teste.dev`, T.tenantId]);
+    await em(T.ctx, sql`insert into equipe_membros (tenant_id, user_id, papel, convidada_por) values (${T.tenantId}, ${R}, 'recepcao', ${T.nutriId})`);
+    await em(T.ctx, sql`update tenants set agenda_confirmar_pedidos = true where id = ${T.tenantId}`);
+  });
+
+  describe('patients_da_recepcao (RN-508, RE-D41)', () => {
+    const inserir = (colunas: Record<string, unknown> = {}) => {
+      const id = randomUUID();
+      const base: Record<string, unknown> = { id, tenant_id: T.tenantId, nome: 'Bia', data_nascimento: '1990-01-01', sexo: 'F', email: `bia-${id.slice(0, 8)}@ex.com`, telefone_e164: '+5511912345678', ...colunas };
+      const nomes = Object.keys(base);
+      return sql`insert into patients (${sql.join(nomes.map((n) => sql.identifier(n)), sql`, `)}) values (${sql.join(nomes.map((n) => sql`${base[n]}`), sql`, `)}) returning id`;
+    };
+
+    it('INSERT só com os campos permitidos passa; com user_id de conta de paciente, status, origem, bloqueio, IA, peso oculto ou WhatsApp → 42501 do gatilho', async () => {
+      expect(await em(rec(), inserir())).toHaveLength(1);
+      const conta = randomUUID();
+      await owner.pool.query(`insert into "user" (id, name, email, app_role) values ($1, 'Pac', $2, 'paciente')`, [conta, `pac-${conta.slice(0, 8)}@teste.dev`]);
+      const proibidos: [string, Record<string, unknown>][] = [
+        ['user_id', { user_id: conta }],
+        ['status', { status: 'arquivado' }],
+        ['origem', { origem: 'agendamento_publico' }],
+        ['bloqueado_em', { bloqueado_em: '2026-01-01T00:00:00Z' }],
+        ['anonimizar_apos', { anonimizar_apos: '2046-01-01' }],
+        ['anonimizado_em', { anonimizado_em: '2026-01-01T00:00:00Z' }],
+        ['ia_recusada_em', { ia_recusada_em: '2026-01-01T00:00:00Z' }],
+        ['peso_oculto_no_app_em', { peso_oculto_no_app_em: '2026-01-01T00:00:00Z' }],
+        ['whatsapp_optin_em', { whatsapp_optin_em: '2026-01-01T00:00:00Z', whatsapp_optin_origem: 'nutri' }],
+        ['lembretes_pausados_em', { lembretes_pausados_em: '2026-01-01T00:00:00Z' }],
+      ];
+      for (const [coluna, extra] of proibidos) await expect(em(rec(), inserir(extra)), coluna).rejects.toSatisfy(recusaDoGatilho);
+      // a nutricionista continua gravando como hoje
+      expect(await em(T.ctx, inserir({ whatsapp_optin_em: '2026-01-01T00:00:00Z', whatsapp_optin_origem: 'nutri' }))).toHaveLength(1);
+    });
+
+    it('UPDATE: nome, nascimento, sexo e telefone mudam; e-mail (RE-D37), user_id, status e as outras colunas → 42501; WhatsApp mantido como está passa', async () => {
+      const [p] = await em(T.ctx, inserir({ whatsapp_optin_em: '2026-01-01T00:00:00Z', whatsapp_optin_origem: 'nutri' }));
+      expect(
+        await em(rec(), sql`update patients set nome = 'Bia Souza', data_nascimento = '1990-02-02', sexo = 'M', telefone_e164 = '+5511987654321', updated_at = now() where id = ${p.id} returning id`),
+      ).toHaveLength(1);
+      // o formulário reenvia as colunas de WhatsApp lidas do banco, sem mudar: passa
+      expect(
+        await em(rec(), sql`update patients set nome = 'Bia S.', whatsapp_optin_em = whatsapp_optin_em, whatsapp_optin_origem = whatsapp_optin_origem, whatsapp_optout_em = whatsapp_optout_em where id = ${p.id} returning id`),
+      ).toHaveLength(1);
+      const conta = randomUUID();
+      await owner.pool.query(`insert into "user" (id, name, email, app_role) values ($1, 'Pac', $2, 'paciente')`, [conta, `pac-${conta.slice(0, 8)}@teste.dev`]);
+      const fixas: [string, SQL][] = [
+        ['email', sql`email = ${`outro-${randomUUID().slice(0, 8)}@ex.com`}`],
+        ['user_id', sql`user_id = ${conta}`],
+        ['status', sql`status = 'arquivado'`],
+        ['origem', sql`origem = 'agendamento_publico'`],
+        ['whatsapp_optout_em', sql`whatsapp_optout_em = now()`],
+        ['peso_oculto_no_app_em', sql`peso_oculto_no_app_em = now()`],
+        ['created_at', sql`created_at = created_at - interval '1 day'`],
+      ];
+      for (const [coluna, set] of fixas) await expect(em(rec(), sql`update patients set ${set} where id = ${p.id}`), coluna).rejects.toSatisfy(recusaDoGatilho);
+      // a nutricionista muda o e-mail como hoje
+      expect(await em(T.ctx, sql`update patients set email = ${`nova-${randomUUID().slice(0, 8)}@ex.com`} where id = ${p.id} returning id`)).toHaveLength(1);
+    });
+  });
+
+  describe('patient_cadastro_da_recepcao (RN-508, RE-D38)', () => {
+    it('INSERT com observação ou identidade de gênero → 42501; sem elas passa; UPDATE que muda uma delas → 42501; o endereço muda', async () => {
+      const novo = (await novoPaciente(app.db, T.ctx)).id;
+      await expect(em(rec(), sql`insert into patient_cadastro (tenant_id, patient_id, observacao) values (${T.tenantId}, ${novo}, 'Nota')`)).rejects.toSatisfy(recusaDoGatilho);
+      await expect(em(rec(), sql`insert into patient_cadastro (tenant_id, patient_id, identidade_genero) values (${T.tenantId}, ${novo}, 'mulher')`)).rejects.toSatisfy(
+        recusaDoGatilho,
+      );
+      expect(await em(rec(), sql`insert into patient_cadastro (tenant_id, patient_id, logradouro) values (${T.tenantId}, ${novo}, 'Rua A') returning id`)).toHaveLength(1);
+
+      const outro = (await novoPaciente(app.db, T.ctx)).id;
+      await em(T.ctx, sql`insert into patient_cadastro (tenant_id, patient_id, observacao, identidade_genero) values (${T.tenantId}, ${outro}, 'Reservada', 'mulher')`);
+      await expect(em(rec(), sql`update patient_cadastro set observacao = 'Outra' where patient_id = ${outro}`)).rejects.toSatisfy(recusaDoGatilho);
+      await expect(em(rec(), sql`update patient_cadastro set observacao = null where patient_id = ${outro}`)).rejects.toSatisfy(recusaDoGatilho);
+      await expect(em(rec(), sql`update patient_cadastro set identidade_genero = 'homem' where patient_id = ${outro}`)).rejects.toSatisfy(recusaDoGatilho);
+      expect(await em(rec(), sql`update patient_cadastro set logradouro = 'Rua B', cidade = 'Campinas' where patient_id = ${outro} returning id`)).toHaveLength(1);
+      const { rows } = await owner.pool.query(`select observacao, identidade_genero, logradouro from patient_cadastro where patient_id = $1`, [outro]);
+      expect(rows).toEqual([{ observacao: 'Reservada', identidade_genero: 'mulher', logradouro: 'Rua B' }]);
+      // a nutricionista muda a observação como hoje
+      expect(await em(T.ctx, sql`update patient_cadastro set observacao = 'Nova' where patient_id = ${outro} returning id`)).toHaveLength(1);
+    });
+  });
+
+  describe('appointments_da_recepcao (RN-509, RE-D41, RE-D62)', () => {
+    it('INSERT: só agendada pelo consultório, sem presença, cancelamento nem remarcação; o resto → 42501', async () => {
+      expect(await em(rec(), consulta(P))).toHaveLength(1);
+      const origem = await marcar(T.ctx, P);
+      const h = () => hora();
+      const proibidos: [string, SQL][] = [
+        ['realizada', consulta(P, { status: 'realizada', passado: true })],
+        ['faltou', consulta(P, { status: 'faltou', passado: true })],
+        ['confirmada', consulta(P, { status: 'confirmada' })],
+        ['origem paciente', consulta(P, { origem: 'paciente' })],
+        [
+          'cancelada pelo sistema',
+          (() => {
+            const x = h();
+            return sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status, cancelado_por, cancelada_em)
+                       values (${T.tenantId}, ${P}, ${x}, ${x} + interval '1 hour', 'presencial', 'nutri', 'cancelada', 'sistema', now())`;
+          })(),
+        ],
+        [
+          'presenca_em',
+          (() => {
+            const x = h();
+            return sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, presenca_em) values (${T.tenantId}, ${P}, ${x}, ${x} + interval '1 hour', 'presencial', 'nutri', now())`;
+          })(),
+        ],
+        [
+          'remarcada_de',
+          (() => {
+            const x = h();
+            return sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, remarcada_de) values (${T.tenantId}, ${P}, ${x}, ${x} + interval '1 hour', 'presencial', 'nutri', ${origem})`;
+          })(),
+        ],
+      ];
+      for (const [caso, q] of proibidos) await expect(em(rec(), q), caso).rejects.toSatisfy(recusaDoGatilho);
+    });
+
+    it('UPDATE: patient_id, origem, remarcada_de e motivo_cancelamento fixos; horário, confirmação e cancelamento pelo consultório passam', async () => {
+      const c = await marcar(rec(), P);
+      const outra = await marcar(T.ctx, P);
+      const fixas: [string, SQL][] = [
+        ['patient_id', sql`patient_id = ${P2}`],
+        ['origem', sql`origem = 'paciente'`],
+        ['remarcada_de', sql`remarcada_de = ${outra}`],
+        ['motivo_cancelamento', sql`motivo_cancelamento = 'Viagem'`],
+      ];
+      for (const [coluna, set] of fixas) await expect(em(rec(), sql`update appointments set ${set} where id = ${c}`), coluna).rejects.toSatisfy(recusaDoGatilho);
+      expect(await em(rec(), sql`update appointments set inicio = inicio + interval '30 minutes', fim = fim + interval '30 minutes' where id = ${c} returning id`)).toHaveLength(1);
+      expect(await em(rec(), sql`update appointments set status = 'confirmada' where id = ${c} returning id`)).toHaveLength(1);
+      expect(await em(rec(), sql`update appointments set status = 'agendada', confirmada_via = null where id = ${c} returning id`)).toHaveLength(1);
+      expect(await em(rec(), sql`update appointments set status = 'cancelada', cancelado_por = 'nutri', cancelada_em = now() where id = ${c} returning id`)).toHaveLength(1);
+      // cancelada não volta, nem muda quem cancelou
+      await expect(em(rec(), sql`update appointments set status = 'agendada', cancelado_por = null, cancelada_em = null where id = ${c}`)).rejects.toSatisfy(recusaDoGatilho);
+    });
+
+    it('cancelado_por: paciente, sistema e pedido_recusado saindo de agendada → 42501', async () => {
+      const c = await marcar(rec(), P);
+      for (const por of ['paciente', 'sistema', 'pedido_recusado', 'pedido_vencido']) {
+        await expect(em(rec(), sql`update appointments set status = 'cancelada', cancelado_por = ${por}, cancelada_em = now() where id = ${c}`), por).rejects.toSatisfy(recusaDoGatilho);
+      }
+    });
+
+    it('Realizada nunca: → realizada e realizada → faltou → 42501; a nutricionista continua marcando', async () => {
+      const c = await marcar(T.ctx, P, { passado: true });
+      await expect(em(rec(), sql`update appointments set status = 'realizada', presenca_em = now() where id = ${c}`)).rejects.toSatisfy(recusaDoGatilho);
+      expect(await em(T.ctx, sql`update appointments set status = 'realizada', presenca_em = now() where id = ${c} returning id`)).toHaveLength(1);
+      await expect(em(rec(), sql`update appointments set status = 'faltou', presenca_em = now() where id = ${c}`)).rejects.toSatisfy(recusaDoGatilho);
+      await expect(em(rec(), sql`update appointments set status = 'agendada', presenca_em = null where id = ${c}`)).rejects.toSatisfy(recusaDoGatilho);
+    });
+
+    it('Faltou: antes do início → 42501; depois, de agendada ou confirmada sem atendimento → ok; com atendimento ligado → 42501 (RE-D62)', async () => {
+      const futura = await marcar(rec(), P);
+      await expect(em(rec(), sql`update appointments set status = 'faltou', presenca_em = now() where id = ${futura}`)).rejects.toSatisfy(recusaDoGatilho);
+      const passada = await marcar(T.ctx, P, { passado: true });
+      expect(await em(rec(), sql`update appointments set status = 'faltou', presenca_em = now() where id = ${passada} returning id`)).toHaveLength(1);
+      const confirmada = await marcar(T.ctx, P, { passado: true });
+      await em(T.ctx, sql`update appointments set status = 'confirmada' where id = ${confirmada}`);
+      expect(await em(rec(), sql`update appointments set status = 'faltou', presenca_em = now() where id = ${confirmada} returning id`)).toHaveLength(1);
+      // a presença só muda junto com a falta
+      const outra = await marcar(T.ctx, P, { passado: true });
+      await expect(em(rec(), sql`update appointments set presenca_em = now() where id = ${outra}`)).rejects.toSatisfy(recusaDoGatilho);
+      // com o atendimento ligado (a consulta ainda agendada): a recepção não lê consultations; a função booleana confere
+      await em(T.ctx, sql`insert into consultations (tenant_id, patient_id, data, appointment_id) values (${T.tenantId}, ${P}, '2026-01-05', ${outra})`);
+      expect(await em(rec(), sql`select id from consultations`)).toEqual([]); // controle: a tabela é negada a ela
+      await expect(em(rec(), sql`update appointments set status = 'faltou', presenca_em = now() where id = ${outra}`)).rejects.toSatisfy(
+        (e: unknown) => doGatilho(e) && /atendimento/.test(erro(e).message),
+      );
+      const { rows } = await owner.pool.query(`select status from appointments where id = $1`, [outra]);
+      expect(rows).toEqual([{ status: 'agendada' }]);
+    });
+
+    it('a nutricionista, o worker e o paciente passam intactos pelo gatilho (só a recepção)', async () => {
+      const c = await marcar(T.ctx, P);
+      expect(await em(T.ctx, sql`update appointments set motivo_cancelamento = 'Viagem', status = 'cancelada', cancelado_por = 'nutri', cancelada_em = now() where id = ${c} returning id`)).toHaveLength(1);
+      const d = await marcar(T.ctx, P);
+      expect(await em(worker(), sql`update appointments set status = 'cancelada', cancelado_por = 'nutri', cancelada_em = now() where id = ${d} returning id`)).toHaveLength(1);
+    });
+  });
+
+  describe('pedidos do Plano 23 pela recepção (RE-D59)', () => {
+    /** Pedido do paciente cadastrado: consulta `solicitada` gravada na sessão dele, com a confirmação dos pedidos ligada. */
+    const pedido = async (paciente = P) => {
+      const h = hora();
+      const [c] = await em(
+        ctxPaciente(T.tenantId, paciente),
+        sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status)
+            values (${T.tenantId}, ${paciente}, ${h}, ${h} + interval '1 hour', 'presencial', 'paciente', 'solicitada') returning id, status`,
+      );
+      expect(c.status).toBe('solicitada');
+      return c.id as string;
+    };
+
+    it('a recepção aceita (→ agendada) e recusa (pedido_recusado) o pedido, com o ator dela no audit_log', async () => {
+      const a = await pedido();
+      expect(await em(rec(), sql`update appointments set status = 'agendada' where id = ${a} returning id`)).toHaveLength(1);
+      const r = await pedido();
+      expect(await em(rec(), sql`update appointments set status = 'cancelada', cancelado_por = 'pedido_recusado', cancelada_em = now() where id = ${r} returning id`)).toHaveLength(1);
+      const { rows } = await owner.pool.query(
+        `select entidade_id, actor_user_id from audit_log where tenant_id = $1 and entidade = 'agenda' and entidade_id = any($2::text[]) and acao = 'alterar'`,
+        [T.tenantId, [a, r]],
+      );
+      expect(rows.map((x) => x.actor_user_id)).toEqual([R, R]);
+      expect(new Set(rows.map((x) => x.entidade_id))).toEqual(new Set([a, r]));
+    });
+
+    it('a recepção não cancela pelo sistema nem por vencimento, e não muda o horário, o local, a modalidade nem o paciente do pedido', async () => {
+      const p = await pedido();
+      for (const por of ['sistema', 'pedido_vencido', 'nutri']) {
+        await expect(em(rec(), sql`update appointments set status = 'cancelada', cancelado_por = ${por}, cancelada_em = now() where id = ${p}`), por).rejects.toSatisfy(recusaDoGatilho);
+      }
+      const mudancas: [string, SQL][] = [
+        ['horário', sql`inicio = inicio + interval '1 hour', fim = fim + interval '1 hour'`],
+        ['modalidade', sql`modalidade = 'online', link_online = 'https://sala.example.test/x'`],
+        ['paciente', sql`patient_id = ${P2}`],
+      ];
+      for (const [caso, set] of mudancas) await expect(em(rec(), sql`update appointments set ${set} where id = ${p}`), caso).rejects.toSatisfy(recusaDoGatilho);
+      // o aceite mudando o horário junto também não passa
+      await expect(em(rec(), sql`update appointments set status = 'agendada', inicio = inicio + interval '1 hour', fim = fim + interval '1 hour' where id = ${p}`)).rejects.toSatisfy(
+        recusaDoGatilho,
+      );
+      const { rows } = await owner.pool.query(`select status from appointments where id = $1`, [p]);
+      expect(rows).toEqual([{ status: 'solicitada' }]);
+    });
+
+    it('a nutricionista continua aceitando e recusando como no Plano 23', async () => {
+      const a = await pedido();
+      expect(await em(T.ctx, sql`update appointments set status = 'agendada' where id = ${a} returning id`)).toHaveLength(1);
+      const r = await pedido();
+      expect(await em(T.ctx, sql`update appointments set status = 'cancelada', cancelado_por = 'pedido_recusado', cancelada_em = now() where id = ${r} returning id`)).toHaveLength(1);
+    });
+
+    it('a custom refaz app_appointments_regras_pedido com o corpo da 0131 e só os dois pontos do papel (RE-D59)', () => {
+      const corpo = (texto: string) => {
+        const m = texto.match(/CREATE OR REPLACE FUNCTION app_appointments_regras_pedido\(\)[\s\S]*?END \$\$;/);
+        expect(m).not.toBeNull();
+        return m![0];
+      };
+      const pasta = path.resolve('drizzle');
+      const do23 = readdirSync(pasta).filter((f) => /^\d{4}_rls_agenda_2\.sql$/.test(f));
+      expect(do23).toHaveLength(1);
+      const original = corpo(readFileSync(path.join(pasta, do23[0]), 'utf8'));
+      const refeita = corpo(sqlDaCustom());
+      const aceite = `r IS DISTINCT FROM 'nutri' THEN`;
+      const recusa = `OR (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('nutri'::text, 'pedido_recusado'::text) THEN`;
+      expect(original).toContain(aceite);
+      expect(original).toContain(recusa);
+      const esperado = original
+        .replace(aceite, `r NOT IN ('nutri', 'recepcao') THEN`)
+        .replace(recusa, `OR (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('nutri'::text, 'pedido_recusado'::text)\n         OR (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('recepcao'::text, 'pedido_recusado'::text) THEN`);
+      expect(refeita).toBe(esperado);
+    });
+  });
+
+  describe('tenants_so_nutri (RN-512)', () => {
+    it('UPDATE de tenants na sessão da recepção → 42501 (mesmo sem mudança); nutricionista e worker passam', async () => {
+      await expect(em(rec(), sql`update tenants set nome_exibicao = nome_exibicao where id = ${T.tenantId}`)).rejects.toSatisfy(recusaDoGatilho);
+      await expect(em(rec(), sql`update tenants set agenda_confirmar_pedidos = true where id = ${T.tenantId}`)).rejects.toSatisfy(recusaDoGatilho);
+      expect(await em(rec(), sql`select id from tenants where id = ${T.tenantId}`)).toHaveLength(1); // ela lê
+      expect(await em(T.ctx, sql`update tenants set updated_at = now() where id = ${T.tenantId} returning id`)).toHaveLength(1);
+      expect(await em(worker(), sql`update tenants set updated_at = now() where id = ${T.tenantId} returning id`)).toHaveLength(1);
+    });
+  });
+});

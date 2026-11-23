@@ -269,9 +269,17 @@ const doBanco = (c: PatientCadastroRow): CadastroComplementar => ({
  * D23: a repetição do CPF é conferida antes do INSERT, sob uma trava por consultório e CPF — dois cadastros com o mesmo
  * CPF ao mesmo tempo se enfileiram, e o segundo acha o primeiro já gravado (READ COMMITTED: foto nova a cada comando).
  * Assim o 23505 (que leva o CPF ao log do Postgres) não acontece no caminho normal; o índice único fica como última defesa.
+ * Plano 26 (RE-D71): na sessão da recepção, a RLS esconde o cadastro do paciente bloqueado (recepcao_cond_paciente_visivel) e
+ * a leitura abaixo não o acharia; então, sob a mesma trava, ela pergunta a `app_cpf_em_uso` (SECURITY DEFINER, só sim/não,
+ * qualquer paciente do consultório). Sim — ou nulo, falha fechada — é CPF repetido, sem o link para o outro. O papel vem do
+ * contexto da própria transação (não de quem chama). Na sessão `nutri` nada muda.
  */
 async function conferirCpf(tx: Tx, tenantId: string, patientId: string, cpf: string): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('patient_cadastro_cpf'), hashtext(${`${tenantId}:${cpf}`}))`);
+  const {
+    rows: [contexto],
+  } = await tx.execute<{ papel: string | null }>(
+    sql`select pg_advisory_xact_lock(hashtext('patient_cadastro_cpf'), hashtext(${`${tenantId}:${cpf}`})), app_current_role() as papel`,
+  );
   const [outro] = await tx
     .select({ id: patients.id, status: patients.status, anonimizadoEm: patients.anonimizadoEm })
     .from(patientCadastro)
@@ -279,6 +287,12 @@ async function conferirCpf(tx: Tx, tenantId: string, patientId: string, cpf: str
     .where(and(eq(patientCadastro.tenantId, tenantId), eq(patientCadastro.cpf, cpf), ne(patientCadastro.patientId, patientId)))
     .limit(1);
   if (outro) throw new CpfRepetidoError(outro.status === 'bloqueado' || outro.anonimizadoEm ? null : outro.id);
+  if (contexto?.papel === 'recepcao') {
+    const {
+      rows: [r],
+    } = await tx.execute<{ em_uso: boolean | null }>(sql`select app_cpf_em_uso(${cpf}, ${patientId}::uuid) as em_uso`);
+    if (r?.em_uso !== false) throw new CpfRepetidoError(null);
+  }
 }
 
 /**

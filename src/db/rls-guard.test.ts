@@ -20,6 +20,8 @@ import {
   findRecepcaoViolations,
   RECEPCAO_CONDICOES,
   RECEPCAO_LIBERADO,
+  findPapelEmFuncoesViolations,
+  FUNCOES_COM_PAPEL,
 } from './rls-guard';
 
 // SUS-100: os testes de "a guarda funciona" fazem DDL (drop/create policy, drop trigger) em tabela real; num banco
@@ -392,7 +394,7 @@ describe('recepção (RN-505, Plano 26)', () => {
   });
 
   it('T5a: a matriz da §4.3 está no banco e em RECEPCAO_LIBERADO; condição sem o SELECT em volta da função, ou sem o paciente visível, quebra', async () => {
-    // a matriz fechada (spec §4.3, sem as tabelas do Plano 23 que esta base ainda não tem)
+    // a matriz fechada (spec §4.3; locais_atendimento, do Plano 23, entrou na T5b)
     expect(Object.fromEntries(Object.entries(RECEPCAO_LIBERADO).map(([t, v]) => [t, [...v.comandos].sort()]))).toEqual({
       patients: ['insert', 'select', 'update'],
       patient_cadastro: ['insert', 'select', 'update'],
@@ -405,6 +407,7 @@ describe('recepção (RN-505, Plano 26)', () => {
       fin_configuracoes: ['select'],
       fin_categorias: ['select'],
       fin_lancamentos: ['insert', 'select', 'update'],
+      locais_atendimento: ['select'], // T5b: Plano 23 (filtro e seletor de local; a sala não sai do módulo)
     });
     expect(RECEPCAO_LIBERADO.public_booking_requests).toBeUndefined(); // RE-D59: pedido de pessoa nova fica com a nutricionista
     // toda tabela com paciente liberada tem a condição do paciente visível (RE-D40)
@@ -437,6 +440,50 @@ describe('recepção (RN-505, Plano 26)', () => {
       expect(v).toContainEqual({ table: 'fin_lancamentos', problem: 'condição recepcao_cond_financeiro sem o comando ou a expressão de RECEPCAO_CONDICOES' });
       expect(v).toContainEqual({ table: 'appointments', problem: 'condição recepcao_cond_paciente_visivel sem o comando ou a expressão de RECEPCAO_CONDICOES' });
       expect(v).toContainEqual({ table: 'notifications', problem: 'sem a condição recepcao_cond_notificacoes_da_agenda (RECEPCAO_CONDICOES)' });
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+});
+
+describe('funções que olham o papel (RN-511, Plano 26)', () => {
+  it('toda função que cita o papel, e todo gatilho de tabela liberada à recepção que lê patients, tem decisão em FUNCOES_COM_PAPEL; a lista não cita função inexistente', async () => {
+    expect(await findPapelEmFuncoesViolations(owner.pool)).toEqual([]);
+    // as decisões já tomadas na spec (§4.4) e as peças da T5b
+    expect(FUNCOES_COM_PAPEL.app_fin_lancamentos_regras?.decisao).toBe('como nutri');
+    expect(FUNCOES_COM_PAPEL.app_appointments_regras_pedido?.decisao).toBe('como nutri');
+    expect(FUNCOES_COM_PAPEL.app_paciente_colunas_patients?.decisao).toBe('não se aplica');
+    expect(FUNCOES_COM_PAPEL.app_patient_cadastro_titular_ativo?.decisao).toBe('sem mudança');
+    for (const f of ['app_patients_da_recepcao', 'app_patient_cadastro_da_recepcao', 'app_appointments_da_recepcao', 'app_tenants_so_nutri']) {
+      expect(FUNCOES_COM_PAPEL[f]?.decisao, f).toBe('só recepcao');
+    }
+    for (const f of ['app_retorno_das_consultas', 'app_previsoes_de_retorno', 'app_consulta_tem_atendimento', 'app_cpf_em_uso']) {
+      expect(FUNCOES_COM_PAPEL[f]?.decisao, f).toBe('como nutri');
+    }
+  });
+
+  it('função nova que cita o papel, ou gatilho novo de tabela liberada que lê patients, sem decisão quebra; nome esquecido na lista também (a guarda funciona)', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query(`create function tmp_olha_papel() returns boolean language sql as $$ select current_setting('app.role', true) = 'x' $$`);
+      await client.query(`create function tmp_olha_nutri() returns boolean language plpgsql as $$ begin return app_current_role() is not null; end $$`);
+      // não cita o papel, mas é gatilho de appointments (liberada) e lê patients: pela RLS de quem age, viria vazio para a recepção
+      await client.query(`create function tmp_le_paciente() returns trigger language plpgsql as $$
+        begin perform 1 from public.patients p where p.id = new.patient_id; return new; end $$`);
+      await client.query('create trigger tmp_le_paciente before insert on appointments for each row execute function tmp_le_paciente()');
+      // controle: lê patients, mas é gatilho de tabela negada à recepção — fica fora
+      await client.query(`create function tmp_le_paciente_negada() returns trigger language plpgsql as $$
+        begin perform 1 from public.patients p where p.id = new.patient_id; return new; end $$`);
+      await client.query('create trigger tmp_le_paciente_negada before insert on anthropometry for each row execute function tmp_le_paciente_negada()');
+      const v = await findPapelEmFuncoesViolations(client, { ...FUNCOES_COM_PAPEL, tmp_nao_existe: { decisao: 'recusa', motivo: 'rascunho' } });
+      expect(v).toContainEqual({ table: 'tmp_olha_papel', problem: 'função que olha o papel sem decisão em FUNCOES_COM_PAPEL' });
+      expect(v).toContainEqual({ table: 'tmp_olha_nutri', problem: 'função que olha o papel sem decisão em FUNCOES_COM_PAPEL' });
+      expect(v).toContainEqual({ table: 'tmp_le_paciente', problem: 'gatilho de tabela liberada à recepção que lê patients sem decisão em FUNCOES_COM_PAPEL' });
+      expect(v).toContainEqual({ table: 'tmp_nao_existe', problem: 'FUNCOES_COM_PAPEL cita função inexistente' });
+      expect(v.map((x) => x.table)).not.toContain('tmp_le_paciente_negada');
+      expect(v).toHaveLength(4);
     } finally {
       await client.query('rollback');
       client.release();

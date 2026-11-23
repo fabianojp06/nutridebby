@@ -1565,3 +1565,226 @@ describe('Plano 25: peças SECURITY DEFINER com dono NOBYPASSRLS', () => {
     await fusosComPoder();
   });
 });
+
+/**
+ * Plano 26 (RN-510, RE-D27, RE-D56, RE-D62, RE-D71): as peças SECURITY DEFINER da recepção, com o dono NOBYPASSRLS como em
+ * produção. Cada uma aceita só `nutri` e `recepcao` com tenant, troca para `worker` sem paciente, filtra pelo tenant da sessão
+ * (e pelo paciente visível), devolve só o selo, a previsão ou o booleano e restaura o contexto do chamador.
+ */
+describe('Plano 26: peças SECURITY DEFINER da recepção com dono NOBYPASSRLS', () => {
+  type Ctx = { role: string; patient?: string; user?: string };
+  type Row = Record<string, unknown>;
+  const NUTRI: Ctx = { role: 'nutri', user: '00000000-0000-4000-8000-0000000026a1' };
+  const RECEPCAO: Ctx = { role: 'recepcao', user: '00000000-0000-4000-8000-0000000026a2' };
+  const WORKER: Ctx = { role: 'worker' };
+  const PUBLICO: Ctx = { role: 'publico' };
+  const contexto = `select current_setting('app.role', true) as role, current_setting('app.patient_id', true) as patient`;
+  const em = async <R>(t: string, x: Ctx, fn: (q: (texto: string, params?: unknown[]) => Promise<Row[]>) => Promise<R>): Promise<R> => {
+    const c = await app.connect();
+    try {
+      await c.query('begin');
+      await c.query(
+        `select set_config('app.tenant_id', $1, true), set_config('app.role', $2, true), set_config('app.patient_id', $3, true), set_config('app.user_id', $4, true)`,
+        [t, x.role, x.patient ?? '', x.user ?? ''],
+      );
+      const r = await fn(async (texto, params = []) => (await c.query(texto, params)).rows as Row[]);
+      await c.query('commit');
+      return r;
+    } catch (e) {
+      await c.query('rollback').catch(() => undefined);
+      throw e;
+    } finally {
+      c.release();
+    }
+  };
+  /** A chamada e o contexto logo depois, na mesma transação. */
+  const chamar = (t: string, x: Ctx, texto: string, params: unknown[] = []) =>
+    em(t, x, async (q) => ({ rows: await q(texto, params), ctx: (await q(contexto))[0] }));
+  const novoTenant = async () =>
+    (await app.query(`insert into tenants (slug, nome_exibicao) values ($1, 'P26') returning id`, [`p26-${crypto.randomUUID().slice(0, 8)}`])).rows[0].id as string;
+  const novoPaciente = (t: string) =>
+    em(t, WORKER, async (q) => (await q(`insert into patients (tenant_id, nome, data_nascimento, sexo, email) values ($1, 'Pac', '1990-01-01', 'F', $2) returning id`, [t, `${crypto.randomUUID()}@p26.dev`]))[0].id as string);
+  const bloquear = (t: string, p: string) =>
+    em(t, WORKER, (q) => q(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01' where id = $1`, [p]));
+  const anonimizar = (t: string, p: string) => em(t, WORKER, (q) => q(`update patients set status = 'arquivado', anonimizado_em = now() where id = $1`, [p]));
+  const arquivar = (t: string, p: string) => em(t, WORKER, (q) => q(`update patients set status = 'arquivado' where id = $1`, [p]));
+  /** Consulta às 12h de Brasília do dia (15h UTC: o mesmo dia no fuso do consultório). */
+  const consulta = (t: string, p: string, dia: string, status = 'agendada') =>
+    em(t, NUTRI, async (q) =>
+      (
+        await q(
+          `insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status) values ($1, $2, $3::timestamptz, $3::timestamptz + interval '1 hour', 'presencial', 'nutri', $4) returning id`,
+          [t, p, `${dia}T15:00:00Z`, status],
+        )
+      )[0].id as string,
+    );
+  const atendimento = (t: string, p: string, data: string, o: { consulta?: string; previsto?: string | null } = {}) =>
+    em(t, NUTRI, (q) =>
+      q(`insert into consultations (tenant_id, patient_id, data, appointment_id, retorno_previsto_em) values ($1, $2, $3, $4, $5)`, [t, p, data, o.consulta ?? null, o.previsto ?? null]),
+    );
+  const negadoPorPeriodo = (e: unknown) => (e as { code?: string }).code === '22023' && /13 meses/.test(String((e as Error).message));
+
+  it('as funções são SECURITY DEFINER do migrator, com search_path fixo, sem EXECUTE para PUBLIC, com EXECUTE para o app, e devolvem só o selo, a previsão ou o booleano', async () => {
+    const { rows } = await owner.query(
+      `select p.proname, pg_get_userbyid(p.proowner) as dono, p.prosecdef, array_to_string(p.proconfig, ',') as config,
+              pg_get_function_result(p.oid) as resultado,
+              exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE') as publico,
+              has_function_privilege('nutri_app_role', p.oid, 'EXECUTE') as app
+         from pg_proc p where p.proname = any($1) order by p.proname`,
+      [['app_retorno_das_consultas', 'app_previsoes_de_retorno', 'app_consulta_tem_atendimento', 'app_cpf_em_uso']],
+    );
+    expect(rows).toEqual([
+      { proname: 'app_consulta_tem_atendimento', resultado: 'boolean' },
+      { proname: 'app_cpf_em_uso', resultado: 'boolean' },
+      { proname: 'app_previsoes_de_retorno', resultado: 'TABLE(patient_id uuid, previsto_em date)' },
+      { proname: 'app_retorno_das_consultas', resultado: 'TABLE(appointment_id uuid, retorno boolean)' },
+    ].map((r) => ({ ...r, dono: 'nutri_owner', prosecdef: true, config: 'search_path=public, pg_temp', publico: false, app: true })));
+  });
+
+  it('app_retorno_das_consultas (RN-510, RN-416): só (appointment_id, retorno) das consultas de pacientes visíveis do tenant no período; recusa período > 13 meses; vazio para paciente, publico e worker; o contexto volta', async () => {
+    const t = await novoTenant();
+    const outro = await novoTenant();
+    const [A, B, C, D, E, BL, AN] = [await novoPaciente(t), await novoPaciente(t), await novoPaciente(t), await novoPaciente(t), await novoPaciente(t), await novoPaciente(t), await novoPaciente(t)];
+    await consulta(t, A, '2026-01-05', 'realizada'); // fora do período: só conta como antes
+    const a2 = await consulta(t, A, '2026-02-10'); // retorno: realizada antes
+    await consulta(t, A, '2026-03-02'); // fora do período
+    await atendimento(t, B, '2026-01-20');
+    const b1 = await consulta(t, B, '2026-02-12'); // retorno: atendimento em dia anterior
+    const c1 = await consulta(t, C, '2026-02-03', 'faltou');
+    const c2 = await consulta(t, C, '2026-02-20'); // primeira: a anterior faltou
+    const d1 = await consulta(t, D, '2026-02-14');
+    await atendimento(t, D, '2026-02-14', { consulta: d1 }); // atendimento no mesmo dia não faz retorno
+    const e1 = await consulta(t, E, '2026-02-05');
+    await arquivar(t, E); // arquivado continua visível
+    await consulta(t, BL, '2026-02-06');
+    await bloquear(t, BL);
+    await consulta(t, AN, '2026-02-07');
+    await anonimizar(t, AN);
+    const O = await novoPaciente(outro);
+    await consulta(outro, O, '2026-02-08');
+
+    const esperado = [
+      { appointment_id: c1, retorno: false },
+      { appointment_id: e1, retorno: false },
+      { appointment_id: a2, retorno: true },
+      { appointment_id: b1, retorno: true },
+      { appointment_id: d1, retorno: false },
+      { appointment_id: c2, retorno: false },
+    ];
+    for (const x of [RECEPCAO, NUTRI]) {
+      const r = await chamar(t, x, `select * from app_retorno_das_consultas('2026-02-01', '2026-02-28')`);
+      expect(r.rows, x.role).toEqual(esperado);
+      expect(r.ctx).toEqual({ role: x.role, patient: '' });
+    }
+    for (const x of [{ role: 'paciente', patient: A }, PUBLICO, WORKER]) {
+      const r = await chamar(t, x, `select * from app_retorno_das_consultas('2026-02-01', '2026-02-28')`);
+      expect(r.rows, x.role).toEqual([]);
+      expect(r.ctx).toEqual({ role: x.role, patient: x.patient ?? '' });
+    }
+    // 13 meses: o último dia antes de completar passa; o dia em que completa, e o fim antes do início, não
+    await expect(chamar(t, RECEPCAO, `select * from app_retorno_das_consultas('2026-01-01', '2027-01-31')`)).resolves.toBeDefined();
+    await expect(chamar(t, RECEPCAO, `select * from app_retorno_das_consultas('2026-01-01', '2027-02-01')`)).rejects.toSatisfy(negadoPorPeriodo);
+    await expect(chamar(t, RECEPCAO, `select * from app_retorno_das_consultas('2026-02-28', '2026-02-01')`)).rejects.toSatisfy(negadoPorPeriodo);
+  });
+
+  it('app_previsoes_de_retorno (RN-510, RN-430): só (patient_id, previsto_em) do último atendimento com previsão, de pacientes visíveis do tenant, no período; recusa período > 13 meses; vazio fora da equipe; o contexto volta', async () => {
+    const t = await novoTenant();
+    const outro = await novoTenant();
+    const [A, B, C, BL, AN] = [await novoPaciente(t), await novoPaciente(t), await novoPaciente(t), await novoPaciente(t), await novoPaciente(t)];
+    await atendimento(t, A, '2026-01-05', { previsto: '2026-04-10' });
+    await atendimento(t, A, '2026-01-25', { previsto: '2026-04-20' }); // a última vale
+    await atendimento(t, B, '2026-01-05', { previsto: '2026-04-05' });
+    await atendimento(t, B, '2026-01-25', { previsto: '2026-05-15' }); // a última, fora do período
+    await atendimento(t, C, '2026-01-05', { previsto: '2026-04-12' });
+    await atendimento(t, C, '2026-02-01'); // sem previsão: vale a do último atendimento com previsão
+    await atendimento(t, BL, '2026-01-05', { previsto: '2026-04-15' });
+    await bloquear(t, BL);
+    await atendimento(t, AN, '2026-01-05', { previsto: '2026-04-16' });
+    await anonimizar(t, AN);
+    const O = await novoPaciente(outro);
+    await atendimento(outro, O, '2026-01-05', { previsto: '2026-04-17' });
+
+    const ler = (x: Ctx, de = '2026-04-01', ate = '2026-04-30') =>
+      em(t, x, async (q) => ({
+        rows: await q(`select patient_id, previsto_em::text as previsto_em from app_previsoes_de_retorno($1, $2)`, [de, ate]),
+        colunas: Object.keys((await q(`select * from app_previsoes_de_retorno($1, $2)`, [de, ate]))[0] ?? {}),
+        ctx: (await q(contexto))[0],
+      }));
+    for (const x of [RECEPCAO, NUTRI]) {
+      const r = await ler(x);
+      expect(r.rows, x.role).toEqual([
+        { patient_id: C, previsto_em: '2026-04-12' },
+        { patient_id: A, previsto_em: '2026-04-20' },
+      ]);
+      expect(r.colunas).toEqual(['patient_id', 'previsto_em']);
+      expect(r.ctx).toEqual({ role: x.role, patient: '' });
+    }
+    for (const x of [{ role: 'paciente', patient: A }, PUBLICO, WORKER]) {
+      const r = await ler(x);
+      expect(r.rows, x.role).toEqual([]);
+      expect(r.ctx).toEqual({ role: x.role, patient: x.patient ?? '' });
+    }
+    await expect(ler(RECEPCAO, '2026-04-01', '2027-05-01')).rejects.toSatisfy(negadoPorPeriodo);
+  });
+
+  it('app_consulta_tem_atendimento (RE-D62): true/false só para consulta do tenant com paciente visível; nulo para outro tenant, paciente escondido e outro papel; o contexto volta', async () => {
+    const t = await novoTenant();
+    const outro = await novoTenant();
+    const [P, BL] = [await novoPaciente(t), await novoPaciente(t)];
+    const com = await consulta(t, P, '2026-02-10');
+    await atendimento(t, P, '2026-02-10', { consulta: com });
+    const sem = await consulta(t, P, '2026-02-11');
+    const doBloqueado = await consulta(t, BL, '2026-02-12');
+    await atendimento(t, BL, '2026-02-12', { consulta: doBloqueado });
+    await bloquear(t, BL);
+    const O = await novoPaciente(outro);
+    const deOutro = await consulta(outro, O, '2026-02-13');
+    await atendimento(outro, O, '2026-02-13', { consulta: deOutro });
+
+    const ler = async (x: Ctx, id: string | null) => {
+      const r = await chamar(t, x, 'select app_consulta_tem_atendimento($1) as tem', [id]);
+      expect(r.ctx).toEqual({ role: x.role, patient: x.patient ?? '' });
+      return r.rows[0].tem;
+    };
+    for (const x of [RECEPCAO, NUTRI]) {
+      expect(await ler(x, com), x.role).toBe(true);
+      expect(await ler(x, sem), x.role).toBe(false);
+      expect(await ler(x, doBloqueado), x.role).toBeNull();
+      expect(await ler(x, deOutro), x.role).toBeNull();
+      expect(await ler(x, crypto.randomUUID()), x.role).toBeNull();
+      expect(await ler(x, null), x.role).toBeNull();
+    }
+    for (const x of [{ role: 'paciente', patient: P }, PUBLICO, WORKER]) expect(await ler(x, com), x.role).toBeNull();
+  });
+
+  it('app_cpf_em_uso (RE-D71): só sim/não — o CPF em outro cadastro do tenant, de qualquer paciente (bloqueado também), sem o próprio; nada de outro tenant; nulo fora da equipe; o contexto volta', async () => {
+    const t = await novoTenant();
+    const outro = await novoTenant();
+    const [X, Y, NOVO] = [await novoPaciente(t), await novoPaciente(t), await novoPaciente(t)];
+    const Z = await novoPaciente(outro);
+    const cadastro = (tt: string, p: string, cpf: string) => em(tt, NUTRI, (q) => q(`insert into patient_cadastro (tenant_id, patient_id, cpf) values ($1, $2, $3)`, [tt, p, cpf]));
+    await cadastro(t, X, '52998224725');
+    await cadastro(t, Y, '11144477735');
+    await bloquear(t, Y);
+    await cadastro(outro, Z, '39053344705');
+
+    const ler = async (x: Ctx, cpf: string | null, paciente: string | null) => {
+      const r = await chamar(t, x, 'select app_cpf_em_uso($1, $2) as em_uso', [cpf, paciente]);
+      expect(Object.keys(r.rows[0])).toEqual(['em_uso']);
+      expect(r.ctx).toEqual({ role: x.role, patient: x.patient ?? '' });
+      return r.rows[0].em_uso;
+    };
+    for (const x of [RECEPCAO, NUTRI]) {
+      expect(await ler(x, '52998224725', X), x.role).toBe(false); // o próprio cadastro não é repetição
+      expect(await ler(x, '52998224725', NOVO), x.role).toBe(true);
+      expect(await ler(x, '52998224725', null), x.role).toBe(true);
+      expect(await ler(x, '11144477735', NOVO), x.role).toBe(true); // do bloqueado: a recepção não o vê pela RLS, a função sim
+      expect(await ler(x, '39053344705', NOVO), x.role).toBe(false); // de outro consultório
+      expect(await ler(x, '00000000191', NOVO), x.role).toBe(false);
+      expect(await ler(x, null, NOVO), x.role).toBeNull();
+    }
+    for (const x of [{ role: 'paciente', patient: X }, PUBLICO, WORKER]) expect(await ler(x, '52998224725', NOVO), x.role).toBeNull();
+    // controle: pela RLS da recepção, o cadastro do bloqueado não aparece (por isso a função)
+    expect(await em(t, RECEPCAO, (q) => q(`select 1 from patient_cadastro where cpf = '11144477735'`))).toEqual([]);
+  });
+});

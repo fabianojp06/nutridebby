@@ -388,3 +388,420 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+--> statement-breakpoint
+-- 3c. (T5b) Plano 23 (spec §4.3): locais_atendimento só para ler — filtro e seletor de local na agenda. Sem condição: o local
+-- não é do paciente; o link da sala (link_sala) não sai do módulo (projeção da T10, teste das chaves). Continua staff_only.
+SELECT app_allow_recepcao('locais_atendimento', 'select');
+--> statement-breakpoint
+-- 4. Gatilhos de colunas da recepção (RN-508, RN-509, RN-512; RE-D41: lista branca, não lista negra). Só agem na sessão
+-- `recepcao`; os outros papéis passam intactos. Linha de outro consultório → RETURN NEW sem ler nada: a RLS recusa
+-- (tenant_isolation, WITH CHECK), com a mensagem de RLS que o teste de isolamento espera (violaRlsDe). Lista branca por
+-- `to_jsonb`: coluna nova de outro plano nasce fixa para a recepção (falha fechada) até alguém decidir liberá-la.
+--
+-- RN-508 / RE-D37 / RE-D41: no INSERT só valem nome, nascimento, sexo, e-mail e telefone (mais as colunas de sistema), com
+-- status 'ativo', origem 'nutri' e todo o resto nulo — user_id (ligaria uma conta de paciente existente ao cadastro novo),
+-- bloqueio, anonimização, IA, peso oculto, lembretes e WhatsApp. No UPDATE só mudam nome, nascimento, sexo, telefone e
+-- updated_at: o e-mail é fixo (chave do portal, dos links de documento e da autorização de IA). O UPDATE que reenvia uma
+-- coluna com o mesmo valor (WhatsApp lido do banco) passa: compara-se o valor, não a presença no SET.
+CREATE OR REPLACE FUNCTION app_patients_da_recepcao() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp AS $$
+BEGIN
+  IF coalesce(public.app_current_role(), '') <> 'recepcao' OR NEW.tenant_id IS DISTINCT FROM public.app_current_tenant() THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    IF jsonb_strip_nulls(to_jsonb(NEW) - ARRAY['id', 'tenant_id', 'nome', 'data_nascimento', 'sexo', 'email', 'telefone_e164', 'created_at', 'updated_at'])
+       IS DISTINCT FROM '{"status": "ativo", "origem": "nutri"}'::jsonb THEN
+      RAISE EXCEPTION 'a recepção cadastra só nome, nascimento, sexo, e-mail e telefone do paciente' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF (to_jsonb(NEW) - ARRAY['nome', 'data_nascimento', 'sexo', 'telefone_e164', 'updated_at'])
+     IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['nome', 'data_nascimento', 'sexo', 'telefone_e164', 'updated_at']) THEN
+    RAISE EXCEPTION 'a recepção muda só o nome, o nascimento, o sexo e o telefone do paciente' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER patients_da_recepcao BEFORE INSERT OR UPDATE ON patients FOR EACH ROW EXECUTE FUNCTION app_patients_da_recepcao();
+--> statement-breakpoint
+-- RN-508 / RE-D38: a observação e a identidade de gênero ficam fora da recepção — nulas no INSERT, fixas no UPDATE (nem
+-- apagar). id, tenant_id e patient_id já são fixos para todos (patient_cadastro_colunas_fixas, que dispara antes).
+CREATE OR REPLACE FUNCTION app_patient_cadastro_da_recepcao() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp AS $$
+BEGIN
+  IF coalesce(public.app_current_role(), '') <> 'recepcao' OR NEW.tenant_id IS DISTINCT FROM public.app_current_tenant() THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.observacao IS NOT NULL OR NEW.identidade_genero IS NOT NULL THEN
+      RAISE EXCEPTION 'a recepção não grava a observação nem a identidade de gênero' USING ERRCODE = '42501';
+    END IF;
+  ELSIF (NEW.observacao, NEW.identidade_genero) IS DISTINCT FROM (OLD.observacao, OLD.identidade_genero) THEN
+    RAISE EXCEPTION 'a recepção não grava a observação nem a identidade de gênero' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER patient_cadastro_da_recepcao BEFORE INSERT OR UPDATE ON patient_cadastro FOR EACH ROW EXECUTE FUNCTION app_patient_cadastro_da_recepcao();
+--> statement-breakpoint
+-- RN-509 / RE-D41 / RE-D59 / RE-D62. Dispara antes de appointments_link_da_sala e appointments_regras_pedido (ordem alfabética).
+-- INSERT: só a consulta agendada pelo consultório — status 'agendada', origem 'nutri' e o resto nulo (presença, confirmação,
+-- cancelamento, motivo, pedido de remarcação, remarcada_de); paciente, horário, modalidade, link e local livres.
+-- UPDATE: mudam só horário, modalidade, link, local, situação, confirmação, cancelamento, pedido de remarcação, presença e
+-- updated_at; paciente, origem, remarcada_de, motivo do cancelamento e created_at são fixos (o motivo nunca é dela, RE-D44).
+-- Situação, só estas passagens: agendada ⇄ confirmada (confirmar; mover volta a agendada); agendada|confirmada → cancelada
+-- pelo consultório ('nutri'); agendada|confirmada → faltou depois do início e sem atendimento ligado; solicitada → agendada
+-- (aceite) ou → cancelada por 'pedido_recusado' (recusa) — os pedidos do Plano 23, cujo gatilho também confere o papel. Nunca
+-- → realizada nem saindo de realizada, cancelada ou faltou. O cancelamento (quem e quando) só muda ao cancelar; a presença,
+-- só ao registrar a falta. "Tem atendimento" por app_consulta_tem_atendimento (bloco 5): consultations é negada à recepção, e
+-- a busca pela RLS dela voltaria vazia (vazio calado não é recusa, RE-D62); nulo (consulta não achada) também recusa.
+CREATE OR REPLACE FUNCTION app_appointments_da_recepcao() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp AS $$
+DECLARE
+  livres text[] := ARRAY['inicio', 'fim', 'modalidade', 'link_online', 'local_id', 'status', 'confirmada_via', 'cancelado_por',
+                         'cancelada_em', 'pedido_remarcacao_em', 'presenca_em', 'updated_at'];
+BEGIN
+  IF coalesce(public.app_current_role(), '') <> 'recepcao' OR NEW.tenant_id IS DISTINCT FROM public.app_current_tenant() THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    IF jsonb_strip_nulls(to_jsonb(NEW) - ARRAY['id', 'tenant_id', 'patient_id', 'inicio', 'fim', 'modalidade', 'link_online', 'local_id', 'created_at', 'updated_at'])
+       IS DISTINCT FROM '{"status": "agendada", "origem": "nutri"}'::jsonb THEN
+      RAISE EXCEPTION 'a recepção só marca consulta agendada pelo consultório' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF (to_jsonb(NEW) - livres) IS DISTINCT FROM (to_jsonb(OLD) - livres) THEN
+    RAISE EXCEPTION 'a recepção não muda o paciente, a origem, a remarcação nem o motivo do cancelamento da consulta' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    IF OLD.status IN ('agendada', 'confirmada') AND NEW.status IN ('agendada', 'confirmada') THEN
+      NULL;
+    ELSIF OLD.status IN ('agendada', 'confirmada') AND NEW.status = 'cancelada' AND NEW.cancelado_por IS NOT DISTINCT FROM 'nutri' THEN
+      NULL;
+    ELSIF OLD.status = 'solicitada' AND NEW.status = 'agendada' THEN
+      NULL;
+    ELSIF OLD.status = 'solicitada' AND NEW.status = 'cancelada' AND NEW.cancelado_por IS NOT DISTINCT FROM 'pedido_recusado' THEN
+      NULL;
+    ELSIF OLD.status IN ('agendada', 'confirmada') AND NEW.status = 'faltou' THEN
+      IF OLD.inicio > clock_timestamp() OR NEW.inicio IS DISTINCT FROM OLD.inicio THEN
+        RAISE EXCEPTION 'a falta só depois do início da consulta' USING ERRCODE = '42501';
+      END IF;
+      IF public.app_consulta_tem_atendimento(OLD.id) IS NOT FALSE THEN
+        RAISE EXCEPTION 'consulta com atendimento registrado não vira falta' USING ERRCODE = '42501';
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'a recepção não faz essa mudança na situação da consulta' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  IF (NEW.cancelado_por, NEW.cancelada_em) IS DISTINCT FROM (OLD.cancelado_por, OLD.cancelada_em)
+     AND NOT (NEW.status = 'cancelada' AND OLD.status IS DISTINCT FROM 'cancelada') THEN
+    RAISE EXCEPTION 'o cancelamento só muda ao cancelar a consulta' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.presenca_em IS DISTINCT FROM OLD.presenca_em AND NOT (NEW.status = 'faltou' AND OLD.status IS DISTINCT FROM 'faltou') THEN
+    RAISE EXCEPTION 'a presença só muda ao registrar a falta' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER appointments_da_recepcao BEFORE INSERT OR UPDATE ON appointments FOR EACH ROW EXECUTE FUNCTION app_appointments_da_recepcao();
+--> statement-breakpoint
+-- RN-512: tenants não tem RLS; a recepção lê (fuso, nome, regras da agenda) e não muda nada — qualquer UPDATE na sessão dela,
+-- mesmo sem mudança, é 42501 (os gatilhos de tenants do Plano 23 e da IA Nutri deixariam passar o papel novo). INSERT e
+-- DELETE já são recusados a toda sessão de consultório (tenants_por_sessao). Os outros papéis passam intactos.
+CREATE OR REPLACE FUNCTION app_tenants_so_nutri() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp AS $$
+BEGIN
+  IF public.app_current_role() IS NOT DISTINCT FROM 'recepcao' THEN
+    RAISE EXCEPTION 'a recepção não muda o consultório' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER tenants_so_nutri BEFORE UPDATE ON tenants FOR EACH ROW EXECUTE FUNCTION app_tenants_so_nutri();
+--> statement-breakpoint
+-- RE-D59 (spec §4.4): app_appointments_regras_pedido com o corpo da 0131 (o último da main até aqui; no rebase, o da main do
+-- momento — teste em recepcao-banco.test.ts) e a recepção nos dois pontos do papel: o aceite (solicitada → agendada) e a recusa
+-- ('pedido_recusado'), como a nutricionista. Os outros ramos (paciente, publico, worker, 'sistema') não mudam; o INSERT de
+-- pedido pela recepção é recusado antes, por appointments_da_recepcao (só 'agendada'). O comentário das regras está na 0131.
+CREATE OR REPLACE FUNCTION app_appointments_regras_pedido() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp AS $$
+DECLARE
+  r text := coalesce(public.app_current_role(), '');
+  marcador text := coalesce(current_setting('app.agenda_remarcavel', true), '');
+  chave boolean;
+  antecedencia integer;
+  titular text;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF r = '' THEN
+      RETURN NEW;
+    END IF;
+    IF NEW.cancelado_por IN ('pedido_desistido', 'pedido_recusado', 'pedido_vencido') THEN
+      RAISE EXCEPTION 'os motivos de pedido só valem saindo de um pedido' USING ERRCODE = '42501';
+    END IF;
+    IF r IN ('paciente', 'publico') THEN
+      IF NEW.remarcada_de IS NOT NULL AND NEW.remarcada_de::text IS NOT DISTINCT FROM marcador AND EXISTS (
+           SELECT 1 FROM public.appointments o
+            WHERE o.id = NEW.remarcada_de AND o.tenant_id = NEW.tenant_id AND o.patient_id = NEW.patient_id) THEN
+        PERFORM set_config('app.agenda_remarcavel', '', true);
+        NEW.status := 'agendada';
+        RETURN NEW;
+      END IF;
+      SELECT t.agenda_confirmar_pedidos INTO chave FROM public.tenants t WHERE t.id = NEW.tenant_id;
+      NEW.status := CASE WHEN coalesce(chave, false) THEN 'solicitada' ELSE 'agendada' END;
+      RETURN NEW;
+    END IF;
+    IF r IN ('nutri', 'worker') AND NEW.status IS NOT DISTINCT FROM 'solicitada' THEN
+      RAISE EXCEPTION 'só nasce pedido na sessão do paciente ou na página pública' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.status IS NOT DISTINCT FROM 'solicitada' AND OLD.status IS DISTINCT FROM 'solicitada' THEN
+    RAISE EXCEPTION 'nenhuma alteração leva a consulta a pedido' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.cancelado_por IN ('pedido_desistido', 'pedido_recusado', 'pedido_vencido')
+     AND NEW.cancelado_por IS DISTINCT FROM OLD.cancelado_por AND OLD.status IS DISTINCT FROM 'solicitada' THEN
+    RAISE EXCEPTION 'os motivos de pedido só valem saindo de um pedido' USING ERRCODE = '42501';
+  END IF;
+  IF OLD.status IS NOT DISTINCT FROM 'solicitada' THEN
+    IF (NEW.inicio, NEW.fim, NEW.local_id, NEW.modalidade, NEW.patient_id)
+       IS DISTINCT FROM (OLD.inicio, OLD.fim, OLD.local_id, OLD.modalidade, OLD.patient_id) THEN
+      RAISE EXCEPTION 'o horário, o local, a modalidade e o paciente do pedido não mudam' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.status NOT IN ('solicitada', 'agendada', 'cancelada') THEN
+      RAISE EXCEPTION 'o pedido só é aceito ou cancelado' USING ERRCODE = '42501';
+    END IF;
+    IF r <> '' AND NEW.status IS NOT DISTINCT FROM 'agendada' AND r NOT IN ('nutri', 'recepcao') THEN
+      RAISE EXCEPTION 'só a nutricionista aceita o pedido' USING ERRCODE = '42501';
+    END IF;
+    IF r <> '' AND NEW.status IS NOT DISTINCT FROM 'cancelada' THEN
+      IF (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('paciente'::text, 'pedido_desistido'::text)
+         OR (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('nutri'::text, 'pedido_recusado'::text)
+         OR (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('recepcao'::text, 'pedido_recusado'::text) THEN
+        NULL;
+      ELSIF (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('worker'::text, 'pedido_vencido'::text) THEN
+        SELECT t.antecedencia_min_h INTO antecedencia FROM public.tenants t WHERE t.id = OLD.tenant_id;
+        IF antecedencia IS NULL OR OLD.inicio - make_interval(hours => antecedencia) > now() THEN
+          RAISE EXCEPTION 'o pedido ainda está no prazo de resposta' USING ERRCODE = '42501';
+        END IF;
+      ELSIF (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('nutri'::text, 'sistema'::text) THEN
+        SELECT pt.status INTO titular FROM public.patients pt WHERE pt.tenant_id = OLD.tenant_id AND pt.id = OLD.patient_id;
+        IF titular IS DISTINCT FROM 'bloqueado' THEN
+          RAISE EXCEPTION 'quem cancela o pedido e o motivo não combinam (sistema só com o titular bloqueado)' USING ERRCODE = '42501';
+        END IF;
+      ELSE
+        RAISE EXCEPTION 'quem cancela o pedido e o motivo não combinam' USING ERRCODE = '42501';
+      END IF;
+    END IF;
+  END IF;
+  -- RN-422 (rodada 1 da T1b): a sessão do paciente tem UPDATE de todas as colunas da própria consulta (0070); a chave dos
+  -- pedidos só vale se ele não reabrir nem mover consulta. Ele só confirma, pede remarcação e cancela (cancelamento.ts).
+  IF r = 'paciente' THEN
+    -- patient_id fica com a RLS (patient_isolation, WITH CHECK): o paciente só grava a própria consulta
+    IF (NEW.inicio, NEW.fim, NEW.local_id, NEW.modalidade, NEW.origem, NEW.remarcada_de, NEW.link_online, NEW.presenca_em,
+        NEW.created_at)
+       IS DISTINCT FROM (OLD.inicio, OLD.fim, OLD.local_id, OLD.modalidade, OLD.origem, OLD.remarcada_de, OLD.link_online,
+        OLD.presenca_em, OLD.created_at) THEN
+      RAISE EXCEPTION 'o paciente não muda o horário, o local, a modalidade, o link, a origem nem a presença da consulta' USING ERRCODE = '42501';
+    END IF;
+    IF OLD.status IN ('cancelada', 'realizada', 'faltou') THEN
+      IF (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at') THEN
+        RAISE EXCEPTION 'consulta encerrada não muda na sessão do paciente' USING ERRCODE = '42501';
+      END IF;
+    ELSIF NEW.status IS DISTINCT FROM OLD.status AND NOT (
+         (OLD.status = 'agendada' AND NEW.status = 'confirmada')
+      OR (OLD.status IN ('agendada', 'confirmada') AND NEW.status = 'cancelada' AND NEW.cancelado_por IS NOT DISTINCT FROM 'paciente')
+      OR (OLD.status = 'solicitada' AND NEW.status = 'cancelada' AND NEW.cancelado_por IS NOT DISTINCT FROM 'pedido_desistido')) THEN
+      RAISE EXCEPTION 'o paciente só confirma ou cancela a consulta' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.confirmada_via IS DISTINCT FROM OLD.confirmada_via AND NOT (OLD.status = 'agendada' AND NEW.status = 'confirmada') THEN
+      RAISE EXCEPTION 'a via da confirmação só muda na confirmação' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.motivo_cancelamento IS DISTINCT FROM OLD.motivo_cancelamento AND NEW.status IS NOT DISTINCT FROM OLD.status THEN
+      RAISE EXCEPTION 'o motivo só muda no cancelamento' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  -- o marcador só no cancelamento de consulta que ainda não começou (o prazo de cancelamento fica no módulo)
+  IF r = 'paciente' AND OLD.status IN ('agendada', 'confirmada') AND NEW.status IS NOT DISTINCT FROM 'cancelada'
+     AND NEW.cancelado_por IS NOT DISTINCT FROM 'paciente' AND OLD.inicio > now() THEN
+    PERFORM set_config('app.agenda_remarcavel', OLD.id::text, true);
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+-- 5. Peças SECURITY DEFINER da recepção (RN-510, RE-D27, RE-D62, RE-D71; molde app_conteudo_por_etiqueta, 0083, e as do
+-- Plano 23, 0131). O dono é o migrator NOBYPASSRLS e a RLS é FORCE: sem a troca, a função rodaria com o app.role de quem chamou
+-- (consultations negada à recepção; o paciente escondido some). Cada uma aceita só `nutri` e `recepcao` com tenant (outro papel
+-- → vazio ou nulo, que quem chama trata como recusa); guarda app.role e app.patient_id, troca para `worker` sem paciente
+-- (set_config local à transação), filtra à mão pelo tenant da sessão e pelo paciente visível (nem bloqueado nem anonimizado,
+-- a mesma condição de recepcao_cond_paciente_visivel) e devolve o contexto do chamador antes de retornar. Devolvem só ids, o
+-- selo, a previsão ou o booleano — nunca a primeira data da vida do paciente nem o cadastro de outro. search_path fixo, nomes
+-- com public., EXECUTE só para o app.
+--
+-- RN-510 / RN-416 (Plano 23): o selo "Primeira consulta"/"Retorno" de cada consulta de paciente visível com início no período
+-- (no fuso do consultório, no máximo 13 meses): retorno = o paciente tem consulta `realizada` antes deste início ou atendimento
+-- (consultations.data) em dia anterior ao desta; numa consulta agregada por paciente (min), nunca por item.
+CREATE OR REPLACE FUNCTION app_retorno_das_consultas(p_de date, p_ate date)
+RETURNS TABLE (appointment_id uuid, retorno boolean)
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+  v_role text := current_setting('app.role', true);
+  v_patient text := coalesce(current_setting('app.patient_id', true), '');
+  v_tenant uuid := public.app_current_tenant();
+BEGIN
+  IF v_role IS NULL OR v_role NOT IN ('nutri', 'recepcao') OR v_tenant IS NULL OR p_de IS NULL OR p_ate IS NULL THEN
+    RETURN;
+  END IF;
+  IF p_ate < p_de OR p_ate >= (p_de + interval '13 months')::date THEN
+    RAISE EXCEPTION 'período inválido: no máximo 13 meses' USING ERRCODE = '22023';
+  END IF;
+  PERFORM set_config('app.role', 'worker', true);
+  PERFORM set_config('app.patient_id', '', true);
+  RETURN QUERY
+    WITH base AS (
+      SELECT a.id, a.patient_id, a.inicio, (a.inicio AT TIME ZONE t.fuso)::date AS dia
+        FROM public.appointments a
+        JOIN public.tenants t ON t.id = a.tenant_id
+        JOIN public.patients p ON p.tenant_id = a.tenant_id AND p.id = a.patient_id
+       WHERE a.tenant_id = v_tenant AND p.status <> 'bloqueado' AND p.anonimizado_em IS NULL
+         AND (a.inicio AT TIME ZONE t.fuso)::date BETWEEN p_de AND p_ate
+    ), realizadas AS (
+      SELECT r.patient_id, min(r.inicio) AS primeira
+        FROM public.appointments r
+       WHERE r.tenant_id = v_tenant AND r.status = 'realizada' AND r.patient_id IN (SELECT b.patient_id FROM base b)
+       GROUP BY r.patient_id
+    ), atendimentos AS (
+      SELECT c.patient_id, min(c.data) AS primeira
+        FROM public.consultations c
+       WHERE c.tenant_id = v_tenant AND c.patient_id IN (SELECT b.patient_id FROM base b)
+       GROUP BY c.patient_id
+    )
+    SELECT b.id, coalesce(re.primeira < b.inicio, false) OR coalesce(aa.primeira < b.dia, false)
+      FROM base b
+      LEFT JOIN realizadas re ON re.patient_id = b.patient_id
+      LEFT JOIN atendimentos aa ON aa.patient_id = b.patient_id
+     ORDER BY b.inicio, b.id;
+  PERFORM set_config('app.role', v_role, true);
+  PERFORM set_config('app.patient_id', v_patient, true);
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_retorno_das_consultas(date, date) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_retorno_das_consultas(date, date) TO nutri_app_role;
+--> statement-breakpoint
+-- RN-510 / RN-430 (Plano 23): a previsão de retorno de cada paciente visível — a do ÚLTIMO atendimento com previsão —, quando
+-- cai no período (no máximo 13 meses). Só (patient_id, previsto_em). O resto do marcador da RN-430 (paciente ativo, sem
+-- consulta futura) quem chama confere nas tabelas que a recepção lê (patients, appointments).
+CREATE OR REPLACE FUNCTION app_previsoes_de_retorno(p_de date, p_ate date)
+RETURNS TABLE (patient_id uuid, previsto_em date)
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+  v_role text := current_setting('app.role', true);
+  v_patient text := coalesce(current_setting('app.patient_id', true), '');
+  v_tenant uuid := public.app_current_tenant();
+BEGIN
+  IF v_role IS NULL OR v_role NOT IN ('nutri', 'recepcao') OR v_tenant IS NULL OR p_de IS NULL OR p_ate IS NULL THEN
+    RETURN;
+  END IF;
+  IF p_ate < p_de OR p_ate >= (p_de + interval '13 months')::date THEN
+    RAISE EXCEPTION 'período inválido: no máximo 13 meses' USING ERRCODE = '22023';
+  END IF;
+  PERFORM set_config('app.role', 'worker', true);
+  PERFORM set_config('app.patient_id', '', true);
+  RETURN QUERY
+    SELECT u.patient_id, u.retorno_previsto_em
+      FROM (
+        SELECT DISTINCT ON (c.patient_id) c.patient_id, c.retorno_previsto_em
+          FROM public.consultations c
+          JOIN public.patients p ON p.tenant_id = c.tenant_id AND p.id = c.patient_id
+         WHERE c.tenant_id = v_tenant AND c.retorno_previsto_em IS NOT NULL
+           AND p.status <> 'bloqueado' AND p.anonimizado_em IS NULL
+         ORDER BY c.patient_id, c.data DESC, c.created_at DESC, c.id DESC
+      ) u
+     WHERE u.retorno_previsto_em BETWEEN p_de AND p_ate
+     ORDER BY u.retorno_previsto_em, u.patient_id;
+  PERFORM set_config('app.role', v_role, true);
+  PERFORM set_config('app.patient_id', v_patient, true);
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_previsoes_de_retorno(date, date) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_previsoes_de_retorno(date, date) TO nutri_app_role;
+--> statement-breakpoint
+-- RE-D62: a consulta tem atendimento ligado? Só o booleano, só de consulta do tenant com paciente visível; nulo quando a
+-- consulta não é achada (outro tenant, paciente escondido, id inexistente) ou o papel não é da equipe. Chamada pelo gatilho
+-- appointments_da_recepcao (que recusa o nulo) e por registrarPresenca na sessão da recepção (T10).
+CREATE OR REPLACE FUNCTION app_consulta_tem_atendimento(p_appointment uuid) RETURNS boolean
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_role text := current_setting('app.role', true);
+  v_patient text := coalesce(current_setting('app.patient_id', true), '');
+  v_tenant uuid := public.app_current_tenant();
+  v_tem boolean;
+BEGIN
+  IF v_role IS NULL OR v_role NOT IN ('nutri', 'recepcao') OR v_tenant IS NULL OR p_appointment IS NULL THEN
+    RETURN NULL;
+  END IF;
+  PERFORM set_config('app.role', 'worker', true);
+  PERFORM set_config('app.patient_id', '', true);
+  SELECT EXISTS (SELECT 1 FROM public.consultations c WHERE c.tenant_id = a.tenant_id AND c.appointment_id = a.id)
+    INTO v_tem
+    FROM public.appointments a
+    JOIN public.patients p ON p.tenant_id = a.tenant_id AND p.id = a.patient_id
+   WHERE a.tenant_id = v_tenant AND a.id = p_appointment AND p.status <> 'bloqueado' AND p.anonimizado_em IS NULL;
+  PERFORM set_config('app.role', v_role, true);
+  PERFORM set_config('app.patient_id', v_patient, true);
+  RETURN v_tem;
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_consulta_tem_atendimento(uuid) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_consulta_tem_atendimento(uuid) TO nutri_app_role;
+--> statement-breakpoint
+-- RE-D71 (portão do PR 2; regras 2 e 3 do CLAUDE.md): o CPF já está em OUTRO cadastro do consultório? Só sim/não, de qualquer
+-- paciente — bloqueado também, que a recepção não vê pela RLS (recepcao_cond_paciente_visivel) — e nunca o de p_patient. Sem
+-- ela, a conferência da recepção não acharia o cadastro do bloqueado e o INSERT cairia no índice patient_cadastro_cpf_unico
+-- (o 23505 leva o CPF ao log do Postgres). Chamada por conferirCpf (src/modules/pacientes/cadastro.ts) na sessão da recepção,
+-- sob a mesma trava consultiva por consultório e CPF. Nulo fora da equipe ou sem CPF (quem chama trata como recusa).
+CREATE OR REPLACE FUNCTION app_cpf_em_uso(p_cpf text, p_patient uuid) RETURNS boolean
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_role text := current_setting('app.role', true);
+  v_patient text := coalesce(current_setting('app.patient_id', true), '');
+  v_tenant uuid := public.app_current_tenant();
+  v_em_uso boolean;
+BEGIN
+  IF v_role IS NULL OR v_role NOT IN ('nutri', 'recepcao') OR v_tenant IS NULL OR p_cpf IS NULL THEN
+    RETURN NULL;
+  END IF;
+  PERFORM set_config('app.role', 'worker', true);
+  PERFORM set_config('app.patient_id', '', true);
+  v_em_uso := EXISTS (
+    SELECT 1 FROM public.patient_cadastro c
+     WHERE c.tenant_id = v_tenant AND c.cpf = p_cpf AND c.patient_id IS DISTINCT FROM p_patient);
+  PERFORM set_config('app.role', v_role, true);
+  PERFORM set_config('app.patient_id', v_patient, true);
+  RETURN v_em_uso;
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_cpf_em_uso(text, uuid) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_cpf_em_uso(text, uuid) TO nutri_app_role;
