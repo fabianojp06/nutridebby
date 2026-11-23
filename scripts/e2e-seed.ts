@@ -634,20 +634,29 @@ await withTenant(
 // roda o seed.
 export const E2E_RECEPCAO = { email: 'recepcao-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção E2E' };
 export const E2E_RECEPCAO_FIN = { email: 'recepcao-fin-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Financeiro E2E' };
+// `E2E_RECEPCAO_CONTRATO` (RN-501): a recepção de um consultório só dela, com o DPA numa versão antiga a cada execução —
+// toda tela a leva a "Contrato do consultório pendente" (a nutricionista desse consultório não existe: ninguém aceita).
+export const E2E_RECEPCAO_CONTRATO = { email: 'recepcao-contrato-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Contrato E2E' };
 const TERMO_SIGILO_EQUIPE = 'sigilo-equipe-1.0';
-for (const [cred, financeiro] of [
-  [E2E_RECEPCAO, false],
-  [E2E_RECEPCAO_FIN, true],
+const [contratoPendente] = await db
+  .insert(tenants)
+  .values({ slug: 'e2e-contrato-pendente', nomeExibicao: 'Consultório E2E Contrato', dpaVersao: '0.1-provisorio', dpaAceitoEm: new Date() })
+  .onConflictDoUpdate({ target: tenants.slug, set: { status: 'ativa', dpaVersao: '0.1-provisorio' } })
+  .returning({ id: tenants.id });
+for (const [cred, financeiro, tenantId, ator] of [
+  [E2E_RECEPCAO, false, consultorio.id, nutriId],
+  [E2E_RECEPCAO_FIN, true, consultorio.id, nutriId],
+  [E2E_RECEPCAO_CONTRATO, false, contratoPendente.id, randomUUID()],
 ] as const) {
   const senha = await hashPassword(cred.password);
   const [ja] = await db.select({ id: user.id }).from(user).where(eq(user.email, cred.email));
   const id = ja?.id ?? randomUUID();
   if (ja) {
-    await db.update(user).set({ name: cred.nome, appRole: 'recepcao', tenantId: consultorio.id, twoFactorEnabled: true, tema: 'sistema' }).where(eq(user.id, id));
+    await db.update(user).set({ name: cred.nome, appRole: 'recepcao', tenantId, twoFactorEnabled: true, tema: 'sistema' }).where(eq(user.id, id));
     await db.update(account).set({ password: senha }).where(eq(account.userId, id));
     await db.delete(twoFactor).where(eq(twoFactor.userId, id));
   } else {
-    await db.insert(user).values({ id, name: cred.nome, email: cred.email, emailVerified: true, appRole: 'recepcao', tenantId: consultorio.id, twoFactorEnabled: true });
+    await db.insert(user).values({ id, name: cred.nome, email: cred.email, emailVerified: true, appRole: 'recepcao', tenantId, twoFactorEnabled: true });
     await db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: senha });
   }
   await db.insert(twoFactor).values({
@@ -658,15 +667,15 @@ for (const [cred, financeiro] of [
     backupCodes: await symmetricEncrypt({ key: chave, data: JSON.stringify([]) }),
   });
   await withTenant(
-    { tenantId: consultorio.id, role: 'nutri', actorUserId: nutriId },
+    { tenantId, role: 'nutri', actorUserId: ator },
     (tx) =>
       tx
         .insert(equipeMembros)
-        .values({ tenantId: consultorio.id, userId: id, papel: 'recepcao', financeiro, convidadaPor: nutriId })
+        .values({ tenantId, userId: id, papel: 'recepcao', financeiro, convidadaPor: ator })
         .onConflictDoUpdate({ target: equipeMembros.userId, set: { financeiro, desativadaEm: null, desativadaPor: null, updatedAt: new Date() } }),
     db,
   );
-  await db.insert(consents).values({ userId: id, tenantId: consultorio.id, termoVersao: TERMO_SIGILO_EQUIPE, ip: null }).onConflictDoNothing();
+  await db.insert(consents).values({ userId: id, tenantId, termoVersao: TERMO_SIGILO_EQUIPE, ip: null }).onConflictDoNothing();
   await db.update(user).set({ guia: cred === E2E_RECEPCAO_FIN ? {} : TUDO_VISTO }).where(eq(user.id, id));
 }
 

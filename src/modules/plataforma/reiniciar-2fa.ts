@@ -25,7 +25,14 @@ export const MSG_2FA = {
  * login; a nutricionista e o paciente ativam de novo quando quiserem.
  */
 export function mensagemDoReinicio(papel: AppRole): string {
-  return papel === 'admin' || papel === 'recepcao' ? MSG_2FA.okAdmin : MSG_2FA.ok;
+  return doisFatoresObrigatorio(papel) ? MSG_2FA.okAdmin : MSG_2FA.ok;
+}
+
+const doisFatoresObrigatorio = (papel: AppRole) => papel === 'admin' || papel === 'recepcao';
+
+/** A segunda linha do comando no servidor (`pnpm admin:reiniciar-2fa`), pela mesma regra de `mensagemDoReinicio`. */
+export function mensagemDoComando(papel: AppRole): string {
+  return doisFatoresObrigatorio(papel) ? 'No próximo login, a configuração será obrigatória.' : 'A pessoa pode ativar de novo em Conta > Segurança.';
 }
 
 export type Codigo2fa = 'email' | 'nao_encontrada' | 'propria' | 'sem_2fa' | 'paciente' | 'codigo' | 'tentativas';

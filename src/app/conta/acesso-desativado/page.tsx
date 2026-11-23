@@ -26,7 +26,7 @@ export default async function AcessoDesativadoPage() {
       <main className="mx-auto max-w-lg space-y-4 p-6">
         <h1 className="font-titulo text-2xl font-semibold">{M.titulo}</h1>
         <p>{M.texto}</p>
-        <BotaoSair />
+        <BotaoSair className="inline-flex min-h-11 items-center rounded-full border border-campo px-4" />
       </main>
     </div>
   );

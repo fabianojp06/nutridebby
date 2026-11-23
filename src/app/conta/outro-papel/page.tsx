@@ -30,7 +30,7 @@ export default async function OutroPapelPage({ searchParams }: PageProps<'/conta
         <h1 className="font-titulo text-2xl font-semibold">Conectado com outra conta</h1>
         <p role="status">{textoOutroPapel(atual, esperado)}</p>
         {/* o paciente sai pelo SairPortal (S-3): cancela o push e apaga a cópia do plano do aparelho */}
-        {atual === 'paciente' ? <SairPortal /> : <BotaoSair />}
+        {atual === 'paciente' ? <SairPortal /> : <BotaoSair className="inline-flex min-h-11 items-center rounded-full border border-campo px-4" />}
         <p>
           <a href={homeFor(atual)} className="inline-flex min-h-11 items-center text-link underline">
             {VOLTAR[atual]}

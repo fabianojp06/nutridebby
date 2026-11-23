@@ -9,15 +9,17 @@ import { criarPacientePeloFormulario } from './pacientes-form';
  * nenhuma leitura registrada no Histórico de acessos do paciente. As contas vêm da semente (scripts/e2e-seed.ts, criadas
  * uma vez e reaproveitadas — RE-D46, RE-D69), copiadas aqui: importar o seed roda o seed. O 2FA de teste é o mesmo segredo
  * da E2E_DOCS (o Better Auth usa os bytes UTF-8 dele: `Secret.fromUTF8`).
- * IPs (limite de login por IP): bloco 10.9.36.x (RE-D50) — 10.9.36.10 (recepção) e .12 (nutricionista) aqui; .11 no
- * sessao-equipe.spec; .13 a .19 ficam para a sessão e o convite.
+ * IPs (limite de login por IP): bloco 10.9.36.x (RE-D50) — 10.9.36.10 (recepção), .12 (nutricionista) e .13 (a recepção
+ * do consultório com o contrato pendente) aqui; .11 no sessao-equipe.spec; .14 a .19 ficam para a sessão e o convite.
  */
 const RECEPCAO = { email: 'recepcao-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção E2E' };
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
+// RN-501: a recepção de um consultório com o DPA numa versão antiga (a semente o põe assim a cada execução)
+const RECEPCAO_CONTRATO = { email: 'recepcao-contrato-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
 test.describe.configure({ mode: 'serial', retries: 0 });
 
 /** Login da recepção: senha e o desafio do 2FA; devolve a página e os caminhos pedidos como documento no caminho. */
-async function entrarComoRecepcao(browser: Browser, ip: string): Promise<{ page: Page; documentos: string[] }> {
+async function entrarComoRecepcao(browser: Browser, ip: string, cred: { email: string; senha: string; totp: string } = RECEPCAO, destino = /\/painel$/): Promise<{ page: Page; documentos: string[] }> {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, extraHTTPHeaders: { 'x-forwarded-for': ip } });
   const page = await ctx.newPage();
   const documentos: string[] = [];
@@ -25,13 +27,13 @@ async function entrarComoRecepcao(browser: Browser, ip: string): Promise<{ page:
     if (r.isNavigationRequest()) documentos.push(new URL(r.url()).pathname);
   });
   await page.goto('/entrar');
-  await page.getByLabel('E-mail').fill(RECEPCAO.email);
-  await page.getByLabel('Senha').fill(RECEPCAO.senha);
+  await page.getByLabel('E-mail').fill(cred.email);
+  await page.getByLabel('Senha').fill(cred.senha);
   await page.getByRole('button', { name: 'Entrar' }).click();
   await expect(page).toHaveURL(/\/entrar\/2fa/);
-  await page.getByLabel('Código do app autenticador').fill(new TOTP({ secret: Secret.fromUTF8(RECEPCAO.totp), digits: 6, period: 30 }).generate());
+  await page.getByLabel('Código do app autenticador').fill(new TOTP({ secret: Secret.fromUTF8(cred.totp), digits: 6, period: 30 }).generate());
   await page.getByRole('button', { name: 'Verificar' }).click();
-  await expect(page).toHaveURL(/\/painel$/);
+  await expect(page).toHaveURL(destino);
   return { page, documentos };
 }
 
@@ -73,4 +75,20 @@ test('uma tela do prontuário leva a "Sem permissão" e nada é lido nem registr
   await expect(nutri.getByRole('heading', { level: 1 }).first()).toBeVisible();
   await expect(nutri.locator('main')).not.toContainText(RECEPCAO.nome);
   await nutri.context().close();
+});
+
+test('DPA do consultório pendente: toda tela leva a "Contrato do consultório pendente", com o "Sair" do cabeçalho (RN-501)', async ({ browser }) => {
+  const { page } = await entrarComoRecepcao(browser, '10.9.36.13', RECEPCAO_CONTRATO, /\/painel\/contrato-pendente$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Contrato do consultório pendente' })).toBeVisible();
+  await expect(page.getByText('O contrato de tratamento de dados do consultório precisa ser aceito pela nutricionista. Peça para ela entrar no NutriDebby.')).toBeVisible();
+  for (const tela of ['/painel/ajuda', '/painel/sem-permissao?motivo=nutri']) {
+    await page.goto(tela);
+    await expect(page, tela).toHaveURL(/\/painel\/contrato-pendente$/);
+  }
+  const sair = page.getByRole('button', { name: 'Sair' });
+  await expect(sair).toHaveCount(1);
+  expect((await sair.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await sair.click();
+  await expect(page).toHaveURL(/\/entrar/);
+  await page.context().close();
 });

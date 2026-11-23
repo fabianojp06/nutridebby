@@ -241,6 +241,8 @@ describe('aviso_2fa_reiniciado (P09-02 b)', () => {
     expect(r.text).toContain('Conta > Segurança');
     expect(r.text).toContain('Se você não pediu isso');
     expect(r.html).not.toContain('href=');
+    // Plano 26 (RE-D20): a recepção também tem o 2FA obrigatório
+    expect(r.text).toContain('(para a administração e para a recepção, a ativação é obrigatória)');
   });
 });
 

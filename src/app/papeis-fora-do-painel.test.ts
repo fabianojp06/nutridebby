@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arquivosDoApp, rotaDoArquivo, semComentarios, type Arquivo } from '../../test/fonte';
+import { arquivosDe, arquivosDoApp, blocosDeTopo, rotaDoArquivo, semComentarios, type Arquivo } from '../../test/fonte';
 import { FORA_DO_PAINEL } from './painel/rotas-da-recepcao';
 
 /**
@@ -32,7 +32,8 @@ const PAPEIS_FORA_DO_PAINEL: Record<string, Decisao> = {
   'convite/paciente/[token]/actions.ts': 'recusa',
 };
 
-const CHAMADA = /\b(requireUser|requireUserComTenant|requireApiUser|lerSessaoApi)\s*\(/g;
+// a declaração (`function requireUser(`) não é chamada
+const CHAMADA = /(?<!function\s+)\b(requireUser|requireUserComTenant|requireApiUser|lerSessaoApi)\s*\(/g;
 
 /** A lista de papéis de cada chamada (literal ou constante do próprio arquivo); `null` se não der para ler. */
 function listasDePapeis(fonte: string): (string[] | null)[] {
@@ -51,6 +52,8 @@ function violacoesForaDoPainel(arquivos: Arquivo[], decisoes: Record<string, Dec
   const v: string[] = [];
   const aceitas = new Set<string>();
   for (const { arquivo, fonte } of arquivos) {
+    // RN-513: fora do painel não há requireEquipe — a decisão é a lista de papéis
+    if (/\brequire(Api)?Equipe\s*\(/.test(semComentarios(fonte))) v.push(`${arquivo}: chama requireEquipe fora do painel`);
     const listas = listasDePapeis(fonte);
     const decisao = decisoes[arquivo];
     if (!listas.length) {
@@ -105,8 +108,49 @@ describe('PAPEIS_FORA_DO_PAINEL (RE-D67): decisão explícita para a recepção 
       expect(listasDePapeis("const EQUIPE: readonly AppRole[] = ['admin', 'nutri', 'recepcao'];\nconst a = await lerSessaoApi(req, EQUIPE);")).toEqual([['admin', 'nutri', 'recepcao']]);
       expect(listasDePapeis("/** requireUser(['admin'], …) */\n// requireUser(['nutri'], '/x')\nexport const x = 1;")).toEqual([]);
     });
+    it('requireEquipe ou requireApiEquipe fora do painel → violação, com ou sem decisão (RN-513)', () => {
+      const pagina = { arquivo: 'rascunho/page.tsx', fonte: "export default async function P() {\n  await requireEquipe('/rascunho');\n}\n" };
+      expect(violacoesForaDoPainel(com(pagina), PAPEIS_FORA_DO_PAINEL, FORA_DO_PAINEL)).toEqual(['rascunho/page.tsx: chama requireEquipe fora do painel']);
+      const rota = { arquivo: 'api/rascunho/route.ts', fonte: "export async function GET(req: Request) {\n  await requireApiUser(req, ['paciente']);\n  await requireApiEquipe(req);\n}\n" };
+      expect(violacoesForaDoPainel(com(rota), { ...PAPEIS_FORA_DO_PAINEL, 'api/rascunho/route.ts': 'recusa' }, FORA_DO_PAINEL)).toEqual([
+        'api/rascunho/route.ts: chama requireEquipe fora do painel',
+      ]);
+    });
     it('rota de FORA_DO_PAINEL sem arquivo que aceite → violação', () => {
       expect(violacoesForaDoPainel(FORA, PAPEIS_FORA_DO_PAINEL, [...FORA_DO_PAINEL, '/conta/nova'])).toEqual(['/conta/nova: está em FORA_DO_PAINEL e nenhum arquivo aceita a recepção']);
     });
+  });
+});
+
+/**
+ * As funções de src/lib que chamam `requireUserComTenant`/`requireUser`/`requireApiUser`/`lerSessaoApi` com `recepcao` na
+ * lista são as portas da recepção que nenhuma das duas guardas acima vê (o app chama o wrapper, não a lista). Só as duas de
+ * tenant-session.ts; um wrapper novo que aceite a recepção quebra aqui. A lista que vem de parâmetro (o repasse de
+ * `requireUser` → `requireUserComTenant`) só no próprio session.ts.
+ */
+function portasDaRecepcaoEmLib(arquivos: Arquivo[]): { aceitam: string[]; semLista: string[] } {
+  const aceitam: string[] = [];
+  const semLista: string[] = [];
+  for (const { arquivo, fonte } of arquivos) {
+    for (const b of blocosDeTopo(fonte)) {
+      for (const lista of listasDePapeis(b.corpo)) {
+        if (lista === null) semLista.push(`${arquivo}#${b.nome}`);
+        else if (lista.includes('recepcao')) aceitam.push(`${arquivo}#${b.nome}`);
+      }
+    }
+  }
+  return { aceitam: [...new Set(aceitam)].sort(), semLista: [...new Set(semLista)].sort() };
+}
+
+describe('wrappers de sessão em src/lib (Plano 26, RN-513)', () => {
+  it('só requireEquipe e requireApiEquipe (tenant-session.ts) aceitam a recepção; só requireUser repassa a lista recebida', () => {
+    expect(portasDaRecepcaoEmLib(arquivosDe('src/lib'))).toEqual({
+      aceitam: ['tenant-session.ts#requireApiEquipe', 'tenant-session.ts#requireEquipe'],
+      semLista: ['session.ts#requireUser'],
+    });
+  });
+  it('controle positivo: um wrapper novo com recepcao, ou que repasse uma lista, aparece', () => {
+    const novo = { arquivo: 'outra-sessao.ts', fonte: "export async function requireRecepcao(req: Request) {\n  return requireApiUser(req, ['recepcao']);\n}\n\nexport async function repassa(papeis: AppRole[]) {\n  return requireUserComTenant(papeis, '/x');\n}\n" };
+    expect(portasDaRecepcaoEmLib([novo])).toEqual({ aceitam: ['outra-sessao.ts#requireRecepcao'], semLista: ['outra-sessao.ts#repassa'] });
   });
 });

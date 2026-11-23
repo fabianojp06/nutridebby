@@ -23,7 +23,7 @@ export default async function SegurancaPage() {
         <div className="flex items-start justify-between gap-4">
           <h1 className="font-titulo text-2xl font-semibold">Segurança da conta</h1>
           {/* quem cai aqui obrigado a ativar o 2FA precisa poder sair sem configurar */}
-          <BotaoSair />
+          <BotaoSair className="inline-flex min-h-11 items-center rounded-full border border-campo px-4" />
         </div>
         <AjudaSeguranca />
         {user.twoFactorEnabled ? (

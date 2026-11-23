@@ -8,6 +8,7 @@ import { getDb, type Db } from '@/db/client';
 import * as authSchema from '@/db/schema/auth';
 import { tenants } from '@/db/schema';
 import { getEnv } from '@/env';
+import { lerMembroDaEquipe } from '@/modules/plataforma/membro-da-equipe';
 import { getTenantStatus, statusDe, type TenantStatus } from '@/modules/plataforma/tenant-status';
 import { clientIp } from './ip';
 import { validatePasswordPolicy } from './password-policy';
@@ -125,11 +126,14 @@ export function createAuth(
               throw new APIError('FORBIDDEN', { code: 'CONTA_SUSPENSA', message: 'Conta temporariamente indisponível' });
             }
             // Plano 26 (RN-516, RE-D43): o "Último acesso" da tela Equipe. A sessão some no logout, na expiração e na
-            // desativação; por isso a data fica na conta. Com o 2FA ativo, a sessão da senha é provisória (o plugin do 2FA
-            // a apaga e pede o código): o acesso conta no verify-totp, não aqui.
-            if (u?.appRole === 'recepcao' && !(ctx?.path === '/sign-in/email' && u.twoFactorEnabled)) {
+            // desativação; por isso a data fica na conta. Só o acesso que abre o painel conta: com o 2FA ativo (sem ele,
+            // a conta só configura o 2FA — primeiro acesso ou depois do reinício) e a linha ativa em equipe_membros (a
+            // desativada não entra). A sessão da senha com o 2FA ativo é provisória (o plugin do 2FA a apaga e pede o
+            // código): o acesso conta no verify-totp, não aqui.
+            if (u?.appRole === 'recepcao' && u.tenantId && u.twoFactorEnabled && ctx?.path !== '/sign-in/email') {
               try {
-                await db.update(authSchema.user).set({ ultimoAcessoEm: new Date() }).where(eq(authSchema.user.id, s.userId));
+                if ((await lerMembroDaEquipe(db, u.tenantId, s.userId))?.ativo)
+                  await db.update(authSchema.user).set({ ultimoAcessoEm: new Date() }).where(eq(authSchema.user.id, s.userId));
               } catch (err) {
                 // a data é só informativa: falhar aqui não pode derrubar o login. Só o nome do erro e o id (regra 3)
                 logger.warn({ erro: nomeDoErro(err), userId: s.userId }, 'falha ao gravar o último acesso');
@@ -223,14 +227,17 @@ export function createAuth(
  * chama depois da transação do endpoint — a linha da usuária já existia antes do login.
  * Plano 26 (RN-516): na mesma consulta, o papel e o 2FA (o último acesso da recepção).
  */
-async function statusDoTenantDaUsuaria(db: Db, userId: string): Promise<{ status: TenantStatus | null; appRole: string; twoFactorEnabled: boolean } | null> {
+async function statusDoTenantDaUsuaria(
+  db: Db,
+  userId: string,
+): Promise<{ status: TenantStatus | null; appRole: string; tenantId: string; twoFactorEnabled: boolean } | null> {
   const [row] = await db
-    .select({ status: tenants.status, appRole: authSchema.user.appRole, twoFactorEnabled: authSchema.user.twoFactorEnabled })
+    .select({ status: tenants.status, appRole: authSchema.user.appRole, tenantId: tenants.id, twoFactorEnabled: authSchema.user.twoFactorEnabled })
     .from(authSchema.user)
     .innerJoin(tenants, eq(tenants.id, authSchema.user.tenantId))
     .where(eq(authSchema.user.id, userId))
     .for('share', { of: tenants });
-  return row ? { status: statusDe(row), appRole: row.appRole, twoFactorEnabled: row.twoFactorEnabled === true } : null;
+  return row ? { status: statusDe(row), appRole: row.appRole, tenantId: row.tenantId, twoFactorEnabled: row.twoFactorEnabled === true } : null;
 }
 
 export type Auth = ReturnType<typeof createAuth>;

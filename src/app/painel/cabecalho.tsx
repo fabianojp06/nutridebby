@@ -11,9 +11,10 @@ import { iniciais } from './navegacao';
 
 /**
  * D19/D20: marca do consultório à esquerda (US-005), menu de 6 itens (+ "Exames recebidos", Plano 12, D11, e "Dúvidas dos
- * pacientes", Plano 15, US-175), tema e conta à direita. Com o DPA pendente
- * (`completo = false`), só a marca, o tema e o "Sair" — a nutricionista só pode aceitar o contrato ou sair. O botão "Ajuda",
- * a gaveta e o tour (D26) só com o DPA em dia; o Suspense é do useSearchParams do GuiaDoPainel (?tour=).
+ * pacientes", Plano 15, US-175), tema e conta à direita. Com `completo = false`, só a marca, o tema e o "Sair": o DPA
+ * pendente (a nutricionista só pode aceitar o contrato ou sair; a recepção espera em "Contrato pendente") e, até a T8 do
+ * Plano 26 (menu, guia e Início por papel), toda sessão da recepção. O botão "Ajuda", a gaveta e o tour (D26) só com o DPA
+ * em dia; o Suspense é do useSearchParams do GuiaDoPainel (?tour=).
  */
 export function CabecalhoPainel({ marca, nome, email, tema, completo, progresso, exames, duvidas }: { marca: MarcaTenant; nome: string; email: string; tema: Tema; completo: boolean; progresso: ProgressoGuia | null; exames: ItemComContador; duvidas?: ItemComContador }) {
   return (

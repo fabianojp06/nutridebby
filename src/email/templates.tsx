@@ -391,7 +391,7 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
     case 'aviso_2fa_reiniciado':
       return simples('A verificação em duas etapas da sua conta foi desativada', [
         'A verificação em duas etapas da sua conta no NutriDebby foi desativada pelo suporte, e as sessões abertas foram encerradas.',
-        'Na próxima entrada, ative de novo em Conta > Segurança (para a administração, a ativação é obrigatória).',
+        'Na próxima entrada, ative de novo em Conta > Segurança (para a administração e para a recepção, a ativação é obrigatória).',
         'Se você não pediu isso, fale com o suporte agora.',
       ]);
     case 'cota_ia':

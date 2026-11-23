@@ -9,7 +9,12 @@ export type Arquivo = { arquivo: string; fonte: string };
 
 /** Os arquivos `.ts`/`.tsx` (sem testes) de `src/app/<pasta>`, com o caminho relativo a `src/app` em `/`. */
 export function arquivosDoApp(pasta: string): Arquivo[] {
-  const raiz = path.resolve('src/app');
+  return arquivosDe('src/app', pasta);
+}
+
+/** Os arquivos `.ts`/`.tsx` (sem testes) de `<base>/<pasta>`, com o caminho relativo a `<base>` em `/`. */
+export function arquivosDe(base: string, pasta = '.'): Arquivo[] {
+  const raiz = path.resolve(base);
   return readdirSync(path.join(raiz, pasta), { recursive: true, withFileTypes: true })
     .filter((d) => d.isFile() && /\.tsx?$/.test(d.name) && !/\.test\.tsx?$/.test(d.name))
     .map((d) => {
@@ -30,37 +35,92 @@ export function semComentarios(fonte: string): string {
 /** O arquivo começa com a diretiva `'use server'` (Server Actions). */
 export const ehDeServerActions = (fonte: string): boolean => /^\s*['"]use server['"]/.test(semComentarios(fonte));
 
-/** A rota de um `page.tsx`/`route.ts` (`painel/ajuda/page.tsx` → `/painel/ajuda`); os outros arquivos ficam como estão. */
+/**
+ * A rota de um `page.tsx`/`route.ts`/`layout.tsx` (`painel/ajuda/page.tsx` → `/painel/ajuda`); os outros arquivos ficam
+ * como estão.
+ */
 export function rotaDoArquivo(arquivo: string): string {
-  const m = /^(.*?)\/?(page\.tsx|route\.ts)$/.exec(arquivo);
+  const m = /^(.*?)\/?(page\.tsx|route\.ts|layout\.tsx)$/.exec(arquivo);
   return m ? `/${m[1]}` : `/${arquivo}`;
 }
 
-export type Bloco = { nome: string; exportado: boolean; corpo: string };
+/** `publico`: o nome com que o bloco sai do arquivo (o próprio, ou o de `export { local as publico }`). */
+export type Bloco = { nome: string; exportado: boolean; publico: string; corpo: string };
 
-const DECLARACAO = /^(export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s*\*?\s*(\w+)|const\s+(\w+)\b)/;
+const DECLARACAO = /^(export\s+)?(default\s+)?(?:async\s+)?(?:function\s*\*?\s*(\w+)|const\s+(\w+)\b)/;
 const FRONTEIRA = /^(export|async|function|const|let|var|type|interface|import|class|enum)\b/;
+/** `export type`/`export interface` (só tipos: não viram código) e `export { … }` sem `from` são entendidos à parte. */
+const SO_TIPO = /^export\s+(type|interface)\b/;
+
+export type Topo = {
+  blocos: Bloco[];
+  /** As linhas `export` que o leitor não entende (default anônimo, reexportação, `export let`, desestruturação…): violação. */
+  naoEntendidos: string[];
+};
 
 /**
  * As declarações de topo de um arquivo (funções e `const`), cada uma com o texto até a próxima declaração de topo. Basta
- * para seguir as chamadas a funções locais (`acesso(…)` → `requireNutri(…)`) sem um analisador de TypeScript.
+ * para seguir as chamadas a funções locais (`acesso(…)` → `requireNutri(…)`) sem um analisador de TypeScript. Os nomes de
+ * `export { a, b as c }` e `export default a;` também contam como exportados; toda outra linha `export` que o leitor não
+ * entende vai para `naoEntendidos`, para a guarda recusar em vez de deixar passar calada.
  */
-export function blocosDeTopo(fonte: string): Bloco[] {
+export function analisarTopo(fonte: string): Topo {
   const linhas = semComentarios(fonte).split('\n');
   const blocos: Bloco[] = [];
-  let atual: { nome: string; exportado: boolean; linhas: string[] } | null = null;
-  for (const linha of linhas) {
-    if (FRONTEIRA.test(linha)) {
-      if (atual) blocos.push({ nome: atual.nome, exportado: atual.exportado, corpo: atual.linhas.join('\n') });
-      const m = DECLARACAO.exec(linha);
-      atual = m && (m[2] ?? m[3]) ? { nome: (m[2] ?? m[3])!, exportado: !!m[1], linhas: [linha] } : null;
+  const naoEntendidos: string[] = [];
+  const listas: [string, string][] = []; // [local, público] de `export { … }` e `export default nome;`
+  // num objeto: o TypeScript não segue atribuições feitas dentro de `fechar`
+  const e: { atual: { nome: string; exportado: boolean; publico: string; linhas: string[] } | null } = { atual: null };
+  const fechar = () => {
+    if (e.atual) blocos.push({ nome: e.atual.nome, exportado: e.atual.exportado, publico: e.atual.publico, corpo: e.atual.linhas.join('\n') });
+    e.atual = null;
+  };
+  for (let i = 0; i < linhas.length; i++) {
+    const linha = linhas[i];
+    if (!FRONTEIRA.test(linha)) {
+      e.atual?.linhas.push(linha);
       continue;
     }
-    atual?.linhas.push(linha);
+    fechar();
+    if (/^export\s*\{/.test(linha)) {
+      let texto = linha;
+      while (!texto.includes('}') && i + 1 < linhas.length) texto += ` ${linhas[++i]}`;
+      const m = /^export\s*\{([^}]*)\}\s*;?\s*$/.exec(texto.trim());
+      if (!m) naoEntendidos.push(texto.trim());
+      else
+        for (const item of m[1].split(',').map((x) => x.trim()).filter(Boolean)) {
+          const n = /^(?:type\s+)?(\w+)(?:\s+as\s+(\w+))?$/.exec(item);
+          if (!n) naoEntendidos.push(texto.trim());
+          else if (!item.startsWith('type ')) listas.push([n[1], n[2] ?? n[1]]);
+        }
+      continue;
+    }
+    const padrao = /^export\s+default\s+(\w+)\s*;?\s*$/.exec(linha);
+    if (padrao && !/^(async|function|class)$/.test(padrao[1])) {
+      listas.push([padrao[1], 'default']);
+      continue;
+    }
+    const m = DECLARACAO.exec(linha);
+    const nome = m?.[3] ?? m?.[4];
+    if (m && nome) {
+      e.atual = { nome, exportado: !!m[1], publico: m[2] ? 'default' : nome, linhas: [linha] };
+      continue;
+    }
+    if (/^export\b/.test(linha) && !SO_TIPO.test(linha)) naoEntendidos.push(linha.trim());
   }
-  if (atual) blocos.push({ nome: atual.nome, exportado: atual.exportado, corpo: atual.linhas.join('\n') });
-  return blocos;
+  fechar();
+  for (const [local, publico] of listas) {
+    const b = blocos.find((x) => x.nome === local);
+    if (!b) naoEntendidos.push(`export { ${local} } sem declaração no arquivo`);
+    else {
+      b.exportado = true;
+      b.publico = publico;
+    }
+  }
+  return { blocos, naoEntendidos };
 }
+
+export const blocosDeTopo = (fonte: string): Bloco[] => analisarTopo(fonte).blocos;
 
 const chama = (texto: string, funcao: string) => new RegExp(`\\b${funcao}\\s*\\(`).test(texto);
 

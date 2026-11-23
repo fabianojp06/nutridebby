@@ -8,7 +8,7 @@ import { confirmarCodigo2fa } from '@/lib/confirmar-2fa';
 import { evaluateSession } from '@/lib/session-rules';
 import { recepcaoComLogin } from '../../../test/equipe';
 import { criarEEntrar, entrar } from '../../../test/sessao';
-import { mensagemDaFalha, mensagemDoReinicio, MSG_2FA, Reiniciar2faError, reiniciarDoisFatores, reiniciarPeloAdmin, type Codigo2fa } from './reiniciar-2fa';
+import { mensagemDaFalha, mensagemDoReinicio, MSG_2FA, mensagemDoComando, Reiniciar2faError, reiniciarDoisFatores, reiniciarPeloAdmin, type Codigo2fa } from './reiniciar-2fa';
 
 const db = getDb();
 const auth = getAuth();
@@ -197,5 +197,8 @@ describe('Plano 26 (§3, RE-D20): reiniciar o 2FA de uma conta da recepção', (
   it('a mensagem do reinício: admin e recepção têm a configuração obrigatória no próximo login; nutricionista e paciente, não', () => {
     expect([mensagemDoReinicio('admin'), mensagemDoReinicio('recepcao')]).toEqual([MSG_2FA.okAdmin, MSG_2FA.okAdmin]);
     expect([mensagemDoReinicio('nutri'), mensagemDoReinicio('paciente')]).toEqual([MSG_2FA.ok, MSG_2FA.ok]);
+    // o comando no servidor segue a mesma regra
+    expect([mensagemDoComando('admin'), mensagemDoComando('recepcao')]).toEqual(['No próximo login, a configuração será obrigatória.', 'No próximo login, a configuração será obrigatória.']);
+    expect([mensagemDoComando('nutri'), mensagemDoComando('paciente')]).toEqual(['A pessoa pode ativar de novo em Conta > Segurança.', 'A pessoa pode ativar de novo em Conta > Segurança.']);
   });
 });

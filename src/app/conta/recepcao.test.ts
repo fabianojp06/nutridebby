@@ -27,7 +27,8 @@ vi.mock('next/navigation', () => ({
     throw new Redirect(url);
   },
 }));
-vi.mock('@/components/botao-sair', () => ({ BotaoSair: () => '[BotaoSair]' }));
+// o alvo do "Sair" fica no rótulo (44 px, como no cabeçalho do painel)
+vi.mock('@/components/botao-sair', () => ({ BotaoSair: ({ className }: { className?: string }) => `[BotaoSair ${className ?? ''}]` }));
 vi.mock('@/app/p/sair-portal', () => ({ SairPortal: () => '[SairPortal]' }));
 vi.mock('./seguranca/enable-2fa', () => ({ Enable2fa: () => '[Enable2fa]' }));
 const { default: OutroPapel } = await import('./outro-papel/page');
@@ -59,7 +60,7 @@ describe('/conta/outro-papel com a recepção (RE-D67)', () => {
     expect(h).toContain(textoOutroPapel('recepcao', 'paciente'));
     expect(h).toMatch(/<a href="\/painel"[^>]*>Ir para o painel<\/a>/);
     expect(h).toContain('data-tema="escuro"');
-    expect(h).toContain('[BotaoSair]');
+    expect(h).toContain('[BotaoSair inline-flex min-h-11 items-center rounded-full border border-campo px-4]');
   });
   it('sem papel esperado (ou o próprio) → o painel', async () => {
     await recepcao();
@@ -73,6 +74,7 @@ describe('/conta/seguranca com a recepção (RE-D45, RN-500)', () => {
     const h = await html(Seguranca());
     expect(h).toContain('A recepção precisa da verificação em duas etapas. Configure agora para continuar.');
     expect(h).toContain('[Enable2fa]');
+    expect(h).toContain('[BotaoSair inline-flex min-h-11 items-center rounded-full border border-campo px-4]');
   });
   it('desativada → /conta/acesso-desativado (também sem 2FA)', async () => {
     await recepcao({ desativada: true });
@@ -88,7 +90,7 @@ describe('/conta/acesso-desativado (RN-503)', () => {
     const h = await html(AcessoDesativado());
     expect(h).toMatch(/<h1[^>]*>Acesso desativado<\/h1>/);
     expect(h).toContain('Seu acesso a este consultório foi desativado. Fale com a nutricionista.');
-    expect(h).toContain('[BotaoSair]');
+    expect(h).toContain('[BotaoSair inline-flex min-h-11 items-center rounded-full border border-campo px-4]');
   });
   it('recepção ativa e a nutricionista não têm o que fazer aqui: vão ao painel', async () => {
     const r = await recepcao();

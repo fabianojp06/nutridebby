@@ -11,7 +11,8 @@ export class PreferenciaError extends Error {
 
 /**
  * D17: a tabela `user` é exceção de RLS (CLAUDE.md regra 1). Este módulo só lê/grava `tema` e `guia` da conta da
- * própria sessão — o `userId` vem sempre de requireNutri, nunca do formulário.
+ * própria sessão — o `userId` vem sempre da sessão (requireNutri ou, nas actions do cabeçalho que abrem para a recepção,
+ * requireEquipe — Plano 26, RN-513), nunca do formulário.
  */
 export async function gravarTema(userId: string, tema: unknown, db: Db = getDb()): Promise<Tema> {
   if (!ehTema(tema)) throw new PreferenciaError('tema inválido');
