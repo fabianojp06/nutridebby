@@ -486,6 +486,58 @@ describe('liberações e condições da recepção (bloco 3, RN-506 a RN-508)', 
       await expect(em(rec(R), lancamento(P))).rejects.toSatisfy(rlsDe('fin_lancamentos'));
     });
 
+    it('lançamento com o tenant_id de outro consultório: a recusa vem da RLS de fin_lancamentos, com ou sem paciente (não de "paciente não encontrado")', async () => {
+      const T2 = await novoTenant(app.db);
+      const p2 = (await novoPaciente(app.db, T2.ctx)).id;
+      await em(T2.ctx, sql`insert into fin_categorias (tenant_id, tipo, nome) values (${T2.tenantId}, 'entrada', 'Outras entradas'), (${T2.tenantId}, 'saida', 'Aluguel')`);
+      // os ids do outro consultório lidos pelo owner: a FK não passa pela RLS, então o INSERT chega ao gatilho e à política
+      const cat = async (tipo: string) =>
+        (await owner.pool.query<{ id: string }>(`select id from fin_categorias where tenant_id = $1 and tipo = $2`, [T2.tenantId, tipo])).rows[0].id;
+      const deB = (tipo: 'entrada' | 'saida', paciente: string | null, categoria: string) =>
+        sql`insert into fin_lancamentos (tenant_id, tipo, categoria_id, valor_centavos, vencimento, patient_id, criado_por)
+            values (${T2.tenantId}, ${tipo}, ${categoria}, 100, '2026-11-10', ${paciente}, ${randomUUID()})`;
+      await expect(em(rec(R1), deB('entrada', p2, await cat('entrada'))), 'com paciente').rejects.toSatisfy(rlsDe('fin_lancamentos'));
+      await expect(em(rec(R1), deB('saida', null, await cat('saida'))), 'sem paciente').rejects.toSatisfy(rlsDe('fin_lancamentos'));
+      expect((await owner.pool.query('select 1 from fin_lancamentos where tenant_id = $1', [T2.tenantId])).rowCount).toBe(0);
+    });
+
+    it('bloqueio concorrente: o UPDATE da recepção espera o FOR UPDATE do bloqueio e, ao reler o paciente já bloqueado, recebe 42501 "paciente não encontrado"', async () => {
+      const p = (await novoPaciente(app.db, T.ctx)).id;
+      const [l] = await em(T.ctx, lancamento(p));
+      const a = await app.pool.connect();
+      const b = await app.pool.connect();
+      const ctx = (c: typeof a, role: string, u: string) =>
+        c.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', $2, true), set_config('app.user_id', $3, true)`, [T.tenantId, role, u]);
+      try {
+        await a.query('begin');
+        await ctx(a, 'nutri', T.nutriId);
+        await a.query('select 1 from patients where id = $1 for update', [p]); // como o bloqueio (lgpd.ts)
+        await b.query('begin');
+        await ctx(b, 'recepcao', R1);
+        const pidB = (await b.query('select pg_backend_pid() as pid')).rows[0].pid as number;
+        const atualizacao = b.query(`update fin_lancamentos set valor_centavos = 100 where id = $1`, [l.id]).then(
+          () => null,
+          (e: unknown) => e,
+        );
+        // B fica parado na trava do paciente (FOR KEY SHARE do gatilho × FOR UPDATE de A)
+        for (let i = 0; ; i++) {
+          const { rows } = await owner.pool.query(`select wait_event_type from pg_stat_activity where pid = $1`, [pidB]);
+          if (rows[0]?.wait_event_type === 'Lock') break;
+          if (i > 200) throw new Error('B não esperou a trava do paciente');
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        await a.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01' where id = $1`, [p]);
+        await a.query('commit');
+        expect(await atualizacao).toSatisfy((e: unknown) => doGatilho(e) && /paciente não encontrado/.test(erro(e).message));
+      } finally {
+        await a.query('rollback').catch(() => undefined);
+        await b.query('rollback').catch(() => undefined);
+        a.release();
+        b.release();
+      }
+      expect((await owner.pool.query('select valor_centavos from fin_lancamentos where id = $1', [l.id])).rows[0].valor_centavos).toBe(25000);
+    });
+
     it('a permissão é avaliada uma vez por consulta (InitPlan), não por linha', async () => {
       const plano = (await em(rec(R1), sql`explain (verbose, costs off) select id from fin_lancamentos`)).map((r) => String(r['QUERY PLAN']));
       const texto = plano.join('\n');
