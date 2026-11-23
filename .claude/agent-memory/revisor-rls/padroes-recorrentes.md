@@ -540,3 +540,9 @@ Plano 27, T8d (guarda da virada do dia no registro de metas, 24/11/2026): limpa 
 mesmo now() do INSERT, recusa antes de gravar e depois do nao_encontrada; runbook só leitura, superusuário, só ids).
 - "Dia que a tela leu" vindo de fonte diferente da leitura dos dados (TS `hojeNoFuso` antes da transação × registros por
   `app_hoje_do_tenant()`): na virada, recusa espúria por ms. Pedir que a página use o dia devolvido pela própria leitura.
+Plano 23, T3 (local na consulta e nos horários, 23/11/2026): sem Critical; travas locais → regras → local FOR SHARE ok.
+- Formulário de edição com `<select defaultValue>` de um id fora das opções (local arquivado some do seletor): o navegador e o
+  React marcam a 1ª opção habilitada, e "Salvar" grava o registro no outro local/tipo sem escolha explícita. Conferir o
+  valor inicial de todo seletor que filtra arquivados contra o valor gravado no registro editado.
+- Gatilho de cópia pela `origem` (sala → link) também dispara no UPDATE da equipe: sobrescreve o valor que a nutri digitou
+  numa linha nascida no portal. Conferir o gatilho de cópia nos caminhos de edição, não só no INSERT do papel alvo.
