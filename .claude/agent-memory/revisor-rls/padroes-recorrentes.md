@@ -431,3 +431,7 @@ Limpeza Minor P17-P20, revisão final (23/11/2026):
 - Gatilho novo que passa a recusar (42501) um INSERT/DELETE antes livre (criado_por = sessão, DELETE só worker/cascata):
   a tarefa roda só a pasta do módulo; conferir com grep os INSERTs/DELETEs da tabela em TODOS os testes e sementes
   (ficha/no-app, lgpd, exportacao, e2e-seed, carga) e na imagem antiga (expand/contract). Aqui estavam todos coerentes.
+Plano 27, T1a (tabelas e RLS sem gatilhos, 23/11/2026): limpa na lente banco. A conferir em tarefas "fundação em fatias":
+- Commit intermediário com `app_allow_paciente_escrita` e SEM o gatilho de colunas/transições (fica para a fatia seguinte):
+  o paciente reescreve qualquer coluna da própria linha. Só aceitável se o PR sai inteiro; conferir antes do PR.
+- FK de UNIQUE novo em tabela existente: o drizzle-kit cria o UNIQUE depois das FKs (42830) → FK só na custom (molde 0112).
