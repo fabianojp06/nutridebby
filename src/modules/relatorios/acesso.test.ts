@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { podeVerSecao, secoesPermitidas, type Acesso } from './acesso';
+import { exigirSecao, podeVerSecao, RelatorioSemPermissaoError, secoesPermitidas, type Acesso } from './acesso';
 import { SECOES, type Secao } from './constantes';
 
 const NUTRI: Acesso = { papel: 'nutri', financeiro: true };
@@ -55,5 +55,38 @@ describe('acesso às seções dos Relatórios (RN-480)', () => {
 
   it('seção desconhecida (texto da URL) não é permitida', () => {
     expect(podeVerSecao(NUTRI, 'qualquer' as Secao)).toBe(false);
+  });
+});
+
+describe('exigirSecao (T2: antes de abrir a transação)', () => {
+  it('a nutricionista passa em todas as seções', () => {
+    for (const s of SECOES) expect(() => exigirSecao({ role: 'nutri' }, NUTRI, s)).not.toThrow();
+  });
+
+  it('a recepção é recusada nas seções que não vê (RN-480) e passa nas que vê', () => {
+    expect(() => exigirSecao({ role: 'recepcao' }, RECEPCAO, 'pacientes')).not.toThrow();
+    expect(() => exigirSecao({ role: 'recepcao' }, RECEPCAO, 'agenda')).not.toThrow();
+    expect(() => exigirSecao({ role: 'recepcao' }, RECEPCAO_FIN, 'financeiro')).not.toThrow();
+    for (const s of ['atendimentos', 'planos', 'ranking', 'financeiro'] as const) {
+      expect(() => exigirSecao({ role: 'recepcao' }, RECEPCAO, s)).toThrow(RelatorioSemPermissaoError);
+    }
+  });
+
+  it('contexto de outro papel nunca lê, nem com um acesso de nutricionista (worker, paciente, público)', () => {
+    for (const role of ['worker', 'paciente', 'publico', 'recepcao']) {
+      expect(() => exigirSecao({ role }, NUTRI, 'pacientes')).toThrow(RelatorioSemPermissaoError);
+    }
+    // a recepção com um acesso de nutricionista também não (o acesso tem de ser o da sessão)
+    expect(() => exigirSecao({ role: 'nutri' }, RECEPCAO, 'pacientes')).toThrow(RelatorioSemPermissaoError);
+  });
+
+  it('a mensagem só tem a seção (RN-497)', () => {
+    try {
+      exigirSecao({ role: 'worker' }, NUTRI, 'ranking');
+      expect.unreachable();
+    } catch (e) {
+      expect((e as Error).message).toBe('relatorios: seção ranking não permitida');
+      expect((e as RelatorioSemPermissaoError).secao).toBe('ranking');
+    }
   });
 });

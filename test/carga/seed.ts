@@ -22,9 +22,11 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { createAuth } from '@/lib/auth';
 import { hashPassword } from '@/lib/password.server';
+import { listarCategorias, salvarConfiguracoes } from '@/modules/financeiro/configuracoes';
 import { agendarLembretes } from '@/modules/notificacoes/agendar';
 import { garantirModeloPadrao } from '@/modules/pacientes/anamnese';
 import { gravarCadastro, type CadastroComplementar } from '@/modules/pacientes/cadastro';
+import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { cpfValido } from '@/modules/pacientes/cpf';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
 import { revisaoDoPlano } from '@/modules/plano-alimentar/carregar';
@@ -233,6 +235,76 @@ async function semearRegistros(ctx: TenantContext, pacientes: string[]): Promise
   }
   return gravadas + outras;
 }
+// Plano 26 (CS-483, RN-496): o cenário "relatórios" — 12 meses de agenda e de Financeiro antes da agenda do mês (que vai
+// de 10 dias atrás a 20 dias à frente), para as seis seções agregarem um consultório cheio. Agenda: 6 consultas por dia útil
+// dos dias 11 a 375 atrás (~1.560), 80% realizadas, 10% faltas, 10% canceladas (metade pelo paciente), 1 em 5 marcadas pelo
+// paciente; atendimentos registrados em metade das realizadas. Financeiro: configurado (saldo há 13 meses) e ~2.000
+// lançamentos nos 12 meses (entradas com paciente em 1 de 2, 85% pagos, 3% cancelados). Tudo pela sessão da nutricionista
+// (gatilhos e auditoria de sempre), em INSERT … SELECT. Uma vez por consultório: com o Financeiro já configurado, nada.
+// `on conflict do nothing` na agenda: numa segunda rodada dias depois, a agenda do mês da primeira pode cruzar o começo
+// deste intervalo (EXCLUDE de horário).
+async function semearRelatorios(ctx: TenantContext, pacientes: string[]): Promise<number> {
+  const ja = await withTenant(ctx, async (tx) => (await tx.execute(sql`select 1 from fin_configuracoes limit 1`)).rows.length > 0, db);
+  if (ja) return 0;
+  const lista = sql`string_to_array(${pacientes.join(',')}, ',')::uuid[]`;
+  const n = pacientes.length;
+  const consultas = await withTenant(
+    ctx,
+    async (tx) => {
+      const r = await tx.execute(sql`
+        insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status, cancelado_por, cancelada_em, presenca_em)
+        select ${ctx.tenantId}, (${lista})[1 + (g * 7) % ${n}], x.inicio, x.inicio + interval '1 hour', 'presencial',
+               case when g % 5 = 0 then 'paciente' else 'nutri' end, x.status,
+               case when x.status = 'cancelada' then (case when g % 2 = 0 then 'paciente' else 'nutri' end) end,
+               case when x.status = 'cancelada' then x.inicio - interval '1 day' end,
+               case when x.status in ('realizada', 'faltou') then x.inicio + interval '1 hour' end
+        from generate_series(0, 365 * 6 - 1) g,
+             lateral (select (date_trunc('day', ${agora}::timestamptz) - make_interval(days => 11 + g / 6) + make_interval(hours => 11 + g % 6)) as inicio,
+                             case when g % 10 = 8 then 'faltou' when g % 10 = 9 then 'cancelada' else 'realizada' end as status) x
+        where extract(isodow from x.inicio) < 6
+        on conflict do nothing`);
+      await tx.execute(sql`
+        insert into consultations (tenant_id, patient_id, data, appointment_id, orientacoes_paciente)
+        select a.tenant_id, a.patient_id, (a.inicio at time zone ${fuso})::date, a.id, 'Orientações sintéticas da pilha de carga.'
+        from appointments a
+        where a.tenant_id = ${ctx.tenantId} and a.status = 'realizada' and a.inicio < ${agora}::timestamptz - interval '10 days'
+          and not exists (select 1 from consultations c where c.appointment_id = a.id)
+          and get_byte(uuid_send(a.id), 0) % 2 = 0`);
+      return r.rowCount ?? 0;
+    },
+    db,
+  );
+  const umAnoAtras = new Date(agora.getTime() - 395 * 86_400_000).toISOString().slice(0, 10);
+  await salvarConfiguracoes(ctx, { fuso }, { saldoInicialEm: umAnoAtras, saldoInicial: '10.000,00', valorConsulta: '250,00' }, { db, agora });
+  const cats = await listarCategorias(ctx, { db });
+  const entradas = cats.filter((c) => c.tipo === 'entrada').map((c) => c.id);
+  const saidas = cats.filter((c) => c.tipo === 'saida').map((c) => c.id);
+  const ids = (v: string[]) => sql`string_to_array(${v.join(',')}, ',')::uuid[]`;
+  const hoje = hojeNoFuso(fuso, agora);
+  const lancamentos = await withTenant(
+    ctx,
+    async (tx) => {
+      const r = await tx.execute(sql`
+        insert into fin_lancamentos (tenant_id, tipo, categoria_id, valor_centavos, vencimento, pago_em, forma_pagamento, patient_id, criado_por)
+        select ${ctx.tenantId}, x.tipo,
+               case when x.tipo = 'entrada' then (${ids(entradas)})[1 + g % ${entradas.length}] else (${ids(saidas)})[1 + g % ${saidas.length}] end,
+               100 + (g * 7919) % 200000, x.vencimento,
+               case when g % 20 < 17 then least(x.vencimento, ${hoje}::date) end,
+               case when g % 20 < 17 then 'pix' end,
+               case when x.tipo = 'entrada' and g % 4 = 0 then (${lista})[1 + (g / 4) % ${n}] end,
+               ${ctx.actorUserId!}
+        from generate_series(1, 2000) g,
+             lateral (select case when g % 2 = 0 then 'entrada' else 'saida' end as tipo, ${hoje}::date - (g % 365) as vencimento) x`);
+      await tx.execute(sql`
+        update fin_lancamentos set cancelado_em = now(), motivo_cancelamento = 'Teste de carga'
+        where id in (select id from fin_lancamentos where tenant_id = ${ctx.tenantId} order by id limit 60)`);
+      return r.rowCount ?? 0;
+    },
+    db,
+  );
+  return consultas + lancamentos;
+}
+
 // D20 do Plano 10A e D18 do Plano 12: documentos liberados e recebimento de exames ligado, para as 8 seções do Início
 // serem consultadas (como num consultório que usa tudo); só a admin muda, então fora de withTenant, como o insert do tenant
 const TUDO_LIGADO = { documentosLiberados: true, examesPacienteAtivadoEm: agora } as const;
@@ -257,6 +329,7 @@ if (jaSemeado) {
     if (pacientes.length !== PACIENTES || Object.keys(pacientes).length !== PACIENTES) throw new Error(`${slug}: pacientes diferentes de CARGA_PACIENTES`);
     const comCadastro = await semearCadastro(ctx, t, pacientes);
     console.log(`${slug}: cadastro de ${comCadastro} pacientes (upsert), ${await semearRegistros(ctx, pacientes)} registros clínicos novos`);
+    console.log(`${slug}: ${await semearRelatorios(ctx, pacientes)} consultas e lançamentos novos do cenário relatórios (Plano 26)`);
   }
   await stopBoss();
   await pool.end();
@@ -292,6 +365,7 @@ for (let t = 0; t < TENANTS; t++) {
   await db.insert(consents).values(ids.map((x) => ({ userId: x.userId, tenantId: tn.id, termoVersao: TERMO_PACIENTE, ip: null })));
   const comCadastro = await semearCadastro(ctx, t, ids.map((x) => x.id));
   const registros = await semearRegistros(ctx, ids.map((x) => x.id));
+  const doRelatorio = await semearRelatorios(ctx, ids.map((x) => x.id)); // Plano 26 (CS-483)
 
   // agenda do mês: 8 consultas por dia útil, espalhadas entre os pacientes (varredura de notificações, N9).
   // consultaDireta grava "sem regra, sem lembrete" (test/agenda.ts): as futuras ganham os lembretes pela função real
@@ -348,6 +422,7 @@ for (let t = 0; t < TENANTS; t++) {
   sessoes.nutris.push({ cookie: await entrar(auth, emailNutri), pacientes: ids.slice(0, 50).map((x) => x.id), planos });
   sessoes.slugs.push(slug);
   console.log(`${slug}: ${PACIENTES} pacientes (${comCadastro} com cadastro), ${registros} registros clínicos, ${acessos.length} acessos, 100 conteúdos`);
+  console.log(`${slug}: ${doRelatorio} consultas e lançamentos dos 12 meses (relatórios, Plano 26)`);
 }
 
 // D4: parte dos lembretes vence DURANTE a rodada (o job `notificacoes` varre e envia de verdade, para o Mailpit).
