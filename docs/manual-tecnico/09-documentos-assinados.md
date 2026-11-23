@@ -149,7 +149,7 @@ Chaves e restrições que importam:
 |---|---|---|
 | `RLS_EXCEPTIONS` | `document_verifications` | `src/db/rls-guard.ts:15` |
 | `STAFF_ONLY` | `signed_document_notes` | `src/db/rls-guard.ts:113` |
-| `PACIENTE_ESCREVE` | `signed_document_receipts` (`insert`), `document_access_codes` (`insert`, `update`) | `src/db/rls-guard.ts:201-202` |
+| `PACIENTE_ESCREVE` | `signed_document_receipts` (`insert`), `document_access_codes` (`insert`, `update`) | `src/db/rls-guard.ts:207-208` |
 | `AUDIT_EXCEPTIONS` | `document_access_codes` | `src/db/audit-guard.ts:15` |
 | `SEM_CONTA_PERMITIDOS` | `src/modules/documentos/link-documento.ts` (sete arquivos desde o Plano 18) | `src/db/tenant.ts:39` |
 | `ENTIDADE_ROTULO` | `documentos` ("Documentos assinados"), `perfil_profissional` ("Perfil profissional"), `tentativa_assinatura` ("Tentativa de assinatura com código recusado") | `src/modules/plataforma/audit.ts:64-66` |
@@ -286,8 +286,8 @@ sempre por `signFileUrl` (5 min) com a URL nascendo no clique (303).
 |---|---|---|---|---|
 | `documento-pdf` | `prepararParaAssinatura`, `pedirNovoPdfDocumento` | PDF preparado (`gerarPdfDoDocumento`) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, documentoId }` |
 | `documento-digitalizado` | `receberDigitalizada` | PDF das fotos e assinatura (`montarPdfDigitalizado`) | 2 / 30↗ / 180 / 86 400 | `{ tenantId, documentoId, userId }` |
-| `expirar-documento-pdf` | cron `*/15 * * * *` (`src/worker/index.ts:223`) | PDF `pendente` há mais de 1 h → `falhou`; digitalização `recebendo`/`pendente` há mais de 1 h → `falhou`; base e fotos sem referência há mais de 1 h → apagados; ponteiros que sobraram num emitido → `soltarArquivosDoPreparo` | 1 / 60 / 300 / — | `{}` |
-| `agenda-limpeza` (existente) | cron `30 4 * * *` | Também apaga os códigos do link vencidos há mais de 1 dia (`limparCodigosDeDocumentoVencidos`); o log "limpeza da agenda pública" ganhou o campo `codigos` (`src/worker/index.ts:124-125`) | — | `{}` |
+| `expirar-documento-pdf` | cron `*/15 * * * *` (`src/worker/index.ts:243`) | PDF `pendente` há mais de 1 h → `falhou`; digitalização `recebendo`/`pendente` há mais de 1 h → `falhou`; base e fotos sem referência há mais de 1 h → apagados; ponteiros que sobraram num emitido → `soltarArquivosDoPreparo` | 1 / 60 / 300 / — | `{}` |
+| `agenda-limpeza` (existente) | cron `30 4 * * *` | Também apaga os códigos do link vencidos há mais de 1 dia (`limparCodigosDeDocumentoVencidos`); o log "limpeza da agenda pública" ganhou o campo `codigos` (`src/worker/index.ts:139-140`) | — | `{}` |
 | `documento-pdf-2` (Plano 22) | `prepararParaAssinatura`, `pedirNovoPdfDocumento` (o app **novo** só enfileira aqui: `FILA_DO_PDF_DO_DOCUMENTO`) | O mesmo `gerarPdfDoDocumento`; o worker novo consome as duas (`FILAS_DO_PDF_DO_DOCUMENTO`, §9.12.2) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, documentoId }` |
 | `documento-digitalizado-2` (Plano 22) | `receberDigitalizada` (`FILA_DA_DIGITALIZADA`) | O mesmo `montarPdfDigitalizado`; o worker novo consome as duas (`FILAS_DA_DIGITALIZADA`) | 2 / 30↗ / 180 / 86 400 | `{ tenantId, documentoId, userId }` |
 
@@ -622,7 +622,8 @@ de fonte em `src/worker/filas-documento-pdf.test.ts` (ignora `*.test.ts`, confer
   editor (`OrientacoesCampo`, com "Negrito", "Lista" e "Prévia") e a página do documento (`MarcacaoBlocos`,
   `src/components/marcacao-blocos.tsx`) montam componentes; `<`, `>`, `&`, links e tags ficam como texto. Só o conteúdo
   com `orientacoesFormato: 'marcacao'` é lido assim; a receita de antes do Plano 22 continua texto puro. Nenhum
-  `dangerouslySetInnerHTML` (guarda de texto em `marcacao-documento.test.ts`).
+  `dangerouslySetInnerHTML` (guarda de texto em `src/components/marcacao-blocos.test.ts`; o PDF com `<script>`, tags e links
+  literais em `marcacao-documento.test.ts`).
 - **Retificação:** conserva o tipo, todas as chaves e o `orientacoesFormato` (`semCopia`).
 
 ### 9.12.5 Itens salvos e modelos de prescrição (T10a, T10b, US-379, RN-393, RN-394, EP-D29, EP-D30)

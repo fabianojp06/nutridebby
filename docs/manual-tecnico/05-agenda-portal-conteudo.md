@@ -626,7 +626,7 @@ do paciente como ativos (também os desligados pela equipe ou pelo paciente, com
 refeições do plano publicado. Por isso ligar e religar não conferem o teto. A publicação do plano **não** é barrada: se o
 plano novo passar do teto, o worker corta, e a seção do painel avisa.
 
-**O job `lembretes-rotina`** (cron `* * * * *` em `src/worker/index.ts:115`; fila em `src/jobs/queues.ts:41`:
+**O job `lembretes-rotina`** (cron `* * * * *` em `src/worker/index.ts:116`; fila em `src/jobs/queues.ts:41`:
 `retryLimit: 0`, expira em 120 s; um job por vez):
 
 ```mermaid
