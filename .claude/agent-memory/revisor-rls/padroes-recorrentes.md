@@ -426,3 +426,8 @@ TRI-17-20 Tarefa A (gatilhos dos lembretes, 23/11/2026): limpa na lente banco. M
 - Exceção "a cascata da mãe apaga a filha" por `pg_trigger_depth() > 1` (RI cascade = profundidade 2): aceita QUALQUER DELETE
   feito de dentro de outro gatilho. Defesa mais estreita: `NOT EXISTS` da mãe (já apagada no snapshot do gatilho). Minor.
 - Paciente sem conta no banco = `app_current_user()` nulo (withTenant grava '' e assertContext recusa semConta com ator).
+
+Limpeza Minor P17-P20, revisão final (23/11/2026):
+- Gatilho novo que passa a recusar (42501) um INSERT/DELETE antes livre (criado_por = sessão, DELETE só worker/cascata):
+  a tarefa roda só a pasta do módulo; conferir com grep os INSERTs/DELETEs da tabela em TODOS os testes e sementes
+  (ficha/no-app, lgpd, exportacao, e2e-seed, carga) e na imagem antiga (expand/contract). Aqui estavam todos coerentes.
