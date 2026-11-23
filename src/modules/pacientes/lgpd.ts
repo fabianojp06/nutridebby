@@ -595,7 +595,7 @@ export async function anonimizarVencidos(
             // "excluir" de ator nulo. Manter esta ordem no rebase (os Planos 17 e 20 mexem neste trecho).
             if (r.length) await tx.delete(patientCadastro).where(eq(patientCadastro.patientId, id));
             // Plano 22 (§13.3, /code-review do PR 1): os exames ficam (prontuário), sem o texto livre das versões anteriores
-            // (justificativa) e das notas de interpretação — pela função do worker (0127), com o titular já anonimizado
+            // (justificativa) e das notas de interpretação — pela função do worker (0128), com o titular já anonimizado
             if (r.length) await tx.execute(sql`select app_anonimizar_exames_textos(${t.id}, ${id})`);
             // rodada 1 (T13): inscrições de push gravadas depois do pedido de exclusão também saem (D14: só as do vínculo)
             if (r.length) await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, id));
