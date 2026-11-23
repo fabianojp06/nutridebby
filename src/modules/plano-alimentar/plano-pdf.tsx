@@ -25,7 +25,11 @@ const s = StyleSheet.create({
   item: { marginLeft: 8 },
   sub: { marginLeft: 22, color: '#444444' },
   obs: { marginLeft: 8, color: '#444444', fontStyle: 'italic' },
-  rodape: { position: 'absolute', bottom: 20, left: 36, right: 36, fontSize: 8, color: '#666666', flexDirection: 'row', justifyContent: 'space-between' },
+  // SUS-99: o rodapé vai por `top` (com `bottom`, o `render` do número da página o desenhava fora da página e, acima de ~10
+  // páginas, o @react-pdf 4.9 quebrava com "unsupported number"). Premissa: `size="A4"` (841,89 pt de altura). A linha tem
+  // 14 pt (o `lineHeight: 1.4` vale sobre os 10 pt da página): 841,89 − 20 − 14 = 807,89, onde o `bottom: 20` a punha; o
+  // corpo termina em 841,89 − 48 (paddingBottom) = 793,89
+  rodape: { position: 'absolute', top: 807.89, left: 36, right: 36, fontSize: 8, color: '#666666', flexDirection: 'row', justifyContent: 'space-between' },
 });
 
 /** Helvetica padrão (WinAnsi): todo texto do PDF passa por aqui, inclusive o calculado (o "−" de "−11 kcal" vira "-"). */
