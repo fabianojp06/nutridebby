@@ -1,6 +1,6 @@
 import { and, asc, count, eq, gt, inArray, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { Db, Tx } from '@/db/client';
-import { appointments, notifications, patients, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow } from '@/db/schema';
+import { appointments, locaisAtendimento, notifications, patients, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow, type TipoDeLocal } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { renderEmail } from '@/email/templates';
 import type { EmailTransport } from '@/email/transport';
@@ -15,7 +15,10 @@ import { lerConexao } from './whatsapp/conexao';
 import { avisarSeChegou80, CONTA_COTA, contaCota, FORA_DA_COTA, usoDoMes } from './whatsapp/cota';
 import { digitosDoE164, type ProvedorWhatsapp, type ResultadoEnvio } from './whatsapp/provedor';
 
-export type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date };
+/** Plano 23 (US-402): o local da consulta, lido pelo worker junto com ela (nunca a sala: o link da consulta já é a cópia). */
+export type LocalDoEnvio = { nome: string; tipo: TipoDeLocal; endereco: string | null };
+/** `local`: opcional (os testes que montam o contexto à mão continuam valendo); nulo na consulta sem local. */
+export type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date; local?: LocalDoEnvio | null };
 export type Resultado =
   | { status: 'enviada'; providerMsgId?: string; providerJid?: string }
   | { status: 'ignorada'; motivo: MotivoIgnorada }
@@ -269,7 +272,14 @@ async function carregarContexto(ctx: TenantContext, tenant: TenantRow, n: Notifi
     async (tx) => {
       const [paciente] = await tx.select().from(patients).where(eq(patients.id, n.patientId));
       const [consulta] = n.appointmentId ? await tx.select().from(appointments).where(eq(appointments.id, n.appointmentId)) : [];
-      return { n, paciente, consulta: consulta ?? null, tenant, agora: deps.agora() };
+      // Plano 23: o nome, o tipo e o endereço do local (o worker lê a tabela; a sala fica de fora)
+      const [local] = consulta?.localId
+        ? await tx
+            .select({ nome: locaisAtendimento.nome, tipo: locaisAtendimento.tipo, endereco: locaisAtendimento.endereco })
+            .from(locaisAtendimento)
+            .where(eq(locaisAtendimento.id, consulta.localId))
+        : [];
+      return { n, paciente, consulta: consulta ?? null, tenant, agora: deps.agora(), local: local ? { nome: local.nome, tipo: local.tipo as TipoDeLocal, endereco: local.endereco } : null };
     },
     deps.db,
   );

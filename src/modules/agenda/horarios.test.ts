@@ -174,8 +174,8 @@ describe('ajudantes dos horários', () => {
   it('horariosVisiveis: ISO, dia curto e hora no fuso, na ordem', () => {
     const hs = gerarHorarios({ regras: [TERCA], bloqueios: [], ocupados: [], ...semana, ...SO_CONSULTORIO });
     expect(horariosVisiveis(hs.slice(0, 2), SP)).toEqual([
-      { inicio: '2026-10-20T11:00:00.000Z', dia: 'ter., 20/10', data: '2026-10-20', hora: '08:00', modalidades: ['presencial'] },
-      { inicio: '2026-10-20T12:00:00.000Z', dia: 'ter., 20/10', data: '2026-10-20', hora: '09:00', modalidades: ['presencial'] },
+      { inicio: '2026-10-20T11:00:00.000Z', dia: 'ter., 20/10', data: '2026-10-20', hora: '08:00', modalidades: ['presencial'], localId: CONSULTORIO.id },
+      { inicio: '2026-10-20T12:00:00.000Z', dia: 'ter., 20/10', data: '2026-10-20', hora: '09:00', modalidades: ['presencial'], localId: CONSULTORIO.id },
     ]);
   });
 });

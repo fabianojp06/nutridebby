@@ -93,13 +93,32 @@ export function dentroDoHorario(i: Intervalo, regras: Regra[], fuso: string): bo
   return regras.some((r) => r.diaSemana === a.diaSemana && minutosDe(r.inicio) <= a.minutos && fimMin > a.minutos && fimMin <= minutosDe(r.fim));
 }
 
-/** O que a tela mostra de um horário livre (nada além de intervalo e modalidade, D11). */
-export type HorarioVisivel = { inicio: string; dia: string; data: string; hora: string; modalidades: Modalidade[] };
+/**
+ * O que a tela mostra de um horário livre (nada além de intervalo, modalidade e local, D11). Plano 23 (AG-D60): o mesmo
+ * instante em dois locais são dois horários; a tela filtra pelo local escolhido.
+ */
+export type HorarioVisivel = { inicio: string; dia: string; data: string; hora: string; modalidades: Modalidade[]; localId: string };
 
-/** Horários livres para a tela do paciente: o instante em ISO (valor do formulário), o dia curto e a hora no fuso. */
+/**
+ * Plano 23 (US-403, RN-406): um local na escolha do portal, da página pública e do link — só o que a projeção
+ * `app_locais_para_agendamento` entrega de um local com agendamento pelo paciente (o endereço só com "Mostrar o endereço").
+ * Nunca a sala.
+ */
+export type LocalVisivel = { id: string; nome: string; tipo: TipoDeLocal; cidade: string | null; endereco: string | null };
+
+/** Horários livres para a tela do paciente: o instante em ISO (valor do formulário), o dia curto, a hora no fuso e o local. */
 export function horariosVisiveis(hs: Horario[], fuso: string): HorarioVisivel[] {
   return hs.map((h) => {
     const p = partesNoFuso(h.inicio, fuso);
-    return { inicio: h.inicio.toISOString(), dia: diaCurto(p.data), data: p.data, hora: p.hora, modalidades: h.modalidades };
+    return { inicio: h.inicio.toISOString(), dia: diaCurto(p.data), data: p.data, hora: p.hora, modalidades: h.modalidades, localId: h.localId };
   });
+}
+
+/**
+ * I-13: o local que a escolha abre marcado. O pedido (`?local=` ou o local da consulta que se remarca) vale se for um dos
+ * locais; senão, o primeiro local com horário na semana; senão, o primeiro da lista (principal primeiro).
+ */
+export function localInicial(locais: Pick<LocalVisivel, 'id'>[], horarios: Pick<HorarioVisivel, 'localId'>[], pedido: unknown): string | null {
+  if (typeof pedido === 'string' && locais.some((l) => l.id === pedido)) return pedido;
+  return locais.find((l) => horarios.some((h) => h.localId === l.id))?.id ?? locais[0]?.id ?? null;
 }

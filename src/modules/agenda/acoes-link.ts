@@ -5,12 +5,13 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { encryptionKey } from '@/lib/crypto';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { buscarTenant } from '@/modules/plataforma/tenant-status';
-import { horariosParaPaciente } from './agendamento-paciente';
+import { horariosParaPaciente, locaisDoAgendamento } from './agendamento-paciente';
 import { cancelarConsulta, confirmarPresenca, ConsultaMudouError, LinkRevogadoError, pedirRemarcacao, podeAlterarPeloPaciente, remarcarComoPaciente } from './cancelamento';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaNaoEncontradaError, STATUS_ATIVOS, type StatusConsulta } from './consultas';
 import { quandoComFuso } from './fuso';
-import { horariosVisiveis, type HorarioVisivel, type Modalidade } from './horarios';
+import { horariosVisiveis, type HorarioVisivel, type LocalVisivel, type Modalidade } from './horarios';
+import { localDaConsulta, localParaOPaciente } from './locais';
 import { chaveDosLinks, lerLinkConsulta, noInicioDoLink, normalizarEmailDoLink } from './link-consulta';
 
 /** Link que não serve (inválido, expirado ou indisponível): a mensagem é o texto da tela. */
@@ -26,13 +27,19 @@ export type EstadoLink =
       nutri: string;
       quando: string;
       modalidade: Modalidade;
-      local: string | null;
+      /** Plano 23 (US-402): o nome e o endereço do local da consulta (pela projeção, sem a sala); a antiga, o endereço do Perfil. */
+      local: { nome: string | null; endereco: string | null };
+      /** RN-406: o link da chamada só da própria consulta online ativa (a sala copiada); nulo em qualquer outro caso. */
+      linkChamada: string | null;
+      /** O local da consulta: a remarcação abre com ele (I-13). */
+      localId: string | null;
+      /** Os locais com agendamento pelo paciente, para a remarcação (sem a sala). */
+      locais: LocalVisivel[];
       status: StatusConsulta;
       ativa: boolean;
       podeAlterar: boolean;
       confirmada: boolean;
       pedidoRemarcacao: boolean;
-      temOnline: boolean;
       fuso: string;
     };
 
@@ -111,24 +118,36 @@ async function comoLink<T>(f: () => Promise<T>): Promise<T> {
 export async function abrirLinkConsulta(token: string, deps: DepsLink = {}): Promise<EstadoLink> {
   const r = await resolver(token, deps);
   if (!('tenant' in r)) return r;
-  const [c] = await withTenant(comoPaciente(r), (tx) => tx.select().from(appointments).where(eq(appointments.id, r.appointmentId)), r.db);
-  if (!c) return { estado: 'invalido' };
+  const lido = await withTenant(
+    comoPaciente(r),
+    async (tx) => {
+      const [c] = await tx.select().from(appointments).where(eq(appointments.id, r.appointmentId));
+      return c ? { c, local: c.localId ? await localDaConsulta(tx, c.id) : null } : null;
+    },
+    r.db,
+  );
+  if (!lido) return { estado: 'invalido' };
+  const { c } = lido;
   if (!noInicioDoLink(c.inicio, r.inicioDoLink)) return { estado: 'expirado' }; // movida entre as duas leituras
   if (c.inicio.getTime() <= r.agora.getTime()) return { estado: 'expirado' };
   const modalidade = c.modalidade as Modalidade;
   const ativa = STATUS_ATIVOS.includes(c.status as StatusConsulta);
+  const podeAlterar = ativa && podeAlterarPeloPaciente(c.inicio, r.tenant.cancelamentoMinH, r.agora);
   return {
     estado: 'ok',
     nutri: r.tenant.nomeExibicao,
     quando: quandoComFuso(c.inicio, r.tenant.fuso),
     modalidade,
-    local: modalidade === 'online' ? c.linkOnline : r.tenant.enderecoConsultorio,
+    local: localParaOPaciente(lido.local, c, r.tenant.enderecoConsultorio),
+    linkChamada: ativa && modalidade === 'online' ? c.linkOnline : null,
+    localId: c.localId,
+    // só quem pode remarcar precisa da escolha (uma leitura a menos no link que só mostra)
+    locais: podeAlterar ? await locaisDoAgendamento(r.tenant, { db: r.db }) : [],
     status: c.status as StatusConsulta,
     ativa,
-    podeAlterar: ativa && podeAlterarPeloPaciente(c.inicio, r.tenant.cancelamentoMinH, r.agora),
+    podeAlterar,
     confirmada: c.status === 'confirmada',
     pedidoRemarcacao: !!c.pedidoRemarcacaoEm,
-    temOnline: !!r.tenant.linkOnlinePadrao,
     fuso: r.tenant.fuso,
   };
 }
@@ -155,7 +174,7 @@ export async function cancelarPeloLink(token: string, deps: DepsLink = {}): Prom
   await comoLink(() => cancelarConsulta(comoPaciente(r, deps.ip), r.tenant, r.appointmentId, { por: 'paciente' }, depsDaAcao(r, deps)));
 }
 
-export async function remarcarPeloLink(token: string, input: { inicio: unknown; modalidade: unknown }, deps: DepsLink = {}): Promise<{ quando: string }> {
+export async function remarcarPeloLink(token: string, input: { inicio: unknown; localId: unknown }, deps: DepsLink = {}): Promise<{ quando: string }> {
   const r = await exigir(token, deps);
   const novo = await comoLink(() => remarcarComoPaciente(comoPaciente(r, deps.ip), r.tenant, r.appointmentId, input, depsDaAcao(r, deps)));
   return { quando: quandoComFuso(novo.inicio, r.tenant.fuso) };

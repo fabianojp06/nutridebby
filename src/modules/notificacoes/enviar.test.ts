@@ -1,12 +1,12 @@
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { consultaDireta, em, localPrincipal, SP, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, localPrincipal, novoLocal, SP, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { transporteFalso, type TransporteFalso } from '../../../test/email';
 import { depsDeEnvio } from '../../../test/notificacoes';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, notifications, patients, pushSubscriptions, tenants } from '@/db/schema';
+import { appointments, locaisAtendimento, notifications, patients, pushSubscriptions, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { encryptionKey } from '@/lib/crypto';
@@ -293,6 +293,23 @@ describe('envio das notificações (RN-05, US-034, D6)', () => {
     const pendentes = async (T: TenantDeTeste) => (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.tipo, 'consulta_marcada'), eq(notifications.status, 'pendente'))), app.db)).length;
     expect(await pendentes(pequeno)).toBe(0);
     expect(await pendentes(grande)).toBe(46 - 38);
+  });
+});
+
+describe('Plano 23 (T4): o worker carrega o local da consulta (US-402)', () => {
+  it('"Consulta marcada" num local leva o endereço dele, não o do Perfil', async () => {
+    const T = await novoTenant(app.db);
+    await app.db.update(tenants).set({ enderecoConsultorio: 'Rua do Perfil, 1' }).where(eq(tenants.id, T.tenantId));
+    await localPrincipal(app.db, T.ctx); // o "Consultório" principal antes (o `marcada` o procura)
+    const centro = await novoLocal(app.db, T.ctx, { nome: 'Clínica Centro' });
+    await withTenant(T.ctx, (tx) => tx.update(locaisAtendimento).set({ endereco: 'Av. Central, 500' }).where(eq(locaisAtendimento.id, centro)), app.db);
+    const { ana } = await marcada(T, { localId: centro });
+    const d = deps(marcadaEm);
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    const [e] = d.transport.enviados;
+    expect(e.to).toBe(ana.email);
+    expect(e.text).toContain('Endereço: Av. Central, 500');
+    expect(e.text).not.toContain('Rua do Perfil');
   });
 });
 

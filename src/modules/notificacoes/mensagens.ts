@@ -5,7 +5,7 @@ import { urlDoApp } from '@/lib/url-do-app';
 import { partesNoFuso, quandoComFuso, rotuloDoFuso } from '@/modules/agenda/fuso';
 import { assinarLinkConsulta, urlDaConsulta } from '@/modules/agenda/link-consulta';
 import { telaDoPortal } from '@/modules/portal/link-portal';
-import type { ContextoEnvio } from './enviar';
+import type { ContextoEnvio, LocalDoEnvio } from './enviar';
 
 export const primeiroNome = (nome: string) => nome.trim().split(/\s+/)[0] || nome;
 
@@ -13,15 +13,22 @@ export const primeiroNome = (nome: string) => nome.trim().split(/\s+/)[0] || nom
 export const ehHoje = (c: { consulta: AppointmentRow; tenant: TenantRow; agora: Date }) =>
   partesNoFuso(c.agora, c.tenant.fuso).data === partesNoFuso(c.consulta.inicio, c.tenant.fuso).data;
 
-/** Dados comuns às mensagens de uma consulta (sem link: só o e-mail e o push levam o link assinado, `linkDaConsulta`). */
-export function dadosDaConsulta(c: { consulta: AppointmentRow; tenant: TenantRow }) {
+/**
+ * Dados comuns às mensagens de uma consulta (sem link: só o e-mail e o push levam o link assinado, `linkDaConsulta`).
+ * `local`: o endereço (presencial) ou o link da própria consulta (online). Plano 23 (RN-407, US-402): a consulta com local
+ * leva o endereço do local (`ContextoEnvio.local`, lido pelo worker); a antiga, sem local, o endereço do Perfil. O local sem
+ * endereço não leva endereço — nunca o do Perfil no lugar do local. O nome do local não entra aqui (o WhatsApp e o push
+ * não o levam).
+ */
+export function dadosDaConsulta(c: { consulta: AppointmentRow; tenant: TenantRow; local?: LocalDoEnvio | null }) {
   const modalidade = c.consulta.modalidade as 'presencial' | 'online';
+  const endereco = c.consulta.localId && c.local ? c.local.endereco : c.tenant.enderecoConsultorio;
   return {
     nutri: c.tenant.nomeExibicao,
     quando: quandoComFuso(c.consulta.inicio, c.tenant.fuso),
     hora: partesNoFuso(c.consulta.inicio, c.tenant.fuso).hora,
     modalidade,
-    local: modalidade === 'online' ? c.consulta.linkOnline : c.tenant.enderecoConsultorio,
+    local: modalidade === 'online' ? c.consulta.linkOnline : endereco,
   };
 }
 
@@ -39,7 +46,7 @@ export function linkDaConsulta(c: { consulta: AppointmentRow; tenant: TenantRow;
 export function emailDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; chaveLinks: Buffer }): EmailMessage | null {
   const evento = c.n.tipo;
   if (!c.consulta || (evento !== 'lembrete_24h' && evento !== 'lembrete_2h' && evento !== 'consulta_marcada' && evento !== 'consulta_cancelada' && evento !== 'resposta_remarcar')) return null;
-  const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant });
+  const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant, local: c.local });
   if (evento === 'resposta_remarcar') {
     const link = linkDaConsulta({ consulta: c.consulta, tenant: c.tenant, paciente: c.paciente }, deps);
     return { tipo: 'consulta', evento, para: c.paciente.email, nome: primeiroNome(c.paciente.nome), ...d, link, prazoH: c.tenant.cancelamentoMinH };
@@ -87,7 +94,7 @@ export function textoWhatsapp(c: ContextoEnvio): string | null {
   if (c.n.tipo === 'resposta_confirmacao') return 'Presença confirmada. Até lá!';
   if (c.n.tipo === 'convite_paciente') return textoConviteWhatsapp({ nome: c.paciente.nome, nutri: c.tenant.nomeExibicao, email: c.paciente.email });
   if (!c.consulta) return null;
-  const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant });
+  const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant, local: c.local }); // o endereço do local, nunca o nome nem a sala
   const nome = primeiroNome(c.paciente.nome);
   const email = emailMascarado(c.paciente.email);
   const local = d.modalidade === 'online' ? `O link da chamada foi enviado para o seu e-mail ${email}.` : d.local ? `Endereço: ${d.local}` : null;

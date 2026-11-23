@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { abrirLinkConsulta, horariosDoLink, MENSAGEM_DO_LINK } from '@/modules/agenda/acoes-link';
 import { semanaDaJanela } from '@/modules/agenda/agendamento-paciente';
 import { MSG_AGENDA, ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
 import { inicioDoDia, somarDias } from '@/modules/agenda/fuso';
+import { localInicial } from '@/modules/agenda/horarios';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { AcoesConsulta } from './acoes';
 
@@ -33,17 +33,25 @@ export default async function ConsultaPeloLink({ params, searchParams }: PagePro
   return (
     <main className="mx-auto max-w-2xl space-y-4 p-6">
       <h1 className="text-2xl font-semibold">Sua consulta</h1>
-      <p>{`Com ${e.nutri} · ${e.quando} · ${ROTULO_MODALIDADE[e.modalidade]}`}</p>
-      {e.local && <p className="text-sm">{e.modalidade === 'online' ? `Link da chamada: ${e.local}` : `Endereço: ${e.local}`}</p>}
+      <p>{`Com ${e.nutri} · ${e.quando} · ${ROTULO_MODALIDADE[e.modalidade]}${e.local.nome ? ` · ${e.local.nome}` : ''}`}</p>
+      {e.local.endereco && <p className="text-sm">{`Endereço: ${e.local.endereco}`}</p>}
+      {e.linkChamada && <p className="text-sm">{`Link da chamada: ${e.linkChamada}`}</p>}
       <p role="status">{SITUACAO[e.status]}</p>
-      {e.podeAlterar && (
-        <nav aria-label="Semana" className="flex gap-3 text-sm">
-          {semana > primeira && <Link href={`/consulta/${token}?semana=${somarDias(semana, -7)}`} className="underline">Semana anterior</Link>}
-          <span>{`${formatarData(semana)} a ${formatarData(somarDias(semana, 6))}`}</span>
-          {semana < ultima && <Link href={`/consulta/${token}?semana=${somarDias(semana, 7)}`} className="underline">Próxima semana</Link>}
-        </nav>
-      )}
-      <AcoesConsulta token={token} ativa={e.ativa} confirmada={e.confirmada} podeAlterar={e.podeAlterar} pedidoRemarcacao={e.pedidoRemarcacao} modalidade={e.modalidade} temOnline={e.temOnline} horarios={horarios} />
+      <AcoesConsulta
+        token={token}
+        ativa={e.ativa}
+        confirmada={e.confirmada}
+        podeAlterar={e.podeAlterar}
+        pedidoRemarcacao={e.pedidoRemarcacao}
+        locais={e.locais}
+        localInicial={localInicial(e.locais, horarios, typeof sp.local === 'string' ? sp.local : e.localId)}
+        semana={{
+          rotulo: `${formatarData(semana)} a ${formatarData(somarDias(semana, 6))}`,
+          anterior: semana > primeira ? somarDias(semana, -7) : null,
+          proxima: semana < ultima ? somarDias(semana, 7) : null,
+        }}
+        horarios={horarios}
+      />
     </main>
   );
 }

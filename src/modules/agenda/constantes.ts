@@ -90,6 +90,10 @@ export const MSG_PUBLICO = {
   enviado: (email: string) => `Enviamos um código de 6 dígitos para ${email}. Ele vale por 10 minutos.`,
   agendada: (quando: string) => `Consulta marcada para ${quando}. Enviamos a confirmação para o seu e-mail.`,
   titulo: (nome: string) => `Agendar consulta com ${nome}`,
+  /** Plano 23 (§6.2, "Portal e página pública"): a escolha do local (portal, página pública e link). */
+  ondeAtender: 'Onde você quer ser atendido?',
+  /** Plano 23 (§6.2, US-403): o cabeçalho da página pública — o CRN como gravado; sem CRN, sem a última parte. */
+  cabecalho: (nome: string, crn: string | null) => (crn ? `${nome} · Nutricionista · ${crn}` : `${nome} · Nutricionista`),
 } as const;
 
 /** Plano 23 (US-400, spec §6.2): rótulos do campo "Tipo" do local. */

@@ -14,7 +14,7 @@ import { linkSugerido, locaisAtivos, locaisParaAgendamento } from './locais';
 
 export type StatusConsulta = 'agendada' | 'confirmada' | 'cancelada' | 'realizada' | 'faltou';
 export type AvisoAgenda = 'fora_do_horario' | 'dentro_de_bloqueio';
-export type TenantAgenda = Pick<TenantRow, 'id' | 'fuso' | 'nomeExibicao' | 'linkOnlinePadrao' | 'enderecoConsultorio' | 'antecedenciaMinH' | 'cancelamentoMinH' | 'status' | 'agendamentoPublicoAtivo'>;
+export type TenantAgenda = Pick<TenantRow, 'id' | 'fuso' | 'nomeExibicao' | 'enderecoConsultorio' | 'antecedenciaMinH' | 'cancelamentoMinH' | 'status' | 'agendamentoPublicoAtivo'>;
 export type Consulta = {
   id: string;
   patientId: string;

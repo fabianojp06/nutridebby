@@ -16,7 +16,6 @@ export const tenantAgenda = (T: TenantDeTeste, extra: Partial<TenantAgenda> = {}
   id: T.tenantId,
   fuso: SP,
   nomeExibicao: T.tenant.nomeExibicao,
-  linkOnlinePadrao: null,
   enderecoConsultorio: 'Rua das Flores, 10',
   antecedenciaMinH: 12,
   cancelamentoMinH: 24,
@@ -68,11 +67,40 @@ export async function novoLocal(
  * a imagem anterior ao PR 2 as grava) e valem pela RN-410a; o consultório ganha antes o "Consultório" principal. Horário
  * online só com um local online ativo (`novoLocal(…, { tipo: 'online' })`).
  */
-export async function semanaToda(db: Db, ctx: TenantContext, extra: { duracaoMin?: number; modalidade?: string } = {}) {
-  await localPrincipal(db, ctx);
+export async function semanaToda(db: Db, ctx: TenantContext, extra: { duracaoMin?: number; modalidade?: string } = {}): Promise<string> {
+  const principal = await localPrincipal(db, ctx);
   await withTenant(ctx, (tx) =>
     tx.execute(sql`insert into availability_rules (tenant_id, dia_semana, inicio, fim, duracao_min, modalidade)
       select ${ctx.tenantId}, d, '08:00', '20:00', ${extra.duracaoMin ?? 60}, ${extra.modalidade ?? 'ambas'} from generate_series(0, 6) d`), db);
+  return principal;
+}
+
+/** Plano 23 (T4): todos os dias, 08:00–20:00, consultas de 60 min, num local (a modalidade é o tipo dele). */
+export async function semanaNoLocal(db: Db, ctx: TenantContext, localId: string, tipo: TipoDeLocal = 'presencial', duracaoMin = 60): Promise<void> {
+  await withTenant(ctx, (tx) =>
+    tx.execute(sql`insert into availability_rules (tenant_id, dia_semana, inicio, fim, duracao_min, modalidade, local_id)
+      select ${ctx.tenantId}, d, '08:00', '20:00', ${duracaoMin}, ${tipo}, ${localId} from generate_series(0, 6) d`), db);
+}
+
+/**
+ * Plano 23 (T4): o "entre a tela e o envio". Um `Db` que, depois da `depois`-ésima transação terminar, roda `acao` (por
+ * outra conexão) antes de deixar a próxima começar. `transacoes()` conta todas; `rodou()` diz se `acao` rodou.
+ */
+export function dbQueMudaNoMeio(db: Db, depois: number, acao: () => Promise<unknown>): { db: Db; transacoes: () => number; rodou: () => boolean } {
+  let n = 0;
+  let rodou = false;
+  const transaction = (async (...a: Parameters<Db['transaction']>) => {
+    try {
+      return await db.transaction(...a);
+    } finally {
+      n++;
+      if (n === depois) {
+        await acao();
+        rodou = true;
+      }
+    }
+  }) as Db['transaction'];
+  return { db: Object.assign(Object.create(db) as Db, { transaction }), transacoes: () => n, rodou: () => rodou };
 }
 
 /** Consulta gravada direto (sem regra, sem lembrete): para preparar cenários. */

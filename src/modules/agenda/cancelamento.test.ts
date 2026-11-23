@@ -52,11 +52,11 @@ describe('RN-04: prazo do paciente', () => {
 describe('remarcar e cancelar (US-033)', () => {
   it('dentro do prazo (30 h antes): a antiga fica "cancelada" pelo paciente, a nova nasce ligada a ela; lembretes trocados; nutricionista avisada', async () => {
     const T = await novoTenant(app.db);
-    await semanaToda(app.db, T.ctx);
+    const L = await semanaToda(app.db, T.ctx);
     const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });
     const ctx = ctxPaciente(T.tenantId, ana.id);
-    const { id } = await agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em('2026-10-16', '14:00').toISOString(), modalidade: 'presencial' }, deps(em('2026-10-10', '09:00')));
-    const novo = await remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-17', '10:00').toISOString(), modalidade: 'presencial' }, deps(em('2026-10-15', '08:00')));
+    const { id } = await agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em('2026-10-16', '14:00').toISOString(), localId: L }, deps(em('2026-10-10', '09:00')));
+    const novo = await remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-17', '10:00').toISOString(), localId: L }, deps(em('2026-10-15', '08:00')));
     expect(await consulta(T, id)).toMatchObject({ status: 'cancelada', canceladoPor: 'paciente' });
     expect(await consulta(T, novo.id)).toMatchObject({ status: 'agendada', origem: 'paciente', remarcadaDe: id, inicio: em('2026-10-17', '10:00') });
     expect((await lembretes(T, id)).filter((n) => n.tipo.startsWith('lembrete')).every((n) => n.status === 'ignorada' && n.motivoIgnorada === 'consulta_cancelada')).toBe(true);
@@ -66,22 +66,22 @@ describe('remarcar e cancelar (US-033)', () => {
 
   it('remarcar para um horário que encosta ou se sobrepõe à própria consulta funciona (ela não ocupa a si mesma)', async () => {
     const T = await novoTenant(app.db);
-    await semanaToda(app.db, T.ctx, { duracaoMin: 30 });
+    const L = await semanaToda(app.db, T.ctx, { duracaoMin: 30 });
     const ana = await novoPaciente(app.db, T.ctx);
     const ctx = ctxPaciente(T.tenantId, ana.id);
-    const { id } = await agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em('2026-10-16', '14:00').toISOString(), modalidade: 'presencial' }, deps(em('2026-10-10', '09:00')));
-    await expect(remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-16', '14:00').toISOString(), modalidade: 'presencial' }, deps(em('2026-10-11', '09:00')))).resolves.toMatchObject({ inicio: em('2026-10-16', '14:00') });
+    const { id } = await agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em('2026-10-16', '14:00').toISOString(), localId: L }, deps(em('2026-10-10', '09:00')));
+    await expect(remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-16', '14:00').toISOString(), localId: L }, deps(em('2026-10-11', '09:00')))).resolves.toMatchObject({ inicio: em('2026-10-16', '14:00') });
   });
 
   it('fora do prazo (20 h antes): "Para alterar, fale com sua nutricionista." — a nutricionista pode a qualquer momento', async () => {
     const T = await novoTenant(app.db);
-    await semanaToda(app.db, T.ctx);
+    const L = await semanaToda(app.db, T.ctx);
     const ana = await novoPaciente(app.db, T.ctx);
     const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '14:00'));
     const ctx = ctxPaciente(T.tenantId, ana.id);
     const vinteHorasAntes = deps(em('2026-10-15', '18:00'));
     expect(await erro(cancelarConsulta(ctx, tenantAgenda(T), id, { por: 'paciente' }, vinteHorasAntes))).toEqual({ geral: MSG_AGENDA.foraDoPrazo });
-    expect(await erro(remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-20', '10:00').toISOString(), modalidade: 'presencial' }, vinteHorasAntes))).toEqual({ geral: MSG_AGENDA.foraDoPrazo });
+    expect(await erro(remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-20', '10:00').toISOString(), localId: L }, vinteHorasAntes))).toEqual({ geral: MSG_AGENDA.foraDoPrazo });
     await cancelarConsulta(T.ctx, tenantAgenda(T), id, { por: 'nutri', motivo: '  Imprevisto  ' }, vinteHorasAntes);
     expect(await consulta(T, id)).toMatchObject({ status: 'cancelada', canceladoPor: 'nutri', motivoCancelamento: 'Imprevisto' });
     const aviso = (await lembretes(T, id)).filter((n) => n.tipo === 'consulta_cancelada');
@@ -124,12 +124,12 @@ describe('remarcar e cancelar (US-033)', () => {
 
   it('revisão final: remarcar numa corrida no EXCLUDE que vira 40P01 → repete uma vez: "Esse horário acabou de ser ocupado. Escolha outro."; a antiga continua marcada', async () => {
     const T = await novoTenant(app.db);
-    await semanaToda(app.db, T.ctx);
+    const L = await semanaToda(app.db, T.ctx);
     const [ana, bia] = [await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' }), await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' })];
     const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-20', '09:00'), 60, { origem: 'paciente' });
     const novo = em('2026-10-16', '15:00');
     const err = await perdeDeadlockNoBanco({ app: app.pool, owner: owner.pool }, T, bia.id, [{ inicio: novo, minutos: 30 }, { inicio: em('2026-10-16', '15:30'), minutos: 30 }], () =>
-      remarcarComoPaciente(ctxPaciente(T.tenantId, ana.id), tenantAgenda(T), id, { inicio: novo.toISOString(), modalidade: 'presencial' }, deps(em('2026-10-14', '10:00'))),
+      remarcarComoPaciente(ctxPaciente(T.tenantId, ana.id), tenantAgenda(T), id, { inicio: novo.toISOString(), localId: L }, deps(em('2026-10-14', '10:00'))),
     );
     expect(err, inspect(err)).toBeInstanceOf(ConsultaError);
     expect((err as ConsultaError).erros).toEqual({ inicio: MSG_AGENDA.ocupado });
@@ -160,12 +160,12 @@ describe('remarcar e cancelar (US-033)', () => {
     const umaConexao = new Pool({ connectionString: inject('appDatabaseUrl'), max: 1 });
     try {
       const T = await novoTenant(app.db);
-      await semanaToda(app.db, T.ctx);
+      const L = await semanaToda(app.db, T.ctx);
       const ana = await novoPaciente(app.db, T.ctx);
       const ctx = ctxPaciente(T.tenantId, ana.id);
-      const { id } = await agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em('2026-10-16', '14:00').toISOString(), modalidade: 'presencial' }, deps(em('2026-10-10', '09:00')));
+      const { id } = await agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em('2026-10-16', '14:00').toISOString(), localId: L }, deps(em('2026-10-10', '09:00')));
       const db1 = drizzle({ client: umaConexao, schema });
-      await expect(remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-17', '10:00').toISOString(), modalidade: 'presencial' }, { db: db1, now: em('2026-10-11', '09:00'), appUrl: 'http://localhost:3000' })).resolves.toMatchObject({ inicio: em('2026-10-17', '10:00') });
+      await expect(remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-17', '10:00').toISOString(), localId: L }, { db: db1, now: em('2026-10-11', '09:00'), appUrl: 'http://localhost:3000' })).resolves.toMatchObject({ inicio: em('2026-10-17', '10:00') });
     } finally {
       await umaConexao.end();
     }
@@ -174,7 +174,7 @@ describe('remarcar e cancelar (US-033)', () => {
   it('rodada 1 (RN-08, US-018): paciente arquivado, bloqueado ou anonimizado não confirma, não pede remarcação, não cancela nem remarca', async () => {
     for (const mudanca of [{ status: 'arquivado' }, { status: 'bloqueado' }, { anonimizadoEm: em('2026-10-01', '09:00') }]) {
       const T = await novoTenant(app.db);
-      await semanaToda(app.db, T.ctx);
+      const L = await semanaToda(app.db, T.ctx);
       const ana = await novoPaciente(app.db, T.ctx);
       const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '14:00'));
       await withTenant(T.ctx, (tx) => tx.update(patients).set(mudanca).where(eq(patients.id, ana.id)), app.db);
@@ -183,7 +183,7 @@ describe('remarcar e cancelar (US-033)', () => {
       expect(await confirmarPresenca(ctx, id, 'whatsapp', d), JSON.stringify(mudanca)).toBe('nao_confirmavel');
       expect(await pedirRemarcacao(ctx, tenantAgenda(T), id, d)).toBe(false);
       expect(await erro(cancelarConsulta(ctx, tenantAgenda(T), id, { por: 'paciente' }, d))).toEqual({ geral: MSG_AGENDA.foraDoPrazo });
-      await expect(remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-17', '10:00').toISOString(), modalidade: 'presencial' }, d)).rejects.toSatisfy(
+      await expect(remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-17', '10:00').toISOString(), localId: L }, d)).rejects.toSatisfy(
         (e: unknown) => e instanceof PacienteBloqueadoError || (e instanceof ConsultaError && e.erros.geral === MSG_AGENDA.naoAgendavel),
       );
       expect(await consulta(T, id)).toMatchObject({ status: 'agendada', confirmadaVia: null, pedidoRemarcacaoEm: null });
@@ -230,7 +230,7 @@ describe('remarcar e cancelar (US-033)', () => {
 
   it('revisão da T5 (D20): com o início do link, a consulta que mudou de horário depois do link não é confirmada, cancelada, remarcada nem recebe pedido — nada muda', async () => {
     const T = await novoTenant(app.db);
-    await semanaToda(app.db, T.ctx);
+    const L = await semanaToda(app.db, T.ctx);
     const ana = await novoPaciente(app.db, T.ctx);
     const id = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '14:00'));
     const ctx = ctxPaciente(T.tenantId, ana.id);
@@ -238,7 +238,7 @@ describe('remarcar e cancelar (US-033)', () => {
     await expect(confirmarPresenca(ctx, id, 'link', d)).rejects.toBeInstanceOf(ConsultaMudouError);
     await expect(pedirRemarcacao(ctx, tenantAgenda(T), id, d)).rejects.toBeInstanceOf(ConsultaMudouError);
     await expect(cancelarConsulta(ctx, tenantAgenda(T), id, { por: 'paciente' }, d)).rejects.toBeInstanceOf(ConsultaMudouError);
-    await expect(remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-17', '10:00').toISOString(), modalidade: 'presencial' }, d)).rejects.toBeInstanceOf(ConsultaMudouError);
+    await expect(remarcarComoPaciente(ctx, tenantAgenda(T), id, { inicio: em('2026-10-17', '10:00').toISOString(), localId: L }, d)).rejects.toBeInstanceOf(ConsultaMudouError);
     expect(await consulta(T, id)).toMatchObject({ status: 'agendada', confirmadaVia: null, pedidoRemarcacaoEm: null });
     expect(await consultasDo(T, ana.id)).toHaveLength(1);
     expect(await confirmarPresenca(ctx, id, 'link', { ...d, inicioDoLink: em('2026-10-16', '14:00') })).toBe('confirmada'); // o início atual vale

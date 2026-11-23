@@ -17,11 +17,13 @@ export const metadata: Metadata = { title: 'Agendar consulta' };
 /**
  * US-032 / RN-16: página pública de agendamento (sem login). Só o nome da nutricionista e os horários livres da semana
  * (D11); `?semana` fica presa à janela do paciente (12 h a 60 dias). Conta suspensa ou página desligada não mostram horário.
+ * Plano 23 (US-403, I-13): o cabeçalho com o CRN e a escolha do local (só com mais de um); `?local=` é só o valor inicial.
+ * Nada de ocupação, bloqueio, sala, preço ou local arquivado.
  */
 export default async function PaginaPublica({ params, searchParams }: PageProps<'/n/[slug]'>) {
   const { slug } = await params;
   const sp = await searchParams;
-  const p = await carregarPaginaPublica(slug, { semana: sp.semana });
+  const p = await carregarPaginaPublica(slug, { semana: sp.semana, local: sp.local });
   if (p.estado === 'nao_encontrada') notFound();
   if (p.estado === 'suspensa') {
     return (
@@ -43,6 +45,7 @@ export default async function PaginaPublica({ params, searchParams }: PageProps<
   return (
     <main className="mx-auto max-w-2xl space-y-4 p-6">
       <h1 className="text-2xl font-semibold">{MSG_PUBLICO.titulo(p.nome)}</h1>
+      <p>{MSG_PUBLICO.cabecalho(p.cabecalho.nome, p.cabecalho.crn)}</p>
       <p>
         <Link href={telaDoPortal('/p/agenda', p.tenantId)} className="underline">
           Entrar (já sou paciente)
@@ -51,8 +54,8 @@ export default async function PaginaPublica({ params, searchParams }: PageProps<
       <AgendarForm
         slug={slug}
         siteKey={getEnv().TURNSTILE_SITE_KEY}
-        modalidadeInicial={sp.modalidade === 'online' && p.temOnline ? 'online' : 'presencial'}
-        temOnline={p.temOnline}
+        locais={p.locais}
+        localInicial={p.localInicial}
         semana={{
           rotulo: `${formatarData(p.semana)} a ${formatarData(somarDias(p.semana, 6))}`,
           anterior: p.semana > p.primeira ? somarDias(p.semana, -7) : null,

@@ -22,7 +22,7 @@ function tratar(e: unknown): AgendaState {
 export async function agendarAction(_: AgendaState, formData: FormData): Promise<AgendaState> {
   const { ctx, tenant } = await requirePaciente('/p/agenda/nova');
   try {
-    await agendarComoPaciente(ctx, tenant, { inicio: formData.get('inicio'), modalidade: formData.get('modalidade') });
+    await agendarComoPaciente(ctx, tenant, { inicio: formData.get('inicio'), localId: formData.get('localId') });
   } catch (e) {
     return tratar(e);
   }
@@ -61,7 +61,7 @@ export async function remarcarAction(id: string, _: AgendaState, formData: FormD
   const { ctx, tenant } = await requirePaciente(`/p/agenda/${id}`);
   let novo: { id: string };
   try {
-    novo = await remarcarComoPaciente(ctx, tenant, id, { inicio: formData.get('inicio'), modalidade: formData.get('modalidade') });
+    novo = await remarcarComoPaciente(ctx, tenant, id, { inicio: formData.get('inicio'), localId: formData.get('localId') });
   } catch (e) {
     return tratar(e);
   }

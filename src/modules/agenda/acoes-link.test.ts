@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { consultaDireta, em, localPrincipal, semanaToda, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, dbQueMudaNoMeio, em, localPrincipal, novoLocal, semanaNoLocal, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, auditLog, patients, tenants, user } from '@/db/schema';
+import { appointments, auditLog, locaisAtendimento, patients, tenants, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { abrirLinkConsulta, avisarRemarcacaoPeloLink, cancelarPeloLink, confirmarPeloLink, horariosDoLink, LinkError, MENSAGEM_DO_LINK, remarcarPeloLink, retornoDaConfirmacao } from './acoes-link';
@@ -35,13 +35,13 @@ const indisponivel = (e: unknown) => e instanceof LinkError && e.message === MSG
 const expirado = (e: unknown) => e instanceof LinkError && e.message === MSG_AGENDA.linkExpirado;
 const invalido = (e: unknown) => e instanceof LinkError && e.message === MSG_AGENDA.linkInvalido;
 
-async function cenario() {
+async function cenario(extra: Partial<typeof appointments.$inferInsert> = {}) {
   const T = await novoTenant(app.db, 'Debby Silva');
-  await semanaToda(app.db, T.ctx);
+  const L = await semanaToda(app.db, T.ctx);
   const ana = await novoPaciente(app.db, T.ctx);
   const inicio = em('2026-10-16', '14:00');
-  const id = await consultaDireta(app.db, T.ctx, ana.id, inicio);
-  return { T, ana, id, token: assinarLinkConsulta({ tenantId: T.tenantId, appointmentId: id, inicio, email: ana.email }, chave) };
+  const id = await consultaDireta(app.db, T.ctx, ana.id, inicio, 60, extra);
+  return { T, L, ana, id, token: assinarLinkConsulta({ tenantId: T.tenantId, appointmentId: id, inicio, email: ana.email }, chave) };
 }
 const lerConsulta = async (T: Awaited<ReturnType<typeof cenario>>['T'], id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.id, id)), app.db))[0];
 
@@ -56,7 +56,7 @@ describe('link da consulta (D20, US-033, US-035)', () => {
   it('abre com nutricionista, quando (com fuso) e o que pode fazer; o GET não muda nada', async () => {
     const { T, id, token } = await cenario();
     expect(await abrirLinkConsulta(token, deps(em('2026-10-14', '09:00')))).toMatchObject({
-      estado: 'ok', nutri: 'Debby Silva', quando: 'sex., 16/10/2026 às 14:00 (horário de Brasília)', modalidade: 'presencial', local: null, ativa: true, podeAlterar: true, confirmada: false,
+      estado: 'ok', nutri: 'Debby Silva', quando: 'sex., 16/10/2026 às 14:00 (horário de Brasília)', modalidade: 'presencial', local: { nome: null, endereco: null }, linkChamada: null, localId: null, ativa: true, podeAlterar: true, confirmada: false,
     });
     expect((await lerConsulta(T, id)).status).toBe('agendada');
     expect((await abrirLinkConsulta(token, deps(em('2026-10-16', '09:00')))) as { podeAlterar: boolean }).toMatchObject({ podeAlterar: false });
@@ -82,10 +82,10 @@ describe('link da consulta (D20, US-033, US-035)', () => {
   });
 
   it('remarcar pelo link: os horários incluem o da própria consulta; a nova vale; dentro de 24 h, recusa', async () => {
-    const { token } = await cenario();
+    const { token, L } = await cenario();
     const hs = await horariosDoLink(token, em('2026-10-16', '00:00'), em('2026-10-17', '00:00'), deps(em('2026-10-14', '09:00')));
     expect(hs.map((h) => h.hora)).toContain('14:00');
-    expect(await remarcarPeloLink(token, { inicio: em('2026-10-16', '16:00').toISOString(), modalidade: 'presencial' }, deps(em('2026-10-14', '09:00')))).toEqual({ quando: 'sex., 16/10/2026 às 16:00 (horário de Brasília)' });
+    expect(await remarcarPeloLink(token, { inicio: em('2026-10-16', '16:00').toISOString(), localId: L }, deps(em('2026-10-14', '09:00')))).toEqual({ quando: 'sex., 16/10/2026 às 16:00 (horário de Brasília)' });
     const outro = await cenario();
     await expect(cancelarPeloLink(outro.token, deps(em('2026-10-16', '09:00')))).rejects.toSatisfy((e: unknown) => e instanceof ConsultaError && e.erros.geral === MSG_AGENDA.foraDoPrazo);
   });
@@ -101,7 +101,7 @@ describe('link da consulta (D20, US-033, US-035)', () => {
 
   it('rodada 1 (RN-08, US-018): paciente arquivado, bloqueado ou anonimizado → link "indisponivel"; confirmar, cancelar, remarcar e avisar recusam (nunca 500) e nada muda', async () => {
     for (const mudanca of [{ status: 'arquivado' }, { status: 'bloqueado' }, { anonimizadoEm: em('2026-10-01', '09:00') }]) {
-      const { T, ana, id, token } = await cenario();
+      const { T, L, ana, id, token } = await cenario();
       await withTenant(T.ctx, (tx) => tx.update(patients).set(mudanca).where(eq(patients.id, ana.id)), app.db);
       const d = deps(em('2026-10-14', '09:00'));
       expect(await abrirLinkConsulta(token, d), JSON.stringify(mudanca)).toEqual({ estado: 'indisponivel' });
@@ -109,7 +109,7 @@ describe('link da consulta (D20, US-033, US-035)', () => {
       const acoes = [
         () => confirmarPeloLink(token, d),
         () => cancelarPeloLink(token, d),
-        () => remarcarPeloLink(token, { inicio: em('2026-10-16', '16:00').toISOString(), modalidade: 'presencial' }, d),
+        () => remarcarPeloLink(token, { inicio: em('2026-10-16', '16:00').toISOString(), localId: L }, d),
         () => avisarRemarcacaoPeloLink(token, d),
       ];
       for (const acao of acoes) await expect(acao()).rejects.toSatisfy(indisponivel);
@@ -118,7 +118,7 @@ describe('link da consulta (D20, US-033, US-035)', () => {
   });
 
   it('revisão da T5: link de um início que a consulta não tem mais (a nutricionista mudou o horário, para antes ou para depois) → "expirado" ("Este link expirou.") e nada muda; o link novo vale', async () => {
-    const { T, ana, id, token } = await cenario(); // link de 16/10 às 14:00
+    const { T, L, ana, id, token } = await cenario(); // link de 16/10 às 14:00
     const d = deps(em('2026-10-14', '09:00'));
     for (const hora of ['10:00', '18:00']) {
       await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now: em('2026-10-14', '08:00') });
@@ -127,7 +127,7 @@ describe('link da consulta (D20, US-033, US-035)', () => {
       const acoes = [
         () => confirmarPeloLink(token, d),
         () => cancelarPeloLink(token, d),
-        () => remarcarPeloLink(token, { inicio: em('2026-10-17', '16:00').toISOString(), modalidade: 'presencial' }, d),
+        () => remarcarPeloLink(token, { inicio: em('2026-10-17', '16:00').toISOString(), localId: L }, d),
         () => avisarRemarcacaoPeloLink(token, d),
       ];
       for (const acao of acoes) await expect(acao()).rejects.toSatisfy(expirado);
@@ -169,7 +169,7 @@ describe('link da consulta (D20, US-033, US-035)', () => {
     expect(await lerConsulta(T, id)).toMatchObject({ status: 'agendada', confirmadaVia: null, inicio: em('2026-10-16', '12:00') });
   });
   it('decisão do dono (fechamento): corrigido o e-mail do paciente, o link emitido antes não vale ("Link inválido.") e nada muda; o mesmo e-mail com outra grafia continua valendo; o link com o e-mail novo vale', async () => {
-    const { T, ana, id, token } = await cenario();
+    const { T, L, ana, id, token } = await cenario();
     const d = deps(em('2026-10-14', '09:00'));
     const trocarEmail = (email: string) => withTenant(T.ctx, (tx) => tx.update(patients).set({ email }).where(eq(patients.id, ana.id)), app.db);
     await trocarEmail(ana.email.toUpperCase()); // citext: o mesmo endereço
@@ -182,7 +182,7 @@ describe('link da consulta (D20, US-033, US-035)', () => {
     const acoes = [
       () => confirmarPeloLink(token, d),
       () => cancelarPeloLink(token, d),
-      () => remarcarPeloLink(token, { inicio: em('2026-10-16', '16:00').toISOString(), modalidade: 'presencial' }, d),
+      () => remarcarPeloLink(token, { inicio: em('2026-10-16', '16:00').toISOString(), localId: L }, d),
       () => avisarRemarcacaoPeloLink(token, d),
     ];
     for (const acao of acoes) await expect(acao()).rejects.toSatisfy(invalido);
@@ -232,5 +232,64 @@ describe('link da consulta (D20, US-033, US-035)', () => {
       const vistas = await withTenant(ctx, (tx) => tx.select({ id: appointments.id }).from(appointments).where(inArray(appointments.id, [id, daBia])), app.db);
       expect(vistas).toEqual([{ id }]);
     }
+  });
+});
+
+describe('Plano 23 (T4): local no link da consulta (US-402, US-403, RN-406, CS-401)', () => {
+  const SALA = 'https://meet.google.com/sala-do-link';
+  const agoraLink = em('2026-10-14', '09:00');
+
+  it('presencial num local: nome e endereço do local; nada de link nas chaves (nem a sala do outro local, nem link_online)', async () => {
+    const { T, ana } = await cenario();
+    const centro = await novoLocal(app.db, T.ctx, { nome: 'Clínica Centro' });
+    await owner.db.update(locaisAtendimento).set({ endereco: 'Av. Central, 500', cidade: 'Campinas' }).where(eq(locaisAtendimento.id, centro));
+    await novoLocal(app.db, T.ctx, { nome: 'Videoconferência', tipo: 'online', linkSala: SALA });
+    const inicio = em('2026-10-17', '14:00');
+    const id = await consultaDireta(app.db, T.ctx, ana.id, inicio, 60, { localId: centro });
+    const token = assinarLinkConsulta({ tenantId: T.tenantId, appointmentId: id, inicio, email: ana.email }, chave);
+    const e = await abrirLinkConsulta(token, deps(agoraLink));
+    expect(e).toMatchObject({ estado: 'ok', modalidade: 'presencial', local: { nome: 'Clínica Centro', endereco: 'Av. Central, 500' }, linkChamada: null, localId: centro });
+    expect(JSON.stringify(e)).not.toMatch(/https?:|linkOnline|linkSala|link_online|temOnline/);
+    if (e.estado !== 'ok') throw new Error();
+    expect(e.locais.map((l) => l.nome)).toEqual(['Consultório', 'Clínica Centro', 'Videoconferência']);
+  });
+
+  it('consulta antiga (sem local) mostra o endereço do Perfil; online ativa mostra o link da própria consulta; online cancelada, não', async () => {
+    const { T, ana, token } = await cenario();
+    await app.db.update(tenants).set({ enderecoConsultorio: 'Rua do Perfil, 1' }).where(eq(tenants.id, T.tenantId));
+    expect(await abrirLinkConsulta(token, deps(agoraLink))).toMatchObject({ local: { nome: null, endereco: 'Rua do Perfil, 1' }, linkChamada: null });
+    const video = await novoLocal(app.db, T.ctx, { nome: 'Videoconferência', tipo: 'online', linkSala: SALA });
+    const inicio = em('2026-10-17', '14:00');
+    const id = await consultaDireta(app.db, T.ctx, ana.id, inicio, 60, { localId: video, modalidade: 'online', linkOnline: SALA });
+    const tk = assinarLinkConsulta({ tenantId: T.tenantId, appointmentId: id, inicio, email: ana.email }, chave);
+    expect(await abrirLinkConsulta(tk, deps(agoraLink))).toMatchObject({ modalidade: 'online', local: { nome: 'Videoconferência', endereco: null }, linkChamada: SALA });
+    await withTenant(T.ctx, (tx) => tx.update(appointments).set({ status: 'cancelada', canceladoPor: 'nutri', canceladaEm: agoraLink }).where(eq(appointments.id, id)), app.db);
+    const cancelada = await abrirLinkConsulta(tk, deps(agoraLink));
+    expect(cancelada).toMatchObject({ ativa: false, linkChamada: null });
+    expect(JSON.stringify(cancelada)).not.toContain(SALA);
+  });
+
+  it('remarcar pelo link para outro local: a consulta nova fica no local escolhido', async () => {
+    const { T, id, token } = await cenario();
+    const centro = await novoLocal(app.db, T.ctx, { nome: 'Clínica Centro' });
+    await semanaNoLocal(app.db, T.ctx, centro);
+    const hs = await horariosDoLink(token, em('2026-10-16', '00:00'), em('2026-10-17', '00:00'), deps(agoraLink));
+    expect(hs.filter((h) => h.hora === '16:00').map((h) => h.localId)).toContain(centro);
+    await remarcarPeloLink(token, { inicio: em('2026-10-16', '16:00').toISOString(), localId: centro }, deps(agoraLink));
+    const [nova] = await withTenant(T.ctx, (tx) => tx.select({ localId: appointments.localId }).from(appointments).where(eq(appointments.remarcadaDe, id)), app.db);
+    expect(nova).toEqual({ localId: centro });
+  });
+
+  it('local sem agendamento entre a tela e o envio: o 42501 do gatilho vira "Esse horário não está mais disponível. Escolha outro." (não 500)', async () => {
+    const { T, id, token } = await cenario();
+    const centro = await novoLocal(app.db, T.ctx, { nome: 'Clínica Centro' });
+    await semanaNoLocal(app.db, T.ctx, centro);
+    // 1ª transação: o link (resolver); 2ª: a escolha do horário; 3ª: a gravação, recusada pelo gatilho
+    const m = dbQueMudaNoMeio(app.db, 2, () => owner.db.update(locaisAtendimento).set({ agendamentoOnline: false }).where(eq(locaisAtendimento.id, centro)));
+    await expect(remarcarPeloLink(token, { inicio: em('2026-10-16', '16:00').toISOString(), localId: centro }, { ...deps(agoraLink), db: m.db })).rejects.toSatisfy(
+      (e: unknown) => e instanceof ConsultaError && e.erros.inicio === MSG_AGENDA.indisponivel,
+    );
+    expect([m.rodou(), m.transacoes()]).toEqual([true, 3]);
+    expect(await lerConsulta(T, id)).toMatchObject({ status: 'agendada' });
   });
 });

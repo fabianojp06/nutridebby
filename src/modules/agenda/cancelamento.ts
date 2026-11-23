@@ -7,7 +7,7 @@ import { normalizarTexto } from '@/lib/text';
 import { avisarPaciente, cancelarLembretes, dispararEnvio } from '@/modules/notificacoes/agendar';
 import { primeiroNome } from '@/modules/notificacoes/mensagens';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
-import { escolherHorario, gravarConsultaDoPaciente } from './agendamento-paciente';
+import { escolherHorario, gravarConsultaDoPaciente, localRecusado } from './agendamento-paciente';
 import { avisarNutri, avisarNutriDaConsulta } from './aviso-nutri';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError, ConsultaNaoEncontradaError, ehSobreposicao, lerConsultaParaEscrita, repetirSeDeadlock, STATUS_ATIVOS, type StatusConsulta, type TenantAgenda } from './consultas';
@@ -144,8 +144,9 @@ export async function cancelarFuturasPelaExclusao(tx: Tx, o: { tenantId: string;
  * Review Focus 6 (rodada 1): `escolherHorario` abre a própria transação (contexto publico) — por isso roda ANTES desta,
  * nunca dentro (seria uma segunda conexão com a trava do paciente e da consulta presa; pool max: 10). Dentro, o
  * EXCLUDE revalida o horário (outro paciente pode ter marcado no meio: "Esse horário acabou de ser ocupado").
+ * Plano 23 (US-403): o horário novo vem com o local (`localId`); trocar de local na remarcação vale.
  */
-export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAgenda, id: string, novo: { inicio: unknown; modalidade: unknown }, deps: Deps = {}): Promise<{ id: string; inicio: Date }> {
+export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAgenda, id: string, novo: { inicio: unknown; localId: unknown }, deps: Deps = {}): Promise<{ id: string; inicio: Date }> {
   if (ctx.role !== 'paciente' || !ctx.patientId) throw new Error('remarcarComoPaciente exige sessão de paciente');
   if (tenant.status !== 'ativa') throw new ConsultaError({ geral: MSG_AGENDA.contaIndisponivel });
   const db = deps.db ?? getDb();
@@ -153,7 +154,7 @@ export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAge
   try {
     // 40P01 na corrida do EXCLUDE: a escolha do horário e a transação de novo, uma vez (repetirSeDeadlock)
     return await repetirSeDeadlock(async () => {
-      const h = await escolherHorario(tenant, novo.inicio, novo.modalidade, agora, { db, ignorarConsultaId: id });
+      const h = await escolherHorario(tenant, novo.inicio, novo.localId, agora, { db, ignorarConsultaId: id });
       return withTenant(
         ctx,
         async (tx) => {
@@ -177,6 +178,7 @@ export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAge
     });
   } catch (e) {
     if (ehSobreposicao(e)) throw new ConsultaError({ inicio: MSG_AGENDA.ocupado });
+    if (localRecusado(e)) throw new ConsultaError({ inicio: MSG_AGENDA.indisponivel }); // Plano 23: local mudou no meio (portal e link)
     throw e;
   }
 }

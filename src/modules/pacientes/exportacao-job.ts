@@ -32,6 +32,7 @@ import {
   pushSubscriptions,
   storedFiles,
   user,
+  locaisAtendimento,
 } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
@@ -289,7 +290,17 @@ export type DadosExportacao = {
    * Plano 05: consultas da agenda. O motivo do cancelamento só quando o paciente cancelou: o da nutricionista é
    * anotação dela ("Só você vê.", como as notas privadas — US-016).
    */
-  consultas: { inicio: string; fim: string; modalidade: string; status: string; origem: string; canceladoPor: string | null; motivoCancelamento: string | null }[];
+  consultas: {
+    inicio: string;
+    fim: string;
+    modalidade: string;
+    status: string;
+    origem: string;
+    canceladoPor: string | null;
+    motivoCancelamento: string | null;
+    /** Plano 23 (RN-438): o nome do local (null na consulta anterior ao Plano 23); nunca o endereço nem a sala. */
+    local: string | null;
+  }[];
   /** Plano 05: mensagens ao titular (tipo, canal, situação e datas) — sem texto, número de destino nem ids do provedor. */
   lembretes: { tipo: string; canal: string; status: string; agendadaPara: string; enviadaEm: string | null; motivoNaoEnviado: string | null }[];
   /**
@@ -519,6 +530,11 @@ export async function montarDados(
     .where(eq(privacyRequests.patientId, patientId))
     .orderBy(asc(privacyRequests.createdAt));
   const cs = await tx.select().from(appointments).where(eq(appointments.patientId, patientId)).orderBy(asc(appointments.inicio));
+  // Plano 23 (RN-438): o nome de cada local das consultas (o worker lê a tabela; só o nome)
+  const idsDosLocais = [...new Set(cs.flatMap((c) => (c.localId ? [c.localId] : [])))];
+  const nomesDosLocais = new Map(
+    idsDosLocais.length ? (await tx.select({ id: locaisAtendimento.id, nome: locaisAtendimento.nome }).from(locaisAtendimento).where(inArray(locaisAtendimento.id, idsDosLocais))).map((l) => [l.id, l.nome]) : [],
+  );
   const ns = await tx
     .select({ tipo: notifications.tipo, canal: notifications.canal, status: notifications.status, agendadaPara: notifications.agendadaPara, enviadaEm: notifications.enviadaEm, motivo: notifications.motivoIgnorada })
     .from(notifications)
@@ -697,6 +713,7 @@ export async function montarDados(
       origem: c.origem,
       canceladoPor: c.canceladoPor,
       motivoCancelamento: c.canceladoPor === 'paciente' ? c.motivoCancelamento : null,
+      local: c.localId ? (nomesDosLocais.get(c.localId) ?? null) : null,
     })),
     lembretes: ns.map((n) => ({
       tipo: n.tipo,

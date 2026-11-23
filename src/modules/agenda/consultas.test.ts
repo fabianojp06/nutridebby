@@ -5,7 +5,7 @@ import { consultaDireta, em, localPrincipal, novoLocal, perdeCorridaNoBanco, per
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, auditLog } from '@/db/schema';
+import { appointments, auditLog, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
@@ -115,7 +115,8 @@ describe('agendar pela nutricionista (US-031)', () => {
     const base = { patientId: ana.id, data: '2026-10-15', duracaoMin: '60', localId: semSala };
     expect(await erros(agendarPelaNutri(T.ctx, tenantAgenda(T), { ...base, hora: '09:00' }, deps))).toEqual({ linkOnline: MSG_AGENDA.linkObrigatorio });
     expect(await erros(agendarPelaNutri(T.ctx, tenantAgenda(T), { ...base, hora: '09:00', linkOnline: 'http://meet.google.com/x' }, deps))).toEqual({ linkOnline: MSG_AGENDA.linkObrigatorio });
-    expect(await erros(agendarPelaNutri(T.ctx, tenantAgenda(T, { linkOnlinePadrao: 'https://meet.google.com/abc-defg-hij' }), { ...base, hora: '09:00' }, deps))).toEqual({ linkOnline: MSG_AGENDA.linkObrigatorio });
+    await app.db.update(tenants).set({ linkOnlinePadrao: 'https://meet.google.com/abc-defg-hij' }).where(eq(tenants.id, T.tenantId)); // o link do Perfil (a coluna fica, AG-D7)
+    expect(await erros(agendarPelaNutri(T.ctx, tenantAgenda(T), { ...base, hora: '09:00' }, deps))).toEqual({ linkOnline: MSG_AGENDA.linkObrigatorio });
     expect(await listarAgenda(T.ctx, em('2026-10-15', '00:00'), em('2026-10-16', '00:00'), app.db)).toEqual([]);
   });
 

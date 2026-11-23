@@ -6,6 +6,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { normalizarTexto } from '@/lib/text';
 import { idValido } from '@/modules/pacientes/base';
 import { MSG_LOCAIS } from './constantes';
+import type { LocalVisivel } from './horarios';
 
 /**
  * Plano 23 (US-400, RN-400 a RN-407, RN-410a): locais de atendimento do consultório. O CRUD é só da sessão `nutri` (a função
@@ -354,6 +355,24 @@ export async function locaisParaAgendamento(tx: Tx): Promise<LocalProjetado[]> {
     sql`select id, nome, tipo, cidade, endereco, principal, agendamento_online, criado_em from app_locais_para_agendamento()`,
   );
   return r.rows.map((l) => ({ id: l.id, nome: l.nome, tipo: l.tipo, cidade: l.cidade, endereco: l.endereco, principal: l.principal, agendamentoOnline: l.agendamento_online, criadoEm: new Date(l.criado_em) }));
+}
+
+/**
+ * Plano 23 (US-403, RN-405): os locais que a escolha do portal, da página pública e do link mostra — os ativos com "Aceita
+ * agendamento pelo paciente", na ordem da projeção (principal → `created_at`), só com nome, tipo, cidade e o endereço que a
+ * projeção liberou. Lista fechada de chaves: nada além disso vai ao navegador.
+ */
+export function locaisVisiveis(ls: LocalProjetado[]): LocalVisivel[] {
+  return ls.flatMap((l) => (l.agendamentoOnline && l.nome ? [{ id: l.id, nome: l.nome, tipo: l.tipo, cidade: l.cidade, endereco: l.endereco }] : []));
+}
+
+/**
+ * Plano 23 (RN-407, US-402): o local que o paciente vê na própria consulta (portal e link) — o nome e o endereço do local
+ * (`localDaConsulta`); a consulta antiga, sem local, mostra o endereço do Perfil, como antes (só a presencial). Nunca a sala.
+ */
+export function localParaOPaciente(l: LocalDaConsulta | null, c: { localId: string | null; modalidade: string }, enderecoDoPerfil: string | null): { nome: string | null; endereco: string | null } {
+  if (c.localId && l) return { nome: l.nome, endereco: l.tipo === 'presencial' ? l.endereco : null };
+  return { nome: null, endereco: c.modalidade === 'presencial' ? enderecoDoPerfil : null };
 }
 
 /** Sessão de paciente: o local de uma consulta dele (`app_local_da_consulta`), ou nulo. */
