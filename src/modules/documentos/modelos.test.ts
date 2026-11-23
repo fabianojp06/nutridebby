@@ -214,6 +214,27 @@ describe('itens salvos (US-379, RN-393, EP-D29)', () => {
     expect(await contar(c, 'prescricao_itens_salvos')).toBe(2);
   });
 
+  it('NUL num campo de texto do item (POST à mão, texto colado) sai antes de gravar — item salvo, modelo e "Carregar modelo" (sem 22P05, que levaria o item ao log)', async () => {
+    const c = await consultorio(false);
+    const comNul = { ...VITD, composicao: [{ nome: 'Vitamina\u0000 D3', quantidade: '2000', unidade: 'UI' }], forma: 'Cáp\u0000sula', posologia: 'a\u0000b' };
+    const id = await salvarItemSalvo(c.T.ctx, c.tenant, null, { nome: 'Com NUL', item: comNul }, deps);
+    const salvo = await abrirItemSalvo(c.T.ctx, id, deps);
+    expect(salvo?.item).toMatchObject({ posologia: 'ab', forma: 'Cápsula', composicao: [{ nome: 'Vitamina D3' }] });
+    expect(JSON.stringify(salvo)).not.toContain('\u0000');
+
+    const modelo = await salvarModeloPrescricao(c.T.ctx, c.tenant, null, { nome: 'Modelo NUL', itens: [comNul], orientacoes: '' }, deps);
+    expect((await abrirModeloPrescricao(c.T.ctx, modelo, deps))?.itens[0]).toMatchObject({ posologia: 'ab', forma: 'Cápsula' });
+
+    const p = await novoPaciente(app.db, c.T.ctx);
+    const doc = await criarReceita(c.T.ctx, p.id, deps);
+    // a tela (a receita do paciente) também: o item digitado com NUL fica junto com o do modelo, sem o NUL
+    const tela = { ...MAGNESIO, posologia: 'c\u0000d', composicao: [{ nome: 'Magnésio\u0000 dimalato', quantidade: '300', unidade: 'mg' }] };
+    await carregarModeloNaReceita(c.T.ctx, c.tenant, p.id, doc, { modeloId: modelo, modo: 'acrescentar', conteudo: { itens: [tela], orientacoes: '' }, justificativa: '' }, deps);
+    const lido = (await conteudoDe(c, p.id, doc)).conteudo;
+    expect(posologias(lido)).toEqual(['cd', 'ab']);
+    expect(JSON.stringify(lido)).not.toContain('\u0000');
+  });
+
   it('o 301º item: recusa com o limite (editar um que já existe continua valendo); duas gravações concorrentes no teto (299 + 2) — a trava serializa, uma passa', async () => {
     const c = await consultorio(false);
     await encher(c, 'prescricao_itens_salvos', ITENS_SALVOS_MAX);
