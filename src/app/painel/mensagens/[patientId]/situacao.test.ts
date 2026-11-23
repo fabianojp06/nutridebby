@@ -10,7 +10,8 @@ import { MSG_MENSAGENS, SITUACAO_INTERVALO_MS, SITUACAO_INTERVALO_OCIOSO_MS, SIT
 // o documento e a janela são EventTarget.
 const refresh = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
-const { acompanharSituacao, avisoDeNovas, primeiraNovaDepois, ProvedorDaLeitura, EstadoDaMinha, SituacaoDaConversa, urlDaSituacao } = await import('./situacao');
+const { acompanharSituacao, avisoDeNovas, lidaMaisAdiante, novasNaTela, primeiraNovaDepois, ProvedorDaLeitura, EstadoDaMinha, SituacaoDaConversa, textoDaRegiao, urlDaSituacao } = await import('./situacao');
+const { seguraFalhaDeRede } = await import('./rede');
 
 type Buscar = (url: string, init?: RequestInit) => Promise<Response>;
 const resposta = (corpo: unknown) => vi.fn<Buscar>(async () => new Response(JSON.stringify(corpo), { status: 200 }));
@@ -158,5 +159,68 @@ describe('a região viva, "Mostrar novas mensagens" e o "Lida" (US-441)', () => 
     expect(estados('b')).toEqual(['', 'Lida', 'Enviada']);
     expect(estados('c')).toEqual(['', '', 'Lida']);
     expect(estados('zzz')).toEqual(['Enviada', 'Enviada', 'Enviada']); // a lida ficou antes da página carregada
+  });
+});
+
+describe('rodada da T6b (revisão de interface)', () => {
+  it('C1: o "Lida" só avança — entre o do servidor e o da consulta, fica o mais adiante nas próprias mensagens da tela', () => {
+    const minhas = ['a', 'b', 'c'];
+    expect(lidaMaisAdiante(minhas, 'a', 'b')).toBe('b');
+    expect(lidaMaisAdiante(minhas, 'c', 'b')).toBe('c'); // a consulta velha não volta o "Lida"
+    expect(lidaMaisAdiante(minhas, 'b', null)).toBe('b');
+    expect(lidaMaisAdiante(minhas, null, 'a')).toBe('a');
+    expect(lidaMaisAdiante(minhas, 'b', 'zzz')).toBe('b'); // a consultada nem está na tela
+    expect(lidaMaisAdiante(minhas, null, null)).toBeNull();
+  });
+
+  it('C1: as novas valem só para a última mensagem que estava na tela quando a consulta respondeu (o refresh zera sem remontar)', () => {
+    expect(novasNaTela({ de: 'x', n: 2 }, 'x')).toBe(2);
+    expect(novasNaTela({ de: 'x', n: 2 }, 'y')).toBe(0);
+    expect(novasNaTela(null, 'x')).toBe(0);
+  });
+
+  it('I1: o retorno ?ok= de cada ato é anunciado (liberar → pausar → retomar); depois de "Mostrar novas", o ?ok= já visto não volta', () => {
+    expect(textoDaRegiao({ novas: 0, primeiroNome: 'Ana', aviso: MSG_MENSAGENS.pausa.sucesso, avisoVisto: null })).toBe(MSG_MENSAGENS.pausa.sucesso);
+    expect(textoDaRegiao({ novas: 1, primeiroNome: 'Ana', aviso: MSG_MENSAGENS.pausa.sucesso, avisoVisto: null })).toBe('Nova mensagem de Ana.');
+    expect(textoDaRegiao({ novas: 0, primeiroNome: 'Ana', aviso: MSG_MENSAGENS.pausa.sucesso, avisoVisto: MSG_MENSAGENS.pausa.sucesso })).toBe('');
+    expect(textoDaRegiao({ novas: 0, primeiroNome: 'Ana', aviso: MSG_MENSAGENS.pausa.retomada, avisoVisto: MSG_MENSAGENS.pausa.sucesso })).toBe(MSG_MENSAGENS.pausa.retomada);
+    const fonte = readFileSync('src/app/painel/mensagens/[patientId]/situacao.tsx', 'utf8');
+    expect(fonte).toMatch(/focus\(\{ preventScroll: true \}\)/);
+    expect(fonte).toMatch(/\[focarAviso, aviso\]/);
+    expect(fonte).not.toMatch(/setJaMostrou|jaMostrou/);
+  });
+
+  it('I3: a rolagem vai até o rodapé (as últimas mensagens não ficam sob ele) e cada mensagem tem margem de rolagem do tamanho do rodapé', () => {
+    const fonte = readFileSync('src/app/painel/mensagens/[patientId]/situacao.tsx', 'utf8') + readFileSync('src/app/painel/mensagens/[patientId]/campo.tsx', 'utf8');
+    expect(fonte).not.toContain("getElementById('fim-da-conversa')");
+    expect(fonte).toContain("getElementById('rodape-da-conversa')");
+    expect(readFileSync('src/app/painel/mensagens/[patientId]/page.tsx', 'utf8')).toMatch(/id="rodape-da-conversa"/);
+    expect(readFileSync('src/app/painel/mensagens/[patientId]/lista-de-mensagens.tsx', 'utf8')).toMatch(/data-mensagem=\{m\.id\}[\s\S]*?scroll-mb-/);
+  });
+
+  it('I4 e reforço da orquestradora: rede caída na Server Action → o erro genérico com o rascunho de volta, sem cair no error boundary', async () => {
+    const acao = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    const segura = seguraFalhaDeRede(acao, (dados: FormData) => ({ erro: MSG_MENSAGENS.erros.falha, texto: String(dados.get('texto') ?? '') }));
+    const dados = new FormData();
+    dados.set('texto', 'meu rascunho comprido');
+    expect(await segura(null, dados)).toEqual({ erro: MSG_MENSAGENS.erros.falha, texto: 'meu rascunho comprido' });
+    // o redirect do Next (erro com digest NEXT_REDIRECT) segue adiante
+    const redireciona = seguraFalhaDeRede(
+      vi.fn(async () => {
+        throw Object.assign(new Error('NEXT_REDIRECT'), { digest: 'NEXT_REDIRECT;replace;/x;307;' });
+      }),
+      () => ({ erro: 'x', texto: '' }),
+    );
+    await expect(redireciona(null, dados)).rejects.toThrow('NEXT_REDIRECT');
+    // e o caminho de sucesso passa o estado da action como veio
+    const ok = seguraFalhaDeRede(vi.fn(async (): Promise<{ erro: string | null; texto: string }> => ({ erro: null, texto: '' })), () => ({ erro: 'x', texto: '' }));
+    expect(await ok(null, dados)).toEqual({ erro: null, texto: '' });
+    const campo = readFileSync('src/app/painel/mensagens/[patientId]/campo.tsx', 'utf8');
+    expect(campo).toMatch(/seguraFalhaDeRede\(/);
+    // sem JS, o formulário continua sendo a própria Server Action (RNF-443)
+    expect(campo).toMatch(/action=\{comJs \? /);
+    expect(campo).toMatch(/<p key=\{estado\.marca\}[^>]*role="alert"/);
   });
 });

@@ -31,7 +31,10 @@ vi.mock('next/navigation', () => ({
 }));
 const { default: Conversa, metadata } = await import('./page');
 const { enviarAction, liberarAction, pausarAction, retomarAction } = await import('./actions');
-const { FormularioDeLiberacao } = await import('./liberar-dialogo');
+const { FormularioDeLiberacao, LiberarDialogo } = await import('./liberar-dialogo');
+const { CampoDaConversa } = await import('./campo');
+const { SituacaoDaConversa } = await import('./situacao');
+const { ListaDeMensagens } = await import('./lista-de-mensagens');
 
 const db = getDb();
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -150,7 +153,12 @@ describe('/painel/mensagens/[patientId] — a conversa (US-441)', () => {
     expect(h).not.toContain(M.pausa.botao);
     expect(h).not.toContain('<textarea');
     const dialogo = html(createElement(FormularioDeLiberacao, { patientId: bia.p, nome: 'Bia Lima', aoCancelar: () => undefined }));
-    expect(dialogo).toContain(M.liberacao.texto);
+    // rodada da T6b (minor): a orientação do TCLE é a descrição do diálogo (aria-describedby), não um parágrafo do formulário
+    const casca = html(createElement(LiberarDialogo, { patientId: bia.p, nome: 'Bia Lima' }));
+    const idDescricao = /<dialog[^>]*aria-describedby="([^"]+)"/.exec(casca)?.[1];
+    expect(idDescricao).toBeTruthy();
+    expect(casca).toContain(`<p id="${idDescricao}" class="mt-2">${M.liberacao.texto}</p>`);
+    expect(dialogo).not.toContain(M.liberacao.texto);
     expect(dialogo).toContain(M.liberacao.avisoENutricionista);
     expect(dialogo).toMatch(new RegExp(`<label[^>]*for="forma-tcle"[^>]*>${M.liberacao.perguntaForma.replace(/[()?]/g, '\\$&')}</label>`));
     const opcoes = [...dialogo.matchAll(/<option[^>]*value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map((m) => [m[1], m[2]]);
@@ -205,7 +213,7 @@ describe('/painel/mensagens/[patientId] — a conversa (US-441)', () => {
     const h = await conversa(ana.p);
     expect(h).toMatch(/Para enviar, preencha seu nome e seu CRN em <a (?=[^>]*href="\/painel\/configuracoes\/perfil")[^>]*>Configurações<\/a>\./);
     expect(h).not.toContain('<textarea');
-    expect(await pausarAction(ana.p)).toMatchObject({ semCarimbo: true });
+    expect(await pausarAction(ana.p)).toMatchObject({ erro: M.pausa.semCarimbo, semCarimbo: true }); // CH-D75
   });
 
   it('pausada: o selo, "Retomar conversa" e sem campo; pausar → ?ok=pausada; retomar → ?ok=retomada', async () => {
@@ -293,7 +301,10 @@ describe('/painel/mensagens/[patientId] — a conversa (US-441)', () => {
     const deOutro = await pacienteDoChat(db, outro);
     await consultorio();
     expect(await enviarAction(deOutro.p, null, form({ texto: 'Oi', js: '1' }))).toMatchObject({ erro: M.erros.falha, texto: 'Oi', enviada: false });
-    expect(await liberarAction(deOutro.p, null, form({ forma: 'aceite_escrito', confirmacao: 'sim' }))).toMatchObject({ erro: M.erros.falha });
+    // CH-D75: o erro genérico de cada ato
+    expect(await liberarAction(deOutro.p, null, form({ forma: 'aceite_escrito', confirmacao: 'sim' }))).toMatchObject({ erro: M.liberacao.falha });
+    expect(await pausarAction(deOutro.p)).toMatchObject({ erro: M.pausa.falha, semCarimbo: false });
+    expect(await erro(retomarAction(deOutro.p))).toBe(`redirect /painel/mensagens/${deOutro.p}?erro=retomar`);
   });
 
   it('"Ver mensagens anteriores" com ?antes= (o id da primeira mostrada), sem prefetch; a página anterior mostra as mais antigas', async () => {
@@ -307,4 +318,88 @@ describe('/painel/mensagens/[patientId] — a conversa (US-441)', () => {
     expect(h).toMatch(new RegExp(`<a (?=[^>]*href="/painel/mensagens/${ana.p}\\?antes=${primeira}")[^>]*>${M.conversa.verAnteriores}</a>`));
     expect(await conversa(ana.p, { antes: primeira! })).toContain('>m0<');
   });
+
+  it('rodada da T6b: ?erro=retomar mostra "Não foi possível retomar a conversa. Tente de novo." na região; código fora da lista, nada', async () => {
+    const T = await consultorio();
+    const ana = await pacienteDoChat(db, T);
+    expect(regiao(await conversa(ana.p, { erro: 'retomar' }))?.[1]).toBe(M.pausa.falhaRetomar);
+    expect(regiao(await conversa(ana.p, { erro: 'outra' }))?.[1]).toBe('');
+  });
+
+  it('rodada da T6b (C1): uma mensagem nova (ou a leitura do paciente) não muda a chave de nada entre a página e o campo nem a região viva — o rascunho e o foco ficam', async () => {
+    const T = await consultorio();
+    const ana = await pacienteDoChat(db, T, { nome: 'Ana Souza' });
+    await mensagemDoDono(owner.pool, T, ana, { autor: 'nutri', texto: 'primeira' });
+    const arvore = async () => Conversa({ params: Promise.resolve({ patientId: ana.p }), searchParams: Promise.resolve({}) } as never);
+    const antes = caminhoAte(await arvore(), CampoDaConversa);
+    const regiaoAntes = caminhoAte(await arvore(), SituacaoDaConversa);
+    expect(antes).not.toBeNull();
+    expect(regiaoAntes).not.toBeNull();
+    await mensagemDoDono(owner.pool, T, ana, { texto: 'nova do paciente' }); // chega mensagem nova (o refresh da tela)
+    await minhaConversa(ana.P, {}, db); // e o paciente lê (o "Lida" muda)
+    expect(caminhoAte(await arvore(), CampoDaConversa)).toEqual(antes);
+    expect(caminhoAte(await arvore(), SituacaoDaConversa)).toEqual(regiaoAntes);
+    for (const passo of antes!) expect(passo, 'nenhuma chave com id de mensagem no caminho').not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
+    expect(readFileSync('src/app/painel/mensagens/[patientId]/page.tsx', 'utf8')).not.toMatch(/<ProvedorDaLeitura\s[^>]*key=/);
+  });
+
+  it('rodada da T6b (minors): os separadores de dia não são itens da lista; sem nome gravado, nada de <p> vazio de autor', async () => {
+    const T = await consultorio();
+    const ana = await pacienteDoChat(db, T);
+    await mensagemDoDono(owner.pool, T, ana, { texto: 'ontem', criadaEm: new Date(Date.now() - 86_400_000).toISOString() });
+    await mensagemDoDono(owner.pool, T, ana, { texto: 'hoje' });
+    const h = await conversa(ana.p);
+    const lista = /<ul(?=[^>]*aria-label="Mensagens")[^>]*>([\s\S]*)<\/ul>/.exec(h)?.[1] ?? '';
+    const filhos = [...lista.matchAll(/<li\b([^>]*)>/g)].map((m) => m[1]);
+    expect(filhos.length).toBeGreaterThanOrEqual(2);
+    for (const a of filhos) expect(a).toMatch(/data-mensagem="/);
+    expect(lista).toContain(`>${M.conversa.hoje}<`);
+    expect(lista).toContain(`>${M.conversa.ontem}<`);
+    // a mensagem da equipe de outra usuária sem o nome gravado (o CHECK não deixa no banco; a tela não confia nisso)
+    const semNome = html(
+      createElement(ListaDeMensagens, {
+        fuso: 'America/Sao_Paulo',
+        primeiroNome: 'Ana',
+        mensagens: [{ id: crypto.randomUUID(), autor: 'nutri', minha: false, autorNome: null, autorCrn: null, texto: 'oi', recado: false, duvidaEm: null, risco: null, anexo: null, criadaEm: new Date() }],
+      }),
+    );
+    expect(semNome).not.toMatch(/<p class="text-sm font-semibold"><\/p>/);
+  });
 });
+
+describe('rodada da T6b — diálogos (I2 e minors)', () => {
+  it('I2: o <form> do diálogo de liberar não remonta (a chave só nos campos); o foco vai ao primeiro campo inválido ou ao link do Perfil', () => {
+    const f = readFileSync('src/app/painel/mensagens/[patientId]/liberar-dialogo.tsx', 'utf8');
+    expect(f).not.toMatch(/<form[^>]*\bkey=/);
+    expect(f).toMatch(/<CamposDaLiberacao key=\{estado\?\.marca/);
+    expect(f).toMatch(/link-perfil-liberacao/);
+    expect(f).toMatch(/forma-tcle/);
+    expect(f).toMatch(/confirmacao-tcle/);
+    expect(f).toMatch(/\.focus\(\)/);
+  });
+  it('minor: ao fechar o diálogo de pausar, o erro anterior não volta (o formulário remonta a cada abertura); o erro do campo é reanunciado', () => {
+    const p = readFileSync('src/app/painel/mensagens/[patientId]/pausar-dialogo.tsx', 'utf8');
+    expect(p).toMatch(/<FormularioDePausa key=\{aberturas\}/);
+  });
+});
+
+type No = { type?: unknown; key?: string | null; props?: { children?: unknown } };
+/** O caminho (tipo e chave de cada elemento) da raiz até o primeiro elemento do tipo `alvo`; null se não achar. */
+function caminhoAte(raiz: unknown, alvo: unknown): string[] | null {
+  const nome = (t: unknown) => (typeof t === 'string' ? t : typeof t === 'function' ? t.name : typeof t === 'symbol' ? String(t) : 'objeto');
+  const andar = (n: unknown, caminho: string[]): string[] | null => {
+    if (Array.isArray(n)) {
+      for (const x of n) {
+        const r = andar(x, caminho);
+        if (r) return r;
+      }
+      return null;
+    }
+    if (!n || typeof n !== 'object') return null;
+    const no = n as No;
+    const aqui = [...caminho, `${nome(no.type)}#${no.key ?? ''}`];
+    if (no.type === alvo) return aqui;
+    return andar(no.props?.children, aqui);
+  };
+  return andar(raiz, []);
+}

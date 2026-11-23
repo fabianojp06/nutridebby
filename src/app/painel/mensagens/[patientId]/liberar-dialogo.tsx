@@ -9,32 +9,12 @@ import { ComLinkDoPerfil } from './link-do-perfil';
 const L = MSG_MENSAGENS.liberacao;
 const CAMPO = 'min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto';
 
-/**
- * US-440 (RN-441, §6.2): o formulário do diálogo — o texto da telenutrição, o aviso do e-Nutricionista, "Como o paciente
- * (ou o responsável legal) concordou?" (`<select>` com "Escolha" e as duas formas; sem a forma verbal, CH-D3) e a
- * confirmação. "Liberar" fica habilitado: sem a forma ou a confirmação, o servidor devolve o erro, mostrado junto aos
- * campos (`aria-describedby`, `aria-invalid`). A forma e a confirmação voltam marcadas (os campos remontam com `marca`).
- */
-export function FormularioDeLiberacao({
-  patientId,
-  aoCancelar,
-  aoOcupar,
-  estadoInicial = null,
-}: {
-  patientId: string;
-  nome: string;
-  aoCancelar: () => void;
-  aoOcupar?: (ocupado: boolean) => void;
-  estadoInicial?: EstadoDaLiberacao | null;
-}) {
-  const [estado, acao, liberando] = useActionState<EstadoDaLiberacao | null, FormData>(liberarAction.bind(null, patientId), estadoInicial);
-  useEffect(() => aoOcupar?.(liberando), [liberando, aoOcupar]);
+/** Os campos (a forma e a confirmação), remontados a cada resposta com o que foi enviado; o `<form>` e os botões não. */
+function CamposDaLiberacao({ estado }: { estado: EstadoDaLiberacao | null }) {
   const idErro = estado?.erro ? 'erro-liberacao' : undefined;
   const invalido = estado?.erro && !estado.semCarimbo ? true : undefined;
   return (
-    <form action={acao} className="space-y-4" key={estado?.marca ?? 'inicio'}>
-      <p>{L.texto}</p>
-      <p className="rounded-2xl border border-borda p-3">{L.avisoENutricionista}</p>
+    <>
       <div className="space-y-1">
         <label htmlFor="forma-tcle" className="block font-medium">
           {L.perguntaForma}
@@ -61,9 +41,44 @@ export function FormularioDeLiberacao({
         />
         <label htmlFor="confirmacao-tcle">{L.confirmacao}</label>
       </div>
+    </>
+  );
+}
+
+/**
+ * US-440 (RN-441, §6.2): o formulário do diálogo — o aviso do e-Nutricionista, "Como o paciente (ou o responsável legal)
+ * concordou?" (`<select>` com "Escolha" e as duas formas; sem a forma verbal, CH-D3) e a confirmação. A orientação do TCLE
+ * é a descrição do diálogo. "Liberar" fica habilitado: sem a forma ou a confirmação, o servidor devolve o erro, mostrado
+ * junto aos campos (`aria-describedby`, `aria-invalid`), e o foco vai ao primeiro campo inválido; sem o carimbo, ao link do
+ * Perfil (rodada da T6b, I2: só os campos remontam, nunca o `<form>` nem os botões).
+ */
+export function FormularioDeLiberacao({
+  patientId,
+  aoCancelar,
+  aoOcupar,
+  estadoInicial = null,
+}: {
+  patientId: string;
+  nome: string;
+  aoCancelar: () => void;
+  aoOcupar?: (ocupado: boolean) => void;
+  estadoInicial?: EstadoDaLiberacao | null;
+}) {
+  const [estado, acao, liberando] = useActionState<EstadoDaLiberacao | null, FormData>(liberarAction.bind(null, patientId), estadoInicial);
+  useEffect(() => aoOcupar?.(liberando), [liberando, aoOcupar]);
+  // depois de cada erro, o foco vai aonde corrigir
+  useEffect(() => {
+    if (!estado?.erro) return;
+    const alvo = estado.semCarimbo ? 'link-perfil-liberacao' : estado.forma === '' ? 'forma-tcle' : !estado.confirmou ? 'confirmacao-tcle' : 'forma-tcle';
+    document.getElementById(alvo)?.focus();
+  }, [estado]);
+  return (
+    <form action={acao} className="space-y-4">
+      <p className="rounded-2xl border border-borda p-3">{L.avisoENutricionista}</p>
+      <CamposDaLiberacao key={estado?.marca ?? 'inicio'} estado={estado} />
       {estado?.erro && (
-        <p id="erro-liberacao" role="alert" className="text-erro">
-          {estado.semCarimbo ? <ComLinkDoPerfil texto={estado.erro} /> : estado.erro}
+        <p key={estado.marca} id="erro-liberacao" role="alert" className="text-erro">
+          {estado.semCarimbo ? <ComLinkDoPerfil texto={estado.erro} id="link-perfil-liberacao" /> : estado.erro}
         </p>
       )}
       <div className="flex flex-wrap justify-end gap-3">
@@ -93,7 +108,10 @@ export function FormularioDeLiberacao({
   );
 }
 
-/** "Liberar conversa" e o diálogo (o `Dialogo` compartilhado; nunca a confirmação nativa do navegador). Liberou → a página com `?ok=liberada`. */
+/**
+ * "Liberar conversa" e o diálogo (o `Dialogo` compartilhado; nunca a confirmação nativa do navegador), com a orientação do
+ * TCLE como descrição (o leitor de tela a ouve ao abrir). Liberou → a página com `?ok=liberada`.
+ */
 export function LiberarDialogo({ patientId, nome }: { patientId: string; nome: string }) {
   const [aberto, setAberto] = useState(false);
   const [ocupado, setOcupado] = useState(false);
@@ -102,7 +120,7 @@ export function LiberarDialogo({ patientId, nome }: { patientId: string; nome: s
       <Botao type="button" data-guia="liberar-conversa" onClick={() => setAberto(true)}>
         {L.botao}
       </Botao>
-      <Dialogo aberto={aberto} titulo={L.titulo(nome)} aoFechar={() => setAberto(false)} ocupado={ocupado} rodape={null}>
+      <Dialogo aberto={aberto} titulo={L.titulo(nome)} descricao={L.texto} aoFechar={() => setAberto(false)} ocupado={ocupado} rodape={null}>
         <FormularioDeLiberacao patientId={patientId} nome={nome} aoCancelar={() => setAberto(false)} aoOcupar={setOcupado} />
       </Dialogo>
     </>

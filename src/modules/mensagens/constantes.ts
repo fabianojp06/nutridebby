@@ -192,6 +192,8 @@ export const MSG_MENSAGENS = {
     erro: 'Escolha como o paciente concordou e marque a confirmação.',
     sucesso: 'Conversa liberada.',
     semCarimbo: 'Para liberar a conversa, preencha seu nome e seu CRN em Configurações.',
+    /** CH-D75: o erro genérico do ato (não o do envio). */
+    falha: 'Não foi possível liberar a conversa. Tente de novo.',
   },
   pausa: {
     botao: 'Pausar conversa',
@@ -202,6 +204,10 @@ export const MSG_MENSAGENS = {
     sucesso: 'Conversa pausada.',
     retomar: 'Retomar conversa',
     retomada: 'Conversa retomada.',
+    /** CH-D75: a pausa grava o nome e o CRN (CH-D74); sem o carimbo, este texto com o link ao Perfil. */
+    semCarimbo: 'Para pausar a conversa, preencha seu nome e seu CRN em Configurações.',
+    falha: 'Não foi possível pausar a conversa. Tente de novo.',
+    falhaRetomar: 'Não foi possível retomar a conversa. Tente de novo.',
   },
   duvida: {
     /** CH-D45: h1, aba e o "Voltar para…" com um nome só. */

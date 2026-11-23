@@ -66,7 +66,7 @@ export async function liberarAction(patientId: string, _anterior: EstadoDaLibera
     r = await liberarConversa(ctx, patientId, { forma: forma as FormaTcle, confirmou: true });
   } catch (err) {
     registrarFalha('liberar', err, patientId);
-    return estado(M.erros.falha);
+    return estado(M.liberacao.falha);
   }
   if (r === 'sem_carimbo') return estado(M.liberacao.semCarimbo, true);
   revalidatePath('/painel', 'layout');
@@ -84,14 +84,17 @@ export async function pausarAction(patientId: string): Promise<EstadoDaPausa> {
     r = await pausarConversa(ctx, patientId);
   } catch (err) {
     registrarFalha('pausar', err, patientId);
-    return { erro: M.erros.falha, semCarimbo: false };
+    return { erro: M.pausa.falha, semCarimbo: false };
   }
-  if (r === 'sem_carimbo') return { erro: M.erros.semCarimbo, semCarimbo: true };
+  if (r === 'sem_carimbo') return { erro: M.pausa.semCarimbo, semCarimbo: true };
   revalidatePath('/painel', 'layout');
   redirect(r === 'ok' ? `${caminho(patientId)}?ok=pausada` : caminho(patientId));
 }
 
-/** US-450: retoma, sem novo TCLE. Retomou → `?ok=retomada`; senão, a conversa como está. */
+/**
+ * US-450: retoma, sem novo TCLE. Retomou → `?ok=retomada`; não pausada ou titular inativo → a conversa como está; erro
+ * inesperado → `?erro=retomar` ("Não foi possível retomar a conversa. Tente de novo.", CH-D75).
+ */
 export async function retomarAction(patientId: string): Promise<void> {
   const { ctx } = await requireNutri('/painel/mensagens');
   let r: Awaited<ReturnType<typeof retomarConversa>> | 'falha';
@@ -102,5 +105,5 @@ export async function retomarAction(patientId: string): Promise<void> {
     r = 'falha';
   }
   revalidatePath('/painel', 'layout');
-  redirect(r === 'ok' ? `${caminho(patientId)}?ok=retomada` : caminho(patientId));
+  redirect(r === 'ok' ? `${caminho(patientId)}?ok=retomada` : r === 'falha' ? `${caminho(patientId)}?erro=retomar` : caminho(patientId));
 }

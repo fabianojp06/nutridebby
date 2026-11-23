@@ -8,7 +8,8 @@ import { escolherTema } from './painel';
 // (o selo "Sinal de risco" no topo), a "Nova conversa" (busca e abrir a conversa), o axe da caixa com o selo de alerta nos
 // três modos (o laço de acessibilidade-painel.spec.ts vê a caixa vazia do consultório principal) e o menu que quebra linha
 // sem cobrir o conteúdo. Bloco de IP deste spec (o limite de login é por IP; bloco do Plano 25, CH-D50): 10.9.25.1 a
-// 10.9.25.5 na T6a — nutricionista .1; T6b: .6 a .15 — a segunda paciente do chat .6, o painel sem JS .7. A T6c usa .16
+// 10.9.25.5 na T6a — nutricionista .1; T6b: .6 a .15 — a segunda paciente do chat .6, o painel sem JS .7, a segunda
+// paciente na rodada da T6b .8. A T6c usa .16
 // em diante (T6c: .16 a .19 — a primeira paciente do chat no app .16). Credenciais copiadas (importar o seed roda o seed).
 const CHAT_NUTRI = { email: 'chat-nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const CHAT_PACIENTE = { nome: 'Paciente Chat E2E', email: 'chat-paciente-e2e@nutridebby.test', senha: 'Nutri2026segura' };
@@ -241,6 +242,83 @@ test('T6b: sem JavaScript, a conversa abre, mostra as mensagens e envia texto (R
   await expect(page).toHaveURL(new RegExp(`${url}$`));
   await expect(listaDeMensagens(page).getByText(texto)).toBeVisible();
   await semJs.close();
+});
+
+// ——— Rodada da T6b (revisão de interface: C1, I1, I4) ———
+
+test('rodada T6b (C1): o rascunho fica no campo quando chega mensagem nova e a tela refaz; o foco vai à primeira nova e, depois de enviar, volta ao campo', async ({ browser }) => {
+  test.setTimeout(120_000);
+  await nutri.clock.install().catch(() => undefined); // já instalado pelo teste da mensagem nova com a tela aberta
+  await abrirConversa(nutri, CHAT_PACIENTE_2.nome);
+  await nutri.waitForLoadState('networkidle');
+  const campo = nutri.getByLabel('Mensagem');
+  const rascunho = `Rascunho que não pode sumir ${Date.now()}`;
+  await campo.fill(rascunho);
+  const paciente = await pacienteNoApp(browser, '10.9.25.8');
+  await paciente.goto('/p/mensagens');
+  const texto = `Mais uma dúvida ${Date.now()}`;
+  await paciente.getByLabel('Escreva sua mensagem').fill(texto);
+  await paciente.getByRole('button', { name: 'Enviar', exact: true }).click();
+  await expect(paciente.getByText(texto)).toBeVisible();
+  await paciente.context().close();
+  await nutri.clock.runFor(15_000);
+  await expect(regiaoViva(nutri)).toHaveText('Nova mensagem de Paciente.');
+  await nutri.getByRole('button', { name: 'Mostrar novas mensagens' }).click();
+  const nova = listaDeMensagens(nutri).locator('li[data-mensagem]').filter({ hasText: texto });
+  await expect(nova).toBeFocused();
+  // a primeira nova não fica sob o rodapé sticky (WCAG 2.4.11)
+  const caixaNova = (await nova.boundingBox())!;
+  const rodape = (await nutri.locator('#rodape-da-conversa').boundingBox())!;
+  expect(caixaNova.y + caixaNova.height).toBeLessThanOrEqual(rodape.y + 1);
+  await expect(campo).toHaveValue(rascunho); // a tela refez e o rascunho ficou
+  await expect(regiaoViva(nutri)).toHaveText('');
+  // enviar: o campo esvazia e recebe o foco de volta
+  await nutri.getByRole('button', { name: 'Enviar', exact: true }).click();
+  await expect(listaDeMensagens(nutri).getByText(rascunho)).toBeVisible();
+  await expect(campo).toHaveValue('');
+  await expect(campo).toBeFocused();
+});
+
+test('rodada T6b (I4): rede caída no envio — "Não foi possível enviar. Tente de novo." junto ao campo e o rascunho continua', async () => {
+  await abrirConversa(nutri, CHAT_PACIENTE_2.nome);
+  await nutri.waitForLoadState('networkidle');
+  const campo = nutri.getByLabel('Mensagem');
+  const rascunho = `Escrito sem rede ${Date.now()}`;
+  await campo.fill(rascunho);
+  await nutri.context().setOffline(true);
+  try {
+    await nutri.getByRole('button', { name: 'Enviar', exact: true }).click();
+    await expect(nutri.locator('#erro-mensagem')).toHaveText('Não foi possível enviar. Tente de novo.');
+    await expect(campo).toHaveValue(rascunho);
+    await expect(nutri.getByRole('heading', { level: 1, name: CHAT_PACIENTE_2.nome })).toBeVisible(); // nada de error boundary
+  } finally {
+    await nutri.context().setOffline(false);
+  }
+  await nutri.getByRole('button', { name: 'Enviar', exact: true }).click();
+  await expect(listaDeMensagens(nutri).getByText(rascunho)).toBeVisible();
+  await expect(campo).toHaveValue('');
+});
+
+test('rodada T6b (I1): pausar → retomar — cada retorno é anunciado na região viva, que recebe o foco sem rolar a tela', async () => {
+  const url = await abrirConversa(nutri, CHAT_PACIENTE_2.nome);
+  await nutri.waitForLoadState('networkidle');
+  await nutri.getByRole('button', { name: 'Pausar conversa' }).click();
+  const pausar = nutri.getByRole('dialog', { name: 'Pausar conversa' });
+  await expect(pausar).toContainText('Combine com o paciente como o acompanhamento continua.');
+  await expect(pausar.getByRole('button', { name: 'Cancelar' })).toBeFocused();
+  await pausar.getByRole('button', { name: 'Pausar', exact: true }).click();
+  await expect(nutri).toHaveURL(new RegExp(`${url}\\?ok=pausada$`));
+  await expect(regiaoViva(nutri)).toHaveText('Conversa pausada.');
+  await expect(regiaoViva(nutri)).toBeFocused();
+  await expect(nutri.getByText('Conversa pausada', { exact: true })).toBeVisible();
+  await expect(nutri.getByLabel('Mensagem')).toHaveCount(0);
+  const rolagemAntes = await nutri.evaluate(() => window.scrollY);
+  await nutri.getByRole('button', { name: 'Retomar conversa' }).click();
+  await expect(nutri).toHaveURL(new RegExp(`${url}\\?ok=retomada$`));
+  await expect(regiaoViva(nutri)).toHaveText('Conversa retomada.');
+  await expect(regiaoViva(nutri)).toBeFocused();
+  expect(Math.abs((await nutri.evaluate(() => window.scrollY)) - rolagemAntes)).toBeLessThan(400);
+  await expect(nutri.getByLabel('Mensagem')).toBeVisible();
 });
 
 // ——— T6c: configuração e ficha ———

@@ -22,6 +22,8 @@ export const metadata: Metadata = { title: MSG_MENSAGENS.caixa.titulo };
 const M = MSG_MENSAGENS;
 /** Os retornos `?ok=` dos atos (códigos fechados; fora da lista, nada). A resposta à dúvida (`respondida`) entra na T9. */
 const RETORNOS: Record<string, string> = { liberada: M.liberacao.sucesso, pausada: M.pausa.sucesso, retomada: M.pausa.retomada };
+/** Rodada da T6b (CH-D75): o `?erro=` fechado do ato que redireciona (retomar). */
+const ERROS: Record<string, string> = { retomar: M.pausa.falhaRetomar };
 const BOTAO_SECUNDARIO = 'inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha';
 
 /**
@@ -46,7 +48,12 @@ export default async function Conversa({ params, searchParams }: PageProps<'/pai
   }
   const { estado, mensagens, nome } = c;
   const primeiroNome = nome.split(/\s+/)[0] ?? nome;
-  const aviso = typeof sp.ok === 'string' && Object.hasOwn(RETORNOS, sp.ok) ? RETORNOS[sp.ok] : '';
+  const aviso =
+    typeof sp.ok === 'string' && Object.hasOwn(RETORNOS, sp.ok)
+      ? RETORNOS[sp.ok]
+      : typeof sp.erro === 'string' && Object.hasOwn(ERROS, sp.erro)
+        ? ERROS[sp.erro]
+        : '';
   const ativo = estado.titular === 'ativo';
   const liberada = estado.liberadaEm !== null;
   const podeEnviar = ativo && liberada && !estado.pausada && estado.carimbo;
@@ -93,7 +100,8 @@ export default async function Conversa({ params, searchParams }: PageProps<'/pai
         {ativo && liberada && !estado.temConta && <p>{M.estados.semAcesso(nome)}</p>}
       </div>
 
-      <ProvedorDaLeitura key={`${ultima}:${c.ultimaLida}`} minhas={minhas} ultimaLida={c.ultimaLida}>
+      {/* rodada da T6b (C1): sem `key` — a página que refaz não remonta o campo nem a região viva */}
+      <ProvedorDaLeitura minhas={minhas} ultimaLida={c.ultimaLida}>
         <div className="flex-1 space-y-3">
           {c.haAnteriores && mensagens[0] && (
             <p className="text-center">
@@ -103,9 +111,8 @@ export default async function Conversa({ params, searchParams }: PageProps<'/pai
             </p>
           )}
           <ListaDeMensagens mensagens={mensagens} fuso={tenant.fuso} primeiroNome={primeiroNome} />
-          <div id="fim-da-conversa" />
         </div>
-        <div className="sticky bottom-0 space-y-3 border-t border-borda bg-fundo pt-3 pb-2">
+        <div id="rodape-da-conversa" className="sticky bottom-0 space-y-3 border-t border-borda bg-fundo pt-3 pb-2">
           <SituacaoDaConversa patientId={patientId} depois={ultima} primeiroNome={primeiroNome} aviso={aviso} focarAviso={aviso !== ''} consultar={antes === undefined && ativo} />
           {podeEnviar && <CampoDaConversa patientId={patientId} />}
           {ativo && liberada && !estado.pausada && !estado.carimbo && (

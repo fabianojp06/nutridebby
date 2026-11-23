@@ -107,17 +107,42 @@ export function acompanharSituacao(url: string, aoMudar: (s: Situacao) => void, 
   };
 }
 
-/** O "Lida" do render e o atualizado pela consulta (RN-448): as próprias mensagens mostradas, em ordem, e a última lida. */
-type Leitura = { minhas: readonly string[]; ultimaLida: string | null; setUltimaLida: (id: string | null) => void };
-const ContextoDaLeitura = createContext<Leitura>({ minhas: [], ultimaLida: null, setUltimaLida: () => undefined });
+/**
+ * Rodada da T6b (C1): o "Lida" só avança. Entre o do servidor (o render) e o da consulta, fica o que estiver mais adiante
+ * nas próprias mensagens da tela; um que não está na tela não conta. Puro (o mesmo padrão do número do menu, revisão da T6a).
+ */
+export function lidaMaisAdiante(minhas: readonly string[], doServidor: string | null, consultada: string | null): string | null {
+  const i = doServidor === null ? -1 : minhas.indexOf(doServidor);
+  const j = consultada === null ? -1 : minhas.indexOf(consultada);
+  if (j > i) return consultada;
+  return doServidor;
+}
+
+/** As novas da consulta valem só para a última mensagem que estava na tela quando ela respondeu (o refresh as zera). */
+export const novasNaTela = (consulta: { de: string | null; n: number } | null, depois: string | null): number => (consulta && consulta.de === depois ? consulta.n : 0);
 
 /**
- * Guarda o "Lida": começa com o do render do servidor e passa a valer o da consulta da situação. Quando a página refaz
- * (`router.refresh`, envio, `?ok=`), o valor do servidor volta a valer (a chave muda e o provedor remonta).
+ * O texto da região viva: "Nova mensagem de {nome}." com novas; senão, o retorno `?ok=`/`?erro=` — menos o que já ficou
+ * para trás num "Mostrar novas mensagens" (`avisoVisto`). Um ato novo (pausar depois de liberar) é outro texto e é anunciado.
+ */
+export function textoDaRegiao(o: { novas: number; primeiroNome: string; aviso: string; avisoVisto: string | null }): string {
+  if (o.novas > 0) return avisoDeNovas(o.novas, o.primeiroNome);
+  return o.aviso === o.avisoVisto ? '' : o.aviso;
+}
+
+/** O "Lida" do render e o atualizado pela consulta (RN-448): as próprias mensagens mostradas, em ordem, e a última lida. */
+type Leitura = { minhas: readonly string[]; ultimaLida: string | null; setConsultada: (id: string | null) => void };
+const ContextoDaLeitura = createContext<Leitura>({ minhas: [], ultimaLida: null, setConsultada: () => undefined });
+
+/**
+ * Guarda o "Lida": o do servidor e o da consulta da situação, valendo o mais adiante (`lidaMaisAdiante`, derivado no
+ * render — nunca a prop copiada para o estado). Sem `key` (rodada da T6b, C1): nada abaixo dele remonta quando a página
+ * refaz, e o rascunho, o foco e a região viva ficam.
  */
 export function ProvedorDaLeitura({ minhas, ultimaLida, children }: { minhas: readonly string[]; ultimaLida: string | null; children?: ReactNode }) {
-  const [atual, setUltimaLida] = useState(ultimaLida);
-  return <ContextoDaLeitura.Provider value={{ minhas, ultimaLida: atual, setUltimaLida }}>{children}</ContextoDaLeitura.Provider>;
+  const [consultada, setConsultada] = useState<string | null>(null);
+  const valor = { minhas, ultimaLida: lidaMaisAdiante(minhas, ultimaLida, consultada), setConsultada };
+  return <ContextoDaLeitura.Provider value={valor}>{children}</ContextoDaLeitura.Provider>;
 }
 
 /**
@@ -157,27 +182,30 @@ export function SituacaoDaConversa({
 }) {
   const router = useRouter();
   const regiao = useRef<HTMLParagraphElement>(null);
-  const { setUltimaLida } = useContext(ContextoDaLeitura);
-  const [novas, setNovas] = useState(0);
-  /** Depois do primeiro "Mostrar novas mensagens", o `?ok=` da URL não volta a ser anunciado. */
-  const [jaMostrou, setJaMostrou] = useState(false);
+  const { setConsultada } = useContext(ContextoDaLeitura);
+  const [consulta, setConsulta] = useState<{ de: string | null; n: number } | null>(null);
+  /** O `?ok=` que estava na tela no toque em "Mostrar novas mensagens": não volta a ser anunciado. */
+  const [avisoVisto, setAvisoVisto] = useState<string | null>(null);
   /** O id da última mensagem que estava na tela no toque: depois do refresh, o foco vai à seguinte. */
   const focarDepoisDe = useRef<string | null | undefined>(undefined);
+  const novas = novasNaTela(consulta, depois);
 
+  // I1 da rodada: a cada ato (liberar → pausar → retomar) o foco vai à região, sem rolar; sem ato, a tela abre no rodapé
   useEffect(() => {
-    if (focarAviso) regiao.current?.focus();
-    else document.getElementById('fim-da-conversa')?.scrollIntoView({ block: 'end' });
-  }, [focarAviso]);
+    if (focarAviso) regiao.current?.focus({ preventScroll: true });
+    else document.getElementById('rodape-da-conversa')?.scrollIntoView({ block: 'end' });
+  }, [focarAviso, aviso]);
 
   useEffect(() => {
     if (!consultar) return undefined;
     return acompanharSituacao(urlDaSituacao(patientId, depois), (s) => {
-      setNovas(s.novas);
-      setUltimaLida(s.ultimaLida);
+      setConsulta({ de: depois, n: s.novas });
+      setConsultada(s.ultimaLida);
     });
-  }, [consultar, patientId, depois, setUltimaLida]);
+  }, [consultar, patientId, depois, setConsultada]);
 
-  // a página refez com as mensagens novas (`depois` mudou): o foco vai à primeira nova
+  // a página refez com as mensagens novas (`depois` mudou): o foco vai à primeira nova (a margem de rolagem do item a
+  // deixa acima do rodapé)
   useEffect(() => {
     const anterior = focarDepoisDe.current;
     if (anterior === undefined || anterior === depois) return;
@@ -189,12 +217,12 @@ export function SituacaoDaConversa({
 
   const mostrarNovas = () => {
     focarDepoisDe.current = depois;
-    setNovas(0);
-    setJaMostrou(true);
+    setConsulta(null);
+    setAvisoVisto(aviso);
     router.refresh();
   };
 
-  const texto = novas > 0 ? avisoDeNovas(novas, primeiroNome) : jaMostrou ? '' : aviso;
+  const texto = textoDaRegiao({ novas, primeiroNome, aviso, avisoVisto });
   return (
     <div className="space-y-2">
       <p ref={regiao} role="status" tabIndex={-1} className="text-sm focus-visible:outline-offset-2">

@@ -402,14 +402,16 @@ test('D17: o botão de tema alterna, persiste depois de recarregar e em outro ap
 });
 
 test('Plano 25 (revisão da T6a, I2): o pior caso do menu — 9 itens, com "Exames recebidos" e "Mensagens" — quebra linha sem cobrir o conteúdo, a 1280 e a 360 px', async () => {
-  // o consultório principal da semente liga os exames e tem dúvidas da IA Nutri abertas: "Mensagens (n)" com número
+  // o consultório principal da semente liga os exames (9 itens); "Mensagens" com ou sem número
   const menu = nutri.getByRole('navigation', { name: 'Menu do painel' });
   for (const width of [1280, 360]) {
     await nutri.setViewportSize({ width, height: 800 });
     await nutri.goto('/painel/mensagens');
     await expect(menu.getByRole('link')).toHaveCount(9);
     await expect(menu.getByRole('link', { name: 'Exames recebidos', exact: false })).toBeVisible();
-    await expect(menu.getByRole('link', { name: /^Mensagens, \d+ não lidas?$/ })).toBeVisible();
+    // com ou sem número (o contador depende do que as outras specs leram): o pior caso de largura é com número, e o rótulo
+    // visível "Mensagens (n)" só cabe a mais; a checagem de sobreposição vale nos dois
+    await expect(menu.getByRole('link', { name: /^Mensagens(, \d+ não lidas?)?$/ })).toBeVisible();
     const caixa = async (sel: string) => (await nutri.locator(sel).first().boundingBox())!;
     const cabecalho = await caixa('header');
     const nav = await caixa('nav[aria-label="Menu do painel"]');

@@ -56,12 +56,6 @@ export function ListaDeMensagens({ mensagens, fuso, primeiroNome }: { mensagens:
     const prox = mensagens[i + 1];
     const diaAnt = ant ? partesNoFuso(ant.criadaEm, fuso).data : null;
     const diaProx = prox ? partesNoFuso(prox.criadaEm, fuso).data : null;
-    if (p.data !== diaAnt)
-      itens.push(
-        <li key={`dia-${p.data}`} className="py-2 text-center text-sm font-semibold text-suave">
-          {rotuloDoDia(p.data, hoje)}
-        </li>,
-      );
     const inicio = !ant || p.data !== diaAnt || chaveDoBloco(ant) !== chaveDoBloco(m);
     const fim = !prox || diaProx !== p.data || chaveDoBloco(prox) !== chaveDoBloco(m);
     const daEquipe = m.autor === 'nutri';
@@ -72,9 +66,12 @@ export function ListaDeMensagens({ mensagens, fuso, primeiroNome }: { mensagens:
         data-mensagem={m.id}
         data-recado={m.recado ? '' : undefined}
         tabIndex={-1}
-        className={`flex flex-col ${daEquipe ? 'items-end' : 'items-start'} ${inicio ? 'mt-3' : 'mt-1'}`}
+        // a margem de rolagem do tamanho do rodapé sticky: o foco da primeira nova não fica embaixo dele (WCAG 2.4.11)
+        className={`flex scroll-mt-4 scroll-mb-64 flex-col ${daEquipe ? 'items-end' : 'items-start'} ${inicio ? 'mt-3' : 'mt-1'}`}
       >
-        {inicio && <p className="text-sm font-semibold">{autor}</p>}
+        {/* o dia é o começo do primeiro item do dia (não um item da lista: a lista só conta mensagens) */}
+        {p.data !== diaAnt && <p className="w-full py-2 text-center text-sm font-semibold text-suave">{rotuloDoDia(p.data, hoje)}</p>}
+        {inicio && autor && <p className="text-sm font-semibold">{autor}</p>}
         <div className={`max-w-[85%] space-y-1 rounded-2xl border p-3 ${m.recado ? 'border-2 border-marca bg-cartao' : daEquipe ? 'border-borda bg-linha' : 'border-borda bg-cartao'}`}>
           {m.recado && <Selo>{C.recado}</Selo>}
           {m.duvidaEm && <p className="text-sm text-suave">{C.respostaADuvida(formatarData(hojeNoFuso(fuso, m.duvidaEm)))}</p>}
