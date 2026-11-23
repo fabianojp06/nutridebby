@@ -435,3 +435,33 @@ Plano 27, T1a (tabelas e RLS sem gatilhos, 23/11/2026): limpa na lente banco. A 
 - Commit intermediário com `app_allow_paciente_escrita` e SEM o gatilho de colunas/transições (fica para a fatia seguinte):
   o paciente reescreve qualquer coluna da própria linha. Só aceitável se o PR sai inteiro; conferir antes do PR.
 - FK de UNIQUE novo em tabela existente: o drizzle-kit cria o UNIQUE depois das FKs (42830) → FK só na custom (molde 0112).
+Plano 23, T1a (Agenda 2, banco, 17/11/2026):
+- Política RESTRICTIVE `FOR SELECT` usada para "o papel não grava o estado X" (aguardando_fora_do_publico): barra o UPDATE
+  (linha nova conferida pelo SELECT) e o FOR UPDATE, mas NÃO o INSERT sem RETURNING — o `publico` insere a linha já no estado
+  X (provado no dev com rollback). Conferir os três comandos; pedir FOR ALL (USING + WITH CHECK) ou política de INSERT própria.
+Plano 23, T1b (gatilhos do pedido, 17/11/2026):
+- Regra de NASCIMENTO decidida no BEFORE INSERT (chave → `solicitada`) com o papel que tem UPDATE amplo na própria linha
+  (paciente em `appointments`: `app_allow_paciente_escrita(...,'update')`, sem gatilho de colunas desde a 0070): reabrir a
+  cancelada (`cancelada → agendada`, provado no dev com ROLLBACK) ou mover o horário de uma agendada contorna a regra. Conferir
+  sempre o que o papel já pode fazer por UPDATE nas linhas que NÃO estão no estado novo, não só as transições do estado novo.
+- `tenants` sem RLS: gatilho "só a equipe muda a coluna" barra papel, não tenant — a sessão nutri de A muda a linha de B.
+Plano 23, T1c (SECURITY DEFINER da agenda, 17/11/2026): sem Critical/Important; migrate-owner com dono NOBYPASSRLS ok.
+- Gatilho que decide pela coluna `origem` que o próprio papel grava (cópia do link só com origem='paciente'): a sessão de
+  paciente/publico manda origem 'nutri' e mantém o link do código. Conferir se o discriminador é gravável pelo papel guardado.
+- Função SQL que toma a trava consultiva do tenant e depois a linha: o módulo que já fez FOR UPDATE da linha antes de chamá-la
+  (concluir/confirmarCodigo do agendamento público) inverte a ordem tenant → linha. Conferir o chamador na tarefa que liga.
+- Anonimização SECURITY DEFINER nova copiando o molde 0065/0108 (bloqueado + anonimizado_em nulo) sem o prazo vencido que a
+  0123 já exige: apontar o molde mais novo.
+Plano 23, revisão final do PR 1 (fundação, 17/11/2026): sem Critical/Important na lente banco.
+- PR de fundação é o ALVO da volta atrás dos PRs seguintes (runbook): job da imagem dele que apaga/trata linhas sem conhecer
+  o estado novo (limparPedidosPublicos apaga aguardando > 24 h pela criação) perde dado na volta. Conferir varreduras do worker.
+- Backfill que desdobra linhas (regra "ambas" → par) contra teto do módulo da mesma imagem (MAX_REGRAS 30): a nutri trava.
+SUS-100 (17/11/2026): teste de guarda com DDL (drop/create policy, drop trigger) em tabela real no banco compartilhado do
+  Testcontainers segura AccessExclusive até o rollback → 40P01 com outro arquivo. Correção: clone por TEMPLATE
+  (`test/ddl.ts`). Em teste novo com DDL em tabela real, exigir o banco próprio; o TEMPLATE não copia ACL/SET de banco.
+Plano 23, re-revisão do /code-review do PR #59 (17/11/2026): os 5 itens resolvidos, sem quebra nova Critical/Important.
+- Recorrentes que o /code-review pegou e a revisão por tarefa não: gatilho que deriva coluna da FK só no BEFORE INSERT (a FK
+  trocada no UPDATE deixa o dado do pai antigo); "ocupado" em função SQL com lista de status ≠ recorte do EXCLUDE/TS e sem
+  bloqueios; borda `<=` × `<` entre validade SQL e TS. Cruzar sempre com o EXCLUDE, o leitor TS e a borda do TS.
+- Junção de linhas desdobradas por chave de horário (juntarPares) vale só enquanto o par não pode nascer: quando a tarefa
+  seguinte liberar regras por local na mesma faixa, a junção e o "apaga a outra metade" passam a apagar regra legítima.

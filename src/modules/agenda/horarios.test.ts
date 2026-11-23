@@ -41,6 +41,27 @@ describe('gerarHorarios (RN-03, US-030)', () => {
     expect(gerarHorarios({ regras: [online], bloqueios: [], ocupados: [], ...semana, online: true }).map((h) => h.modalidades)).toEqual([['online'], ['online'], ['online'], ['online']]);
   });
 
+  it('AG-D47 (Plano 23, PR 1): gerarHorarios junta presencial e online do mesmo início e fim num horário com as duas modalidades', () => {
+    // o backfill desdobra "ambas" em uma regra presencial e uma online, com os mesmos horários
+    const presencial: Regra = { ...TERCA, modalidade: 'presencial' };
+    const online: Regra = { ...TERCA, modalidade: 'online' };
+    const juntos = gerarHorarios({ regras: [online, presencial], bloqueios: [], ocupados: [], ...semana, online: true });
+    const ambas = gerarHorarios({ regras: [{ ...TERCA, modalidade: 'ambas' }], bloqueios: [], ocupados: [], ...semana, online: true });
+    expect(juntos).toEqual(ambas);
+    expect(rotulos(juntos)).toEqual(['2026-10-20 08:00', '2026-10-20 09:00', '2026-10-20 10:00', '2026-10-20 11:00']);
+    expect(juntos.map((h) => h.modalidades)).toEqual(Array(4).fill(['presencial', 'online']));
+    // sem link padrão, a regra online não oferece nada e o horário fica só presencial
+    expect(gerarHorarios({ regras: [online, presencial], bloqueios: [], ocupados: [], ...semana, online: false }).map((h) => h.modalidades)).toEqual(Array(4).fill(['presencial']));
+    // mesmo início com fim diferente (outra duração) não junta
+    const curta: Regra = { ...TERCA, fim: '09:00', duracaoMin: 30, modalidade: 'online' };
+    const hs = gerarHorarios({ regras: [presencial, curta], bloqueios: [], ocupados: [], ...semana, online: true });
+    expect(hs.slice(0, 3).map((h) => [rotulos([h])[0], (h.fim.getTime() - h.inicio.getTime()) / 60_000, h.modalidades])).toEqual([
+      ['2026-10-20 08:00', 60, ['presencial']],
+      ['2026-10-20 08:00', 30, ['online']],
+      ['2026-10-20 08:30', 30, ['online']],
+    ]);
+  });
+
   it('horário de verão: a hora que não existe é pulada', () => {
     const NY = 'America/New_York';
     const domingo: Regra = { diaSemana: 0, inicio: '01:00', fim: '04:00', duracaoMin: 60, modalidade: 'presencial' };

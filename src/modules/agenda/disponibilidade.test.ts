@@ -1,7 +1,8 @@
+import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { availabilityBlocks, availabilityRules } from '@/db/schema';
+import { availabilityBlocks, availabilityRules, locaisAtendimento } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { MAX_REGRAS, MSG_AGENDA } from './constantes';
 import { criarBloqueio, criarRegra, DisponibilidadeError, excluirBloqueio, excluirRegra, listarBloqueios, listarRegras, validarRegra } from './disponibilidade';
@@ -11,6 +12,7 @@ const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
 const deps = { db: app.db };
 const SP = 'America/Sao_Paulo';
+const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const TERCA = { diaSemana: '2', inicio: '08:00', fim: '12:00', duracaoMin: '60', modalidade: 'presencial' };
 
 const erros = async (p: Promise<unknown>) => {
@@ -97,6 +99,71 @@ describe('horários de atendimento (US-030)', () => {
     await excluirRegra(B.ctx, idA, app.db);
     expect(await listarRegras(A.ctx, app.db)).toHaveLength(1);
     await expect(excluirRegra(A.ctx, 'nao-e-uuid', app.db)).resolves.toBeUndefined();
+  });
+
+  it('par "ambas" desdobrado pelo backfill (AG-D47): a tela antiga lista UMA regra "ambas", o limite conta uma e excluir apaga as duas metades', async () => {
+    const T = await novoTenant(app.db);
+    // como a 0131 deixa: Consultório (presencial principal) e Videoconferência (online com sala); "ambas" virou presencial + cópia online
+    const par = await withTenant(
+      T.ctx,
+      async (tx) => {
+        const [c] = await tx.insert(locaisAtendimento).values({ tenantId: T.tenantId, nome: 'Consultório', tipo: 'presencial', agendamentoOnline: true, principal: true }).returning({ id: locaisAtendimento.id });
+        const [v] = await tx
+          .insert(locaisAtendimento)
+          .values({ tenantId: T.tenantId, nome: 'Videoconferência', tipo: 'online', linkSala: 'https://sala.example.test/debby', agendamentoOnline: true })
+          .returning({ id: locaisAtendimento.id });
+        const base = { tenantId: T.tenantId, diaSemana: 2, inicio: '08:00', fim: '12:00', duracaoMin: 60 };
+        // a cópia online primeiro: a junção não depende da ordem de leitura
+        const [o] = await tx.insert(availabilityRules).values({ ...base, modalidade: 'online', localId: v.id }).returning({ id: availabilityRules.id });
+        const [pr] = await tx.insert(availabilityRules).values({ ...base, modalidade: 'presencial', localId: c.id }).returning({ id: availabilityRules.id });
+        return { online: o.id, presencial: pr.id };
+      },
+      app.db,
+    );
+    const lista = await listarRegras(T.ctx, app.db);
+    expect(lista).toEqual([{ id: par.presencial, diaSemana: 2, inicio: '08:00', fim: '12:00', duracaoMin: 60, modalidade: 'ambas' }]);
+    // "ambas" criada pela tela antiga depois do backfill: sem local, aparece ao lado do par
+    const nova = await criarRegra(T.ctx, { ...TERCA, diaSemana: '3', modalidade: 'ambas' }, deps);
+    expect((await listarRegras(T.ctx, app.db)).map((r) => [r.id, r.modalidade])).toEqual([
+      [par.presencial, 'ambas'],
+      [nova, 'ambas'],
+    ]);
+    expect(await withTenant(T.ctx, (tx) => tx.select({ localId: availabilityRules.localId }).from(availabilityRules).where(eq(availabilityRules.id, nova)), app.db)).toEqual([{ localId: null }]);
+    // o limite conta o par como uma: par + "ambas" nova + MAX_REGRAS − 3 faixas = MAX_REGRAS linhas no banco, MAX_REGRAS − 1 regras na tela
+    const faixa = (i: number) => ({ diaSemana: '1', inicio: hhmm(i * 15), fim: hhmm(i * 15 + 15), duracaoMin: '15', modalidade: 'online' });
+    for (let i = 0; i < MAX_REGRAS - 3; i++) await criarRegra(T.ctx, faixa(i), deps);
+    expect(await listarRegras(T.ctx, app.db)).toHaveLength(MAX_REGRAS - 1);
+    await expect(criarRegra(T.ctx, { ...TERCA, diaSemana: '5' }, deps)).resolves.toBeTypeOf('string');
+    expect(await listarRegras(T.ctx, app.db)).toHaveLength(MAX_REGRAS);
+    expect(await erros(criarRegra(T.ctx, { ...TERCA, diaSemana: '6' }, deps))).toEqual({ geral: MSG_AGENDA.limiteRegras });
+    // excluir pelo id da lista (metade presencial) apaga as duas metades; o resto fica
+    await excluirRegra(T.ctx, par.presencial, app.db);
+    const ids = (await withTenant(T.ctx, (tx) => tx.select({ id: availabilityRules.id }).from(availabilityRules), app.db)).map((r) => r.id);
+    expect(ids).not.toContain(par.presencial);
+    expect(ids).not.toContain(par.online);
+    expect(ids).toHaveLength(MAX_REGRAS - 1);
+    await expect(criarRegra(T.ctx, { ...TERCA, diaSemana: '6' }, deps)).resolves.toBeTypeOf('string');
+  });
+
+  it('excluir pela metade online do par também apaga a presencial; regra solta de mesma faixa em outro dia fica', async () => {
+    const T = await novoTenant(app.db);
+    const par = await withTenant(
+      T.ctx,
+      async (tx) => {
+        const base = { tenantId: T.tenantId, diaSemana: 4, inicio: '14:00', fim: '18:00', duracaoMin: 30 };
+        const [o] = await tx.insert(availabilityRules).values({ ...base, modalidade: 'online' }).returning({ id: availabilityRules.id });
+        const [pr] = await tx.insert(availabilityRules).values({ ...base, modalidade: 'presencial' }).returning({ id: availabilityRules.id });
+        const [solta] = await tx.insert(availabilityRules).values({ ...base, diaSemana: 5, modalidade: 'presencial' }).returning({ id: availabilityRules.id });
+        return { online: o.id, presencial: pr.id, solta: solta.id };
+      },
+      app.db,
+    );
+    expect((await listarRegras(T.ctx, app.db)).map((r) => [r.id, r.modalidade])).toEqual([
+      [par.presencial, 'ambas'],
+      [par.solta, 'presencial'],
+    ]);
+    await excluirRegra(T.ctx, par.online, app.db);
+    expect((await listarRegras(T.ctx, app.db)).map((r) => [r.id, r.modalidade])).toEqual([[par.solta, 'presencial']]);
   });
 
   it('validarRegra devolve a regra tipada: dia e duração vêm como texto do formulário, horas aparadas', () => {
