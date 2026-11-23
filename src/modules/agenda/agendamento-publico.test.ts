@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { consultaDireta, em, perdeCorridaNoBanco, semanaToda, SP } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { varreduraSo } from '../../../test/varredura';
 import { closeDb } from '@/db/client';
 import { appointments, consents, notifications, patientCadastro, patients, publicBookingRequests, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -23,6 +24,12 @@ import {
   type DepsPublico,
 } from './agendamento-publico';
 import { MSG_AGENDA } from './constantes';
+
+// SUS-105: a limpeza diária passa só pelo tenant do próprio teste (varreduraSo; implementação real por baixo)
+vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/tenant-status')>();
+  return { ...real, listarTenantsParaVarredura: vi.fn(real.listarTenantsParaVarredura) };
+});
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -472,8 +479,7 @@ describe('página pública (US-032, RN-16)', () => {
 
   it('limpeza diária: pedidos com mais de 24 h somem (LGPD: minimização); os recentes ficam', async () => {
     const T = await consultorio();
-    // datas de 2001: a limpeza varre todos os tenants e não pode alcançar as linhas dos outros arquivos de teste, que
-    // rodam em paralelo no mesmo banco (isolamento.test.ts grava pedidos com now())
+    // datas fixas (o prazo de 24 h conta delas); a limpeza passa só pelo tenant do teste (varreduraSo)
     const linha = (email: string, createdAt: Date) => ({
       id: randomUUID(),
       tenantId: T.tenantId,
@@ -490,7 +496,8 @@ describe('página pública (US-032, RN-16)', () => {
     const velho = `velho-${randomUUID().slice(0, 8)}@ex.com`;
     const novo = `novo-${randomUUID().slice(0, 8)}@ex.com`;
     await withTenant(T.ctx, (tx) => tx.insert(publicBookingRequests).values([linha(velho, new Date('2001-01-01T00:00:00Z')), linha(novo, new Date('2001-01-02T12:00:00Z'))]), app.db);
-    expect(await limparPedidosPublicos(app.db, new Date('2001-01-03T00:00:00Z'))).toBeGreaterThanOrEqual(1);
+    varreduraSo(T);
+    expect(await limparPedidosPublicos(app.db, new Date('2001-01-03T00:00:00Z'))).toBe(1);
     const restam = await withTenant(T.ctx, (tx) => tx.select({ email: publicBookingRequests.email }).from(publicBookingRequests), app.db);
     expect(restam.map((r) => r.email)).toEqual([novo]);
   });

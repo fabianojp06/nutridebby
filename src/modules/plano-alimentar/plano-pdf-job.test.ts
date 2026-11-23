@@ -7,16 +7,17 @@ import sharp from 'sharp';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { paginasDoPdf, textoDoPdf } from '../../../test/pdf';
+import { varreduraSo } from '../../../test/varredura';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { patients, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
+import { logger } from '@/lib/logger';
 import { idTaco } from '@/modules/alimentos/taco';
 import { carregarPacienteParaEscrita, PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { anexosDoPaciente, anonimizarVencidos } from '@/modules/pacientes/lgpd';
 import { COTA_BYTES, resolverCaminho } from '@/modules/plataforma/armazenamento';
-import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { gTexto, totalDoDia } from './calculo';
 import { carregarPlano } from './carregar';
 import { PdfEmPreparoError, PlanoNaoEncontradoError } from './erros';
@@ -45,17 +46,17 @@ const dataDir = process.env.DATA_DIR!;
 const now = new Date('2026-10-01T15:00:00Z');
 /** Anonimização (job retencao-lgpd) só destes tenants. */
 const anonimizarSo = (...ts: TenantDeTeste[]) => {
-  vi.mocked(listarTenantsParaVarredura).mockResolvedValueOnce(ts.map((t) => ({ id: t.tenantId, fuso: t.tenant.fuso })));
+  varreduraSo(...ts);
   return anonimizarVencidos(app.db, now, { dataDir });
 };
 /**
  * Varredura dos pendentes (job expirar-pdf-plano) só deste tenant. SUS-103: sem isso a varredura abre uma transação por
  * tenant do banco de teste inteiro, e na suíte completa (milhares de tenants dos outros arquivos) cada chamada levava
  * ~14 s com 3000 tenants (três chamadas no teste do pendente esquecido, duas no seguinte): passava dos 30 s. Mesmo molde
- * do anonimizarSo.
+ * do anonimizarSo (varreduraSo, SUS-105).
  */
 const expirarSo = (T: TenantDeTeste, quando: Date) => {
-  vi.mocked(listarTenantsParaVarredura).mockResolvedValueOnce([{ id: T.tenantId, fuso: T.tenant.fuso }]);
+  varreduraSo(T);
   return expirarPdfsPendentes(app.db, quando);
 };
 const deps = { db: app.db, now };
@@ -360,7 +361,7 @@ describe('PDF do plano (US-026)', () => {
     const recente = await planoPublicado(T);
     const pronto = await planoPublicado(T);
     expect(await job(T, pronto.id)).toBe('pronto');
-    // datas de 2000 só aqui (a varredura, pelo expirarSo, passa só por este tenant; as datas separam os dois testes dela)
+    // datas fixas (o prazo de 1 h conta delas); a varredura, pelo expirarSo, passa só por este tenant
     const em = (id: string, quando: string) => owner.pool.query(`update meal_plans set pdf_pedido_em = $2, updated_at = $2 where id = $1`, [id, quando]);
     await em(esquecido.id, '2000-01-01T00:00:00Z');
     await em(recente.id, '2000-01-01T01:30:00Z');
@@ -382,7 +383,7 @@ describe('PDF do plano (US-026)', () => {
   });
 
   it('a idade do pendente conta do pedido do PDF (pdf_pedido_em), não da última gravação no plano: arquivar a versão anterior não renova o prazo', async () => {
-    // datas de 1999 só aqui, num teste depois do de cima (a varredura, pelo expirarSo, passa só por este tenant)
+    // datas fixas (o prazo de 1 h conta delas); a varredura, pelo expirarSo, passa só por este tenant
     const as = (hhmm: string) => new Date(`1999-12-31T${hhmm}:00Z`);
     const linha = async (id: string) => (await owner.pool.query(`select status, pdf_status, pdf_pedido_em, updated_at from meal_plans where id = $1`, [id])).rows[0];
     const T = await novoTenant(app.db);
@@ -405,6 +406,22 @@ describe('PDF do plano (US-026)', () => {
     expect(await expirarSo(T, as('23:55'))).toBe(1); // v2: 65 min pelo updated_at; v1: pedido há 35 min
     expect((await linha(v2)).pdf_status).toBe('falhou');
     expect((await linha(v1)).pdf_status).toBe('pendente');
-    expect(await job(T, v1)).toBe('pronto'); // nenhum pendente com data de 1999 sobra para outras varreduras
+    expect(await job(T, v1)).toBe('pronto');
+  });
+
+  it('um tenant com erro não para os outros: a varredura segue para o tenant seguinte e o log leva só o tenant e o erro', async () => {
+    const T = await novoTenant(app.db);
+    const esquecido = await planoPublicado(T);
+    await owner.pool.query(`update meal_plans set pdf_pedido_em = $2, updated_at = $2 where id = $1`, [esquecido.id, '2000-01-01T00:00:00Z']);
+    const erro = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    try {
+      varreduraSo({ id: 'nao-e-uuid', fuso: 'America/Sao_Paulo' }, T); // o tenant com erro vem antes
+      expect(await expirarPdfsPendentes(app.db, new Date('2000-01-01T02:00:00Z'))).toBe(1);
+      expect(erro).toHaveBeenCalledTimes(1);
+      expect(erro).toHaveBeenCalledWith({ err: expect.any(String), tenantId: 'nao-e-uuid' }, 'falha ao expirar PDFs de plano pendentes');
+    } finally {
+      erro.mockRestore();
+    }
+    expect((await owner.pool.query(`select pdf_status from meal_plans where id = $1`, [esquecido.id])).rows[0].pdf_status).toBe('falhou');
   });
 });
