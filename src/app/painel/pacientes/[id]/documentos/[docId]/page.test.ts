@@ -327,7 +327,7 @@ describe('página do documento: solicitação de exames (Plano 22, T8, US-377)',
   it('assinada: os cartões somente leitura e "Lançar resultados" para o "Novo exame" (EP-D50); sem campo de laboratório', async () => {
     const html = await pagina(solicitacao('assinado'));
     expect(html).toContain('Exames solicitados');
-    expect(html).toContain('<li>Glicemia de jejum</li>');
+    expect(html).toMatch(/<li[^>]*>Glicemia de jejum<\/li>/);
     expect(html).toContain('Acompanhar a dieta.');
     expect(html).toContain(`href="/painel/pacientes/${PACIENTE}/exames?solicitacao=${DOC}#novo-exame"`);
     expect(html).toContain('>Lançar resultados</a>');
@@ -375,7 +375,7 @@ describe('página do documento: fórmula e orientações formatadas (Plano 22, T
     expect(html).toContain('<p class="font-semibold">Fórmula magistral fitoterápica</p>');
     expect(html).toContain('Melissa officinalis L. · Folhas · Extrato seco · 150,5 mg');
     expect(html).toContain('Tome <strong>à noite</strong>.');
-    expect(html).toMatch(/<ul[^>]*><li>&lt;script&gt;alert\(1\)&lt;\/script&gt;<\/li><li>&lt;b&gt;x&lt;\/b&gt; &amp; y<\/li><\/ul>/);
+    expect(html).toMatch(/<ul[^>]*><li[^>]*>&lt;script&gt;alert\(1\)&lt;\/script&gt;<\/li><li[^>]*>&lt;b&gt;x&lt;\/b&gt; &amp; y<\/li><\/ul>/);
     expect(html).not.toContain('<script>alert(1)'); // (o único <script> da página é o do React para as actions dos formulários)
   });
 

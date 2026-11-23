@@ -48,7 +48,8 @@ describe('cabeçalho do painel (D20)', () => {
     expect(s).not.toMatch(/<Cabecalho(Painel)?[\s/>]/);
     expect(s).not.toMatch(/from '(\.\.\/)+cabecalho'|from '\.\/cabecalho'/);
   });
-  it.each(PAGINAS)('%s confere a sessão (requireNutri ou carregarProntuario)', (f) => {
-    expect(ler(f)).toMatch(/requireNutri\(|carregarProntuario\(/);
+  // Plano 22 (R22-11): acessoComDocumentos (src/app/painel/documentos-liberados.ts) é requireNutri + o interruptor de documentos.
+  it.each(PAGINAS)('%s confere a sessão (requireNutri, carregarProntuario ou acessoComDocumentos)', (f) => {
+    expect(ler(f)).toMatch(/requireNutri\(|carregarProntuario\(|acessoComDocumentos\(/);
   });
 });
