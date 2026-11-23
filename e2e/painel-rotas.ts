@@ -77,4 +77,5 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/whatsapp': () => '/painel/whatsapp',
   '/painel/mensagens': () => '/painel/mensagens', // Plano 25 (T6a): a caixa
   '/painel/mensagens/nova': () => '/painel/mensagens/nova',
+  '/painel/mensagens/[patientId]': (i) => `/painel/mensagens/${i.paciente}`, // Plano 25 (T6b): a conversa (não liberada no consultório principal)
 };

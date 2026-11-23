@@ -518,6 +518,36 @@ await withTenant(
   db,
 );
 
+// Plano 25 (T6b): a segunda paciente do chat, com conta e SEM a conversa liberada — o E2E libera pela tela ("Liberar
+// conversa"), envia e vê o "Lida" depois que ela abre o app. Conta reaproveitada; os vínculos dos consultórios do chat das
+// execuções anteriores vão para "arquivado", como os da primeira.
+export const E2E_CHAT_PACIENTE_2 = { email: 'chat-paciente-2-e2e@nutridebby.test', password: 'Nutri2026segura', nome: 'Paciente Chat Dois E2E' };
+const senhaChat2 = await hashPassword(E2E_CHAT_PACIENTE_2.password);
+const [jaChat2] = await db.select({ id: user.id }).from(user).where(eq(user.email, E2E_CHAT_PACIENTE_2.email));
+const chatPaciente2UserId = jaChat2?.id ?? randomUUID();
+if (jaChat2) {
+  await db.update(account).set({ password: senhaChat2 }).where(eq(account.userId, chatPaciente2UserId));
+} else {
+  await db.insert(user).values({ id: chatPaciente2UserId, name: E2E_CHAT_PACIENTE_2.nome, email: E2E_CHAT_PACIENTE_2.email, emailVerified: true, appRole: 'paciente' });
+  await db.insert(account).values({ id: randomUUID(), userId: chatPaciente2UserId, accountId: chatPaciente2UserId, providerId: 'credential', password: senhaChat2 });
+}
+for (const { id: tenantId } of chatsAntigos) {
+  await withTenant(
+    { tenantId, role: 'worker' },
+    (tx) => tx.update(patients).set({ status: 'arquivado', updatedAt: new Date() }).where(and(eq(patients.userId, chatPaciente2UserId), eq(patients.status, 'ativo'))),
+    db,
+  );
+}
+await db.insert(consents).values({ userId: chatPaciente2UserId, tenantId: consultorioChat.id, termoVersao: TERMO_PACIENTE, ip: null }).onConflictDoNothing();
+await withTenant(
+  ctxChatNutri,
+  (tx) =>
+    tx
+      .insert(patients)
+      .values({ tenantId: consultorioChat.id, userId: chatPaciente2UserId, nome: E2E_CHAT_PACIENTE_2.nome, dataNascimento: '1988-09-03', sexo: 'M', email: E2E_CHAT_PACIENTE_2.email }),
+  db,
+);
+
 await stopBoss(); // a publicação do plano enfileira o PDF
 await closeDb();
 console.log('Seed E2E pronto.');

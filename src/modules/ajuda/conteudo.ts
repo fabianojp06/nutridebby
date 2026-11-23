@@ -344,7 +344,13 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'mensagens-filtro', titulo: 'Filtro e busca', texto: 'Escolha "Todas" ou "Não lidas" e busque o paciente pelo nome.' },
       { alvo: 'mensagens-caixa', titulo: 'Conversas', texto: 'Cada linha mostra o paciente, quando chegou a última mensagem, de que tipo ela é e quantas não foram lidas. O texto só aparece ao abrir a conversa.' },
       { alvo: 'nova-conversa', titulo: 'Nova conversa', texto: 'Escolha o paciente para abrir a conversa com ele.' },
-      { alvo: 'busca-nova-conversa', titulo: 'Escolher o paciente', texto: 'Busque pelo nome. Quem ainda não usa o app aparece com "Sem acesso ao app".' },
+      // T6b: a conversa (mesma versão 1, CH-D55: o PR 2 ainda não foi a produção)
+      { alvo: 'liberar-conversa', titulo: 'Liberar a conversa', texto: 'A conversa por mensagens é atendimento a distância. Antes de liberar, colha o TCLE de telenutrição com o paciente e escolha como ele concordou: termo assinado ou aceite por escrito.' },
+      { alvo: 'conversa-mensagens', titulo: 'A conversa', texto: 'As mensagens do paciente ficam à esquerda e as suas à direita, com a hora, o seu nome e o seu CRN. "Lida" aparece quando o paciente já viu; "Enviada", antes disso.' },
+      { alvo: 'conversa-campo', titulo: 'Escrever', texto: 'Escreva em "Mensagem" e toque em "Enviar". A tecla Enter só quebra a linha: nada é enviado sozinho. As mensagens ficam guardadas no prontuário.' },
+      { alvo: 'pausar-conversa', titulo: 'Pausar', texto: 'Em "Pausar conversa", o paciente continua vendo as mensagens, mas não envia novas. "Retomar conversa" volta ao normal, sem novo TCLE.' },
+      // revisão da T6a (M2): o passo da busca da nova conversa por último, dizendo a tela (o campo não está na caixa)
+      { alvo: 'busca-nova-conversa', titulo: 'Escolher o paciente', texto: 'Na tela "Nova conversa", busque o paciente pelo nome. Quem ainda não usa o app aparece com "Sem acesso ao app".' },
     ],
   },
   {

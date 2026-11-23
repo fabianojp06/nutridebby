@@ -270,6 +270,18 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota('/painel/mensagensx')?.id).not.toBe('mensagens');
     expect(g.passos.map((p) => p.alvo)).toEqual(expect.arrayContaining(['mensagens-abas', 'mensagens-filtro', 'mensagens-caixa', 'nova-conversa', 'busca-nova-conversa']));
   });
+  it('Plano 25 (T6b, CH-D55): o guia "mensagens" ganha a conversa, a liberação e a pausa, ainda na versão 1; "Escolher o paciente" por último, dizendo a tela', () => {
+    const g = GUIAS.find((x) => x.id === 'mensagens')!;
+    expect(g.versao).toBe(1);
+    const alvos = g.passos.map((p) => p.alvo);
+    expect(alvos).toEqual(expect.arrayContaining(['conversa-mensagens', 'liberar-conversa', 'conversa-campo', 'pausar-conversa']));
+    const ultimo = g.passos.at(-1)!;
+    expect(ultimo.alvo).toBe('busca-nova-conversa');
+    expect(ultimo.texto).toContain('Na tela "Nova conversa"');
+    const textos = [g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)].join(' ');
+    expect(textos).toContain('TCLE de telenutrição');
+    expect(textos).not.toMatch(/CRN CRN/);
+  });
   it('Plano 25 (CH-D45): o guia da fila de dúvidas com o nome "Dúvidas da IA Nutri", sem subir a versão (sobe na T9, CH-D55)', () => {
     const g = GUIAS.find((x) => x.id === 'duvidas')!;
     expect(g.titulo).toBe('Dúvidas da IA Nutri');

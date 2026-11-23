@@ -67,11 +67,12 @@ export async function estadoDaConversa(tx: Tx, patientId: string): Promise<Estad
 }
 
 /** O estado e o id do paciente lido do banco (o auditRead grava o paciente da linha lida, nunca o da URL). */
-async function lerEstado(tx: Tx, patientId: string): Promise<{ patientId: string; fuso: string; estado: EstadoDaConversa }> {
+async function lerEstado(tx: Tx, patientId: string): Promise<{ patientId: string; nome: string; fuso: string; estado: EstadoDaConversa }> {
   if (!idValido(patientId)) throw new PacienteNaoEncontradoError();
   const [r] = await tx
     .select({
       id: patients.id,
+      nome: patients.nome,
       fuso: tenants.fuso,
       status: patients.status,
       anonimizadoEm: patients.anonimizadoEm,
@@ -87,7 +88,7 @@ async function lerEstado(tx: Tx, patientId: string): Promise<{ patientId: string
     .leftJoin(chatConversas, and(eq(chatConversas.tenantId, patients.tenantId), eq(chatConversas.patientId, patients.id)))
     .where(eq(patients.id, patientId));
   if (!r) throw new PacienteNaoEncontradoError();
-  return { patientId: r.id, fuso: r.fuso, estado: {
+  return { patientId: r.id, nome: r.nome, fuso: r.fuso, estado: {
     existe: r.conversaId !== null,
     liberadaEm: r.liberadaEm,
     formaDoTcle: r.tcleForma as FormaTcle | null,
@@ -320,14 +321,14 @@ async function registrarLeitura(tx: Tx, lado: LadoLeitura, patientId: string, me
  * US-441 (painel): a conversa com o paciente — o estado, as últimas 50 mensagens (ou as 50 antes de `antes`, um id resolvido
  * no SQL; id de outra conversa → lista vazia) e o "Lida". Lê com auditRead (entidade `chat`, o paciente da linha lida) e
  * avança o marcador do consultório até a última mensagem do paciente carregada (CH-D72). Paciente fora do consultório →
- * PacienteNaoEncontradoError.
+ * PacienteNaoEncontradoError. `nome`: o nome de registro (Plano 18 D7), para o h1 da tela (T6b).
  */
 export async function conversaNoPainel(
   ctx: TenantContext,
   patientId: string,
   o: { antes?: string },
   db: Db = getDb(),
-): Promise<{ estado: EstadoDaConversa; mensagens: MensagemNaTela[]; haAnteriores: boolean; ultimaLida: string | null }> {
+): Promise<{ nome: string; estado: EstadoDaConversa; mensagens: MensagemNaTela[]; haAnteriores: boolean; ultimaLida: string | null }> {
   exigirNutri(ctx);
   return withTenant(
     ctx,
@@ -335,7 +336,7 @@ export async function conversaNoPainel(
       const lido = await lerEstado(tx, patientId);
       const { mensagens, haAnteriores } = await pagina(tx, lido.patientId, o.antes, (m) => m.autor === 'nutri' && m.autorUserId === ctx.actorUserId);
       await registrarLeitura(tx, 'consultorio', lido.patientId, mensagens);
-      return { estado: lido.estado, mensagens, haAnteriores, ultimaLida: await ultimaLidaPeloOutro(tx, 'consultorio', lido.patientId) };
+      return { nome: lido.nome, estado: lido.estado, mensagens, haAnteriores, ultimaLida: await ultimaLidaPeloOutro(tx, 'consultorio', lido.patientId) };
     },
     db,
   );
