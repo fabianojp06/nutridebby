@@ -20,3 +20,10 @@ export function uriDoPostgres(container: StartedPostgreSqlContainer): string {
   direta.port = '5432';
   return direta.toString();
 }
+
+/** A mesma URL (usuário, senha, host e porta) apontando para outro banco do cluster — `postgres` para CREATE/DROP DATABASE. */
+export function urlDoBanco(ownerUrl: string, nome: string): string {
+  const u = new URL(ownerUrl);
+  u.pathname = `/${nome}`;
+  return u.toString();
+}

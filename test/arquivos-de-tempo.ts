@@ -20,7 +20,8 @@ export function selecaoDosTestes(env: Record<string, string | undefined>): Selec
   if (env.VITEST_SO_TEMPO === '1')
     return { include: ARQUIVOS_DE_TEMPO, exclude: defaultExclude, fileParallelism: false };
   // Runner próprio: o contêiner do job enxerga os 8 núcleos da VPS (o padrão daria 7 workers numa cota de 4 núcleos e
-  // expôs um deadlock de DDL do rls-guard contra outro arquivo). 3, como no runner hospedado de 4 vCPU.
+  // expôs um deadlock de DDL do rls-guard contra outro arquivo — corrigido no SUS-100: os testes de DDL rodam num banco
+  // próprio, test/ddl.ts). 3, como no runner hospedado de 4 vCPU.
   if (env.CI)
     return { include: TODOS, exclude: [...defaultExclude, ...ARQUIVOS_DE_TEMPO], maxWorkers: 3 };
   return { include: TODOS, exclude: defaultExclude };
