@@ -9,7 +9,7 @@
 | Quando | **Plano 25**, em paralelo com o Plano 26 (`nutridebby-26`) da onda 3, e depois dos Planos 19 (`nutridebby-b`), 20 PR 2 (`plano-20-financeiro`), 21 (`nutridebby-21`), 22 (`nutridebby-22`) e 23 (`nutridebby-23`/`nutridebby-c`), ainda abertos. Regras de convivência em `docs/operacao/sessoes-paralelas.md`. O Plano 24 (migração do Dietbox) foi descartado pelo dono em 17/11/2026 |
 | Insumos | `.sessoes/onda3-briefing.md` (seção do Plano 25); levantamento do código (§1.3); specs e planos em andamento (§13). Referência funcional: o chat e o "Enviar recado" do Dietbox. **Copiamos a função, nunca a marca, os textos ou o layout** |
 | Documentos de base | [`2026-10-03-nutridebby-paciente-exames-ia-design.md`](2026-10-03-nutridebby-paciente-exames-ia-design.md) (F3-02: IA Nutri, D24, RN-177, US-175; F3-04: envio de exame), [`2026-11-16-nutridebby-18-ficha-cadastro-design.md`](2026-11-16-nutridebby-18-ficha-cadastro-design.md) (registro de seções, D12, RN-277; formato), [`2026-11-17-nutridebby-23-agenda-2-design.md`](../../../../nutridebby-23/docs/superpowers/specs/2026-11-17-nutridebby-23-agenda-2-design.md) no worktree do 23 (locais, RN-404, RN-436; formato), plano do Plano 06 (portal, push, D1) e o manual técnico, caps. [02](../../manual-tecnico/02-banco-de-dados.md) e [05](../../manual-tecnico/05-agenda-portal-conteudo.md) |
-| Numeração nova | US-440 a US-452 · RN-440 a RN-475 · RNF-440 a RNF-448 · CS-440 a CS-445 · C-440 a C-449 · R-440 a R-455 · DEP-CH1 a DEP-CH10 · PM-CH1 a PM-CH12 · P-CH1 a P-CH6 · **CH-D1 a CH-D48** (decisões deste documento; fora dele, cite "Plano 25, CH-Dn"; as CH-D49 a CH-D69 estão no plano e entram aqui no fechamento, T12; a CH-D70, decisão da orquestradora em 23/11, já está aqui, em §9.4 e §14.1). O **bloco 440–479** é do Plano 25 (decisão da orquestradora em 17/11, ~11h40 UTC: o 23 vai até 439, o 26 usa 480–519); conferido com `grep -rhoE '\b(US\|RN\|RNF)-4[4-9][0-9]\b'` na `main` e nos worktrees em 17/11/2026 (nenhum uso) |
+| Numeração nova | US-440 a US-452 · RN-440 a RN-475 · RNF-440 a RNF-448 · CS-440 a CS-445 · C-440 a C-449 · R-440 a R-455 · DEP-CH1 a DEP-CH10 · PM-CH1 a PM-CH12 · P-CH1 a P-CH6 · **CH-D1 a CH-D48** (decisões deste documento; fora dele, cite "Plano 25, CH-Dn"; as CH-D49 a CH-D69 estão no plano e entram aqui no fechamento, T12; a CH-D70 e a CH-D71, decisões da orquestradora em 23/11, já estão aqui, em §9.1–§9.5 e §14.1). O **bloco 440–479** é do Plano 25 (decisão da orquestradora em 17/11, ~11h40 UTC: o 23 vai até 439, o 26 usa 480–519); conferido com `grep -rhoE '\b(US\|RN\|RNF)-4[4-9][0-9]\b'` na `main` e nos worktrees em 17/11/2026 (nenhum uso) |
 
 ---
 
@@ -733,7 +733,7 @@ pela sessão `nutri` (liberação ou recado); liberação e pausa só pela sess�
 **v0.2:** liberar exige também o carimbo do consultório (`tenants.nome_profissional` e `tenants.crn` não nulos; RN-475).
 O gatilho não recusa o que a RLS já recusa (para a recusa dos testes de isolamento vir da política): com `tenant_id`
 diferente do da sessão, na sessão de paciente com `patient_id` diferente do da sessão e nos papéis fora de `nutri`,
-`paciente` e `worker` que a RLS nega (`publico`, `conta` e, v0.3, `recepcao`, negada por padrão pela RN-505 do Plano 26),
+`paciente` e `worker` que a RLS nega (`publico`, `conta` e, v0.3, `recepcao`, negada por padrão pela RN-505 do Plano 26 — **CH-D71**: sem o 26 na `main`, a `recepcao` fica fora da lista e recebe o 42501 do gatilho),
 devolve `NEW` (CH-D38). v0.3: **papel desconhecido** (qualquer outro valor de `app.role`) recebe o 42501 do próprio
 gatilho — falha fechada: `app_current_role()` não valida o valor (`drizzle/0000`, `:27-28`) e a `tenant_isolation` não
 olha o papel, então devolver `NEW` a um papel que a RLS não conhece deixaria a escrita passar.
@@ -792,7 +792,7 @@ f.tipo = 'chat_anexo_original' and f.caminho = chat_mensagens.anexo_original_pat
 papel `worker` (42501), exige na cópia de recado o titular `ativo` e não anonimizado e grava `autor_nome`/`autor_crn` de
 `tenants` quando `autor = 'nutri'` (42501 sem o carimbo); (c) não recusa o que a RLS já recusa (`tenant_id` diferente
 do da sessão, sessão de paciente com `patient_id` diferente do da sessão, papéis `publico`, `conta` e `recepcao`
-— v0.3: a lista do plano não tinha a `recepcao`; papel desconhecido cai no 42501 do gatilho, como na §9.1): devolve `NEW` e
+— v0.3: a lista do plano não tinha a `recepcao`; CH-D71: só com o Plano 26 na `main`; papel desconhecido cai no 42501 do gatilho, como na §9.1): devolve `NEW` e
 a política recusa (CH-D38); (d) BEFORE UPDATE: `processando → pronto | falhou` pelo `worker`; `pronto | falhou →
 removido` e os caminhos a nulo só com `app.chat_soltando` ligado (dentro de `app_chat_soltar_anexo`); (e) política
 RESTRICTIVE `paciente_com_conta`. Teste de banco próprio: P2 insere `autor = 'paciente'` com o próprio ator no
@@ -874,7 +874,7 @@ lê a cópia na própria conversa"). `REVOKE UPDATE, DELETE, TRUNCATE`. Sem audi
 gatilho `recados_regras` (BEFORE INSERT: só na sessão `nutri`, `criado_por = app_current_user()`, `criado_em =
 clock_timestamp()`, carimbo de `tenants`; outro papel → 42501, salvo os casos que a RLS já recusa, que devolvem `NEW`).
 **v0.3:** entre os casos que devolvem `NEW` está a sessão de paciente (a `staff_only` e a `paciente_sem_insert` já a
-recusam, e o teste de `staff_only` do isolamento roda a fábrica como P2), `publico`, `conta` e `recepcao`; o `worker` e
+recusam, e o teste de `staff_only` do isolamento roda a fábrica como P2), `publico`, `conta` e `recepcao` (CH-D71: só com o Plano 26 na `main`); o `worker` e
 o papel desconhecido caem no 42501 do gatilho. `criado_em` com `default clock_timestamp()` no esquema.
 
 ### 9.6 Tabelas que mudam (CHECK e políticas)
@@ -1078,6 +1078,7 @@ de novo sobre a `main` antes do PR (C-446, PM-CH1).
 | CH-D47 | **Política RESTRICTIVE `paciente_com_conta` nas tabelas `chat_*`** | `patient_isolation` libera a própria linha a todo contexto `paciente`, inclusive o `semConta` (links, WhatsApp); a lista `SEM_CONTA_PERMITIDOS` é de módulos, não de tabelas (revisão RLS, Minor 1) | RN-440 |
 | CH-D48 | **`/p/mensagens` no `tambem` de "Hoje"**, não de "Eu" | É o destino do "Voltar"; marcar "Eu" não batia com o caminho (revisão de interface, M9) | §4.1 |
 | CH-D70 | **Marca do aviso à nutricionista em tabela `staff_only` (`chat_avisos_nutri`)** — decisão da orquestradora 23/11: marca do aviso à nutricionista em tabela staff_only, para o paciente não saber que outro paciente escreveu | `chat_configuracoes` é lida pelo paciente (`horario_ativo`); a data de `aviso_nutri_em` revelaria a atividade de outros pacientes; a defesa fica no banco | §9.4, RN-458, RN-472, §9.7 |
+| CH-D71 | **A `recepcao` recebe o 42501 do gatilho enquanto o Plano 26 não estiver na `main`** (decisão da orquestradora, 23/11/2026): enquanto o Plano 26 não estiver na `main`, a `recepcao` recebe o 42501 do gatilho (falha fechada: sem o 26, nenhuma política a nega e a `tenant_isolation` não olha o papel). Se o 25 entrar antes, o 26 faz `CREATE OR REPLACE` das quatro funções de gatilho acrescentando `'recepcao'` à lista que devolve `NEW` e inverte a asserção do `banco.test.ts` ("row-level security" em vez do 42501 do gatilho); se o 26 entrar antes, o §5 do 25 faz isso | Sem o 26, nenhuma política nega a `recepcao` e a `tenant_isolation` não olha o papel: devolver `NEW` deixaria a escrita passar (CH-D57) | §9.1, §9.2, §9.5 |
 
 ### 14.2 Pendências externas ★ (não travam a v1)
 

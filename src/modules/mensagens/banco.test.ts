@@ -46,10 +46,10 @@ const permissaoNegada = (e: unknown) => {
   const { code, message } = erro(e);
   return code === '42501' && /permission denied/.test(message);
 };
-/** 42501 do gatilho (mensagem própria), não da RLS nem da permissão. */
-const doGatilho = (e: unknown) => {
+/** 42501 do gatilho com a mensagem do ramo esperado (não da RLS, da permissão nem de outro ramo do gatilho). */
+const doGatilho = (trecho: string) => (e: unknown) => {
   const { code, message } = erro(e);
-  return code === '42501' && message !== '' && !/row-level security|permission denied/.test(message);
+  return code === '42501' && message.includes(trecho) && !/row-level security|permission denied/.test(message);
 };
 const restricao = (codigo: string, nome: string) => (e: unknown) => {
   const r = erro(e);
@@ -635,25 +635,25 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
       sql`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, texto, criada_em) values (${C.tenantId}, ${C.p1}, 'paciente', ${C.u1}, 'Oi', '2001-01-01') returning criada_em`,
     );
     expect(recente(d.criada_em)).toBe(true);
-    await expect(em(C.ctx, daNutri(C, { autorUserId: randomUUID() }))).rejects.toSatisfy(doGatilho);
-    await expect(em(C.ctx, mensagem(C, { autorUserId: C.nutriId }))).rejects.toSatisfy(doGatilho);
-    await expect(em(worker(C.tenantId), daNutri(C))).rejects.toSatisfy(doGatilho);
-    await expect(em(worker(C.tenantId), mensagem(C))).rejects.toSatisfy(doGatilho);
+    await expect(em(C.ctx, daNutri(C, { autorUserId: randomUUID() }))).rejects.toSatisfy(doGatilho('em nome de quem envia'));
+    await expect(em(C.ctx, mensagem(C, { autorUserId: C.nutriId }))).rejects.toSatisfy(doGatilho('só grava mensagem da nutricionista'));
+    await expect(em(worker(C.tenantId), daNutri(C))).rejects.toSatisfy(doGatilho('o worker não grava mensagem'));
+    await expect(em(worker(C.tenantId), mensagem(C))).rejects.toSatisfy(doGatilho('o worker não grava mensagem'));
   });
 
   it('sem carimbo no consultório (RN-475): mensagem, recado e liberação → 42501', async () => {
     const { T, p } = await semCarimbo();
     await expect(
       em(T.ctx, sql`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, autor_nome, autor_crn, texto) values (${T.tenantId}, ${p}, 'nutri', ${T.nutriId}, 'Nome Forjado', 'CRN', 'Olá')`),
-    ).rejects.toSatisfy(doGatilho);
+    ).rejects.toSatisfy(doGatilho('nome profissional e CRN'));
     await expect(
       em(T.ctx, sql`insert into recados (tenant_id, texto, filtro, destinatarios, autor_nome, autor_crn, criado_por) values (${T.tenantId}, 'x', '{"tipo":"todos"}', 1, 'Nome Forjado', 'CRN', ${T.nutriId})`),
-    ).rejects.toSatisfy(doGatilho);
+    ).rejects.toSatisfy(doGatilho('nome profissional e CRN'));
     const p2 = (await novoPaciente(app.db, T.ctx)).id;
-    await expect(liberar(T, p2)).rejects.toSatisfy(doGatilho);
+    await expect(liberar(T, p2)).rejects.toSatisfy(doGatilho('nome profissional e CRN'));
     // só o nome, ou só o CRN, também não basta
     await owner.pool.query("update tenants set nome_profissional = 'Débora Nutricionista' where id = $1", [T.tenantId]);
-    await expect(liberar(T, p2)).rejects.toSatisfy(doGatilho);
+    await expect(liberar(T, p2)).rejects.toSatisfy(doGatilho('nome profissional e CRN'));
   });
 
   it('mensagem individual exige a conversa liberada e não pausada e o titular ativo; a cópia de recado, só o titular ativo', async () => {
@@ -661,17 +661,20 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
     const rec = await recado(C);
     const p3 = (await novoPaciente(app.db, C.ctx)).id;
     await em(C.ctx, sql`insert into chat_conversas (tenant_id, patient_id) values (${C.tenantId}, ${p3})`);
-    await expect(em(C.ctx, daNutri(C, { patientId: p3 }))).rejects.toSatisfy(doGatilho);
-    // RN-462: o recado chega também a quem ainda não teve a conversa liberada
-    expect(await em(C.ctx, daNutri(C, { patientId: p3, recadoId: rec }))).toHaveLength(1);
+    await expect(em(C.ctx, daNutri(C, { patientId: p3 }))).rejects.toSatisfy(doGatilho('não está liberada ou está pausada'));
+    // RN-462: o recado chega também a quem ainda não teve a conversa liberada — mas só com o texto do próprio recado (M2 da
+    // revisão: sem a amarra, a cópia furaria a conversa não liberada com qualquer texto)
+    expect(await em(C.ctx, daNutri(C, { patientId: p3, recadoId: rec, texto: 'Feriado' }))).toHaveLength(1);
+    await expect(em(C.ctx, daNutri(C, { patientId: p3, recadoId: rec, texto: 'Outro texto' }))).rejects.toSatisfy(doGatilho('repete o texto do recado'));
+    await expect(em(C.ctx, daNutri(C, { patientId: C.p1, recadoId: rec, texto: 'Outro texto' }))).rejects.toSatisfy(doGatilho('repete o texto do recado'));
     await em(C.ctx, sql`update chat_conversas set pausada_em = now(), pausada_por = ${C.nutriId} where patient_id = ${C.p2}`);
-    await expect(em(C.ctx, daNutri(C, { patientId: C.p2 }))).rejects.toSatisfy(doGatilho);
+    await expect(em(C.ctx, daNutri(C, { patientId: C.p2 }))).rejects.toSatisfy(doGatilho('não está liberada ou está pausada'));
     for (const set of [`status = 'arquivado'`, `status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01'`, `anonimizado_em = now()`]) {
       const D = await cenario();
       const r = await recado(D);
       await owner.pool.query(`update patients set ${set} where id = $1`, [D.p1]);
-      await expect(em(D.ctx, daNutri(D)), set).rejects.toSatisfy(doGatilho);
-      await expect(em(D.ctx, daNutri(D, { recadoId: r })), set).rejects.toSatisfy(doGatilho);
+      await expect(em(D.ctx, daNutri(D)), set).rejects.toSatisfy(doGatilho('titular ativo'));
+      await expect(em(D.ctx, daNutri(D, { recadoId: r, texto: 'Feriado' })), set).rejects.toSatisfy(doGatilho('titular ativo'));
     }
   });
 
@@ -686,7 +689,7 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
     expect(recente(r.criado_em)).toBe(true);
     await expect(
       em(worker(C.tenantId), sql`insert into recados (tenant_id, texto, filtro, destinatarios, autor_nome, autor_crn, criado_por) values (${C.tenantId}, 'x', '{"tipo":"todos"}', 1, ${CARIMBO.nome}, ${CARIMBO.crn}, ${randomUUID()})`),
-    ).rejects.toSatisfy(doGatilho);
+    ).rejects.toSatisfy(doGatilho('só a sessão da nutricionista grava recado'));
   });
 
   it('chat_conversas: liberar só na nutri, em nome de quem libera, com titular ativo; liberação fixa depois de gravada', async () => {
@@ -694,13 +697,13 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
     const novo = async () => (await novoPaciente(app.db, C.ctx)).id;
     const lib = (p: string, por: string) =>
       em(C.ctx, sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma) values (${C.tenantId}, ${p}, '2001-01-01', ${por}, 'termo_assinado') returning *`);
-    await expect(lib(await novo(), randomUUID())).rejects.toSatisfy(doGatilho);
+    await expect(lib(await novo(), randomUUID())).rejects.toSatisfy(doGatilho('em nome de quem libera'));
     const arquivado = await novo();
     await owner.pool.query(`update patients set status = 'arquivado' where id = $1`, [arquivado]);
-    await expect(lib(arquivado, C.nutriId)).rejects.toSatisfy(doGatilho);
+    await expect(lib(arquivado, C.nutriId)).rejects.toSatisfy(doGatilho('titular ativo'));
     const anonimizado = await novo();
     await owner.pool.query(`update patients set anonimizado_em = now() where id = $1`, [anonimizado]);
-    await expect(lib(anonimizado, C.nutriId)).rejects.toSatisfy(doGatilho);
+    await expect(lib(anonimizado, C.nutriId)).rejects.toSatisfy(doGatilho('titular ativo'));
     const [c] = await lib(await novo(), C.nutriId);
     expect(recente(c.liberada_em)).toBe(true); // relógio do banco
 
@@ -708,35 +711,35 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
     const p = await novo();
     const [v] = await em(C.ctx, sql`insert into chat_conversas (tenant_id, patient_id) values (${C.tenantId}, ${p}) returning id`);
     const upd = (set: SQL, ctx: TenantContext = C.ctx) => em(ctx, sql`update chat_conversas set ${set} where id = ${v.id} returning *`);
-    await expect(upd(sql`liberada_em = now(), liberada_por = ${randomUUID()}, tcle_forma = 'aceite_escrito'`)).rejects.toSatisfy(doGatilho);
-    await expect(upd(sql`liberada_em = now(), liberada_por = ${C.nutriId}, tcle_forma = 'aceite_escrito'`, worker(C.tenantId))).rejects.toSatisfy(doGatilho);
+    await expect(upd(sql`liberada_em = now(), liberada_por = ${randomUUID()}, tcle_forma = 'aceite_escrito'`)).rejects.toSatisfy(doGatilho('em nome de quem libera'));
+    await expect(upd(sql`liberada_em = now(), liberada_por = ${C.nutriId}, tcle_forma = 'aceite_escrito'`, worker(C.tenantId))).rejects.toSatisfy(doGatilho('só a sessão da nutricionista libera'));
     const [lib2] = await upd(sql`liberada_em = '2001-01-01', liberada_por = ${C.nutriId}, tcle_forma = 'aceite_escrito'`);
     expect(recente(lib2.liberada_em)).toBe(true);
-    for (const set of [
-      sql`liberada_em = now() - interval '1 day'`,
-      sql`liberada_em = null, liberada_por = null, tcle_forma = null`,
-      sql`tcle_forma = 'termo_assinado'`,
-      sql`liberada_por = ${randomUUID()}`,
-      sql`patient_id = ${C.p1}`,
-      sql`created_at = now() - interval '1 day'`,
-    ]) {
-      await expect(upd(set)).rejects.toSatisfy(doGatilho);
+    for (const [set, trecho] of [
+      [sql`liberada_em = now() - interval '1 day'`, 'não muda depois de gravada'],
+      [sql`liberada_em = null, liberada_por = null, tcle_forma = null`, 'não muda depois de gravada'],
+      [sql`tcle_forma = 'termo_assinado'`, 'não muda depois de gravada'],
+      [sql`liberada_por = ${randomUUID()}`, 'não muda depois de gravada'],
+      [sql`patient_id = ${C.p1}`, 'coluna fixa da conversa'],
+      [sql`created_at = now() - interval '1 day'`, 'coluna fixa da conversa'],
+    ] as const) {
+      await expect(upd(set)).rejects.toSatisfy(doGatilho(trecho));
     }
     expect(await upd(sql`tenant_id = tenant_id, updated_at = now()`)).toHaveLength(1);
     // o worker não cria conversa
-    await expect(em(worker(C.tenantId), sql`insert into chat_conversas (tenant_id, patient_id) values (${C.tenantId}, ${await novo()})`)).rejects.toSatisfy(doGatilho);
+    await expect(em(worker(C.tenantId), sql`insert into chat_conversas (tenant_id, patient_id) values (${C.tenantId}, ${await novo()})`)).rejects.toSatisfy(doGatilho('só é criada pela sessão da nutricionista'));
   });
 
   it('chat_conversas: pausar e retomar só na nutri, em nome de quem pausa', async () => {
     const C = await cenario();
     const upd = (set: SQL, ctx: TenantContext = C.ctx) => em(ctx, sql`update chat_conversas set ${set} where patient_id = ${C.p1} returning *`);
-    await expect(upd(sql`pausada_em = now(), pausada_por = ${randomUUID()}`)).rejects.toSatisfy(doGatilho);
-    await expect(upd(sql`pausada_em = now(), pausada_por = ${C.nutriId}`, worker(C.tenantId))).rejects.toSatisfy(doGatilho);
+    await expect(upd(sql`pausada_em = now(), pausada_por = ${randomUUID()}`)).rejects.toSatisfy(doGatilho('em nome de quem pausa'));
+    await expect(upd(sql`pausada_em = now(), pausada_por = ${C.nutriId}`, worker(C.tenantId))).rejects.toSatisfy(doGatilho('pausa e retoma'));
     const [pausada] = await upd(sql`pausada_em = '2001-01-01', pausada_por = ${C.nutriId}`);
     expect(recente(pausada.pausada_em)).toBe(true);
     const outra = randomUUID();
-    await expect(upd(sql`pausada_em = now(), pausada_por = ${outra}`, { ...C.ctx, actorUserId: outra })).rejects.toSatisfy(doGatilho); // já pausada
-    await expect(upd(sql`pausada_em = null, pausada_por = null`, worker(C.tenantId))).rejects.toSatisfy(doGatilho);
+    await expect(upd(sql`pausada_em = now(), pausada_por = ${outra}`, { ...C.ctx, actorUserId: outra })).rejects.toSatisfy(doGatilho('já está pausada'));
+    await expect(upd(sql`pausada_em = null, pausada_por = null`, worker(C.tenantId))).rejects.toSatisfy(doGatilho('pausa e retoma'));
     const [retomada] = await upd(sql`pausada_em = null, pausada_por = null`);
     expect(retomada.pausada_em).toBeNull();
   });
@@ -749,29 +752,45 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
     const meu = await arquivo(C, C.p1, 'chat_anexo');
     const deP2 = await arquivo(C, C.p2, 'chat_anexo');
     const outroTipo = await arquivo(C, C.p1, 'diario_foto', 'chat_anexo');
-    await expect(atualizar(C.ctx, m.id, sql`anexo_status = 'pronto', anexo_path = ${meu}`)).rejects.toSatisfy(doGatilho); // a nutri não conclui
-    await expect(atualizar(W, m.id, sql`anexo_status = 'pronto', anexo_path = ${deP2}`)).rejects.toSatisfy(doGatilho);
-    await expect(atualizar(W, m.id, sql`anexo_status = 'pronto', anexo_path = ${outroTipo}`)).rejects.toSatisfy(doGatilho);
-    await expect(atualizar(W, m.id, sql`anexo_path = ${meu}`)).rejects.toSatisfy(doGatilho); // o caminho só entra na conclusão
+    await expect(atualizar(C.ctx, m.id, sql`anexo_status = 'pronto', anexo_path = ${meu}`)).rejects.toSatisfy(doGatilho('só o worker conclui o anexo'));
+    await expect(atualizar(W, m.id, sql`anexo_status = 'pronto', anexo_path = ${deP2}`)).rejects.toSatisfy(doGatilho('não é um chat_anexo deste paciente'));
+    await expect(atualizar(W, m.id, sql`anexo_status = 'pronto', anexo_path = ${outroTipo}`)).rejects.toSatisfy(doGatilho('não é um chat_anexo deste paciente'));
+    await expect(atualizar(W, m.id, sql`anexo_path = ${meu}`)).rejects.toSatisfy(doGatilho('só entra na conclusão'));
     expect(await atualizar(W, m.id, sql`anexo_status = 'pronto', anexo_path = ${meu}, updated_at = now()`)).toHaveLength(1);
     const outro = await arquivo(C, C.p1, 'chat_anexo');
-    await expect(atualizar(W, m.id, sql`anexo_path = ${outro}`)).rejects.toSatisfy(doGatilho); // pronto → pronto trocando o caminho
-    await expect(atualizar(W, m.id, sql`anexo_status = 'processando'`)).rejects.toSatisfy(doGatilho);
-    await expect(atualizar(W, m.id, sql`anexo_status = 'falhou'`)).rejects.toSatisfy(doGatilho);
-    await expect(atualizar(W, m.id, sql`anexo_original_path = null`)).rejects.toSatisfy(doGatilho); // sem o marcador
-    await expect(atualizar(W, m.id, sql`anexo_status = 'removido', anexo_path = null, anexo_original_path = null`)).rejects.toSatisfy(doGatilho);
+    await expect(atualizar(W, m.id, sql`anexo_path = ${outro}`)).rejects.toSatisfy(doGatilho('não troca por outro')); // pronto → pronto
+    await expect(atualizar(W, m.id, sql`anexo_status = 'processando'`)).rejects.toSatisfy(doGatilho('transição do anexo inválida'));
+    await expect(atualizar(W, m.id, sql`anexo_status = 'falhou'`)).rejects.toSatisfy(doGatilho('transição do anexo inválida'));
+    await expect(atualizar(W, m.id, sql`anexo_original_path = null`)).rejects.toSatisfy(doGatilho('o original só sai por app_chat_soltar_anexo')); // sem o marcador
+    await expect(atualizar(W, m.id, sql`anexo_status = 'removido', anexo_path = null, anexo_original_path = null`)).rejects.toSatisfy(
+      doGatilho('o anexo só é removido por app_chat_soltar_anexo'),
+    );
     // o marcador local só vale no worker (é o contexto de app_chat_soltar_anexo, T1c)
-    await expect(atualizar(C.ctx, m.id, sql`anexo_original_path = null`, true)).rejects.toSatisfy(doGatilho);
+    await expect(atualizar(C.ctx, m.id, sql`anexo_original_path = null`, true)).rejects.toSatisfy(doGatilho('o original só sai por app_chat_soltar_anexo'));
     expect(await atualizar(W, m.id, sql`anexo_original_path = null`, true)).toHaveLength(1);
+    // M3 da revisão: com o marcador, o anexo convertido só sai com o titular bloqueado ou anonimizado
+    await expect(atualizar(W, m.id, sql`anexo_path = null`, true)).rejects.toSatisfy(doGatilho('titular bloqueado ou anonimizado'));
+    await expect(atualizar(W, m.id, sql`anexo_status = 'removido', anexo_path = null`, true)).rejects.toSatisfy(doGatilho('titular bloqueado ou anonimizado'));
+    await owner.pool.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01' where id = $1`, [C.p1]);
     expect(await atualizar(W, m.id, sql`anexo_status = 'removido', anexo_path = null`, true)).toHaveLength(1);
-    await expect(atualizar(W, m.id, sql`anexo_status = 'pronto'`, true)).rejects.toSatisfy(doGatilho); // removido é final
+    await expect(atualizar(W, m.id, sql`anexo_status = 'pronto'`, true)).rejects.toSatisfy(doGatilho('transição do anexo inválida')); // removido é final
     expect(await ler(m.id)).toMatchObject({ anexo_status: 'removido', anexo_path: null, anexo_original_path: null });
 
-    // processando → falhou, pelo worker
-    const original2 = await arquivo(C, C.p1, 'chat_anexo_original');
-    const [f] = await em(C.P1, mensagem(C, { texto: null, anexoStatus: 'processando', anexoTipo: 'imagem', anexoOriginalPath: original2 }));
-    await expect(atualizar(C.ctx, f.id, sql`anexo_status = 'falhou'`)).rejects.toSatisfy(doGatilho);
-    expect(await atualizar(W, f.id, sql`anexo_status = 'falhou'`)).toHaveLength(1);
+    // processando → falhou, pelo worker; gravar anexo_path nessa transição → 42501 (M4)
+    const D = await cenario();
+    const WD = worker(D.tenantId);
+    const original2 = await arquivo(D, D.p1, 'chat_anexo_original');
+    const [f] = await em(D.P1, mensagem(D, { texto: null, anexoStatus: 'processando', anexoTipo: 'imagem', anexoOriginalPath: original2 }));
+    const convertido = await arquivo(D, D.p1, 'chat_anexo');
+    await expect(atualizar(D.ctx, f.id, sql`anexo_status = 'falhou'`)).rejects.toSatisfy(doGatilho('só o worker conclui o anexo'));
+    await expect(atualizar(WD, f.id, sql`anexo_status = 'falhou', anexo_path = ${convertido}`)).rejects.toSatisfy(doGatilho('só entra na conclusão'));
+    expect(await atualizar(WD, f.id, sql`anexo_status = 'falhou'`)).toHaveLength(1);
+    // falhou → removido com o marcador e o titular na anonimização (M4); o original sai antes (CHECK removido ⇒ sem caminhos)
+    expect(await atualizar(WD, f.id, sql`anexo_original_path = null`, true)).toHaveLength(1);
+    await expect(atualizar(WD, f.id, sql`anexo_status = 'removido'`)).rejects.toSatisfy(doGatilho('o anexo só é removido por app_chat_soltar_anexo'));
+    await owner.pool.query(`update patients set anonimizado_em = now() where id = $1`, [D.p1]);
+    expect(await atualizar(WD, f.id, sql`anexo_status = 'removido'`, true)).toHaveLength(1);
+    expect(await ler(f.id)).toMatchObject({ anexo_status: 'removido', anexo_path: null, anexo_original_path: null });
   });
 
   it('anexo: o original nunca entra num UPDATE; os caminhos do INSERT da nutri são do mesmo paciente e do tipo certo (CH-D60)', async () => {
@@ -779,25 +798,33 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
     const W = worker(C.tenantId);
     const [pdf] = await em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'processando', anexoTipo: 'pdf', anexoNome: 'plano.pdf' }));
     const original = await arquivo(C, C.p1, 'chat_anexo_original');
-    await expect(atualizar(W, pdf.id, sql`anexo_original_path = ${original}`)).rejects.toSatisfy(doGatilho);
+    await expect(atualizar(W, pdf.id, sql`anexo_original_path = ${original}`)).rejects.toSatisfy(doGatilho('o original não entra nem troca'));
     const meu = await arquivo(C, C.p1, 'chat_anexo');
     const deP2 = await arquivo(C, C.p2, 'chat_anexo');
     const outroTipo = await arquivo(C, C.p1, 'exame', 'chat_anexo');
     const origP2 = await arquivo(C, C.p2, 'chat_anexo_original');
-    await expect(em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'pronto', anexoTipo: 'pdf', anexoPath: deP2 }))).rejects.toSatisfy(doGatilho);
-    await expect(em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'pronto', anexoTipo: 'pdf', anexoPath: outroTipo }))).rejects.toSatisfy(doGatilho);
-    await expect(em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'processando', anexoTipo: 'imagem', anexoOriginalPath: origP2 }))).rejects.toSatisfy(doGatilho);
+    await expect(em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'pronto', anexoTipo: 'pdf', anexoPath: deP2 }))).rejects.toSatisfy(doGatilho('não é um chat_anexo deste paciente'));
+    await expect(em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'pronto', anexoTipo: 'pdf', anexoPath: outroTipo }))).rejects.toSatisfy(
+      doGatilho('não é um chat_anexo deste paciente'),
+    );
+    await expect(em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'processando', anexoTipo: 'imagem', anexoOriginalPath: origP2 }))).rejects.toSatisfy(
+      doGatilho('não é um chat_anexo_original deste paciente'),
+    );
     expect(await em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'pronto', anexoTipo: 'pdf', anexoPath: meu }))).toHaveLength(1);
     // a nutri só mexe em updated_at
-    await expect(atualizar(C.ctx, pdf.id, sql`anexo_status = 'falhou'`)).rejects.toSatisfy(doGatilho);
+    await expect(atualizar(C.ctx, pdf.id, sql`anexo_status = 'falhou'`)).rejects.toSatisfy(doGatilho('só o worker conclui o anexo'));
     expect(await atualizar(C.ctx, pdf.id, sql`updated_at = now()`)).toHaveLength(1);
   });
 
   it('chat_leituras: lado × papel ao gravar; lida_ate só avança e nunca passa do relógio; o UPDATE sem mudança da nutri passa', async () => {
     const C = await cenario();
-    await expect(em(C.ctx, leitura(C, C.p1, 'paciente'))).rejects.toSatisfy(doGatilho);
-    await expect(em(worker(C.tenantId), leitura(C, C.p1, 'paciente'))).rejects.toSatisfy(doGatilho);
-    await expect(em(worker(C.tenantId), leitura(C, C.p1, 'consultorio'))).rejects.toSatisfy(doGatilho);
+    await expect(em(C.ctx, leitura(C, C.p1, 'paciente'))).rejects.toSatisfy(doGatilho('cada lado só grava o próprio marcador'));
+    await expect(em(worker(C.tenantId), leitura(C, C.p1, 'paciente'))).rejects.toSatisfy(doGatilho('cada lado só grava o próprio marcador'));
+    await expect(em(worker(C.tenantId), leitura(C, C.p1, 'consultorio'))).rejects.toSatisfy(doGatilho('cada lado só grava o próprio marcador'));
+    // M1 da revisão: lida_ate nulo chega ao NOT NULL (23502), no INSERT e no UPDATE — o gatilho não o troca pelo relógio
+    await expect(em(C.ctx, sql`insert into chat_leituras (tenant_id, patient_id, lado, lida_ate) values (${C.tenantId}, ${C.p1}, 'consultorio', null)`)).rejects.toSatisfy(
+      (e: unknown) => erro(e).code === '23502',
+    );
     await em(C.ctx, sql`insert into chat_leituras (tenant_id, patient_id, lado, lida_ate) values (${C.tenantId}, ${C.p1}, 'consultorio', now() + interval '1 day')`);
     await em(C.P1, sql`insert into chat_leituras (tenant_id, patient_id, lado, lida_ate) values (${C.tenantId}, ${C.p1}, 'paciente', now() + interval '1 day')`);
     const lida = async (lado: string) =>
@@ -811,9 +838,11 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
     // CH-D58: o `set tenant_id = tenant_id` da equipe numa linha do paciente não é escrita do lado do paciente
     const r = await withTenant(C.ctx, (tx) => tx.execute(sql`update chat_leituras set tenant_id = tenant_id where lado = 'paciente'`), app.db);
     expect(r.rowCount).toBe(1);
-    await expect(em(C.ctx, sql`update chat_leituras set lida_ate = now() where lado = 'paciente'`)).rejects.toSatisfy(doGatilho);
-    await expect(em(worker(C.tenantId), sql`update chat_leituras set lida_ate = now() where lado = 'consultorio'`)).rejects.toSatisfy(doGatilho);
-    await expect(em(C.ctx, sql`update chat_leituras set patient_id = ${C.p2} where lado = 'consultorio'`)).rejects.toSatisfy(doGatilho); // chave fixa
+    await expect(em(C.ctx, sql`update chat_leituras set lida_ate = now() where lado = 'paciente'`)).rejects.toSatisfy(doGatilho('cada lado só grava o próprio marcador'));
+    await expect(em(C.ctx, sql`update chat_leituras set lida_ate = null where lado = 'consultorio'`)).rejects.toSatisfy((e: unknown) => erro(e).code === '23502');
+    await expect(em(C.P1, sql`update chat_leituras set lida_ate = null`)).rejects.toSatisfy((e: unknown) => erro(e).code === '23502');
+    await expect(em(worker(C.tenantId), sql`update chat_leituras set lida_ate = now() where lado = 'consultorio'`)).rejects.toSatisfy(doGatilho('cada lado só grava o próprio marcador'));
+    await expect(em(C.ctx, sql`update chat_leituras set patient_id = ${C.p2} where lado = 'consultorio'`)).rejects.toSatisfy(doGatilho('coluna fixa do marcador de leitura'));
   });
 
   it('devolvem NEW no que a RLS já recusa: outro tenant, a P2 no P1, a P2 na própria conversa e em recados, publico e conta', async () => {
@@ -862,11 +891,13 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
       ['recados', sql`insert into recados (tenant_id, texto, filtro, destinatarios, autor_nome, autor_crn, criado_por) values (${C.tenantId}, 'x', '{"tipo":"todos"}', 1, ${CARIMBO.nome}, ${CARIMBO.crn}, ${randomUUID()})`],
     ];
     for (const papel of ['desconhecido', 'recepcao']) {
-      for (const [t, q] of escritas) await expect(comPapel(papel, C.tenantId, q, C.nutriId), `${papel} ${t}`).rejects.toSatisfy(doGatilho);
+      for (const [t, q] of escritas) await expect(comPapel(papel, C.tenantId, q, C.nutriId), `${papel} ${t}`).rejects.toSatisfy(doGatilho(`${t}: papel desconhecido`));
     }
     // e no UPDATE
     await em(C.ctx, daNutri(C));
-    await expect(comPapel('desconhecido', C.tenantId, sql`update chat_conversas set updated_at = now()`)).rejects.toSatisfy(doGatilho);
-    await expect(comPapel('desconhecido', C.tenantId, sql`update chat_mensagens set updated_at = now()`)).rejects.toSatisfy(doGatilho);
+    await em(C.ctx, leitura(C, C.p1, 'consultorio'));
+    for (const t of ['chat_conversas', 'chat_mensagens', 'chat_leituras']) {
+      await expect(comPapel('desconhecido', C.tenantId, sql`update ${sql.identifier(t)} set updated_at = now()`), t).rejects.toSatisfy(doGatilho(`${t}: papel desconhecido`));
+    }
   });
 });

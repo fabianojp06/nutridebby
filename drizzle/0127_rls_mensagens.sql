@@ -141,7 +141,8 @@ ALTER TABLE chat_horarios ADD CONSTRAINT chat_horarios_sem_sobreposicao
 --         conta — paciente_leitura_propria_* e paciente_com_conta).
 -- Papel desconhecido (qualquer outro valor de app.role) recebe o 42501 do gatilho: falha fechada — app_current_role() não
 -- valida o valor e a tenant_isolation não olha o papel. A `recepcao` (Plano 26) entra na lista (iii) só quando a RLS a negar
--- (RN-505 do 26); até lá, é papel desconhecido. Sem papel (migration, semente sem withTenant): devolve NEW; as colunas de
+-- (RN-505 do 26); até lá, é papel desconhecido (CH-D71: quem entrar depois, o 26 ou o §5 do 25, faz o CREATE OR REPLACE
+-- das quatro funções com 'recepcao' na lista e inverte a asserção do banco.test.ts). Sem papel (migration, semente sem withTenant): devolve NEW; as colunas de
 -- relógio vêm do default e quem grava preenche o carimbo (o CHECK exige).
 
 -- §9.1 (RN-441, RN-442): chaves fixas; a conversa só nasce pela sessão `nutri` (liberação ou recado; o worker não cria);
@@ -225,8 +226,9 @@ CREATE TRIGGER chat_conversas_regras BEFORE INSERT OR UPDATE ON chat_conversas F
 -- titular ativo e não anonimizado e — fora a cópia de recado — a conversa liberada e não pausada; os caminhos do anexo são
 -- de um stored_files do mesmo tenant e paciente, do tipo certo. UPDATE: colunas fixas, menos as quatro do GRANT; o anexo só
 -- muda pelo worker — processando → pronto | falhou, com o anexo_path entrando só em processando → pronto (mesma amarra);
--- pronto | falhou → removido e os caminhos a nulo só com o marcador local app.chat_soltando (app_chat_soltar_anexo, T1c); o
--- original nunca entra num UPDATE e nenhum caminho troca por outro.
+-- pronto | falhou → removido e os caminhos a nulo só com o marcador local app.chat_soltando (app_chat_soltar_anexo, T1c) —
+-- o anexo convertido (e o `removido`) também só com o titular bloqueado ou anonimizado; o original nunca entra num UPDATE e
+-- nenhum caminho troca por outro. A cópia de recado repete o texto do recado.
 CREATE OR REPLACE FUNCTION app_chat_mensagens_regras() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER
 SET search_path = public, pg_temp AS $$
@@ -234,6 +236,7 @@ DECLARE
   r text := coalesce(current_setting('app.role', true), '');
   soltando boolean := coalesce(current_setting('app.chat_soltando', true), '') = 'on';
   livres text[] := ARRAY['anexo_status', 'anexo_path', 'anexo_original_path', 'updated_at'];
+  titular_saindo boolean;
   nome text;
   crn text;
 BEGIN
@@ -268,10 +271,15 @@ BEGIN
                      AND p.status = 'ativo' AND p.anonimizado_em IS NULL) THEN
       RAISE EXCEPTION 'mensagem só para titular ativo' USING ERRCODE = '42501';
     END IF;
-    IF NEW.recado_id IS NULL AND NOT EXISTS (
-         SELECT 1 FROM public.chat_conversas c WHERE c.tenant_id = NEW.tenant_id AND c.patient_id = NEW.patient_id
-            AND c.liberada_em IS NOT NULL AND c.pausada_em IS NULL) THEN
-      RAISE EXCEPTION 'a conversa não está liberada ou está pausada' USING ERRCODE = '42501';
+    IF NEW.recado_id IS NULL THEN
+      IF NOT EXISTS (SELECT 1 FROM public.chat_conversas c WHERE c.tenant_id = NEW.tenant_id AND c.patient_id = NEW.patient_id
+                       AND c.liberada_em IS NOT NULL AND c.pausada_em IS NULL) THEN
+        RAISE EXCEPTION 'a conversa não está liberada ou está pausada' USING ERRCODE = '42501';
+      END IF;
+    -- revisão, M2: a cópia de recado dispensa a conversa liberada (RN-462), então tem de ser o texto do próprio recado — sem
+    -- isto, um recado_id qualquer abriria a conversa não liberada para qualquer texto
+    ELSIF NOT EXISTS (SELECT 1 FROM public.recados r WHERE r.tenant_id = NEW.tenant_id AND r.id = NEW.recado_id AND r.texto = NEW.texto) THEN
+      RAISE EXCEPTION 'a cópia do recado repete o texto do recado' USING ERRCODE = '42501';
     END IF;
     IF NEW.anexo_path IS NOT NULL AND NOT EXISTS (
          SELECT 1 FROM public.stored_files f WHERE f.tenant_id = NEW.tenant_id AND f.patient_id = NEW.patient_id
@@ -291,6 +299,11 @@ BEGIN
   IF (to_jsonb(NEW) - livres) IS DISTINCT FROM (to_jsonb(OLD) - livres) THEN
     RAISE EXCEPTION 'coluna fixa da mensagem' USING ERRCODE = '42501';
   END IF;
+  -- revisão, M3 (molde 0123): o anexo convertido só sai (a nulo ou `removido`) com o titular bloqueado ou anonimizado — o
+  -- marcador não basta, porque qualquer sessão o liga; o original continua saindo só com o marcador (fim da conversão)
+  titular_saindo := (NEW.anexo_path IS DISTINCT FROM OLD.anexo_path OR NEW.anexo_status IS DISTINCT FROM OLD.anexo_status)
+    AND EXISTS (SELECT 1 FROM public.patients p WHERE p.tenant_id = NEW.tenant_id AND p.id = NEW.patient_id
+                  AND (p.status = 'bloqueado' OR p.anonimizado_em IS NOT NULL));
   IF NEW.anexo_status IS DISTINCT FROM OLD.anexo_status THEN
     IF OLD.anexo_status = 'processando' AND NEW.anexo_status IN ('pronto', 'falhou') THEN
       IF r <> 'worker' THEN
@@ -299,6 +312,9 @@ BEGIN
     ELSIF OLD.anexo_status IN ('pronto', 'falhou') AND NEW.anexo_status = 'removido' THEN
       IF r <> 'worker' OR NOT soltando THEN
         RAISE EXCEPTION 'o anexo só é removido por app_chat_soltar_anexo' USING ERRCODE = '42501';
+      END IF;
+      IF NOT titular_saindo THEN
+        RAISE EXCEPTION 'o anexo só sai com o titular bloqueado ou anonimizado' USING ERRCODE = '42501';
       END IF;
     ELSE
       RAISE EXCEPTION 'transição do anexo inválida' USING ERRCODE = '42501';
@@ -317,6 +333,8 @@ BEGIN
       RAISE EXCEPTION 'o caminho do anexo não troca por outro' USING ERRCODE = '42501';
     ELSIF r <> 'worker' OR NOT soltando THEN
       RAISE EXCEPTION 'o caminho do anexo só sai por app_chat_soltar_anexo' USING ERRCODE = '42501';
+    ELSIF NOT titular_saindo THEN
+      RAISE EXCEPTION 'o anexo só sai com o titular bloqueado ou anonimizado' USING ERRCODE = '42501';
     END IF;
   END IF;
   IF NEW.anexo_original_path IS DISTINCT FROM OLD.anexo_original_path THEN
@@ -359,10 +377,13 @@ BEGIN
     IF NOT ((NEW.lado = 'consultorio' AND r = 'nutri') OR (NEW.lado = 'paciente' AND r = 'paciente')) THEN
       RAISE EXCEPTION 'cada lado só grava o próprio marcador de leitura' USING ERRCODE = '42501';
     END IF;
-    IF TG_OP = 'INSERT' THEN
-      NEW.lida_ate := least(NEW.lida_ate, clock_timestamp());
-    ELSE
-      NEW.lida_ate := greatest(OLD.lida_ate, least(NEW.lida_ate, clock_timestamp()));
+    -- comparações explícitas (revisão, M1): least/greatest ignoram NULL e trocariam um lida_ate nulo pelo relógio, escondendo
+    -- o NOT NULL; com IF, o nulo segue e o 23502 aparece
+    IF NEW.lida_ate > clock_timestamp() THEN
+      NEW.lida_ate := clock_timestamp();
+    END IF;
+    IF TG_OP = 'UPDATE' AND NEW.lida_ate < OLD.lida_ate THEN
+      NEW.lida_ate := OLD.lida_ate;
     END IF;
   END IF;
   RETURN NEW;
