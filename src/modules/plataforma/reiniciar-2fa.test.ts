@@ -192,7 +192,7 @@ describe('Plano 26 (§3, RE-D20): reiniciar o 2FA de uma conta da recepção', (
     await expect(entrar(auth, r.email)).resolves.toMatch(/^nd\.session_token=/); // sem o desafio do 2FA
     const [u] = await db.select({ appRole: user.appRole, twoFactorEnabled: user.twoFactorEnabled }).from(user).where(eq(user.id, r.id));
     const agora = new Date();
-    expect(evaluateSession({ now: agora, path: '/painel', allowed: ['nutri', 'recepcao'], session: { updatedAt: agora, createdAt: agora }, user: u, equipe: { ativo: true } })).toBe('setup-2fa');
+    expect(evaluateSession({ now: agora, path: '/painel', allowed: ['nutri', 'recepcao'], session: { updatedAt: agora, createdAt: agora }, user: u, equipe: { ativo: true, termoAceito: true } })).toBe('setup-2fa');
   });
   it('a mensagem do reinício: admin e recepção têm a configuração obrigatória no próximo login; nutricionista e paciente, não', () => {
     expect([mensagemDoReinicio('admin'), mensagemDoReinicio('recepcao')]).toEqual([MSG_2FA.okAdmin, MSG_2FA.okAdmin]);

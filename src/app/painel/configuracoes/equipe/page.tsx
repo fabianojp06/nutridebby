@@ -46,15 +46,17 @@ export default async function EquipePage({ searchParams }: PageProps<'/painel/co
   const marcador = (ok || erro) && typeof sp.r === 'string' && /^[0-9a-f]{8}$/.test(sp.r) ? sp.r : '';
   const { membros, limiteAtingido } = await listarEquipe(ctx);
   const daLinha = typeof sp.m === 'string' && UUID.test(sp.m) && membros.some((m) => m.id === sp.m) ? sp.m : null;
-  const foco = erro ? ID_ERRO : ok && ok !== 'convidada' && daLinha ? idDaLinha(daLinha) : ok === 'convidada' && limiteAtingido ? ID_LIMITE : ok ? ID_TITULO : null;
+  const erroVisivel = erro && !(erro === 'limite' && limiteAtingido) ? erro : null;
+  const foco = erroVisivel ? ID_ERRO : erro ? ID_LIMITE : ok && ok !== 'convidada' && daLinha ? idDaLinha(daLinha) : ok === 'convidada' && limiteAtingido ? ID_LIMITE : ok ? ID_TITULO : null;
   return (
     <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
       <h1 id={ID_TITULO} tabIndex={-1} className="font-titulo text-2xl font-semibold">{MSG_EQUIPE.titulo}</h1>
       <p className="max-w-3xl">{MSG_EQUIPE.explicacao}</p>
       <StatusDaEquipe texto={ok ? MSG_EQUIPE.ok[ok] : ''} marcador={marcador} />
-      {erro && (
+      {/* com ?erro=limite, o aviso fixo do limite (abaixo) já diz o mesmo: um texto só */}
+      {erroVisivel && (
         <p id={ID_ERRO} tabIndex={-1} className="rounded-2xl bg-erro-fundo p-3 font-medium text-erro">
-          {ERROS[erro]}
+          {ERROS[erroVisivel]}
         </p>
       )}
       {foco && <FocoNoAviso key={`${foco}-${marcador}`} id={foco} />}
@@ -74,7 +76,7 @@ export default async function EquipePage({ searchParams }: PageProps<'/painel/co
             <caption className="sr-only">{MSG_EQUIPE.titulo}</caption>
             <thead className="text-sm text-suave">
               <tr>
-                {MSG_EQUIPE.colunas.slice(0, 3).map((c) => <th key={c} scope="col" className="px-2 py-1">{c}</th>)}
+                {MSG_EQUIPE.colunas.slice(0, 3).map((c) => <th key={c} scope="col" className="px-2 py-1 whitespace-nowrap">{c}</th>)}
                 <th scope="col" className="px-2 py-1" data-guia="permissao-financeiro">{MSG_EQUIPE.colunas[3]}</th>
                 {MSG_EQUIPE.colunas.slice(4).map((c) => <th key={c} scope="col" className="px-2 py-1">{c}</th>)}
               </tr>

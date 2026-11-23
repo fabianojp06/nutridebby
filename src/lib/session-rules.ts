@@ -168,14 +168,15 @@ export function evaluateSession(input: {
   prazos?: PrazosDaEquipe;
   /**
    * Plano 26 (RN-503, RN-504): a linha de `equipe_membros` da conta `recepcao`, lida com a sessão. Sem ela, ou desativada,
-   * a recepção é recusada em toda tela (falha fechada); não vale para os outros papéis.
+   * a recepção é recusada em toda tela (falha fechada); não vale para os outros papéis. Revisão da P26-07 (RN-500): sem o
+   * Termo de confidencialidade da equipe aceito (`termoAceito`), também — a mesma recusa, com o aviso próprio na página.
    */
-  equipe?: { ativo: boolean } | null;
+  equipe?: { ativo: boolean; termoAceito: boolean } | null;
 }): SessionDecision {
   const { session, user, allowed, now, path, hasSessionCookie, tenantStatus, prazos } = input;
   if (!session || !user) return hasSessionCookie ? 'expired' : 'login';
   const role = user.appRole as AppRole;
-  const desativada = role === 'recepcao' && input.equipe?.ativo !== true;
+  const desativada = role === 'recepcao' && (input.equipe?.ativo !== true || input.equipe.termoAceito !== true);
   // a desativada é recusada em toda tela, inclusive nas de outro papel: o aviso dela vence o de outro papel
   if (!allowed.includes(role) && !desativada) return 'forbidden';
   // RNF-06: inatividade (30 min) e limite (8 h) da equipe. Defesa extra ao expiresAt: exige a leitura sem renovar

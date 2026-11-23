@@ -18,6 +18,11 @@ export const MSG_RECEPCAO = {
   acessoDesativado: {
     titulo: 'Acesso desativado',
     texto: 'Seu acesso a este consultório foi desativado. Fale com a nutricionista.',
+    /**
+     * Revisão da P26-07 (RN-500): a conta ativa sem o aceite do Termo de confidencialidade da equipe (senha criada fora do
+     * convite). RASCUNHO, sem fonte na spec (§6.2): vai à tabela de textos do Plano 26 na T12.
+     */
+    termoPendente: 'Seu acesso ainda não foi liberado: falta aceitar o Termo de confidencialidade da equipe. Fale com a nutricionista.',
   },
   /** RN-501 (RE-D29): o DPA do consultório pendente. */
   contratoPendente: {
@@ -98,5 +103,7 @@ export const MSG_EQUIPE = {
     texto: (consultorio: string) => `Você recebeu um convite para a equipe de ${consultorio}.`,
     rotuloTermo: 'Li e aceito o Termo de confidencialidade da equipe',
     termoNaoAceito: 'Para entrar na equipe, aceite o termo de confidencialidade.',
+    /** Revisão da P26-07: o convite vencido da recepção. RASCUNHO, sem fonte na spec (§6.2): vai à tabela de textos na T12. */
+    expirado: 'Convite expirado. Peça à nutricionista para reenviar o convite.',
   },
 } as const;

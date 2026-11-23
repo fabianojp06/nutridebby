@@ -6,7 +6,7 @@ import { Secret, TOTP } from 'otpauth';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../test/db';
 import { closeDb } from '@/db/client';
-import { account, equipeMembros, session, tenants, twoFactor, user, verification } from '@/db/schema';
+import { account, consents, equipeMembros, session, tenants, twoFactor, user, verification } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { EMAIL_FINALIDADE } from '@/email/queue';
@@ -17,6 +17,7 @@ import { openSecret, sha256 } from './crypto';
 import { createAuth, type Auth } from './auth';
 import { hashPassword } from './password.server';
 import { setPasswordLinkSink } from './password-links';
+import { SIGILO_EQUIPE_TERMO } from '@/modules/plataforma/textos-versionados';
 import type { ResultadoTurnstile } from './turnstile';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -433,7 +434,7 @@ describe('Plano 26: último acesso da recepção (RN-516, RE-D43)', () => {
     t.id = novo.id;
   });
   /** Conta com senha; a da recepção com a linha de equipe_membros (gravada pela sessão `nutri`, ativa ou desativada) e, com 2FA, o segredo de teste. */
-  async function conta(appRole: 'nutri' | 'recepcao', o: { doisFatores?: boolean; desativada?: boolean } = {}) {
+  async function conta(appRole: 'nutri' | 'recepcao', o: { doisFatores?: boolean; desativada?: boolean; semTermo?: boolean } = {}) {
     const id = randomUUID();
     const e = `${appRole}-ua-${id.slice(0, 8)}@teste.dev`;
     await app.db.insert(user).values({ id, name: 'Conta', email: e, emailVerified: true, appRole, tenantId: t.id, twoFactorEnabled: o.doisFatores ?? false });
@@ -446,6 +447,8 @@ describe('Plano 26: último acesso da recepção (RN-516, RE-D43)', () => {
       const nutri = { tenantId: t.id, role: 'nutri' as const, actorUserId: randomUUID() };
       await withTenant(nutri, (tx) => tx.insert(equipeMembros).values({ tenantId: t.id, userId: id, papel: 'recepcao', convidadaPor: nutri.actorUserId }), app.db);
       if (o.desativada) await withTenant(nutri, (tx) => tx.update(equipeMembros).set({ desativadaEm: new Date(), desativadaPor: nutri.actorUserId }).where(eq(equipeMembros.userId, id)), app.db);
+      // RN-500 (revisão da P26-07): o aceite do termo de confidencialidade, sem o qual a sessão recusa
+      if (!o.semTermo) await app.db.insert(consents).values({ userId: id, tenantId: t.id, termoVersao: SIGILO_EQUIPE_TERMO, ip: null });
     }
     return { id, e };
   }
@@ -483,6 +486,12 @@ describe('Plano 26: último acesso da recepção (RN-516, RE-D43)', () => {
   it('sem o 2FA (primeiro acesso ou depois do reinício) o login não conta: a conta só configura o 2FA', async () => {
     const r = await conta('recepcao');
     expect((await post('/sign-in/email', { email: r.e, password: senha }, '10.7.1.4')).status).toBe(200);
+    expect(await ultimoAcesso(r.id)).toBeNull();
+  });
+
+  it('revisão da P26-07: sem o aceite do termo não conta, mesmo com o login completo (a sessão é recusada em toda tela)', async () => {
+    const r = await conta('recepcao', { doisFatores: true, semTermo: true });
+    expect(await entrarCom2fa(r.e, '10.7.1.6')).toBe(200);
     expect(await ultimoAcesso(r.id)).toBeNull();
   });
 

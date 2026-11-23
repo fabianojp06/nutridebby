@@ -160,4 +160,12 @@ describe('Plano 26 (RE-D67, RN-501): a recepção tem o aviso de inatividade e a
     expect((await POST(pedido('POST', r.cookie))).status).toBe(403);
     expect(await lerSessao(r.id)).toEqual(antes);
   });
+  it('revisão da P26-07 (RN-500): sem o aceite do termo → 403 nos dois, sem renovar', async () => {
+    const r = await recepcao({ semTermo: true });
+    await envelhecer(r.id, 6 * MIN, 24 * MIN, 2 * H);
+    const antes = await lerSessao(r.id);
+    expect((await GET(pedido('GET', r.cookie))).status).toBe(403);
+    expect((await POST(pedido('POST', r.cookie))).status).toBe(403);
+    expect(await lerSessao(r.id)).toEqual(antes);
+  });
 });

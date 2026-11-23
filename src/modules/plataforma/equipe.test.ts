@@ -130,6 +130,20 @@ describe('convidarRecepcao (RN-499, US-488 "Convidar")', () => {
     expect((await listarEquipe(t.ctx, deps)).membros).toEqual([]);
   });
 
+  it('revisão da P26-07: dois consultórios convidando o mesmo e-mail ao mesmo tempo — um passa, o outro recebe a mensagem neutra, sem o e-mail no log', async () => {
+    const chamadas: unknown[][] = [];
+    for (const nivel of ['info', 'warn', 'error'] as const) vi.spyOn(logger, nivel).mockImplementation(((...a: unknown[]) => void chamadas.push(a)) as never);
+    const [a, b] = [await novoTenant(app.db), await novoTenant(app.db)];
+    const email = emailNovo();
+    const r = await Promise.allSettled([convidar(a, { email }), convidar(b, { email })]);
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    const recusa = (r.find((x) => x.status === 'rejected') as PromiseRejectedResult).reason;
+    expect(recusa).toBeInstanceOf(EquipeError);
+    expect((recusa as EquipeError).erros).toEqual({ email: MSG_EQUIPE.erros.emailEmUso });
+    expect(await app.db.select({ id: user.id }).from(user).where(eq(user.email, email))).toHaveLength(1);
+    expect(JSON.stringify(chamadas)).not.toContain(email);
+  });
+
   it('consultório suspenso não convida (RN-15)', async () => {
     const t = await novoTenant(app.db);
     await app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, t.tenantId));
@@ -243,6 +257,20 @@ describe('desativarRecepcao e reativarRecepcao (RN-503)', () => {
     await desativarRecepcao(t.ctx, outros[0].membroId, deps);
     await reativarRecepcao(t.ctx, membroId, deps);
     expect(await membro(t, membroId)).toMatchObject({ desativadaEm: null, desativadaPor: null });
+    expect(await listarEquipe(t.ctx, deps)).toMatchObject({ ativas: 3, limiteAtingido: true });
+  });
+});
+
+describe('revisão da P26-07: reativar × convidar com 2 ativas', () => {
+  it('ao mesmo tempo, só um passa (a mesma trava do consultório)', async () => {
+    const t = await novoTenant(app.db);
+    const { membroId } = await convidar(t);
+    await desativarRecepcao(t.ctx, membroId, deps);
+    await convidar(t);
+    await convidar(t);
+    const r = await Promise.allSettled([reativarRecepcao(t.ctx, membroId, deps), convidar(t)]);
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    expect(((r.find((x) => x.status === 'rejected') as PromiseRejectedResult).reason as EquipeError).code).toBe('limite');
     expect(await listarEquipe(t.ctx, deps)).toMatchObject({ ativas: 3, limiteAtingido: true });
   });
 });

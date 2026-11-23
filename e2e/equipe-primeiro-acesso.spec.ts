@@ -42,6 +42,11 @@ test('a pessoa da recepção abre o convite, aceita o termo, cria a senha, confi
   await expect(page.getByRole('heading', { name: 'Termo de confidencialidade da equipe' })).toBeVisible();
   await expect(page.getByText('inclusive o simples fato de uma pessoa ser paciente do consultório')).toBeVisible();
   await semViolacoes(page, '/convite/[token] (recepção)');
+  // celular (revisão da P26-07): 360 x 800, sem rolagem horizontal e sem violação
+  await page.setViewportSize({ width: 360, height: 800 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '360 px: /convite/[token]').toBe(true);
+  await semViolacoes(page, '/convite/[token] (recepção, 360 px)');
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   // sem a caixa do termo: a mensagem junto da caixa, e nada é gravado
   await page.getByLabel('Nova senha').fill(SENHA);

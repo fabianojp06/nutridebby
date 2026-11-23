@@ -193,6 +193,13 @@ describe('Plano 26: sessão da recepção (RN-501, RN-503, RN-504, RE-D47)', () 
     expect(r.ok ? 'ok' : [r.motivo, r.response.status]).toEqual(['papel', 403]);
   });
 
+  it('revisão da P26-07 (RN-500): com senha e 2FA, mas sem o aceite do termo → /painel não abre (acesso-desativado); API → 403', async () => {
+    const { recepcao } = await consultorioComRecepcao({ semTermo: true });
+    await expect(requireEquipe('/painel')).rejects.toMatchObject({ url: '/conta/acesso-desativado' });
+    const r = await requireApiEquipe(api(recepcao.cookie));
+    expect(r.ok ? 'ok' : [r.motivo, r.response.status]).toEqual(['papel', 403]);
+  });
+
   it('DPA do consultório pendente → /painel/contrato-pendente (a recepção não aceita o DPA, RE-D29); com permitirDpaPendente, entra', async () => {
     const { tenant, recepcao } = await consultorioComRecepcao({}, false);
     await expect(requireEquipe('/painel')).rejects.toMatchObject({ url: '/painel/contrato-pendente' });

@@ -76,7 +76,7 @@ export async function criarContaNutri(input: Record<string, unknown>, deps: Deps
       const [t] = await tx.insert(tenants).values({ slug: v.slug, nomeExibicao: v.nomeExibicao, crn: v.crn }).returning({ id: tenants.id });
       const userId = randomUUID();
       await tx.insert(user).values({ id: userId, name: v.nomeExibicao, email: v.email, emailVerified: false, appRole: 'nutri', tenantId: t.id });
-      const { token } = await criarConvite(tx, userId, deps.now);
+      const { token } = await criarConvite(tx, userId, deps.now ?? new Date(), { tipo: 'nutri' });
       await enqueueEmail({ tipo: 'convite_nutri', para: v.email, nome: v.nomeExibicao, link: linkDoConvite(appUrl, token) }, { tenantId: t.id, tx });
       return { tenantId: t.id, userId };
     });
@@ -109,7 +109,7 @@ export async function reenviarConvite(tenantId: string, deps: Deps = {}): Promis
     }
     const comSenha = await tx.select({ id: account.id }).from(account).where(and(eq(account.userId, u.id), eq(account.providerId, 'credential')));
     if (comSenha.length) throw new ContaError({ geral: MSG.jaTemSenha }, 'ja_tem_senha');
-    const { token } = await criarConvite(tx, u.id, deps.now);
+    const { token } = await criarConvite(tx, u.id, deps.now ?? new Date(), { tipo: 'nutri' });
     await enqueueEmail({ tipo: 'convite_nutri', para: u.email, nome: u.nome, link: linkDoConvite(appUrl, token) }, { tenantId, tx });
   });
 }

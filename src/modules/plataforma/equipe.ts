@@ -66,13 +66,13 @@ async function ativasDoConsultorio(tx: Tx, tenantId: string): Promise<number> {
 async function consultorio(tx: Tx, tenantId: string, o: { aguardarSuspensao?: boolean } = {}): Promise<{ nome: string; suspensa: boolean }> {
   const q = tx.select({ nome: tenants.nomeExibicao, status: tenants.status }).from(tenants).where(eq(tenants.id, tenantId));
   const [t] = o.aguardarSuspensao ? await q.for('share') : await q;
-  if (!t) throw new EquipeError('nao_encontrado', { geral: 'Consultório não encontrado.' });
+  if (!t) throw new EquipeError('nao_encontrado', { geral: 'Consultório não encontrado. Recarregue a página e tente de novo.' });
   return { nome: t.nome, suspensa: t.status === 'suspensa' };
 }
 
 const suspensa = () => new EquipeError('conta_suspensa', { geral: MSG_EQUIPE.erros.contaSuspensa });
 const limite = () => new EquipeError('limite', { geral: MSG_EQUIPE.erros.limite });
-const naoEncontrado = () => new EquipeError('nao_encontrado', { geral: 'Pessoa da equipe não encontrada.' });
+const naoEncontrado = () => new EquipeError('nao_encontrado', { geral: 'Pessoa da equipe não encontrada. Recarregue a página e tente de novo.' });
 
 /** O nome da nutricionista da sessão (o "{nome da nutricionista} convidou você" do e-mail). */
 async function nomeDaNutricionista(tx: Tx, ctx: TenantContext & { actorUserId: string }): Promise<string> {
@@ -132,7 +132,11 @@ export async function convidarRecepcao(ctx: TenantContext, input: { nome: unknow
         const c = await consultorio(tx, ctx.tenantId, { aguardarSuspensao: true });
         if (c.suspensa) throw suspensa();
         if ((await ativasDoConsultorio(tx, ctx.tenantId)) >= LIMITE_DA_EQUIPE) throw limite();
-        // `email` é citext: a busca não depende de maiúsculas. Enumeração aceita (R-496): a mensagem não diz de quem é
+        // Revisão da P26-07: a trava global do e-mail (depois da do consultório), antes da busca — dois consultórios convidando
+        // o mesmo e-mail ao mesmo tempo não chegam ao 23505 (o erro do Postgres traria o e-mail ao log)
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext('user-email'), hashtext(lower(${v.email})))`);
+        // `email` é citext: a busca não depende de maiúsculas. Enumeração aceita (R-496): a mensagem não diz de quem é. A
+        // busca é em todas as contas, de qualquer consultório e papel: o e-mail é único em `user` (RE-D34)
         if ((await tx.select({ id: user.id }).from(user).where(eq(user.email, v.email))).length) {
           throw new EquipeError('email_em_uso', { email: MSG_EQUIPE.erros.emailEmUso });
         }

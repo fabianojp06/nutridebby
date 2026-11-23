@@ -37,13 +37,17 @@ export function LinhaDaEquipe(p: LinhaDaEquipeProps) {
   return (
     <tr id={idDaLinha(p.id)} tabIndex={-1} className="border-t border-linha align-top focus-visible:outline-offset-[-3px]">
       <th scope="row" className="px-2 py-2 text-left font-medium">{p.nome}</th>
-      <td className="px-2 py-2 wrap-anywhere">{p.email}</td>
+      {/* revisão da P26-07: quebra só no fim da linha (overflow-wrap: break-word), nunca de 4 em 4 letras a 360 px */}
+      <td className="min-w-48 px-2 py-2 break-words">{p.email}</td>
       <td className="px-2 py-2">{p.textoDaSituacao}</td>
       <td className="px-2 py-2">
         {desativada ? (
           <span aria-hidden="true">—</span>
         ) : (
-          <input form={formPermissao} name="financeiro" type="checkbox" defaultChecked={p.financeiro} aria-label={MSG_EQUIPE.rotuloDoFinanceiro(p.nome)} className="size-5" />
+          // alvo de 44 px (WCAG 2.5.8): o rótulo envolve a caixa
+          <label className="grid min-h-11 min-w-11 cursor-pointer place-items-center">
+            <input form={formPermissao} name="financeiro" type="checkbox" defaultChecked={p.financeiro} aria-label={MSG_EQUIPE.rotuloDoFinanceiro(p.nome)} className="size-5" />
+          </label>
         )}
       </td>
       <td className="px-2 py-2">{p.textoDoAcesso}</td>

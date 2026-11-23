@@ -12,6 +12,8 @@ import { SIGILO_EQUIPE_TERMO } from './textos-versionados';
 
 export const CONVITE_NUTRI_VALIDADE_MS = 72 * 60 * 60 * 1000; // US-001: 72 h
 export const CONVITE_EXPIRADO = 'Convite expirado. Peça um novo ao suporte.';
+/** O aviso do convite vencido, pelo tipo (revisão da P26-07: o da recepção manda à nutricionista). */
+export const avisoDeConviteExpirado = (tipo: TipoDoConvite): string => (tipo === 'recepcao' ? MSG_EQUIPE.convite.expirado : CONVITE_EXPIRADO);
 export const CONVITE_INVALIDO =
   'Convite inválido ou já usado. Se você já definiu sua senha, entre com seu e-mail e senha.';
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
@@ -23,18 +25,20 @@ const TIPOS_DESTA_PAGINA: TipoDoConvite[] = ['nutri', 'recepcao'];
 export type EstadoConvite =
   /** `tipo` decide o formulário (DPA × termo de confidencialidade); `consultorio`: o nome de exibição (o da recepção). */
   | { estado: 'valido'; userId: string; email: string; nome: string; tipo: TipoDoConvite; consultorio: string | null }
-  | { estado: 'expirado' }
+  /** `tipo` (revisão da P26-07): o aviso do convite vencido da recepção manda à nutricionista, não ao suporte. */
+  | { estado: 'expirado'; tipo: TipoDoConvite }
   | { estado: 'invalido' };
 
 /**
  * Cria um convite e invalida os anteriores ainda não usados do mesmo usuário. Devolve o token em claro (só para o e-mail).
- * Plano 26 (RN-499): `recepcao` leva o consultório (CHECK `invites_alvo`) e vale as mesmas 72 h.
+ * Plano 26 (RN-499): `recepcao` leva o consultório (CHECK `invites_alvo`) e vale as mesmas 72 h. O alvo é obrigatório
+ * (revisão da P26-07): quem cria diz qual convite é.
  */
 export async function criarConvite(
   q: Queryable,
   userId: string,
-  now: Date = new Date(),
-  alvo: { tipo: 'nutri' } | { tipo: 'recepcao'; tenantId: string } = { tipo: 'nutri' },
+  now: Date,
+  alvo: { tipo: 'nutri' } | { tipo: 'recepcao'; tenantId: string },
 ): Promise<{ token: string; expiraEm: Date }> {
   const token = randomToken();
   const expiraEm = new Date(now.getTime() + CONVITE_NUTRI_VALIDADE_MS);
@@ -60,10 +64,12 @@ export async function inspecionarConvite(q: Queryable, token: string, now: Date 
     .leftJoin(tenants, eq(tenants.id, user.tenantId))
     .where(and(eq(invites.tokenHash, sha256(token)), inArray(invites.tipo, TIPOS_DESTA_PAGINA)));
   if (!c || c.usadoEm) return { estado: 'invalido' };
-  // Plano 26: o convite da recepção só vale para a conta `recepcao` do mesmo consultório do convite
+  // Plano 26: o convite da recepção só vale para a conta `recepcao` do mesmo consultório do convite; o da nutricionista, só
+  // para a conta `nutri` (revisão da P26-07)
   const tipo = c.tipo as TipoDoConvite;
   if (tipo === 'recepcao' && (c.papel !== 'recepcao' || !c.tenantId || c.conviteTenantId !== c.tenantId)) return { estado: 'invalido' };
-  if (c.expiraEm.getTime() <= now.getTime()) return { estado: 'expirado' };
+  if (tipo === 'nutri' && c.papel !== 'nutri') return { estado: 'invalido' };
+  if (c.expiraEm.getTime() <= now.getTime()) return { estado: 'expirado', tipo };
   return { estado: 'valido', userId: c.userId, email: c.email, nome: c.nome, tipo, consultorio: c.consultorio };
 }
 
@@ -102,7 +108,7 @@ export async function aceitarConvite(
   // Convite inválido ou vencido responde isso antes de qualquer caixa: o texto a aceitar depende de um convite que vale.
   const antes = TOKEN.test(input.token) ? await inspecionarConvite(db, input.token, now) : ({ estado: 'invalido' } as const);
   if (antes.estado !== 'valido') {
-    throw new ConviteError(antes.estado === 'expirado' ? CONVITE_EXPIRADO : CONVITE_INVALIDO);
+    throw new ConviteError(antes.estado === 'expirado' ? avisoDeConviteExpirado(antes.tipo) : CONVITE_INVALIDO);
   }
   if (antes.tipo === 'recepcao' && !input.aceitouSigilo) throw new ConviteError(MSG_EQUIPE.convite.termoNaoAceito, 'sigilo');
   if (antes.tipo !== 'recepcao' && !input.aceitouDpa) throw new ConviteError(DPA_NAO_ACEITO, 'dpa');
@@ -113,11 +119,12 @@ export async function aceitarConvite(
 
   return db.transaction(async (tx) => {
     const [u] = await tx
-      .select({ email: user.email, tenantId: user.tenantId })
+      .select({ email: user.email, tenantId: user.tenantId, papel: user.appRole })
       .from(user)
       .where(eq(user.id, antes.userId))
       .for('update');
-    if (!u?.tenantId) throw new ConviteError(CONVITE_INVALIDO);
+    // revisão da P26-07: a conta travada ainda é do papel do convite (o tipo decide o texto aceito)
+    if (!u?.tenantId || u.papel !== antes.tipo) throw new ConviteError(CONVITE_INVALIDO);
     const jaTemSenha = await tx
       .select({ id: account.id })
       .from(account)
@@ -131,7 +138,7 @@ export async function aceitarConvite(
       .returning({ id: invites.id });
     if (!c) {
       const estado = await inspecionarConvite(tx, input.token, now);
-      throw new ConviteError(estado.estado === 'expirado' ? CONVITE_EXPIRADO : CONVITE_INVALIDO);
+      throw new ConviteError(estado.estado === 'expirado' ? avisoDeConviteExpirado(estado.tipo) : CONVITE_INVALIDO);
     }
     await tx.insert(account).values({ id: randomUUID(), userId: antes.userId, accountId: antes.userId, providerId: 'credential', password: hash });
     await tx.update(user).set({ emailVerified: true }).where(eq(user.id, antes.userId));

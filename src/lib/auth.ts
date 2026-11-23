@@ -79,6 +79,10 @@ export function createAuth(
       // F2/F3: o tenantId vai junto (RN-15) e a entrega nunca lança nem segura a resposta
       sendResetPassword: async ({ user, url }) => {
         const tenantId = (user as { tenantId?: string | null }).tenantId ?? null;
+        // Revisão da P26-07 (RN-500, Res. CFN 599, art. 20, I): a recepção sem senha só cria a senha pelo convite, que pede o
+        // termo de confidencialidade — o /reset-password criaria a conta credential sem ele. A resposta do endpoint não muda
+        // (US-002); só o link não sai. Por papel: a nutricionista e o admin sem senha continuam recebendo (admin-bootstrap.ts).
+        if ((user as { appRole?: string }).appRole === 'recepcao' && !(await recepcaoTemSenha(db, user.id))) return;
         await deliverPasswordLink({ email: user.email, url, tenantId });
       },
     },
@@ -132,7 +136,8 @@ export function createAuth(
             // código): o acesso conta no verify-totp, não aqui.
             if (u?.appRole === 'recepcao' && u.tenantId && u.twoFactorEnabled && ctx?.path !== '/sign-in/email') {
               try {
-                if ((await lerMembroDaEquipe(db, u.tenantId, s.userId))?.ativo)
+                const m = await lerMembroDaEquipe(db, u.tenantId, s.userId);
+                if (m?.ativo && m.termoAceito)
                   await db.update(authSchema.user).set({ ultimoAcessoEm: new Date() }).where(eq(authSchema.user.id, s.userId));
               } catch (err) {
                 // a data é só informativa: falhar aqui não pode derrubar o login. Só o nome do erro e o id (regra 3)
@@ -238,6 +243,24 @@ async function statusDoTenantDaUsuaria(
     .where(eq(authSchema.user.id, userId))
     .for('share', { of: tenants });
   return row ? { status: statusDe(row), appRole: row.appRole, tenantId: row.tenantId, twoFactorEnabled: row.twoFactorEnabled === true } : null;
+}
+
+/**
+ * Revisão da P26-07: a conta `recepcao` já tem a senha (conta `credential`)? Falha da leitura = não (o link não sai: falha
+ * fechada), só com o nome do erro no log (regra 3).
+ */
+async function recepcaoTemSenha(db: Db, userId: string): Promise<boolean> {
+  try {
+    const [a] = await db
+      .select({ id: authSchema.account.id })
+      .from(authSchema.account)
+      .where(and(eq(authSchema.account.userId, userId), eq(authSchema.account.providerId, 'credential')))
+      .limit(1);
+    return !!a;
+  } catch (err) {
+    logger.warn({ erro: nomeDoErro(err), userId }, 'falha ao conferir a senha da recepção');
+    return false;
+  }
 }
 
 export type Auth = ReturnType<typeof createAuth>;

@@ -54,7 +54,8 @@ export function ConviteForm({ token, rotulo, versao, aceite = 'dpa' }: { token: 
           id={aceite}
           name={aceite}
           type="checkbox"
-          className="mt-1"
+          // revisão da P26-07: na recepção, a caixa de 20 px e o botão de 44 px (WCAG 2.5.8); a da nutricionista não muda
+          className={aceite === 'sigilo' ? 'mt-1 size-5 shrink-0' : 'mt-1'}
           aria-invalid={aceiteInvalido ? true : undefined}
           aria-describedby={aceiteInvalido ? ERRO_ID : undefined}
         />
@@ -65,7 +66,7 @@ export function ConviteForm({ token, rotulo, versao, aceite = 'dpa' }: { token: 
           {state.erro}
         </p>
       )}
-      <button disabled={pendente} className="w-full rounded bg-emerald-700 px-4 py-2 text-white">Criar senha e entrar</button>
+      <button disabled={pendente} className={`w-full rounded bg-emerald-700 px-4 py-2 text-white${aceite === 'sigilo' ? ' min-h-11' : ''}`}>Criar senha e entrar</button>
     </form>
   );
 }

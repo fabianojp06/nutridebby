@@ -80,9 +80,31 @@ describe('convite da recepção (RN-500, US-489)', () => {
     await expect(aceite(token)).rejects.toThrow(/^Convite inválido ou já usado/);
   });
 
+  it('revisão da P26-07: convite vencido da recepção manda à nutricionista (não ao suporte); o da nutricionista continua ao suporte', async () => {
+    const c = await conviteDaRecepcao();
+    const depois = new Date('2026-11-20T12:00:01Z');
+    expect(await inspecionarConvite(app.db, c.token, depois)).toEqual({ estado: 'expirado', tipo: 'recepcao' });
+    await expect(
+      aceitarConvite({ token: c.token, senha: 'Nutri2026segura', confirmacao: 'Nutri2026segura', aceitouDpa: false, aceitouSigilo: true, ip: null }, { db: app.db, now: depois }),
+    ).rejects.toThrow('Convite expirado. Peça à nutricionista para reenviar o convite.');
+    const t = await novoTenant(app.db);
+    const { token } = await criarConvite(app.db, t.nutriId, now, { tipo: 'nutri' });
+    expect(await inspecionarConvite(app.db, token, depois)).toEqual({ estado: 'expirado', tipo: 'nutri' });
+    await expect(
+      aceitarConvite({ token, senha: 'Nutri2026segura', confirmacao: 'Nutri2026segura', aceitouDpa: true, ip: null }, { db: app.db, now: depois }),
+    ).rejects.toThrow('Convite expirado. Peça um novo ao suporte.');
+  });
+
+  it('revisão da P26-07: convite `nutri` para uma conta que não é `nutri` (a da recepção): inválido', async () => {
+    const c = await conviteDaRecepcao();
+    const { token } = await criarConvite(app.db, c.userId, now, { tipo: 'nutri' });
+    expect(await inspecionarConvite(app.db, token, now)).toEqual({ estado: 'invalido' });
+    await expect(aceite(token, { aceitouDpa: true })).rejects.toThrow(/^Convite inválido ou já usado/);
+  });
+
   it('o convite da nutricionista continua como hoje: pede o DPA (a caixa do termo não serve) e grava o DPA', async () => {
     const t = await novoTenant(app.db);
-    const { token } = await criarConvite(app.db, t.nutriId, now);
+    const { token } = await criarConvite(app.db, t.nutriId, now, { tipo: 'nutri' });
     const [c] = await app.db.select({ tipo: invites.tipo, tenantId: invites.tenantId }).from(invites).where(eq(invites.userId, t.nutriId));
     expect(c).toEqual({ tipo: 'nutri', tenantId: null });
     expect(await inspecionarConvite(app.db, token, now)).toMatchObject({ estado: 'valido', tipo: 'nutri' });

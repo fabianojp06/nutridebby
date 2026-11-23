@@ -25,7 +25,7 @@ afterAll(async () => {
 async function contaComConvite() {
   const x = randomUUID().slice(0, 8);
   const r = await criarContaNutri({ nomeExibicao: 'Debby Silva', email: `pa-${x}@exemplo.com`, crn: 'CRN-3 12345', slug: `pa-${x}` }, { db: app.db, appUrl: 'http://localhost:3000', now });
-  const { token } = await criarConvite(app.db, r.userId, now);
+  const { token } = await criarConvite(app.db, r.userId, now, { tipo: 'nutri' });
   return { ...r, token, email: `pa-${x}@exemplo.com` };
 }
 const aceite = (token: string, extra: Partial<Parameters<typeof aceitarConvite>[0]> = {}) =>

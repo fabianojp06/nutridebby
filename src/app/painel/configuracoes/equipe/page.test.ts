@@ -116,6 +116,21 @@ describe('/painel/configuracoes/equipe (US-488, §7.2)', () => {
     for (const t of ['Convite enviado.', 'Acesso desativado.', 'A senha já foi criada']) expect(html).not.toContain(t);
   });
 
+  it('revisão da P26-07: ?erro=limite com o limite atingido — o texto aparece uma vez só (o aviso fixo)', async () => {
+    estado.equipe = { membros: [1, 2, 3].map((n) => pessoa(n, {})), ativas: 3, limiteAtingido: true };
+    const html = await render({ erro: 'limite', r: 'abcdef12' });
+    expect(html.split('O consultório pode ter até 3 pessoas ativas na recepção.').length - 1).toBe(1);
+    expect(html).toContain('id="limite-equipe"');
+  });
+
+  it('revisão da P26-07: o e-mail quebra só no fim (break-words, min-w-48) e o cabeçalho "E-mail" não quebra; a caixa do Financeiro tem 44 px', async () => {
+    estado.equipe = { membros: [pessoa(1, { email: 'uma.pessoa.com.email.comprido@consultorio.exemplo.com.br' })], ativas: 1, limiteAtingido: false };
+    const html = await render();
+    expect(html).toMatch(/<td class="min-w-48 px-2 py-2 break-words">uma\.pessoa/);
+    expect(html).toMatch(/<th scope="col" class="[^"]*whitespace-nowrap[^"]*">E-mail<\/th>/);
+    expect(html).toMatch(/<label class="grid min-h-11 min-w-11[^"]*place-items-center"><input form="permissao-/);
+  });
+
   it.each([
     ['ja_tem_senha', 'A senha já foi criada. Se a pessoa esqueceu, use &quot;Esqueci minha senha&quot;.'],
     ['conta_suspensa', 'Conta suspensa: não é possível convidar agora.'],

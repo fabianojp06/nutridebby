@@ -693,6 +693,13 @@ test('axe sem violações em /termos/sigilo-equipe (sem login), claro e escuro, 
       await expect(anonimo.getByRole('heading', { level: 1, name: 'Termo de confidencialidade da equipe' })).toBeVisible();
       expect(await anonimo.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), modo).toBe(true);
     }
+    // revisão da P26-07: também a 360 x 800 (o menor Android da R16)
+    await anonimo.setViewportSize({ width: 360, height: 800 });
+    for (const modo of ['light', 'dark'] as const) {
+      await anonimo.emulateMedia({ colorScheme: modo });
+      await semViolacoes(anonimo, '/termos/sigilo-equipe');
+      expect(await anonimo.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `360 px ${modo}`).toBe(true);
+    }
   } finally {
     await anonimo.context().close();
   }

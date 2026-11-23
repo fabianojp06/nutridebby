@@ -92,6 +92,14 @@ describe('/conta/acesso-desativado (RN-503)', () => {
     expect(h).toContain('Seu acesso a este consultório foi desativado. Fale com a nutricionista.');
     expect(h).toContain('[BotaoSair inline-flex min-h-11 items-center rounded-full border border-campo px-4]');
   });
+  it('revisão da P26-07 (RN-500): ativa, com senha e 2FA, mas sem o aceite do termo — nenhuma tela abre; o aviso próprio', async () => {
+    await recepcao({ semTermo: true });
+    await expect(Seguranca()).rejects.toMatchObject({ url: '/conta/acesso-desativado' });
+    await expect(OutroPapel({ searchParams: Promise.resolve({ esperado: 'paciente' }) } as never)).rejects.toMatchObject({ url: '/conta/acesso-desativado' });
+    const h = await html(AcessoDesativado());
+    expect(h).toContain('Seu acesso ainda não foi liberado: falta aceitar o Termo de confidencialidade da equipe. Fale com a nutricionista.');
+    expect(h).not.toContain('foi desativado');
+  });
   it('recepção ativa e a nutricionista não têm o que fazer aqui: vão ao painel', async () => {
     const r = await recepcao();
     await expect(AcessoDesativado()).rejects.toMatchObject({ url: '/painel' });

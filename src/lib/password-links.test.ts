@@ -110,3 +110,33 @@ describe('recuperação de senha pelo endpoint (US-002 "mesma resposta")', () =>
     expect(fila.enqueueEmail).toHaveBeenCalledWith(expect.objectContaining({ para: ativa.email }), { tenantId: ativa.tenantId });
   });
 });
+
+describe('revisão da P26-07 (RN-500): a recepção sem senha não recebe link de redefinição — só o convite cria a senha', () => {
+  /** Conta do papel no consultório (o admin sem consultório), com ou sem a conta `credential`. */
+  async function conta(appRole: 'recepcao' | 'nutri' | 'admin', comSenha: boolean) {
+    const [t] = await app.db.insert(tenants).values({ slug: `rr-${randomUUID().slice(0, 8)}`, nomeExibicao: 'RR' }).returning();
+    const id = randomUUID();
+    const email = `rr-${appRole}-${id.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id, name: 'Conta', email, emailVerified: false, appRole, tenantId: appRole === 'admin' ? null : t.id });
+    if (comSenha) await app.db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword('Nutri2026segura') });
+    return email;
+  }
+
+  it('recepção sem senha: a mesma resposta, nenhum e-mail; com senha, recebe; nutricionista e admin sem senha continuam recebendo', async () => {
+    fila.enqueueEmail.mockResolvedValue('job');
+    const semSenha = await conta('recepcao', false);
+    const inexistente = await pedir(`ninguem-${randomUUID().slice(0, 8)}@teste.dev`, '10.5.0.6');
+    const recusada = await pedir(semSenha, '10.5.0.6');
+    expect(recusada.status).toBe(200);
+    expect(await recusada.json()).toEqual(await inexistente.json());
+    const comSenha = await conta('recepcao', true);
+    const nutri = await conta('nutri', false);
+    const admin = await conta('admin', false);
+    for (const email of [comSenha, nutri, admin]) expect((await pedir(email, '10.5.0.7')).status).toBe(200);
+    await vi.waitFor(() => expect(fila.enqueueEmail).toHaveBeenCalledTimes(3));
+    await new Promise((ok) => setTimeout(ok, 200)); // folga para um enfileiramento indevido aparecer
+    const para = fila.enqueueEmail.mock.calls.map((c) => (c[0] as { para: string }).para);
+    expect(para.sort()).toEqual([comSenha, nutri, admin].sort());
+    expect(para).not.toContain(semSenha);
+  });
+});

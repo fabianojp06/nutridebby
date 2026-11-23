@@ -30,6 +30,7 @@ import { stopBoss } from '@/jobs/boss';
 import { hashPassword } from '@/lib/password.server';
 // Plano 26 (T7): o convite da recepção do primeiro acesso, criado pelo módulo da Equipe
 import { convidarRecepcao } from '@/modules/plataforma/equipe';
+import { SIGILO_EQUIPE_TERMO } from '@/modules/plataforma/textos-versionados';
 import { chaveDoLimite, liberarLimite } from '@/modules/agenda/limite-ip';
 import { idTaco } from '@/modules/alimentos/taco';
 import { GUIAS } from '@/modules/ajuda/conteudo';
@@ -631,7 +632,7 @@ await withTenant(
 // DELETE revogado e a FK NO ACTION para `user`; consents também aponta para a conta). A cada execução: a senha e o 2FA de
 // teste de novo (o mesmo segredo da E2E_DOCS, `Secret.fromUTF8` no spec), a linha de equipe_membros ativa e com a permissão
 // certa — gravada pela sessão `nutri` com ator (o gatilho equipe_membros_regras recusa `worker` e o contexto vazio) — e o
-// aceite do termo de confidencialidade (`sigilo-equipe-1.0`, o texto entra na T7). `E2E_RECEPCAO_FIN` começa com o manual
+// aceite do termo de confidencialidade em vigor (`SIGILO_EQUIPE_TERMO`, sem o qual a sessão recusa). `E2E_RECEPCAO_FIN` começa com o manual
 // guiado zerado (o tour dela no primeiro acesso, T8); `E2E_RECEPCAO`, com tudo visto. Copiadas nos specs: importar o seed
 // roda o seed.
 export const E2E_RECEPCAO = { email: 'recepcao-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção E2E' };
@@ -639,7 +640,6 @@ export const E2E_RECEPCAO_FIN = { email: 'recepcao-fin-e2e@nutridebby.test', pas
 // `E2E_RECEPCAO_CONTRATO` (RN-501): a recepção de um consultório só dela, com o DPA numa versão antiga a cada execução —
 // toda tela a leva a "Contrato do consultório pendente" (a nutricionista desse consultório não existe: ninguém aceita).
 export const E2E_RECEPCAO_CONTRATO = { email: 'recepcao-contrato-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Contrato E2E' };
-const TERMO_SIGILO_EQUIPE = 'sigilo-equipe-1.0';
 const [contratoPendente] = await db
   .insert(tenants)
   .values({ slug: 'e2e-contrato-pendente', nomeExibicao: 'Consultório E2E Contrato', dpaVersao: '0.1-provisorio', dpaAceitoEm: new Date() })
@@ -677,7 +677,7 @@ for (const [cred, financeiro, tenantId, ator] of [
         .onConflictDoUpdate({ target: equipeMembros.userId, set: { financeiro, desativadaEm: null, desativadaPor: null, updatedAt: new Date() } }),
     db,
   );
-  await db.insert(consents).values({ userId: id, tenantId, termoVersao: TERMO_SIGILO_EQUIPE, ip: null }).onConflictDoNothing();
+  await db.insert(consents).values({ userId: id, tenantId, termoVersao: SIGILO_EQUIPE_TERMO, ip: null }).onConflictDoNothing();
   await db.update(user).set({ guia: cred === E2E_RECEPCAO_FIN ? {} : TUDO_VISTO }).where(eq(user.id, id));
 }
 
