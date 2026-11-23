@@ -30,8 +30,34 @@ const ATUAL = mesAntes(0);
 const DE = mesAntes(2);
 
 test.beforeAll(async ({ browser }) => {
+  test.setTimeout(150_000);
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.36.1');
   await expect(nutri).toHaveURL(/\/painel$/);
+  // Antes de todos os testes (não só do Ranking): a Agenda, a impressão e o Ranking precisam de ao menos uma consulta no
+  // período; "ontem" cai sempre entre DE e ATUAL.
+  // uma consulta realizada ontem, num horário sorteado de madrugada (o consultório é compartilhado: sem colisão com as
+  // outras specs, e um novo sorteio se a agenda recusar)
+  await criarPacientePeloFormulario(nutri, paciente);
+  const ontem = diaNoFuso(new Date(Date.now() - 86_400_000));
+  let marcada = false;
+  for (let tentativa = 0; tentativa < 5 && !marcada; tentativa++) {
+    const minutos = 60 + Math.floor(Math.random() * 240);
+    await nutri.goto(`/painel/agenda/nova?data=${ontem}`);
+    await nutri.getByLabel('Paciente').selectOption({ label: `${paciente.nome} (${paciente.email})` });
+    await nutri.getByLabel('Hora').fill(`${String(Math.floor(minutos / 60)).padStart(2, '0')}:${String(minutos % 60).padStart(2, '0')}`);
+    await nutri.getByLabel('Duração').selectOption('15');
+    await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
+    marcada = await nutri
+      .getByRole('status')
+      .filter({ hasText: 'Consulta marcada.' })
+      .waitFor({ timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+  }
+  expect(marcada, 'a consulta de ontem foi marcada').toBe(true);
+  await nutri.getByRole('button', { name: 'Realizada' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Presença registrada.' })).toBeVisible();
+
 });
 test.afterAll(async () => {
   await nutri?.context().close();
@@ -102,29 +128,6 @@ test('"Ver versão para imprimir": cabeçalho, título da aba, rodapé e "Voltar
 
 test('Ranking: o aviso, "Maior receita" e cada nome com link para a ficha (US-485)', async () => {
   test.setTimeout(120_000);
-  // uma consulta realizada ontem, num horário sorteado de madrugada (o consultório é compartilhado: sem colisão com as
-  // outras specs, e um novo sorteio se a agenda recusar)
-  await criarPacientePeloFormulario(nutri, paciente);
-  const ontem = diaNoFuso(new Date(Date.now() - 86_400_000));
-  let marcada = false;
-  for (let tentativa = 0; tentativa < 5 && !marcada; tentativa++) {
-    const minutos = 60 + Math.floor(Math.random() * 240);
-    await nutri.goto(`/painel/agenda/nova?data=${ontem}`);
-    await nutri.getByLabel('Paciente').selectOption({ label: `${paciente.nome} (${paciente.email})` });
-    await nutri.getByLabel('Hora').fill(`${String(Math.floor(minutos / 60)).padStart(2, '0')}:${String(minutos % 60).padStart(2, '0')}`);
-    await nutri.getByLabel('Duração').selectOption('15');
-    await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
-    marcada = await nutri
-      .getByRole('status')
-      .filter({ hasText: 'Consulta marcada.' })
-      .waitFor({ timeout: 5_000 })
-      .then(() => true)
-      .catch(() => false);
-  }
-  expect(marcada, 'a consulta de ontem foi marcada').toBe(true);
-  await nutri.getByRole('button', { name: 'Realizada' }).click();
-  await expect(nutri.getByRole('status').filter({ hasText: 'Presença registrada.' })).toBeVisible();
-
   await nutri.goto('/painel/relatorios/ranking');
   await expect(nutri.getByRole('heading', { level: 2, name: 'Ranking de pacientes' })).toBeVisible();
   await expect(nutri.getByText("Lista com nomes de pacientes. Ao exportar, cada paciente da lista registra 'Exportou — Relatórios' no Histórico de acessos.")).toBeVisible();
