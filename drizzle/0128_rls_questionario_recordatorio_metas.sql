@@ -425,6 +425,46 @@ END $$;
 --> statement-breakpoint
 CREATE TRIGGER recordatorio_itens_sem_worker BEFORE INSERT OR UPDATE OR DELETE ON recordatorio_itens FOR EACH ROW EXECUTE FUNCTION app_recordatorio_itens_sem_worker();
 --> statement-breakpoint
+-- recordatorio_itens_titular_ativo (BEFORE INSERT OR UPDATE OR DELETE), P27-01f: como a mãe (recordatorios_regras, P27-01d),
+--   na sessão 'nutri' o INSERT, o UPDATE (com mudança) e o DELETE do item leem o titular FOR KEY SHARE e recusam o bloqueado
+--   ou anonimizado com 42501 (o bloqueio congela o prontuário; arquivado segue, RN-540); ordem de travas: o módulo já travou
+--   o paciente antes (QP-D33). QP-D35: o UPDATE sem mudança passa; tenant de fora → segue (a RLS recusa o INSERT e o UPDATE
+--   e esconde a linha do DELETE); titular de fora (NOT FOUND) → segue (a FK para a mãe recusa); os outros papéis seguem (o
+--   'worker' fica com recordatorio_itens_sem_worker; o paciente e o publico, com a RLS); o contexto vazio é livre
+CREATE OR REPLACE FUNCTION app_recordatorio_itens_titular_ativo() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp AS $$
+DECLARE
+  r text := coalesce(app_current_role(), '');
+  v_linha recordatorio_itens;
+  v_status text;
+  v_anonimizado timestamptz;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    v_linha := OLD;
+  ELSE
+    v_linha := NEW;
+  END IF;
+  IF r <> 'nutri' THEN
+    RETURN v_linha;
+  END IF;
+  IF TG_OP = 'UPDATE' AND to_jsonb(NEW) IS NOT DISTINCT FROM to_jsonb(OLD) THEN
+    RETURN NEW;
+  END IF;
+  IF v_linha.tenant_id IS DISTINCT FROM app_current_tenant() THEN
+    RETURN v_linha;
+  END IF;
+  SELECT p.status, p.anonimizado_em INTO v_status, v_anonimizado
+    FROM public.patients p WHERE p.tenant_id = v_linha.tenant_id AND p.id = v_linha.patient_id
+    FOR KEY SHARE;
+  IF v_status IS NOT DISTINCT FROM 'bloqueado' OR v_anonimizado IS NOT NULL THEN
+    RAISE EXCEPTION 'item do recordatório de titular bloqueado ou anonimizado não muda' USING ERRCODE = '42501';
+  END IF;
+  RETURN v_linha;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER recordatorio_itens_titular_ativo BEFORE INSERT OR UPDATE OR DELETE ON recordatorio_itens FOR EACH ROW EXECUTE FUNCTION app_recordatorio_itens_titular_ativo();
+--> statement-breakpoint
 -- metas_paciente_regras (BEFORE INSERT OR UPDATE), QP-D35: tenant de fora e papéis 'paciente', 'publico', 'conta', 'recepcao'
 --   → RETURN NEW (a RLS recusa); INSERT 'nutri' → criado_por := app_current_user(); UPDATE sem mudança passa;
 --   id, tenant_id, patient_id, inicio (depois do 1º registro, lido sob a trava do paciente que o módulo toma), criado_por,

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { sql, type SQL } from 'drizzle-orm';
+import type { PoolClient } from 'pg';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -9,7 +10,8 @@ import { withTenant, type TenantContext } from '@/db/tenant';
  * Plano 27 (spec §9.3): `recordatorios` e `recordatorio_itens` no banco — RLS, CHECKs, FKs, REVOKE e auditoria. Tudo por
  * SQL cru, sem o módulo. T1a: RLS, CHECKs, FKs, REVOKE e auditoria; T1b: os gatilhos recordatorios_regras (criado_por
  * pelo gatilho, worker recusado — QP-D59 —, colunas fixas) e recordatorio_itens_colunas_fixas; P27-01c:
- * recordatorio_itens_sem_worker (o worker não grava nem apaga item, como a mãe).
+ * recordatorio_itens_sem_worker (o worker não grava nem apaga item, como a mãe); P27-01f: recordatorio_itens_titular_ativo
+ * (o item de titular bloqueado ou anonimizado não nasce, não muda e não sai, como a mãe).
  */
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -308,3 +310,151 @@ describe('Plano 27 — recordatórios: endurecimentos (P27-01d; RN-540, Res. CFN
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// P27-01f (code review do #68): os itens congelam com a mãe — titular bloqueado ou anonimizado, na sessão nutri
+// ---------------------------------------------------------------------------------------------------------------------
+
+describe('Plano 27 — itens do recordatório: titular bloqueado ou anonimizado (P27-01f; RN-540, Res. CFN 594/2017)', () => {
+  it('titular bloqueado ou anonimizado: item novo, item alterado e item apagado pela nutricionista → 42501 do gatilho; o UPDATE sem mudança e o contexto vazio passam', async () => {
+    for (const preparar of [(C: Cenario) => bloquear(C), (C: Cenario) => anonimizar(C.p)]) {
+      const C = await cenario();
+      const r = await recordatorio(C);
+      const [i] = await em(C.ctx, novoItem(C, r.id));
+      await preparar(C);
+      await expect(em(C.ctx, novoItem(C, r.id))).rejects.toSatisfy(doGatilho);
+      await expect(em(C.ctx, sql`update recordatorio_itens set quantidade_g = 150 where id = ${i.id}`)).rejects.toSatisfy(doGatilho);
+      await expect(em(C.ctx, sql`update recordatorio_itens set updated_at = now() where id = ${i.id}`)).rejects.toSatisfy(doGatilho);
+      await expect(em(C.ctx, sql`delete from recordatorio_itens where id = ${i.id}`)).rejects.toSatisfy(doGatilho);
+      expect(await em(C.ctx, sql`update recordatorio_itens set quantidade_g = quantidade_g where id = ${i.id} returning id`)).toHaveLength(1);
+      expect((await owner.pool.query('select quantidade_g from recordatorio_itens where id = $1', [i.id])).rows[0].quantidade_g).toBe('100.00');
+      // o contexto vazio (migration, semente, fábrica) segue livre
+      const [j] = await dono(novoItem(C, r.id));
+      expect(await dono(sql`update recordatorio_itens set quantidade_g = 150 where id = ${j.id} returning id`)).toHaveLength(1);
+      expect(await dono(sql`delete from recordatorio_itens where id = ${j.id} returning id`)).toHaveLength(1);
+      // outro tenant segue caindo na RLS (o gatilho devolve NEW) e não vê a linha no DELETE
+      const D = await cenario();
+      await expect(em(D.ctx, novoItem(C, r.id))).rejects.toSatisfy(rlsDe('recordatorio_itens'));
+      expect(await em(D.ctx, sql`delete from recordatorio_itens where id = ${i.id} returning id`)).toHaveLength(0);
+    }
+  });
+
+  it('titular arquivado: a nutricionista ainda grava, altera e apaga item (RN-540)', async () => {
+    const C = await cenario();
+    const r = await recordatorio(C);
+    const [i] = await em(C.ctx, novoItem(C, r.id));
+    await em(C.ctx, sql`update patients set status = 'arquivado' where id = ${C.p}`);
+    await expect(em(C.ctx, novoItem(C, r.id))).resolves.toHaveLength(1);
+    expect(await em(C.ctx, sql`update recordatorio_itens set quantidade_g = 150 where id = ${i.id} returning id`)).toHaveLength(1);
+    expect(await em(C.ctx, sql`delete from recordatorio_itens where id = ${i.id} returning id`)).toHaveLength(1);
+  });
+
+  it('o gatilho trava o titular FOR KEY SHARE: com o titular travado FOR UPDATE por outra transação, o item novo espera', async () => {
+    const C = await cenario();
+    const r = await recordatorio(C);
+    const trava = await abrir(C.ctx);
+    const item = await abrir(C.ctx);
+    try {
+      await trava.c.query('select 1 from patients where id = $1 for update', [C.p]);
+      // o INSERT do item sem a trava do módulo: só o gatilho trava o titular (a FK do item aponta para o recordatório)
+      const res = capturar(INSERIR_ITEM(item, C, r.id));
+      await esperarTrava(item.pid);
+      await trava.c.query('commit');
+      expect(await res).toBeNull();
+    } finally {
+      await fechar(trava, item);
+    }
+  });
+
+  type Operar = (x: Conexao, C: Cenario, r: Row, i: Row) => Promise<unknown>;
+  describe.each<[string, Operar]>([
+    ['item novo', (x, C, r) => INSERIR_ITEM(x, C, r.id)],
+    ['item alterado', (x, _C, _r, i) => x.c.query('update recordatorio_itens set quantidade_g = 150 where id = $1', [i.id])],
+    ['item apagado', (x, _C, _r, i) => x.c.query('delete from recordatorio_itens where id = $1', [i.id])],
+  ])('concorrência com o bloqueio (QP-D33): %s', (_nome, operar) => {
+    it('o bloqueio trava primeiro: o salvamento espera o titular e recebe 42501 do gatilho; nenhum 40P01', async () => {
+      const C = await cenario();
+      const r = await recordatorio(C);
+      const [i] = await em(C.ctx, novoItem(C, r.id));
+      const bloqueio = await abrir(C.ctx);
+      const salvar = await abrir(C.ctx);
+      try {
+        await BLOQUEAR(bloqueio, C);
+        // o salvamento pela ordem do módulo: titular FOR UPDATE e depois o item
+        const res = capturar(SALVAR(salvar, C, () => operar(salvar, C, r, i)));
+        await esperarTrava(salvar.pid);
+        await bloqueio.c.query('commit');
+        expect(await res).toSatisfy(doGatilho);
+      } finally {
+        await fechar(bloqueio, salvar);
+      }
+      expect((await owner.pool.query('select quantidade_g from recordatorio_itens where id = $1', [i.id])).rows[0]?.quantidade_g).toBe('100.00');
+      expect((await owner.pool.query('select count(*)::int as n from recordatorio_itens where recordatorio_id = $1', [r.id])).rows[0].n).toBe(1);
+    });
+
+    it('o salvamento trava primeiro: o bloqueio espera e bloqueia depois; nenhum 40P01', async () => {
+      const C = await cenario();
+      const r = await recordatorio(C);
+      const [i] = await em(C.ctx, novoItem(C, r.id));
+      const bloqueio = await abrir(C.ctx);
+      const salvar = await abrir(C.ctx);
+      try {
+        await SALVAR(salvar, C, () => operar(salvar, C, r, i));
+        const res = capturar(BLOQUEAR(bloqueio, C));
+        await esperarTrava(bloqueio.pid);
+        await salvar.c.query('commit');
+        expect(await res).toBeNull();
+        await bloqueio.c.query('commit');
+      } finally {
+        await fechar(bloqueio, salvar);
+      }
+      expect((await owner.pool.query('select status from patients where id = $1', [C.p])).rows[0].status).toBe('bloqueado');
+    });
+  });
+});
+
+type Conexao = { c: PoolClient; pid: number };
+async function abrir(ctx: TenantContext): Promise<Conexao> {
+  const c = await app.pool.connect();
+  await c.query('begin');
+  await c.query(
+    `select set_config('app.tenant_id', $1, true), set_config('app.role', $2, true), set_config('app.patient_id', $3, true), set_config('app.user_id', $4, true)`,
+    [ctx.tenantId, ctx.role, ctx.patientId ?? '', ctx.actorUserId ?? ''],
+  );
+  return { c, pid: (await c.query('select pg_backend_pid() as pid')).rows[0].pid as number };
+}
+async function fechar(...xs: Conexao[]) {
+  for (const x of xs) {
+    await x.c.query('rollback').catch(() => undefined);
+    x.c.release();
+  }
+}
+async function esperarTrava(pid: number) {
+  for (let i = 0; i < 400; i++) {
+    const { rows } = await owner.pool.query('select wait_event_type from pg_stat_activity where pid = $1', [pid]);
+    if (rows[0]?.wait_event_type === 'Lock') return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error('a conexão não chegou a esperar a trava');
+}
+const capturar = (p: Promise<unknown>) => p.then(() => null, (e: unknown) => e);
+
+/** O bloqueio (atenderPedidoExclusao): trava o titular FOR UPDATE e o leva a `bloqueado`; o COMMIT fica com quem chama. */
+const BLOQUEAR = async (x: Conexao, C: Cenario) => {
+  await x.c.query('select 1 from patients where id = $1 for update', [C.p]);
+  return x.c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01' where id = $1`, [C.p]);
+};
+/**
+ * O salvamento da edição: carregarPacienteParaEscrita (FOR UPDATE) e depois a operação do item. A mãe fica de fora (o
+ * gatilho dela recusaria antes), para a recusa vir do gatilho do item.
+ */
+const SALVAR = async (x: Conexao, C: Cenario, operar: () => Promise<unknown>) => {
+  await x.c.query('select 1 from patients where id = $1 for update', [C.p]);
+  return operar();
+};
+const INSERIR_ITEM = (x: Conexao, C: Cenario, recordatorioId: unknown) =>
+  x.c.query(
+    `insert into recordatorio_itens (id, tenant_id, patient_id, recordatorio_id, refeicao, alimento_nome, quantidade_g, ordem)
+     values ($1, $2, $3, $4, 'Jantar', 'Feijão carioca cozido', 80, 1)`,
+    [randomUUID(), C.tenantId, C.p, recordatorioId],
+  );

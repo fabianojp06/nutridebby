@@ -968,6 +968,10 @@ REVOKE DELETE, TRUNCATE ON recordatorios FROM nutri_app_role;
 --   muda de recordatório nem de paciente
 -- recordatorio_itens_sem_worker (BEFORE INSERT OR UPDATE OR DELETE, P27-01c): como a mãe, 'worker' no próprio tenant → 42501
 --   no INSERT, no UPDATE (salvo sem mudança) e no DELETE; '' livre (fábrica, semente)
+-- recordatorio_itens_titular_ativo (BEFORE INSERT OR UPDATE OR DELETE, P27-01f): como a mãe, na sessão 'nutri' o INSERT, o
+--   UPDATE (com mudança) e o DELETE do item leem o titular FOR KEY SHARE e recusam o bloqueado ou anonimizado com 42501
+--   (arquivado segue, RN-540); tenant ou titular de fora → segue (a RLS e a FK para a mãe recusam); os outros papéis e ''
+--   seguem
 ```
 
 - **Sem** `staff_only` (dado do titular; o portal não lê na v1, QP-D16); sem escrita do paciente (nega por
