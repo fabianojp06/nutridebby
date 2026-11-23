@@ -114,7 +114,7 @@ describe('/painel/agenda (US-404, US-405)', () => {
     expect(legenda).not.toContain('Pedido a responder'); // AG-D72: só com o status `solicitada` (T6/T8, PEDIDOS_NA_AGENDA)
     // M4: os dois formulários com nome; M5: "Anterior"/"Próximo" dizem a visão ao leitor de tela, depois do texto visível
     expect(filtrar).toContain('aria-label="Filtros da agenda"');
-    expect(irPara).toContain('aria-label="Ir para data"');
+    expect(irPara).toContain('aria-label="Navegação por data"'); // E2E do PR 2: o nome do form não repete o rótulo do campo
     expect(h).toMatch(/>Anterior<span class="sr-only"> \(semana anterior\)<\/span><\/a>/);
     expect(h).toMatch(/>Próximo<span class="sr-only"> \(próxima semana\)<\/span><\/a>/);
     expect(texto(h)).not.toContain('Previsões de retorno');

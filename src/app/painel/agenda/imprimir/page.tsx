@@ -40,8 +40,10 @@ export default async function ImprimirAgendaPage({ searchParams }: PageProps<'/p
           <p className="border-t border-borda pt-2 text-sm">{M.rodape}</p>
         </>
       ) : (
+        // a 360 px a tabela rola dentro da própria região (com foco, para o teclado), nunca a página; no papel, sem rolagem
+        <div role="region" aria-labelledby="impressao-caption" tabIndex={0} className="overflow-x-auto focus-visible:outline-offset-[-3px] print:overflow-visible">
         <table className="w-full border-collapse text-sm">
-          <caption className="sr-only">{`${a.titulo}. ${M.local(a.local)}`}</caption>
+          <caption id="impressao-caption" className="sr-only">{`${a.titulo}. ${M.local(a.local)}`}</caption>
           <thead>
             <tr>
               {CAMPOS_DA_IMPRESSAO.map((k) => <th key={k} scope="col" className={CELULA}>{M.colunas[k]}</th>)}
@@ -72,6 +74,7 @@ export default async function ImprimirAgendaPage({ searchParams }: PageProps<'/p
             </tr>
           </tfoot>
         </table>
+        </div>
       )}
     </main>
   );

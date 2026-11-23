@@ -62,7 +62,7 @@ export function FiltrosDaAgendaForm({ f, opcoes, hoje }: { f: FiltrosDaAgenda; o
         <button className={BOTAO}>{M.filtrar}</button>
         <Link href={hrefDaAgenda({ visao: f.visao, data: f.data })} className="inline-flex min-h-11 items-center text-link underline">{M.limparFiltros}</Link>
       </form>
-      <form method="get" action="/painel/agenda" aria-label={M.irParaData} className="flex flex-wrap items-end gap-3">
+      <form method="get" action="/painel/agenda" aria-label={M.formularioData} className="flex flex-wrap items-end gap-3">
         <Ocultos
           campos={[
             ['visao', f.visao],

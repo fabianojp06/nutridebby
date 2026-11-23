@@ -176,6 +176,8 @@ export const MSG_VISOES = {
   },
   /** Fora da §6.2: nome acessível dos dois formulários GET da agenda. */
   formularioFiltros: 'Filtros da agenda',
+  /** Fora da §6.2: nome do formulário "Ir para data" (diferente do rótulo do campo, para não haver dois elementos com o mesmo nome). */
+  formularioData: 'Navegação por data',
   /** Fora da §6.2: cabeçalhos da grade (a coluna das horas e a linha dos marcadores). */
   hora: 'Hora',
   marcadores: 'Marcadores',

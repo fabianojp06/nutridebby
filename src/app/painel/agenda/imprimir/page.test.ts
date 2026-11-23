@@ -47,7 +47,10 @@ describe('/painel/agenda/imprimir (US-406)', () => {
     // I-1: uma tabela só, um <tbody> por dia (o dia num th scope="rowgroup"), o rodapé no <tfoot> (repete em toda página,
     // dentro do fluxo) — nada de position: fixed cobrindo a última linha
     expect(h.split('<table').length - 1).toBe(1);
-    expect(h).toMatch(/<caption class="sr-only">Agenda de [^<]+\. Local: Todos os locais<\/caption>/);
+    // E2E do PR 2: a 360 px a tabela rola na própria região com foco, nunca a página (axe scrollable-region-focusable)
+    expect(h).toMatch(/<div role="region" aria-labelledby="impressao-caption" tabindex="0" class="overflow-x-auto[^"]*"><table/i);
+    expect(h).toContain('<caption id="impressao-caption"');
+    expect(h).toMatch(/<caption id="impressao-caption" class="sr-only">Agenda de [^<]+\. Local: Todos os locais<\/caption>/);
     expect(h.split('<tbody').length - 1).toBe(3); // segunda, terça e o bloqueio de quinta (a cancelada de quarta fica fora)
     expect(h.split('scope="rowgroup"').length - 1).toBe(3);
     expect(h).toMatch(/<tfoot><tr><td colSpan="6"[^>]*>Contém dados pessoais de pacientes\. Uso restrito do consultório\.<\/td><\/tr><\/tfoot>/i);
