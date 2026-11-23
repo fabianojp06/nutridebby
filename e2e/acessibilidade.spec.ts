@@ -686,6 +686,7 @@ test('paciente não alcança o painel nem a API da nutricionista (403 ou vai ao 
 // página pública mostram "Onde você quer ser atendido?" — rádios de bloco com alvo ≥ 44 px; axe no claro e com o aparelho
 // escuro, a 360 px, sem rolagem lateral. IP da página pública: 10.9.23.5 (bloco do Plano 23, AG-D56).
 test('Plano 23: escolha do local no agendamento do portal e na página pública, claro e escuro, a 360 px', async ({ browser }) => {
+  test.setTimeout(90_000); // duas páginas × dois modos com o axe, como os vizinhos (estourou os 30 s padrão sob carga)
   const anonimo = await (await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.23.5' } })).newPage();
   const antes = paciente.page.viewportSize();
   const falhas: string[] = [];
