@@ -488,6 +488,75 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
     }
   });
 
+  // Plano 22 (spec §9.5, Review Focus 2): as ações referenciais rodam como dono da tabela filha (sem a RLS forçada e sem a
+  // permissão revogada de nutri_app_role). O banco do Vitest é migrado como superusuário; só aqui (migrator sem superusuário,
+  // sem BYPASSRLS, FORCE RLS — como produção) a cascata da exclusão do exame decide entre o REVOKE DELETE e o plano B.
+  it('Plano 22: com o schema migrado pelo migrator sem superusuário, o DELETE de exams pela sessão nutri leva as linhas de exam_interpretacoes e exam_versoes do exame (cascata), grava os "excluir" no audit_log, e o UPDATE/DELETE direto nelas dá 42501', async () => {
+    const c = await app.connect();
+    const nutri = '00000000-0000-4000-8000-0000000000f2';
+    const ctx = async (t: string, role: string, user = '') => {
+      await c.query('begin');
+      await c.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', $2, true), set_config('app.user_id', $3, true)`, [t, role, user]);
+    };
+    try {
+      const t = (await c.query(`insert into tenants (slug, nome_exibicao) values ('exames-dono', 'E') returning id`)).rows[0].id as string;
+      await ctx(t, 'worker');
+      const p = (await c.query(`insert into patients (tenant_id, nome, data_nascimento, sexo, email) values ($1, 'Pac', '1990-01-01', 'F', 'pac@exames.dev') returning id`, [t])).rows[0].id as string;
+      await c.query('commit');
+      await ctx(t, 'nutri', nutri);
+      const exame = async () => (await c.query(`insert into exams (tenant_id, patient_id, data, titulo) values ($1, $2, '2026-11-01', 'Hemograma') returning id`, [t, p])).rows[0].id as string;
+      const [sai, fica] = [await exame(), await exame()];
+      const filhas: Record<string, { nota: string; versao: string }> = {};
+      for (const e of [sai, fica]) {
+        const nota = (await c.query(`insert into exam_interpretacoes (tenant_id, patient_id, exam_id, versao, texto, criado_por) values ($1, $2, $3, 1, 'Nota', $4) returning id, criado_por`, [t, p, e, '00000000-0000-4000-8000-0000000000ff'])).rows[0];
+        expect(nota.criado_por).toBe(nutri); // autor pela sessão, também com o dono sem superusuário
+        const versao = (await c.query(`insert into exam_versoes (tenant_id, patient_id, exam_id, versao, titulo, data, valores, justificativa, alterado_por) values ($1, $2, $3, 1, 'Hemograma', '2026-11-01', '[]', 'Valor errado', $4) returning id`, [t, p, e, nutri])).rows[0];
+        filhas[e] = { nota: nota.id as string, versao: versao.id as string };
+      }
+      await c.query('commit');
+      for (const tabela of ['exam_interpretacoes', 'exam_versoes']) {
+        for (const comando of [`update ${tabela} set versao = versao`, `delete from ${tabela}`, `truncate ${tabela}`]) {
+          await ctx(t, 'nutri', nutri);
+          await expect(c.query(comando)).rejects.toMatchObject({ code: '42501' });
+          await c.query('rollback');
+        }
+      }
+      await ctx(t, 'nutri', nutri);
+      expect((await c.query('delete from exams where id = $1 returning id', [sai])).rows).toHaveLength(1);
+      await c.query('commit');
+      await ctx(t, 'nutri', nutri);
+      const contar = async (e: string) =>
+        (await c.query(`select (select count(*) from exam_interpretacoes where exam_id = $1)::int as n, (select count(*) from exam_versoes where exam_id = $1)::int as v`, [e])).rows[0];
+      expect(await contar(sai)).toEqual({ n: 0, v: 0 });
+      expect(await contar(fica)).toEqual({ n: 1, v: 1 }); // controle positivo: a leitura enxerga as filhas que ficaram
+      const excluidos = await c.query(
+        `select entidade, entidade_id, actor_user_id from audit_log where tenant_id = $1 and acao = 'excluir' and entidade in ('exames_nota', 'exames_versoes') order by entidade`,
+        [t],
+      );
+      expect(excluidos.rows).toEqual([
+        { entidade: 'exames_nota', entidade_id: filhas[sai].nota, actor_user_id: nutri },
+        { entidade: 'exames_versoes', entidade_id: filhas[sai].versao, actor_user_id: nutri },
+      ]);
+      await c.query('commit');
+      // /code-review do PR 1 (LGPD): a anonimização não apaga o exame — a função SECURITY DEFINER do dono sem superusuário
+      // (UPDATE revogado de nutri_app_role, FORCE RLS) limpa a justificativa e o texto das filhas que ficaram
+      const fn = await owner.query(`select pg_get_userbyid(proowner) as dono, prosecdef from pg_proc where proname = 'app_anonimizar_exames_textos'`);
+      expect(fn.rows).toEqual([{ dono: 'nutri_owner', prosecdef: true }]);
+      await ctx(t, 'worker');
+      await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2026-01-01', anonimizado_em = now() where id = $1`, [p]);
+      await c.query('select app_anonimizar_exames_textos($1, $2)', [t, p]);
+      const textos = await c.query(
+        `select (select array_agg(texto) from exam_interpretacoes where exam_id = $1) as notas, (select array_agg(justificativa) from exam_versoes where exam_id = $1) as versoes`,
+        [fica],
+      );
+      expect(textos.rows).toEqual([{ notas: [null], versoes: [null] }]);
+      await c.query('commit');
+    } finally {
+      await c.query('rollback').catch(() => undefined);
+      c.release();
+    }
+  });
+
   // JUR-01 (dono, 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"): o prazo de guarda conta do último registro do
   // prontuário — no pedido de exclusão, o próprio bloqueio. A 0110 recalcula quem já está bloqueado: data do bloqueio no
   // fuso do tenant + 20 anos, só para mais (GREATEST), com o gatilho de auditoria ligado, sob FORCE RLS (dono sem

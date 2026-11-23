@@ -51,6 +51,13 @@ export const DECLARACAO_RECEITA =
 export const DECLARACAO_PARECER = 'Declaro que este parecer não afirma diagnóstico de doença nem prescreve medicamento.';
 /** D5 da spec (RASCUNHO, como a declaração): a ressalva fixa impressa no PDF do parecer (§3.1). */
 export const RESSALVA_PARECER = 'Este parecer trata do estado nutricional e não constitui diagnóstico de doença nem substitui avaliação médica.';
+/**
+ * Plano 22 (RN-389, §6.2; RASCUNHO para a Debby e o CRN-3, §14.3): a declaração ao preparar a solicitação de exames.
+ * Aqui, sem imports, para os componentes 'use client'; `solicitacao.ts` reexporta (R22-14). Entra em
+ * `DECLARACAO_POR_TIPO` só na T7, com o tipo `solicitacao_exames` (EP-D49).
+ */
+export const DECLARACAO_SOLICITACAO =
+  'Declaro que os exames solicitados são laboratoriais e necessários à avaliação, à prescrição ou à evolução nutricional, dentro da minha competência (Lei nº 8.234/1991, art. 4º, VIII, e Resolução CFN nº 306/2003), e que este pedido não indica laboratório.';
 export const DECLARACAO_POR_TIPO: Record<TipoDocumento, string> = { receita: DECLARACAO_RECEITA, parecer: DECLARACAO_PARECER };
 export const MSG_DECLARACAO = 'Confirme a declaração para continuar.';
 

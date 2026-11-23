@@ -890,6 +890,20 @@
       "when": 1795450693968,
       "tag": "0126_tenants_gatilho_update",
       "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1795463948278,
+      "tag": "0127_exames_catalogo",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1795463961440,
+      "tag": "0128_rls_exames_catalogo",
+      "breakpoints": true
     }
   ]
 }
