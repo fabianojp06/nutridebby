@@ -77,3 +77,32 @@ export function situacaoDaNotificacao(n: Pick<NotificationRow, 'status' | 'motiv
       return n.status;
   }
 }
+
+/**
+ * Plano 26 (RN-507, RE-D57): os tipos que a sessão `recepcao` lê e grava — os da agenda —, iguais à lista da condição
+ * `recepcao_cond_notificacoes_da_agenda` (custom rls_recepcao). Sem `convite_paciente`: a recepção não envia o convite do app
+ * (RE-D37). Todo tipo do CHECK `notifications_tipo_valido` está aqui ou em TIPOS_FORA_DA_RECEPCAO (tipos.test.ts): tipo novo
+ * de outro plano entra com a decisão; o que entra aqui entra também na política (CREATE OR REPLACE da condição).
+ */
+export const TIPOS_DA_AGENDA = [
+  'lembrete_24h',
+  'lembrete_2h',
+  'consulta_marcada',
+  'consulta_cancelada',
+  'resposta_confirmacao',
+  'resposta_remarcar',
+] as const satisfies readonly TipoNotificacao[];
+
+/** Plano 26 (RN-507): os tipos que a recepção não lê nem grava — convite do app (RE-D37), avisos clínicos e do portal. */
+export const TIPOS_FORA_DA_RECEPCAO = [
+  'convite_paciente',
+  'push_teste',
+  'comentario_diario',
+  'plano_novo',
+  'conteudo_novo',
+  'documento_novo',
+  'documento_atualizado',
+  'exame_revisado',
+  'exame_expirado',
+  'duvida_vista',
+] as const satisfies readonly TipoNotificacao[];

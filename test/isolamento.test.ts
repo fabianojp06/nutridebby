@@ -396,6 +396,10 @@ beforeAll(async () => {
   for (const tenantId of [A, B])
     await withTenant({ tenantId, role: 'worker' }, (tx) => tx.execute(sql`update exam_submissions set status = 'recebido' where status = 'processando'`), app.db);
   RECEPCAO_A = (await owner.pool.query<{ u: string }>(`select user_id as u from equipe_membros where tenant_id = $1 order by created_at, id limit 1`, [A])).rows[0]?.u;
+  // Plano 26 (T5a, RE-D55): a recepção dos casos genéricos tem a permissão do Financeiro — sem ela, app_recepcao_tem_financeiro()
+  // daria falso, os negativos entre consultórios de fin_* passariam pela condição (não pelo isolamento) e os positivos falhariam.
+  // A outra conta de recepção de A fica sem a permissão (caso à parte). Gravado pela nutricionista (equipe_membros_regras).
+  await withTenant({ tenantId: A, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(sql`update equipe_membros set financeiro = true where user_id = ${RECEPCAO_A}`), app.db);
   SEM_DOCUMENTO = { [A]: randomUUID(), [B]: randomUUID() };
   for (const tenantId of [A, B]) {
     await withTenant({ tenantId, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(FABRICAS.patients(tenantId, SEM_DOCUMENTO[tenantId])), app.db);
@@ -631,9 +635,24 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
     const comoRecepcao = (q: SQL) => withTenant({ tenantId: A, role: 'recepcao', actorUserId: RECEPCAO_A }, (tx) => tx.execute(q), app.db);
     expect(await contarTenant('equipe_membros', A)).toBeGreaterThan(1); // há a linha de outra pessoa da recepção no mesmo tenant
     expect((await comoRecepcao(sql`select user_id from equipe_membros`)).rows).toEqual([{ user_id: RECEPCAO_A }]);
-    expect((await comoRecepcao(sql`update equipe_membros set financeiro = true where user_id = ${RECEPCAO_A}`)).rowCount).toBe(0);
+    expect((await comoRecepcao(sql`update equipe_membros set financeiro = false where user_id = ${RECEPCAO_A}`)).rowCount).toBe(0);
     const { rows } = await owner.pool.query(`select financeiro from equipe_membros where user_id = $1`, [RECEPCAO_A]);
-    expect(rows).toEqual([{ financeiro: false }]);
+    expect(rows).toEqual([{ financeiro: true }]);
+  });
+
+  it('recepcao sem a permissão do Financeiro (T5a, RN-506): 0 linhas em fin_* do próprio consultório e a escrita recusada', async () => {
+    const sem = (await owner.pool.query<{ u: string; f: boolean }>(`select user_id as u, financeiro as f from equipe_membros where tenant_id = $1 and user_id <> $2 limit 1`, [A, RECEPCAO_A])).rows[0];
+    expect(sem).toMatchObject({ f: false });
+    const comoSem = (q: SQL) => withTenant({ tenantId: A, role: 'recepcao', actorUserId: sem.u }, (tx) => tx.execute(q), app.db);
+    for (const t of ['fin_configuracoes', 'fin_categorias', 'fin_lancamentos']) {
+      expect(await contarTenant(t, A), t).toBeGreaterThan(0);
+      expect((await comoSem(sql`select 1 from ${sql.identifier(t)}`)).rows.length, t).toBe(0);
+      expect((await comoSem(sql`update ${sql.identifier(t)} set tenant_id = tenant_id`)).rowCount, t).toBe(0);
+    }
+    await expect(comoSem(sql`insert into fin_lancamentos (tenant_id, tipo, categoria_id, valor_centavos, vencimento, criado_por)
+        select ${A}, 'saida', id, 100, '2026-11-10', gen_random_uuid() from fin_categorias where tenant_id = ${A} and tipo = 'saida' limit 1`)).resolves.toMatchObject({ rowCount: 0 }); // nem vê a categoria
+    const cat = (await owner.pool.query<{ id: string }>(`select id from fin_categorias where tenant_id = $1 and tipo = 'saida' limit 1`, [A])).rows[0].id;
+    await expect(comoSem(sql`insert into fin_lancamentos (tenant_id, tipo, categoria_id, valor_centavos, vencimento, criado_por) values (${A}, 'saida', ${cat}, 100, '2026-11-10', gen_random_uuid())`)).rejects.toSatisfy(violaRlsDe('fin_lancamentos'));
   });
 
   it('o tenant B só vê e só altera as próprias linhas; as de A ficam intactas', async () => {

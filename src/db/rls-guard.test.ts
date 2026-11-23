@@ -390,4 +390,56 @@ describe('recepção (RN-505, Plano 26)', () => {
       client.release();
     }
   });
+
+  it('T5a: a matriz da §4.3 está no banco e em RECEPCAO_LIBERADO; condição sem o SELECT em volta da função, ou sem o paciente visível, quebra', async () => {
+    // a matriz fechada (spec §4.3, sem as tabelas do Plano 23 que esta base ainda não tem)
+    expect(Object.fromEntries(Object.entries(RECEPCAO_LIBERADO).map(([t, v]) => [t, [...v.comandos].sort()]))).toEqual({
+      patients: ['insert', 'select', 'update'],
+      patient_cadastro: ['insert', 'select', 'update'],
+      appointments: ['insert', 'select', 'update'],
+      notifications: ['insert', 'select', 'update'],
+      availability_rules: ['select'],
+      availability_blocks: ['select'],
+      audit_log: ['insert'],
+      equipe_membros: ['select'],
+      fin_configuracoes: ['select'],
+      fin_categorias: ['select'],
+      fin_lancamentos: ['insert', 'select', 'update'],
+    });
+    expect(RECEPCAO_LIBERADO.public_booking_requests).toBeUndefined(); // RE-D59: pedido de pessoa nova fica com a nutricionista
+    // toda tabela com paciente liberada tem a condição do paciente visível (RE-D40)
+    for (const t of ['patients', 'patient_cadastro', 'appointments', 'notifications', 'fin_lancamentos']) {
+      expect(RECEPCAO_CONDICOES[t]?.recepcao_cond_paciente_visivel, t).toBeDefined();
+    }
+    for (const t of ['fin_configuracoes', 'fin_categorias', 'fin_lancamentos']) expect(RECEPCAO_CONDICOES[t]?.recepcao_cond_financeiro, t).toBeDefined();
+    expect(RECEPCAO_CONDICOES.notifications?.recepcao_cond_notificacoes_da_agenda).toBeDefined();
+
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      // a função sem o (SELECT …) seria avaliada por linha: a expressão muda e a guarda quebra
+      await client.query('drop policy recepcao_cond_financeiro on fin_lancamentos');
+      await client.query(
+        `create policy recepcao_cond_financeiro on fin_lancamentos as restrictive for all
+           using (app_current_role() is distinct from 'recepcao' or app_recepcao_tem_financeiro())
+           with check (app_current_role() is distinct from 'recepcao' or app_recepcao_tem_financeiro())`,
+      );
+      // o EXISTS sem o filtro do bloqueado mostraria as consultas do paciente escondido
+      await client.query('drop policy recepcao_cond_paciente_visivel on appointments');
+      await client.query(
+        `create policy recepcao_cond_paciente_visivel on appointments as restrictive for all
+           using (app_current_role() is distinct from 'recepcao' or exists (select 1 from patients p where p.tenant_id = appointments.tenant_id and p.id = appointments.patient_id))
+           with check (app_current_role() is distinct from 'recepcao' or exists (select 1 from patients p where p.tenant_id = appointments.tenant_id and p.id = appointments.patient_id))`,
+      );
+      // sem a condição da agenda, a recepção leria as notificações clínicas
+      await client.query('drop policy recepcao_cond_notificacoes_da_agenda on notifications');
+      const v = await findRecepcaoViolations(client);
+      expect(v).toContainEqual({ table: 'fin_lancamentos', problem: 'condição recepcao_cond_financeiro sem o comando ou a expressão de RECEPCAO_CONDICOES' });
+      expect(v).toContainEqual({ table: 'appointments', problem: 'condição recepcao_cond_paciente_visivel sem o comando ou a expressão de RECEPCAO_CONDICOES' });
+      expect(v).toContainEqual({ table: 'notifications', problem: 'sem a condição recepcao_cond_notificacoes_da_agenda (RECEPCAO_CONDICOES)' });
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
 });

@@ -5,14 +5,16 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from '../../test/db';
 import { bancoProprioParaDdl } from '../../test/ddl';
-import { novoTenant, type TenantDeTeste } from '../../test/pacientes';
+import { novoPaciente, novoTenant, type TenantDeTeste } from '../../test/pacientes';
+import { TIPOS_DA_AGENDA, TIPOS_FORA_DA_RECEPCAO } from '@/modules/notificacoes/tipos';
 import { withConta, withTenant, type TenantContext } from './tenant';
 
 /**
- * Plano 26 (spec §9.1 a §9.3, blocos 1 e 2; RN-498, RN-505): o banco da recepção sem o módulo — negação por padrão
+ * Plano 26 (spec §9.1 a §9.3; RN-498, RN-505 a RN-508): o banco da recepção sem o módulo — negação por padrão
  * (app_deny_recepcao, app_allow_recepcao, app_enable_tenant_rls e o laço), a tabela equipe_membros com o gatilho
- * equipe_membros_regras e os CHECKs novos de `user` e `invites`. As liberações e as condições das outras tabelas (T5a) e os
- * gatilhos de colunas e as funções SECURITY DEFINER (T5b) têm testes próprios.
+ * equipe_membros_regras e os CHECKs novos de `user` e `invites` (blocos 1 e 2, T4); as liberações da §4.3 e as condições
+ * recepcao_cond_* — paciente visível, Financeiro, notificações da agenda — e o fin_lancamentos_regras refeito (bloco 3, T5a).
+ * Os gatilhos de colunas e as funções SECURITY DEFINER (T5b) têm testes próprios.
  */
 const ddl = bancoProprioParaDdl(); // DDL (tabela de rascunho, laço): banco próprio, sem disputar travas (SUS-100)
 const app = makeDb(inject('appDatabaseUrl'));
@@ -307,3 +309,203 @@ describe('equipe_membros (spec §9.1)', () => {
     expect(rows[0]?.def).toMatch(/\(tenant_id\) WHERE \(desativada_em IS NULL\)/);
   });
 });
+
+/**
+ * Bloco 3 (T5a): liberações da §4.3 e condições. Um consultório com a nutricionista, três pacientes — P visível, PB bloqueado
+ * e PA anonimizado (arquivado com anonimizado_em, para provar a cláusula do anonimizado sozinha) — e as contas da recepção:
+ * R1 com a permissão do Financeiro, R0 sem ela.
+ */
+describe('liberações e condições da recepção (bloco 3, RN-506 a RN-508)', () => {
+  let T: TenantDeTeste;
+  let P: string;
+  let PB: string;
+  let PA: string;
+  let R1: string;
+  let R0: string;
+  let entrada: string;
+  let saida: string;
+  type Consulta = { id: string; inicio: Date };
+  /** Uma consulta por paciente, criada pela nutricionista antes de esconder dois (para a notificação e o UPDATE). */
+  const consultaDe: Record<string, Consulta> = {};
+  let seq = 0;
+  const hora = () => sql`'2031-03-03T12:00:00Z'::timestamptz + ${++seq} * interval '2 hours'`;
+  const worker = (): TenantContext => ({ tenantId: T.tenantId, role: 'worker' });
+  const rec = (u: string): TenantContext => ({ tenantId: T.tenantId, role: 'recepcao', actorUserId: u, ip: '203.0.113.36' });
+
+  const contaDeRecepcao = async (financeiro: boolean) => {
+    const id = randomUUID();
+    await owner.pool.query(`insert into "user" (id, name, email, app_role, tenant_id) values ($1, 'Rec', $2, 'recepcao', $3)`, [
+      id,
+      `rec-${id.slice(0, 8)}@teste.dev`,
+      T.tenantId,
+    ]);
+    await em(T.ctx, sql`insert into equipe_membros (tenant_id, user_id, papel, convidada_por, financeiro) values (${T.tenantId}, ${id}, 'recepcao', ${T.nutriId}, ${financeiro})`);
+    return id;
+  };
+  const consulta = (paciente: string) => {
+    const h = hora();
+    return sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem)
+               values (${T.tenantId}, ${paciente}, ${h}, ${h} + interval '1 hour', 'presencial', 'nutri') returning id, inicio`;
+  };
+  const marcar = async (ctx: TenantContext, paciente: string): Promise<Consulta> => {
+    const [r] = await em(ctx, consulta(paciente));
+    return { id: r.id as string, inicio: new Date(r.inicio as string) };
+  };
+  // valores explícitos (sem subconsulta em appointments: para a recepção, a consulta do escondido viria vazia e o INSERT não
+  // gravaria nada, sem recusa nenhuma)
+  const notificacao = (paciente: string, c: Consulta | null, tipo: string, canal = 'email') =>
+    sql`insert into notifications (tenant_id, patient_id, appointment_id, inicio_consulta, canal, tipo, agendada_para)
+        values (${T.tenantId}, ${paciente}, ${c?.id ?? null}, ${c ? c.inicio.toISOString() : null}::timestamptz, ${canal}, ${tipo}, now()) returning id`;
+  const lancamento = (paciente: string | null, tipo: 'entrada' | 'saida' = 'entrada') =>
+    sql`insert into fin_lancamentos (tenant_id, tipo, categoria_id, valor_centavos, vencimento, patient_id, criado_por)
+        values (${T.tenantId}, ${tipo}, ${tipo === 'entrada' ? entrada : saida}, 25000, '2026-11-10', ${paciente}, ${randomUUID()}) returning *`;
+  const cadastro = (paciente: string) => sql`insert into patient_cadastro (tenant_id, patient_id, estado_civil) values (${T.tenantId}, ${paciente}, 'casado') returning id`;
+
+  beforeAll(async () => {
+    T = await novoTenant(app.db);
+    P = (await novoPaciente(app.db, T.ctx)).id;
+    PB = (await novoPaciente(app.db, T.ctx)).id;
+    PA = (await novoPaciente(app.db, T.ctx)).id;
+    await em(T.ctx, sql`insert into fin_configuracoes (tenant_id, saldo_inicial_centavos, saldo_inicial_em) values (${T.tenantId}, 0, '2026-11-01')`);
+    entrada = (await em(T.ctx, sql`insert into fin_categorias (tenant_id, tipo, nome) values (${T.tenantId}, 'entrada', 'Outras entradas') returning id`))[0].id as string;
+    saida = (await em(T.ctx, sql`insert into fin_categorias (tenant_id, tipo, nome) values (${T.tenantId}, 'saida', 'Aluguel') returning id`))[0].id as string;
+    // o que a recepção não pode alcançar existe: a nutricionista grava tudo dos três pacientes antes de esconder dois
+    for (const p of [P, PB, PA]) {
+      consultaDe[p] = await marcar(T.ctx, p);
+      await em(T.ctx, notificacao(p, consultaDe[p], 'lembrete_24h'));
+      await em(T.ctx, cadastro(p));
+      await em(T.ctx, lancamento(p));
+    }
+    await em(T.ctx, notificacao(P, null, 'plano_novo', 'push'));
+    await em(worker(), sql`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01' where id = ${PB}`);
+    await em(worker(), sql`update patients set status = 'arquivado', anonimizado_em = now() where id = ${PA}`);
+    R1 = await contaDeRecepcao(true);
+    R0 = await contaDeRecepcao(false);
+  });
+
+  describe('paciente escondido (RE-D40, RN-508)', () => {
+    it('a recepção não lê o paciente bloqueado nem o anonimizado, nem as linhas filhas deles; a nutricionista lê tudo, como hoje', async () => {
+      expect((await em(rec(R1), sql`select id from patients where id in (${P}, ${PB}, ${PA})`)).map((r) => r.id)).toEqual([P]);
+      for (const t of ['appointments', 'notifications', 'patient_cadastro', 'fin_lancamentos']) {
+        const id = sql.identifier(t);
+        const comoRec = await em(rec(R1), sql`select patient_id from ${id} where patient_id in (${P}, ${PB}, ${PA})`);
+        expect(new Set(comoRec.map((r) => r.patient_id)), t).toEqual(new Set([P])); // a de P aparece: é a condição que esconde
+        const comoNutri = await em(T.ctx, sql`select patient_id from ${id} where patient_id in (${P}, ${PB}, ${PA})`);
+        expect(new Set(comoNutri.map((r) => r.patient_id)), t).toEqual(new Set([P, PB, PA]));
+      }
+    });
+
+    it('INSERT com o id do escondido: appointments, notifications e patient_cadastro → RLS; fin_lancamentos → 42501 do gatilho (não achado)', async () => {
+      for (const p of [PB, PA]) {
+        await expect(em(rec(R1), consulta(p)), `appointments ${p}`).rejects.toSatisfy(rlsDe('appointments'));
+        await expect(em(rec(R1), notificacao(p, consultaDe[p], 'consulta_marcada')), `notifications ${p}`).rejects.toSatisfy(rlsDe('notifications'));
+        await expect(em(rec(R1), cadastro(p)), `patient_cadastro ${p}`).rejects.toSatisfy(rlsDe('patient_cadastro'));
+        // falha fechada (RN-506): o gatilho lê o paciente pela RLS da recepção, não acha e recusa — nunca "não bloqueado"
+        await expect(em(rec(R1), lancamento(p)), `fin_lancamentos ${p}`).rejects.toSatisfy(
+          (e: unknown) => doGatilho(e) && /paciente não encontrado/.test(erro(e).message),
+        );
+      }
+      // a nutricionista, no mesmo cenário, recebe a recusa de sempre do gatilho (RN-315 do Plano 20)
+      await expect(em(T.ctx, lancamento(PB))).rejects.toSatisfy((e: unknown) => doGatilho(e) && /bloqueado ou anonimizado/.test(erro(e).message));
+    });
+
+    it('UPDATE das linhas do escondido → 0 linhas; a recepção não leva o paciente visível a bloqueado (WITH CHECK)', async () => {
+      for (const p of [PB, PA]) {
+        expect(await em(rec(R1), sql`update patients set nome = nome where id = ${p} returning id`), `patients ${p}`).toEqual([]);
+        expect(await em(rec(R1), sql`update appointments set status = 'confirmada' where id = ${consultaDe[p].id} returning id`), `appointments ${p}`).toEqual([]);
+        expect(await em(rec(R1), sql`update notifications set status = 'ignorada', motivo_ignorada = 'paciente_inativo' where patient_id = ${p} returning id`), `notifications ${p}`).toEqual([]);
+        expect(await em(rec(R1), sql`update patient_cadastro set estado_civil = 'solteiro' where patient_id = ${p} returning id`), `patient_cadastro ${p}`).toEqual([]);
+        expect(await em(rec(R1), sql`update fin_lancamentos set valor_centavos = 1 where patient_id = ${p} returning id`), `fin_lancamentos ${p}`).toEqual([]);
+      }
+      const { rows } = await owner.pool.query(`select status from appointments where id = any($1::uuid[])`, [[consultaDe[PB].id, consultaDe[PA].id]]);
+      expect(rows.map((r) => r.status)).toEqual(['agendada', 'agendada']);
+      await expect(em(rec(R1), sql`update patients set status = 'bloqueado', bloqueado_em = now() where id = ${P}`)).rejects.toSatisfy(rlsDe('patients'));
+      // a nutricionista continua alcançando a consulta do bloqueado, como hoje
+      expect(await em(T.ctx, sql`update appointments set status = status where id = ${consultaDe[PB].id} returning id`)).toHaveLength(1);
+    });
+
+    it('a recepção grava o paciente visível: consulta, cadastro e paciente novo', async () => {
+      const novo = randomUUID();
+      await em(rec(R1), sql`insert into patients (id, tenant_id, nome, data_nascimento, sexo, email) values (${novo}, ${T.tenantId}, 'Bia', '1990-01-01', 'F', ${`bia-${novo.slice(0, 8)}@ex.com`})`);
+      expect(await em(rec(R1), consulta(novo))).toHaveLength(1);
+      expect(await em(rec(R1), cadastro(novo))).toHaveLength(1);
+      expect(await em(rec(R1), sql`update appointments set status = 'confirmada' where id = ${consultaDe[P].id} returning id`)).toHaveLength(1);
+    });
+  });
+
+  describe('notificações da agenda (RN-507)', () => {
+    it('a recepção lê e grava só os tipos da agenda; os outros tipos (plano_novo, documento_novo, exame_revisado…) não lê nem grava', async () => {
+      expect((await owner.pool.query(`select 1 from notifications where patient_id = $1 and tipo = 'plano_novo'`, [P])).rowCount).toBe(1); // a linha existe
+      expect(await em(rec(R1), sql`select id from notifications where tipo = 'plano_novo'`)).toEqual([]);
+      expect(await em(rec(R1), sql`update notifications set status = 'ignorada', motivo_ignorada = 'paciente_inativo' where tipo = 'plano_novo' returning id`)).toEqual([]);
+      const c = await marcar(rec(R1), P);
+      for (const tipo of TIPOS_FORA_DA_RECEPCAO) {
+        await expect(em(rec(R1), notificacao(P, ehDaConsulta(tipo) ? c : null, tipo)), tipo).rejects.toSatisfy(rlsDe('notifications'));
+      }
+      for (const tipo of TIPOS_DA_AGENDA) expect(await em(rec(R1), notificacao(P, c, tipo)), tipo).toHaveLength(1);
+      // trocar o tipo de uma linha da agenda para um clínico: o WITH CHECK recusa
+      await expect(em(rec(R1), sql`update notifications set tipo = 'plano_novo' where appointment_id = ${c.id} and tipo = 'consulta_marcada'`)).rejects.toSatisfy(
+        rlsDe('notifications'),
+      );
+      expect((await em(rec(R1), sql`select tipo from notifications where appointment_id = ${c.id}`)).map((r) => r.tipo).sort()).toEqual([...TIPOS_DA_AGENDA].sort());
+    });
+  });
+
+  describe('Financeiro com a permissão (RN-506)', () => {
+    const tabelas = ['fin_configuracoes', 'fin_categorias', 'fin_lancamentos'];
+
+    it('sem a permissão: 0 linhas nas três tabelas e INSERT recusado pela RLS', async () => {
+      for (const t of tabelas) {
+        expect((await owner.pool.query(`select 1 from ${t} where tenant_id = $1`, [T.tenantId])).rowCount, t).toBeGreaterThan(0);
+        expect(await em(rec(R0), sql`select 1 from ${sql.identifier(t)}`), t).toEqual([]);
+      }
+      await expect(em(rec(R0), lancamento(P))).rejects.toSatisfy(rlsDe('fin_lancamentos'));
+      await expect(em(rec(R0), lancamento(null, 'saida'))).rejects.toSatisfy(rlsDe('fin_lancamentos'));
+    });
+
+    it('com a permissão: lê, lança (criado_por = a recepção), recebe e cancela (cancelado_por = a recepção); não grava configuração nem categoria', async () => {
+      for (const t of tabelas) expect((await em(rec(R1), sql`select 1 from ${sql.identifier(t)}`)).length, t).toBeGreaterThan(0);
+      const [l] = await em(rec(R1), lancamento(P));
+      expect(l.criado_por).toBe(R1);
+      const [s] = await em(rec(R1), lancamento(null, 'saida'));
+      expect(s.criado_por).toBe(R1);
+      const [pago] = await em(rec(R1), sql`update fin_lancamentos set pago_em = '2026-11-05', forma_pagamento = 'pix' where id = ${l.id} returning pago_em`);
+      expect(pago.pago_em).toBeTruthy();
+      const [c] = await em(rec(R1), sql`update fin_lancamentos set cancelado_em = now(), cancelado_por = ${randomUUID()}, motivo_cancelamento = 'Desistência' where id = ${s.id} returning cancelado_por`);
+      expect(c.cancelado_por).toBe(R1);
+      await expect(em(rec(R1), sql`insert into fin_categorias (tenant_id, tipo, nome) values (${T.tenantId}, 'saida', 'Outra')`)).rejects.toSatisfy(rlsDe('fin_categorias'));
+      expect(await em(rec(R1), sql`update fin_configuracoes set saldo_inicial_centavos = 1 returning tenant_id`)).toEqual([]);
+      expect(await em(rec(R1), sql`update fin_categorias set nome = nome || '!' returning id`)).toEqual([]);
+    });
+
+    it('desativada: 0 linhas, mesmo com a permissão marcada', async () => {
+      const R = await contaDeRecepcao(true);
+      expect((await em(rec(R), sql`select 1 from fin_lancamentos`)).length).toBeGreaterThan(0); // controle: ativa, lê
+      await em(T.ctx, sql`update equipe_membros set desativada_em = now() where user_id = ${R}`);
+      for (const t of tabelas) expect(await em(rec(R), sql`select 1 from ${sql.identifier(t)}`), t).toEqual([]);
+      await expect(em(rec(R), lancamento(P))).rejects.toSatisfy(rlsDe('fin_lancamentos'));
+    });
+
+    it('a permissão é avaliada uma vez por consulta (InitPlan), não por linha', async () => {
+      const plano = (await em(rec(R1), sql`explain (verbose, costs off) select id from fin_lancamentos`)).map((r) => String(r['QUERY PLAN']));
+      const texto = plano.join('\n');
+      expect(texto).toMatch(/InitPlan/);
+      expect(texto).toMatch(/app_recepcao_tem_financeiro\(\)/);
+      // a função só aparece no InitPlan: no filtro da varredura, a condição é o parâmetro dele
+      for (const linha of plano.filter((l) => /Filter:/.test(l))) expect(linha).not.toMatch(/app_recepcao_tem_financeiro\(/);
+    });
+  });
+
+  it('public_booking_requests fica negada à recepção (RE-D59): 0 linhas e nenhuma escrita', async () => {
+    const pedido = sql`insert into public_booking_requests (id, tenant_id, token_hash, codigo_hash, email, nome, inicio, modalidade, termo_versao, expira_em)
+        values (gen_random_uuid(), ${T.tenantId}, ${randomUUID()}, 'x', ${`ped-${randomUUID().slice(0, 8)}@teste.dev`}, 'Pedido', '2031-01-01T12:00:00Z', 'presencial', 't', now() + interval '10 minutes')`;
+    await em(T.ctx, pedido);
+    expect((await owner.pool.query('select 1 from public_booking_requests where tenant_id = $1', [T.tenantId])).rowCount).toBeGreaterThan(0);
+    expect(await em(rec(R1), sql`select id from public_booking_requests`)).toEqual([]);
+    expect(await em(rec(R1), sql`update public_booking_requests set nome = nome returning id`)).toEqual([]);
+    await expect(em(rec(R1), pedido)).rejects.toSatisfy(rlsDe('public_booking_requests'));
+  });
+});
+
+/** Tipos de notificação ligados a uma consulta (appointment_id e inicio_consulta preenchidos) — os da agenda e o convite não. */
+const ehDaConsulta = (tipo: string) => (TIPOS_DA_AGENDA as readonly string[]).includes(tipo);

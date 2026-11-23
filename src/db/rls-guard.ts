@@ -313,6 +313,18 @@ export async function findConteudoAudienciaViolations(db: Pool | PoolClient): Pr
  */
 export const RECEPCAO_LIBERADO: Record<string, { comandos: readonly ComandoPublico[]; motivo: string }> = {
   equipe_membros: { comandos: ['select'], motivo: 'RN-502, RN-503: a própria linha (permissão do Financeiro e situação da conta), pela condição recepcao_cond_propria_linha' },
+  // T5a (bloco 3 da rls_recepcao; spec §4.3). As tabelas do Plano 23 (locais_atendimento) entram na regeneração (§5).
+  // public_booking_requests fica de fora: pedido de pessoa nova é da nutricionista (RE-D59)
+  patients: { comandos: ['select', 'insert', 'update'], motivo: 'RE-D25, RN-508: cadastro; só paciente visível (recepcao_cond_paciente_visivel); colunas pelo gatilho patients_da_recepcao (T5b)' },
+  patient_cadastro: { comandos: ['select', 'insert', 'update'], motivo: 'RN-508, RE-D38: cadastro complementar sem observação nem identidade de gênero (gatilho, T5b); só de paciente visível' },
+  appointments: { comandos: ['select', 'insert', 'update'], motivo: 'RN-509: agenda; só de paciente visível; colunas e transições pelo gatilho appointments_da_recepcao (T5b)' },
+  notifications: { comandos: ['select', 'insert', 'update'], motivo: 'RN-507: lembretes e avisos da consulta — só TIPOS_DA_AGENDA, só de paciente visível' },
+  availability_rules: { comandos: ['select'], motivo: 'RN-509: horários livres e grade da agenda' },
+  availability_blocks: { comandos: ['select'], motivo: 'RN-509: grade da agenda; o motivo do bloqueio não sai do módulo' },
+  audit_log: { comandos: ['insert'], motivo: 'RN-516: o gatilho de auditoria e o auditRead gravam com o papel de quem age; a recepção não lê a trilha' },
+  fin_configuracoes: { comandos: ['select'], motivo: 'RN-506: valor da consulta nos formulários, com a permissão do Financeiro (recepcao_cond_financeiro)' },
+  fin_categorias: { comandos: ['select'], motivo: 'RN-506: categorias nos formulários, com a permissão do Financeiro (recepcao_cond_financeiro)' },
+  fin_lancamentos: { comandos: ['select', 'insert', 'update'], motivo: 'RN-506: Financeiro com a permissão; paciente visível ou sem paciente; fin_lancamentos_regras "como nutri, com falha fechada"' },
 };
 
 /** O texto que o Postgres guarda da negação de app_deny_recepcao/app_allow_recepcao, normalizado como o NEGA_PACIENTE. */
@@ -332,6 +344,29 @@ export type CondicaoDaRecepcao = {
   withCheck: string | null;
   motivo: string;
 };
+/**
+ * RN-508 / RE-D40 (T5a): a condição do paciente visível numa tabela filha — EXISTS no paciente do mesmo consultório, nem
+ * bloqueado nem anonimizado, com os filtros escritos (não só a RLS de `patients` dentro da subconsulta). `semPaciente`: a linha
+ * sem paciente também passa (lançamento do Financeiro sem paciente).
+ */
+const pacienteVisivelPor = (t: string, semPaciente = false): CondicaoDaRecepcao => {
+  const e =
+    `app_current_role() IS DISTINCT FROM 'recepcao'::text OR ${semPaciente ? 'patient_id IS NULL OR ' : ''}EXISTS (SELECT 1 FROM patients p ` +
+    `WHERE p.tenant_id = ${t}.tenant_id AND p.id = ${t}.patient_id AND p.status <> 'bloqueado'::text AND p.anonimizado_em IS NULL)`;
+  return { comando: 'ALL', using: e, withCheck: e, motivo: 'RN-508, RE-D40: só linha de paciente visível (nem bloqueado nem anonimizado); escondido = falha fechada' };
+};
+/** RN-506 (T5a): a permissão do Financeiro, dentro de `(SELECT …)` — um InitPlan por consulta, não uma chamada por linha. */
+const FINANCEIRO: CondicaoDaRecepcao = {
+  comando: 'ALL',
+  using: "app_current_role() IS DISTINCT FROM 'recepcao'::text OR (SELECT app_recepcao_tem_financeiro() AS app_recepcao_tem_financeiro)",
+  withCheck: "app_current_role() IS DISTINCT FROM 'recepcao'::text OR (SELECT app_recepcao_tem_financeiro() AS app_recepcao_tem_financeiro)",
+  motivo: 'RN-502, RN-506: só a recepção ativa com a permissão do Financeiro (app_recepcao_tem_financeiro)',
+};
+/** RN-507 (T5a): a lista é TIPOS_DA_AGENDA (src/modules/notificacoes/tipos.ts; tipos.test.ts compara as três). */
+const TIPOS_DA_AGENDA_NA_POLITICA =
+  "app_current_role() IS DISTINCT FROM 'recepcao'::text OR tipo = ANY (ARRAY['lembrete_24h'::text, 'lembrete_2h'::text, " +
+  "'consulta_marcada'::text, 'consulta_cancelada'::text, 'resposta_confirmacao'::text, 'resposta_remarcar'::text])";
+
 export const RECEPCAO_CONDICOES: Record<string, Record<string, CondicaoDaRecepcao>> = {
   equipe_membros: {
     recepcao_cond_propria_linha: {
@@ -341,6 +376,29 @@ export const RECEPCAO_CONDICOES: Record<string, Record<string, CondicaoDaRecepca
       motivo: 'RN-503: a recepção lê só a própria linha',
     },
   },
+  // T5a (bloco 3)
+  patients: {
+    recepcao_cond_paciente_visivel: {
+      comando: 'ALL',
+      using: "app_current_role() IS DISTINCT FROM 'recepcao'::text OR (status <> 'bloqueado'::text AND anonimizado_em IS NULL)",
+      withCheck: "app_current_role() IS DISTINCT FROM 'recepcao'::text OR (status <> 'bloqueado'::text AND anonimizado_em IS NULL)",
+      motivo: 'RN-508, RE-D35: a recepção não vê nem leva a bloqueado o paciente bloqueado ou anonimizado',
+    },
+  },
+  patient_cadastro: { recepcao_cond_paciente_visivel: pacienteVisivelPor('patient_cadastro') },
+  appointments: { recepcao_cond_paciente_visivel: pacienteVisivelPor('appointments') },
+  notifications: {
+    recepcao_cond_paciente_visivel: pacienteVisivelPor('notifications'),
+    recepcao_cond_notificacoes_da_agenda: {
+      comando: 'ALL',
+      using: TIPOS_DA_AGENDA_NA_POLITICA,
+      withCheck: TIPOS_DA_AGENDA_NA_POLITICA,
+      motivo: 'RN-507: só os tipos da agenda (sem convite_paciente, RE-D37; nada clínico)',
+    },
+  },
+  fin_configuracoes: { recepcao_cond_financeiro: FINANCEIRO },
+  fin_categorias: { recepcao_cond_financeiro: FINANCEIRO },
+  fin_lancamentos: { recepcao_cond_financeiro: FINANCEIRO, recepcao_cond_paciente_visivel: pacienteVisivelPor('fin_lancamentos', true) },
 };
 
 const NOME_DA_RECEPCAO = /^recepcao_(negada|sem_(select|insert|update|delete)|cond_[a-z0-9_]+)$/;
