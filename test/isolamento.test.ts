@@ -185,10 +185,11 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   // Plano 18: cpf nulo (com CPF fixo, a fábrica de P1 e P2 cairia em patient_cadastro_cpf_unico)
   patient_cadastro: (t, p) => sql`insert into patient_cadastro (tenant_id, patient_id, estado_civil) values (${t}, ${p}, 'casado')`,
   // Plano 25 (spec §9.8 v0.3, CH-D38): nenhuma em COM_MAE. A conversa nasce liberada e, pela ordem de listTenantTables (nome),
-  // é semeada antes de chat_leituras e chat_mensagens, que não criam a mãe
+  // é semeada antes de chat_leituras e chat_mensagens, que não criam a mãe. CH-D74: com o nome e o CRN da liberação (o
+  // gatilho sobrescreve na sessão `nutri`; sem papel, o CHECK exige)
   chat_conversas: (t, p) =>
-    sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma)
-        values (${t}, ${p}, now(), coalesce(app_current_user(), gen_random_uuid()), 'aceite_escrito')`,
+    sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma, liberada_nome, liberada_crn)
+        values (${t}, ${p}, now(), coalesce(app_current_user(), gen_random_uuid()), 'aceite_escrito', ${CARIMBO.nome}, ${CARIMBO.crn})`,
   // CH-D67: com o carimbo igual ao do tenant (o gatilho da T1b passa a sobrescrever)
   chat_mensagens: (t, p) =>
     sql`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, autor_nome, autor_crn, texto)

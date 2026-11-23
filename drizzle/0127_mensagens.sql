@@ -18,14 +18,18 @@ CREATE TABLE "chat_conversas" (
 	"liberada_em" timestamp with time zone,
 	"liberada_por" uuid,
 	"tcle_forma" text,
+	"liberada_nome" text,
+	"liberada_crn" text,
 	"pausada_em" timestamp with time zone,
 	"pausada_por" uuid,
+	"pausada_nome" text,
+	"pausada_crn" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "chat_conversas_paciente_unique" UNIQUE("tenant_id","patient_id"),
-	CONSTRAINT "chat_conversas_liberacao" CHECK (("chat_conversas"."liberada_em" is null) = ("chat_conversas"."liberada_por" is null) and ("chat_conversas"."liberada_em" is null) = ("chat_conversas"."tcle_forma" is null)),
+	CONSTRAINT "chat_conversas_liberacao" CHECK (("chat_conversas"."liberada_em" is null) = ("chat_conversas"."liberada_por" is null) and ("chat_conversas"."liberada_em" is null) = ("chat_conversas"."tcle_forma" is null) and ("chat_conversas"."liberada_em" is null) = ("chat_conversas"."liberada_nome" is null) and ("chat_conversas"."liberada_em" is null) = ("chat_conversas"."liberada_crn" is null)),
 	CONSTRAINT "chat_conversas_tcle_forma_valida" CHECK ("chat_conversas"."tcle_forma" is null or "chat_conversas"."tcle_forma" in ('termo_assinado', 'aceite_escrito')),
-	CONSTRAINT "chat_conversas_pausa" CHECK (("chat_conversas"."pausada_em" is null) = ("chat_conversas"."pausada_por" is null)),
+	CONSTRAINT "chat_conversas_pausa" CHECK (("chat_conversas"."pausada_em" is null) = ("chat_conversas"."pausada_por" is null) and ("chat_conversas"."pausada_em" is null) = ("chat_conversas"."pausada_nome" is null) and ("chat_conversas"."pausada_em" is null) = ("chat_conversas"."pausada_crn" is null)),
 	CONSTRAINT "chat_conversas_pausa_so_liberada" CHECK ("chat_conversas"."pausada_em" is null or "chat_conversas"."liberada_em" is not null)
 );
 --> statement-breakpoint

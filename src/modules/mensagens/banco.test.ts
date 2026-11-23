@@ -58,6 +58,8 @@ const restricao = (codigo: string, nome: string) => (e: unknown) => {
 const check = (nome: string) => restricao('23514', nome);
 
 const CARIMBO = { nome: 'Débora Nutricionista', crn: 'CRN-3 12345' };
+/** CH-D74: os exemplos novos com o CRN da Debby (CRN-4, RJ). */
+const CARIMBO_4 = { nome: 'Debora Rodrigues', crn: 'CRN-4 12345' };
 const TABELAS_CHAT = ['chat_conversas', 'chat_mensagens', 'chat_leituras', 'chat_configuracoes', 'chat_horarios'] as const;
 // CH-D70: chat_avisos_nutri (staff_only, sem paciente_com_conta: a staff_only já nega toda sessão de paciente)
 const TODAS = [...TABELAS_CHAT, 'recados', 'chat_avisos_nutri'] as const;
@@ -429,23 +431,34 @@ describe('Plano 25 — CHECKs (spec §9.1–§9.6)', () => {
     await expect(comoDono(daNutri(C, { anexoStatus: 'pronto', anexoTipo: 'imagem', anexoPath: inexistente }))).rejects.toSatisfy((e: unknown) => erro(e).code === '23503');
   });
 
-  it('chat_conversas: forma do TCLE, liberação sem quem liberou, pausa sem liberação', async () => {
+  it('chat_conversas: forma do TCLE, liberação sem quem liberou, pausa sem liberação; nome e CRN junto da liberação e da pausa (CH-D74)', async () => {
     const C = await cenario();
+    // colunas: liberada_em, liberada_por, tcle_forma, liberada_nome, liberada_crn, pausada_em, pausada_por, pausada_nome, pausada_crn
     const conversa = async (cols: SQL) => {
       const p = (await novoPaciente(app.db, C.ctx)).id;
-      return sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma, pausada_em, pausada_por) values (${C.tenantId}, ${p}, ${cols})`;
+      return sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma, liberada_nome, liberada_crn,
+                                             pausada_em, pausada_por, pausada_nome, pausada_crn) values (${C.tenantId}, ${p}, ${cols})`;
     };
     const u = C.nutriId;
+    const [n, c] = [CARIMBO_4.nome, CARIMBO_4.crn];
     const casos: [string, SQL][] = [
-      ['chat_conversas_tcle_forma_valida', await conversa(sql`now(), ${u}, 'verbal', null, null`)],
-      ['chat_conversas_liberacao', await conversa(sql`now(), null, 'aceite_escrito', null, null`)],
-      ['chat_conversas_liberacao', await conversa(sql`now(), ${u}, null, null, null`)],
-      ['chat_conversas_liberacao', await conversa(sql`null, null, 'termo_assinado', null, null`)],
-      ['chat_conversas_pausa', await conversa(sql`now(), ${u}, 'aceite_escrito', now(), null`)],
-      ['chat_conversas_pausa_so_liberada', await conversa(sql`null, null, null, now(), ${u}`)],
+      ['chat_conversas_tcle_forma_valida', await conversa(sql`now(), ${u}, 'verbal', ${n}, ${c}, null, null, null, null`)],
+      ['chat_conversas_liberacao', await conversa(sql`now(), null, 'aceite_escrito', ${n}, ${c}, null, null, null, null`)],
+      ['chat_conversas_liberacao', await conversa(sql`now(), ${u}, null, ${n}, ${c}, null, null, null, null`)],
+      ['chat_conversas_liberacao', await conversa(sql`null, null, 'termo_assinado', null, null, null, null, null, null`)],
+      // CH-D74: liberação sem o nome ou sem o CRN; nome ou CRN sem liberação
+      ['chat_conversas_liberacao', await conversa(sql`now(), ${u}, 'aceite_escrito', null, ${c}, null, null, null, null`)],
+      ['chat_conversas_liberacao', await conversa(sql`now(), ${u}, 'aceite_escrito', ${n}, null, null, null, null, null`)],
+      ['chat_conversas_liberacao', await conversa(sql`null, null, null, ${n}, null, null, null, null, null`)],
+      ['chat_conversas_liberacao', await conversa(sql`null, null, null, null, ${c}, null, null, null, null`)],
+      ['chat_conversas_pausa', await conversa(sql`now(), ${u}, 'aceite_escrito', ${n}, ${c}, now(), null, ${n}, ${c}`)],
+      ['chat_conversas_pausa', await conversa(sql`now(), ${u}, 'aceite_escrito', ${n}, ${c}, now(), ${u}, null, ${c}`)],
+      ['chat_conversas_pausa', await conversa(sql`now(), ${u}, 'aceite_escrito', ${n}, ${c}, now(), ${u}, ${n}, null`)],
+      ['chat_conversas_pausa', await conversa(sql`now(), ${u}, 'aceite_escrito', ${n}, ${c}, null, null, ${n}, ${c}`)],
+      ['chat_conversas_pausa_so_liberada', await conversa(sql`null, null, null, null, null, now(), ${u}, ${n}, ${c}`)],
     ];
     for (const [nome, q] of casos) await expect(comoDono(q), nome).rejects.toSatisfy(check(nome));
-    expect(await comoDono(await conversa(sql`now(), ${u}, 'termo_assinado', now(), ${u}`))).toEqual([]);
+    expect(await comoDono(await conversa(sql`now(), ${u}, 'termo_assinado', ${n}, ${c}, now(), ${u}, ${n}, ${c}`))).toEqual([]);
   });
 
   it('chat_horarios: sobreposição no mesmo dia (EXCLUDE, 23P01), fora de 15 min, fim <= início, dia fora de 0–6', async () => {
@@ -623,7 +636,10 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
     const T = await novoTenant(app.db);
     const p = (await novoPaciente(app.db, T.ctx)).id;
     // sem papel (dono): a liberação sem carimbo só para montar o cenário
-    await comoDono(sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma) values (${T.tenantId}, ${p}, now(), ${T.nutriId}, 'aceite_escrito')`);
+    await comoDono(
+      sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma, liberada_nome, liberada_crn)
+          values (${T.tenantId}, ${p}, now(), ${T.nutriId}, 'aceite_escrito', ${CARIMBO.nome}, ${CARIMBO.crn})`,
+    );
     return { T, p };
   };
 
@@ -748,6 +764,64 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
     await expect(upd(sql`pausada_em = null, pausada_por = null`, worker(C.tenantId))).rejects.toSatisfy(doGatilho('pausa e retoma'));
     const [retomada] = await upd(sql`pausada_em = null, pausada_por = null`);
     expect(retomada.pausada_em).toBeNull();
+  });
+
+  it('CH-D74: a liberação grava o nome e o CRN do consultório (o que vier no comando é sobrescrito) e eles nunca mudam', async () => {
+    const C = await cenario();
+    await owner.pool.query('update tenants set nome_profissional = $1, crn = $2 where id = $3', [CARIMBO_4.nome, CARIMBO_4.crn, C.tenantId]);
+    const p = (await novoPaciente(app.db, C.ctx)).id;
+    const [c] = await em(
+      C.ctx,
+      sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma, liberada_nome, liberada_crn)
+          values (${C.tenantId}, ${p}, now(), ${C.nutriId}, 'aceite_escrito', 'Outra Pessoa', 'CRN-9 99999') returning *`,
+    );
+    expect(c).toMatchObject({ liberada_nome: CARIMBO_4.nome, liberada_crn: CARIMBO_4.crn, pausada_nome: null, pausada_crn: null });
+    // liberar depois (UPDATE de nulo a valor, conversa nascida de recado): o mesmo
+    const q = (await novoPaciente(app.db, C.ctx)).id;
+    await expect(
+      em(C.ctx, sql`insert into chat_conversas (tenant_id, patient_id, liberada_nome, liberada_crn) values (${C.tenantId}, ${q}, ${CARIMBO_4.nome}, ${CARIMBO_4.crn})`),
+    ).rejects.toSatisfy(doGatilho('só são gravados na liberação'));
+    const [v] = await em(C.ctx, sql`insert into chat_conversas (tenant_id, patient_id) values (${C.tenantId}, ${q}) returning id`);
+    await expect(em(C.ctx, sql`update chat_conversas set liberada_nome = ${CARIMBO_4.nome}, liberada_crn = ${CARIMBO_4.crn} where id = ${v.id}`)).rejects.toSatisfy(
+      doGatilho('só são gravados na liberação'),
+    );
+    const [lib] = await em(
+      C.ctx,
+      sql`update chat_conversas set liberada_em = now(), liberada_por = ${C.nutriId}, tcle_forma = 'termo_assinado', liberada_nome = 'Outra', liberada_crn = 'CRN-9 1'
+          where id = ${v.id} returning *`,
+    );
+    expect(lib).toMatchObject({ liberada_nome: CARIMBO_4.nome, liberada_crn: CARIMBO_4.crn });
+    // o perfil muda depois: a linha guarda como era no momento
+    await owner.pool.query('update tenants set nome_profissional = $1, crn = $2 where id = $3', ['Débora R. Silva', 'CRN-4 54321', C.tenantId]);
+    const [depois] = await em(C.ctx, sql`select liberada_nome, liberada_crn from chat_conversas where id = ${c.id}`);
+    expect(depois).toEqual({ liberada_nome: CARIMBO_4.nome, liberada_crn: CARIMBO_4.crn });
+    for (const set of [sql`liberada_nome = 'Débora R. Silva'`, sql`liberada_crn = 'CRN-4 54321'`, sql`liberada_nome = null, liberada_crn = null`]) {
+      await expect(em(C.ctx, sql`update chat_conversas set ${set} where id = ${c.id}`)).rejects.toSatisfy(doGatilho('não muda depois de gravada'));
+    }
+  });
+
+  it('CH-D74: a pausa grava o nome e o CRN do momento; a retomada os limpa; fora disso não mudam', async () => {
+    const C = await cenario();
+    await owner.pool.query('update tenants set nome_profissional = $1, crn = $2 where id = $3', [CARIMBO_4.nome, CARIMBO_4.crn, C.tenantId]);
+    const upd = (set: SQL) => em(C.ctx, sql`update chat_conversas set ${set} where patient_id = ${C.p1} returning *`);
+    await expect(upd(sql`pausada_nome = ${CARIMBO_4.nome}, pausada_crn = ${CARIMBO_4.crn}`)).rejects.toSatisfy(doGatilho('só mudam na pausa e na retomada'));
+    const [pausada] = await upd(sql`pausada_em = now(), pausada_por = ${C.nutriId}, pausada_nome = 'Outra', pausada_crn = 'CRN-9 1'`);
+    expect(pausada).toMatchObject({ pausada_nome: CARIMBO_4.nome, pausada_crn: CARIMBO_4.crn });
+    await owner.pool.query('update tenants set nome_profissional = $1, crn = $2 where id = $3', ['Débora R. Silva', 'CRN-4 54321', C.tenantId]);
+    for (const set of [sql`pausada_nome = 'Débora R. Silva'`, sql`pausada_crn = 'CRN-4 54321'`, sql`pausada_nome = null, pausada_crn = null`]) {
+      await expect(upd(set)).rejects.toSatisfy(doGatilho('só mudam na pausa e na retomada'));
+    }
+    expect((await upd(sql`updated_at = now()`))[0]).toMatchObject({ pausada_nome: CARIMBO_4.nome, pausada_crn: CARIMBO_4.crn });
+    // a retomada limpa, mesmo que o comando mande outro valor
+    const [retomada] = await upd(sql`pausada_em = null, pausada_por = null, pausada_nome = 'x', pausada_crn = 'y'`);
+    expect(retomada).toMatchObject({ pausada_em: null, pausada_por: null, pausada_nome: null, pausada_crn: null });
+    // pausar de novo grava o carimbo atual
+    const [deNovo] = await upd(sql`pausada_em = now(), pausada_por = ${C.nutriId}`);
+    expect(deNovo).toMatchObject({ pausada_nome: 'Débora R. Silva', pausada_crn: 'CRN-4 54321' });
+    // sem carimbo no consultório, a pausa é recusada
+    await upd(sql`pausada_em = null, pausada_por = null`);
+    await owner.pool.query('update tenants set crn = null where id = $1', [C.tenantId]);
+    await expect(upd(sql`pausada_em = now(), pausada_por = ${C.nutriId}`)).rejects.toSatisfy(doGatilho('nome profissional e CRN'));
   });
 
   it('anexo no INSERT da nutricionista: só sem anexo, em processamento ou PDF pronto (code review do PR 1)', async () => {
