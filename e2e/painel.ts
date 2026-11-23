@@ -175,6 +175,8 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   const { exameCatalogo, modeloSolicitacao } = await bibliotecasDeExames(nutri, sufixo);
   // Plano 22 (T4): um exame lançado e editado pela aba Exames (a tela "Versões anteriores" com uma versão)
   const exame = await exameEditado(nutri, p, sufixo);
+  // Plano 22 (T5b): um segundo exame, para o comparativo
+  const exameComparar = await exameLancado(nutri, p, `Retorno axe ${sufixo}`);
 
   return {
     paciente: p.split('/').pop()!,
@@ -203,6 +205,7 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
     exameCatalogo,
     modeloSolicitacao,
     exame,
+    exameComparar,
   };
 }
 
@@ -279,3 +282,22 @@ export async function exameEditado(nutri: Page, prontuario: string, sufixo: stri
   return exame;
 }
 
+/**
+ * Plano 22 (T5b, US-374): lança um exame com uma linha de glicemia (com a faixa do laudo) na aba Exames, pelo caminho real
+ * da UI; devolve o id pelo link "Abrir {título} de {data}".
+ */
+export async function exameLancado(nutri: Page, prontuario: string, titulo: string): Promise<string> {
+  await nutri.goto(`${prontuario}/exames`);
+  await nutri.getByLabel('Título do exame').fill(titulo);
+  await nutri.getByLabel('Marcador 1', { exact: true }).fill('Glicemia de jejum');
+  await nutri.getByLabel('Valor 1', { exact: true }).fill('92');
+  await nutri.getByLabel('Unidade 1', { exact: true }).fill('mg/dL');
+  await nutri.getByLabel('Faixa do laudo: de 1', { exact: true }).fill('70');
+  await nutri.getByLabel('até 1', { exact: true }).fill('99');
+  await nutri.getByRole('button', { name: 'Salvar exame' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Exame salvo.' })).toBeVisible();
+  const href = (await nutri.getByRole('link', { name: new RegExp(`^Abrir ${titulo} de `) }).getAttribute('href')) ?? '';
+  const m = new RegExp(`/exames/(${UUID})$`).exec(href.split('?')[0]);
+  expect(m, `o link "Abrir ${titulo}" (${href})`).not.toBeNull();
+  return m![1];
+}

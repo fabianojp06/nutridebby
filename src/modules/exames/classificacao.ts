@@ -34,8 +34,8 @@ export type ExameParaCasar = { id: string; nome: string; unidade: string | null;
 /** Nome normalizado (o nome e cada outro nome) → exames do catálogo com esse nome. Montado uma vez por leitura (RNF-371). */
 export type IndiceDoCatalogo = Map<string, ExameParaCasar[]>;
 
-export function indiceDoCatalogo(itens: ExameParaCasar[]): IndiceDoCatalogo {
-  const indice: IndiceDoCatalogo = new Map();
+export function indiceDoCatalogo<E extends ExameParaCasar>(itens: E[]): Map<string, E[]> {
+  const indice = new Map<string, E[]>();
   for (const e of itens) {
     for (const chave of new Set([e.nome, ...e.sinonimos].map(normalizarNome))) {
       if (!chave) continue;
@@ -77,13 +77,48 @@ export function categoriaDoConsultorio(
   paciente: { sexo: string | null; dataNascimento: string | null },
   dataDoExame: string,
 ): { categoria: string; faixa: FaixaDoConsultorio } | null {
-  const casado = casarComCatalogo(linha.nome, linha.unidade, indice);
+  return categoriaDoCasado(casarComCatalogo(linha.nome, linha.unidade, indice), linha.valor, paciente, dataDoExame);
+}
+
+function categoriaDoCasado(
+  casado: ReturnType<typeof casarComCatalogo>,
+  valor: number,
+  paciente: { sexo: string | null; dataNascimento: string | null },
+  dataDoExame: string,
+): { categoria: string; faixa: FaixaDoConsultorio } | null {
   if (!casado?.mesmaUnidade) return null;
   if (!paciente.sexo || !paciente.dataNascimento) return null;
   const idade = idadeEm(paciente.dataNascimento, dataDoExame);
   if (!(idade >= 1)) return null;
-  const faixa = casado.exame.faixas.find((f) => contem(f, linha.valor, idade, paciente.sexo!));
+  const faixa = casado.exame.faixas.find((f) => contem(f, valor, idade, paciente.sexo!));
   return faixa ? { categoria: faixa.categoria, faixa } : null;
+}
+
+/** A classificação de uma linha na leitura (aba Exames e detalhe): a neutra, a categoria e o exame do catálogo que casou. */
+export type LinhaClassificadaNaLeitura<E extends ExameParaCasar = ExameParaCasar> = {
+  neutra: Neutra | null;
+  categoria: { nome: string; faixa: FaixaDoConsultorio } | null;
+  /** O exame do catálogo com casamento único pelo nome (RN-380 a, b); `null` sem casamento. */
+  casado: E | null;
+};
+
+/**
+ * Plano 22 (T5b, RNF-371): a neutra (faixa do laudo), a categoria do consultório e o exame do catálogo que casou, com um
+ * casamento só por linha — o índice é montado uma vez por leitura e a aba classifica todas as linhas em memória.
+ */
+export function classificarLinha<E extends ExameParaCasar>(
+  linha: { nome: string; valor: number; unidade: string | null; refMin?: number; refMax?: number },
+  indice: Map<string, E[]>,
+  paciente: { sexo: string | null; dataNascimento: string | null },
+  dataDoExame: string,
+): LinhaClassificadaNaLeitura<E> {
+  const casado = casarComCatalogo(linha.nome, linha.unidade, indice);
+  const categoria = categoriaDoCasado(casado, linha.valor, paciente, dataDoExame);
+  return {
+    neutra: classificarNeutra(linha.valor, linha.refMin, linha.refMax),
+    categoria: categoria ? { nome: categoria.categoria, faixa: categoria.faixa } : null,
+    casado: (casado?.exame as E | undefined) ?? null,
+  };
 }
 
 // Número com sinal opcional e todos os grupos "[.,]ddd" (para o milhar não ser cortado no meio); o lookbehind impede que o

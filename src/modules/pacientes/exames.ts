@@ -212,16 +212,20 @@ export async function listarExames(ctx: TenantContext, patientId: string, db: Db
 
 export type SerieMarcador = { nome: string; unidade: string | null; pontos: { data: string; valor: number }[] };
 
+const normMarcador = (t: string | null) => (t ?? '').normalize('NFC').trim().toLowerCase();
+/** A chave de um marcador (nome + unidade, sem diferenciar maiúsculas): a de `agruparMarcadores` e a do comparativo (Plano 22). */
+export const chaveDoMarcador = (nome: string, unidade: string | null): string => `${normMarcador(nome)}\u0000${normMarcador(unidade)}`;
+
 /**
  * Um marcador por nome + unidade (sem diferenciar maiúsculas/espaços), pontos em ordem cronológica: glicemia em
  * mg/dL e em mmol/L são duas séries — misturadas, o gráfico sairia errado.
  */
 export function agruparMarcadores(lista: Pick<ExamRow, 'data' | 'valores'>[]): SerieMarcador[] {
   const series = new Map<string, SerieMarcador>();
-  const norm = (t: string | null) => (t ?? '').normalize('NFC').trim().toLowerCase();
+  const norm = normMarcador;
   for (const e of [...lista].sort((a, b) => a.data.localeCompare(b.data))) {
     for (const v of e.valores) {
-      const chave = `${norm(v.nome)}\u0000${norm(v.unidade)}`;
+      const chave = chaveDoMarcador(v.nome, v.unidade);
       const s = series.get(chave) ?? { nome: v.nome.trim(), unidade: v.unidade, pontos: [] };
       s.pontos.push({ data: e.data, valor: v.valor });
       series.set(chave, s);

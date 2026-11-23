@@ -2,22 +2,19 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Aviso } from '@/components/ui/aviso';
 import { signFileUrl } from '@/lib/signed-url';
-import { casasDecimais, formatarDecimal } from '@/lib/numero';
 import { RetornoDaTela } from '@/app/painel/exames/retorno';
-import { ROTULO_NEUTRA } from '@/modules/exames/classificacao';
 import { MSG_EXAMES } from '@/modules/exames/constantes';
 import { abrirExame } from '@/modules/exames/detalhe';
 import { MSG_BLOQUEADO } from '@/modules/pacientes/base';
 import { formatarData } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../../prontuario';
-import { VerReferencia } from '../ver-referencia';
+import { TabelaClassificada, type LinhaClassificada } from '../tabela-classificada';
 import { ExcluirExame } from './excluir-exame';
 import { NotaForm, type ModeloDeNota } from './nota-form';
 
 export const dynamic = 'force-dynamic';
 
 const X = MSG_EXAMES.exame;
-const C = MSG_EXAMES.classificacao;
 const N = MSG_EXAMES.nota;
 const ID_DO_TITULO = 'exame-titulo';
 
@@ -40,9 +37,6 @@ export default async function ExamePage({ params, searchParams }: PageProps<'/pa
   const data = formatarData(e.data);
   const retorno = busca.nota === 'salva' ? N.salva : busca.nota === 'apagada' ? N.apagada : '';
   const marcador = typeof busca.r === 'string' ? busca.r : '';
-  const comClassificacao = e.linhas.some((l) => l.neutra || l.categoria);
-  const comCategoria = e.linhas.some((l) => l.categoria);
-  const descritos = [comClassificacao ? 'exame-aviso-classificacao' : null, comCategoria ? 'exame-aviso-gestacao' : null].filter(Boolean).join(' ') || undefined;
   // RN-375: os modelos dos exames fora da faixa do laudo (neutra "Abaixo"/"Acima") que casam com o catálogo
   const modelos: ModeloDeNota[] = [];
   for (const l of e.linhas) {
@@ -83,50 +77,21 @@ export default async function ExamePage({ params, searchParams }: PageProps<'/pa
       {e.linhas.length === 0 ? (
         <p>{X.semValores}</p>
       ) : (
-        <div className="space-y-2">
-          {comClassificacao && (
-            <p id="exame-aviso-classificacao" className="text-sm text-suave">
-              {C.aviso}
-            </p>
+        <TabelaClassificada
+          id="exame-valores"
+          legenda={X.valoresDoExame(e.titulo)}
+          linhas={e.linhas.map(
+            (l): LinhaClassificada => ({
+              nome: l.nome,
+              valor: l.valor,
+              unidade: l.unidade,
+              referencia: l.referencia,
+              neutra: l.neutra,
+              categoria: l.categoria?.nome ?? null,
+              ref: { referencia: l.referencia, refMin: l.refMin, refMax: l.refMax, faixas: l.faixasDoConsultorio, unidadeDoCatalogo: l.unidadeDoCatalogo },
+            }),
           )}
-          {comCategoria && (
-            <p id="exame-aviso-gestacao" className="text-sm text-suave">
-              {C.gestacao}
-            </p>
-          )}
-          <div role="region" aria-labelledby="exame-valores-legenda" tabIndex={0} className="overflow-x-auto focus-visible:outline-offset-[-3px]">
-            <table className="w-full text-left" aria-describedby={descritos}>
-              <caption id="exame-valores-legenda" className="sr-only">
-                {X.valoresDoExame(e.titulo)}
-              </caption>
-              <thead className="text-sm text-suave">
-                <tr>
-                  <th scope="col" className="px-2 py-1">Marcador</th>
-                  <th scope="col" className="px-2 py-1">Valor</th>
-                  <th scope="col" className="px-2 py-1">Referência do laudo</th>
-                  <th scope="col" className="px-2 py-1">Classificação</th>
-                  <th scope="col" className="px-2 py-1">{MSG_EXAMES.ref.botao}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {e.linhas.map((l, i) => (
-                  <tr key={`${i}-${l.nome}`} className="border-t border-linha align-top">
-                    <th scope="row" className="px-2 py-1 font-normal">{l.nome}</th>
-                    <td className="px-2 py-1">{`${formatarDecimal(l.valor, casasDecimais(l.valor))}${l.unidade ? ` ${l.unidade}` : ''}`}</td>
-                    <td className="wrap-break-word px-2 py-1">{l.referencia ?? '—'}</td>
-                    <td className="px-2 py-1">
-                      {l.neutra ? ROTULO_NEUTRA[l.neutra] : '—'}
-                      {l.categoria && <span className="block">{`${l.categoria.nome} ${C.faixaDoConsultorio}`}</span>}
-                    </td>
-                    <td className="px-2 py-1">
-                      <VerReferencia marcador={l.nome} referencia={l.referencia} refMin={l.refMin} refMax={l.refMax} faixas={l.faixasDoConsultorio} unidadeDoCatalogo={l.unidadeDoCatalogo} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        />
       )}
 
       <section aria-labelledby="nota-titulo" className="max-w-3xl space-y-3 rounded-2xl border border-borda bg-cartao p-3">

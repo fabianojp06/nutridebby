@@ -6,7 +6,7 @@ import { idValido } from '@/modules/pacientes/base';
 import type { ValorExame } from '@/modules/pacientes/exames';
 import { auditRead } from '@/modules/plataforma/audit';
 import { catalogoParaDetalheNaTransacao, exigirNutri } from './catalogo';
-import { casarComCatalogo, categoriaDoConsultorio, classificarNeutra, indiceDoCatalogo, type Neutra } from './classificacao';
+import { classificarLinha, indiceDoCatalogo, type Neutra } from './classificacao';
 
 /**
  * Plano 22 (T5a, US-372, US-373, RN-379 a RN-383, EP-D11 a EP-D19, EP-D62): o detalhe do exame no painel. Fica FORA de
@@ -73,17 +73,15 @@ export async function abrirExame(ctx: TenantContext, patientId: string, exameId:
   );
   if (!lido) return null;
   const { e, p, nota, catalogo } = lido;
+  // o índice uma vez por leitura e um casamento por linha, em memória (RNF-371)
   const indice = indiceDoCatalogo(catalogo);
-  const doCatalogo = new Map(catalogo.map((c) => [c.id, c]));
   const paciente = { sexo: p?.sexo ?? null, dataNascimento: p?.dataNascimento ?? null };
   const linhas = e.valores.map((v): LinhaNaTela => {
-    const casado = casarComCatalogo(v.nome, v.unidade, indice);
-    const item = casado ? doCatalogo.get(casado.exame.id) : undefined;
-    const categoria = categoriaDoConsultorio(v, indice, paciente, e.data);
+    const { neutra, categoria, casado: item } = classificarLinha(v, indice, paciente, e.data);
     return {
       ...v,
-      neutra: classificarNeutra(v.valor, v.refMin, v.refMax),
-      categoria: categoria ? { nome: categoria.categoria, faixa: categoria.faixa } : null,
+      neutra,
+      categoria,
       faixasDoConsultorio: item?.faixas ?? [],
       unidadeDoCatalogo: item?.unidade ?? null,
       modeloNota: item ? { abaixo: item.modeloNotaAbaixo, acima: item.modeloNotaAcima } : null,

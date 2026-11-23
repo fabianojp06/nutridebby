@@ -1,13 +1,17 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
-import { auditLog, examesCatalogo, type FaixaDoConsultorio } from '@/db/schema';
+import * as schema from '@/db/schema';
+import { auditLog, examesCatalogo, exams, type FaixaDoConsultorio } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
-import { criarExame } from '@/modules/pacientes/exames';
+import { criarExame, listarExames } from '@/modules/pacientes/exames';
+import { classificarLinha, indiceDoCatalogo } from './classificacao';
 import { abrirExame } from './detalhe';
+import { bibliotecasParaExames } from './modelos-solicitacao';
 import { salvarNota } from './interpretacao';
 
 /**
@@ -161,5 +165,56 @@ describe('abrirExame (T5a, EP-D62)', () => {
   it('sessão de paciente → erro do assert de papel, antes da transação', async () => {
     const { T, p, exameId } = await cenario();
     await expect(abrirExame(ctxPaciente(T.tenantId, p.id), p.id, exameId, deps)).rejects.toThrow('exames: só a sessão nutri');
+  });
+});
+
+describe('RNF-371 (T5b, R22-23): desempenho com catálogo de 500 e 50 exames × 50 linhas', () => {
+  it('a aba lê o catálogo uma vez, classifica as 2500 linhas em memória e abrirExame responde em < 800 ms (também lendo o catálogo uma vez)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const faixa = (i: number): FaixaDoConsultorio => ({ ...DEFICIENCIA, abaixoDe: i + 1, categoria: 'Baixo' });
+    await withTenant(
+      T.ctx,
+      (tx) => tx.insert(examesCatalogo).values(Array.from({ length: 500 }, (_, i) => ({ tenantId: T.tenantId, nome: `Marcador ${i}`, unidade: 'mg/dL', sinonimos: [`Outro nome ${i}`], faixas: [faixa(i)] }))),
+      app.db,
+    );
+    const linhas = Array.from({ length: 50 }, (_, j) => ({ nome: `Marcador ${j * 10}`, valor: j, unidade: 'mg/dL', referencia: '1 a 40', refMin: 1, refMax: 40 }));
+    const ids = await withTenant(
+      T.ctx,
+      (tx) =>
+        tx
+          .insert(exams)
+          .values(Array.from({ length: 50 }, (_, k) => ({ tenantId: T.tenantId, patientId: p.id, data: `2026-0${1 + (k % 9)}-1${k % 10}`, titulo: `Exame ${k}`, valores: linhas })))
+          .returning({ id: exams.id }),
+      app.db,
+    );
+    expect(ids).toHaveLength(50);
+
+    const consultas: string[] = [];
+    const instrumentado = drizzle({ client: app.pool, schema, logger: { logQuery: (q) => void consultas.push(q) } });
+    const doCatalogo = () => consultas.filter((q) => /from "exames_catalogo"/.test(q)).length;
+
+    // a aba Exames: a lista e as bibliotecas (catálogo + modelos) — o catálogo uma vez; a classificação em memória
+    const inicioDaAba = performance.now();
+    const lista = await listarExames(T.ctx, p.id, instrumentado);
+    const { catalogo } = await bibliotecasParaExames(T.ctx, { db: instrumentado });
+    const indice = indiceDoCatalogo(catalogo);
+    const classificadas = lista.flatMap((e) => e.valores.map((v) => classificarLinha(v, indice, { sexo: p.sexo, dataNascimento: p.dataNascimento }, e.data)));
+    const tempoDaAba = performance.now() - inicioDaAba;
+    expect(lista).toHaveLength(50);
+    expect(catalogo).toHaveLength(500);
+    expect(classificadas).toHaveLength(2500);
+    expect(classificadas.filter((c) => c.casado).length).toBe(2500);
+    expect(classificadas.some((c) => c.categoria?.nome === 'Baixo')).toBe(true);
+    expect(doCatalogo()).toBe(1);
+    expect(tempoDaAba).toBeLessThan(800);
+
+    consultas.length = 0;
+    const inicio = performance.now();
+    const aberto = await abrirExame(T.ctx, p.id, ids[0].id, { db: instrumentado });
+    const tempo = performance.now() - inicio;
+    expect(aberto?.linhas).toHaveLength(50);
+    expect(doCatalogo()).toBe(1);
+    expect(tempo).toBeLessThan(800);
   });
 });

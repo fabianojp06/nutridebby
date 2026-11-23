@@ -11,6 +11,8 @@ export type IdsDoPainel = {
   modeloSolicitacao: string;
   /** Plano 22 (T4): um exame do paciente, lançado e editado pela UI (a tela de versões com uma versão). */
   exame: string;
+  /** Plano 22 (T5b): um segundo exame do mesmo paciente, lançado pela UI (o comparativo com dois exames). */
+  exameComparar: string;
 };
 
 /**
@@ -92,4 +94,6 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/pacientes/[id]/exames/[exameId]/versoes': (i) => `/painel/pacientes/${i.paciente}/exames/${i.exame}/versoes`,
   // Plano 22 (T5a): o detalhe do exame (classificação, "Ver referência" e a nota de interpretação)
   '/painel/pacientes/[id]/exames/[exameId]': (i) => `/painel/pacientes/${i.paciente}/exames/${i.exame}`,
+  // Plano 22 (T5b): o comparativo com os dois exames do paciente (a tabela marcador × datas)
+  '/painel/pacientes/[id]/exames/comparativo': (i) => `/painel/pacientes/${i.paciente}/exames/comparativo?ids=${i.exame}&ids=${i.exameComparar}`,
 };

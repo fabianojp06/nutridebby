@@ -23,6 +23,8 @@ export type ItemParaLancamento = ExameParaCasar;
 export type { ExameCatalogoRow };
 
 const E = MSG_EXAMES.erros;
+/** A mensagem técnica do nome repetido (a do campo cita o nome; RNF-370). */
+const NOME_REPETIDO = 'exames: nome repetido no catálogo';
 
 export function exigirNutri(ctx: TenantContext): void {
   if (ctx.role !== 'nutri') throw new Error('exames: só a sessão nutri');
@@ -142,9 +144,9 @@ export async function salvarExameDoCatalogo(
         if (!atual && todos.length >= CATALOGO_MAX) throw new CatalogoError({ geral: E.catalogoCheio });
         const usados = nomesUsados(todos, id ?? undefined);
         const doNome = usados.get(normalizarNome(v.nome));
-        if (doNome) throw new CatalogoError({ nome: E.nomeRepetido(doNome) });
+        if (doNome) throw new CatalogoError({ nome: E.nomeRepetido(doNome) }, NOME_REPETIDO);
         const doOutro = v.sinonimos.map((s) => usados.get(normalizarNome(s))).find(Boolean);
-        if (doOutro) throw new CatalogoError({ sinonimos: E.nomeRepetido(doOutro) });
+        if (doOutro) throw new CatalogoError({ sinonimos: E.nomeRepetido(doOutro) }, NOME_REPETIDO);
         // RN-374: com faixas gravadas, a unidade não muda (a não ser que a gravação tire todas as faixas junto)
         if (atual && comFaixas && v.faixas.length && normUnidade(v.unidade) !== normUnidade(atual.unidade)) throw new CatalogoError({ unidade: E.trocarUnidade });
 
@@ -169,7 +171,7 @@ export async function salvarExameDoCatalogo(
     );
   } catch (e) {
     // a barreira do banco (o índice do nome): a mesma mensagem
-    if (uniqueViolation(e) === 'exames_catalogo_nome_unico') throw new CatalogoError({ nome: E.nomeRepetido(nomeTentado) });
+    if (uniqueViolation(e) === 'exames_catalogo_nome_unico') throw new CatalogoError({ nome: E.nomeRepetido(nomeTentado) }, NOME_REPETIDO);
     throw e;
   }
 }

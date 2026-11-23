@@ -6,6 +6,7 @@ import {
   account,
   anthropometry,
   consents,
+  examesCatalogo,
   finCategorias,
   finConfiguracoes,
   iaNutriConsentimentos,
@@ -229,6 +230,48 @@ await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
   await tx
     .insert(finCategorias)
     .values(CATEGORIAS_INICIAIS.map((c) => ({ tenantId: consultorio.id, ...c })))
+    .onConflictDoNothing();
+}, db);
+
+// Plano 22 (T5b, CS-371): o catálogo de exames do consultório do E2E — o painel "Hemograma completo" com 20 componentes
+// (cada um também no catálogo, com a unidade: "Adicionar do catálogo" monta as 20 linhas com nome e unidade) e "Ferritina"
+// com uma faixa do consultório. Repetível: o nome é único no consultório (ON CONFLICT DO NOTHING)
+const COMPONENTES_DO_HEMOGRAMA: [string, string][] = [
+  ['Hemácias', 'milhões/µL'],
+  ['Hemoglobina', 'g/dL'],
+  ['Hematócrito', '%'],
+  ['VCM', 'fL'],
+  ['HCM', 'pg'],
+  ['CHCM', 'g/dL'],
+  ['RDW', '%'],
+  ['Leucócitos', '/µL'],
+  ['Promielócitos', '/µL'],
+  ['Mielócitos', '/µL'],
+  ['Metamielócitos', '/µL'],
+  ['Bastonetes', '/µL'],
+  ['Segmentados', '/µL'],
+  ['Neutrófilos', '/µL'],
+  ['Eosinófilos', '/µL'],
+  ['Basófilos', '/µL'],
+  ['Linfócitos', '/µL'],
+  ['Monócitos', '/µL'],
+  ['Plaquetas', '/µL'],
+  ['VPM', 'fL'],
+];
+await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
+  await tx
+    .insert(examesCatalogo)
+    .values([
+      { tenantId: consultorio.id, nome: 'Hemograma completo', unidade: null, componentes: COMPONENTES_DO_HEMOGRAMA.map(([nome]) => nome) },
+      ...COMPONENTES_DO_HEMOGRAMA.map(([nome, unidade]) => ({ tenantId: consultorio.id, nome, unidade })),
+      {
+        tenantId: consultorio.id,
+        nome: 'Ferritina',
+        unidade: 'ng/mL',
+        sinonimos: ['Ferritina sérica'],
+        faixas: [{ sexo: null, idadeMin: 18, idadeMax: null, aPartirDe: null, abaixoDe: 15, categoria: 'Baixo', fonte: 'Laboratório do E2E, 2026', atualizadaEm: '2026-11-01' }],
+      },
+    ])
     .onConflictDoNothing();
 }, db);
 

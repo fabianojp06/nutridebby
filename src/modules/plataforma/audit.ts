@@ -79,8 +79,9 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   // Plano 20 (RN-319): escritas de fin_lancamentos (gatilho), leituras de um paciente (RN-318) e o CSV (RN-321). A entidade
   // `financeiro_configuracoes` (RN-320) não tem paciente e fica fora do Histórico do paciente: sem rótulo
   financeiro: 'Financeiro',
-  // Plano 22 (RN-378, RN-383, EP-D61): versões anteriores do exame e nota de interpretação (gatilhos de exam_versoes e
-  // exam_interpretacoes, rls_exames_catalogo); a nota tem entidade própria para não se confundir com o exame no Histórico
+  // Plano 22 (RN-378, RN-383, EP-D61): versões anteriores do exame e nota de interpretação (gatilhos das duas tabelas
+  // filhas do exame, migration rls_exames_catalogo); a nota tem entidade própria para não se confundir com o exame no
+  // Histórico. Sem o nome das tabelas aqui: este arquivo é alcançável pela IA (guarda da RN-399, exames/guardas.test.ts)
   exames_versoes: 'Versões do exame',
   exames_nota: 'Nota de interpretação do exame',
 };
