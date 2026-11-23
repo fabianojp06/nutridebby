@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
+import { esperarBloqueio } from '../../../test/mensagens';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import type { Db } from '@/db/client';
 import { withTenant } from '@/db/tenant';
@@ -8,7 +9,11 @@ import { MSG_MENSAGENS } from './constantes';
 import { dentroDoHorario, horarioParaPaciente, lerConfiguracao, resumoDoHorario, salvarConfiguracao, validarFaixas, type Faixa } from './horario';
 
 const app = makeDb(inject('appDatabaseUrl'));
-afterAll(() => app.pool.end());
+const owner = makeDb(inject('ownerDatabaseUrl'));
+afterAll(async () => {
+  await app.pool.end();
+  await owner.pool.end();
+});
 
 const FUSO = 'America/Sao_Paulo';
 const brt = (s: string) => new Date(`${s}-03:00`);
@@ -149,6 +154,37 @@ describe('Plano 25 — configuração no banco (RN-451, RN-458, RN-472; CH-D70)'
       mensagem: C.sobreposicao,
     });
     expect(await lerConfiguracao(T.ctx, app.db)).toEqual({ horarioAtivo: true, avisoEmail: true, faixas: UTEIS });
+  });
+
+  it('dois salvamentos ao mesmo tempo: o segundo espera a linha travada e ficam só as faixas dele', async () => {
+    const T = await novoTenant(app.db);
+    await salvarConfiguracao(T.ctx, { horarioAtivo: true, avisoEmail: true, faixas: [f(1, '08:00', '09:00')] }, app.db);
+    const primeiro = [f(2, '09:00', '12:00'), f(4, '09:00', '12:00')];
+    const segundo = [f(3, '14:00', '18:00')];
+    const outra = await app.pool.connect();
+    let fechada = false;
+    try {
+      // o primeiro salvamento: a linha travada, as faixas trocadas, ainda sem commit
+      await outra.query('begin');
+      await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true), set_config('app.user_id', $2, true)`, [T.tenantId, T.nutriId]);
+      await outra.query('select 1 from chat_configuracoes where tenant_id = $1 for update', [T.tenantId]);
+      const pid = (await outra.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const r = salvarConfiguracao(T.ctx, { horarioAtivo: false, avisoEmail: true, faixas: segundo }, app.db).then(
+        (x) => x,
+        (e: unknown) => e,
+      );
+      await esperarBloqueio(owner.pool, pid);
+      await outra.query('delete from chat_horarios where tenant_id = $1', [T.tenantId]);
+      for (const x of primeiro)
+        await outra.query('insert into chat_horarios (tenant_id, dia_semana, inicio_min, fim_min) values ($1, $2, $3, $4)', [T.tenantId, x.diaSemana, x.inicioMin, x.fimMin]);
+      await outra.query('commit');
+      fechada = true;
+      expect(await r).toBe('ok');
+    } finally {
+      if (!fechada) await outra.query('rollback').catch(() => undefined);
+      outra.release();
+    }
+    expect(await lerConfiguracao(T.ctx, app.db)).toEqual({ horarioAtivo: false, avisoEmail: true, faixas: segundo });
   });
 
   it('horarioParaPaciente: o paciente vê o horário, nunca o aviso à nutricionista (teste das chaves)', async () => {

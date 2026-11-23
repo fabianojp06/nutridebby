@@ -84,7 +84,8 @@ const ariaMensagens = (n: number) => plural(n, 'Mensagens, 1 não lida', `Mensag
 /** 1000 → "1.000" (sem depender do ICU do servidor). */
 const milhar = (n: number) => String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
-const carimbo = (nome: string, crn: string) => `${nome} · Nutricionista · CRN ${crn}`;
+/** RN-471 (v0.4): `crn` já vem com o prefixo ("CRN-4 12345", `CRN_REGEX`): o modelo não repete "CRN". */
+const carimbo = (nome: string, crn: string) => `${nome} · Nutricionista · ${crn}`;
 const SEM_CARIMBO_ENVIO = 'Para enviar, preencha seu nome e seu CRN em Configurações.';
 const FORMATO = 'Formato de arquivo não permitido.';
 const TAMANHO = 'O arquivo passa de 10 MB.';
@@ -174,12 +175,12 @@ export const MSG_MENSAGENS = {
     botao: 'Liberar conversa',
     titulo: (nome: string) => `Liberar a conversa com ${nome}?`,
     texto:
-      'A conversa por mensagens é atendimento a distância (telenutrição). Antes de liberar, explique ao paciente as possibilidades e os limites do atendimento por mensagens, colha a ciência e a concordância dele com o TCLE de telenutrição, envie a ele o comprovante e guarde uma cópia. As mensagens ficam no prontuário.',
+      'A conversa por mensagens é atendimento a distância (telenutrição). Antes de liberar, explique ao paciente as possibilidades, os limites e as fragilidades do atendimento por mensagens e que as mensagens ficam guardadas no prontuário, colha a ciência e a concordância dele com o TCLE de telenutrição, envie a ele o comprovante e guarde uma cópia.',
     /** O mesmo texto da RN-404 do Plano 23, sem o número da resolução até o DOU ser conferido. */
     avisoENutricionista: 'Antes do primeiro atendimento online, faça o cadastro no e-Nutricionista e colha o TCLE de telenutrição, guardando o comprovante.',
-    perguntaForma: 'Como o paciente concordou?',
+    perguntaForma: 'Como o paciente (ou o responsável legal) concordou?',
     opcaoInicial: 'Escolha',
-    confirmacao: 'O paciente deu ciência e concordou com o TCLE de telenutrição, e enviei a ele o comprovante.',
+    confirmacao: 'O paciente, ou o responsável legal, deu ciência e concordou com o TCLE de telenutrição, e enviei a ele o comprovante.',
     liberar: 'Liberar',
     cancelar: 'Cancelar',
     erro: 'Escolha como o paciente concordou e marque a confirmação.',
@@ -295,11 +296,12 @@ export const MSG_PORTAL_MENSAGENS = {
     aria: ariaMensagens,
   },
   titulo: 'Mensagens',
-  conversaCom: (nome: string, crn: string) => `Conversa com ${nome}, nutricionista, CRN ${crn}`,
+  conversaCom: (nome: string, crn: string) => `Conversa com ${nome}, nutricionista, ${crn}`,
   /** RN-450: sempre no topo da conversa. */
   avisoUrgencia: 'Este canal não é para urgências. Em caso de urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo.',
   horario: (resumo: string) => `Horário de atendimento por mensagens: ${resumo}.`,
-  foraDoHorario: 'Agora é fora do horário de atendimento por mensagens. Sua mensagem fica guardada e é lida no próximo horário.',
+  /** CH-D73: sem prometer prazo de leitura. */
+  foraDoHorario: 'Agora é fora do horário de atendimento por mensagens. Sua mensagem fica guardada e será lida quando sua nutricionista voltar ao atendimento por mensagens.',
   semHorario: 'Sua nutricionista ainda não definiu o horário de atendimento por mensagens.',
   campo: 'Escreva sua mensagem',
   enviar: 'Enviar',
@@ -310,7 +312,7 @@ export const MSG_PORTAL_MENSAGENS = {
   removerFoto: 'Remover foto',
   voce: 'Você',
   carimbo,
-  carimboRecado: (nome: string, crn: string) => `Recado do consultório · ${nome} · CRN ${crn}`,
+  carimboRecado: (nome: string, crn: string) => `Recado do consultório · ${nome} · ${crn}`,
   enviada: 'Enviada',
   lida: 'Lida',
   foto: 'Foto',
@@ -343,7 +345,7 @@ export const MSG_PORTAL_MENSAGENS = {
   ajuda: {
     pergunta: 'Posso usar as Mensagens numa urgência?',
     resposta:
-      'Não. Em caso de urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo. Sua nutricionista lê as mensagens no horário de atendimento, e a conversa fica guardada no seu prontuário.',
+      'Não. Em caso de urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo. Sua nutricionista lê as mensagens no horário de atendimento por mensagens, não em tempo real, e a conversa fica guardada no seu prontuário.',
   },
 } as const;
 

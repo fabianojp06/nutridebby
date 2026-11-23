@@ -153,8 +153,13 @@ async function travarParaPausa(tx: Tx, ctx: TenantContext, patientId: string) {
 /**
  * US-450 e RN-442: pausa a conversa — nem paciente nem nutricionista enviam mensagem individual; recados continuam. A
  * liberação não se desfaz. Titular arquivado, bloqueado ou anonimizado: a conversa é só para consulta (`titular_inativo`).
+ * CH-D74: a linha guarda o nome e o CRN do momento (gatilho); sem o carimbo do consultório, `sem_carimbo`.
  */
-export async function pausarConversa(ctx: TenantContext, patientId: string, db: Db = getDb()): Promise<'ok' | 'nao_liberada' | 'ja_pausada' | 'titular_inativo'> {
+export async function pausarConversa(
+  ctx: TenantContext,
+  patientId: string,
+  db: Db = getDb(),
+): Promise<'ok' | 'nao_liberada' | 'ja_pausada' | 'titular_inativo' | 'sem_carimbo'> {
   exigirNutri(ctx);
   return withTenant(
     ctx,
@@ -163,7 +168,9 @@ export async function pausarConversa(ctx: TenantContext, patientId: string, db: 
       if (inativo) return 'titular_inativo';
       if (!c?.liberadaEm) return 'nao_liberada';
       if (c.pausadaEm) return 'ja_pausada';
-      // pausada_em: o gatilho grava clock_timestamp(); pausada_por: o gatilho confere = app_current_user()
+      // CH-D74: a pausa grava o nome e o CRN do momento (gatilho); sem o carimbo do consultório, o gatilho recusa
+      if (!(await temCarimbo(tx, ctx.tenantId))) return 'sem_carimbo';
+      // pausada_em, pausada_nome e pausada_crn: o gatilho grava; pausada_por: o gatilho confere = app_current_user()
       await tx.update(chatConversas).set({ pausadaEm: sql`now()`, pausadaPor: ctx.actorUserId!, updatedAt: sql`now()` }).where(eq(chatConversas.id, c.id));
       await recordAudit(tx, { acao: 'criar', entidade: 'chat_pausa', entidadeId: c.id, patientId: p.id });
       return 'ok';

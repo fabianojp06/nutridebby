@@ -11,6 +11,7 @@ import {
   RISCO_DO_TEXTO_FIXO,
   ROTULO_FORMA_TCLE,
   SOCORRO_DO_RISCO,
+  TEXTOS_AVISO,
   erroDoUpload,
   rotuloDoQuando,
 } from './constantes';
@@ -45,12 +46,12 @@ describe('Plano 25 — textos da liberação e da pausa (§6.2, RN-441, RN-442)'
     expect(L.botao).toBe('Liberar conversa');
     expect(L.titulo('Ana Souza')).toBe('Liberar a conversa com Ana Souza?');
     expect(L.texto).toBe(
-      'A conversa por mensagens é atendimento a distância (telenutrição). Antes de liberar, explique ao paciente as possibilidades e os limites do atendimento por mensagens, colha a ciência e a concordância dele com o TCLE de telenutrição, envie a ele o comprovante e guarde uma cópia. As mensagens ficam no prontuário.',
+      'A conversa por mensagens é atendimento a distância (telenutrição). Antes de liberar, explique ao paciente as possibilidades, os limites e as fragilidades do atendimento por mensagens e que as mensagens ficam guardadas no prontuário, colha a ciência e a concordância dele com o TCLE de telenutrição, envie a ele o comprovante e guarde uma cópia.',
     );
     expect(L.avisoENutricionista).toBe('Antes do primeiro atendimento online, faça o cadastro no e-Nutricionista e colha o TCLE de telenutrição, guardando o comprovante.');
-    expect(L.perguntaForma).toBe('Como o paciente concordou?');
+    expect(L.perguntaForma).toBe('Como o paciente (ou o responsável legal) concordou?');
     expect(L.opcaoInicial).toBe('Escolha');
-    expect(L.confirmacao).toBe('O paciente deu ciência e concordou com o TCLE de telenutrição, e enviei a ele o comprovante.');
+    expect(L.confirmacao).toBe('O paciente, ou o responsável legal, deu ciência e concordou com o TCLE de telenutrição, e enviei a ele o comprovante.');
     expect([L.liberar, L.cancelar, L.erro, L.sucesso, L.semCarimbo]).toEqual([
       'Liberar',
       'Cancelar',
@@ -165,3 +166,48 @@ describe('Plano 25 — rotuloDoQuando (§6.2, caixa)', () => {
     expect(rotuloDoQuando(brt('2026-11-23T20:00:00'), brt('2026-11-23T21:30:00'), FUSO)).toBe('há 1 h');
   });
 });
+
+describe('Plano 25 v0.4 — identificação profissional sem "CRN CRN" (RN-471, revisão CFN)', () => {
+  const CRN = 'CRN-4 12345'; // tenants.crn já vem com o prefixo (CRN_REGEX)
+  it('os modelos que levam o CRN não repetem o prefixo', () => {
+    const textos = [
+      MSG_MENSAGENS.conversa.carimbo('Debora Rodrigues', CRN),
+      MSG_PORTAL_MENSAGENS.carimbo('Debora Rodrigues', CRN),
+      MSG_PORTAL_MENSAGENS.conversaCom('Debora Rodrigues', CRN),
+      MSG_PORTAL_MENSAGENS.carimboRecado('Debora Rodrigues', CRN),
+    ];
+    expect(textos).toEqual([
+      'Debora Rodrigues · Nutricionista · CRN-4 12345',
+      'Debora Rodrigues · Nutricionista · CRN-4 12345',
+      'Conversa com Debora Rodrigues, nutricionista, CRN-4 12345',
+      'Recado do consultório · Debora Rodrigues · CRN-4 12345',
+    ]);
+    for (const t of textos) expect(t).not.toMatch(/CRN\s+CRN/);
+  });
+
+  it('nenhuma função de texto do módulo, com o CRN como argumento, produz "CRN CRN"', () => {
+    const visitar = (o: unknown): string[] =>
+      typeof o === 'function'
+        ? [String((o as (...a: string[]) => unknown)(...Array.from({ length: (o as () => unknown).length }, () => CRN)))]
+        : o && typeof o === 'object'
+          ? Object.values(o).flatMap(visitar)
+          : [];
+    const saidas = [MSG_MENSAGENS, MSG_RECADOS, MSG_PORTAL_MENSAGENS, TEXTOS_AVISO].flatMap(visitar);
+    expect(saidas.length).toBeGreaterThan(20);
+    expect(saidas.filter((t) => /CRN\s+CRN/.test(t))).toEqual([]);
+  });
+});
+
+describe('Plano 25 v0.4 — CH-D73: nenhum texto promete prazo de leitura', () => {
+  it('fora do horário e a ajuda do portal', () => {
+    expect(MSG_PORTAL_MENSAGENS.foraDoHorario).toBe(
+      'Agora é fora do horário de atendimento por mensagens. Sua mensagem fica guardada e será lida quando sua nutricionista voltar ao atendimento por mensagens.',
+    );
+    expect(MSG_PORTAL_MENSAGENS.ajuda.resposta).toBe(
+      'Não. Em caso de urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo. Sua nutricionista lê as mensagens no horário de atendimento por mensagens, não em tempo real, e a conversa fica guardada no seu prontuário.',
+    );
+    const todos = JSON.stringify([MSG_MENSAGENS, MSG_RECADOS, MSG_PORTAL_MENSAGENS]);
+    expect(todos).not.toMatch(/próximo horário|é lida no|lida em até|responde em/i);
+  });
+});
+

@@ -351,6 +351,53 @@ describe('Plano 25 — pausar e retomar (US-450, RN-442, CH-D39)', () => {
     }
   });
 
+  it('pausar e retomar esperam também quem segura o paciente com FOR KEY SHARE (é FOR UPDATE, não NO KEY UPDATE)', async () => {
+    const T = await consultorio();
+    const p = await novoPaciente(app.db, T.ctx);
+    await liberarConversa(T.ctx, p.id, { forma: 'aceite_escrito', confirmou: true }, app.db);
+    for (const acao of [pausarConversa, retomarConversa]) {
+      const outra = await app.pool.connect();
+      let fechada = false;
+      try {
+        // FOR KEY SHARE: a trava da FK (o INSERT de uma mensagem do paciente, o marcador de leitura); com FOR NO KEY UPDATE, a
+        // pausa não esperaria
+        await outra.query('begin');
+        await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
+        await outra.query('select 1 from patients where id = $1 for key share', [p.id]);
+        const pid = (await outra.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+        const r = acao(T.ctx, p.id, app.db).then(
+          (x) => x,
+          (e: unknown) => e,
+        );
+        await esperarBloqueio(pid);
+        await outra.query('commit');
+        fechada = true;
+        expect(await r).toBe('ok');
+      } finally {
+        if (!fechada) await outra.query('rollback').catch(() => undefined);
+        outra.release();
+      }
+    }
+  });
+
+  it('CH-D74: a pausa guarda o nome e o CRN do momento; a retomada os limpa; sem carimbo → sem_carimbo e nada gravado', async () => {
+    const T = await consultorio();
+    await owner.pool.query('update tenants set nome_profissional = $1, crn = $2 where id = $3', ['Debora Rodrigues', 'CRN-4 12345', T.tenantId]);
+    const p = await novoPaciente(app.db, T.ctx);
+    await liberarConversa(T.ctx, p.id, { forma: 'aceite_escrito', confirmou: true }, app.db);
+    const carimbos = async () =>
+      (await em(T.ctx, sql`select liberada_nome, liberada_crn, pausada_nome, pausada_crn from chat_conversas where patient_id = ${p.id}`))[0];
+    expect(await carimbos()).toEqual({ liberada_nome: 'Debora Rodrigues', liberada_crn: 'CRN-4 12345', pausada_nome: null, pausada_crn: null });
+    expect(await pausarConversa(T.ctx, p.id, app.db)).toBe('ok');
+    expect(await carimbos()).toMatchObject({ pausada_nome: 'Debora Rodrigues', pausada_crn: 'CRN-4 12345' });
+    expect(await retomarConversa(T.ctx, p.id, app.db)).toBe('ok');
+    expect(await carimbos()).toMatchObject({ pausada_nome: null, pausada_crn: null });
+    await owner.pool.query('update tenants set crn = null where id = $1', [T.tenantId]);
+    expect(await pausarConversa(T.ctx, p.id, app.db)).toBe('sem_carimbo');
+    expect(await conversaDe(T, p.id)).toMatchObject({ pausada_em: null });
+    expect((await auditoria(T, p.id)).filter((a) => a.entidade === 'chat_pausa')).toHaveLength(1);
+  });
+
   it('titular arquivado ou bloqueado: pausar e retomar → titular_inativo (conversa só para consulta)', async () => {
     const T = await consultorio();
     const p = await novoPaciente(app.db, T.ctx);
