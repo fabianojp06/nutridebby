@@ -1,6 +1,6 @@
 {
-  "id": "b1a86aef-03bd-4317-93ef-c3e1a6e1345a",
-  "prevId": "086a29ae-94a4-41bc-a009-24ad8d58b0b1",
+  "id": "f5c5690d-8422-4d0b-8414-158c14084a8d",
+  "prevId": "71bfffb9-d9ea-4ff6-a5c7-364ed547b7f2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -11423,6 +11423,59 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.chat_avisos_nutri": {
+      "name": "chat_avisos_nutri",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "aviso_email": {
+          "name": "aviso_email",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "aviso_nutri_em": {
+          "name": "aviso_nutri_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "chat_avisos_nutri_tenant_id_tenants_id_fk": {
+          "name": "chat_avisos_nutri_tenant_id_tenants_id_fk",
+          "tableFrom": "chat_avisos_nutri",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "tableTo": "tenants",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.chat_configuracoes": {
       "name": "chat_configuracoes",
       "schema": "",
@@ -11439,19 +11492,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
-        },
-        "aviso_email": {
-          "name": "aviso_email",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "aviso_nutri_em": {
-          "name": "aviso_nutri_em",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         },
         "updated_at": {
           "name": "updated_at",

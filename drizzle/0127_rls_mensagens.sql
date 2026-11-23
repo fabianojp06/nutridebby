@@ -19,6 +19,14 @@ SELECT app_enable_tenant_rls('chat_configuracoes');
 --> statement-breakpoint
 SELECT app_enable_tenant_rls('chat_horarios');
 --> statement-breakpoint
+-- CH-D70 (decisão da orquestradora, 23/11/2026): a preferência e a marca do aviso por e-mail à nutricionista (RN-458) ficam
+-- numa tabela só da equipe — pela data da marca, o paciente saberia que outro paciente escreveu nas últimas 2 h. Sem
+-- patient_id: sem patient_isolation e sem gatilho de auditoria. A sessão de paciente só chega à linha pela função
+-- app_chat_aviso_nutri_devido (SECURITY DEFINER, troca de papel para o worker).
+SELECT app_enable_tenant_rls('chat_avisos_nutri');
+--> statement-breakpoint
+SELECT app_enable_staff_only('chat_avisos_nutri');
+--> statement-breakpoint
 SELECT app_enable_tenant_rls('recados');
 --> statement-breakpoint
 -- §9.5 (RN-462): o recado e o filtro (etiquetas) são só da equipe; o paciente lê a cópia na própria conversa
@@ -105,6 +113,10 @@ REVOKE DELETE, TRUNCATE ON chat_conversas, chat_leituras FROM nutri_app_role;
 REVOKE UPDATE, DELETE, TRUNCATE ON chat_mensagens FROM nutri_app_role;
 --> statement-breakpoint
 GRANT UPDATE (anexo_status, anexo_path, anexo_original_path, updated_at) ON chat_mensagens TO nutri_app_role;
+--> statement-breakpoint
+-- CH-D70 (molde fin_configuracoes, 0123): a linha do consultório não se apaga — apagá-la religaria o e-mail e zeraria a
+-- janela de 2 h do aviso; nada no app precisa apagá-la (sem paciente, a anonimização não a toca)
+REVOKE DELETE, TRUNCATE ON chat_avisos_nutri FROM nutri_app_role;
 --> statement-breakpoint
 -- §9.5: o recado é só de inclusão
 REVOKE UPDATE, DELETE, TRUNCATE ON recados FROM nutri_app_role;

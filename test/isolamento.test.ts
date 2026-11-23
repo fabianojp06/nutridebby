@@ -198,6 +198,8 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   chat_leituras: (t, p) => sql`insert into chat_leituras (tenant_id, patient_id, lado, lida_ate) values (${t}, ${p}, 'paciente', now())`,
   // uma linha por consultório (a fábrica roda duas vezes por tenant); a WITH CHECK do INSERT roda antes do conflito
   chat_configuracoes: (t) => sql`insert into chat_configuracoes (tenant_id) values (${t}) on conflict do nothing`,
+  // CH-D70: a marca do aviso à nutricionista, uma linha por consultório (staff_only); como em chat_configuracoes
+  chat_avisos_nutri: (t) => sql`insert into chat_avisos_nutri (tenant_id) values (${t}) on conflict do nothing`,
   // a faixa muda a cada chamada (o EXCLUDE chat_horarios_sem_sobreposicao recusa a repetição)
   chat_horarios: (t) =>
     sql`insert into chat_horarios (tenant_id, dia_semana, inicio_min, fim_min)
@@ -222,16 +224,17 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autoriza
  * recusa o DELETE fora do worker (e, no worker, sem o titular anonimizado).
  */
 // Plano 20: fin_lancamentos (cancela-se, nunca se apaga) e fin_configuracoes (a linha do consultório) — DELETE revogado (0123)
-// Plano 25: chat_conversas e chat_leituras — DELETE revogado (0127; só app_chat_apagar_do_titular apaga)
-const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro', 'chat_conversas', 'chat_leituras']);
+// Plano 25: chat_conversas e chat_leituras — DELETE revogado (0127; só app_chat_apagar_do_titular apaga); chat_avisos_nutri
+// (CH-D70) — DELETE revogado (a linha do consultório)
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro', 'chat_conversas', 'chat_leituras', 'chat_avisos_nutri']);
 /**
  * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
  * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
  */
 // Plano 14B: ia_geracoes_modelos também tem DELETE/TRUNCATE revogados (0112).
 // Plano 20: fin_lancamentos e fin_configuracoes também (0123).
-// Plano 25: chat_conversas e chat_leituras também (0127).
-const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancamentos', 'fin_configuracoes', 'chat_conversas', 'chat_leituras']);
+// Plano 25: chat_conversas, chat_leituras e chat_avisos_nutri também (0127).
+const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancamentos', 'fin_configuracoes', 'chat_conversas', 'chat_leituras', 'chat_avisos_nutri']);
 /**
  * D19 (Plano 10A): os gatilhos de imutabilidade (0091, T2) — app_documento_imutavel, o das notas e app_codigo_acesso_regras
  * (colunas do código do link, R1 do pre-flight) — recusam mudar tenant_id/patient_id com 42501 ANTES do WITH CHECK da RLS

@@ -181,18 +181,31 @@ export const chatLeituras = pgTable(
 export type ChatLeituraRow = typeof chatLeituras.$inferSelect;
 
 /**
- * Plano 25 (spec §9.4, RN-457, RN-458): configuração das mensagens do consultório (uma linha por tenant). A sessão de
- * paciente lê (o módulo projeta só `horario_ativo`); escrita só da equipe. `aviso_nutri_em`: último e-mail de mensagens
- * novas à nutricionista (app_chat_aviso_nutri_devido).
+ * Plano 25 (spec §9.4, RN-457): configuração das mensagens do consultório (uma linha por tenant). A sessão de paciente lê
+ * (o módulo projeta só `horario_ativo`); escrita só da equipe. CH-D70: as colunas do aviso à nutricionista ficam em
+ * `chat_avisos_nutri` (staff_only), não aqui.
  */
 export const chatConfiguracoes = pgTable('chat_configuracoes', {
   tenantId: uuid('tenant_id').primaryKey().references(() => tenants.id),
   horarioAtivo: boolean('horario_ativo').notNull().default(false),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+export type ChatConfiguracaoRow = typeof chatConfiguracoes.$inferSelect;
+
+/**
+ * Plano 25 (RN-458; CH-D70, decisão da orquestradora em 23/11/2026): o aviso por e-mail à nutricionista de mensagens novas —
+ * a preferência (`aviso_email`, ligada por padrão) e a marca do último envio (`aviso_nutri_em`, no máximo um a cada 2 h).
+ * Tabela só da equipe (staff_only): pela data da marca, um paciente saberia que outro paciente escreveu nas últimas 2 h. A
+ * linha nasce em app_chat_aviso_nutri_devido (SECURITY DEFINER, no envio do paciente) ou na configuração da nutricionista.
+ * DELETE e TRUNCATE revogados (apagar a linha religaria o e-mail e zeraria a janela).
+ */
+export const chatAvisosNutri = pgTable('chat_avisos_nutri', {
+  tenantId: uuid('tenant_id').primaryKey().references(() => tenants.id),
   avisoEmail: boolean('aviso_email').notNull().default(true),
   avisoNutriEm: timestamp('aviso_nutri_em', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
-export type ChatConfiguracaoRow = typeof chatConfiguracoes.$inferSelect;
+export type ChatAvisoNutriRow = typeof chatAvisosNutri.$inferSelect;
 
 /**
  * Plano 25 (spec §9.4, RN-457): as faixas do horário de atendimento por mensagens, em minutos do dia no fuso do consultório

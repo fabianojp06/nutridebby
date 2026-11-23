@@ -1,8 +1,13 @@
+CREATE TABLE "chat_avisos_nutri" (
+	"tenant_id" uuid PRIMARY KEY NOT NULL,
+	"aviso_email" boolean DEFAULT true NOT NULL,
+	"aviso_nutri_em" timestamp with time zone,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "chat_configuracoes" (
 	"tenant_id" uuid PRIMARY KEY NOT NULL,
 	"horario_ativo" boolean DEFAULT false NOT NULL,
-	"aviso_email" boolean DEFAULT true NOT NULL,
-	"aviso_nutri_em" timestamp with time zone,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -108,6 +113,7 @@ CREATE TABLE "recados" (
 ALTER TABLE "notifications" DROP CONSTRAINT "notifications_tipo_valido";--> statement-breakpoint
 ALTER TABLE "ia_nutri_mensagens" DROP CONSTRAINT "ia_nutri_mensagens_resolucao";--> statement-breakpoint
 ALTER TABLE "stored_files" DROP CONSTRAINT "stored_files_tipo_valido";--> statement-breakpoint
+ALTER TABLE "chat_avisos_nutri" ADD CONSTRAINT "chat_avisos_nutri_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "chat_configuracoes" ADD CONSTRAINT "chat_configuracoes_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "chat_conversas" ADD CONSTRAINT "chat_conversas_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "chat_conversas" ADD CONSTRAINT "chat_conversas_paciente_fk" FOREIGN KEY ("tenant_id","patient_id") REFERENCES "public"."patients"("tenant_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

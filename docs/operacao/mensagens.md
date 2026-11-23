@@ -15,8 +15,8 @@ Este runbook nasce no PR 1 e é completado nas tarefas T5 (titular: exportação
 
 O PR 1 só **acrescenta** (spec §9.9, "expansão, nunca contração"):
 
-- duas migrations — a gerada `mensagens` (as seis tabelas novas: `chat_conversas`, `chat_mensagens`, `chat_leituras`,
-  `chat_configuracoes`, `chat_horarios` e `recados`, e os CHECKs ampliados) e a custom `rls_mensagens` (RLS, políticas,
+- duas migrations — a gerada `mensagens` (as sete tabelas novas: `chat_conversas`, `chat_mensagens`, `chat_leituras`,
+  `chat_configuracoes`, `chat_avisos_nutri`, `chat_horarios` e `recados`, e os CHECKs ampliados) e a custom `rls_mensagens` (RLS, políticas,
   auditoria, `REVOKE`/`GRANT`, o `EXCLUDE` do horário, os gatilhos e as funções). O número de cada uma é o que o
   `pnpm db:generate` der em cima da `main` do momento;
 - três CHECKs **ampliados** (só valores novos; os antigos continuam aceitos): `notifications.tipo` (+ `chat_mensagem`,
@@ -38,7 +38,7 @@ o código que usa as tabelas chega no PR 2.
 
 ### Volta atrás (PR 1)
 
-Voltar para a imagem anterior ao PR 1 **não exige desfazer nada no banco**. A imagem anterior não conhece as seis tabelas
+Voltar para a imagem anterior ao PR 1 **não exige desfazer nada no banco**. A imagem anterior não conhece as sete tabelas
 novas e simplesmente as ignora; os CHECKs ampliados aceitam todos os valores que ela grava; a política
 `paciente_arquivo_insert` refeita aceita os mesmos tipos de antes (mais um que ela nunca usa). Como nenhuma tela usa as
 tabelas antes do PR 2, elas estão vazias.

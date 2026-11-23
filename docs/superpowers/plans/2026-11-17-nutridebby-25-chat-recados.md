@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node 24 · Next.js 16 (App Router; ler `node_modules/next/dist/docs/` antes de rotas, layouts, Server Actions, Route Handlers e `Link`/prefetch) · Drizzle · PostgreSQL 16 (RLS) · Better Auth · pg-boss · Serwist (service worker do portal) · Vitest + Testcontainers · Playwright.
 
-**Spec:** `docs/superpowers/specs/2026-11-17-nutridebby-25-chat-recados-design.md` **v0.3** (v0.2 = painel de revisão, §17.1–17.2 da spec; v0.3 = revisão deste plano, §17.3 da spec e "Revisão do plano" no fim deste arquivo; decisões CH-D1 a CH-D48 na spec, CH-D49 a CH-D69 aqui). Backlog Paridade Dietbox, onda 3: PD-90 e PD-91. Plano conferido contra o código da `main` 07756c4 e contra os worktrees dos Planos 19 (`nutridebby-b`, 67b21d3), 20 PR 2 (`origin/plano-20-financeiro`), 21 (`nutridebby-21`, 1dab109), 22 (`nutridebby-22`, 0d1ab95), 23 (`nutridebby-c`, f660f60) e 26 (spec em `nutridebby-26`) em 17/11/2026: ver "Conferência do plano contra o código" no fim. As decisões novas deste plano continuam a numeração da spec (CH-D49 em diante) e vão para a spec no fechamento (T12).
+**Spec:** `docs/superpowers/specs/2026-11-17-nutridebby-25-chat-recados-design.md` **v0.3** (v0.2 = painel de revisão, §17.1–17.2 da spec; v0.3 = revisão deste plano, §17.3 da spec e "Revisão do plano" no fim deste arquivo; decisões CH-D1 a CH-D48 na spec, CH-D49 a CH-D70 aqui; a CH-D70 também já está na spec). Backlog Paridade Dietbox, onda 3: PD-90 e PD-91. Plano conferido contra o código da `main` 07756c4 e contra os worktrees dos Planos 19 (`nutridebby-b`, 67b21d3), 20 PR 2 (`origin/plano-20-financeiro`), 21 (`nutridebby-21`, 1dab109), 22 (`nutridebby-22`, 0d1ab95), 23 (`nutridebby-c`, f660f60) e 26 (spec em `nutridebby-26`) em 17/11/2026: ver "Conferência do plano contra o código" no fim. As decisões novas deste plano continuam a numeração da spec (CH-D49 em diante) e vão para a spec no fechamento (T12).
 
 ## Ambiente da sessão
 
@@ -140,7 +140,8 @@ export const TIPOS_FILTRO_RECADO = ['todos', 'etiquetas', 'local'] as const;
 export const chatConversas = pgTable('chat_conversas', { id, tenantId, patientId, liberadaEm, liberadaPor, tcleForma, pausadaEm, pausadaPor, createdAt, updatedAt }, …);
 export const chatMensagens = pgTable('chat_mensagens', { id, tenantId, patientId, autor, autorUserId, autorNome, autorCrn, texto, recadoId, duvidaEm, risco, anexoStatus, anexoPath, anexoOriginalPath, anexoTipo, anexoNome, anexoBytes, criadaEm, updatedAt }, …);
 export const chatLeituras = pgTable('chat_leituras', { tenantId, patientId, lado, lidaAte, updatedAt }, …);
-export const chatConfiguracoes = pgTable('chat_configuracoes', { tenantId, horarioAtivo, avisoEmail, avisoNutriEm, updatedAt });
+export const chatConfiguracoes = pgTable('chat_configuracoes', { tenantId, horarioAtivo, updatedAt });
+export const chatAvisosNutri = pgTable('chat_avisos_nutri', { tenantId, avisoEmail, avisoNutriEm, updatedAt }); // CH-D70: staff_only
 export const chatHorarios = pgTable('chat_horarios', { id, tenantId, diaSemana, inicioMin, fimMin }, …);
 export const recados = pgTable('recados', { id, tenantId, texto, filtro, filtroRotulo, destinatarios, autorNome, autorCrn, criadoPor, criadoEm }, …);
 ```
@@ -617,6 +618,7 @@ CH-D1 a CH-D48 (spec §14.1, v0.2), todas. As que mudam a forma das tarefas: CH-
 | CH-D67 | **`criada_em`/`criado_em` com `default clock_timestamp()` no esquema e as fábricas de `chat_mensagens` e `recados` com o carimbo; sementes (E2E e carga) sempre por `withTenant` com papel** | A T1a fica verde sem os gatilhos da T1b; sem papel, o gatilho devolve `NEW` cedo (RLS Minor 1, 11) |
 | CH-D68 | **A cópia do recado na conversa (rótulo e carimbo) é exibida desde o PR 2 (T6b, T7); a T10 só cria recados** | A T6 já pedia axe com recado na semente e a T7 já testava o rótulo; a conversa tem de mostrar qualquer linha que o banco aceita (RLS Minor 9) |
 | CH-D69 | **Textos novos (spec §6.2 v0.3):** conversa de titular anonimizado; `notFound()` para id inexistente ou de outro consultório; códigos fechados de `?erro=` sem JS; "Esta dúvida não está mais disponível."; erro de cota e genérico no portal; item de "Perguntas comuns" sobre urgência e prontuário | Telas que a spec não cobria (completude, Minor de telas) |
+| CH-D70 | **Marca do aviso à nutricionista em tabela `staff_only`:** `aviso_email` e `aviso_nutri_em` saem de `chat_configuracoes` para `chat_avisos_nutri` (`tenant_id` PK, `app_enable_staff_only`, `REVOKE DELETE, TRUNCATE`, em `STAFF_ONLY`, `FABRICAS`, `SEM_DELETE` e `DELETE_REVOGADO`); `app_chat_aviso_nutri_devido` lê e grava essa tabela (decisão da orquestradora, 23/11/2026) | O paciente lê `chat_configuracoes` (`horario_ativo`); pela data de `aviso_nutri_em` saberia que outro paciente escreveu nas últimas 2 h. A defesa fica no banco, não só na projeção do módulo |
 
 ## Revisão do plano (17/11/2026)
 

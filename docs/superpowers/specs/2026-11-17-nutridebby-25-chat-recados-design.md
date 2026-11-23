@@ -9,7 +9,7 @@
 | Quando | **Plano 25**, em paralelo com o Plano 26 (`nutridebby-26`) da onda 3, e depois dos Planos 19 (`nutridebby-b`), 20 PR 2 (`plano-20-financeiro`), 21 (`nutridebby-21`), 22 (`nutridebby-22`) e 23 (`nutridebby-23`/`nutridebby-c`), ainda abertos. Regras de convivência em `docs/operacao/sessoes-paralelas.md`. O Plano 24 (migração do Dietbox) foi descartado pelo dono em 17/11/2026 |
 | Insumos | `.sessoes/onda3-briefing.md` (seção do Plano 25); levantamento do código (§1.3); specs e planos em andamento (§13). Referência funcional: o chat e o "Enviar recado" do Dietbox. **Copiamos a função, nunca a marca, os textos ou o layout** |
 | Documentos de base | [`2026-10-03-nutridebby-paciente-exames-ia-design.md`](2026-10-03-nutridebby-paciente-exames-ia-design.md) (F3-02: IA Nutri, D24, RN-177, US-175; F3-04: envio de exame), [`2026-11-16-nutridebby-18-ficha-cadastro-design.md`](2026-11-16-nutridebby-18-ficha-cadastro-design.md) (registro de seções, D12, RN-277; formato), [`2026-11-17-nutridebby-23-agenda-2-design.md`](../../../../nutridebby-23/docs/superpowers/specs/2026-11-17-nutridebby-23-agenda-2-design.md) no worktree do 23 (locais, RN-404, RN-436; formato), plano do Plano 06 (portal, push, D1) e o manual técnico, caps. [02](../../manual-tecnico/02-banco-de-dados.md) e [05](../../manual-tecnico/05-agenda-portal-conteudo.md) |
-| Numeração nova | US-440 a US-452 · RN-440 a RN-475 · RNF-440 a RNF-448 · CS-440 a CS-445 · C-440 a C-449 · R-440 a R-455 · DEP-CH1 a DEP-CH10 · PM-CH1 a PM-CH12 · P-CH1 a P-CH6 · **CH-D1 a CH-D48** (decisões deste documento; fora dele, cite "Plano 25, CH-Dn"; as CH-D49 a CH-D69 estão no plano e entram aqui no fechamento, T12). O **bloco 440–479** é do Plano 25 (decisão da orquestradora em 17/11, ~11h40 UTC: o 23 vai até 439, o 26 usa 480–519); conferido com `grep -rhoE '\b(US\|RN\|RNF)-4[4-9][0-9]\b'` na `main` e nos worktrees em 17/11/2026 (nenhum uso) |
+| Numeração nova | US-440 a US-452 · RN-440 a RN-475 · RNF-440 a RNF-448 · CS-440 a CS-445 · C-440 a C-449 · R-440 a R-455 · DEP-CH1 a DEP-CH10 · PM-CH1 a PM-CH12 · P-CH1 a P-CH6 · **CH-D1 a CH-D48** (decisões deste documento; fora dele, cite "Plano 25, CH-Dn"; as CH-D49 a CH-D69 estão no plano e entram aqui no fechamento, T12; a CH-D70, decisão da orquestradora em 23/11, já está aqui, em §9.4 e §14.1). O **bloco 440–479** é do Plano 25 (decisão da orquestradora em 17/11, ~11h40 UTC: o 23 vai até 439, o 26 usa 480–519); conferido com `grep -rhoE '\b(US\|RN\|RNF)-4[4-9][0-9]\b'` na `main` e nos worktrees em 17/11/2026 (nenhum uso) |
 
 ---
 
@@ -852,6 +852,16 @@ no máximo 3 por dia (módulo, sob a trava da configuração). RLS: `app_enable_
 `paciente_sem_*`). Sem auditoria (sem `patient_id`). v0.2: a linha de `chat_configuracoes` também nasce em
 `app_chat_aviso_nutri_devido` (RN-458); política RESTRICTIVE `paciente_com_conta` nas duas.
 
+**CH-D70 (decisão da orquestradora, 23/11/2026):** `aviso_email` e `aviso_nutri_em` saem de `chat_configuracoes` (que fica
+com `tenant_id`, `horario_ativo` e `updated_at`) para a tabela nova **`chat_avisos_nutri`**: `tenant_id` PK (FK `tenants`),
+`aviso_email` boolean NOT NULL default true, `aviso_nutri_em` timestamptz, `updated_at`. RLS: `app_enable_tenant_rls` e
+`app_enable_staff_only` (entrada em `STAFF_ONLY`); `REVOKE DELETE, TRUNCATE` (apagar a linha religaria o e-mail e zeraria
+a janela de 2 h; molde `fin_configuracoes`); sem `patient_id`, sem auditoria. Motivo: `chat_configuracoes` não é
+`staff_only` (o paciente lê `horario_ativo`) e, pela data de `aviso_nutri_em`, o paciente saberia que outro paciente
+escreveu nas últimas 2 h; a defesa fica no banco, não só na projeção do módulo. A linha nasce na tela da nutricionista ou em
+`app_chat_aviso_nutri_devido`, que passa a ler e gravar `chat_avisos_nutri`. Onde esta spec cita
+`chat_configuracoes.aviso_email`/`aviso_nutri_em` (RN-458, RN-472, §9.7), leia `chat_avisos_nutri`.
+
 ### 9.5 `recados` (nova; sem `patient_id`)
 
 `id`, `tenant_id`, `texto` (1–1000), `filtro` jsonb (`{"tipo":"todos"}`, `{"tipo":"etiquetas","ids":[…]}`,
@@ -1067,6 +1077,7 @@ de novo sobre a `main` antes do PR (C-446, PM-CH1).
 | CH-D46 | **`/p/mensagens` só com internet e nunca no cache do service worker; links com efeito de leitura sem prefetch** | Sem conexão, o portal mostraria o plano no lugar da conversa; conversa guardada no aparelho seria dado de saúde fora do servidor; o prefetch marcaria como lida e gravaria `auditRead` (revisão de interface, I2 e I9) | RN-473 |
 | CH-D47 | **Política RESTRICTIVE `paciente_com_conta` nas tabelas `chat_*`** | `patient_isolation` libera a própria linha a todo contexto `paciente`, inclusive o `semConta` (links, WhatsApp); a lista `SEM_CONTA_PERMITIDOS` é de módulos, não de tabelas (revisão RLS, Minor 1) | RN-440 |
 | CH-D48 | **`/p/mensagens` no `tambem` de "Hoje"**, não de "Eu" | É o destino do "Voltar"; marcar "Eu" não batia com o caminho (revisão de interface, M9) | §4.1 |
+| CH-D70 | **Marca do aviso à nutricionista em tabela `staff_only` (`chat_avisos_nutri`)** — decisão da orquestradora 23/11: marca do aviso à nutricionista em tabela staff_only, para o paciente não saber que outro paciente escreveu | `chat_configuracoes` é lida pelo paciente (`horario_ativo`); a data de `aviso_nutri_em` revelaria a atividade de outros pacientes; a defesa fica no banco | §9.4, RN-458, RN-472, §9.7 |
 
 ### 14.2 Pendências externas ★ (não travam a v1)
 

@@ -59,7 +59,8 @@ const check = (nome: string) => restricao('23514', nome);
 
 const CARIMBO = { nome: 'Débora Nutricionista', crn: 'CRN-3 12345' };
 const TABELAS_CHAT = ['chat_conversas', 'chat_mensagens', 'chat_leituras', 'chat_configuracoes', 'chat_horarios'] as const;
-const TODAS = [...TABELAS_CHAT, 'recados'] as const;
+// CH-D70: chat_avisos_nutri (staff_only, sem paciente_com_conta: a staff_only já nega toda sessão de paciente)
+const TODAS = [...TABELAS_CHAT, 'recados', 'chat_avisos_nutri'] as const;
 
 type Cenario = TenantDeTeste & { p1: string; p2: string; u1: string; u2: string; P1: TenantContext; P2: TenantContext };
 
@@ -217,6 +218,38 @@ describe('Plano 25 — RLS das tabelas do chat (spec §9.1–§9.5)', () => {
     const r = await withTenant(worker(B.tenantId), (tx) => tx.execute(sql`update chat_mensagens set anexo_status = 'falhou', updated_at = now() where id = ${m.id}`), app.db);
     expect(r.rowCount).toBe(0);
     expect((await owner.pool.query('select anexo_status from chat_mensagens where id = $1', [m.id])).rows[0].anexo_status).toBe('sem_anexo');
+  });
+});
+
+describe('Plano 25 — CH-D70: a marca do aviso à nutricionista fica numa tabela só da equipe', () => {
+  it('a nutri lê e grava chat_avisos_nutri; o paciente com conta lê 0 linhas e não grava; publico e conta nada', async () => {
+    const C = await cenario();
+    await em(C.ctx, sql`insert into chat_avisos_nutri (tenant_id) values (${C.tenantId})`);
+    expect(await em(C.ctx, sql`select aviso_email, aviso_nutri_em from chat_avisos_nutri`)).toEqual([{ aviso_email: true, aviso_nutri_em: null }]);
+    expect(await em(C.ctx, sql`update chat_avisos_nutri set aviso_email = false, aviso_nutri_em = now(), updated_at = now() returning aviso_email`)).toEqual([
+      { aviso_email: false },
+    ]);
+    expect(await em(C.P1, sql`select 1 from chat_avisos_nutri`)).toEqual([]);
+    expect(await em(publico(C.tenantId), sql`select 1 from chat_avisos_nutri`)).toEqual([]);
+    expect(await naConta(sql`select 1 from chat_avisos_nutri`)).toEqual([]);
+    const T2 = await novoTenant(app.db);
+    const p = (await novoPaciente(app.db, T2.ctx)).id;
+    await expect(em(ctxPaciente(T2.tenantId, p), sql`insert into chat_avisos_nutri (tenant_id) values (${T2.tenantId})`)).rejects.toSatisfy(rlsDe('chat_avisos_nutri'));
+    expect((await withTenant(C.P1, (tx) => tx.execute(sql`update chat_avisos_nutri set aviso_email = true`), app.db)).rowCount).toBe(0);
+    // DELETE revogado: apagar a linha religaria o e-mail e zeraria a janela de 2 h
+    await expect(em(C.ctx, sql`delete from chat_avisos_nutri`)).rejects.toSatisfy(permissaoNegada);
+  });
+
+  it('o paciente lê chat_configuracoes.horario_ativo, e a tabela não tem mais as colunas do aviso', async () => {
+    const C = await cenario();
+    await em(C.ctx, sql`insert into chat_configuracoes (tenant_id, horario_ativo) values (${C.tenantId}, true)`);
+    expect(await em(C.P1, sql`select * from chat_configuracoes`)).toEqual([expect.objectContaining({ horario_ativo: true })]);
+    const { rows } = await owner.pool.query<{ c: string }>(
+      `select column_name as c from information_schema.columns where table_schema = 'public' and table_name = 'chat_configuracoes' order by 1`,
+    );
+    expect(rows.map((r) => r.c)).toEqual(['horario_ativo', 'tenant_id', 'updated_at']);
+    const staff = await owner.pool.query(`select 1 from pg_policies where tablename = 'chat_avisos_nutri' and policyname = 'staff_only' and permissive = 'RESTRICTIVE'`);
+    expect(staff.rowCount).toBe(1);
   });
 });
 
