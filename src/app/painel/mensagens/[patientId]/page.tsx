@@ -115,7 +115,7 @@ export default async function Conversa({ params, searchParams }: PageProps<'/pai
           <ListaDeMensagens mensagens={mensagens} fuso={tenant.fuso} primeiroNome={primeiroNome} />
         </div>
         <div id="rodape-da-conversa" className="sticky bottom-0 space-y-3 border-t border-borda bg-fundo pt-3 pb-2">
-          <SituacaoDaConversa patientId={patientId} depois={ultima} primeiroNome={primeiroNome} aviso={aviso} marcador={marcador} focarAviso={aviso !== ''} consultar={antes === undefined && ativo} />
+          <SituacaoDaConversa patientId={patientId} depois={ultima} primeiroNome={primeiroNome} aviso={aviso} marcador={marcador} focarAviso={aviso !== ''} consultar={antes === undefined && ativo} abrirNoFim={antes === undefined} />
           {podeEnviar && <CampoDaConversa patientId={patientId} />}
           {ativo && liberada && !estado.pausada && !estado.carimbo && (
             <p>

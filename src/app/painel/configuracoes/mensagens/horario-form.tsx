@@ -60,7 +60,6 @@ function Campos({ config, erro }: { config: ConfiguracaoDasMensagens; erro: Esta
     focarDepois.current = restantes === 0 ? `acrescentar-${dia}` : `faixa-${dia}-${Math.min(i + 1, restantes)}-das`;
     setDias((d) => d.map((fs, j) => (j === dia ? fs.filter((_, k) => k !== i) : fs)));
   };
-  const primeiraChave = dias.flat()[0]?.chave;
   return (
     <>
       <div data-guia="mensagens-horario" className="flex items-start gap-3">
@@ -89,11 +88,9 @@ function Campos({ config, erro }: { config: ConfiguracaoDasMensagens; erro: Esta
               const comErro = erro && erro.dia === dia && erro.k === k;
               const idErro = comErro ? `erro-faixa-${dia}-${k}` : undefined;
               const id = `faixa-${dia}-${k}`;
-              const primeira = f.chave === primeiraChave;
               return (
                 <div key={f.chave} className="space-y-1">
-                  {/* o alvo do "24:00" no guia: só a primeira faixa da tela */}
-                  <div data-guia={primeira ? 'mensagens-24h' : undefined} className="flex flex-wrap items-end gap-3">
+                  <div className="flex flex-wrap items-end gap-3">
                     <div className="space-y-1">
                       <label htmlFor={`${id}-das`} className="block text-sm">
                         {C.das}
@@ -208,7 +205,8 @@ export function AvisoDeSalvo({ texto, marcador }: { texto: string; marcador: str
     if (marcador) ref.current?.focus({ preventScroll: true });
   }, [marcador]);
   return (
-    <p ref={ref} role="status" tabIndex={-1} className="focus-visible:outline-offset-2">
+    // re-revisão da T7: vazia, a região fica montada (região viva) sem ocupar espaço — a margem só com o aviso
+    <p ref={ref} role="status" tabIndex={-1} className="mt-2 empty:mt-0 focus-visible:outline-offset-2">
       {texto}
     </p>
   );

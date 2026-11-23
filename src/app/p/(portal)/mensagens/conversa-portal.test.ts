@@ -24,8 +24,8 @@ const { ProvedorDaLeitura } = await import('@/components/mensagens/leitura');
 
 const P = MSG_PORTAL_MENSAGENS;
 const regiao = (h: string) => /<p(?=[^>]*\brole="status")[^>]*>([\s\S]*?)<\/p>/.exec(h)?.[1];
-const situacao = (props: Partial<{ depois: string | null; consultar: boolean; aviso: string }> = {}) =>
-  renderToStaticMarkup(createElement(ProvedorDaLeitura, { minhas: [], ultimaLida: null }, createElement(SituacaoDoPortal, { depois: null, consultar: true, aviso: '', ...props })));
+const situacao = (props: Partial<{ depois: string | null; consultar: boolean; abrirNoFim: boolean; aviso: string }> = {}) =>
+  renderToStaticMarkup(createElement(ProvedorDaLeitura, { minhas: [], ultimaLida: null }, createElement(SituacaoDoPortal, { depois: null, consultar: true, abrirNoFim: true, aviso: '', ...props })));
 const campo = (props: Partial<{ erroInicial: string | null }> = {}) => renderToStaticMarkup(createElement(CampoDoPortal, { erroInicial: null, ...props }));
 
 beforeEach(() => {
@@ -127,10 +127,10 @@ describe('o campo do portal (US-443, RN-473)', () => {
   it('o erro junto ao campo (role="alert", aria-describedby) com o rascunho de volta; o ?erro= sem JS também', () => {
     ambiente.estado = { marca: 'm2', erro: P.erros.muitas, texto: 'mais uma', enviada: false, textoFixo: null };
     const h = campo();
-    expect(h).toMatch(new RegExp(`<p[^>]*id="erro-mensagem"[^>]*role="alert"[^>]*>${P.erros.muitas}</p>`));
+    expect(h).toMatch(new RegExp(`<div[^>]*role="alert"[^>]*><p[^>]*id="erro-mensagem"[^>]*>${P.erros.muitas}</p></div>`));
     expect(h).toMatch(/<textarea[^>]*aria-describedby="aviso-urgencia erro-mensagem"[^>]*aria-invalid="true"[^>]*>mais uma<\/textarea>/);
     ambiente.estado = null;
-    expect(campo({ erroInicial: P.erros.formato })).toMatch(new RegExp(`id="erro-mensagem"[^>]*role="alert"[^>]*>${P.erros.formato}<`));
+    expect(campo({ erroInicial: P.erros.formato })).toMatch(new RegExp(`role="alert"[^>]*><p[^>]*id="erro-mensagem"[^>]*>${P.erros.formato}<`));
   });
 
   it('RN-449 (revisão da T3, M8): "muitas" com sinal de risco no texto recusado mostra também o socorro, com o 192 discável', () => {
@@ -181,5 +181,23 @@ describe('rodada da T7 — socorro na recusa (CH-D77, CFN I1 e M2)', () => {
     expect(estadoDaFalhaDeRede(dados).textoFixo).toBeNull();
     // a peça de risco é a do Plano 15, sem import de servidor (o cliente a importa)
     expect(readFileSync('src/modules/ia/nutri-paciente/sinais-risco.ts', 'utf8')).not.toMatch(/^import (?!type)/m);
+  });
+
+  it('re-revisão da T7 (1): na recusa com risco, o socorro (com o 188/192) fica DENTRO do role="alert" do erro — o leitor de tela ouve os dois', () => {
+    ambiente.estado = { marca: 'm5', erro: P.erros.pausadaNoEnvio, texto: 'não aguento mais, quero sumir', enviada: false, textoFixo: 'risco_emergencia' };
+    const h = campo();
+    const alerta = /<div[^>]*role="alert"[^>]*>([\s\S]*?)<\/div><div class="flex justify-end">/.exec(h)?.[1] ?? '';
+    expect(alerta).toContain(P.erros.pausadaNoEnvio);
+    expect(alerta.replace(/<[^>]+>/g, '')).toContain(SOCORRO_NA_RECUSA.emergencia);
+    expect(alerta).toMatch(/href="tel:188"/);
+    expect(alerta).toMatch(/href="tel:192"/);
+    // o campo continua descrito só pelo erro (não pelo socorro inteiro)
+    expect(h).toMatch(/<p[^>]*id="erro-mensagem"[^>]*>[^<]*<\/p>/);
+  });
+
+  it('re-revisão da T7 (2): só rola até o fim ao abrir no fim (nunca na visão ?antes=)', () => {
+    const fonte = readFileSync('src/app/p/(portal)/mensagens/conversa-portal.tsx', 'utf8');
+    expect(fonte).toMatch(/else if \(abrirNoFim\) rolarAteOFim\(\)/);
+    expect(readFileSync('src/app/p/(portal)/mensagens/page.tsx', 'utf8')).toMatch(/abrirNoFim=\{antes === undefined\}/);
   });
 });

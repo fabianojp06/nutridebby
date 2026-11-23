@@ -88,7 +88,7 @@ export default async function Mensagens({ searchParams }: PageProps<'/p/mensagen
             <ListaDoPortal mensagens={mensagens} fuso={tenant.fuso} />
           </div>
           <div id="rodape-da-conversa" className="sticky bottom-0 space-y-3 border-t border-borda bg-fundo pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-            <SituacaoDoPortal depois={ultima} consultar={antes === undefined} aviso={podeEnviar ? '' : (erroDaUrl ?? '')} />
+            <SituacaoDoPortal depois={ultima} consultar={antes === undefined} abrirNoFim={antes === undefined} aviso={podeEnviar ? '' : (erroDaUrl ?? '')} />
             {/* rodada da T7 (I1): só recados ou pausada — o texto no lugar do campo (a tela abre no fim, nunca o esconde) */}
             {podeEnviar ? <CampoDoPortal erroInicial={erroDaUrl} /> : !liberada ? <p>{P.soRecados}</p> : estado.pausada ? <p>{P.pausada}</p> : null}
           </div>

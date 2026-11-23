@@ -189,7 +189,14 @@ describe('/painel/configuracoes/mensagens (US-446)', () => {
     expect(f).toMatch(/`faixa-\$\{erro\.dia\}-\$\{erro\.k\}-das`/);
     expect(f).toMatch(/id=\{`acrescentar-\$\{dia\}`\}/);
     expect(f).toMatch(/focarDepois\.current = /);
-    // "24:00" no guia: o alvo só na primeira faixa da tela
-    expect(f).toMatch(/data-guia=\{primeira \? 'mensagens-24h' : undefined\}/);
+    // re-revisão da T7: o alvo "mensagens-24h" ficou órfão (nenhum guia aponta para ele) e saiu
+    expect(f).not.toContain('mensagens-24h');
+  });
+
+  it('re-revisão da T7 (minor): a região do "Configuração salva." vazia não ocupa espaço (sem margem quando vazia, junto ao h1)', () => {
+    const f = readFileSync('src/app/painel/configuracoes/mensagens/horario-form.tsx', 'utf8');
+    expect(f).toMatch(/<p ref=\{ref\} role="status" tabIndex=\{-1\} className="[^"]*\bmt-2\b[^"]*\bempty:mt-0\b/);
+    const pg = readFileSync('src/app/painel/configuracoes/mensagens/page.tsx', 'utf8');
+    expect(pg).toMatch(/<div>\s*<h1[\s\S]*?<\/h1>\s*<AvisoDeSalvo[^>]*\/>\s*<\/div>/);
   });
 });

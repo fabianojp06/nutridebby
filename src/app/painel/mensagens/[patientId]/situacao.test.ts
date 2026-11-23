@@ -134,12 +134,12 @@ describe('a região viva, "Mostrar novas mensagens" e o "Lida" (US-441)', () => 
 
   it('a região está sempre montada (vazia ou com o ?ok=), sem "Mostrar novas mensagens" antes de haver novas; nenhum texto de mensagem entra no componente', () => {
     const h = renderToStaticMarkup(
-      createElement(ProvedorDaLeitura, { minhas: [], ultimaLida: null }, createElement(SituacaoDaConversa, { patientId: 'p', depois: null, primeiroNome: 'Ana', aviso: '', focarAviso: false, consultar: true })),
+      createElement(ProvedorDaLeitura, { minhas: [], ultimaLida: null }, createElement(SituacaoDaConversa, { patientId: 'p', depois: null, primeiroNome: 'Ana', aviso: '', focarAviso: false, consultar: true, abrirNoFim: true })),
     );
     expect(h).toMatch(/<p(?=[^>]*role="status")(?=[^>]*tabindex="-1")[^>]*><\/p>/i);
     expect(h).not.toContain(MSG_MENSAGENS.conversa.mostrarNovas);
     const comOk = renderToStaticMarkup(
-      createElement(ProvedorDaLeitura, { minhas: [], ultimaLida: null }, createElement(SituacaoDaConversa, { patientId: 'p', depois: null, primeiroNome: 'Ana', aviso: 'Conversa liberada.', focarAviso: true, consultar: true })),
+      createElement(ProvedorDaLeitura, { minhas: [], ultimaLida: null }, createElement(SituacaoDaConversa, { patientId: 'p', depois: null, primeiroNome: 'Ana', aviso: 'Conversa liberada.', focarAviso: true, consultar: true, abrirNoFim: true })),
     );
     expect(comOk).toMatch(/<p(?=[^>]*role="status")[^>]*>Conversa liberada\.<\/p>/);
     const fonte = readFileSync('src/app/painel/mensagens/[patientId]/situacao.tsx', 'utf8');
@@ -189,15 +189,18 @@ describe('rodada da T6b (revisão de interface)', () => {
     expect(textoDaRegiao({ novas: 0, primeiroNome: 'Ana', aviso: pausada, marcador: 'c3', visto: { aviso: pausada, marcador: 'a1' } })).toBe(pausada);
     const fonte = readFileSync('src/app/painel/mensagens/[patientId]/situacao.tsx', 'utf8');
     expect(fonte).toMatch(/focus\(\{ preventScroll: true \}\)/);
-    expect(fonte).toMatch(/\[focarAviso, aviso, marcador\]/);
+    expect(fonte).toMatch(/\[focarAviso, aviso, marcador, abrirNoFim\]/);
     expect(fonte).not.toMatch(/setJaMostrou|jaMostrou/);
   });
 
-  it('I3: a rolagem vai até o rodapé (as últimas mensagens não ficam sob ele) e cada mensagem tem margem de rolagem do tamanho do rodapé', () => {
+  it('I3: ao abrir no fim e depois de enviar, rola até o fim do documento (as últimas mensagens não ficam sob o rodapé sticky, pela margem de rolagem de cada mensagem); a visão ?antes= não rola', () => {
     const fonte = readFileSync('src/app/painel/mensagens/[patientId]/situacao.tsx', 'utf8') + readFileSync('src/app/painel/mensagens/[patientId]/campo.tsx', 'utf8');
     // rodada da T7 (I3): o scrollIntoView no próprio rodapé sticky não rola; rola-se até o fim do documento
     expect(fonte).not.toMatch(/scrollIntoView/);
     expect(fonte.match(/rolarAteOFim\(\)/g)?.length).toBeGreaterThanOrEqual(2);
+    // re-revisão da T7 (2): só ao abrir no fim (`?antes=` mostra as anteriores e fica no lugar)
+    expect(fonte).toMatch(/else if \(abrirNoFim\) rolarAteOFim\(\)/);
+    expect(readFileSync('src/app/painel/mensagens/[patientId]/page.tsx', 'utf8')).toMatch(/abrirNoFim=\{antes === undefined\}/);
     expect(readFileSync('src/app/painel/mensagens/[patientId]/page.tsx', 'utf8')).toMatch(/id="rodape-da-conversa"/);
     expect(readFileSync('src/app/painel/mensagens/[patientId]/lista-de-mensagens.tsx', 'utf8')).toMatch(/data-mensagem=\{m\.id\}[\s\S]*?scroll-mb-/);
   });

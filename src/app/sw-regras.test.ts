@@ -264,7 +264,8 @@ describe('Plano 25 (T7): /p/mensagens fora do cache e do plano guardado', () => 
     expect(TEXTO_URGENCIA).toBe(MSG_PORTAL_MENSAGENS.avisoUrgencia);
     const html = await paginaSemConexao().text();
     expect(html.replace(/<[^>]+>/g, '')).toContain(MSG_PORTAL_MENSAGENS.avisoUrgencia);
-    expect(html).toMatch(/<a href="tel:192"[^>]*>192<\/a>/);
+    expect(html).toMatch(/<a href="tel:192" style="display:inline-block;padding:12px 0">192<\/a>/);
+    expect(html).not.toMatch(/tel:192"[^>]*line-height/);
     expect(html).toMatch(/<a href="\/p\/inicio" style="[^"]*min-height:44px[^"]*">Voltar para Hoje<\/a>/);
   });
 

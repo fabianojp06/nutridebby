@@ -45,7 +45,8 @@ const ALVO_44 = 'display:inline-block;min-height:44px;line-height:44px';
  * M3) e o "Voltar" para Hoje. Sem script e sem nenhum dado do paciente.
  */
 export function paginaSemConexao(): Response {
-  const urgencia = TEXTO_URGENCIA.replace(/\b192\b/, `<a href="tel:192" style="${ALVO_44}">192</a>`);
+  // o 192 em linha: padding vertical (44 px de toque) sem mudar a altura da linha nem quebrar a frase (molde ComTelefones)
+  const urgencia = TEXTO_URGENCIA.replace(/\b192\b/, '<a href="tel:192" style="display:inline-block;padding:12px 0">192</a>');
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Mensagens</title></head><body><main><h1>Mensagens</h1><p role="status">${TEXTO_SEM_CONEXAO}</p><p>${urgencia}</p><p><a href="/p/inicio" style="${ALVO_44}">Voltar para Hoje</a></p></main></body></html>`;
   return new Response(html, { status: 503, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
 }

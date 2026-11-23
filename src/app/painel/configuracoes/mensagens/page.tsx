@@ -21,8 +21,11 @@ export default async function AtendimentoPorMensagens({ searchParams }: PageProp
   const config = await lerConfiguracao(ctx);
   return (
     <main className="mx-auto w-full max-w-3xl space-y-4 p-4 md:p-6">
-      <h1 className="font-titulo text-2xl font-semibold">{C.titulo}</h1>
-      <AvisoDeSalvo texto={salva ? C.salva : ''} marcador={marcador} />
+      {/* a região junto ao h1 (fora do space-y): vazia, não abre espaço */}
+      <div>
+        <h1 className="font-titulo text-2xl font-semibold">{C.titulo}</h1>
+        <AvisoDeSalvo texto={salva ? C.salva : ''} marcador={marcador} />
+      </div>
       <FormularioDoHorario inicial={config} />
     </main>
   );

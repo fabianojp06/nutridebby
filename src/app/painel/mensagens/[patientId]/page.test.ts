@@ -333,7 +333,7 @@ describe('/painel/mensagens/[patientId] — a conversa (US-441)', () => {
     const ana = await pacienteDoChat(db, T);
     expect(regiao(await conversa(ana.p, { erro: 'retomar' }))?.[1]).toBe(M.pausa.falhaRetomar);
     expect(readFileSync('src/app/painel/mensagens/[patientId]/pausar-dialogo.tsx', 'utf8')).toMatch(/<p key=\{estado\.marca\} role="alert"/);
-    expect(readFileSync('src/app/painel/mensagens/[patientId]/situacao.tsx', 'utf8')).toMatch(/\[focarAviso, aviso, marcador\]/);
+    expect(readFileSync('src/app/painel/mensagens/[patientId]/situacao.tsx', 'utf8')).toMatch(/\[focarAviso, aviso, marcador, abrirNoFim\]/);
     expect(regiao(await conversa(ana.p, { erro: 'outra' }))?.[1]).toBe('');
   });
 

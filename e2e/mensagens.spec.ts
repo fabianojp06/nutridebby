@@ -369,6 +369,7 @@ test('T6c: "Atendimento por mensagens" pelo hub — erro de sobreposição junto
   await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
   await expect(nutri).toHaveURL(/\?ok=salva&r=[0-9a-f]{8}$/);
   await expect(nutri.locator('main p[role="status"]')).toHaveText('Configuração salva.');
+  await expect(nutri.locator('main p[role="status"]')).toBeInViewport(); // re-revisão da T7: o aviso à vista
   await expect(nutri.locator('main p[role="status"]')).toBeFocused(); // I3: a região sempre montada recebe o foco
   await expect(nutri.getByLabel('Segunda, faixa 1, às')).toHaveValue('1080');
   // a paciente vê o resumo no app (/p/mensagens, T7)
@@ -437,7 +438,7 @@ test('T6c: a seção "Mensagens" no Início da ficha — "{n} não lidas", os it
 // ——— T7: a conversa no app (/p/mensagens). Bloco de IP: 10.9.25.20 a 10.9.25.39 — a primeira paciente do chat .20 (a
 // faixa, o envio e o "Lida"), .21 (sinal de risco), .22 (400 px e axe), .23 (sem rede), .24 (sem JavaScript), .25 (mensagem
 // nova com a tela aberta); rodada da T7: .26 (a nutricionista do consultório principal) e .27 (a paciente com plano
-// guardado) ———
+// guardado); re-revisão: .28 (recusa com risco a 400×600) e .29 (?antes= no app) ———
 
 const NO_APP = { campo: 'Escreva sua mensagem', urgencia: 'Este canal não é para urgências. Em caso de urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo.' };
 const listaDoApp = (page: Page) => page.getByRole('list', { name: 'Mensagens' });
@@ -656,4 +657,59 @@ test('rodada T7 (I4): paciente com o plano guardado no aparelho — sem rede, /p
     await p.page.context().setOffline(false);
   }
   await p.page.context().close();
+});
+
+test('re-revisão T7 (2): "Ver mensagens anteriores" (?antes=) fica no topo — nem o painel nem o app rolam até o fim', async ({ browser }) => {
+  test.setTimeout(240_000);
+  // mensagens suficientes para haver anteriores (50 por página)
+  const url = await abrirConversa(nutri, CHAT_PACIENTE.nome);
+  await nutri.waitForLoadState('networkidle');
+  for (let i = 0; i < 55; i++) {
+    await nutri.getByLabel('Mensagem').fill(`Anterior ${i} ${Date.now()}`);
+    await nutri.getByRole('button', { name: 'Enviar', exact: true }).click();
+    await expect(nutri.getByLabel('Mensagem')).toHaveValue('');
+  }
+  await nutri.goto(url);
+  await nutri.getByRole('link', { name: 'Ver mensagens anteriores' }).click();
+  await expect(nutri).toHaveURL(new RegExp(`${url}\\?antes=${UUID}$`));
+  await nutri.waitForLoadState('networkidle');
+  expect(await nutri.evaluate(() => window.scrollY)).toBe(0);
+  await expect(listaDeMensagens(nutri).locator('li[data-mensagem]').first()).toBeInViewport();
+  const paciente = await primeiraPacienteNoApp(browser, '10.9.25.29');
+  await paciente.goto('/p/mensagens');
+  await paciente.getByRole('link', { name: 'Ver mensagens anteriores' }).click();
+  await expect(paciente).toHaveURL(new RegExp(`/p/mensagens\\?antes=${UUID}$`));
+  await paciente.waitForLoadState('networkidle');
+  expect(await paciente.evaluate(() => window.scrollY)).toBe(0);
+  await expect(listaDoApp(paciente).locator('li[data-mensagem]').first()).toBeInViewport();
+  await paciente.context().close();
+});
+
+test('re-revisão T7: recusa com sinal de risco a 400×600 — o erro e o socorro à vista com o rodapé crescido', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const paciente = await primeiraPacienteNoApp(browser, '10.9.25.28', { viewport: { width: 400, height: 600 } });
+  await paciente.goto('/p/mensagens');
+  await paciente.waitForLoadState('networkidle');
+  // a nutricionista pausa com a tela do app aberta: o envio seguinte é recusado
+  await abrirConversa(nutri, CHAT_PACIENTE.nome);
+  await nutri.waitForLoadState('networkidle');
+  await nutri.getByRole('button', { name: 'Pausar conversa' }).click();
+  await nutri.getByRole('dialog', { name: 'Pausar conversa' }).getByRole('button', { name: 'Pausar', exact: true }).click();
+  await expect(nutri).toHaveURL(/\?ok=pausada/);
+  try {
+    await paciente.getByLabel(NO_APP.campo).fill('estou com dor no peito e falta de ar');
+    await paciente.getByRole('button', { name: 'Enviar', exact: true }).click();
+    const alerta = paciente.locator('form [role="alert"]'); // (o anúncio de rota do Next também é role="alert")
+    await expect(alerta).toContainText('A conversa por mensagens está pausada. Use os canais de sempre.');
+    await expect(alerta).toContainText('Esses sinais precisam de atendimento médico agora.');
+    await expect(alerta).not.toContainText('enviada');
+    await expect(paciente.locator('#erro-mensagem')).toBeInViewport();
+    await expect(alerta.locator('[data-socorro]')).toBeInViewport();
+    await expect(paciente.getByLabel(NO_APP.campo)).toHaveValue('estou com dor no peito e falta de ar');
+    expect(await paciente.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  } finally {
+    await nutri.getByRole('button', { name: 'Retomar conversa' }).click(); // volta ao estado das outras specs
+    await expect(nutri).toHaveURL(/\?ok=retomada/);
+    await paciente.context().close();
+  }
 });

@@ -49,9 +49,10 @@ export function textoDaRegiaoDoPortal(o: { online: boolean; novas: number; aviso
  * nada com a aba escondida ou sem rede). Com novas, anuncia "Nova mensagem da sua nutricionista." sem nenhum texto de
  * mensagem (a consulta só traz `novas` e `ultimaLida`); "Mostrar novas mensagens" refaz a página (o conteúdo vem do
  * servidor, com auditRead) e leva o foco à primeira nova. Sem rede, "Sem conexão. Escreva quando voltar.". Com `aviso` (o
- * `?erro=` numa conversa sem campo), o foco vai à região sem rolar; senão a tela abre rolada até o rodapé.
+ * `?erro=` numa conversa sem campo), o foco vai à região sem rolar; senão, com `abrirNoFim` (nunca na visão `?antes=`), a
+ * tela abre rolada até o fim.
  */
-export function SituacaoDoPortal({ depois, consultar, aviso }: { depois: string | null; consultar: boolean; aviso: string }) {
+export function SituacaoDoPortal({ depois, consultar, abrirNoFim, aviso }: { depois: string | null; consultar: boolean; abrirNoFim: boolean; aviso: string }) {
   const router = useRouter();
   const online = useOnline();
   const regiao = useRef<HTMLParagraphElement>(null);
@@ -62,10 +63,11 @@ export function SituacaoDoPortal({ depois, consultar, aviso }: { depois: string 
   const focarDepoisDe = useRef<string | null | undefined>(undefined);
   const novas = novasNaTela(consulta, depois);
 
+  // re-revisão da T7: rola até o fim só ao abrir no fim — a visão `?antes=` (as anteriores) fica no lugar
   useEffect(() => {
     if (aviso) regiao.current?.focus({ preventScroll: true });
-    else rolarAteOFim();
-  }, [aviso]);
+    else if (abrirNoFim) rolarAteOFim();
+  }, [aviso, abrirNoFim]);
 
   useEffect(() => {
     if (!consultar) return undefined;
@@ -174,12 +176,15 @@ export function CampoDoPortal({ erroInicial }: { erroInicial: string | null }) {
       </label>
       <Texto key={estado?.marca ?? 'inicio'} inicial={estado?.texto ?? ''} focar={focar} idErro={idErro} desabilitado={!online} />
       {erro && (
-        <p key={estado?.marca ?? 'url'} id="erro-mensagem" role="alert" className="text-erro">
-          {erro}
-        </p>
+        // re-revisão da T7 (1): o socorro da recusa (CH-D77: o texto recusado, sem dizer "enviada") fica DENTRO do alerta —
+        // o leitor de tela ouve o erro e o 188/192 juntos; o campo continua descrito só pelo erro (`erro-mensagem`)
+        <div key={estado?.marca ?? 'url'} role="alert" className="space-y-2">
+          <p id="erro-mensagem" className="text-erro">
+            {erro}
+          </p>
+          {estado?.erro && estado.textoFixo && <Socorro risco={RISCO_DO_TEXTO_FIXO[estado.textoFixo]} recusa />}
+        </div>
       )}
-      {/* CH-D77: em qualquer recusa (a mensagem não foi gravada), o socorro do texto recusado, sem dizer "enviada" */}
-      {estado?.erro && estado.textoFixo && <Socorro risco={RISCO_DO_TEXTO_FIXO[estado.textoFixo]} recusa />}
       <div className="flex justify-end">
         <button
           type="submit"

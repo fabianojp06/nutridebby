@@ -45,6 +45,7 @@ export function SituacaoDaConversa({
   marcador = '',
   focarAviso,
   consultar,
+  abrirNoFim,
 }: {
   patientId: string;
   depois: string | null;
@@ -54,6 +55,8 @@ export function SituacaoDaConversa({
   marcador?: string;
   focarAviso: boolean;
   consultar: boolean;
+  /** Abrir no fim (sem `?antes=`): a tela rola até a última mensagem; a visão das anteriores fica no lugar. */
+  abrirNoFim: boolean;
 }) {
   const router = useRouter();
   const regiao = useRef<HTMLParagraphElement>(null);
@@ -68,8 +71,9 @@ export function SituacaoDaConversa({
   // I1 da rodada: a cada ato (liberar → pausar → retomar) o foco vai à região, sem rolar; sem ato, a tela abre no rodapé
   useEffect(() => {
     if (focarAviso) regiao.current?.focus({ preventScroll: true });
-    else rolarAteOFim(); // rodada da T7 (I3): até o fim do documento (no rodapé sticky, a rolagem não andava)
-  }, [focarAviso, aviso, marcador]);
+    // rodada da T7 (I3): até o fim do documento; re-revisão: só ao abrir no fim (a visão `?antes=` fica no lugar)
+    else if (abrirNoFim) rolarAteOFim();
+  }, [focarAviso, aviso, marcador, abrirNoFim]);
 
   useEffect(() => {
     if (!consultar) return undefined;

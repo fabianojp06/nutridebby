@@ -292,7 +292,7 @@ describe('/p/mensagens — a conversa no app (US-443)', () => {
     const codigos = { formato: P.erros.formato, tamanho: P.erros.tamanho, cota: P.erros.cota, limite: P.erros.limiteFotos, muitas: P.erros.muitas, conversa: P.erros.pausadaNoEnvio, falha: P.erros.falha };
     for (const [codigo, texto] of Object.entries(codigos)) {
       const h = await pagina({ erro: codigo });
-      expect(h, codigo).toMatch(new RegExp(`<p[^>]*id="erro-mensagem"[^>]*role="alert"[^>]*>${texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</p>`));
+      expect(h, codigo).toMatch(new RegExp(`<div[^>]*role="alert"[^>]*><p[^>]*id="erro-mensagem"[^>]*>${texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</p>`));
       expect(campo(h)?.[0], codigo).toMatch(/aria-describedby="aviso-urgencia erro-mensagem"/);
     }
     for (const codigo of ['outro', 'toString', '__proto__']) {
@@ -316,8 +316,9 @@ describe('/p/mensagens — a conversa no app (US-443)', () => {
     expect(anterior).toContain('>n0<');
     expect(anterior).not.toContain('>n51<');
     const situacao = (busca: Record<string, string>) => achar(arvore(busca), SituacaoDoPortal);
-    expect((await situacao({}))?.consultar).toBe(true);
-    expect((await situacao({ antes: m![1] }))?.consultar).toBe(false);
+    expect((await situacao({}))).toMatchObject({ consultar: true, abrirNoFim: true });
+    // re-revisão da T7: a visão das anteriores não rola até o fim (nem consulta)
+    expect((await situacao({ antes: m![1] }))).toMatchObject({ consultar: false, abrirNoFim: false });
   });
 
   it('R-450: a tela do push (/p/mensagens?v=<consultório>) com paciente de dois consultórios abre a conversa do consultório do ?v= (o vínculo que requirePaciente escolhe)', async () => {
