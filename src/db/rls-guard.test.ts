@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
-import { inject } from 'vitest';
-import { makeDb } from '../../test/db';
+import { describe, expect, inject, it } from 'vitest';
+import { bancoProprioParaDdl } from '../../test/ddl';
 import {
   CONTEUDO_POR_AUDIENCIA,
   ESCRITA_POR_AUDIENCIA,
@@ -20,8 +19,35 @@ import {
   STAFF_ONLY,
 } from './rls-guard';
 
-const owner = makeDb(inject('ownerDatabaseUrl'));
-afterAll(() => owner.pool.end());
+// SUS-100: os testes de "a guarda funciona" fazem DDL (drop/create policy, drop trigger) em tabela real; num banco
+// próprio, clonado do modelo pós-migrations, as travas AccessExclusive não disputam com os outros arquivos (40P01).
+const owner = bancoProprioParaDdl();
+
+describe('banco próprio dos testes de DDL (SUS-100)', () => {
+  it('a guarda roda num clone do banco migrado, não no banco compartilhado', async () => {
+    // Sem conexão a mais no banco compartilhado: o nome dele vem do global-setup, e as migrations do clone são contadas
+    // contra o journal do drizzle-kit (a fonte), não contra outro banco que viria do mesmo modelo.
+    const { rows } = await owner.pool.query<{ banco: string; migrations: number }>(
+      'select current_database() as banco, (select count(*)::int from drizzle.__drizzle_migrations) as migrations',
+    );
+    const journal = JSON.parse(readFileSync(path.resolve('drizzle/meta/_journal.json'), 'utf8')) as { entries: unknown[] };
+    expect(rows[0].banco).toMatch(/^ddl_/);
+    expect(rows[0].banco).not.toBe(inject('pgDatabase'));
+    expect(journal.entries.length).toBeGreaterThan(0);
+    expect(rows[0].migrations).toBe(journal.entries.length);
+  });
+
+  it('o clone tem os privilégios do nível do banco do compartilhado (CONNECT do app, sem TEMPORARY de PUBLIC)', async () => {
+    // pg_database é catálogo do cluster: o clone lê a ACL dos dois bancos sem abrir conexão no compartilhado.
+    const acl = `select array(select a::text from pg_database d, unnest(d.datacl) a where d.datname = $1 order by 1) as acl`;
+    const [clone, base] = await Promise.all([
+      owner.pool.query<{ acl: string[] }>(acl.replace('$1', 'current_database()')),
+      owner.pool.query<{ acl: string[] }>(acl, [inject('pgDatabase')]),
+    ]);
+    expect(base.rows[0].acl.length).toBeGreaterThan(0);
+    expect(clone.rows[0].acl).toEqual(base.rows[0].acl);
+  });
+});
 
 describe('guarda de RLS (US-006: "Nova tabela sem RLS quebra o CI")', () => {
   it('nenhuma tabela com tenant_id está fora da regra', async () => {

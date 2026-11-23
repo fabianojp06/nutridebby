@@ -288,7 +288,7 @@ Toda recusa sai com `cache-control: no-store` (`recusaApi`, linha 13). É assim 
 
 ## 3.7 Guardas por papel
 
-### `requireNutri` / `requireApiNutri` (`src/lib/tenant-session.ts:22`, `:37`)
+### `requireNutri` / `requireApiNutri` (`src/lib/tenant-session.ts:22`, `:46`)
 
 Toda página e Server Action da nutricionista começa por `requireNutri(path)`:
 
@@ -297,7 +297,7 @@ Toda página e Server Action da nutricionista começa por `requireNutri(path)`:
 3. `tenant.dpaVersao !== DPA_VERSAO` → `redirect('/painel/dpa')`, salvo com `permitirDpaPendente` (só o layout e a própria tela do DPA usam).
 4. Devolve `ctx = { tenantId, role: 'nutri', actorUserId, ip }`, pronto para `withTenant`.
 
-`requireApiNutri` faz o mesmo para Route Handlers: 403 "Acesso negado" sem tenant e 403 "Aceite o contrato de tratamento de dados para continuar." com o DPA pendente. O IP vem de `clientIp(req.headers, TRUSTED_PROXIES)`.
+`requireApiNutri` faz o mesmo para Route Handlers: 403 "Acesso negado" sem tenant e 403 "Aceite o contrato de tratamento de dados para continuar." com o DPA pendente. O IP vem de `clientIp(req.headers, TRUSTED_PROXIES)`. Desde o Plano 20, a recusa (`ok: false`) traz também o `motivo` (`MotivoDaRecusa`, `tenant-session.ts:37`): `sem_sessao` (o 401), `dpa_pendente` (o 403 do DPA) ou `papel` (qualquer outro 403: papel errado, conta suspensa, 2FA do admin, conta sem consultório). Os dois da sessão vêm prontos de `requireApiUser` (`motivo` em `ApiAuth`, `src/lib/api-auth.ts`), que conhece a decisão; `requireApiNutri` só repassa, sem inferir do status. Status e corpo não mudaram; a rota que é navegação (o download do CSV do Financeiro) troca a resposta por um redirect lendo só o `motivo`, nunca o corpo ([§12.7](12-financeiro.md#127-csv-para-o-contador-us-306-rn-321)).
 
 ### Admin
 
@@ -568,28 +568,28 @@ Tabela `consents` (`src/db/schema/access.ts`). É prova de aceite: sem `ON DELET
 
 | | DPA (nutricionista) | Termo do paciente |
 |---|---|---|
-| Constante de versão | `DPA_VERSAO = '1.0'` (`src/modules/plataforma/dpa.ts:13`), desde 15/10/2026 | `TERMO_PACIENTE_VERSAO = '1.0'` (`src/modules/pacientes/termo-paciente.ts:7`), desde 15/10/2026 |
-| Valor gravado em `termo_versao` | `dpa-1.0` (`DPA_TERMO`); antes, `dpa-0.1-provisorio` | `termo-paciente-1.0` (`TERMO_PACIENTE`); antes, `termo-paciente-0.1-provisorio` |
-| Textos por versão | `DPA_TEXTOS` (a 0.1 e a 1.0, com a data); `DPA_PARAGRAFOS` é o da versão em vigor | `TERMO_PACIENTE_TEXTOS` (idem); `TERMO_PACIENTE_PARAGRAFOS`. Ficam em `termo-paciente-textos.ts`, que só páginas importam: os formulários de cliente importam o rótulo de `termo-paciente.ts`, e o mapa não vai para o bundle (guarda em `textos-legais.test.ts`) |
-| Rótulo do aceite | `DPA_ROTULO`, "… (DPA), versão 1.0", passado pela página ao formulário (o módulo importa o banco) | `TERMO_PACIENTE_ROTULO`, "… (versão 1.0)" |
+| Constante de versão | `DPA_VERSAO = '1.1'` (`src/modules/plataforma/dpa.ts:16`), com `DPA_VERSAO_DATA = '2026-11-17'` (Plano 20, F-D17; a 1.0 valeu de 15/10/2026 até o deploy do PR 2 do Plano 20) | `TERMO_PACIENTE_VERSAO = '1.0'` (`src/modules/pacientes/termo-paciente.ts:7`), desde 15/10/2026 |
+| Valor gravado em `termo_versao` | `dpa-1.1` (`DPA_TERMO`); antes, `dpa-1.0` e `dpa-0.1-provisorio` | `termo-paciente-1.0` (`TERMO_PACIENTE`); antes, `termo-paciente-0.1-provisorio` |
+| Textos por versão | `DPA_TEXTOS` (a 0.1, a 1.0 congelada — chave pela constante `DPA_VERSAO_1_0` e data literal `'2026-10-15'` — e a 1.1, com a data); `DPA_PARAGRAFOS` é o da versão em vigor (`DPA_1_1`) | `TERMO_PACIENTE_TEXTOS` (idem); `TERMO_PACIENTE_PARAGRAFOS`. Ficam em `termo-paciente-textos.ts`, que só páginas importam: os formulários de cliente importam o rótulo de `termo-paciente.ts`, e o mapa não vai para o bundle (guarda em `textos-legais.test.ts`) |
+| Rótulo do aceite | `DPA_ROTULO`, "… (DPA), versão 1.1", passado pela página ao formulário (o módulo importa o banco) | `TERMO_PACIENTE_ROTULO`, "… (versão 1.0)" |
 | Versão lida | O formulário manda a versão mostrada (campo `versao`, passado pela página); `aceitarDpaAction` e `aceitarConviteAction` recusam com `MSG_TEXTO_ATUALIZADO` se não for `DPA_VERSAO` (deploy com a página aberta) | Idem em `aceitarTermoAction`, `aceitarConvitePacienteAction` e `vincularContaAction`, contra `TERMO_PACIENTE_VERSAO`; na página pública, `solicitarCodigo` recusa com 422 no campo do termo se o corpo não trouxer `termoVersao` igual à versão em vigor (o pedido grava a versão e o aceite sai dela) |
 | `tenant_id` em `consents` | nulo | o consultório do vínculo |
 | Marca extra | `tenants.dpa_aceito_em` e `tenants.dpa_versao` | — |
 | Onde é exigido | `requireNutri` compara `tenant.dpaVersao` com `DPA_VERSAO` | `requirePaciente` chama `termoAceito(userId, tenantId)` (`src/modules/portal/termo.ts:10`) |
-| Tela | `/painel/dpa` (`aceitarDpaAction`, `src/app/painel/actions.ts:12`); com uma versão anterior aceita (`tenant.dpaVersao` preenchido e diferente de `DPA_VERSAO`), mostra acima do texto o aviso `DPA_MUDOU` (`role="status"`): "O contrato de tratamento de dados mudou (versão 1.0, de 15/10/2026). Leia e aceite para continuar usando o painel." (texto livre: a spec não tem um para este caso) | `/p/termo` (`aceitarTermoAction`, `src/app/p/termo/actions.ts`) |
+| Tela | `/painel/dpa` (`aceitarDpaAction`, `src/app/painel/actions.ts:12`); com uma versão anterior aceita (`tenant.dpaVersao` preenchido e diferente de `DPA_VERSAO`), mostra acima do texto, numa região `role="status"`, o aviso `DPA_MUDOU` — "O contrato de tratamento de dados mudou (versão 1.1, de 17/11/2026). Leia e aceite para continuar usando o painel." — e, desde o Plano 20 (US-309), `DPA_O_QUE_MUDOU` (`dpa.ts:34`): "O que mudou: o contrato passa a citar os registros financeiros do consultório, inclusive os pagamentos dos pacientes (Financeiro)." (literal em `dpa.ts`, não importado de `MSG_FINANCEIRO`: a IA alcança `dpa.ts` e não pode alcançar o Financeiro; a igualdade fica em `textos-legais.test.ts`) | `/p/termo` (`aceitarTermoAction`, `src/app/p/termo/actions.ts`) |
 | Primeiro aceite | no convite (`aceitarConvite`) | no convite (`registrarAceiteTermo`, `convite-paciente.ts:231`) |
 | IP | gravado (`clientIp`) | gravado |
 
-`registrarAceiteDpa` (`dpa.ts:74`) só atualiza `tenants` quando a linha de `consents` foi de fato inserida. Assim a marca no tenant nunca diverge da prova (T6-R2b).
+`registrarAceiteDpa` (`src/modules/plataforma/dpa.ts`) só adianta `tenants.dpa_aceito_em` quando a linha de `consents` foi de fato inserida. Assim a marca no tenant nunca diverge da prova (T6-R2b). Se a linha da versão já existe e o tenant está noutra versão (volta atrás e novo avanço, #153), ele regrava `tenants.dpa_versao` com o `aceito_em` da prova, sem linha nova. A imagem anterior ao PR 2 do Plano 20 não tem essa regravação: quem aceitou a 1.1 e volta a uma imagem com `DPA_VERSAO = '1.0'` não destrava o painel, porque a linha `dpa-1.0` já existe e `tenants.dpa_versao` continua `'1.1'`; a saída é o SQL do runbook `financeiro.md` §6, com o OK do dono ([§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás); [§12.13](12-financeiro.md#1213-divergências-conhecidas), #12).
 
 O termo do paciente é aceito **por consultório**: cada nutricionista é controladora dos dados (RNF-08). Plano 06, D25.
 
 **Aditivo de IA (Plano 11, A-D20).** Terceiro tipo de aceite em `consents`: `ia-aditivo-<versão>` (`IA_ADITIVO_TERMO`,
 `src/modules/ia/textos-legais.ts`), da nutricionista, **com** o `tenant_id` do consultório (o DPA usa `tenant_id` nulo),
-gravado por `registrarAceiteAditivoIa` (`dpa.ts:95`) quando ela marca "Li e aceito o aditivo de inteligência artificial
+gravado por `registrarAceiteAditivoIa` (`dpa.ts:144`) quando ela marca "Li e aceito o aditivo de inteligência artificial
 (versão {versão})" e clica em "Ativar a IA no consultório" (Configurações). Marca extra: `tenants.ia_ativada_em` e
 `tenants.ia_aditivo_versao`. `ia_ativada_em` é a data da ativação **em vigor**: o `coalesce` de `registrarAceiteAditivoIa`
-só a preserva enquanto a IA continua ativa (aceite de versão nova do aditivo, clique repetido; `dpa.ts:102-105`);
+só a preserva enquanto a IA continua ativa (aceite de versão nova do aditivo, clique repetido; `dpa.ts:150-155`);
 `desativarIa` a zera (`src/modules/ia/ativacao.ts:48`) e a reativação grava a data nova. A data do primeiro aceite de cada
 versão fica em `consents.aceito_em` (`onConflictDoNothing`). Diferente do DPA, versão nova do aditivo **não**
 redireciona o painel: a seção de IA em Configurações mostra "Para continuar usando a IA, aceite a versão atual do aditivo
@@ -597,7 +597,7 @@ de inteligência artificial." com o aditivo e o botão "Aceitar a versão atual"
 laudo mostra o mesmo aviso no lugar de "Ler valores com IA" (`iaNoExame`, `exames/ia-exame.tsx:24`)
 (`IA_ADITIVO_VERSAO_MIN`). Detalhe no [cap. 10](10-ia.md).
 
-**Como publicar uma versão nova** (P08-06; a 1.0 saiu assim em 15/10/2026, sem o advogado, na linha da A-D27): acrescentar a versão em `DPA_TEXTOS` ou `TERMO_PACIENTE_TEXTOS`, com a data, sem apagar as anteriores (mostram o que cada um leu), e trocar `DPA_VERSAO`/`DPA_VERSAO_DATA` ou `TERMO_PACIENTE_VERSAO`/`TERMO_PACIENTE_VERSAO_DATA`. Na próxima requisição, toda nutricionista vai para `/painel/dpa` (API do painel: 403) e todo paciente para `/p/termo`, uma vez por consultório (API do portal: 403). As linhas antigas de `consents` ficam como prova. Não precisa de migration. A guarda `src/modules/plataforma/textos-legais.test.ts` confere a versão, o rodapé e os suboperadores citados, e que as telas de aceite (`/n/[slug]`, `/convite/paciente/[token]`, `/convite/[token]` e `/painel/dpa`) mostram o texto inteiro na página, sem caixa de altura fixa com rolagem própria (como `/p/termo`). A 1.0 diz que o servidor (Hostinger) fica no Brasil (Campinas/SP, conferido em 15/10/2026) e que a cópia de segurança (Backblaze B2, sem região no Brasil) fica fora, criptografada antes de sair. O canal de privacidade da operadora é `EMAIL_PRIVACIDADE` (`src/modules/plataforma/privacidade.ts`; o e-mail do dono, decisão de 16/10/2026 — trocá-lo pede versão nova dos dois textos), citado no termo (parágrafo da operadora) e no DPA (cláusulas 5 e 15). Em `/p/termo`, quem já aceitou outra versão do termo naquele consultório (`aceitouVersaoAnterior`, `src/modules/portal/termo.ts`) vê `TERMO_PACIENTE_MUDOU`, como o `DPA_MUDOU` de `/painel/dpa`.
+**Como publicar uma versão nova** (P08-06; a 1.0 saiu assim em 15/10/2026 e a 1.1 do DPA no Plano 20, sem o advogado, na linha da A-D27): acrescentar a versão em `DPA_TEXTOS` ou `TERMO_PACIENTE_TEXTOS`, com a data, sem apagar as anteriores (mostram o que cada um leu), e trocar `DPA_VERSAO`/`DPA_VERSAO_DATA` ou `TERMO_PACIENTE_VERSAO`/`TERMO_PACIENTE_VERSAO_DATA`. **Congele a versão anterior** antes de trocar: a data e o último parágrafo dela viram literais e a chave do mapa uma constante própria (como `DPA_VERSAO_1_0` no Plano 20) — senão ela some do mapa ou muda de data junto com a nova. Na próxima requisição, toda nutricionista vai para `/painel/dpa` (API do painel: 403) e todo paciente para `/p/termo`, uma vez por consultório (API do portal: 403). As linhas antigas de `consents` ficam como prova. Não precisa de migration. A guarda `src/modules/plataforma/textos-legais.test.ts` confere a versão, o rodapé e os suboperadores citados, e que as telas de aceite (`/n/[slug]`, `/convite/paciente/[token]`, `/convite/[token]` e `/painel/dpa`) mostram o texto inteiro na página, sem caixa de altura fixa com rolagem própria (como `/p/termo`). A 1.0 diz que o servidor (Hostinger) fica no Brasil (Campinas/SP, conferido em 15/10/2026) e que a cópia de segurança (Backblaze B2, sem região no Brasil) fica fora, criptografada antes de sair. O canal de privacidade da operadora é `EMAIL_PRIVACIDADE` (`src/modules/plataforma/privacidade.ts`; o e-mail do dono, decisão de 16/10/2026 — trocá-lo pede versão nova dos dois textos), citado no termo (parágrafo da operadora) e no DPA (cláusulas 5 e 15). Em `/p/termo`, quem já aceitou outra versão do termo naquele consultório (`aceitouVersaoAnterior`, `src/modules/portal/termo.ts`) vê `TERMO_PACIENTE_MUDOU`, como o `DPA_MUDOU` de `/painel/dpa`.
 
 ---
 

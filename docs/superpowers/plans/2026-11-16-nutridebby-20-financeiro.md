@@ -553,3 +553,5 @@ Três lentes sobre o commit d1d333f: executabilidade, banco e guardas (`revisor-
 - **Trem de merge da onda 1:** 17 → 18 PR 1 → 20 PR 1 → 19 (código) → 18 PR 2 → 20 PR 2 → 20 PR 3 → 19 (seed, sozinho).
 - **DPA:** nesta onda, só o Plano 20 sobe a versão, para a 1.1.
 - **Faixa de IP do E2E:** cada plano usa a própria faixa (sufixo = número do plano). Antes, confira em `e2e/` como os IPs são gerados.
+- **F-P5 (17/11/2026, fechada):** fica a **v0.2** — a correção de "Realizada" para "Faltou" com cobrança em aberto **avisa e não cancela** ("Presença registrada. Esta consulta tem uma cobrança em aberto. Cancele-a no Financeiro se não for cobrar."), como a F-D7 aprovada e a F-D19 da spec; a nutricionista cancela com o motivo, se não for cobrar. A opção (a) (cancelar sozinha com o motivo fixo) não entra. Registrado no PR 2, no índice dos planos e no backlog (P20-15).
+- **Faixa de IP do Plano 20:** `10.9.20.x` (no lugar da proposta `10.9.34`): `10.9.20.1` em `e2e/financeiro.spec.ts` (conta `E2E_FIN_NOVO`) e `10.9.20.2` em `e2e/acessibilidade-painel.spec.ts` (conta `E2E_FIN_AXE`).

@@ -374,3 +374,43 @@ Plano 18, revisão final do PR 2 (17/11/2026): limpo na lente banco (0124/0125, 
 alcançável — tamanho por code point = char_length —, auditRead só no Perfil, rede da anonimização, isolamento com ator).
 - Repetiu "Minor da tarefa que não chega ao backlog": a projeção de `listarPacientes` no limite servidor→cliente
   (agenda/nova → ConsultaForm) apontada na T8 não entrou na seção de backlog do plano. Conferir item a item na final.
+
+Plano 20, T3 (módulo do Financeiro, 17/11/2026):
+- Conferência da linha-mãe sem trava (categoria lida sem FOR KEY SHARE) antes do INSERT da filha + DELETE/arquivamento da
+  mãe com FOR UPDATE noutra transação: em READ COMMITTED quem perde é o INSERT (23503 na FK, sem tradução → erro genérico),
+  não o DELETE — e o comentário costuma afirmar o contrário. Conferir: a conferência da mãe trava `FOR KEY SHARE` e relê
+  o estado (arquivada) sob a trava.
+- Testes de bloqueio concorrente que usam UPDATE simples de `status` (FOR NO KEY UPDATE) não conflitam com FOR KEY SHARE:
+  a serialização só existe porque o bloqueio real (lgpd.ts) faz `carregarPacienteParaEscrita` (FOR UPDATE). Conferir o
+  caminho real de quem muda a situação, não o helper do teste.
+
+Plano 20, T7 (cobrança da consulta, 17/11/2026) — revisão limpa na lente banco; molde aceito para conferir em outras:
+- Efeito colateral chamado DENTRO da transação de outro fluxo (presença → cobrança): a função relê a situação do paciente
+  sob a própria trava (FOR KEY SHARE, que espera o FOR UPDATE do bloqueio real) e devolve um resultado, em vez de deixar o
+  gatilho recusar com 42501 e derrubar o fluxo principal. Conferir sempre: (a) o bloqueio real usa FOR UPDATE (KEY SHARE
+  não espera UPDATE simples); (b) nenhum throw residual (ex.: categoria ausente) no caminho chamado.
+- Action de seção que recebe o id do registro pelo formulário (não por bind) ao lado do id da página: só RLS do tenant
+  limita; costuma ser Minor (a usuária já pode agir no registro pela tela própria).
+
+Plano 20, re-revisão do /code-review do PR 1 (17/11/2026):
+- Ramo `worker` de gatilho de anonimização guardado só por marcador local (`app.<x>_anonimizando`): o marcador pode ser
+  ligado à mão; o gatilho tem de reconferir o prazo/estado da função e fixar datas pelo relógio do banco. Depois de barrar
+  o pago, conferir o inverso: o em aberto anonimizado SEM cancelamento ainda passa (fica pendente para sempre).
+
+Plano 20 (testes de auditoria, 17/11/2026):
+- Asserção "nada gravado"/"0 linhas" contada pelo `app.pool`/`app.db` FORA de `withTenant` em tabela com RLS (audit_log,
+  fin_*): a RLS esconde tudo e a contagem volta 0 sempre. O `ownerDatabaseUrl` dos testes é o superusuário do Testcontainers
+  (enxerga tudo). Conferir de qual pool vem cada `contar`/`leituras` e se há controle positivo com o mesmo helper.
+  Achado: `configuracoes/actions.test.ts` (`contar` no app.pool para `fin_categorias`).
+
+Plano 20, T9 (LGPD do Financeiro, 17/11/2026) — limpa na lente banco. Pontos a conferir em tarefas iguais:
+- Chamada de função SQL de anonimização posta sob condição ("só se há linha") para contornar o `now` injetado dos testes:
+  aceitável só se nenhuma linha pode nascer depois do bloqueio (gatilho de INSERT recusa bloqueado) — conferir isso.
+- Limpeza LGPD nova chamada só pela imagem nova + função que exige `anonimizado_em` nulo: na volta atrás o texto fica e
+  nada o tira depois. Pedir o registro no fechamento (§6.8.1).
+
+Plano 20, revisão final do PR 2 (17/11/2026):
+- GET de download que grava `exportar` em nome da sessão: cookie Lax vai junto em navegação de outro site e o HEAD
+  automático do Next chama o GET. Conferir guarda `Sec-Fetch-Site` (same-origin/none) antes do módulo e HEAD 405.
+- `onConflictDoNothing` + `return` cedo que pula efeito colateral (marca no tenant): idempotente demais — depois de uma
+  volta atrás o reaceite não regrava e o usuário fica preso. Conferir o caminho "linha já existe" de todo aceite.

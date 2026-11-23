@@ -59,9 +59,9 @@ Tabelas sem `patient_id` (`anamnesis_templates`, `patient_tags`, `foods`, `food_
 | `criarConvite(q, userId)` | Apaga convites pendentes do usuário e grava um novo; guarda só o SHA-256 do token; devolve o token em claro só para o e-mail | `convites.ts:23` |
 | `inspecionarConvite(q, token)` | Estado do token (`valido`/`expirado`/`invalido`); token fora do formato (`/^[A-Za-z0-9_-]{43}$/`) nem chega ao banco | `convites.ts:35` |
 | `aceitarConvite(input)` | Primeiro acesso: aceite do DPA obrigatório, política de senha, checagem barata do token **antes** do argon2 (T6-R2a), depois transação: trava o usuário, consome o convite com `UPDATE … WHERE usado_em IS NULL`, grava a senha, marca e-mail verificado, registra o DPA | `convites.ts:66` |
-| `registrarAceiteDpa(q, …)` | `INSERT … ON CONFLICT DO NOTHING` em `consents`; só atualiza `tenants.dpa_aceito_em` se a linha foi inserida (prova e marca nunca divergem) | `dpa.ts:28` |
+| `registrarAceiteDpa(q, …)` | `INSERT … ON CONFLICT DO NOTHING` em `consents`; só adianta `tenants.dpa_aceito_em` se a linha foi inserida (prova e marca nunca divergem); com a linha da versão já existente e o tenant noutra versão (volta atrás e novo avanço, #153), regrava `dpa_versao` com o `aceito_em` da prova | `dpa.ts:111` |
 | `definirIaLiberada(db, tenantId, liberar, adminId, { producao? })` (Plano 11) | Interruptor "IA" da admin (`tenants.ia_liberada`) com `liberar_ia`/`bloquear_ia` em `admin_actions`; em produção (`o.producao ?? emProducao(getEnv())`) recusa liberar (`IaProvisoriaError`) enquanto o aviso ou o aditivo forem `-provisorio` (D22). Só fora de `withTenant` (gatilho `tenants_interruptores_da_admin`) | `contas.ts:189` |
-| `registrarAceiteAditivoIa(…)` (Plano 11) | Aceite do aditivo de IA em `consents` (`ia-aditivo-<versão>`, com o `tenant_id`) e `tenants.ia_ativada_em` (a data da ativação em vigor: o `coalesce` só a mantém com a IA ativa — aceite de versão nova, clique repetido, `dpa.ts:57-60`; `desativarIa` a zera, `ativacao.ts:48`, e a reativação grava data nova; o primeiro aceite de cada versão fica em `consents.aceito_em`) e `ia_aditivo_versao`; devolve se a linha é nova. Chamada por `ativarIa` ([§10.2](10-ia.md#102-peças)) | `dpa.ts:50` |
+| `registrarAceiteAditivoIa(…)` (Plano 11) | Aceite do aditivo de IA em `consents` (`ia-aditivo-<versão>`, com o `tenant_id`) e `tenants.ia_ativada_em` (a data da ativação em vigor: o `coalesce` só a mantém com a IA ativa — aceite de versão nova, clique repetido, `dpa.ts:150-155`; `desativarIa` a zera, `ativacao.ts:48`, e a reativação grava data nova; o primeiro aceite de cada versão fica em `consents.aceito_em`) e `ia_aditivo_versao`; devolve se a linha é nova. Chamada por `ativarIa` ([§10.2](10-ia.md#102-peças)) | `dpa.ts:144` |
 | `suspenderConta` / `reativarConta` | `tenants.status`, revoga as sessões das usuárias do tenant e envia `agenda-tenant` ao worker na mesma transação (o admin nunca toca tabela 🔒) | `suspensao.ts:19,33` |
 | `getTenantStatus`, `tenantIsActive`, `buscarTenant`, `buscarTenantPorSlug`, `listarTenantsParaVarredura` | Leituras de `tenants`. `aguardarSuspensao` usa `FOR SHARE` para esperar uma suspensão em curso | `tenant-status.ts:26,49,33,42,54` |
 
@@ -71,7 +71,7 @@ Regras e constantes:
 - CRN: `/^CRN-?\d{1,2}\s?\d{3,6}$/i`, gravado em maiúsculas (`contas.ts:14,29`).
 - Slug: `^[a-z0-9-]{3,40}$` (`contas.ts:35`).
 - Ordem de travas usuário → convite em `aceitarConvite` e `reenviarConvite` (T6-R1) para evitar deadlock 40P01 (`convites.ts:62-65`).
-- DPA: `DPA_VERSAO = '1.0'` (`dpa.ts:13`, desde 15/10/2026; a 0.1 provisória fica em `DPA_TEXTOS`). Mudar a versão obriga novo aceite (`requireNutri`).
+- DPA: `DPA_VERSAO = '1.1'` (`dpa.ts:16`, Plano 20, US-309: as cláusulas 2 e 5 citam o Financeiro; a 1.0, de 15/10/2026, e a 0.1 provisória ficam em `DPA_TEXTOS`). Mudar a versão obriga novo aceite (`requireNutri`); detalhe em [§3.12](03-autenticacao-e-acesso.md#312-aceites-dpa-e-termo-do-paciente-consents) e [§12.9](12-financeiro.md#129-lgpd-us-307-us-309-f-d16-f-d17-f-d22-f-d23).
 - RN-15 (tenant suspenso): sessões revogadas na hora; o worker consulta `tenantIsActive` antes de gerar exportação e PDF (`exportacao-job.ts`, `plano-pdf-job.ts:38`).
 
 Decisão (Plano 02, "Suspensão"): status + revogação das sessões + bloqueio no login + checagem por requisição, em vez de só um status lido no login.
@@ -179,7 +179,7 @@ Servir arquivos (`src/app/api/arquivos/route.ts:21`):
 
 Como estender com segurança:
 
-1. Tipo novo de arquivo: acrescentar em `TipoDeArquivo`, no CHECK `stored_files_tipo_valido` (migration), em `TIPOS_DO_PACIENTE` se tiver dono, e no `MIME`/`CAMINHO_ARQUIVO` se a extensão for nova. Se o tipo tiver dono (paciente), confira também: o CHECK `stored_files_dono` (`drizzle/0071_stored_files_paciente.sql:7`, validado em `0072`), que exige `patient_id` exatamente para os tipos de paciente; a política `paciente_arquivos` (`0072`, refeita em `0085`), que decide o que o paciente enxerga; `anexosDoPaciente` (`src/modules/pacientes/lgpd.ts:441`), que apaga os arquivos na exclusão e na anonimização (LGPD), e a exportação (`exportacao-job.ts`), se o arquivo faz parte dos dados do titular. Se o arquivo for temporário (como `exportacao`), acrescente o `--exclude` do `rclone sync` de `data/` em `scripts/backup/nutri-backup.sh:118` (hoje só `/*/exportacao/**`), para não ir ao R2.
+1. Tipo novo de arquivo: acrescentar em `TipoDeArquivo`, no CHECK `stored_files_tipo_valido` (migration), em `TIPOS_DO_PACIENTE` se tiver dono, e no `MIME`/`CAMINHO_ARQUIVO` se a extensão for nova. Se o tipo tiver dono (paciente), confira também: o CHECK `stored_files_dono` (`drizzle/0071_stored_files_paciente.sql:7`, validado em `0072`), que exige `patient_id` exatamente para os tipos de paciente; a política `paciente_arquivos` (`0072`, refeita em `0085`), que decide o que o paciente enxerga; `anexosDoPaciente` (`src/modules/pacientes/lgpd.ts:445`), que apaga os arquivos na exclusão e na anonimização (LGPD), e a exportação (`exportacao-job.ts`), se o arquivo faz parte dos dados do titular. Se o arquivo for temporário (como `exportacao`), acrescente o `--exclude` do `rclone sync` de `data/` em `scripts/backup/nutri-backup.sh:118` (hoje só `/*/exportacao/**`), para não ir ao R2.
 2. Registro que aponta para o arquivo: gravar no `registrar` de `salvarArquivo` e apagar no `naMesmaTransacao` de `apagarArquivo`. Nunca em transação separada (regra 9 do CLAUDE.md; Plano 03, decisão "Arquivo e registro juntos").
 3. Respeitar a ordem de travas: dono em `antesDaReserva`/`naMesmaTransacao`, depois cota. Os documentos (Plano 10A) travam o paciente e o documento antes da cota em todo `salvarArquivo` que grava nele (`travarDocumentoAntesDaCota`, `src/modules/documentos/arquivos-do-preparo.ts`; ordem paciente → original → versão nova → tenant, cap. 09 §9.11.5).
 
@@ -401,15 +401,21 @@ objetos novos, então a digitação manual nunca grava `iaTarefaId`. Detalhe no 
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `registrarAtendimento(ctx, tenant, patientId, input)` | Data não futura; textos normalizados (CRLF → LF). Com `appointmentId` (Plano 05, "Iniciar atendimento"): trava a consulta, aplica `motivoParaNaoIniciarAtendimento` e marca a consulta `realizada`. Grava a nota em `consultation_notes` (vazia = sem linha) | `atendimentos.ts:66` |
-| `atualizarAtendimento(...)` | Altera data e orientações; regrava ou apaga a nota | `atendimentos.ts:100` |
-| `listarAtendimentos` | Data e orientações, **sem** a nota; audita `atendimentos` | `atendimentos.ts:164` |
-| `buscarAtendimento` | Abre um atendimento com a nota (`LEFT JOIN`); audita `atendimentos` e, se houver nota, `notas_privadas` | `atendimentos.ts:169` |
-| `orientacoesDoPaciente(ctx)` | Para o portal: só orientações, só em sessão de paciente (recusa o contexto da nutricionista) | `atendimentos.ts:179` |
+| `registrarAtendimento(ctx, tenant, patientId, input)` | Data não futura; textos normalizados (CRLF → LF). Com `appointmentId` (Plano 05, "Iniciar atendimento"): trava a consulta, aplica `motivoParaNaoIniciarAtendimento` e marca a consulta `realizada`. Grava a nota em `consultation_notes` (vazia = sem linha) | `atendimentos.ts:69` |
+| `atualizarAtendimento(...)` | Altera data e orientações; regrava ou apaga a nota | `atendimentos.ts:113` |
+| `listarAtendimentos` | Data e orientações, **sem** a nota; audita `atendimentos` | `atendimentos.ts:177` |
+| `buscarAtendimento` | Abre um atendimento com a nota (`LEFT JOIN`); audita `atendimentos` e, se houver nota, `notas_privadas` | `atendimentos.ts:182` |
+| `orientacoesDoPaciente(ctx)` | Para o portal: só orientações, só em sessão de paciente (recusa o contexto da nutricionista) | `atendimentos.ts:192` |
 
 Garantias de privacidade da nota: a política `staff_only` (`drizzle/0028_rls_atendimentos.sql`) esconde a tabela de qualquer sessão de paciente, mesmo por SQL direto; a exportação nunca inclui notas (ver 4.2.9). Plano 14B-2: as notas dos 10 últimos atendimentos só vão ao resumo do histórico pela IA quando a nutricionista marca "Incluir notas privadas" (desmarcada por padrão), mascaradas; as orientações desses atendimentos vão sempre ([§10.13.1](10-ia.md#10131-o-que-sai-e-a-pseudonimização-d8d11-rn-115-rn-120)).
 
-Corrida "duas abas iniciando o mesmo atendimento": decidida pelo índice `consultations_consulta_idx`; o erro vira "Esta consulta já tem um atendimento registrado." (`atendimentos.ts:95`).
+Corrida "duas abas iniciando o mesmo atendimento": decidida pelo índice `consultations_consulta_idx`; o erro vira "Esta consulta já tem um atendimento registrado." (`atendimentos.ts:108`).
+
+Plano 20 (F-D13, RN-310): quando o atendimento leva a consulta ligada de outra situação a `realizada`, `registrarAtendimento`
+chama `cobrarConsultaRealizada` na mesma transação, depois das travas (paciente `FOR UPDATE` → consulta `FOR UPDATE`), e
+passa a devolver `{ id, cobranca }` (`cobranca` nulo sem consulta ou com ela já `realizada`: sem retroativo). A action leva
+só o tipo do resultado na URL (`?ok=atendimento&cobranca=…`); a página do atendimento mostra "Atendimento registrado.
+Cobrança de {valor} criada no Financeiro." ou o aviso de sem valor ([§12.5](12-financeiro.md#125-cobrança-da-consulta-us-303-rn-310-a-rn-314)).
 
 ### 4.2.7 Evolução em SVG no servidor (US-017)
 
@@ -452,17 +458,17 @@ stateDiagram-v2
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `arquivarPaciente(ctx, id)` | `ativo` → `arquivado`; apaga convites pendentes. Prontuário mantido (RN-08) | `lgpd.ts:59` |
-| `desarquivarPaciente(ctx, id)` | `arquivado` → `ativo`; bloqueado lança erro | `lgpd.ts:79` |
-| `atenderPedidoExclusao(ctx, tenant, id, nomeDigitado)` | Confere o nome digitado; calcula `anonimizar_apos`; conclui (ou cria concluído) o `privacy_requests`; bloqueia; ver lista abaixo; enfileira `exclusao-atendida` na mesma transação | `lgpd.ts:113` |
-| `apagarFotosDoDiario(ctx, id)` | Remove fotos do diário (original e JPEG) com `removerAntesDoCommit`; o registro fica com `foto_status = 'removida'` | `lgpd.ts:232` |
-| `concluirExclusaoAtendida(data, deps)` | Job: apaga as fotos e **só depois** envia o e-mail "pedido atendido" (F-13). Na última tentativa o e-mail sai mesmo com erro de disco. Plano 15: antes do e-mail, as conversas da IA Nutri e a participação (`apagarIaNutriDoTitular`), menos a pergunta com risco não aberta, que fica até 30 dias (D22); o e-mail cita "as conversas com a IA Nutri" e essa guarda ([§10.14.7](10-ia.md#10147-retenção-exclusão-anonimização-e-exportação-rn-181-d8--180-dias-d22-76-133)) | `lgpd.ts:366` |
-| `pedidosDoTitularAbertos(ctx)` | Quadro "Pedidos do titular" do Início, prazo mais curto primeiro | `lgpd.ts:421` |
-| `anexosDoPaciente(tx, id)` | Laudos, exportações, PDFs de plano e fotos do diário do paciente | `lgpd.ts:441` |
-| `anonimizarVencidos(db, now)` | Job diário: por tenant (inclusive suspensos), rede de segurança das fotos, depois anonimiza cada bloqueado vencido. Plano 15: `app_anonimizar_consentimentos_ia_nutri` (tira IP, user-agent e conta do consentimento da IA Nutri) e `limparIaNutriNaAnonimizacao` (o que restou da conversa e a participação). Plano 18 (RN-283): apaga a linha de `patient_cadastro` e, no início de cada tenant, roda a rede `apagarCadastrosDosAnonimizados` | `lgpd.ts:498` |
+| `arquivarPaciente(ctx, id)` | `ativo` → `arquivado`; apaga convites pendentes. Prontuário mantido (RN-08) | `lgpd.ts:60` |
+| `desarquivarPaciente(ctx, id)` | `arquivado` → `ativo`; bloqueado lança erro | `lgpd.ts:80` |
+| `atenderPedidoExclusao(ctx, tenant, id, nomeDigitado)` | Confere o nome digitado; calcula `anonimizar_apos`; conclui (ou cria concluído) o `privacy_requests`; bloqueia; ver lista abaixo; enfileira `exclusao-atendida` na mesma transação | `lgpd.ts:114` |
+| `apagarFotosDoDiario(ctx, id)` | Remove fotos do diário (original e JPEG) com `removerAntesDoCommit`; o registro fica com `foto_status = 'removida'` | `lgpd.ts:236` |
+| `concluirExclusaoAtendida(data, deps)` | Job: apaga as fotos e **só depois** envia o e-mail "pedido atendido" (F-13). Na última tentativa o e-mail sai mesmo com erro de disco. Plano 15: antes do e-mail, as conversas da IA Nutri e a participação (`apagarIaNutriDoTitular`), menos a pergunta com risco não aberta, que fica até 30 dias (D22); o e-mail cita "as conversas com a IA Nutri" e essa guarda ([§10.14.7](10-ia.md#10147-retenção-exclusão-anonimização-e-exportação-rn-181-d8--180-dias-d22-76-133)) | `lgpd.ts:370` |
+| `pedidosDoTitularAbertos(ctx)` | Quadro "Pedidos do titular" do Início, prazo mais curto primeiro | `lgpd.ts:425` |
+| `anexosDoPaciente(tx, id)` | Laudos, exportações, PDFs de plano e fotos do diário do paciente | `lgpd.ts:445` |
+| `anonimizarVencidos(db, now)` | Job diário: por tenant (inclusive suspensos), rede de segurança das fotos, depois anonimiza cada bloqueado vencido. Plano 15: `app_anonimizar_consentimentos_ia_nutri` (tira IP, user-agent e conta do consentimento da IA Nutri) e `limparIaNutriNaAnonimizacao` (o que restou da conversa e a participação). Plano 18 (RN-283): apaga a linha de `patient_cadastro` e, no início de cada tenant, roda a rede `apagarCadastrosDosAnonimizados`. Plano 20: `app_anonimizar_financeiro`, só se o paciente tem lançamento (`:565`) | `lgpd.ts:502` |
 | `contaSemOutroVinculo(tx, userId)` / `anonimizarContaSemVinculo(tx, userId, now)` | P06-08: a conta de login sem outro vínculo é anonimizada; sessões, senha, 2FA e `verification` ligados a ela saem; só conta `paciente` | `conta-titular.ts:10,29` |
 
-O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:113-215`):
+O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:114-219`):
 
 1. `status = 'bloqueado'`, `bloqueado_em`, `anonimizar_apos`; desde o Plano 17, `lembretes_pausados_em` nulo no mesmo UPDATE
    (a única limpeza que o gatilho `patients_lembretes_do_paciente` deixa à sessão `nutri`).
@@ -473,30 +479,32 @@ O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:113-215`):
 6. `push_subscriptions` do vínculo apagadas (Plano 05, D14).
 7. Uso de conteúdo apagado (`apagarUsoDeConteudo`; Plano 07, D15).
 8. `access_events` apagados (`apagarAcessosDoTitular`; Plano 08, D13).
-9. Plano 17: lembretes de rotina apagados (`lgpd.ts:201`; as marcas de envio em cascata), depois do UPDATE do item 1 e da
+9. Plano 17: lembretes de rotina apagados (`lgpd.ts:205`; as marcas de envio em cascata), depois do UPDATE do item 1 e da
    trava do tenant de `cancelarTarefas` — a configuração é ajuste do app, não prontuário
    ([§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17)).
 10. `recordAudit('bloquear')` e job `exclusao-atendida`.
 
-Prazo de guarda: `PRAZO_GUARDA_ANOS = 20` (`lgpd.ts:44`), contado do **último registro do prontuário**, que no pedido de exclusão é o próprio bloqueio: `anonimizar_apos` = hoje no fuso do consultório + 20 anos (`lgpd.ts:129-131`), mesmo para quem tem atendimento antigo (JUR-01, decisão do dono em 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"). Até 09/10/2026 contava do último `consultations.data`; a migration de dados `0110_prazo_guarda_bloqueio` recalculou quem já estava bloqueado e não anonimizado — data do bloqueio (`bloqueado_em` no fuso do tenant; sem ela, o `concluido_em` do pedido de exclusão atendido) + 20 anos, só para mais (`GREATEST`), com o gatilho de auditoria ligado (`set_config` por tenant; um "alterar" de ator nulo por paciente que mudou). O 20 está repetido na migration. P-01 (o número) segue pendente com CRN/advogado.
+Prazo de guarda: `PRAZO_GUARDA_ANOS = 20` (`lgpd.ts:45`), contado do **último registro do prontuário**, que no pedido de exclusão é o próprio bloqueio: `anonimizar_apos` = hoje no fuso do consultório + 20 anos (`lgpd.ts:133-135`), mesmo para quem tem atendimento antigo (JUR-01, decisão do dono em 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"). Até 09/10/2026 contava do último `consultations.data`; a migration de dados `0110_prazo_guarda_bloqueio` recalculou quem já estava bloqueado e não anonimizado — data do bloqueio (`bloqueado_em` no fuso do tenant; sem ela, o `concluido_em` do pedido de exclusão atendido) + 20 anos, só para mais (`GREATEST`), com o gatilho de auditoria ligado (`set_config` por tenant; um "alterar" de ator nulo por paciente que mudou). O 20 está repetido na migration. P-01 (o número) segue pendente com CRN/advogado.
 
-A anonimização de cada paciente (`lgpd.ts:498-635`):
+A anonimização de cada paciente (`lgpd.ts:502-643`):
 
 1. Apaga cada anexo com `removerAntesDoCommit` (se o `rm` falhar, o registro fica e o dia seguinte tenta de novo).
-2. Trava o paciente; `app_anonimizar_aceites(id)` tira IP e conta dos aceites (migration 0065).
+2. Trava o paciente; `app_anonimizar_aceites(id)` tira IP e conta dos aceites (migration 0065). Plano 20: se o paciente tem
+   lançamento, `app_anonimizar_financeiro(id)` tira a descrição e o motivo dos lançamentos, cancela os em aberto (sem autora)
+   e marca `anonimizado_em`; valor, datas, categoria e forma ficam ([§12.3.3](12-financeiro.md#1233-função-app_anonimizar_financeirouuid-rn-316-f-d23)).
 3. `nome = 'Paciente anonimizado'`, e-mail `anonimo-<id>@anonimizado.invalid`, telefone, nascimento e `user_id` nulos.
 4. Se surgiu anexo novo nesse meio tempo, desfaz tudo (fica para o dia seguinte).
 5. Plano 18 (D18, RN-283): apaga a linha de `patient_cadastro` (CPF, endereço, observação…) inteira, **depois** do UPDATE do
    item 3, que grava `anonimizado_em` — o gatilho `patient_cadastro_sem_apagar` só deixa o `worker` apagar com o titular já
-   anonimizado, e o `patient_cadastro_titular_ativo` recusa gravar de novo (`lgpd.ts:588`). O gatilho de auditoria grava o
-   "Excluiu" de ator nulo. Apaga push, lembretes de rotina (Plano 17, com a pausa limpa no UPDATE do item 3), uso de conteúdo e acessos gravados depois do bloqueio; limpa textos livres e destinos da agenda (`anonimizarAgenda`, `lgpd.ts:314`; Plano 05, D10).
+   anonimizado, e o `patient_cadastro_titular_ativo` recusa gravar de novo (`lgpd.ts:596`). O gatilho de auditoria grava o
+   "Excluiu" de ator nulo. Apaga push, lembretes de rotina (Plano 17, com a pausa limpa no UPDATE do item 3), uso de conteúdo e acessos gravados depois do bloqueio; limpa textos livres e destinos da agenda (`anonimizarAgenda`, `lgpd.ts:478`; Plano 05, D10).
 6. Anonimiza a conta de login sem outro vínculo (Plano 06, D18).
 7. `recordAudit('anonimizar')`.
 
 Um tenant com erro não para os outros; o log leva só o tenant e o código do erro (RNF-11).
 
-**Rede do cadastro complementar (Plano 18, RN-283).** `apagarCadastrosDosAnonimizados` (`lgpd.ts:644`) roda no **início**
-de cada tenant da varredura (`lgpd.ts:508`), num `withTenant` worker próprio, antes da rede das fotos e da listagem dos
+**Rede do cadastro complementar (Plano 18, RN-283).** `apagarCadastrosDosAnonimizados` (`lgpd.ts:652`) roda no **início**
+de cada tenant da varredura (`lgpd.ts:512`), num `withTenant` worker próprio, antes da rede das fotos e da listagem dos
 vencidos: `delete from patient_cadastro c using patients p where … p.anonimizado_em is not null`. Serve à janela do
 deploy e a uma volta atrás para a imagem anterior ao Plano 18, cuja anonimização marca `anonimizado_em` sem apagar a
 linha; num dia normal não acha nada. Fica antes da listagem porque a listagem que falha faz `continue` e pularia o
@@ -518,6 +526,14 @@ Plano 11: o pedido de exclusão atendido chama `cancelarTarefas` (fila cancelada
 esvaziadas; `lgpd.ts`, ordem paciente → tenant → tarefas); a anonimização, no contexto `worker` e depois de gravar
 `anonimizado_em`, apaga as linhas de `ia_tarefas` do paciente — a única exclusão que o gatilho `ia_tarefas_sem_apagar`
 aceita — e o registro técnico fica em `ia_uso`, sem titular ([§10.7](10-ia.md#107-privacidade)).
+
+Plano 20 (Financeiro, [§12.9](12-financeiro.md#129-lgpd-us-307-us-309-f-d16-f-d17-f-d22-f-d23)): o pedido de exclusão
+atendido **não** mexe nos lançamentos (obrigação fiscal e cobrança da pendência; F-D16, F-D20). Depois do bloqueio, o
+módulo e o gatilho `fin_lancamentos_regras` só deixam receber, desfazer o recebimento, reduzir o valor e cancelar; nenhum
+lançamento novo. A aba Privacidade ganha um parágrafo próprio depois do texto do bloqueio ("Os registros de pagamento do
+Financeiro ficam guardados pelo mesmo prazo do prontuário, e as cobranças em aberto continuam valendo."); a confirmação do
+portal (`CONFIRMAR_EXCLUSAO`) e os e-mails `pedido_exclusao_registrado` e `exclusao_atendida` citam os registros de
+pagamento das consultas (textos em `MSG_FINANCEIRO.lgpd`).
 
 ### 4.2.9 Exportação ZIP (US-018, US-046)
 
@@ -550,11 +566,11 @@ sequenceDiagram
 | `estadoDaExportacao(...)` | Estado para a página do link; entregar o link pronto audita `exportacoes` | `exportacao.ts:129` |
 | `exportacoesRecentes(...)` | Últimos 5 pedidos, auditados | `exportacao.ts:171` |
 | `linkDaExportacao(appUrl, pedido)` | Titular: `/p/meus-dados/exportacoes/<id>` (com o consultório); equipe: `/painel/pacientes/<id>/exportacoes/<id>` | `exportacao.ts:37` |
-| `montarDados(tx, patientId, now, fuso, escopo)` | `dados.json` com paciente, anamneses, antropometria, gasto energético, exames, atendimentos (só orientações), planos (rascunho só no escopo `equipe`), pedidos LGPD, consultas, lembretes (mensagens das consultas), aceites, dispositivos push (sem endpoint), lembretes de rotina (`lembretesDeRotina`, Plano 17: configuração, texto, `ligado` e a escolha do titular, sem a marca de envio; e `paciente.lembretesPausadosEm`, nos dois escopos), diário e conteúdos; desde o Plano 18, `paciente.cadastro` (abaixo) | `exportacao-job.ts:421` |
-| `gerarExportacao(data, deps)` | Job idempotente: só age sobre `pendente`; cota esgotada, anonimização no meio ou última tentativa → `falhou` | `exportacao-job.ts:780` |
-| `expirarExportacao` / `expirarExportacoesVencidas` | Apaga o ZIP e marca `expirada` na transação do arquivo; a varredura diária pega o que o job de +24 h não conseguiu | `exportacao-job.ts:1021,932` |
+| `montarDados(tx, patientId, now, fuso, escopo)` | `dados.json` com paciente, anamneses, antropometria, gasto energético, exames, atendimentos (só orientações), planos (rascunho só no escopo `equipe`), pedidos LGPD, consultas, lembretes (mensagens das consultas), aceites, dispositivos push (sem endpoint), lembretes de rotina (`lembretesDeRotina`, Plano 17: configuração, texto, `ligado` e a escolha do titular, sem a marca de envio; e `paciente.lembretesPausadosEm`, nos dois escopos), diário e conteúdos; desde o Plano 18, `paciente.cadastro` (abaixo) | `exportacao-job.ts:429` |
+| `gerarExportacao(data, deps)` | Job idempotente: só age sobre `pendente`; cota esgotada, anonimização no meio ou última tentativa → `falhou` | `exportacao-job.ts:791` |
+| `expirarExportacao` / `expirarExportacoesVencidas` | Apaga o ZIP e marca `expirada` na transação do arquivo; a varredura diária pega o que o job de +24 h não conseguiu | `exportacao-job.ts:1032,943` |
 
-Conteúdo do ZIP: `dados.json`, `prontuario.pdf`, `laudos/<data>-<nn>.<ext>` e `diario/<data>-<n>.jpg` (nomes sem texto do usuário; `exportacao-job.ts:532,540,838-839`). Laudos e fotos guardados sem recompressão. Acima de `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:354`) o que não cabe fica fora com `laudosForaDoZip = true`.
+Conteúdo do ZIP: `dados.json`, `prontuario.pdf`, `laudos/<data>-<nn>.<ext>` e `diario/<data>-<n>.jpg` (nomes sem texto do usuário; `exportacao-job.ts:542,550,849-850`). Laudos e fotos guardados sem recompressão. Acima de `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:361`) o que não cabe fica fora com `laudosForaDoZip = true`.
 
 Nunca exportados: `consultation_notes`, `patient_tags`/`patient_tag_links` (Plano 03, "Conteúdo da exportação"), motivo de cancelamento escrito pela nutricionista, texto e destino das mensagens.
 
@@ -576,7 +592,7 @@ revogação fica de fora. No escopo da equipe, a pergunta com risco de quem desa
 uma vez, pela fila "Dúvidas dos pacientes"; [§10.14.7](10-ia.md#10147-retenção-exclusão-anonimização-e-exportação-rn-181-d8--180-dias-d22-76-133)).
 
 Plano 18 (§10, D18, RN-262): o `dados.json` ganha `paciente.cadastro` nos **dois** escopos (`cadastroParaExportacao`,
-`exportacao-job.ts:100`, por inclusão explícita de cada coluna): `cpf` e `telefoneFixo` formatados como a tela,
+`exportacao-job.ts:101`, por inclusão explícita de cada coluna): `cpf` e `telefoneFixo` formatados como a tela,
 `identidadeDeGenero`, `estadoCivil` e `escolaridade` pelo **rótulo** que a tela mostra (LGPD, art. 18, II e V; art. 19,
 § 3º), `nomeSocial`, `ocupacao`, `nacionalidade`, `naturalidade`, `endereco` (`cep` com hífen, `rua`, `numero`,
 `complemento`, `bairro`, `cidade`, `uf`) e `observacao`; sem linha, `cadastro: null`. É o único lugar fora do
@@ -587,6 +603,13 @@ CPF (RN-262) e **sem** a observação (fica no `dados.json`). Campo vazio sai "-
 §10 diz do "LEIA-ME da exportação" não tem onde entrar (divergência #17 abaixo). A guarda
 `colunas-decididas.test.ts` quebra quando aparece coluna nova em `patients` ou `patient_cadastro` sem a decisão de
 exportação, anonimização e IA (§2.11, passo 8).
+
+Plano 20: o `dados.json` ganha a chave `financeiro` (a última; `financeiroParaExportacao`, `src/modules/financeiro/titular.ts`,
+chamada em `exportacao-job.ts:526`), nos **dois escopos**, por inclusão explícita (`fin_lancamentos` é `staff_only`, como
+`ia_tarefas`; o comentário de `montarDados` cita as duas): vencimento, pagamento, valor (centavos e "R$ …"), forma, situação
+no dia da exportação (no fuso), categoria, descrição, início da consulta ligada, data e motivo do cancelamento; nunca quem
+lançou nem quem cancelou (F-D22: cópia integral do que é do titular, LGPD art. 19, § 3º). O `prontuario.pdf` não muda e
+nenhum arquivo novo entra no ZIP ([§12.9](12-financeiro.md#129-lgpd-us-307-us-309-f-d16-f-d17-f-d22-f-d23)).
 
 Validade do link: 24 h (`EXPORTACAO_VALIDADE_MS`, `exportacao.ts:14`). O ZIP não vai para o backup de `/data` (Plano 03, decisão do dono).
 
@@ -1180,13 +1203,13 @@ Spec × código (o código foi descrito acima; a spec deve ser corrigida ou a de
 4. **§7 `anamnesis_templates`.** A spec lista só `nome` e `schema`; o código tem também `padrao` (índice único parcial) e `arquivado_em`. A US-012 diz que o modelo padrão existe "ao criar a conta"; o código o cria na primeira listagem (`garantirModeloPadrao`, `anamnese.ts:36`) — efeito igual para a usuária, momento diferente.
 5. **§7 `exams.arquivo_path`.** A spec trata como campo livre; o código tem FK para `stored_files.caminho` com `ON DELETE SET NULL` e CHECK `exams_arquivo_do_tenant` (desvio do Plano 03 não refletido na §7).
 6. **US-021, cenário "Alimento em uso".** O cenário diz "Este alimento está em um plano e não pode ser excluído."; o código diz "Este alimento está em um plano ou receita e não pode ser excluído." (`alimentos-constantes.ts`, `MSG_ALIMENTO.emUso`; Plano 07, D12). A nota do Plano 07 (`…-historias.md:1367`) já traz o texto novo; o cenário original não foi corrigido.
-7. **US-018, cenário "Exportar": "dados.json (todas as tabelas de P)".** O código exclui as tabelas `staff_only` (notas privadas, etiquetas) e o motivo de cancelamento escrito pela nutricionista (`exportacao-job.ts:238,259,416`). É decisão do Plano 03 ("Conteúdo da exportação") e está na US-046, mas o texto da US-018 não diz.
-8. **US-018 "anonimizar_apos = última consulta + prazo".** **Resolvida (JUR-01, 09/10/2026):** o prazo passou a contar da data do bloqueio, o último registro do prontuário (`lgpd.ts:129-131`; migration `0110`), e a US-018 foi corrigida. Antes, o código contava da última data de atendimento registrado (`max(consultations.data)`).
+7. **US-018, cenário "Exportar": "dados.json (todas as tabelas de P)".** O código exclui as tabelas `staff_only` (notas privadas, etiquetas) e o motivo de cancelamento escrito pela nutricionista (comentários de `montarDados` e do tipo `DadosExportacao`, `exportacao-job.ts`). É decisão do Plano 03 ("Conteúdo da exportação") e está na US-046, mas o texto da US-018 não diz.
+8. **US-018 "anonimizar_apos = última consulta + prazo".** **Resolvida (JUR-01, 09/10/2026):** o prazo passou a contar da data do bloqueio, o último registro do prontuário (`lgpd.ts:133-135`; migration `0110`), e a US-018 foi corrigida. Antes, o código contava da última data de atendimento registrado (`max(consultations.data)`).
 
 Plano × código:
 
-9. **Teto de laudos na exportação.** Decisão do dono no Plano 03: 200 MB. Código: `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:354`), valor do Plano 06, D16 (que passou a incluir as fotos do diário no mesmo teto). A tabela de decisões do Plano 03 ficou desatualizada.
-10. **DPA e termo do paciente.** **Resolvida (P08-06, 15/10/2026):** `DPA_VERSAO` e `TERMO_PACIENTE_VERSAO = '1.0'` (`dpa.ts:13`, `termo-paciente.ts:7`), como previa o Plano 08, D14, mas com o texto publicado pelo dono sem o advogado (na linha da A-D27). Antes, `'0.1-provisorio'` (Tarefa 8 bloqueada no E-09).
+9. **Teto de laudos na exportação.** Decisão do dono no Plano 03: 200 MB. Código: `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:361`), valor do Plano 06, D16 (que passou a incluir as fotos do diário no mesmo teto). A tabela de decisões do Plano 03 ficou desatualizada.
+10. **DPA e termo do paciente.** **Resolvida (P08-06, 15/10/2026):** `DPA_VERSAO` e `TERMO_PACIENTE_VERSAO = '1.0'` (`dpa.ts:16`, `termo-paciente.ts:7`; o DPA está na 1.1 desde o Plano 20), como previa o Plano 08, D14, mas com o texto publicado pelo dono sem o advogado (na linha da A-D27). Antes, `'0.1-provisorio'` (Tarefa 8 bloqueada no E-09).
 
 Plano 18, PR 1 (ficha: Início, Perfil, cabeçalho e registro de seções; conferido no branch `plano-18-ficha-cadastro` em
 `d9066f9`, 17/11/2026, antes do merge):

@@ -60,15 +60,21 @@ export async function cancelarAction(id: string, _prev: ConsultaState, fd: FormD
   redirect(`/painel/agenda/consultas/${id}?ok=cancelada`);
 }
 
-/** US-037: "Realizada" ou "Faltou" depois do início (pode corrigir); erros do domínio aparecem com role="alert". */
+/**
+ * US-037: "Realizada" ou "Faltou" depois do início (pode corrigir); erros do domínio aparecem com role="alert".
+ * Plano 20 (RN-310): o resultado da cobrança vai na URL (`&cobranca=`); o valor não (ficaria no histórico do navegador):
+ * a página o lê da própria cobrança.
+ */
 export async function presencaAction(id: string, situacao: SituacaoPresenca): Promise<ConsultaState> {
   const { ctx } = await requireNutri(`/painel/agenda/consultas/${id}`);
   if (situacao !== 'realizada' && situacao !== 'faltou') notFound(); // argumento ligado no servidor; nunca outro valor
+  let r: Awaited<ReturnType<typeof registrarPresenca>>;
   try {
-    await registrarPresenca(ctx, id, situacao);
+    r = await registrarPresenca(ctx, id, situacao);
   } catch (e) {
     return tratar(e, {});
   }
   revalidatePath('/painel/agenda');
-  redirect(`/painel/agenda/consultas/${id}?ok=presenca`);
+  if (r.cobranca) revalidatePath('/painel/financeiro', 'layout');
+  redirect(`/painel/agenda/consultas/${id}?ok=presenca${r.cobranca ? `&cobranca=${r.cobranca.tipo}` : ''}`);
 }

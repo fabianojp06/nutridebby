@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { getEnv } from '@/env';
+import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 import { painelDaAutorizacao, secaoIaVisivel } from '@/modules/ia/autorizacao';
 import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
 import { configIA, estadoIaDoTenant } from '@/modules/ia/modo';
@@ -125,6 +126,8 @@ export default async function PrivacidadePage({
             <p>
               {`Durante o prazo de guarda do prontuário (${PRAZO_GUARDA_ANOS} anos contados da data do bloqueio, considerada o último registro do prontuário — Res. CFN 594/2017, art. 3º, VI, b), os dados clínicos ficam guardados, identificados e só para sua consulta. Na hora são apagadas as fotos do diário, os exames enviados pelo app que ainda não foram aceitos, as autorizações de WhatsApp, as notificações no app, os convites e as conversas com a ${NOME_IA_NUTRI} (salvo a mensagem com sinal de risco ainda não aberta, que fica guardada até ser aberta, por no máximo ${RISCO_REVOGADO_MAX_DIAS} dias, para a proteção do paciente); as consultas futuras são canceladas, o paciente perde o acesso ao portal deste acompanhamento e recebe um e-mail explicando. No fim do prazo, os dados de identificação são anonimizados.`}
             </p>
+            {/* Plano 20 (US-307, spec §6.2; LGPD art. 18, § 4º, II): o Financeiro fica com o prontuário */}
+            <p>{MSG_FINANCEIRO.lgpd.privacidadePainel}</p>
             {/* Plano 18 (RN-266): com nome social, a instrução pede o nome de registro, que é o que atenderPedidoExclusao confere */}
             <ExclusaoForm
               acao={atenderExclusaoAction.bind(null, paciente.id)}

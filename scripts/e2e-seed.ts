@@ -27,6 +27,7 @@ import { hashPassword } from '@/lib/password.server';
 import { chaveDoLimite, liberarLimite } from '@/modules/agenda/limite-ip';
 import { idTaco } from '@/modules/alimentos/taco';
 import { GUIAS } from '@/modules/ajuda/conteudo';
+import { CATEGORIAS_INICIAIS } from '@/modules/financeiro/constantes';
 import { configIA } from '@/modules/ia/modo';
 import { LIMITE_DIA, RETENCAO_DIAS } from '@/modules/ia/nutri-paciente/constantes';
 import { consentimentoVigente, ultimoEvento } from '@/modules/ia/nutri-paciente/estado';
@@ -181,24 +182,8 @@ await db.insert(user).values({ id: manualId, name: 'Manual E2E', email: E2E_MANU
 await db.insert(account).values({ id: randomUUID(), userId: manualId, accountId: manualId, providerId: 'credential', password: await hashPassword(E2E_MANUAL.password) });
 
 // Plano 20: o consultório do E2E sai com o Financeiro configurado — saldo de R$ 1.000,00 no dia 1º do mês corrente (no fuso do
-// consultório), consulta a R$ 250,00 e as categorias iniciais da RN-302 (a T2 passa a lista para CATEGORIAS_INICIAIS). Tudo com
+// consultório), consulta a R$ 250,00 e as categorias iniciais da RN-302 (CATEGORIAS_INICIAIS, a mesma lista do módulo). Tudo com
 // ON CONFLICT DO NOTHING: a linha de configuração e as categorias das execuções anteriores ficam como estão.
-const CATEGORIAS_DO_E2E: { tipo: 'entrada' | 'saida'; nome: string; chave: 'consultas' | null }[] = [
-  { tipo: 'entrada', nome: 'Consultas', chave: 'consultas' },
-  { tipo: 'entrada', nome: 'Outras entradas', chave: null },
-  ...[
-    'Aluguel e condomínio',
-    'Contas de consumo (água, luz, internet, telefone)',
-    'Material e insumos',
-    'Equipamentos',
-    'Software e assinaturas',
-    'Divulgação',
-    'Impostos e taxas',
-    'Conselho e associações',
-    'Cursos e eventos',
-    'Outras saídas',
-  ].map((nome) => ({ tipo: 'saida' as const, nome, chave: null })),
-];
 await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
   await tx
     .insert(finConfiguracoes)
@@ -211,7 +196,7 @@ await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
     .onConflictDoNothing();
   await tx
     .insert(finCategorias)
-    .values(CATEGORIAS_DO_E2E.map((c) => ({ tenantId: consultorio.id, ...c })))
+    .values(CATEGORIAS_INICIAIS.map((c) => ({ tenantId: consultorio.id, ...c })))
     .onConflictDoNothing();
 }, db);
 
