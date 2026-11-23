@@ -696,7 +696,8 @@ test('Plano 23: escolha do local no agendamento do portal e na página pública,
       for (const modo of ['light', 'dark'] as const) {
         await page.emulateMedia({ colorScheme: modo });
         await page.goto(url);
-        await page.waitForLoadState('networkidle');
+        // 'load', não 'networkidle': a página pública mantém conexões abertas (o widget anti-robô) e a rede nunca fica ociosa
+        await page.waitForLoadState('load');
         const grupo = page.getByRole('group', { name: 'Onde você quer ser atendido?' });
         await expect(grupo, url).toBeVisible();
         await expect(grupo.getByRole('radio')).toHaveCount(3);
