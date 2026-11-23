@@ -91,7 +91,7 @@ export async function emitirReceita(page: Page, prontuario: string, opcoes: { no
   await page.goto(`${prontuario}/documentos`);
   await page.getByRole('button', { name: 'Nova receita' }).click();
   await expect(page).toHaveURL(/\/documentos\/[0-9a-f-]{36}$/);
-  await page.getByRole('button', { name: 'Adicionar item' }).click();
+  await page.getByRole('button', { name: 'Adicionar item', exact: true }).click();
   await page.getByLabel('Componente 1').fill('Vitamina D3');
   await page.getByLabel('Quantidade').fill('2000');
   await page.getByLabel('Unidade').selectOption('UI');
