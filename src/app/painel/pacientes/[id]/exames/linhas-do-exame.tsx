@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import Link from 'next/link';
 import { Dialogo, DialogoConfirmar } from '@/components/dialogo';
 import { Botao } from '@/components/ui/botao';
 import { lerDecimal, numeroParaCampo } from '@/lib/numero';
@@ -118,7 +119,12 @@ function CarregarModelo({ modelos, aoCarregar }: { modelos: ModeloParaCarregar[]
         createPortal(
           <Dialogo aberto titulo={L.carregarModelo} aoFechar={fechar}>
             {modelos.length === 0 ? (
-              <p>{MSG_EXAMES.vazios.semModelo}</p>
+              <p>
+                {MSG_EXAMES.vazios.semModelo}{' '}
+                <Link href="/painel/exames/modelos/novo" prefetch={false} className="text-link underline">
+                  {MSG_EXAMES.modelosSolicitacao.novo}
+                </Link>
+              </p>
             ) : (
               <ul className="space-y-2">
                 {modelos.map((m) => (

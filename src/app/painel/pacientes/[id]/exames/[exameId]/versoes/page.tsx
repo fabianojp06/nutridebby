@@ -51,17 +51,17 @@ export default async function VersoesDoExamePage({ params }: PageProps<'/painel/
                 </caption>
                 <thead className="text-sm text-suave">
                   <tr>
-                    <th scope="col">Marcador</th>
-                    <th scope="col">Valor</th>
-                    <th scope="col">Referência do laudo</th>
+                    <th scope="col" className="px-2 py-1">Marcador</th>
+                    <th scope="col" className="px-2 py-1">Valor</th>
+                    <th scope="col" className="px-2 py-1">Referência do laudo</th>
                   </tr>
                 </thead>
                 <tbody>
                   {v.valores.map((l, i) => (
                     <tr key={`${i}-${l.nome}`} className="border-t border-linha">
-                      <td>{l.nome}</td>
-                      <td>{`${formatarDecimal(l.valor, casasDecimais(l.valor))}${l.unidade ? ` ${l.unidade}` : ''}`}</td>
-                      <td>{l.referencia ?? '—'}</td>
+                      <th scope="row" className="px-2 py-1 font-normal">{l.nome}</th>
+                      <td className="px-2 py-1">{`${formatarDecimal(l.valor, casasDecimais(l.valor))}${l.unidade ? ` ${l.unidade}` : ''}`}</td>
+                      <td className="px-2 py-1">{l.referencia ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>

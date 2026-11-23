@@ -492,7 +492,7 @@ export const GUIAS: readonly Guia[] = [
     padrao: /^\/painel\/exames(\/.*)?$/,
     titulo: 'Exames do consultório',
     ajuda: {
-      resumo: 'O catálogo com os exames que você pede e lê, com as suas faixas e os modelos de nota, e os modelos de solicitação. Nada daqui aparece para o paciente.',
+      resumo: 'O catálogo com os exames que você pede e lê, com as suas faixas e os modelos de nota, e os modelos de solicitação. As faixas e os modelos de nota são só seus; os exames de um modelo de solicitação aparecem na solicitação que o paciente recebe.',
       secoes: [
         {
           titulo: 'Passo a passo',
