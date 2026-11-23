@@ -6,7 +6,7 @@ import { Cartao } from '@/components/ui/cartao';
 import { Selo } from '@/components/ui/selo';
 import { idValido } from '@/modules/pacientes/base';
 import { formatarCodigo } from '@/modules/documentos/codigo';
-import { DECLARACAO_PARECER, DECLARACAO_RECEITA, envioEmCurso, linhaDaVersao, podeVoltarAEditar, ROTULO_ASSINATURA, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
+import { DECLARACAO_PARECER, DECLARACAO_RECEITA, DECLARACAO_SOLICITACAO, envioEmCurso, linhaDaVersao, podeVoltarAEditar, ROTULO_ASSINATURA, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { MSG_CANCELAMENTO } from '@/modules/documentos/cancelamento';
 import { MSG_DIGITALIZADA } from '@/modules/documentos/digitalizada';
@@ -16,7 +16,9 @@ import { linhaDoValor, MSG_PARECER, rotuloDoExame } from '@/modules/documentos/p
 import { situacaoDosExames } from '@/modules/documentos/parecer-exames';
 import type { ConteudoParecer } from '@/modules/documentos/parecer';
 import { descreverItem, type ConteudoReceita } from '@/modules/documentos/prescricao';
+import { MSG_SOLICITACAO, type ConteudoSolicitacao } from '@/modules/documentos/solicitacao';
 import { assertNever, type ConteudoAnonimizado } from '@/modules/documentos/tipos-de-documento';
+import { bibliotecasParaExames } from '@/modules/exames/modelos-solicitacao';
 import { listarExames } from '@/modules/pacientes/exames';
 import { carregarProntuario } from '../../prontuario';
 import { apagarRascunhoAction, pedirNovoPdfAction, retificarAction, voltarAEditarAction } from '../actions';
@@ -28,6 +30,8 @@ import { EnviarDigitalizada } from './enviar-digitalizada';
 import { EstadoPdf } from './estado-pdf';
 import { ParecerForm } from './parecer-form';
 import { ReceitaForm } from './receita-form';
+import { SolicitacaoForm } from './solicitacao-form';
+import { SolicitacaoVisao } from './solicitacao-visao';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,10 +48,11 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
   // RN-140 (c): o emitido anonimizado tem conteudo '{}' e nenhum PDF — a página mostra só a situação (correção do /code-review high do PR #18)
   const anonimizado = !!d.anonimizadoEm;
   // Plano 13: o conteúdo é da receita ou do parecer; o anonimizado tem conteudo '{}' (sem tipo). Plano 22 (DEP-E7): por
-  // `switch`; a solicitação responde 404 até a T8, que põe o formulário e a visão dela no mesmo PR (nenhum caminho do app
-  // cria uma solicitação antes disso)
+  // `switch`; a solicitação (T8) tem o editor e a visão dela — todo tipo lido é mostrado, então o `auditRead` de
+  // `lerDocumento` só é gravado quando a página de fato mostra o documento (revisão da T7, a: antes, 404 depois da leitura)
   let receita: ConteudoReceita | null = null;
   let parecer: ConteudoParecer | null = null;
+  let solicitacao: ConteudoSolicitacao | null = null;
   const conteudo: typeof d.conteudo | ConteudoAnonimizado = d.conteudo;
   switch (conteudo.tipo) {
     case 'receita':
@@ -57,7 +62,8 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
       parecer = conteudo;
       break;
     case 'solicitacao_exames':
-      return notFound();
+      solicitacao = conteudo;
+      break;
     case undefined: // anonimizado
       break;
     default:
@@ -67,6 +73,8 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
   const examesParaEscolher = parecer && d.status === 'rascunho' && !bloqueado
     ? (await listarExames(ctx, paciente.id)).map((x) => ({ id: x.id, rotulo: rotuloDoExame(x), semValores: x.valores.length === 0, linhas: x.valores.map(linhaDoValor) }))
     : [];
+  // Plano 22 (T8, R22-08): o editor da solicitação recebe o catálogo e os modelos de solicitação (uma transação só)
+  const bibliotecas = solicitacao && d.status === 'rascunho' && !bloqueado ? await bibliotecasParaExames(ctx) : null;
   // RN-148 v0.5: o aviso de exame mudado/excluído só onde a nutricionista ainda age (aguardando → voltar a editar; assinado → retificar)
   const situacao = parecer && !anonimizado && (d.status === 'aguardando_assinatura' || d.status === 'assinado') ? await situacaoDosExames(ctx, paciente.id, parecer.exames) : {};
   // D24: um envio digitalizado recebendo as fotos ou na fila do worker ("Montando o PDF digitalizado…"), com o mesmo prazo
@@ -127,6 +135,23 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
           <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
         </>
       )}
+
+      {d.status === 'rascunho' && !bloqueado && solicitacao && bibliotecas && (
+        <>
+          <SolicitacaoForm
+            patientId={paciente.id}
+            docId={d.id}
+            conteudo={solicitacao}
+            catalogo={bibliotecas.catalogo.map(({ nome, unidade, sinonimos, componentes }) => ({ nome, unidade, sinonimos, componentes }))}
+            modelos={bibliotecas.modelos}
+            declaracao={DECLARACAO_SOLICITACAO}
+            motivo={motivo}
+          />
+          <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
+        </>
+      )}
+
+      {d.status !== 'rascunho' && !anonimizado && solicitacao && <SolicitacaoVisao conteudo={solicitacao} />}
 
       {d.status !== 'rascunho' && !anonimizado && receita && (
         <Cartao id="itens-receita" titulo="Itens da receita">
@@ -224,6 +249,15 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
           {emitido}
           {/* US-145 / D3: a entrega ("?link=1" = "Link reenviado.", D6 ★) */}
           {!anonimizado && <Entrega d={d} paciente={paciente} fuso={tenant.fuso} linkReenviado={busca.link === '1'} />}
+          {/* Plano 22 (T8, RN-390, EP-D50): "Lançar resultados" abre o "Novo exame" com o título e as linhas da solicitação
+              (a página de exames lê o conteúdo com auditRead; sem pré-carregar o link) */}
+          {solicitacao && !bloqueado && !anonimizado && (
+            <div className="mt-4">
+              <BotaoLink href={`/painel/pacientes/${paciente.id}/exames?solicitacao=${d.id}#novo-exame`} prefetch={false}>
+                {MSG_SOLICITACAO.lancarResultados}
+              </BotaoLink>
+            </div>
+          )}
           {/* US-148: só a versão em vigor; com uma retificação em andamento, o botão abre a mesma (uma por vez) */}
           {!bloqueado && (
             <div className="mt-4" data-guia="retificar-documento">

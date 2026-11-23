@@ -30,6 +30,8 @@ export const secaoDocumentos: SecaoDaFicha = {
   adicionar: [
     { grupo: 'prescricoes', rotulo: MSG_FICHA.itens.receita, destino: { acao: 'criar-receita' } },
     { grupo: 'prescricoes', rotulo: MSG_FICHA.itens.parecer, destino: { acao: 'criar-parecer' } },
+    // Plano 22 (T8, US-377): a solicitação de exames, no grupo Avaliações (a mesma Server Action da aba, RN-280)
+    { grupo: 'avaliacoes', rotulo: MSG_FICHA.itens.solicitacao, destino: { acao: 'criar-solicitacao' } },
   ],
   // RN-279: os filtros de `documentosDoPaciente` — a RLS (paciente_so_emitidos) entrega os emitidos; o portal tira os
   // anonimizados e não mostra nada com os documentos desligados pelo admin (D20 do 10A)

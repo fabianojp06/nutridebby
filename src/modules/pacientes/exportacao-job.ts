@@ -321,7 +321,10 @@ export type DadosExportacao = {
   }[];
   /** Plano 07 (D15): conteúdos que o titular abriu e favoritou (título e data). */
   conteudos: ConteudosDoTitular;
-  /** Plano 10A (US-150 base): receitas; o titular recebe só as emitidas (D15 = (b): com a justificativa de uso). */
+  /**
+   * Plano 10A (US-150 base): receitas; o titular recebe só as emitidas (D15 = (b): com a justificativa de uso). Plano 13: os
+   * pareceres. Plano 22 (T8, RN-399): as solicitações de exames (exames, indicação clínica e orientações; sem justificativa).
+   */
   documentos: DocumentoExportado[];
   /**
    * Plano 11 (spec §5.3; LGPD art. 18, VII, e art. 37): pedidos à IA — id (liga com `exames[].valores[].iaTarefaId`), tipo,

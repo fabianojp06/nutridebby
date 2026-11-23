@@ -13,7 +13,7 @@ const FONTES = readdirSync(PASTA)
   .map((f) => ({ f, src: readFileSync(path.join(PASTA, f), 'utf8') }));
 // A palavra do contexto de paciente sem login é montada aqui para não aparecer escrita neste arquivo (sem-conta-guarda)
 const PALAVRA_DO_CONTEXTO_SEM_LOGIN = new RegExp(`\\bsem${'Conta'}\\b`);
-const ACOES: readonly ChaveDeAcao[] = ['criar-receita', 'criar-parecer'];
+const ACOES: readonly ChaveDeAcao[] = ['criar-receita', 'criar-parecer', 'criar-solicitacao'];
 const GRUPOS: readonly GrupoDoAdicionar[] = ['avaliacoes', 'prescricoes', 'outros'];
 const UUID = '0b6c3c9e-8a3f-4a1d-9a54-6f7c2a1e9d11';
 /**
@@ -133,7 +133,10 @@ describe('registro de seções (RN-277, RN-278)', () => {
     expect(por.documentos).toEqual([
       { grupo: 'prescricoes', rotulo: 'Receita', destino: { acao: 'criar-receita' } },
       { grupo: 'prescricoes', rotulo: 'Parecer nutricional', destino: { acao: 'criar-parecer' } },
+      // Plano 22 (T8, US-377): a solicitação no fim de `adicionar`, no grupo Avaliações
+      { grupo: 'avaliacoes', rotulo: 'Solicitação de exames', destino: { acao: 'criar-solicitacao' } },
     ]);
+    expect(MSG_FICHA.itens.solicitacao).toBe('Solicitação de exames');
   });
 
   it('exames-enviados: "Ver todos" na aba Exames e o item abre em /painel/exames-recebidos/{id}', () => {

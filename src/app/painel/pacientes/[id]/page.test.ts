@@ -60,7 +60,7 @@ vi.mock('@/lib/logger', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/lib/logger')>();
   return { ...real, logger: { ...real.logger, warn: (...args: unknown[]) => estado.avisos.push(args) } };
 });
-vi.mock('./inicio/acoes', () => ({ acoesDoAdicionar: () => ({ 'criar-receita': vi.fn(), 'criar-parecer': vi.fn() }) }));
+vi.mock('./inicio/acoes', () => ({ acoesDoAdicionar: () => ({ 'criar-receita': vi.fn(), 'criar-parecer': vi.fn(), 'criar-solicitacao': vi.fn() }) }));
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => ({ push: () => undefined }) }));
 const { default: InicioPage } = await import('./page');
 const { MSG_BLOQUEADO } = await import('@/modules/pacientes/base');

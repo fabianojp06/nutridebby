@@ -22,7 +22,7 @@ declare const marca: unique symbol;
 export type TxDePaciente = Tx & { readonly [marca]: 'paciente' };
 
 /** Ações do Adicionar que não são link: as mesmas Server Actions dos botões da aba Documentos (RN-280). */
-export type ChaveDeAcao = 'criar-receita' | 'criar-parecer';
+export type ChaveDeAcao = 'criar-receita' | 'criar-parecer' | 'criar-solicitacao';
 
 /** `href` relativo à ficha (sem `/` inicial) ou absoluto em `/painel/`. */
 export type DestinoDoAdicionar = { href: string } | { acao: ChaveDeAcao };

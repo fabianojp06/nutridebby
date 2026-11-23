@@ -7,6 +7,7 @@ import {
   anthropometry,
   consents,
   examesCatalogo,
+  examesModelosSolicitacao,
   finCategorias,
   finConfiguracoes,
   iaNutriConsentimentos,
@@ -275,6 +276,14 @@ await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
     ])
     .onConflictDoNothing();
 }, db);
+// Plano 22 (T8, CS-370): o modelo de solicitação que o e2e/solicitacao-exames.spec.ts carrega ("Carregar modelo"); o
+// painel conta como um exame na solicitação e vira uma linha por componente no "Lançar resultados"
+await withTenant({ tenantId: consultorio.id, role: 'worker' }, (tx) =>
+  tx
+    .insert(examesModelosSolicitacao)
+    .values({ tenantId: consultorio.id, nome: 'Check-up E2E', exames: [{ nome: 'Hemograma completo', painel: true }, { nome: 'Ferritina' }], orientacoes: 'Jejum de 8 horas.' })
+    .onConflictDoNothing(),
+db);
 
 // Plano 20: os dois consultórios do primeiro acesso desta execução (sem linha em fin_configuracoes) e as contas que apontam
 // para eles, recriadas como a E2E_NUTRI

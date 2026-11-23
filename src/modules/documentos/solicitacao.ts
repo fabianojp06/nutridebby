@@ -32,6 +32,13 @@ export const MSG_SOLICITACAO = {
   orientacoes: 'Orientações ao paciente (opcional)',
   ajudaOrientacoes: 'Preparo, jejum, horário. Aparecem no pedido.',
   avisoPlanos: 'Planos de saúde podem recusar pedido de exame feito por nutricionista.',
+  /**
+   * Textos novos da T8 (não estão na spec §6.2; rascunho para a Debby e o `revisor-interface`): a confirmação de "Remover
+   * todos" (§7 pede a confirmação com rótulos próprios) e os nomes acessíveis dos botões de cada modelo em "Carregar modelo".
+   */
+  confirmarRemoverTodos: 'Remover todos os exames da solicitação? Nada muda até você salvar.',
+  acrescentarRotulo: (modelo: string) => `Acrescentar ${modelo}`,
+  substituirRotulo: (modelo: string) => `Substituir por ${modelo}`,
   lancarResultados: 'Lançar resultados',
   examesSolicitadosEm: (data: string) => `Exames solicitados em ${data}`,
   erros: {

@@ -6,9 +6,10 @@ import { Selo } from '@/components/ui/selo';
 import { listarDocumentos, situacaoNoPainel } from '@/modules/documentos/documentos';
 import { situacaoDaEntrega } from '@/modules/documentos/entrega';
 import { linhaDaAssinatura, ROTULO_STATUS, rotuloDaVersao, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
+import { MSG_SOLICITACAO } from '@/modules/documentos/solicitacao';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../prontuario';
-import { criarParecerAction, criarReceitaAction } from './actions';
+import { criarParecerAction, criarReceitaAction, criarSolicitacaoAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,10 @@ export default async function DocumentosPage({ params, searchParams }: PageProps
             {/* US-141 (Plano 13): o parecer na mesma aba, ao lado da receita */}
             <form action={criarParecerAction.bind(null, paciente.id)} data-guia="novo-parecer">
               <Botao variante="secundario">Novo parecer nutricional</Botao>
+            </form>
+            {/* Plano 22 (T8, US-377): a solicitação de exames na mesma aba (só com os documentos liberados, como a aba) */}
+            <form action={criarSolicitacaoAction.bind(null, paciente.id)} data-guia="nova-solicitacao">
+              <Botao variante="secundario">{MSG_SOLICITACAO.nova}</Botao>
             </form>
           </div>
         )}

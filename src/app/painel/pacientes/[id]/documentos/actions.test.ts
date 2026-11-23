@@ -4,7 +4,8 @@ import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { stopBoss } from '@/jobs/boss';
 import { getAuth } from '@/lib/auth';
-import { criarReceita, lerDocumento } from '@/modules/documentos/documentos';
+import { criarReceita, criarSolicitacao, lerDocumento } from '@/modules/documentos/documentos';
+import { DECLARACAO_SOLICITACAO } from '@/modules/documentos/solicitacao';
 import { criarExame } from '@/modules/pacientes/exames';
 import { documentoNoBanco } from '../../../../../../test/documentos';
 import { nutriComDpa } from '../../../../../../test/nutri';
@@ -26,7 +27,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { apagarRascunhoAction, cancelarAction, criarParecerAction, entreguePessoalmenteAction, pedirNovoPdfAction, prepararAction, prepararParecerAction, reenviarLinkAction, retificarAction, salvarParecerAction, salvarRascunhoAction, voltarAEditarAction } = await import('./actions');
+const { apagarRascunhoAction, cancelarAction, criarParecerAction, criarSolicitacaoAction, entreguePessoalmenteAction, pedirNovoPdfAction, prepararAction, prepararParecerAction, prepararSolicitacaoAction, reenviarLinkAction, retificarAction, salvarParecerAction, salvarRascunhoAction, salvarSolicitacaoAction, voltarAEditarAction } = await import('./actions');
 
 const db = getDb();
 const auth = getAuth();
@@ -196,5 +197,58 @@ describe('retificar pelas ações (US-148, US-149)', () => {
     const { N, p } = await consultorio();
     const cancelado = await documentoNoBanco(db, N.ctx, p.id, { status: 'cancelado' });
     expect(await retificarAction(p.id, cancelado.id, {})).toEqual(MUDOU);
+  });
+});
+
+// Plano 22 (T8, US-377, RN-389, RN-398): as ações da solicitação no molde das da receita e do parecer
+describe('solicitação de exames pelas ações (US-377)', () => {
+  const editor = (o: { exames: unknown[]; indicacaoClinica?: string; orientacoes?: string; declaracao?: boolean }) => {
+    const f = new FormData();
+    f.set('conteudo', JSON.stringify({ exames: o.exames, indicacaoClinica: o.indicacaoClinica ?? '', orientacoes: o.orientacoes ?? '' }));
+    if (o.declaracao) f.set('declaracao', 'on');
+    return f;
+  };
+  const EXAMES = [{ nome: 'Hemograma completo', painel: true }, { nome: 'Glicemia de jejum' }];
+
+  it('"Nova solicitação de exames" abre o rascunho; salvar e preparar o que está na tela; o erro volta ao campo', async () => {
+    const { N, p } = await consultorio();
+    const destino = await criarSolicitacaoAction(p.id).catch((e: Error) => e.message);
+    expect(destino).toMatch(new RegExp(`^redirect /painel/pacientes/${p.id}/documentos/[0-9a-f-]{36}$`));
+    const id = String(destino).split('/').at(-1)!;
+    expect((await lerDocumento(N.ctx, p.id, id, db))?.tipo).toBe('solicitacao_exames');
+    expect(await salvarSolicitacaoAction(p.id, id, {}, editor({ exames: [{ nome: 'Glicose' }, { nome: 'glicose' }] }))).toEqual({ erros: { 'exames.1.nome': 'Este exame já está na lista.' } });
+    expect(await salvarSolicitacaoAction(p.id, id, {}, editor({ exames: EXAMES, indicacaoClinica: 'Acompanhar a dieta.' }))).toEqual({ ok: true });
+    expect(revalidatePath).toHaveBeenCalledWith(`/painel/pacientes/${p.id}/documentos`, 'layout');
+    expect(await prepararSolicitacaoAction(p.id, id, {}, editor({ exames: [], declaracao: true }))).toEqual({ erros: { exames: 'Inclua ao menos um exame.' } });
+    expect(await prepararSolicitacaoAction(p.id, id, {}, editor({ exames: EXAMES }))).toEqual({ erros: { declaracao: 'Confirme a declaração para continuar.' } });
+    // na tela: um exame a mais, sem "Salvar rascunho"
+    expect(await prepararSolicitacaoAction(p.id, id, {}, editor({ exames: [...EXAMES, { nome: 'Ferritina' }], declaracao: true }))).toEqual({ ok: true });
+    expect(await lerDocumento(N.ctx, p.id, id, db)).toMatchObject({ status: 'preparando', conteudo: { exames: [...EXAMES, { nome: 'Ferritina' }], declaracao: DECLARACAO_SOLICITACAO } });
+  });
+
+  it('o editor da solicitação não grava numa receita (e vice-versa): o motivo, sem revalidar', async () => {
+    const { N, p } = await consultorio();
+    const receita = await criarReceita(N.ctx, p.id, { db });
+    const sol = await criarSolicitacao(N.ctx, p.id, { db });
+    revalidatePath.mockClear();
+    expect(await salvarSolicitacaoAction(p.id, receita, {}, editor({ exames: EXAMES }))).toEqual(MUDOU);
+    expect(await salvarRascunhoAction(p.id, sol, {}, formulario({ itens: [], justificativa: '' }))).toEqual(MUDOU);
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it('sem documentos_liberados (RN-398): criar, salvar e preparar respondem 404, como a receita', async () => {
+    const { N, p } = await consultorio();
+    const id = await criarSolicitacao(N.ctx, p.id, { db });
+    await db.update(tenants).set({ documentosLiberados: false }).where(eq(tenants.id, N.tenantId));
+    await expect(criarSolicitacaoAction(p.id)).rejects.toThrow('notFound');
+    await expect(salvarSolicitacaoAction(p.id, id, {}, editor({ exames: EXAMES }))).rejects.toThrow('notFound');
+    await expect(prepararSolicitacaoAction(p.id, id, {}, editor({ exames: EXAMES, declaracao: true }))).rejects.toThrow('notFound');
+    expect((await lerDocumento(N.ctx, p.id, id, db))?.conteudo).toMatchObject({ exames: [] });
+  });
+
+  it('paciente bloqueado: "Nova solicitação de exames" volta para a lista com ?bloqueado=1', async () => {
+    const { N } = await consultorio();
+    const b = await novoPaciente(db, N.ctx, { status: 'bloqueado' });
+    await expect(criarSolicitacaoAction(b.id)).rejects.toThrow(`redirect /painel/pacientes/${b.id}/documentos?bloqueado=1`);
   });
 });

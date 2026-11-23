@@ -85,7 +85,7 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'documentos',
-    versao: 2, // Plano 13: o parecer nutricional e a retificação (quem já viu o tour, vê de novo)
+    versao: 3, // Plano 13: o parecer nutricional e a retificação; Plano 22 (T8, EP-D52): a solicitação de exames (+1 sobre a main)
     padrao: new RegExp(`^/painel/pacientes/${ID}/documentos(/.*)?$`),
     titulo: 'Documentos: receita e parecer',
     ajuda: {
@@ -98,6 +98,8 @@ export const GUIAS: readonly Guia[] = [
             'Clique em "Preparar para assinatura" e confirme a declaração. Em alguns segundos o PDF fica pronto.',
             'Clique em "Baixar PDF para assinar", imprima, assine à mão e envie as fotos das páginas em "Enviar documento digitalizado (assinado à mão)", com o código da verificação em duas etapas.',
             'Assinado, o documento vai para o app do paciente; quem não tem o app recebe um link por e-mail. Na consulta presencial, use "Entregue pessoalmente".',
+            // Plano 22 (T8, US-377): rascunho para a Debby e o revisor-interface
+            'Para pedir exames, clique em "Nova solicitação de exames": use "Adicionar do catálogo", "Adicionar exame fora do catálogo" (só exames laboratoriais) ou "Carregar modelo", escreva a indicação clínica e as orientações, se quiser, e prepare e assine como a receita. A solicitação não indica laboratório: o paciente leva ao que escolher.',
           ],
         },
         {
@@ -109,6 +111,9 @@ export const GUIAS: readonly Guia[] = [
             'O parecer não afirma diagnóstico de doença nem prescreve medicamento: para isso, encaminhe ao médico.',
             'Qualquer pessoa com o código de verificação (o paciente, uma farmácia) confere a autenticidade sem ver o conteúdo.',
             '"Fitoterápico (forma farmacêutica ou fórmula magistral)" só aparece com a habilitação registrada em Configurações.',
+            // Plano 22 (T8, RN-390): rascunho para a Debby e o revisor-interface
+            'Com a solicitação assinada, "Lançar resultados" abre o "Novo exame" na aba Exames com o título e uma linha por exame pedido (um painel, como o hemograma, vira uma linha por exame que o compõe). É uma cópia: o exame lançado não muda a solicitação.',
+            'Planos de saúde podem recusar pedido de exame feito por nutricionista: o aviso aparece no rascunho, não no PDF.',
           ],
         },
       ],
@@ -123,6 +128,9 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'entrega-documento', titulo: 'Entrega', texto: 'O paciente recebe pelo app ou por um link por e-mail. Aqui você vê se ele abriu e confirmou o recebimento, ou marca a entrega pessoal.' },
       { alvo: 'retificar-documento', titulo: 'Retificar', texto: 'Para corrigir um documento assinado, abra uma versão nova e escreva o motivo. A anterior continua valendo até a nova ser assinada.' },
       { alvo: 'cancelar-documento', titulo: 'Cancelar', texto: 'Documento que não deve mais valer? Cancele com o motivo (fica só no prontuário). A verificação pública passa a mostrar "cancelado".' },
+      // Plano 22 (T8, US-377): rascunho para a Debby e o revisor-interface
+      { alvo: 'nova-solicitacao', titulo: 'Nova solicitação de exames', texto: 'Peça exames laboratoriais num documento assinado e verificável, sem indicar laboratório: o paciente leva o pedido ao laboratório que escolher.' },
+      { alvo: 'editor-solicitacao', titulo: 'Exames da solicitação', texto: 'Escolha os exames do catálogo, de um modelo ou digite outros. A indicação clínica descreve a finalidade nutricional, sem afirmar doença. Assinada, use "Lançar resultados" para lançar os valores.' },
     ],
   },
   {

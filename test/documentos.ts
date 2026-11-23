@@ -30,7 +30,7 @@ export async function documentoNoBanco(
   db: Db,
   ctx: TenantContext,
   patientId: string,
-  o: { status?: StatusDocumento; conteudo?: Record<string, unknown>; assinaturaTipo?: TipoAssinatura; tipo?: TipoDeTeste; versao?: number; retificaId?: string } = {},
+  o: { status?: StatusDocumento; conteudo?: Record<string, unknown>; assinaturaTipo?: TipoAssinatura; tipo?: TipoDeTeste; versao?: number; retificaId?: string; declaracaoEm?: Date } = {},
 ): Promise<{ id: string; codigo: string | null; pdfPath: string | null }> {
   const status = o.status ?? 'rascunho';
   const tipo = o.tipo ?? 'receita';
@@ -42,9 +42,9 @@ export async function documentoNoBanco(
   await withTenant(ctx, async (tx) => {
     if (pdfPath)
       await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${ctx.tenantId}, 'documento_assinado', ${pdfPath}, 100, 'application/pdf', ${patientId})`);
-    await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, tipo, versao, retifica_id, status, codigo, conteudo, pdf_path, pdf_sha256, assinado_em, assinatura_tipo, assinante_nome, entregue_em)
+    await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, tipo, versao, retifica_id, status, codigo, conteudo, pdf_path, pdf_sha256, assinado_em, assinatura_tipo, assinante_nome, entregue_em, declaracao_em)
       values (${id}, ${ctx.tenantId}, ${patientId}, ${tipo}, ${o.versao ?? 1}, ${o.retificaId ?? null}, ${status}, ${codigo}, ${JSON.stringify(conteudo)}::jsonb,
-              ${pdfPath}, ${emitido ? 'a'.repeat(64) : null}, ${emitido ? new Date() : null}, ${emitido ? (o.assinaturaTipo ?? 'digitalizada') : null}, ${emitido && (o.assinaturaTipo ?? 'digitalizada') !== 'digitalizada' ? 'DEBBY SILVA' : null}, ${emitido ? new Date() : null})`);
+              ${pdfPath}, ${emitido ? 'a'.repeat(64) : null}, ${emitido ? new Date() : null}, ${emitido ? (o.assinaturaTipo ?? 'digitalizada') : null}, ${emitido && (o.assinaturaTipo ?? 'digitalizada') !== 'digitalizada' ? 'DEBBY SILVA' : null}, ${emitido ? new Date() : null}, ${o.declaracaoEm ?? null})`);
   }, db);
   return { id, codigo, pdfPath };
 }

@@ -20,7 +20,7 @@ import { copiarExames } from './parecer-exames';
 import { copiaDoPerfil, type CopiaDoDocumento } from './perfil-profissional';
 import { validarParaPreparar, validarRascunho } from './prescricao';
 import { lerMotivoRetificacao } from './retificacao';
-import { validarSolicitacaoParaPreparar } from './solicitacao';
+import { validarRascunhoSolicitacao, validarSolicitacaoParaPreparar } from './solicitacao';
 import { assertNever, conteudoVazio } from './tipos-de-documento';
 
 export type Recibo = { evento: EventoRecibo; via: ViaRecibo; em: Date };
@@ -61,6 +61,8 @@ async function criarDocumento(ctx: TenantContext, patientId: string, conteudo: C
 export const criarReceita = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, conteudoVazio('receita'), deps.db ?? getDb());
 /** US-141: "Novo parecer nutricional". */
 export const criarParecer = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, conteudoVazio('parecer'), deps.db ?? getDb());
+/** Plano 22 (US-377, RN-388): "Nova solicitação de exames". */
+export const criarSolicitacao = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, conteudoVazio('solicitacao_exames'), deps.db ?? getDb());
 
 /** "Rascunho salvo." — valida os itens (habilitação no servidor, RN-150) e grava conteúdo e justificativa. */
 export async function salvarRascunhoReceita(
@@ -105,6 +107,26 @@ export async function salvarRascunhoParecer(
   }, deps.db ?? getDb());
 }
 
+/**
+ * Plano 22 (US-377, RN-388) "Rascunho salvo." da solicitação: valida (0 exames vale no rascunho; laboratório e chaves a
+ * mais somem, EP-D2) e grava o conteúdo com `orientacoesFormato: 'marcacao'` (RN-395). Sem justificativa de uso (é da
+ * receita, RN-389). Ordem de travas: paciente → documento. A guarda do editor (EP-D57): só grava numa solicitação.
+ */
+export async function salvarRascunhoSolicitacao(
+  ctx: TenantContext, patientId: string, docId: string, input: { conteudo: unknown; motivoRetificacao?: unknown }, deps: { db?: Db } = {},
+): Promise<void> {
+  const conteudo = validarRascunhoSolicitacao(input.conteudo);
+  const motivo = input.motivoRetificacao === undefined ? undefined : lerMotivoRetificacao(input.motivoRetificacao);
+  await withTenant(ctx, async (tx) => {
+    await carregarPacienteParaEscrita(tx, patientId);
+    const d = await travarDocumento(tx, patientId, docId, ['rascunho']);
+    if (d.tipo !== 'solicitacao_exames') throw new TransicaoInvalidaError(); // EP-D57: o editor da solicitação só grava numa solicitação
+    await tx.update(signedDocuments).set({ conteudo, updatedAt: new Date() }).where(eq(signedDocuments.id, docId));
+    if (d.retificaId && motivo !== undefined)
+      await tx.update(signedDocumentNotes).set({ motivoRetificacao: motivo, updatedAt: new Date() }).where(eq(signedDocumentNotes.documentoId, docId));
+  }, deps.db ?? getDb());
+}
+
 export async function apagarRascunho(ctx: TenantContext, patientId: string, docId: string, deps: { db?: Db } = {}): Promise<void> {
   await withTenant(ctx, async (tx) => {
     await carregarPacienteParaEscrita(tx, patientId);
@@ -114,7 +136,8 @@ export async function apagarRascunho(ctx: TenantContext, patientId: string, docI
 }
 
 /**
- * US-143 / US-141: declaração do tipo (D5) + perfil completo + (receita) justificativa ou (parecer) exames e avaliação →
+ * US-143 / US-141: declaração do tipo (D5) + perfil completo + (receita) justificativa, (parecer) exames e avaliação ou
+ * (solicitação, Plano 22) ao menos um exame →
  * congela a cópia (RN-154; no parecer, a última cópia dos exames, RN-148), gera o código (RN-142) e enfileira o PDF na mesma
  * transação (o job só existe se a transação confirmar).
  */
@@ -140,8 +163,10 @@ export async function prepararParaAssinatura(
       retificacao = { versao: d.versao, substitui: anterior!.codigo! };
     }
     const tipo = d.tipo as TipoDocumento;
-    // Plano 22 (DEP-E7): o conteúdo gravado é o do tipo da coluna (o editor de cada tipo só grava o seu, :75 e :96)
+    // Plano 22 (DEP-E7): o conteúdo gravado é o do tipo da coluna (o editor de cada tipo só grava o seu). Conteúdo de um
+    // tipo na linha de outro nunca prepara — conferido ANTES de validar e de copiar os exames (revisão da T7, b)
     let conteudo: ConteudoDocumento = d.conteudo as ConteudoDocumento;
+    if (conteudo.tipo !== tipo) throw new TransicaoInvalidaError();
     switch (conteudo.tipo) {
       case 'parecer':
         validarParecerParaPreparar(conteudo);
@@ -158,7 +183,6 @@ export async function prepararParaAssinatura(
       default:
         assertNever(conteudo);
     }
-    if (conteudo.tipo !== tipo) throw new TransicaoInvalidaError(); // conteúdo de um tipo na linha de outro: nunca prepara
     await tx
       .update(signedDocuments)
       .set({

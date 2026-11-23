@@ -80,7 +80,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 13: o guia de documentos cita o parecer e a retificação e subiu de versão (quem já viu o tour, vê de novo)', () => {
     const g = GUIAS.find((x) => x.id === 'documentos')!;
-    expect(g.versao).toBe(2);
+    expect(g.versao).toBeGreaterThanOrEqual(2); // 3 desde o Plano 22 (a solicitação de exames, abaixo)
     expect(g.passos.map((p) => p.alvo)).toEqual(expect.arrayContaining(['novo-parecer', 'editor-parecer', 'retificar-documento']));
     expect(g.ajuda.secoes.flatMap((s) => s.itens).join(' ')).toContain('"Novo parecer nutricional"');
   });
@@ -288,5 +288,17 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(passo).toContain('"Editar"');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/editar`)?.id).toBe('prontuario');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/versoes`)?.id).toBe('prontuario');
+  });
+  it('Plano 22 (T8, EP-D52): o guia de documentos cita "Nova solicitação de exames" e "Lançar resultados", tem o passo nova-solicitacao e sobe para a versão 3', () => {
+    const g = GUIAS.find((x) => x.id === 'documentos')!;
+    expect(g.versao).toBe(3);
+    expect(g.passos.map((p) => p.alvo)).toContain('nova-solicitacao');
+    expect(g.passos.map((p) => p.alvo)).toContain('editor-solicitacao');
+    const itens = g.ajuda.secoes.flatMap((s) => s.itens).join(' ');
+    expect(itens).toContain('"Nova solicitação de exames"');
+    expect(itens).toContain('"Lançar resultados"');
+    // o guia do prontuário continua sem a palavra "documento" (D20): a solicitação só aparece com os documentos liberados
+    const pront = GUIAS.find((x) => x.id === 'prontuario')!;
+    expect([pront.ajuda.resumo, ...pront.ajuda.secoes.flatMap((s) => s.itens), ...pront.passos.map((p) => p.texto)].filter((t) => /documento/i.test(t))).toEqual([]);
   });
 });

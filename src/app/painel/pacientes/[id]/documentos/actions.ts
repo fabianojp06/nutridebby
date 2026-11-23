@@ -5,7 +5,7 @@ import { notFound, redirect } from 'next/navigation';
 import type { TenantContext } from '@/db/tenant';
 import { requireNutri } from '@/lib/tenant-session';
 import { cancelarDocumento } from '@/modules/documentos/cancelamento';
-import { apagarRascunho, criarParecer, criarReceita, pedirNovoPdfDocumento, prepararParaAssinatura, salvarRascunhoParecer, salvarRascunhoReceita, voltarAEditar } from '@/modules/documentos/documentos';
+import { apagarRascunho, criarParecer, criarReceita, criarSolicitacao, pedirNovoPdfDocumento, prepararParaAssinatura, salvarRascunhoParecer, salvarRascunhoReceita, salvarRascunhoSolicitacao, voltarAEditar } from '@/modules/documentos/documentos';
 import { reenviarLink } from '@/modules/documentos/entrega';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from '@/modules/documentos/erros';
 import { PerfilIncompletoError } from '@/modules/documentos/perfil-profissional';
@@ -32,7 +32,7 @@ function comoEstado(e: unknown): EstadoForm {
   throw e;
 }
 
-/** US-142 / US-141: "Nova receita" e "Novo parecer nutricional" abrem o rascunho; bloqueado volta à lista com o aviso. */
+/** US-142 / US-141 / US-377: "Nova receita", "Novo parecer nutricional" e "Nova solicitação de exames" abrem o rascunho; bloqueado volta à lista com o aviso. */
 async function criarDocumentoAction(patientId: string, criar: (ctx: TenantContext, patientId: string) => Promise<string>): Promise<void> {
   const { ctx } = await acesso(caminho(patientId));
   let id: string;
@@ -52,6 +52,11 @@ export async function criarReceitaAction(patientId: string): Promise<void> {
 
 export async function criarParecerAction(patientId: string): Promise<void> {
   await criarDocumentoAction(patientId, (ctx, p) => criarParecer(ctx, p));
+}
+
+/** Plano 22 (US-377): "Nova solicitação de exames" (aba Documentos e "Adicionar" do Início, RN-280). */
+export async function criarSolicitacaoAction(patientId: string): Promise<void> {
+  await criarDocumentoAction(patientId, (ctx, p) => criarSolicitacao(ctx, p));
 }
 
 /** O editor manda os itens e as orientações num campo só (JSON), a justificativa à parte (D15 da spec) e, numa retificação, o motivo (Q13-1 ★). */
@@ -135,6 +140,35 @@ export async function prepararParecerAction(patientId: string, docId: string, _p
   if (!editor) return { erros: { geral: 'Formulário inválido.' } };
   try {
     await salvarRascunhoParecer(ctx, patientId, docId, { conteudo: editor.conteudo, motivoRetificacao: editor.motivoRetificacao });
+    await prepararParaAssinatura(ctx, tenant, patientId, docId, { declaracao: f.get('declaracao') });
+  } catch (e) {
+    return comoEstado(e);
+  }
+  revalidatePath(caminho(patientId), 'layout');
+  return { ok: true };
+}
+
+/** Plano 22 (US-377) "Rascunho salvo." da solicitação: o editor manda os exames e os textos num campo só (JSON), como o do parecer. */
+export async function salvarSolicitacaoAction(patientId: string, docId: string, _prev: EstadoForm, f: FormData): Promise<EstadoForm> {
+  const { ctx } = await acesso(caminho(patientId, docId));
+  const editor = lerEditor(f);
+  if (!editor) return { erros: { geral: 'Formulário inválido.' } };
+  try {
+    await salvarRascunhoSolicitacao(ctx, patientId, docId, { conteudo: editor.conteudo, motivoRetificacao: editor.motivoRetificacao });
+  } catch (e) {
+    return comoEstado(e);
+  }
+  revalidatePath(caminho(patientId), 'layout');
+  return { ok: true };
+}
+
+/** Plano 22 (US-377, RN-389): "Preparar para assinatura" da solicitação grava o que está na tela e prepara (DECLARACAO_SOLICITACAO). */
+export async function prepararSolicitacaoAction(patientId: string, docId: string, _prev: EstadoForm, f: FormData): Promise<EstadoForm> {
+  const { ctx, tenant } = await acesso(caminho(patientId, docId));
+  const editor = lerEditor(f);
+  if (!editor) return { erros: { geral: 'Formulário inválido.' } };
+  try {
+    await salvarRascunhoSolicitacao(ctx, patientId, docId, { conteudo: editor.conteudo, motivoRetificacao: editor.motivoRetificacao });
     await prepararParaAssinatura(ctx, tenant, patientId, docId, { declaracao: f.get('declaracao') });
   } catch (e) {
     return comoEstado(e);

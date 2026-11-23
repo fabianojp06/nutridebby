@@ -57,6 +57,8 @@ export const MSG_FICHA = {
     // Plano 22 (grep da T7): o rótulo do item "Receita" do Adicionar, não um ramo que cai em "receita" por exclusão
     receita: TIPO_DOCUMENTO_ROTULO.receita,
     parecer: TIPO_DOCUMENTO_ROTULO.parecer,
+    // Plano 22 (T8, §6.2 "Ficha"): grupo "Avaliações"; o nome curto do item, não o rótulo do documento
+    solicitacao: 'Solicitação de exames',
   },
   dica: 'Antes do plano alimentar, registre a anamnese, a antropometria e o gasto energético.',
   fechar: 'Fechar',

@@ -16,7 +16,7 @@ vi.mock('../../prontuario', () => ({
 }));
 // os componentes 'use client' (EnviarDigitalizada, EstadoPdf) usam o roteador, que não existe no renderToStaticMarkup
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => ({ refresh: () => undefined }) }));
-vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn(), entreguePessoalmenteAction: vi.fn(), reenviarLinkAction: vi.fn(), cancelarAction: vi.fn(), salvarParecerAction: vi.fn(), prepararParecerAction: vi.fn(), retificarAction: vi.fn() }));
+vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn(), entreguePessoalmenteAction: vi.fn(), reenviarLinkAction: vi.fn(), cancelarAction: vi.fn(), salvarParecerAction: vi.fn(), prepararParecerAction: vi.fn(), retificarAction: vi.fn(), salvarSolicitacaoAction: vi.fn(), prepararSolicitacaoAction: vi.fn() }));
 vi.mock('@/modules/documentos/documentos', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/documentos/documentos')>()),
   // RN-140 (c): emitido anonimizado — conteudo '{}', sem PDF
@@ -32,6 +32,14 @@ vi.mock('@/modules/documentos/documentos', async (importOriginal) => ({
 }));
 vi.mock('@/modules/pacientes/exames', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/modules/pacientes/exames')>()), listarExames: async () => caso.exames }));
 vi.mock('@/modules/documentos/parecer-exames', () => ({ situacaoDosExames: async () => caso.situacao }));
+// Plano 22 (T8): o editor da solicitação recebe o catálogo e os modelos (uma transação, R22-08); `lidas` conta as leituras
+const bibliotecas = vi.hoisted(() => ({ lidas: 0 }));
+vi.mock('@/modules/exames/modelos-solicitacao', () => ({
+  bibliotecasParaExames: async () => {
+    bibliotecas.lidas++;
+    return { catalogo: [{ id: 'c1', nome: 'Hemograma completo', unidade: null, sinonimos: [], componentes: ['Hemoglobina', 'Hematócrito'], faixas: [] }], modelos: [{ id: 'm1', nome: 'Check-up anual', exames: [{ nome: 'Glicemia de jejum' }], orientacoes: '' }] };
+  },
+}));
 const { default: DocumentoPage } = await import('./page');
 
 describe('página do documento: documento anonimizado (RN-140 c)', () => {
@@ -293,5 +301,53 @@ describe('página do documento: retificação (US-148, Q13-1 ★, Q13-5 ★)', (
     expect(html).toContain('Baixar PDF assinado');
     expect(html).not.toContain('>Retificar<');
     expect(html).not.toContain('Cancelar documento');
+  });
+});
+
+describe('página do documento: solicitação de exames (Plano 22, T8, US-377)', () => {
+  const CONTEUDO = { versao: 1, tipo: 'solicitacao_exames', exames: [{ nome: 'Hemograma completo', painel: true }, { nome: 'Glicemia de jejum' }], indicacaoClinica: 'Acompanhar a dieta.', orientacoes: '', orientacoesFormato: 'marcacao' };
+  const solicitacao = (status: string) => ({
+    id: DOC, tipo: 'solicitacao_exames', status, codigo: status === 'rascunho' ? null : 'ABCDEFGHJKMN', createdAt: new Date('2026-09-01T12:00:00Z'), assinadoEm: status === 'assinado' ? new Date('2026-09-02T12:00:00Z') : null,
+    assinaturaTipo: status === 'assinado' ? 'digitalizada' : null, pdfStatus: null, entregueEm: null, recibos: [], conteudo: CONTEUDO,
+    justificativa: null, motivoCancelamento: null, assinanteNome: null, basePdfPath: null, pdfPath: status === 'assinado' ? 'x' : null, pdfSha256: null, digitalizacaoStatus: null, anonimizadoEm: null,
+  });
+  const pagina = async (doc: Record<string, unknown>, paciente: Record<string, unknown> = { status: 'ativo', userId: 'u1' }) => {
+    caso.paciente = { id: PACIENTE, anonimizadoEm: null, email: 'ana@ex.com', ...paciente };
+    caso.doc = doc;
+    return renderToStaticMarkup(await DocumentoPage({ params: Promise.resolve({ id: PACIENTE, docId: DOC }), searchParams: Promise.resolve({}) } as never));
+  };
+
+  it('revisão da T7 (a): a página lida (com o auditRead) mostra a solicitação — nunca o 404 depois da leitura', async () => {
+    const html = await pagina(solicitacao('assinado'));
+    expect(html).toContain('<h2 id="documento" class="text-lg font-semibold">Solicitação de exames laboratoriais</h2>');
+  });
+
+  it('assinada: os cartões somente leitura e "Lançar resultados" para o "Novo exame" (EP-D50); sem campo de laboratório', async () => {
+    const html = await pagina(solicitacao('assinado'));
+    expect(html).toContain('Exames solicitados');
+    expect(html).toContain('<li>Glicemia de jejum</li>');
+    expect(html).toContain('Acompanhar a dieta.');
+    expect(html).toContain(`href="/painel/pacientes/${PACIENTE}/exames?solicitacao=${DOC}#novo-exame"`);
+    expect(html).toContain('>Lançar resultados</a>');
+    expect(html).not.toMatch(/[Ll]aboratório/);
+  });
+
+  it('"Lançar resultados" só na assinada em vigor e com o paciente não bloqueado', async () => {
+    for (const status of ['preparando', 'cancelado', 'substituido']) expect(await pagina(solicitacao(status)), status).not.toContain('Lançar resultados');
+    expect(await pagina(solicitacao('assinado'), { status: 'bloqueado', userId: null })).not.toContain('Lançar resultados');
+  });
+
+  it('rascunho: o editor com o catálogo e os modelos lidos uma vez, o aviso dos planos de saúde e "Apagar rascunho"; sem o editor, nada é lido', async () => {
+    bibliotecas.lidas = 0;
+    const html = await pagina(solicitacao('rascunho'));
+    expect(bibliotecas.lidas).toBe(1);
+    expect(html).toContain('Planos de saúde podem recusar pedido de exame feito por nutricionista.');
+    expect(html).toContain('Adicionar do catálogo');
+    expect(html).toContain('Apagar rascunho');
+    expect(html).not.toContain('Exames solicitados');
+    bibliotecas.lidas = 0;
+    await pagina(solicitacao('assinado'));
+    await pagina(solicitacao('rascunho'), { status: 'bloqueado', userId: null });
+    expect(bibliotecas.lidas).toBe(0);
   });
 });
