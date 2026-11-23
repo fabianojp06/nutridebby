@@ -36,7 +36,7 @@ export async function lerBloqueios(tx: Tx, de: Date, ate: Date): Promise<Bloquei
 }
 
 /**
- * AG-D47 na tela de horários do PR 1 (até a T3 refazê-la): o backfill da 0127 desdobra cada regra "ambas" em uma presencial
+ * AG-D47 na tela de horários do PR 1 (até a T3 refazê-la): o backfill da 0131 desdobra cada regra "ambas" em uma presencial
  * e uma online de mesmo dia, início, fim e duração. A tela mostra o par como UMA regra "ambas" (com o id da metade
  * presencial), o limite (MAX_REGRAS) conta o par como uma e `excluirRegra` apaga as duas metades. Fora do backfill esse par
  * não nasce: `criarRegra` recusa sobreposição entre modalidades. `gerarHorarios` já une os horários (horarios.ts).

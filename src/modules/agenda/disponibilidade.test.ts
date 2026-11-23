@@ -103,7 +103,7 @@ describe('horários de atendimento (US-030)', () => {
 
   it('par "ambas" desdobrado pelo backfill (AG-D47): a tela antiga lista UMA regra "ambas", o limite conta uma e excluir apaga as duas metades', async () => {
     const T = await novoTenant(app.db);
-    // como a 0127 deixa: Consultório (presencial principal) e Videoconferência (online com sala); "ambas" virou presencial + cópia online
+    // como a 0131 deixa: Consultório (presencial principal) e Videoconferência (online com sala); "ambas" virou presencial + cópia online
     const par = await withTenant(
       T.ctx,
       async (tx) => {
