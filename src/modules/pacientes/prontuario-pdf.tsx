@@ -7,14 +7,20 @@ import { DOBRAS } from './formulas';
 
 // Helvetica padrão do PDF (WinAnsi): cobre os acentos do português; o resto passa por paraWinAnsi (abaixo)
 const s = StyleSheet.create({
-  pagina: { padding: 36, fontSize: 10, fontFamily: 'Helvetica', lineHeight: 1.4 },
+  // paddingBottom 48: o corpo termina em 841,89 − 48 = 793,89 pt, 14 pt acima do rodapé (que começa em 807,89)
+  pagina: { padding: 36, paddingBottom: 48, fontSize: 10, fontFamily: 'Helvetica', lineHeight: 1.4 },
   titulo: { fontSize: 16, fontFamily: 'Helvetica-Bold', marginBottom: 4 },
   secao: { fontSize: 12, fontFamily: 'Helvetica-Bold', marginTop: 14, marginBottom: 4 },
   linha: { flexDirection: 'row', gap: 8 },
   rotulo: { fontFamily: 'Helvetica-Bold' },
+  // SUS-99: o rodapé vai por `top`, não por `bottom`. Com o número da página (`render`) dentro de um nó absoluto por
+  // `bottom`, o @react-pdf 4.9 desenhava o rodapé fora da página (y de milhares de pt) e, acima de ~10 páginas, quebrava
+  // ("unsupported number"). Premissa: `size="A4"` (841,89 pt de altura) — mudou o tamanho da página, refaça a conta.
+  // A linha do rodapé tem 14 pt (o `lineHeight: 1.4` da página vale sobre os 10 pt dela e é herdado assim pelo texto de
+  // 8 pt): o `bottom: 20` de antes punha a linha em 841,89 − 20 − 14 = 807,89 pt.
   rodape: {
     position: 'absolute',
-    bottom: 20,
+    top: 807.89,
     left: 36,
     right: 36,
     fontSize: 8,

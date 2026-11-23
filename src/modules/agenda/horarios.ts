@@ -19,6 +19,8 @@ const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:
 /** Intervalos semiabertos [inicio, fim): encostar não é sobrepor (como o `tstzrange '[)'` do EXCLUDE). */
 export const sobrepoe = (a: Intervalo, b: Intervalo) => a.inicio.getTime() < b.fim.getTime() && b.inicio.getTime() < a.fim.getTime();
 
+const MODALIDADES: Modalidade[] = ['presencial', 'online'];
+
 function modalidadesDa(regra: ModalidadeRegra, online: boolean): Modalidade[] {
   if (regra === 'presencial') return ['presencial'];
   if (regra === 'online') return online ? ['online'] : [];
@@ -29,12 +31,14 @@ function modalidadesDa(regra: ModalidadeRegra, online: boolean): Modalidade[] {
  * RN-03: horários livres = regras de atendimento − bloqueios − consultas não canceladas, com início em
  * [de, ate). Cada regra gera horários de `duracaoMin` a partir do início, enquanto couberem até o fim.
  * Hora local que não existe (horário de verão) é pulada (D8). `online = false` (sem link padrão): nada
- * online para o paciente (US-031).
+ * online para o paciente (US-031). Plano 23 (AG-D47): horários de mesmo início e fim viram um só, com a união das
+ * modalidades — o backfill desdobra a regra "ambas" em uma presencial e uma online, e `escolherHorario` pega o primeiro
+ * horário do instante.
  */
 export function gerarHorarios(o: { regras: Regra[]; bloqueios: Intervalo[]; ocupados: Intervalo[]; de: Date; ate: Date; fuso: string; online: boolean }): Horario[] {
   if (o.ate.getTime() <= o.de.getTime()) return [];
   const fora = [...o.bloqueios, ...o.ocupados];
-  const saida: Horario[] = [];
+  const saida = new Map<string, Horario>();
   const ultimo = partesNoFuso(o.ate, o.fuso).data;
   for (let dia = partesNoFuso(o.de, o.fuso).data; dia <= ultimo; dia = somarDias(dia, 1)) {
     const semana = diaDaSemana(dia);
@@ -46,11 +50,15 @@ export function gerarHorarios(o: { regras: Regra[]; bloqueios: Intervalo[]; ocup
         const inicio = paraInstante(dia, hhmm(m), o.fuso);
         if (!inicio || inicio.getTime() < o.de.getTime() || inicio.getTime() >= o.ate.getTime()) continue;
         const h: Horario = { inicio, fim: new Date(inicio.getTime() + r.duracaoMin * 60_000), modalidades };
-        if (!fora.some((x) => sobrepoe(h, x))) saida.push(h);
+        if (fora.some((x) => sobrepoe(h, x))) continue;
+        const chave = `${h.inicio.getTime()}-${h.fim.getTime()}`;
+        const igual = saida.get(chave);
+        if (igual) igual.modalidades = MODALIDADES.filter((m) => igual.modalidades.includes(m) || modalidades.includes(m));
+        else saida.set(chave, h);
       }
     }
   }
-  return saida.sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
+  return [...saida.values()].sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
 }
 
 /** US-031 "Fora do horário de atendimento": o intervalo inteiro cabe numa regra do mesmo dia local. */

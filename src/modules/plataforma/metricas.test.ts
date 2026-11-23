@@ -16,7 +16,11 @@ import { ajustarCotaIa, ajustarCotaIaNutri, ajustarCotaWhatsapp, CotaIaAdminErro
 import { ContaNaoEncontradaError } from './tenant-status';
 
 const app = makeDb(inject('appDatabaseUrl'));
-afterAll(() => app.pool.end());
+const owner = makeDb(inject('ownerDatabaseUrl'));
+afterAll(async () => {
+  await app.pool.end();
+  await owner.pool.end();
+});
 
 async function tenantComArquivos(n: number, bytes: number) {
   const [t] = await app.db.insert(tenants).values({ slug: `met-${randomUUID().slice(0, 8)}`, nomeExibicao: 'M', armazenamentoBytes: bytes }).returning();
@@ -56,6 +60,23 @@ describe('metricasPorTenant (§3: só contagens)', () => {
         (${t}, ${p}, 'whatsapp', 'convite_paciente', 'enviada', ${inicioMes} - interval '1 minute', ${inicioMes} - interval '1 minute')`);
     }, app.db);
     expect((await metricasPorTenant(app.db)).get(t)).toMatchObject({ consultasMes: 1, mensagensWhatsappMes: 1 });
+  });
+
+  it('Plano 23 (RN-423): consulta `solicitada` inserida pelo dono não conta em admin_tenant_metrics()', async () => {
+    const t = await tenantComArquivos(0, 0);
+    const p = randomUUID();
+    const dia = sql`((date_trunc('month', now() AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo') + interval '1 day')`;
+    await withTenant({ tenantId: t, role: 'nutri', actorUserId: randomUUID() }, async (tx) => {
+      await tx.execute(sql`insert into patients (id, tenant_id, nome, data_nascimento, sexo, email) values (${p}, ${t}, 'M', '1990-01-01', 'F', ${`sol-${p}@t.dev`})`);
+      await tx.execute(sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem) values (${t}, ${p}, ${dia}, ${dia} + interval '1 hour', 'presencial', 'nutri')`);
+    }, app.db);
+    // gravada pelo dono, sem papel: o gatilho do pedido (appointments_regras_pedido) não decide o status
+    await owner.db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('app.tenant_id', ${t}, true)`);
+      await tx.execute(sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status)
+        values (${t}, ${p}, ${dia} + interval '2 hours', ${dia} + interval '3 hours', 'presencial', 'paciente', 'solicitada')`);
+    });
+    expect((await metricasPorTenant(app.db)).get(t)).toMatchObject({ consultasMes: 1 });
   });
 
   it('mensagens_whatsapp_mes conta os mesmos tipos da cota do envio (CONTA_COTA, D15)', async () => {

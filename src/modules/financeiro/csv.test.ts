@@ -86,6 +86,28 @@ describe('celulaTexto', () => {
     expect(celulaTexto('\t=1')).toBe("'\t=1");
     expect(celulaTexto('\r=1')).toBe(`"'\r=1"`);
   });
+  // TRI-17-20 #107 (P20-18 RM-1): a planilha ignora o espaço da frente e lê a fórmula; o `'` vai antes do texto original
+  it.each([
+    [' =1+1', "' =1+1"],
+    [' @SOMA(A1)', "' @SOMA(A1)"],
+    ['\t-2', "'\t-2"],
+    [' +1', "' +1"],
+    ['​=1', "'​=1"],
+    ['﻿=1', "'﻿=1"],
+    [' 　-1', "' 　-1"],
+    ['  \t @x', "'  \t @x"],
+  ])('espaço na frente da fórmula: %j → %j', (v, esperado) => {
+    expect(celulaTexto(v)).toBe(esperado);
+  });
+  it('espaço na frente com aspas: o `\'` entra antes do espaço e a célula vai entre aspas', () => {
+    expect(celulaTexto(' =HIPERLINK("x")')).toBe(`"' =HIPERLINK(""x"")"`);
+  });
+  it('texto comum com espaço ou sinal no meio não ganha `\'`', () => {
+    expect(celulaTexto('Consulta - retorno')).toBe('Consulta - retorno');
+    expect(celulaTexto('Retorno 15/11')).toBe('Retorno 15/11');
+    expect(celulaTexto(' Consulta')).toBe(' Consulta');
+    expect(celulaTexto('   ')).toBe('   ');
+  });
   it('texto comum passa igual; nulo vira vazio; ";", aspas e quebras de linha vão entre aspas', () => {
     expect(celulaTexto('Material e insumos')).toBe('Material e insumos');
     expect(celulaTexto('a = b')).toBe('a = b');

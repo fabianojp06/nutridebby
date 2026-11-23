@@ -1,7 +1,7 @@
 /**
  * Plano 25 (US-440, US-450; RN-441, RN-442, RN-447, RN-453, RN-465, RN-475; CH-D39): a conversa da nutricionista com o
  * paciente — liberar (com o registro do TCLE de telenutrição), pausar, retomar e o estado que as telas mostram. O gatilho
- * chat_conversas_regras (0128) é a rede: liberação, pausa e retomada só pela sessão `nutri`, em nome da usuária, de titular
+ * chat_conversas_regras (0133) é a rede: liberação, pausa e retomada só pela sessão `nutri`, em nome da usuária, de titular
  * ativo e com o carimbo do consultório. O módulo confere antes e devolve os códigos da interface.
  *
  * Auditoria (RN-453, CH-D39): o gatilho da linha grava a entidade neutra `chat_conversa` (fora da tela: o recado também

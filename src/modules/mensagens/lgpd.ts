@@ -2,7 +2,7 @@
  * Plano 25 (RN-445, RN-465, RN-466, RN-467; CH-D2, CH-D25, CH-D41, CH-D59, CH-D74): a conversa do titular na exportação e na
  * anonimização. A conversa é prontuário (CH-D2): nada sai no pedido de exclusão (CH-D25) — só na anonimização, pelo worker,
  * com o titular na anonimização (bloqueado com o prazo vencido no fuso do consultório, ou já anonimizado; a mesma condição
- * do gatilho chat_mensagens_regras e das funções da 0128).
+ * do gatilho chat_mensagens_regras e das funções da 0133).
  *
  * Ordem global de travas (RN-447): paciente → conversa → mensagem. O passo (1) trava o paciente FOR UPDATE (serializa com o
  * FOR SHARE do job do anexo, T8) antes da primeira soltura; cada arquivo sai na sua transação (apagarArquivo, como

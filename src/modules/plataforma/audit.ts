@@ -79,6 +79,10 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   // Plano 20 (RN-319): escritas de fin_lancamentos (gatilho), leituras de um paciente (RN-318) e o CSV (RN-321). A entidade
   // `financeiro_configuracoes` (RN-320) não tem paciente e fica fora do Histórico do paciente: sem rótulo
   financeiro: 'Financeiro',
+  // Plano 22 (RN-378, RN-383, EP-D61): versões anteriores do exame e nota de interpretação (gatilhos de exam_versoes e
+  // exam_interpretacoes, rls_exames_catalogo); a nota tem entidade própria para não se confundir com o exame no Histórico
+  exames_versoes: 'Versões do exame',
+  exames_nota: 'Nota de interpretação do exame',
   // Plano 25 (RN-453, CH-D39): `chat` = escritas de chat_mensagens (gatilho) e leituras da conversa; `chat_conversa` = gatilho
   // da linha da conversa (fora da tela, visivelNoHistorico); os atos de liberar, pausar e retomar vêm do recordAudit do módulo
   chat: 'Mensagens (conversa com o paciente)',

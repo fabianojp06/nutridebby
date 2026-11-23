@@ -60,10 +60,11 @@ export async function salvarLembreteAction(patientId: string, _prev: FormLembret
 }
 
 /** Erros de `ligarLembrete`/`apagarLembrete` como a mensagem ao lado do botão; o resto sobe (ou 404). */
-async function acao(patientId: string, fn: (ctx: Awaited<ReturnType<typeof requireNutri>>['ctx']) => Promise<void>, ok: string): Promise<AcaoLembreteState> {
+async function acao<T>(patientId: string, fn: (ctx: Awaited<ReturnType<typeof requireNutri>>['ctx']) => Promise<T>, ok: string | ((r: T) => string)): Promise<AcaoLembreteState> {
   const { ctx } = await requireNutri(aba(patientId));
+  let r: T;
   try {
-    await fn(ctx);
+    r = await fn(ctx);
   } catch (e) {
     if (e instanceof LembreteError) return { erro: Object.values(e.erros)[0] };
     if (e instanceof PacienteBloqueadoError) return { erro: e.message };
@@ -71,13 +72,20 @@ async function acao(patientId: string, fn: (ctx: Awaited<ReturnType<typeof requi
     throw e;
   }
   revalidatePath(aba(patientId));
-  return { ok };
+  return { ok: typeof ok === 'string' ? ok : ok(r) };
 }
+
+/** TRI-17-20 #38 (§5.3): ligado pela equipe, o que o paciente desligou no app continua sem chegar até ele religar (texto provisório). */
+const LIGADO_DESLIGADO_PELO_PACIENTE = 'Lembrete ligado pela equipe. O paciente desligou este lembrete no app; ele só volta a receber quando religar em Eu › Lembretes.';
 
 /** Interruptor da equipe: muda só `ligado`; a escolha do paciente (`desligado_pelo_paciente_em`) fica como está. */
 export async function ligarLembreteAction(patientId: string, id: string, ligado: boolean): Promise<AcaoLembreteState> {
   const liga = ligado === true; // vindo do cliente: só o booleano verdadeiro liga
-  return acao(patientId, (ctx) => ligarLembrete(ctx, patientId, id, liga), liga ? 'Lembrete ligado.' : 'Lembrete desligado.');
+  return acao(
+    patientId,
+    (ctx) => ligarLembrete(ctx, patientId, id, liga),
+    (r) => (!liga ? 'Lembrete desligado.' : r.desligadoPeloPaciente ? LIGADO_DESLIGADO_PELO_PACIENTE : 'Lembrete ligado.'),
+  );
 }
 
 /** "Apagar" (com `BotaoAcao`, que passa o estado anterior como último argumento, ignorado). */

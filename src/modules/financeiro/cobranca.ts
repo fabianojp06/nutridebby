@@ -117,7 +117,7 @@ export type SecaoDaCobranca = {
   cobranca: LancamentoNaTela | null;
   podeRegistrar: boolean;
   /** Por que "Registrar cobrança" não aparece (sem cobrança ativa); null com cobrança ou quando pode registrar. */
-  motivo: 'nao_configurado' | 'bloqueado' | 'nao_realizada' | null;
+  motivo: 'nao_configurado' | 'bloqueado' | 'anonimizado' | 'nao_realizada' | null;
   /** RN-314: o valor da consulta das Configurações (editável no formulário). */
   valorSugerido: number | null;
 };
@@ -144,7 +144,7 @@ export async function cobrancaDaConsulta(ctx: TenantContext, tenant: { fuso: str
       }
       const [p] = c ? await tx.select({ status: patients.status, anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, c.patientId)) : [];
       const motivo =
-        c?.status !== 'realizada' ? 'nao_realizada' : !config ? 'nao_configurado' : !p || p.status === 'bloqueado' || p.anonimizadoEm ? 'bloqueado' : null;
+        c?.status !== 'realizada' ? 'nao_realizada' : !config ? 'nao_configurado' : p?.anonimizadoEm ? 'anonimizado' : !p || p.status === 'bloqueado' ? 'bloqueado' : null; // anonimizado: aviso próprio (PR #66, TRI-17-20 #130)
       return { cobranca: null, podeRegistrar: motivo === null, motivo, valorSugerido };
     },
     deps.db ?? getDb(),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DocumentoError } from './erros';
-import { descreverItem, MSG_PRESCRICAO, validarParaPreparar, validarRascunho } from './prescricao';
+import { binomioValido, descreverItem, exigeHabilitacao, MSG_PRESCRICAO, TERMOS_NAO_VEGETAIS, temTermoNaoVegetal, validarParaPreparar, validarRascunho } from './prescricao';
 
 const vitD = { tipo: 'suplemento', categoria: 'nutriente', composicao: [{ nome: 'Vitamina D3', quantidade: '2000', unidade: 'UI' }], forma: 'Cápsula', via: 'oral', posologia: '1 cápsula ao dia, no almoço' };
 const curcuma = { tipo: 'derivado_vegetal', nomenclatura: 'Curcuma longa L.', parte: 'Rizoma', formaFarmaceutica: 'Cápsula', dose: '500 mg', via: 'oral', posologia: '1 cápsula ao dia' };
@@ -104,5 +104,60 @@ describe('receita (US-142, RN-149, RN-150)', () => {
   it('descreve o item para o PDF e o portal (sem a justificativa)', () => {
     const [item] = validarRascunho({ itens: [vitD] }, { habilitada: false }).itens;
     expect(descreverItem(item)).toEqual({ titulo: 'Vitamina D3 2000 UI', linhas: ['Suplemento alimentar (Nutriente) · Cápsula', 'Via: Oral', 'Posologia: 1 cápsula ao dia, no almoço'] });
+  });
+});
+
+describe('Plano 22 (P22-02): regras puras da fórmula fitoterápica (RN-392, EP-D26, EP-D48)', () => {
+  it('exigeHabilitacao: só fitoterapico e formula_fitoterapica', () => {
+    expect(exigeHabilitacao('fitoterapico')).toBe(true);
+    expect(exigeHabilitacao('formula_fitoterapica')).toBe(true);
+    for (const t of ['suplemento', 'planta_cha', 'derivado_vegetal', '', 'outro']) expect(exigeHabilitacao(t), t).toBe(false);
+  });
+  it('conferirHabilitacao (pelo exigeHabilitacao) continua recusando fitoterapico sem habilitação, com semHabilitacao', () => {
+    const fito = { tipo: 'fitoterapico', nomenclatura: 'Passiflora incarnata L.', parte: 'Folhas', extracao: 'Extrato seco', formaFarmaceutica: 'Cápsula', dose: '300 mg', via: 'oral', posologia: '1 cápsula à noite' };
+    try {
+      validarRascunho({ itens: [vitD, fito] }, { habilitada: false });
+      expect.unreachable();
+    } catch (e) {
+      expect(erroEm('itens.1.tipo', MSG_PRESCRICAO.semHabilitacao)(e)).toBe(true);
+    }
+    expect(validarRascunho({ itens: [vitD, fito] }, { habilitada: true }).itens).toHaveLength(2);
+  });
+  it('binomioValido: "Gênero epíteto" (ou ×), com autor e categorias abaixo de espécie depois', () => {
+    for (const n of ['Matricaria chamomilla L.', 'Citrus aurantium var. amara', 'Mentha × piperita', 'Mentha ×piperita L.', 'Capsella bursa-pastoris (L.) Medik.', ' Passiflora  incarnata ']) expect(binomioValido(n), n).toBe(true);
+    for (const n of ['camomila', 'matricaria chamomilla', 'Matricaria Chamomilla', 'Matricaria', 'Matricaria ×', 'MATRICARIA chamomilla', '', 'Matricaria 2chamomilla']) expect(binomioValido(n), n).toBe(false);
+  });
+  it('temTermoNaoVegetal: palavra inteira, sem acento nem diferença de maiúsculas; "L-" no começo de palavra', () => {
+    for (const n of ['Picolinato de cromo', 'Vitamina C', 'Creatina monoidratada', 'Glutamina livre', 'Curcumina lipossomal', 'Lactobacillus acidophilus', 'Saccharomyces boulardii', 'curcumina isolada', 'L-teanina', 'ÁCIDO ascórbico', 'Ômega 3', 'sais minerais', 'Colágeno hidrolisado', 'cafeína anidra']) {
+      expect(temTermoNaoVegetal(n), n).toBe(true);
+    }
+    for (const n of ['Matricaria chamomilla L.', 'Curcuma longa L.', 'Camellia sinensis (L.) Kuntze', 'Extrato seco hidroalcoólico', 'Ginkgo biloba L.', 'Valeriana officinalis L.']) {
+      expect(temTermoNaoVegetal(n), n).toBe(false);
+    }
+  });
+  it('TERMOS_NAO_VEGETAIS (revisão final do PR 1): própolis, geleia real, quitosana, glucosamina, condroitina, inositol, ubiquinol, licopeno e luteína, com e sem acento; "Coenzima Q10" pela palavra "coenzima" (sem entrada redundante)', () => {
+    for (const t of ['própolis', 'geleia real', 'quitosana', 'glucosamina', 'condroitina', 'inositol', 'ubiquinol', 'licopeno', 'luteína']) expect(TERMOS_NAO_VEGETAIS, t).toContain(t);
+    expect(TERMOS_NAO_VEGETAIS).not.toContain('coenzima Q10');
+    for (const n of ['Própolis verde', 'extrato de propolis', 'Geleia real liofilizada', 'GELÉIA REAL', 'Quitosana', 'Glucosamina', 'Condroitina', 'Mio-inositol', 'Ubiquinol', 'Coenzima Q10', 'Licopeno', 'Luteina', 'luteína e zeaxantina']) {
+      expect(temTermoNaoVegetal(n), n).toBe(true);
+    }
+    for (const n of ['Geleia de frutas', 'Real', 'Matricaria chamomilla L.']) expect(temTermoNaoVegetal(n), n).toBe(false);
+  });
+  it('fitoterapico (Res. CFN 680/2021, art. 9º, II; /code-review do PR 1): só a nomenclatura com termo não vegetal é recusada com naoVegetal; extração e padronização ficam de fora', () => {
+    const fito = { tipo: 'fitoterapico', nomenclatura: 'Passiflora incarnata L.', parte: 'Folhas', extracao: 'Extrato seco', formaFarmaceutica: 'Cápsula', dose: '300 mg', via: 'oral', posologia: '1 cápsula à noite' };
+    expect(lanca('itens.0.nomenclatura', MSG_PRESCRICAO.naoVegetal)(() => validarRascunho({ itens: [{ ...fito, nomenclatura: 'Picolinato de cromo' }] }, { habilitada: true }))).toBe(true);
+    expect(lanca('itens.0.nomenclatura', MSG_PRESCRICAO.naoVegetal)(() => validarRascunho({ itens: [{ ...fito, nomenclatura: 'Curcumina isolada' }] }, { habilitada: true }))).toBe(true);
+    // o marcador de padronização na extração é legítimo (rascunho e retificação já salvos continuam valendo)
+    const curcuma = { ...fito, nomenclatura: 'Curcuma longa L.', parte: 'Rizoma', extracao: 'Extrato seco padronizado a 95% de curcumina' };
+    expect(validarRascunho({ itens: [curcuma] }, { habilitada: true }).itens).toEqual([expect.objectContaining({ extracao: 'Extrato seco padronizado a 95% de curcumina' })]);
+    expect(validarRascunho({ itens: [{ ...fito, padronizacao: '3,5% de vitexina; ácido valerênico 0,8%' }] }, { habilitada: true }).itens).toHaveLength(1);
+  });
+  it('TERMOS_NAO_VEGETAIS tem a lista da RN-392 (rascunho para a Debby); MSG_PRESCRICAO ganha compostos, binomio e naoVegetal (§6.2)', () => {
+    for (const t of ['vitamina', 'mineral', 'aminoácido', 'isolado', 'ácido', 'sulfato', 'citrato', 'quelato', 'picolinato', 'glicinato', 'óxido', 'carbonato', 'cafeína', 'creatina', 'glutamina', 'carnitina', 'taurina', 'glutationa', 'coenzima', 'resveratrol', 'curcumina', 'berberina', 'quercetina', 'piperina', 'melatonina', 'colágeno', 'whey', 'proteína', 'peptídeo', 'ômega', 'cloridrato', 'Lactobacillus', 'Lacticaseibacillus', 'Bifidobacterium', 'Saccharomyces', 'Streptococcus', 'Bacillus']) {
+      expect(TERMOS_NAO_VEGETAIS, t).toContain(t);
+    }
+    expect(MSG_PRESCRICAO.compostos).toBe('Informe de 2 a 10 compostos vegetais.');
+    expect(MSG_PRESCRICAO.binomio).toBe('Use a nomenclatura botânica (Gênero espécie), como Matricaria chamomilla L.');
+    expect(MSG_PRESCRICAO.naoVegetal).toBe('Fórmula fitoterápica não pode ter vitaminas, minerais, aminoácidos ou substâncias isoladas (Resolução CFN nº 680/2021, art. 9º, II).');
   });
 });

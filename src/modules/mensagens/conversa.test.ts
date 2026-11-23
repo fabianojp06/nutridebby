@@ -17,7 +17,7 @@ import { salvarConfiguracao } from './horario';
 
 /**
  * Plano 25, T2 (RN-441, RN-442, RN-447, RN-453, RN-465, CH-D39): liberar, pausar e retomar a conversa. O gatilho
- * chat_conversas_regras (0128) é a rede; o módulo confere antes e devolve os códigos da interface.
+ * chat_conversas_regras (0133) é a rede; o módulo confere antes e devolve os códigos da interface.
  */
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));

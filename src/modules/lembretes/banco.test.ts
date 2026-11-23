@@ -3,13 +3,14 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { auditLog, lembretesRotina, lembretesRotinaEnvios, patients } from '@/db/schema';
+import { auditLog, lembretesRotina, lembretesRotinaEnvios, patients, user } from '@/db/schema';
 import type { Tx } from '@/db/client';
 import { withTenant, type TenantContext } from '@/db/tenant';
 
 /**
  * Plano 17 (spec §5.3, §5.5): o banco confere quem muda o quê nos lembretes de rotina — gatilhos lembretes_rotina_regras,
- * lembretes_rotina_envios_do_worker e patients_lembretes_do_paciente, e a lista de colunas do paciente (paciente_colunas), 0119.
+ * lembretes_rotina_envios_do_worker e patients_lembretes_do_paciente, e a lista de colunas do paciente (paciente_colunas), 0119;
+ * o paciente sem conta, o `updated_at` do paciente, o `criado_por` da equipe e o DELETE da marca de envio (TRI-17-20 #5–#7).
  */
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -105,6 +106,39 @@ describe('lembretes_rotina: quem muda o quê (Plano 17, §5.3)', () => {
     expect(await falhaCom(paciente(T.ctx, { status: 'bloqueado', bloqueadoEm: new Date(), lembretesPausadosEm: new Date() }))).toBe('42501');
     const [bloqueado] = await paciente(T.ctx, { status: 'bloqueado', bloqueadoEm: new Date(), lembretesPausadosEm: null });
     expect(bloqueado).toMatchObject({ status: 'bloqueado', lembretesPausadosEm: null });
+  });
+
+  it('paciente sem conta (link, WhatsApp, convite) não grava nada nos lembretes (TRI-17-20 #6)', async () => {
+    const { T, p, criar, lembrete, em } = await cenario();
+    const agua = await criar();
+    const semConta: TenantContext = { tenantId: T.tenantId, role: 'paciente', patientId: p.id, semConta: true };
+    // a RLS de paciente mostra a linha (a recusa vem do gatilho, não de 0 linhas)
+    expect(await em(semConta, (tx) => tx.select({ id: lembretesRotina.id }).from(lembretesRotina))).toEqual([{ id: agua.id }]);
+    expect(await falhaCom(lembrete(semConta, agua.id, { desligadoPeloPacienteEm: new Date() }))).toBe('42501');
+    expect(await falhaCom(lembrete(semConta, agua.id, { updatedAt: new Date() }))).toBe('42501');
+    const [depois] = await em(T.ctx, (tx) => tx.select().from(lembretesRotina).where(eq(lembretesRotina.id, agua.id)));
+    expect(depois.desligadoPeloPacienteEm).toBeNull();
+  });
+
+  it('o updated_at do paciente é o relógio da transação, não o valor enviado (TRI-17-20 #6)', async () => {
+    const { comoPaciente, criar, em } = await cenario();
+    const agua = await criar();
+    const r = await em(comoPaciente, async (tx) => {
+      await tx.update(lembretesRotina).set({ desligadoPeloPacienteEm: new Date(), updatedAt: ANTIGA }).where(eq(lembretesRotina.id, agua.id));
+      return tx.execute<{ igual: boolean }>(sql`select updated_at = now() as igual from lembretes_rotina where id = ${agua.id}`);
+    });
+    expect(r.rows).toEqual([{ igual: true }]);
+  });
+
+  it('a equipe cria o lembrete em nome da própria usuária (criado_por, TRI-17-20 #7)', async () => {
+    const { T, criar, worker } = await cenario();
+    const colegaId = randomUUID();
+    await app.db.insert(user).values({ id: colegaId, name: 'Colega', email: `colega-${colegaId.slice(0, 8)}@teste.dev`, appRole: 'nutri', tenantId: T.tenantId });
+    expect(await falhaCom(criar({ criadoPor: colegaId }))).toBe('42501');
+    expect(await falhaCom(criar({ criadoPor: randomUUID() }))).toBe('42501');
+    expect(await criar({ criadoPor: T.nutriId })).toMatchObject({ criadoPor: T.nutriId });
+    // worker e contexto vazio continuam livres (sementes, testes)
+    expect(await criar({ tipo: 'refeicoes', config: { antecedenciaMin: 0, diarioDepoisMin: null }, criadoPor: colegaId }, worker)).toMatchObject({ criadoPor: colegaId });
   });
 
   it('a equipe não grava a marca do paciente ao criar (lembrete nem paciente)', async () => {
@@ -207,6 +241,38 @@ describe('lembretes_rotina_envios: a marca do último envio (Plano 17, §5.5)', 
     // apagar o lembrete leva a marca junto (ON DELETE CASCADE)
     await em(T.ctx, (tx) => tx.delete(lembretesRotina).where(eq(lembretesRotina.id, agua.id)));
     expect(await em(worker, (tx) => tx.select().from(lembretesRotinaEnvios))).toEqual([]);
+  });
+
+  it('a equipe não apaga a marca; o worker e a cascata do lembrete apagam (TRI-17-20 #5)', async () => {
+    const { T, p, comoPaciente, worker, em, criar, lembrete } = await cenario();
+    const agua = await criar();
+    const supl = await criar({ tipo: 'suplemento', config: HORARIOS, texto: 'Vitamina D' });
+    const marcar = (id: string) =>
+      em(worker, (tx) => tx.insert(lembretesRotinaEnvios).values({ lembreteId: id, tenantId: T.tenantId, patientId: p.id, ultimoSlotEm: new Date() }));
+    const marcas = () => em(worker, (tx) => tx.select({ id: lembretesRotinaEnvios.lembreteId }).from(lembretesRotinaEnvios));
+    await marcar(agua.id);
+    await marcar(supl.id);
+
+    // apagar a marca reabriria o slot (o push sairia de novo)
+    expect(await falhaCom(em(T.ctx, (tx) => tx.delete(lembretesRotinaEnvios).where(eq(lembretesRotinaEnvios.lembreteId, agua.id))))).toBe('42501');
+    expect(await falhaCom(em(T.ctx, (tx) => tx.execute(sql`delete from lembretes_rotina_envios`)))).toBe('42501');
+    expect(await marcas()).toHaveLength(2);
+
+    // o worker apaga
+    expect((await em(worker, (tx) => tx.delete(lembretesRotinaEnvios).where(eq(lembretesRotinaEnvios.lembreteId, agua.id)).returning())).length).toBe(1);
+    await marcar(agua.id);
+
+    // a equipe apaga o lembrete e a marca sai junto (ON DELETE CASCADE)
+    await em(T.ctx, (tx) => tx.delete(lembretesRotina).where(eq(lembretesRotina.id, agua.id)));
+    expect(await marcas()).toEqual([{ id: supl.id }]);
+
+    // exclusão atendida (lgpd.ts): o paciente desligou, o titular vai a `bloqueado` e a equipe apaga — a marca sai em cascata
+    await lembrete(comoPaciente, supl.id, { desligadoPeloPacienteEm: new Date() });
+    await em(T.ctx, async (tx) => {
+      await tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: new Date() }).where(eq(patients.id, p.id));
+      await tx.delete(lembretesRotina).where(eq(lembretesRotina.patientId, p.id));
+    });
+    expect(await marcas()).toEqual([]);
   });
 
   it('escrita da equipe vira audit_log', async () => {

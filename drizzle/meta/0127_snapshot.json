@@ -1,5 +1,5 @@
 {
-  "id": "58d76cbb-6efd-4c8c-b9da-412c78594214",
+  "id": "a1b4df31-e184-4a5c-b378-fece7785ee27",
   "prevId": "508bac0c-82e9-4a62-8760-891ba0bef949",
   "version": "7",
   "dialect": "postgresql",
@@ -1110,7 +1110,7 @@
         },
         "notifications_tipo_valido": {
           "name": "notifications_tipo_valido",
-          "value": "\"notifications\".\"tipo\" in ('lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada', 'convite_paciente', 'resposta_confirmacao', 'resposta_remarcar', 'push_teste', 'comentario_diario', 'plano_novo', 'conteudo_novo', 'documento_novo', 'documento_atualizado', 'exame_revisado', 'exame_expirado', 'duvida_vista', 'chat_mensagem', 'recado')"
+          "value": "\"notifications\".\"tipo\" in ('lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada', 'convite_paciente', 'resposta_confirmacao', 'resposta_remarcar', 'push_teste', 'comentario_diario', 'plano_novo', 'conteudo_novo', 'documento_novo', 'documento_atualizado', 'exame_revisado', 'exame_expirado', 'duvida_vista')"
         },
         "notifications_status_valido": {
           "name": "notifications_status_valido",
@@ -3681,7 +3681,7 @@
         },
         "document_verifications_tipo_valido": {
           "name": "document_verifications_tipo_valido",
-          "value": "\"document_verifications\".\"tipo\" in ('receita','parecer')"
+          "value": "\"document_verifications\".\"tipo\" in ('receita','parecer','solicitacao_exames')"
         }
       },
       "isRLSEnabled": false
@@ -4283,7 +4283,7 @@
       "checkConstraints": {
         "signed_documents_tipo_valido": {
           "name": "signed_documents_tipo_valido",
-          "value": "\"signed_documents\".\"tipo\" in ('receita','parecer')"
+          "value": "\"signed_documents\".\"tipo\" in ('receita','parecer','solicitacao_exames')"
         },
         "signed_documents_status_valido": {
           "name": "signed_documents_status_valido",
@@ -4328,6 +4328,272 @@
         "signed_documents_versao_positiva": {
           "name": "signed_documents_versao_positiva",
           "value": "\"signed_documents\".\"versao\" >= 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.exames_catalogo": {
+      "name": "exames_catalogo",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unidade": {
+          "name": "unidade",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sinonimos": {
+          "name": "sinonimos",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "componentes": {
+          "name": "componentes",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "faixas": {
+          "name": "faixas",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "modelo_nota_abaixo": {
+          "name": "modelo_nota_abaixo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "modelo_nota_acima": {
+          "name": "modelo_nota_acima",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "exames_catalogo_nome_unico": {
+          "name": "exames_catalogo_nome_unico",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"nome\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "exames_catalogo_tenant_id_tenants_id_fk": {
+          "name": "exames_catalogo_tenant_id_tenants_id_fk",
+          "tableFrom": "exames_catalogo",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "exames_catalogo_nome_tamanho": {
+          "name": "exames_catalogo_nome_tamanho",
+          "value": "char_length(\"exames_catalogo\".\"nome\") between 1 and 80"
+        },
+        "exames_catalogo_unidade_tamanho": {
+          "name": "exames_catalogo_unidade_tamanho",
+          "value": "\"exames_catalogo\".\"unidade\" is null or char_length(\"exames_catalogo\".\"unidade\") between 1 and 20"
+        },
+        "exames_catalogo_sinonimos": {
+          "name": "exames_catalogo_sinonimos",
+          "value": "case when jsonb_typeof(\"exames_catalogo\".\"sinonimos\") = 'array' then jsonb_array_length(\"exames_catalogo\".\"sinonimos\") <= 10 else false end"
+        },
+        "exames_catalogo_componentes": {
+          "name": "exames_catalogo_componentes",
+          "value": "case when jsonb_typeof(\"exames_catalogo\".\"componentes\") = 'array' then jsonb_array_length(\"exames_catalogo\".\"componentes\") <= 30 else false end"
+        },
+        "exames_catalogo_faixas": {
+          "name": "exames_catalogo_faixas",
+          "value": "case when jsonb_typeof(\"exames_catalogo\".\"faixas\") = 'array' then jsonb_array_length(\"exames_catalogo\".\"faixas\") <= 20 else false end"
+        },
+        "exames_catalogo_modelo_nota_abaixo_tamanho": {
+          "name": "exames_catalogo_modelo_nota_abaixo_tamanho",
+          "value": "\"exames_catalogo\".\"modelo_nota_abaixo\" is null or char_length(\"exames_catalogo\".\"modelo_nota_abaixo\") <= 1000"
+        },
+        "exames_catalogo_modelo_nota_acima_tamanho": {
+          "name": "exames_catalogo_modelo_nota_acima_tamanho",
+          "value": "\"exames_catalogo\".\"modelo_nota_acima\" is null or char_length(\"exames_catalogo\".\"modelo_nota_acima\") <= 1000"
+        },
+        "exames_catalogo_painel": {
+          "name": "exames_catalogo_painel",
+          "value": "\"exames_catalogo\".\"componentes\" = '[]'::jsonb or (\"exames_catalogo\".\"unidade\" is null and \"exames_catalogo\".\"faixas\" = '[]'::jsonb and \"exames_catalogo\".\"modelo_nota_abaixo\" is null and \"exames_catalogo\".\"modelo_nota_acima\" is null)"
+        },
+        "exames_catalogo_faixa_com_unidade": {
+          "name": "exames_catalogo_faixa_com_unidade",
+          "value": "\"exames_catalogo\".\"unidade\" is not null or \"exames_catalogo\".\"faixas\" = '[]'::jsonb"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.exames_modelos_solicitacao": {
+      "name": "exames_modelos_solicitacao",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nome": {
+          "name": "nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exames": {
+          "name": "exames",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "orientacoes": {
+          "name": "orientacoes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "exames_modelos_solicitacao_nome_unico": {
+          "name": "exames_modelos_solicitacao_nome_unico",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"nome\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "exames_modelos_solicitacao_tenant_id_tenants_id_fk": {
+          "name": "exames_modelos_solicitacao_tenant_id_tenants_id_fk",
+          "tableFrom": "exames_modelos_solicitacao",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "exames_modelos_solicitacao_nome_tamanho": {
+          "name": "exames_modelos_solicitacao_nome_tamanho",
+          "value": "char_length(\"exames_modelos_solicitacao\".\"nome\") between 1 and 80"
+        },
+        "exames_modelos_solicitacao_exames": {
+          "name": "exames_modelos_solicitacao_exames",
+          "value": "case when jsonb_typeof(\"exames_modelos_solicitacao\".\"exames\") = 'array' then jsonb_array_length(\"exames_modelos_solicitacao\".\"exames\") between 1 and 40 else false end"
+        },
+        "exames_modelos_solicitacao_orientacoes_tamanho": {
+          "name": "exames_modelos_solicitacao_orientacoes_tamanho",
+          "value": "char_length(\"exames_modelos_solicitacao\".\"orientacoes\") <= 1000"
         }
       },
       "isRLSEnabled": false
@@ -4764,6 +5030,230 @@
         "exam_submissions_falha": {
           "name": "exam_submissions_falha",
           "value": "(\"exam_submissions\".\"status\" = 'falhou') = (\"exam_submissions\".\"motivo_falha\" is not null) and (\"exam_submissions\".\"motivo_falha\" is null or \"exam_submissions\".\"motivo_falha\" in ('conversao', 'paginas', 'cota', 'interrompido'))"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.exam_interpretacoes": {
+      "name": "exam_interpretacoes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "patient_id": {
+          "name": "patient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exam_id": {
+          "name": "exam_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "versao": {
+          "name": "versao",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "texto": {
+          "name": "texto",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "criado_por": {
+          "name": "criado_por",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "exam_interpretacoes_exame_fk": {
+          "name": "exam_interpretacoes_exame_fk",
+          "tableFrom": "exam_interpretacoes",
+          "tableTo": "exams",
+          "columnsFrom": [
+            "tenant_id",
+            "patient_id",
+            "exam_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "patient_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "exam_interpretacoes_versao_unique": {
+          "name": "exam_interpretacoes_versao_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "exam_id",
+            "versao"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "exam_interpretacoes_versao_valida": {
+          "name": "exam_interpretacoes_versao_valida",
+          "value": "\"exam_interpretacoes\".\"versao\" >= 1"
+        },
+        "exam_interpretacoes_texto_tamanho": {
+          "name": "exam_interpretacoes_texto_tamanho",
+          "value": "\"exam_interpretacoes\".\"texto\" is null or char_length(\"exam_interpretacoes\".\"texto\") between 1 and 2000"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.exam_versoes": {
+      "name": "exam_versoes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "patient_id": {
+          "name": "patient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "exam_id": {
+          "name": "exam_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "versao": {
+          "name": "versao",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "titulo": {
+          "name": "titulo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "data": {
+          "name": "data",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valores": {
+          "name": "valores",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "justificativa": {
+          "name": "justificativa",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "alterado_por": {
+          "name": "alterado_por",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alterado_em": {
+          "name": "alterado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "exam_versoes_exame_fk": {
+          "name": "exam_versoes_exame_fk",
+          "tableFrom": "exam_versoes",
+          "tableTo": "exams",
+          "columnsFrom": [
+            "tenant_id",
+            "patient_id",
+            "exam_id"
+          ],
+          "columnsTo": [
+            "tenant_id",
+            "patient_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "exam_versoes_versao_unique": {
+          "name": "exam_versoes_versao_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "exam_id",
+            "versao"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "exam_versoes_versao_valida": {
+          "name": "exam_versoes_versao_valida",
+          "value": "\"exam_versoes\".\"versao\" >= 1"
+        },
+        "exam_versoes_justificativa_tamanho": {
+          "name": "exam_versoes_justificativa_tamanho",
+          "value": "\"exam_versoes\".\"justificativa\" is null or char_length(\"exam_versoes\".\"justificativa\") between 5 and 500"
+        },
+        "exam_versoes_titulo_tamanho": {
+          "name": "exam_versoes_titulo_tamanho",
+          "value": "char_length(\"exam_versoes\".\"titulo\") between 1 and 120"
+        },
+        "exam_versoes_valores": {
+          "name": "exam_versoes_valores",
+          "value": "case when jsonb_typeof(\"exam_versoes\".\"valores\") = 'array' then true else false end"
         }
       },
       "isRLSEnabled": false
@@ -5954,7 +6444,7 @@
         },
         "ia_nutri_mensagens_resolucao": {
           "name": "ia_nutri_mensagens_resolucao",
-          "value": "(\"ia_nutri_mensagens\".\"resolucao\" is null) = (\"ia_nutri_mensagens\".\"resolvida_em\" is null) and (\"ia_nutri_mensagens\".\"resolucao\" is null or \"ia_nutri_mensagens\".\"resolucao\" in ('vista', 'encerrada', 'respondida'))"
+          "value": "(\"ia_nutri_mensagens\".\"resolucao\" is null) = (\"ia_nutri_mensagens\".\"resolvida_em\" is null) and (\"ia_nutri_mensagens\".\"resolucao\" is null or \"ia_nutri_mensagens\".\"resolucao\" in ('vista', 'encerrada'))"
         },
         "ia_nutri_mensagens_destino_valido": {
           "name": "ia_nutri_mensagens_destino_valido",
@@ -7662,7 +8152,7 @@
       "checkConstraints": {
         "stored_files_tipo_valido": {
           "name": "stored_files_tipo_valido",
-          "value": "\"stored_files\".\"tipo\" in ('logo','capa','exame','plano_pdf','diario_foto','diario_foto_original','orientacao_pdf','exportacao','documento_base','documento_assinado','documento_digitalizado','exame_original','exame_pagina','ia_autorizacao_termo','chat_anexo','chat_anexo_original')"
+          "value": "\"stored_files\".\"tipo\" in ('logo','capa','exame','plano_pdf','diario_foto','diario_foto_original','orientacao_pdf','exportacao','documento_base','documento_assinado','documento_digitalizado','exame_original','exame_pagina','ia_autorizacao_termo')"
         },
         "stored_files_bytes_positivo": {
           "name": "stored_files_bytes_positivo",
@@ -9082,6 +9572,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "mostrar_no_app_em": {
+          "name": "mostrar_no_app_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -11421,945 +11917,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.chat_avisos_nutri": {
-      "name": "chat_avisos_nutri",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "aviso_email": {
-          "name": "aviso_email",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "aviso_nutri_em": {
-          "name": "aviso_nutri_em",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "chat_avisos_nutri_tenant_id_tenants_id_fk": {
-          "name": "chat_avisos_nutri_tenant_id_tenants_id_fk",
-          "tableFrom": "chat_avisos_nutri",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.chat_configuracoes": {
-      "name": "chat_configuracoes",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "horario_ativo": {
-          "name": "horario_ativo",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "chat_configuracoes_tenant_id_tenants_id_fk": {
-          "name": "chat_configuracoes_tenant_id_tenants_id_fk",
-          "tableFrom": "chat_configuracoes",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.chat_conversas": {
-      "name": "chat_conversas",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "patient_id": {
-          "name": "patient_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "liberada_em": {
-          "name": "liberada_em",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "liberada_por": {
-          "name": "liberada_por",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tcle_forma": {
-          "name": "tcle_forma",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "liberada_nome": {
-          "name": "liberada_nome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "liberada_crn": {
-          "name": "liberada_crn",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pausada_em": {
-          "name": "pausada_em",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pausada_por": {
-          "name": "pausada_por",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pausada_nome": {
-          "name": "pausada_nome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "pausada_crn": {
-          "name": "pausada_crn",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "chat_conversas_tenant_id_tenants_id_fk": {
-          "name": "chat_conversas_tenant_id_tenants_id_fk",
-          "tableFrom": "chat_conversas",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "chat_conversas_paciente_fk": {
-          "name": "chat_conversas_paciente_fk",
-          "tableFrom": "chat_conversas",
-          "tableTo": "patients",
-          "columnsFrom": [
-            "tenant_id",
-            "patient_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "chat_conversas_paciente_unique": {
-          "name": "chat_conversas_paciente_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "patient_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "chat_conversas_liberacao": {
-          "name": "chat_conversas_liberacao",
-          "value": "(\"chat_conversas\".\"liberada_em\" is null) = (\"chat_conversas\".\"liberada_por\" is null) and (\"chat_conversas\".\"liberada_em\" is null) = (\"chat_conversas\".\"tcle_forma\" is null) and (\"chat_conversas\".\"liberada_em\" is null) = (\"chat_conversas\".\"liberada_nome\" is null) and (\"chat_conversas\".\"liberada_em\" is null) = (\"chat_conversas\".\"liberada_crn\" is null)"
-        },
-        "chat_conversas_tcle_forma_valida": {
-          "name": "chat_conversas_tcle_forma_valida",
-          "value": "\"chat_conversas\".\"tcle_forma\" is null or \"chat_conversas\".\"tcle_forma\" in ('termo_assinado', 'aceite_escrito')"
-        },
-        "chat_conversas_pausa": {
-          "name": "chat_conversas_pausa",
-          "value": "(\"chat_conversas\".\"pausada_em\" is null) = (\"chat_conversas\".\"pausada_por\" is null) and (\"chat_conversas\".\"pausada_em\" is null) = (\"chat_conversas\".\"pausada_nome\" is null) and (\"chat_conversas\".\"pausada_em\" is null) = (\"chat_conversas\".\"pausada_crn\" is null)"
-        },
-        "chat_conversas_pausa_so_liberada": {
-          "name": "chat_conversas_pausa_so_liberada",
-          "value": "\"chat_conversas\".\"pausada_em\" is null or \"chat_conversas\".\"liberada_em\" is not null"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.chat_horarios": {
-      "name": "chat_horarios",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "dia_semana": {
-          "name": "dia_semana",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "inicio_min": {
-          "name": "inicio_min",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "fim_min": {
-          "name": "fim_min",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "chat_horarios_tenant_id_tenants_id_fk": {
-          "name": "chat_horarios_tenant_id_tenants_id_fk",
-          "tableFrom": "chat_horarios",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "chat_horarios_dia_valido": {
-          "name": "chat_horarios_dia_valido",
-          "value": "\"chat_horarios\".\"dia_semana\" between 0 and 6"
-        },
-        "chat_horarios_faixa_valida": {
-          "name": "chat_horarios_faixa_valida",
-          "value": "\"chat_horarios\".\"inicio_min\" between 0 and 1440 and \"chat_horarios\".\"fim_min\" between 0 and 1440 and \"chat_horarios\".\"inicio_min\" < \"chat_horarios\".\"fim_min\" and \"chat_horarios\".\"inicio_min\" % 15 = 0 and \"chat_horarios\".\"fim_min\" % 15 = 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.chat_leituras": {
-      "name": "chat_leituras",
-      "schema": "",
-      "columns": {
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "patient_id": {
-          "name": "patient_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "lado": {
-          "name": "lado",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "lida_ate": {
-          "name": "lida_ate",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "chat_leituras_tenant_id_tenants_id_fk": {
-          "name": "chat_leituras_tenant_id_tenants_id_fk",
-          "tableFrom": "chat_leituras",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "chat_leituras_conversa_fk": {
-          "name": "chat_leituras_conversa_fk",
-          "tableFrom": "chat_leituras",
-          "tableTo": "chat_conversas",
-          "columnsFrom": [
-            "tenant_id",
-            "patient_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "patient_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "chat_leituras_pk": {
-          "name": "chat_leituras_pk",
-          "columns": [
-            "tenant_id",
-            "patient_id",
-            "lado"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "chat_leituras_lado_valido": {
-          "name": "chat_leituras_lado_valido",
-          "value": "\"chat_leituras\".\"lado\" in ('consultorio', 'paciente')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.chat_mensagens": {
-      "name": "chat_mensagens",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "patient_id": {
-          "name": "patient_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "autor": {
-          "name": "autor",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "autor_user_id": {
-          "name": "autor_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "autor_nome": {
-          "name": "autor_nome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "autor_crn": {
-          "name": "autor_crn",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "texto": {
-          "name": "texto",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "recado_id": {
-          "name": "recado_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "duvida_em": {
-          "name": "duvida_em",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "risco": {
-          "name": "risco",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "anexo_status": {
-          "name": "anexo_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'sem_anexo'"
-        },
-        "anexo_path": {
-          "name": "anexo_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "anexo_original_path": {
-          "name": "anexo_original_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "anexo_tipo": {
-          "name": "anexo_tipo",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "anexo_nome": {
-          "name": "anexo_nome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "anexo_bytes": {
-          "name": "anexo_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "criada_em": {
-          "name": "criada_em",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "clock_timestamp()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "chat_mensagens_conversa_idx": {
-          "name": "chat_mensagens_conversa_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "patient_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "criada_em",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "chat_mensagens_do_paciente_idx": {
-          "name": "chat_mensagens_do_paciente_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "criada_em",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"chat_mensagens\".\"autor\" = 'paciente'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "chat_mensagens_recado_idx": {
-          "name": "chat_mensagens_recado_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "recado_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"chat_mensagens\".\"recado_id\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "chat_mensagens_processando_idx": {
-          "name": "chat_mensagens_processando_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "anexo_status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"chat_mensagens\".\"anexo_status\" = 'processando'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "chat_mensagens_tenant_id_tenants_id_fk": {
-          "name": "chat_mensagens_tenant_id_tenants_id_fk",
-          "tableFrom": "chat_mensagens",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "chat_mensagens_anexo_path_stored_files_caminho_fk": {
-          "name": "chat_mensagens_anexo_path_stored_files_caminho_fk",
-          "tableFrom": "chat_mensagens",
-          "tableTo": "stored_files",
-          "columnsFrom": [
-            "anexo_path"
-          ],
-          "columnsTo": [
-            "caminho"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "chat_mensagens_anexo_original_path_stored_files_caminho_fk": {
-          "name": "chat_mensagens_anexo_original_path_stored_files_caminho_fk",
-          "tableFrom": "chat_mensagens",
-          "tableTo": "stored_files",
-          "columnsFrom": [
-            "anexo_original_path"
-          ],
-          "columnsTo": [
-            "caminho"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "chat_mensagens_conversa_fk": {
-          "name": "chat_mensagens_conversa_fk",
-          "tableFrom": "chat_mensagens",
-          "tableTo": "chat_conversas",
-          "columnsFrom": [
-            "tenant_id",
-            "patient_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "patient_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "chat_mensagens_recado_fk": {
-          "name": "chat_mensagens_recado_fk",
-          "tableFrom": "chat_mensagens",
-          "tableTo": "recados",
-          "columnsFrom": [
-            "tenant_id",
-            "recado_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "chat_mensagens_anexo_path_unique": {
-          "name": "chat_mensagens_anexo_path_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "anexo_path"
-          ]
-        },
-        "chat_mensagens_anexo_original_path_unique": {
-          "name": "chat_mensagens_anexo_original_path_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "anexo_original_path"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "chat_mensagens_autor_valido": {
-          "name": "chat_mensagens_autor_valido",
-          "value": "\"chat_mensagens\".\"autor\" in ('nutri', 'paciente')"
-        },
-        "chat_mensagens_texto_tamanho": {
-          "name": "chat_mensagens_texto_tamanho",
-          "value": "\"chat_mensagens\".\"texto\" is null or char_length(btrim(\"chat_mensagens\".\"texto\")) between 1 and 2000"
-        },
-        "chat_mensagens_tem_conteudo": {
-          "name": "chat_mensagens_tem_conteudo",
-          "value": "\"chat_mensagens\".\"texto\" is not null or \"chat_mensagens\".\"anexo_status\" <> 'sem_anexo'"
-        },
-        "chat_mensagens_anexo_status_valido": {
-          "name": "chat_mensagens_anexo_status_valido",
-          "value": "\"chat_mensagens\".\"anexo_status\" in ('sem_anexo', 'processando', 'pronto', 'falhou', 'removido')"
-        },
-        "chat_mensagens_anexo_tipo_valido": {
-          "name": "chat_mensagens_anexo_tipo_valido",
-          "value": "\"chat_mensagens\".\"anexo_tipo\" is null or \"chat_mensagens\".\"anexo_tipo\" in ('imagem', 'pdf')"
-        },
-        "chat_mensagens_anexo_tipo_com_anexo": {
-          "name": "chat_mensagens_anexo_tipo_com_anexo",
-          "value": "(\"chat_mensagens\".\"anexo_status\" = 'sem_anexo') = (\"chat_mensagens\".\"anexo_tipo\" is null)"
-        },
-        "chat_mensagens_pronto_com_caminho": {
-          "name": "chat_mensagens_pronto_com_caminho",
-          "value": "\"chat_mensagens\".\"anexo_status\" <> 'pronto' or \"chat_mensagens\".\"anexo_path\" is not null"
-        },
-        "chat_mensagens_processando_com_original": {
-          "name": "chat_mensagens_processando_com_original",
-          "value": "\"chat_mensagens\".\"anexo_status\" <> 'processando' or \"chat_mensagens\".\"anexo_original_path\" is not null or \"chat_mensagens\".\"anexo_tipo\" = 'pdf'"
-        },
-        "chat_mensagens_pdf_so_da_nutri": {
-          "name": "chat_mensagens_pdf_so_da_nutri",
-          "value": "\"chat_mensagens\".\"anexo_tipo\" <> 'pdf' or \"chat_mensagens\".\"autor\" = 'nutri'"
-        },
-        "chat_mensagens_recado_so_texto": {
-          "name": "chat_mensagens_recado_so_texto",
-          "value": "\"chat_mensagens\".\"recado_id\" is null or (\"chat_mensagens\".\"autor\" = 'nutri' and \"chat_mensagens\".\"anexo_status\" = 'sem_anexo')"
-        },
-        "chat_mensagens_removido_sem_caminho": {
-          "name": "chat_mensagens_removido_sem_caminho",
-          "value": "\"chat_mensagens\".\"anexo_status\" <> 'removido' or (\"chat_mensagens\".\"anexo_path\" is null and \"chat_mensagens\".\"anexo_original_path\" is null)"
-        },
-        "chat_mensagens_sem_anexo_sem_caminho": {
-          "name": "chat_mensagens_sem_anexo_sem_caminho",
-          "value": "\"chat_mensagens\".\"anexo_status\" <> 'sem_anexo' or (\"chat_mensagens\".\"anexo_path\" is null and \"chat_mensagens\".\"anexo_original_path\" is null)"
-        },
-        "chat_mensagens_carimbo": {
-          "name": "chat_mensagens_carimbo",
-          "value": "(\"chat_mensagens\".\"autor\" = 'nutri' and \"chat_mensagens\".\"autor_nome\" is not null and \"chat_mensagens\".\"autor_crn\" is not null) or (\"chat_mensagens\".\"autor\" = 'paciente' and \"chat_mensagens\".\"autor_nome\" is null and \"chat_mensagens\".\"autor_crn\" is null)"
-        },
-        "chat_mensagens_duvida_so_da_nutri": {
-          "name": "chat_mensagens_duvida_so_da_nutri",
-          "value": "\"chat_mensagens\".\"duvida_em\" is null or (\"chat_mensagens\".\"autor\" = 'nutri' and \"chat_mensagens\".\"recado_id\" is null)"
-        },
-        "chat_mensagens_risco_valido": {
-          "name": "chat_mensagens_risco_valido",
-          "value": "\"chat_mensagens\".\"risco\" is null or (\"chat_mensagens\".\"autor\" = 'paciente' and \"chat_mensagens\".\"risco\" in ('emergencia', 'sintoma_agudo', 'transtorno_alimentar'))"
-        },
-        "chat_mensagens_anexo_nome": {
-          "name": "chat_mensagens_anexo_nome",
-          "value": "\"chat_mensagens\".\"anexo_nome\" is null or (\"chat_mensagens\".\"autor\" = 'nutri' and char_length(\"chat_mensagens\".\"anexo_nome\") between 1 and 120)"
-        },
-        "chat_mensagens_anexo_bytes_positivo": {
-          "name": "chat_mensagens_anexo_bytes_positivo",
-          "value": "\"chat_mensagens\".\"anexo_bytes\" is null or \"chat_mensagens\".\"anexo_bytes\" > 0"
-        },
-        "chat_mensagens_anexo_path_prefixo": {
-          "name": "chat_mensagens_anexo_path_prefixo",
-          "value": "\"chat_mensagens\".\"anexo_path\" is null or \"chat_mensagens\".\"anexo_path\" like \"chat_mensagens\".\"tenant_id\"::text || '/chat_anexo/%'"
-        },
-        "chat_mensagens_anexo_original_prefixo": {
-          "name": "chat_mensagens_anexo_original_prefixo",
-          "value": "\"chat_mensagens\".\"anexo_original_path\" is null or \"chat_mensagens\".\"anexo_original_path\" like \"chat_mensagens\".\"tenant_id\"::text || '/chat_anexo_original/%'"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.recados": {
-      "name": "recados",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "texto": {
-          "name": "texto",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "filtro": {
-          "name": "filtro",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "filtro_rotulo": {
-          "name": "filtro_rotulo",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "destinatarios": {
-          "name": "destinatarios",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "autor_nome": {
-          "name": "autor_nome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "autor_crn": {
-          "name": "autor_crn",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "criado_por": {
-          "name": "criado_por",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "criado_em": {
-          "name": "criado_em",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "clock_timestamp()"
-        }
-      },
-      "indexes": {
-        "recados_tenant_criado_idx": {
-          "name": "recados_tenant_criado_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "criado_em",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "recados_tenant_id_tenants_id_fk": {
-          "name": "recados_tenant_id_tenants_id_fk",
-          "tableFrom": "recados",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "recados_tenant_id_unique": {
-          "name": "recados_tenant_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "recados_texto_tamanho": {
-          "name": "recados_texto_tamanho",
-          "value": "char_length(btrim(\"recados\".\"texto\")) between 1 and 1000"
-        },
-        "recados_filtro_valido": {
-          "name": "recados_filtro_valido",
-          "value": "coalesce(\"recados\".\"filtro\" ->> 'tipo', '') in ('todos', 'etiquetas', 'local')"
-        },
-        "recados_filtro_rotulo_tamanho": {
-          "name": "recados_filtro_rotulo_tamanho",
-          "value": "\"recados\".\"filtro_rotulo\" is null or char_length(\"recados\".\"filtro_rotulo\") between 1 and 300"
-        },
-        "recados_destinatarios_positivo": {
-          "name": "recados_destinatarios_positivo",
-          "value": "\"recados\".\"destinatarios\" > 0"
-        }
-      },
       "isRLSEnabled": false
     }
   },

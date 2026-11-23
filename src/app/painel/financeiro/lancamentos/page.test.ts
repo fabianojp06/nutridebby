@@ -100,6 +100,13 @@ const bloquear = (T: TenantDeTeste, paciente: string) =>
       ),
     app.db,
   );
+/** TRI-17-20 #130: como a anonimização do fim do prazo — o Financeiro pela função do banco, depois o paciente. */
+const anonimizar = async (T: TenantDeTeste, paciente: string) => {
+  const worker = { tenantId: T.tenantId, role: 'worker' } as const;
+  await withTenant(worker, (tx) => tx.execute(sql`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2020-01-01' where id = ${paciente}`), app.db);
+  await withTenant(worker, (tx) => tx.execute(sql`select app_anonimizar_financeiro(${paciente})`), app.db);
+  await withTenant(worker, (tx) => tx.execute(sql`update patients set anonimizado_em = now() where id = ${paciente}`), app.db);
+};
 /** O último dia do mês anterior ao de `dia`. */
 const mesAnterior = (dia: string) => somarDias(intervaloDoMes(mesDe(dia)).de, -1);
 
@@ -344,6 +351,18 @@ describe('/painel/financeiro/lancamentos/[id] (US-302)', () => {
     expect(texto(h)).toContain('Retorno');
     expect(h).toContain(M.acoes.marcarPago.entrada);
     expect(h).toContain(M.acoes.cancelar);
+  });
+
+  it('paciente anonimizado: só leitura, com a mensagem do anonimizado e sem a do bloqueado (TRI-17-20 #130)', async () => {
+    const C = await cenario();
+    const { id } = await entrada(C, { pagoEm: C.hoje, forma: 'pix' });
+    await anonimizar(C, C.p);
+    const h = await edicao(id);
+    expect(h).toContain(M.pacienteAnonimizado);
+    expect(h).not.toContain(M.bloqueado);
+    expect(texto(h)).not.toContain('Retorno'); // a descrição saiu na anonimização
+    expect(h).not.toContain('<form');
+    expect(h).not.toContain(M.acoes.cancelar);
   });
 
   it('cancelado: só leitura, com a mensagem e o motivo; sem formulário nem ações', async () => {

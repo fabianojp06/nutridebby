@@ -276,6 +276,15 @@ describe('Plano 15 (RN-183) — a IA Nutri no Histórico de acessos', () => {
   });
 });
 
+describe('Plano 22 (RN-378, RN-383, EP-D61) — versões e nota do exame no Histórico de acessos', () => {
+  it('ENTIDADE_ROTULO.exames_versoes é "Versões do exame" e ENTIDADE_ROTULO.exames_nota é "Nota de interpretação do exame"', () => {
+    expect(ENTIDADE_ROTULO.exames_versoes).toBe('Versões do exame');
+    expect(ENTIDADE_ROTULO.exames_nota).toBe('Nota de interpretação do exame');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'exames_nota' })).toBe('Criou');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'exames_versoes' })).toBe('Criou');
+  });
+});
+
 describe('Plano 25 (RN-453, CH-D39) — Mensagens no Histórico de acessos', () => {
   it('rótulos: as entidades do chat e os atos de liberar, pausar e retomar (recordAudit do módulo)', () => {
     expect(ENTIDADE_ROTULO.chat).toBe('Mensagens (conversa com o paciente)');

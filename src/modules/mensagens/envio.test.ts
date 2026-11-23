@@ -14,7 +14,7 @@ import { salvarConfiguracao } from './horario';
 
 /**
  * Plano 25, T3 (RN-443, RN-444, RN-447, RN-449, RN-458; CH-D70, CH-D72): o envio de texto pelos dois lados. O gatilho
- * chat_mensagens_regras e a política paciente_chat_envio (0128) são a rede; o módulo confere antes e devolve os erros da tela.
+ * chat_mensagens_regras e a política paciente_chat_envio (0133) são a rede; o módulo confere antes e devolve os erros da tela.
  */
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));

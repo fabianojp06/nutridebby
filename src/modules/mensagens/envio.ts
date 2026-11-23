@@ -1,7 +1,7 @@
 /**
  * Plano 25 (US-441, US-443; RN-443, RN-444, RN-447, RN-449, RN-456, RN-458, RN-475; CH-D70, CH-D72): o envio de mensagem de
  * texto pelos dois lados (o anexo entra na T8), com os avisos na mesma transação (T4, avisos.ts). O gatilho chat_mensagens_regras e a política paciente_chat_envio
- * (0128) são a rede; o módulo confere antes e devolve os erros da tela (§6.2), sem gravar nada.
+ * (0133) são a rede; o módulo confere antes e devolve os erros da tela (§6.2), sem gravar nada.
  *
  * Travas (RN-447): envio do paciente → paciente FOR UPDATE (a trava das ações do paciente: serializa com a pausa e com os
  * outros envios dele); envio da nutricionista → paciente FOR SHARE e conversa FOR NO KEY UPDATE (serializa com a pausa e

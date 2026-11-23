@@ -10,7 +10,11 @@ import { metricasDeSucesso } from './metricas-sucesso';
 import { metricasDeSucessoPorTenant } from './metricas';
 
 const app = makeDb(inject('appDatabaseUrl'));
-afterAll(() => app.pool.end());
+const owner = makeDb(inject('ownerDatabaseUrl'));
+afterAll(async () => {
+  await app.pool.end();
+  await owner.pool.end();
+});
 const agora = new Date('2026-10-20T15:00:00Z'); // 12:00 em São Paulo
 
 describe('CS-02 (D15): ativos com conta que abriram o app nos últimos 7 dias', () => {
@@ -62,5 +66,19 @@ describe('admin (D15): só contagens pela função SECURITY DEFINER', () => {
     const m = (await metricasDeSucessoPorTenant(app.db)).get(T.tenantId)!;
     expect(m).toMatchObject({ comConta: 1, abriram: 1 });
     await expect(withTenant(T.ctx, (tx) => tx.execute(sql`select * from admin_metricas_sucesso()`), app.db)).rejects.toThrow();
+  });
+
+  it('Plano 23 (RN-423): a consulta `solicitada` inserida pelo dono não conta nas iniciadas do mês; a faltou conta', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    // já começaram e são deste mês no fuso do tenant (no 1º minuto do mês, o próprio início do mês)
+    const i = sql`greatest(now() - interval '1 minute', date_trunc('month', now() AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo')`;
+    await owner.db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('app.tenant_id', ${T.tenantId}, true)`);
+      await tx.execute(sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status)
+        values (${T.tenantId}, ${p.id}, ${i}, ${i} + interval '10 seconds', 'presencial', 'nutri', 'faltou'),
+               (${T.tenantId}, ${p.id}, ${i} + interval '10 seconds', ${i} + interval '40 minutes', 'presencial', 'paciente', 'solicitada')`);
+    });
+    expect((await metricasDeSucessoPorTenant(app.db)).get(T.tenantId)).toMatchObject({ faltasMes: 1, iniciadasMes: 1 });
   });
 });

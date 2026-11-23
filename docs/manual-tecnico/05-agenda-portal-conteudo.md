@@ -594,7 +594,9 @@ não é disputado (spec §4, abordagem 2).
   em lote (`ler`, `envio.ts:136`) seleciona `id`, `patient_id`, `tipo`, `config` e `updated_at` (minimização, LGPD art. 6º,
   III). Os dois textos aparecem só dentro do app, como "Sua nutricionista: {texto}" em Eu › Lembretes (voz da
   nutricionista, C-197). O suplemento tem nome livre, sem vínculo com a receita (NORMAS-DECISAO-2); o formulário mostra a
-  ajuda fixa "O lembrete não substitui a prescrição: composição, via e posologia vão na receita e no prontuário."
+  ajuda fixa "O lembrete não substitui a prescrição: composição, via e posologia vão na receita e no prontuário." e o
+  lembrete livre, "O lembrete não substitui a prescrição nem as orientações registradas no prontuário." (TRI-17-20 #62,
+  texto provisório), as duas no `aria-describedby` do campo de texto (`form-lembrete.tsx`).
 - **Refeições não copiam horário**: no envio, valem as refeições do plano **publicado** de maior versão
   (`refeicoesDosPlanos`, `envio.ts:84`); republicar muda os avisos sozinho. Refeição sem horário não gera aviso; sem plano
   publicado, nada sai.
@@ -604,8 +606,9 @@ não é disputado (spec §4, abordagem 2).
 1. Cada lembrete ativo gera os seus avisos do dia (`dias` conferidos pelo dia da semana local). O pedido do diário de uma
    refeição **já registrada hoje** sai aqui, antes da janela, da fusão e do teto (`slots.ts:69`): não derruba a água do
    mesmo minuto. "Já registrada" = um registro do dia local com a refeição do plano escolhida (`refeicao_slot`, 0121, gravada com ou sem
-   resposta), com a cópia da resposta (`refeicao_do_plano`) ou, quando o nome está na lista fechada, com a mesma refeição (`registradasNoDiario`, `envio.ts:113`; conferência de estado do
-   worker, sem `auditRead`).
+   resposta), com a cópia da resposta (`refeicao_do_plano`) ou, só no registro sem nenhuma das duas e quando o nome está na lista fechada, com a mesma refeição (`registradasNoDiario`, `envio.ts:113`; conferência de estado do
+   worker, sem `auditRead`). A comparação é pelo rótulo `nome · HH:MM` (`rotuloDaRefeicao`), não pelo nome: duas refeições de mesmo nome
+   ("Lanche" às 10:00 e às 16:00) não se confundem (TRI-17-20 #14).
 2. Fora da janela 06:00–22:00 (as 22:00 valem) não há aviso; hora que não existe no fuso (horário de verão) também não.
    Slot anterior ao `updated_at` do lembrete não sai (`validoDesde`, `slots.ts:78`): lembrete salvo às 10:03 não envia a
    água das 10:00; ligar, religar e editar renovam o `updated_at`.
@@ -660,16 +663,22 @@ flowchart TD
 | Quem | Pode | Onde |
 |---|---|---|
 | Equipe (sessão `nutri`) | Criar, editar (sem trocar o tipo), ligar/desligar (`ligado`) e apagar; ver a marca do paciente e a pausa geral (com a data), os aparelhos com notificação e o previsto para hoje | `equipe.ts`; sempre trava o paciente (`carregarPacienteParaEscrita`: recusa bloqueado e anonimizado) |
-| Paciente (sessão de paciente) | Desligar e religar cada lembrete (`desligado_pelo_paciente_em`) e "Pausar todos os lembretes" / "Retomar os lembretes" (`patients.lembretes_pausados_em`); não cria, não edita, não apaga | `paciente.ts`; só `new Date()` ou nulo, só quando o estado muda (UPDATE condicional) |
-| Worker | Gravar a marca de envio; apagar e limpar na anonimização | `envio.ts`, `lgpd.ts` |
+| Paciente (sessão de paciente **com conta**; sem conta — link, WhatsApp — nada) | Desligar e religar cada lembrete (`desligado_pelo_paciente_em`) e "Pausar todos os lembretes" / "Retomar os lembretes" (`patients.lembretes_pausados_em`); não cria, não edita, não apaga | `paciente.ts`; só `new Date()` ou nulo, só quando o estado muda (UPDATE condicional) |
+| Worker | Gravar e apagar a marca de envio (a equipe não apaga a marca: ela só sai junto com o lembrete, pela cascata); apagar e limpar na anonimização | `envio.ts`, `lgpd.ts` |
 
 **"A nutricionista não religa" vale no banco** (autonomia do titular; decisão da revisão do plano), não só na tela:
 
-- Gatilho `lembretes_rotina_regras` (`app_lembretes_rotina_regras`, `drizzle/0119_rls_lembretes_rotina.sql:24-55`): `id`,
-  tenant, paciente, `tipo`, `criado_por` e `created_at` fixos para todos; a sessão de paciente só muda
-  `desligado_pelo_paciente_em` (e `updated_at`), com o relógio do banco (`clock_timestamp()`) ao desligar; a sessão `nutri`
-  muda a configuração mas **nunca** essa marca (nem para religar, nem para desligar em nome do paciente, nem ao criar);
+- Gatilho `lembretes_rotina_regras` (`app_lembretes_rotina_regras`, criada na `0119` e refeita inteira na
+  `drizzle/0129_lembretes_rotina_regras_2.sql`, TRI-17-20 #6/#7): `id`, tenant, paciente, `tipo`, `criado_por` e
+  `created_at` fixos para todos; a sessão de paciente sem conta (`app_current_user()` nulo: link de documento, WhatsApp)
+  não grava nada, nem o UPDATE sem mudança (`42501`); a sessão de paciente com conta só muda `desligado_pelo_paciente_em`,
+  com o relógio do banco (`clock_timestamp()`) ao desligar, e o `updated_at` dela é sempre o `now()` da transação (o valor
+  enviado é ignorado); a sessão `nutri` muda a configuração mas **nunca** essa marca (nem para religar, nem para desligar
+  em nome do paciente, nem ao criar) e só cria lembrete com `criado_por = app_current_user()` (outro valor, `42501`);
   público e conta não escrevem; worker e contexto vazio mudam a marca.
+- Gatilho `lembretes_rotina_envios_sem_apagar` (BEFORE DELETE em `lembretes_rotina_envios`, `0129`, TRI-17-20 #5): só o
+  worker, o contexto vazio e a cascata do apagamento do lembrete (`pg_trigger_depth() > 1`) apagam a marca de envio; a
+  equipe que a apagasse reabriria o slot e o push sairia de novo. Testes em `src/modules/lembretes/banco.test.ts`.
 - Gatilho `lembretes_rotina_sem_apagar` (`drizzle/0120_lembretes_rotina_sem_apagar.sql`): a equipe não apaga o lembrete
   que o paciente desligou (senão apagaria e criaria outro igual, ligado); passam o worker, o contexto vazio e o paciente já
   `bloqueado` (a exclusão atendida). `apagarLembrete` recusa antes, com "O paciente desligou este lembrete. Você pode
@@ -693,7 +702,12 @@ Resumo, "Histórico" encurtado — e uma 14ª não cabe, R-266; [§4.2.10](04-mo
   refeições" (abrem com o item da sugestão; cada um só aparece sem o lembrete salvo e sem o cartão do mesmo tipo na
   sugestão), "Adicionar suplemento" e "Adicionar lembrete livre" (no limite, "Limite de 5 suplementos." / "Limite de 5
   lembretes livres.").
-- Cada linha: nome do tipo, resumo, interruptor da equipe (`role="switch"`, "Ligado"/"Desligado"), "Editar" e "Apagar"
+- Cada linha: nome do tipo, resumo, interruptor da equipe (`role="switch"`, "Ligado"/"Desligado"; ligar o que o paciente
+  desligou responde "Lembrete ligado pela equipe. O paciente desligou este lembrete no app; ele só volta a receber quando
+  religar em Eu › Lembretes.", com `ligarLembrete` devolvendo a marca lida na própria transação — TRI-17-20 #38, texto
+  provisório; a action que lança, por rede ou erro 500, vira o alerta "Não foi possível salvar. Verifique a conexão e tente
+  de novo." (`MSG_LEMBRETES.falhou`, por `chamarAcao`, também no "Apagar"; o redirect e o `notFound()` da action seguem o caminho do Next por `unstable_rethrow`, como no interruptor do portal), e o interruptor volta ao estado salvo —
+  TRI-17-20 #60), "Editar" e "Apagar"
   (confirmação "Apagar este lembrete? O paciente deixa de recebê-lo."); "Desligado pelo paciente em {data}" e, no de
   refeições, os avisos "{refeição} sem horário — não gera lembrete", "{refeição} fora do horário dos lembretes (6h às 22h)" e
   "O paciente ainda não tem plano publicado: os avisos das refeições começam quando você publicar."
@@ -718,7 +732,11 @@ suplemento e livre; §5.5.2):
   redirecionar: o push antigo abre uma frase com sentido).
 - Pedido de notificações (`ativar-aviso.tsx`): "Ative as notificações para receber os lembretes da sua nutricionista."
   quando dá para ativar; no iPhone fora da tela inicial, "Para receber os lembretes no iPhone, instale o app na tela
-  inicial." com os passos do `Instalar`.
+  inicial." com os passos do `Instalar`. Com as notificações já bloqueadas no aparelho ao abrir a tela
+  (`Notification.permission === 'denied'`, detectado só por `estadoDoAparelho`, `src/app/p/notificacoes.tsx`), o aviso
+  "As notificações estão bloqueadas neste aparelho, por isso os lembretes não chegam. Para receber, libere as
+  notificações deste app nas configurações do navegador ou do celular." (prop `negado` de `AtivarNotificacoes`, sem região
+  viva; TRI-17-20 #47, texto provisório).
 - Eu mostra a seção "Lembretes" com "Ver meus lembretes" enquanto houver lembrete ligado pela equipe
   (`temLembretesNaTela`), mesmo que o paciente tenha desligado todos ou pausado — é o único caminho para religar. O
   cartão de notificações de Hoje usa `temLembretes` (ligado pelas duas partes; a pausa não conta) e troca o texto para o
@@ -1518,8 +1536,9 @@ indisponível".
   (`@custom-variant dark`). `@media print` volta aos claros. `:focus-visible` global.
 - **Sem `light-dark()`**: o Safari só o tem a partir da 17.5 e a RNF-09 exige iOS 16.4+.
 - O `data-tema` fica no contêiner do layout, não no `<html>`.
-- Fontes Figtree (texto) e Bricolage Grotesque (títulos) por `next/font/google`, servidas pelo próprio app
-  (`src/app/layout.tsx`, o layout raiz), com `preload: false` desde o P08-13: no layout raiz o preload vale para **todas**
+- Fontes Figtree (texto) e Bricolage Grotesque (títulos) por `next/font/local` desde o SUS-106 (antes `next/font/google`,
+  que buscava as fontes no build e derrubava o CI): os `woff2` do subconjunto latin ficam versionados em `src/fontes/`
+  (`LEIAME.md`: origem, licença OFL 1.1, subconjunto), servidas pelo próprio app (`src/app/layout.tsx`, o layout raiz), com `preload: false` desde o P08-13: no layout raiz o preload vale para **todas**
   as rotas, e o portal do paciente (`/p`, que tem fontes próprias, §5.7.6) baixava ~60 KB destas duas no celular antes do
   primeiro quadro sem usá-las. Fora do `/p` elas baixam quando a página as usa (`display: 'swap'`, com a fonte de reserva
   ajustada pelo `next/font`).
@@ -1598,10 +1617,15 @@ O portal segue o modo do aparelho, **sem botão**: `data-tema="sistema"` fixo (`
   conferido no E2E (contorno ≥ 3:1 contra a cor da faixa, claro e escuro). O anel duplo de 2 px da RN-207 não foi feito
   (Desvio 15, backlog).
 - **Fontes (D9, RNF-193).** `src/app/p/fontes.ts`: Red Hat Display (títulos e números, pesos 700/800/900,
-  `--font-redhat`) e Atkinson Hyperlegible Next (texto, 400/700, `--font-atkinson`) por `next/font/google`, subconjunto
-  `latin`, `display: 'swap'`, aplicadas só em `src/app/p/layout.tsx`. São baixadas no build e servidas pelo próprio app
-  (CSP `font-src 'self'`; o navegador não fala com o Google — LGPD). O Google entrega as duas como fontes variáveis: um
-  `woff2` por família e subconjunto para todos os pesos. Orçamento: **160 KB** de `woff2` no primeiro carregamento de
+  `--font-redhat`) e Atkinson Hyperlegible Next (texto, 400/700, `--font-atkinson`) por `next/font/local` (SUS-106: woff2
+  versionados em `src/fontes/`), subconjunto `latin`, `display: 'swap'`, aplicadas só em `src/app/p/layout.tsx`. São servidas pelo próprio app
+  (CSP `font-src 'self'`; o navegador não fala com o Google — LGPD). Os dois arquivos são variáveis (um `woff2` por família
+  para todos os pesos, os mesmos que o Google entregava): a Red Hat é declarada na faixa `700 900` (abaixo de 700 cai no
+  700, como as faces 700/800/900 de antes) e a Atkinson em **duas faces fixas, 400 e 700**, do mesmo arquivo (baixado uma
+  vez), para o `font-medium` cair no 400 e o `font-semibold` no 700 como no `next/font/google` — uma faixa `400 700` daria
+  500 e 600 de verdade e mudaria o peso de botões e rótulos (revisão do SUS-106). Só o subconjunto latin, que tem os acentos
+  do português: um caractere de latin-ext ou vietnamese (ex.: "ł", "ş" num nome) sai na fonte de reserva, só ele
+  (`src/fontes/LEIAME.md`). Orçamento: **160 KB** de `woff2` no primeiro carregamento de
   `/p`. Medido na T2: 126 112 bytes (≈ 123,2 KB) no primeiro carregamento; as fontes novas somam ≈ 95,6 KB em
   `.next/static/media` (menos de 0,1 MB na imagem comprimida). O `e2e/fontes-portal.spec.ts` (IP `10.9.19.6`, conta MULTI
   em `/p/escolher`; o plano dizia `10.9.26.1`, a dispatch da T2 deu este) mede de novo a cada execução e imprime o total
@@ -1878,7 +1902,7 @@ branch `plano-25-chat-recados` em `fdeefa0` (Tarefas 2 a 7 do PR 2, com a funda�
 (CH-D49 a CH-D69). Runbook do dono e volta atrás: [`docs/operacao/mensagens.md`](../operacao/mensagens.md) (§2, "PR 2").
 
 O PR 2 **não tem migration**: usa as sete tabelas, os gatilhos e as funções do PR 1, nas migrations
-`0127_mensagens` / `0128_rls_mensagens` (números provisórios; renumeradas no §5 de `docs/operacao/sessoes-paralelas.md`
+`0132_mensagens` / `0133_rls_mensagens` (números provisórios; renumeradas no §5 de `docs/operacao/sessoes-paralelas.md`
 no rebase), descritas em [§2.5.13](02-banco-de-dados.md#2513-mensagens-e-recados-mensagensts-plano-25). Ficam para o
 PR 3: anexos (imagem e PDF da nutricionista, foto do paciente, fila `chat-anexo`, varredura e o ZIP), "Responder na
 conversa" (dúvida da IA Nutri respondida pela conversa, resolução `respondida`) e os recados (telas, `enviarRecado`,
