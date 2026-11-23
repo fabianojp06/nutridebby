@@ -20,6 +20,8 @@ const ANTECEDENCIA: [string, string][] = [['0', 'Na hora'], ['15', '15 min antes
 const DIARIO: [string, string][] = [['', 'Não pedir'], ['30', '30 min depois'], ['60', '60 min depois']];
 const DICA_TEXTO = 'Aparece só dentro do app, nunca na tela de bloqueio do celular.';
 const AJUDA_SUPLEMENTO = 'O lembrete não substitui a prescrição: composição, via e posologia vão na receita e no prontuário.';
+/** NORMAS-F2 (TRI-17-20 #62): a ajuda fixa também no lembrete livre (texto provisório, a revisar pela Debby). */
+const AJUDA_LIVRE = 'O lembrete não substitui a prescrição nem as orientações registradas no prontuário.';
 /** As chaves de erro que cada tipo mostra ao lado do campo; as outras (`geral`, `tipo`) vão junto do Salvar. */
 const CAMPOS: Record<LembreteNovo['tipo'], string[]> = {
   agua: ['inicio', 'fim', 'intervaloMin', 'dias'],
@@ -155,11 +157,11 @@ function Texto({ id, tipo, valor, erro, aoMudar }: { id: string; tipo: 'suplemen
         maxLength={TEXTO_MAX[tipo]}
         onChange={(e) => aoMudar(e.target.value)}
         aria-invalid={erro ? true : undefined}
-        aria-describedby={descricao(`${id}-dica`, suplemento && `${id}-ajuda`, erro && `${id}-erro`)}
+        aria-describedby={descricao(`${id}-dica`, `${id}-ajuda`, erro && `${id}-erro`)}
         className={`${CAMPO} min-h-11`}
       />
       <p id={`${id}-dica`} className="text-sm text-suave">{DICA_TEXTO}</p>
-      {suplemento && <p id={`${id}-ajuda`} className="text-sm text-suave">{AJUDA_SUPLEMENTO}</p>}
+      <p id={`${id}-ajuda`} className="text-sm text-suave">{suplemento ? AJUDA_SUPLEMENTO : AJUDA_LIVRE}</p>
       <Erro id={`${id}-erro`}>{erro}</Erro>
     </div>
   );

@@ -594,7 +594,9 @@ não é disputado (spec §4, abordagem 2).
   em lote (`ler`, `envio.ts:136`) seleciona `id`, `patient_id`, `tipo`, `config` e `updated_at` (minimização, LGPD art. 6º,
   III). Os dois textos aparecem só dentro do app, como "Sua nutricionista: {texto}" em Eu › Lembretes (voz da
   nutricionista, C-197). O suplemento tem nome livre, sem vínculo com a receita (NORMAS-DECISAO-2); o formulário mostra a
-  ajuda fixa "O lembrete não substitui a prescrição: composição, via e posologia vão na receita e no prontuário."
+  ajuda fixa "O lembrete não substitui a prescrição: composição, via e posologia vão na receita e no prontuário." e o
+  lembrete livre, "O lembrete não substitui a prescrição nem as orientações registradas no prontuário." (TRI-17-20 #62,
+  texto provisório), as duas no `aria-describedby` do campo de texto (`form-lembrete.tsx`).
 - **Refeições não copiam horário**: no envio, valem as refeições do plano **publicado** de maior versão
   (`refeicoesDosPlanos`, `envio.ts:84`); republicar muda os avisos sozinho. Refeição sem horário não gera aviso; sem plano
   publicado, nada sai.
