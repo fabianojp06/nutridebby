@@ -309,3 +309,10 @@ describe('Plano 22 (T4, EP-D53) — nomesDosAtores', () => {
     expect(h.itens.map((i) => i.ator)).toEqual([{ nome: 'Debby Silva', papel: 'nutri' }]);
   });
 });
+
+describe('Plano 26 (RN-493) — os Relatórios no Histórico de acessos', () => {
+  it('a entidade relatorios aparece como "Relatórios"; o download é "Exportou"', () => {
+    expect(ENTIDADE_ROTULO.relatorios).toBe('Relatórios');
+    expect(rotuloDaAcao({ acao: 'exportar', entidade: 'relatorios' })).toBe('Exportou');
+  });
+});

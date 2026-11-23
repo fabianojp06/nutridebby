@@ -84,6 +84,8 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   // Histórico. Sem o nome das tabelas aqui: este arquivo é alcançável pela IA (guarda da RN-399, exames/guardas.test.ts)
   exames_versoes: 'Versões do exame',
   exames_nota: 'Nota de interpretação do exame',
+  // Plano 26 (RN-493): o CSV e a impressão dos Relatórios (`exportar`; no Ranking, um por paciente da lista)
+  relatorios: 'Relatórios',
 };
 
 export type AccessHistoryItem = {
