@@ -696,7 +696,10 @@ Resumo, "Histórico" encurtado — e uma 14ª não cabe, R-266; [§4.2.10](04-mo
   refeições" (abrem com o item da sugestão; cada um só aparece sem o lembrete salvo e sem o cartão do mesmo tipo na
   sugestão), "Adicionar suplemento" e "Adicionar lembrete livre" (no limite, "Limite de 5 suplementos." / "Limite de 5
   lembretes livres.").
-- Cada linha: nome do tipo, resumo, interruptor da equipe (`role="switch"`, "Ligado"/"Desligado"), "Editar" e "Apagar"
+- Cada linha: nome do tipo, resumo, interruptor da equipe (`role="switch"`, "Ligado"/"Desligado"; ligar o que o paciente
+  desligou responde "Lembrete ligado pela equipe. O paciente desligou este lembrete no app; ele só volta a receber quando
+  religar em Eu › Lembretes.", com `ligarLembrete` devolvendo a marca lida na própria transação — TRI-17-20 #38, texto
+  provisório), "Editar" e "Apagar"
   (confirmação "Apagar este lembrete? O paciente deixa de recebê-lo."); "Desligado pelo paciente em {data}" e, no de
   refeições, os avisos "{refeição} sem horário — não gera lembrete", "{refeição} fora do horário dos lembretes (6h às 22h)" e
   "O paciente ainda não tem plano publicado: os avisos das refeições começam quando você publicar."

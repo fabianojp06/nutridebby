@@ -147,6 +147,23 @@ describe('ligarLembreteAction e apagarLembreteAction (Plano 17, Tarefa 5)', () =
     expect(await linhas()).toEqual([expect.objectContaining({ id, ligado: false, desligadoPeloPacienteEm: expect.any(Date) })]);
   });
 
+  it('TRI-17-20 #38: ligar o que o paciente desligou responde que só ele religa no app, e a marca dele continua igual', async () => {
+    const { N, p, linhas } = await cenario();
+    const { id } = (await salvarLembreteAction(p.id, {}, agua())) as { id: string };
+    await ligarLembreteAction(p.id, id, false);
+    await withTenant(ctxPaciente(N.tenantId, p.id), (tx) => tx.update(lembretesRotina).set({ desligadoPeloPacienteEm: new Date() }).where(eq(lembretesRotina.id, id)), db);
+    const [antes] = await linhas();
+    expect(await ligarLembreteAction(p.id, id, true)).toEqual({
+      ok: 'Lembrete ligado pela equipe. O paciente desligou este lembrete no app; ele só volta a receber quando religar em Eu › Lembretes.',
+    });
+    const [depois] = await linhas();
+    expect(depois.ligado).toBe(true);
+    expect(depois.desligadoPeloPacienteEm).toEqual(antes.desligadoPeloPacienteEm);
+    expect(revalidatePath).toHaveBeenCalledWith(aba(p.id));
+    // desligar continua com a mensagem de sempre
+    expect(await ligarLembreteAction(p.id, id, false)).toEqual({ ok: 'Lembrete desligado.' });
+  });
+
   it('`ligado` que não é booleano (formulário adulterado) não liga', async () => {
     const { p, linhas } = await cenario();
     const { id } = (await salvarLembreteAction(p.id, {}, agua())) as { id: string };
