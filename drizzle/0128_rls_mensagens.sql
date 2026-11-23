@@ -145,6 +145,10 @@ ALTER TABLE chat_horarios ADD CONSTRAINT chat_horarios_sem_sobreposicao
 -- liberar (liberada_em de nulo a valor) só na `nutri`, em nome de quem libera, com o titular ativo e não anonimizado e o
 -- carimbo do consultório (RN-475); liberada_em/liberada_por/tcle_forma não mudam depois de gravados; pausar e retomar só na
 -- `nutri`, pausar em nome de quem pausa. liberada_em e pausada_em com o relógio do banco.
+-- CH-D74: a liberação e a pausa guardam o nome e o CRN da nutricionista como eram no momento — copiados de tenants
+-- (nome_profissional, crn) pelo gatilho, como o carimbo das mensagens (nada lê a tabela `user`); o que vier no comando é
+-- sobrescrito. liberada_nome/liberada_crn nunca mudam depois de gravados; pausada_nome/pausada_crn só na pausa (gravados) e na
+-- retomada (a nulo). Fora dessas transições, 42501.
 CREATE OR REPLACE FUNCTION app_chat_conversas_regras() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER
 SET search_path = public, pg_temp AS $$
@@ -153,6 +157,10 @@ DECLARE
   libera boolean;
   pausa_antes timestamptz;
   pausa_por_antes uuid;
+  pausa_nome_antes text;
+  pausa_crn_antes text;
+  nome text;
+  crn text;
 BEGIN
   IF r = '' THEN RETURN NEW; END IF;
   IF NEW.tenant_id IS DISTINCT FROM app_current_tenant() THEN RETURN NEW; END IF;
@@ -169,17 +177,29 @@ BEGIN
     libera := NEW.liberada_em IS NOT NULL;
     pausa_antes := NULL;
     pausa_por_antes := NULL;
+    pausa_nome_antes := NULL;
+    pausa_crn_antes := NULL;
+    -- sem liberação, nada de carimbo da liberação (o CHECK também recusa; aqui o 42501 vem antes)
+    IF NOT libera AND (NEW.liberada_nome IS NOT NULL OR NEW.liberada_crn IS NOT NULL) THEN
+      RAISE EXCEPTION 'o nome e o CRN da liberação só são gravados na liberação' USING ERRCODE = '42501';
+    END IF;
   ELSE
     IF (NEW.id, NEW.tenant_id, NEW.patient_id, NEW.created_at) IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.patient_id, OLD.created_at) THEN
       RAISE EXCEPTION 'coluna fixa da conversa' USING ERRCODE = '42501';
     END IF;
     IF OLD.liberada_em IS NOT NULL
-       AND (NEW.liberada_em, NEW.liberada_por, NEW.tcle_forma) IS DISTINCT FROM (OLD.liberada_em, OLD.liberada_por, OLD.tcle_forma) THEN
+       AND (NEW.liberada_em, NEW.liberada_por, NEW.tcle_forma, NEW.liberada_nome, NEW.liberada_crn)
+           IS DISTINCT FROM (OLD.liberada_em, OLD.liberada_por, OLD.tcle_forma, OLD.liberada_nome, OLD.liberada_crn) THEN
       RAISE EXCEPTION 'a liberação da conversa não muda depois de gravada' USING ERRCODE = '42501';
     END IF;
     libera := OLD.liberada_em IS NULL AND NEW.liberada_em IS NOT NULL;
+    IF NOT libera AND (NEW.liberada_nome, NEW.liberada_crn) IS DISTINCT FROM (OLD.liberada_nome, OLD.liberada_crn) THEN
+      RAISE EXCEPTION 'o nome e o CRN da liberação só são gravados na liberação' USING ERRCODE = '42501';
+    END IF;
     pausa_antes := OLD.pausada_em;
     pausa_por_antes := OLD.pausada_por;
+    pausa_nome_antes := OLD.pausada_nome;
+    pausa_crn_antes := OLD.pausada_crn;
   END IF;
   IF libera THEN
     IF r <> 'nutri' THEN
@@ -192,10 +212,13 @@ BEGIN
                      AND p.status = 'ativo' AND p.anonimizado_em IS NULL) THEN
       RAISE EXCEPTION 'só se libera a conversa de titular ativo' USING ERRCODE = '42501';
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM public.tenants t WHERE t.id = NEW.tenant_id AND t.nome_profissional IS NOT NULL AND t.crn IS NOT NULL) THEN
+    SELECT t.nome_profissional, t.crn INTO nome, crn FROM public.tenants t WHERE t.id = NEW.tenant_id;
+    IF nome IS NULL OR crn IS NULL THEN
       RAISE EXCEPTION 'o consultório ainda não tem nome profissional e CRN' USING ERRCODE = '42501';
     END IF;
     NEW.liberada_em := clock_timestamp();
+    NEW.liberada_nome := nome;
+    NEW.liberada_crn := crn;
   END IF;
   IF (NEW.pausada_em, NEW.pausada_por) IS DISTINCT FROM (pausa_antes, pausa_por_antes) THEN
     IF r <> 'nutri' THEN
@@ -208,8 +231,20 @@ BEGIN
       IF NEW.pausada_por IS DISTINCT FROM app_current_user() THEN
         RAISE EXCEPTION 'a pausa é gravada em nome de quem pausa' USING ERRCODE = '42501';
       END IF;
+      SELECT t.nome_profissional, t.crn INTO nome, crn FROM public.tenants t WHERE t.id = NEW.tenant_id;
+      IF nome IS NULL OR crn IS NULL THEN
+        RAISE EXCEPTION 'o consultório ainda não tem nome profissional e CRN' USING ERRCODE = '42501';
+      END IF;
       NEW.pausada_em := clock_timestamp();
+      NEW.pausada_nome := nome;
+      NEW.pausada_crn := crn;
+    ELSE
+      -- retomada: o carimbo da pausa sai junto
+      NEW.pausada_nome := NULL;
+      NEW.pausada_crn := NULL;
     END IF;
+  ELSIF (NEW.pausada_nome, NEW.pausada_crn) IS DISTINCT FROM (pausa_nome_antes, pausa_crn_antes) THEN
+    RAISE EXCEPTION 'o nome e o CRN da pausa só mudam na pausa e na retomada' USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
 END $$;

@@ -715,11 +715,20 @@ auditoria, `REVOKE`). Esquema em `src/db/schema/mensagens.ts` (novo) e exportado
 | `liberada_em` | timestamptz | RN-441 |
 | `liberada_por` | uuid | sem FK (como `audit_log.actor_user_id`) |
 | `tcle_forma` | text | `termo_assinado`, `aceite_escrito` (CH-D3) |
+| `liberada_nome`, `liberada_crn` | text | **CH-D74:** nome e CRN da nutricionista no momento da liberação, copiados de `tenants.nome_profissional`/`tenants.crn` pelo gatilho (o que vier no comando é sobrescrito; nada lê a tabela `user`, RN-475); nunca mudam depois de gravados |
 | `pausada_em`, `pausada_por` | timestamptz, uuid | RN-442 |
+| `pausada_nome`, `pausada_crn` | text | **CH-D74:** nome e CRN no momento da pausa (gatilho, de `tenants`); a retomada os anula junto com `pausada_em`/`pausada_por`; fora dessas duas transições, não mudam (42501) |
 | `created_at`, `updated_at` | timestamptz | |
 
-CHECKs: `(liberada_em is null) = (liberada_por is null) and (liberada_em is null) = (tcle_forma is null)`;
-`tcle_forma in (…)`; `(pausada_em is null) = (pausada_por is null)`; `pausada_em is null or liberada_em is not null`.
+CHECKs: `(liberada_em is null) = (liberada_por is null) and (liberada_em is null) = (tcle_forma is null)` e, CH-D74,
+`… = (liberada_nome is null) … = (liberada_crn is null)` (`chat_conversas_liberacao`); `tcle_forma in (…)`;
+`(pausada_em is null) = (pausada_por is null)` e, CH-D74, `… = (pausada_nome is null) … = (pausada_crn is null)`
+(`chat_conversas_pausa`); `pausada_em is null or liberada_em is not null`.
+
+**CH-D74 (decisão da orquestradora, 23/11/2026):** a liberação e a pausa guardam o nome e o CRN da nutricionista como eram
+no momento (`liberada_nome`/`liberada_crn`, `pausada_nome`/`pausada_crn`), copiados de `tenants` pelo gatilho
+`chat_conversas_regras`, como o carimbo das mensagens: o id (`liberada_por`/`pausada_por`) não guarda a identificação
+profissional do ato, e o perfil muda depois. A pausa também exige o carimbo do consultório (42501 sem ele).
 
 RLS (custom): `app_enable_tenant_rls('chat_conversas')`, `app_enable_patient_rls('chat_conversas')`,
 `app_enable_audit('chat_conversas', 'chat_conversa')` (entidade neutra, fora da tela; o ato vai pelo `recordAudit` do módulo, CH-D39). Fora de `STAFF_ONLY` (o paciente lê a própria linha, só pela

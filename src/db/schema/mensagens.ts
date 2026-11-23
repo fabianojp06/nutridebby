@@ -23,6 +23,7 @@ export type TipoFiltroRecado = (typeof TIPOS_FILTRO_RECADO)[number];
 /**
  * Plano 25 (spec §9.1, RN-441, RN-442): a conversa da nutricionista com o paciente — uma por paciente e consultório.
  * Liberada = `liberada_em` preenchida (com quem liberou e a forma do TCLE de telenutrição); pausada = `pausada_em`.
+ * CH-D74: a liberação e a pausa guardam também o nome e o CRN da nutricionista como eram no momento (gatilho, de `tenants`).
  * `liberada_por`/`pausada_por` sem FK, como audit_log.actor_user_id. FK para `patients` NO ACTION (o titular com conversa
  * não se apaga; a conversa sai só por app_chat_apagar_do_titular). Auditada como `chat_conversa` (fora da tela; os atos
  * vão por recordAudit, CH-D39). DELETE e TRUNCATE revogados (custom rls_mensagens).
@@ -36,8 +37,14 @@ export const chatConversas = pgTable(
     liberadaEm: timestamp('liberada_em', { withTimezone: true }),
     liberadaPor: uuid('liberada_por'),
     tcleForma: text('tcle_forma'),
+    /** CH-D74: nome e CRN da nutricionista no momento da liberação (copiados de `tenants` pelo gatilho; nunca mudam). */
+    liberadaNome: text('liberada_nome'),
+    liberadaCrn: text('liberada_crn'),
     pausadaEm: timestamp('pausada_em', { withTimezone: true }),
     pausadaPor: uuid('pausada_por'),
+    /** CH-D74: nome e CRN no momento da pausa (gatilho); a retomada os anula junto com `pausada_em`/`pausada_por`. */
+    pausadaNome: text('pausada_nome'),
+    pausadaCrn: text('pausada_crn'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -46,10 +53,13 @@ export const chatConversas = pgTable(
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'chat_conversas_paciente_fk' }).onDelete('no action'),
     check(
       'chat_conversas_liberacao',
-      sql`(${t.liberadaEm} is null) = (${t.liberadaPor} is null) and (${t.liberadaEm} is null) = (${t.tcleForma} is null)`,
+      sql`(${t.liberadaEm} is null) = (${t.liberadaPor} is null) and (${t.liberadaEm} is null) = (${t.tcleForma} is null) and (${t.liberadaEm} is null) = (${t.liberadaNome} is null) and (${t.liberadaEm} is null) = (${t.liberadaCrn} is null)`,
     ),
     check('chat_conversas_tcle_forma_valida', sql`${t.tcleForma} is null or ${t.tcleForma} in ('termo_assinado', 'aceite_escrito')`),
-    check('chat_conversas_pausa', sql`(${t.pausadaEm} is null) = (${t.pausadaPor} is null)`),
+    check(
+      'chat_conversas_pausa',
+      sql`(${t.pausadaEm} is null) = (${t.pausadaPor} is null) and (${t.pausadaEm} is null) = (${t.pausadaNome} is null) and (${t.pausadaEm} is null) = (${t.pausadaCrn} is null)`,
+    ),
     check('chat_conversas_pausa_so_liberada', sql`${t.pausadaEm} is null or ${t.liberadaEm} is not null`),
   ],
 );

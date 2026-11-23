@@ -1,5 +1,5 @@
 {
-  "id": "2e78c3ac-00e0-4645-bcf0-7bc914e5f4e1",
+  "id": "58d76cbb-6efd-4c8c-b9da-412c78594214",
   "prevId": "508bac0c-82e9-4a62-8760-891ba0bef949",
   "version": "7",
   "dialect": "postgresql",
@@ -11564,6 +11564,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "liberada_nome": {
+          "name": "liberada_nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "liberada_crn": {
+          "name": "liberada_crn",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "pausada_em": {
           "name": "pausada_em",
           "type": "timestamp with time zone",
@@ -11573,6 +11585,18 @@
         "pausada_por": {
           "name": "pausada_por",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pausada_nome": {
+          "name": "pausada_nome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pausada_crn": {
+          "name": "pausada_crn",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -11637,7 +11661,7 @@
       "checkConstraints": {
         "chat_conversas_liberacao": {
           "name": "chat_conversas_liberacao",
-          "value": "(\"chat_conversas\".\"liberada_em\" is null) = (\"chat_conversas\".\"liberada_por\" is null) and (\"chat_conversas\".\"liberada_em\" is null) = (\"chat_conversas\".\"tcle_forma\" is null)"
+          "value": "(\"chat_conversas\".\"liberada_em\" is null) = (\"chat_conversas\".\"liberada_por\" is null) and (\"chat_conversas\".\"liberada_em\" is null) = (\"chat_conversas\".\"tcle_forma\" is null) and (\"chat_conversas\".\"liberada_em\" is null) = (\"chat_conversas\".\"liberada_nome\" is null) and (\"chat_conversas\".\"liberada_em\" is null) = (\"chat_conversas\".\"liberada_crn\" is null)"
         },
         "chat_conversas_tcle_forma_valida": {
           "name": "chat_conversas_tcle_forma_valida",
@@ -11645,7 +11669,7 @@
         },
         "chat_conversas_pausa": {
           "name": "chat_conversas_pausa",
-          "value": "(\"chat_conversas\".\"pausada_em\" is null) = (\"chat_conversas\".\"pausada_por\" is null)"
+          "value": "(\"chat_conversas\".\"pausada_em\" is null) = (\"chat_conversas\".\"pausada_por\" is null) and (\"chat_conversas\".\"pausada_em\" is null) = (\"chat_conversas\".\"pausada_nome\" is null) and (\"chat_conversas\".\"pausada_em\" is null) = (\"chat_conversas\".\"pausada_crn\" is null)"
         },
         "chat_conversas_pausa_so_liberada": {
           "name": "chat_conversas_pausa_so_liberada",
