@@ -1,5 +1,5 @@
 import { DPA_PATH, requireNutri } from '@/lib/tenant-session';
-import { DPA_MUDOU, DPA_PARAGRAFOS, DPA_ROTULO, DPA_TITULO, DPA_VERSAO } from '@/modules/plataforma/dpa';
+import { DPA_MUDOU, DPA_O_QUE_MUDOU, DPA_PARAGRAFOS, DPA_ROTULO, DPA_TITULO, DPA_VERSAO } from '@/modules/plataforma/dpa';
 import { DpaForm } from './form';
 
 export const dynamic = 'force-dynamic';
@@ -13,10 +13,12 @@ export default async function DpaPage() {
     <main className="mx-auto max-w-lg space-y-4 p-6">
       {/* a nutricionista com o DPA pendente só chega aqui: o "Sair" está no cabeçalho mínimo do layout (sem o menu) */}
       <h1 className="font-titulo text-2xl font-semibold">{DPA_TITULO}</h1>
+      {/* US-309: por que o painel parou e o que mudou, antes do texto */}
       {mudou && (
-        <p role="status" className="rounded-2xl border border-borda bg-cartao p-3 font-medium">
-          {DPA_MUDOU}
-        </p>
+        <div role="status" className="space-y-1 rounded-2xl border border-borda bg-cartao p-3">
+          <p className="font-medium">{DPA_MUDOU}</p>
+          <p>{DPA_O_QUE_MUDOU}</p>
+        </div>
       )}
       {/* o texto inteiro na página, sem caixa com rolagem própria (15 cláusulas não cabem numa caixa no celular) */}
       <section aria-label={DPA_TITULO} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3 text-sm">

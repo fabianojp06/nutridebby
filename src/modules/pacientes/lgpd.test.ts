@@ -4,9 +4,10 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { consultaDireta } from '../../../test/agenda';
 import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
+import { cobrancasDoPaciente } from '../../../test/financeiro';
 import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { tarefaNoBanco } from '../../../test/ia';
@@ -15,9 +16,12 @@ import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
-import { accessEvents, account, appointments, auditLog, patientCadastro, consents, diaryEntries, exams, iaAutorizacoes, iaNutriConsentimentos, iaTarefas, iaUso, invites, lembretesRotina, lembretesRotinaEnvios, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
+import { accessEvents, account, appointments, auditLog, patientCadastro, consents, diaryEntries, exams, finLancamentos, iaAutorizacoes, iaNutriConsentimentos, iaTarefas, iaUso, invites, lembretesRotina, lembretesRotinaEnvios, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { sealSecret } from '@/lib/crypto';
+import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
+import { FinanceiroError } from '@/modules/financeiro/erros';
+import { cancelarLancamento } from '@/modules/financeiro/lancamentos';
 import { reservar } from '@/modules/ia/cota';
 import { FINALIDADE_CONTEUDO } from '@/modules/notificacoes/mensagens';
 import { getBoss, stopBoss } from '@/jobs/boss';
@@ -1040,5 +1044,65 @@ describe('Plano 18 — o cadastro complementar na LGPD (D18, RN-283)', () => {
     // a anonimização do tenant seguiu (e apagou a linha do vencido no caminho normal)
     expect((await ler(T.ctx, vencido.id)).anonimizadoEm?.toISOString()).toBe(now.toISOString());
     expect(await cadastrosDe(T, vencido.id)).toEqual([]);
+  });
+});
+
+describe('Plano 20 — o Financeiro na LGPD (US-307, F-D20, F-D23, RN-316)', () => {
+  const worker = (T: TenantDeTeste) => ({ tenantId: T.tenantId, role: 'worker' as const });
+  /** Os lançamentos do paciente, lidos pelo worker (fin_lancamentos é staff_only), na ordem de vencimento. */
+  const lancamentosDe = (T: TenantDeTeste, patientId: string) =>
+    withTenant(worker(T), (tx) => tx.select().from(finLancamentos).where(eq(finLancamentos.patientId, patientId)).orderBy(asc(finLancamentos.vencimento)), app.db);
+
+  it('exclusão atendida: os lançamentos ficam como estavam — a pendência continua devida (F-D20)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await cobrancasDoPaciente(app.db, T, p.id, now);
+    const antes = await lancamentosDe(T, p.id);
+    expect(antes).toHaveLength(3);
+    await atenderPedidoExclusao(T.ctx, T.tenant, p.id, p.nome, deps);
+    await concluirExclusaoAtendida({ tenantId: T.tenantId, patientId: p.id }, { db: app.db, dataDir, ultimaTentativa: false });
+    expect((await ler(T.ctx, p.id)).status).toBe('bloqueado');
+    expect(await lancamentosDe(T, p.id)).toEqual(antes);
+  });
+
+  it('anonimização: os textos saem, o em aberto vira cancelado sem autora nem motivo, valor, datas, categoria e forma ficam, anonimizado_em marcado; o resto da anonimização igual; nada mais muda', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const outro = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const ids = await cobrancasDoPaciente(app.db, T, p.id, now);
+    await cobrancasDoPaciente(app.db, T, outro.id, now, new Date('2026-09-11T13:00:00Z'));
+    const antes = await lancamentosDe(T, p.id);
+    const doOutro = await lancamentosDe(T, outro.id);
+    // anonimizar_apos no passado REAL: app_anonimizar_financeiro (0123) confere o prazo pelo relógio do banco, não pelo `now`
+    // injetado em anonimizarVencidos
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', anonimizarApos: '2026-09-30' }).where(eq(patients.id, p.id)), app.db);
+    expect((await anonimizarSo(T)).anonimizados).toBe(1);
+
+    const depois = await lancamentosDe(T, p.id);
+    const fixos = ({ id, tipo, categoriaId, valorCentavos, vencimento, pagoEm, formaPagamento, patientId, appointmentId, criadoPor, createdAt }: (typeof antes)[number]) =>
+      ({ id, tipo, categoriaId, valorCentavos, vencimento, pagoEm, formaPagamento, patientId, appointmentId, criadoPor, createdAt });
+    expect(depois.map(fixos)).toEqual(antes.map(fixos)); // valor, datas, categoria, forma, tipo, paciente e consulta ficam
+    for (const l of depois) expect(l, l.id).toMatchObject({ descricao: null, motivoCancelamento: null, anonimizadoEm: expect.any(Date) });
+    const de = (lista: typeof antes, id: string) => lista.find((l) => l.id === id)!;
+    expect(de(depois, ids.recebida)).toMatchObject({ pagoEm: '2026-09-10', formaPagamento: 'pix', canceladoEm: null, canceladoPor: null });
+    // o cancelado antes fica com a data e a autora do cancelamento; só o motivo sai
+    expect(de(depois, ids.cancelada)).toMatchObject({ canceladoEm: de(antes, ids.cancelada).canceladoEm, canceladoPor: T.nutriId });
+    // o em aberto vira cancelado, sem autora nem motivo
+    expect(de(antes, ids.aberta).canceladoEm).toBeNull();
+    expect(de(depois, ids.aberta)).toMatchObject({ canceladoEm: expect.any(Date), canceladoPor: null, pagoEm: null });
+    expect(await lancamentosDe(T, outro.id)).toEqual(doOutro); // só os do titular
+
+    // o resto da anonimização continua igual
+    expect(await ler(T.ctx, p.id)).toMatchObject({ nome: 'Paciente anonimizado', email: `anonimo-${p.id}@anonimizado.invalid`, telefoneE164: null, dataNascimento: null, userId: null });
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, p.id), eq(auditLog.acao, 'anonimizar'))), app.db)).toHaveLength(1);
+
+    // nenhum lançamento dele pode mais ser alterado
+    for (const id of [ids.recebida, ids.aberta]) {
+      const erro = await cancelarLancamento(T.ctx, id, 'Devolvido', { db: app.db }).catch((e: unknown) => e);
+      expect(erro, id).toBeInstanceOf(FinanceiroError);
+      expect((erro as FinanceiroError).erros).toEqual({ geral: MSG_FINANCEIRO.erros.anonimizado });
+    }
+    await anonimizarSo(T); // idempotente: a segunda varredura não acha mais o paciente
+    expect(await lancamentosDe(T, p.id)).toEqual(depois);
   });
 });

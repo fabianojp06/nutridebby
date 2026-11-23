@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { check, date, foreignKey, index, integer, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { appointments } from './agenda';
+import { FORMAS_DE_PAGAMENTO, type FormaPagamento } from './financeiro-formas';
 import { patients } from './pacientes';
 import { tenants } from './platform';
 
@@ -8,9 +9,8 @@ import { tenants } from './platform';
 export const TIPOS_DE_LANCAMENTO = ['entrada', 'saida'] as const;
 export type TipoLancamento = (typeof TIPOS_DE_LANCAMENTO)[number];
 
-/** Plano 20 (RN-304): fonte única das formas de pagamento — o CHECK da coluna usa esta lista; os rótulos ficam no módulo. */
-export const FORMAS_DE_PAGAMENTO = ['pix', 'dinheiro', 'cartao_credito', 'cartao_debito', 'transferencia', 'boleto', 'outra'] as const;
-export type FormaPagamento = (typeof FORMAS_DE_PAGAMENTO)[number];
+// RN-304: a lista das formas mora num arquivo puro (sem drizzle), para o cliente não levar o pg-core
+export { FORMAS_DE_PAGAMENTO, type FormaPagamento } from './financeiro-formas';
 
 const lista = (valores: readonly string[]) => sql.raw(valores.map((v) => `'${v}'`).join(', '));
 

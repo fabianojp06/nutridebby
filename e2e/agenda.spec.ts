@@ -367,7 +367,7 @@ test('presença: consulta que já começou → "Faltou"; "Iniciar atendimento" �
   await expect(nutri.getByText(/^Atendimento da consulta de /)).toBeVisible();
   await expect(nutri.getByLabel('Data do atendimento')).toHaveValue(atendida.data);
   await nutri.getByRole('button', { name: 'Registrar atendimento' }).click();
-  await expect(nutri).toHaveURL(/\/atendimentos\/[0-9a-f-]{36}$/);
+  await expect(nutri).toHaveURL(/\/atendimentos\/[0-9a-f-]{36}(\?.*)?$/);
   await nutri.goto(urlDaConsulta);
   await expect(nutri.getByRole('list', { name: 'Situação' }).getByText('Realizada')).toBeVisible();
   await expect(nutri.getByRole('link', { name: 'Iniciar atendimento' })).toHaveCount(0); // já tem atendimento

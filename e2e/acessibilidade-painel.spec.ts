@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { fichaPelaBusca, SEMENTE_COMPLETA, SEMENTE_INCOMPLETA } from './cadastro';
 import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
+import { criarPacientePeloFormulario } from './pacientes-form';
 import { escolherTema, prepararTelasComId } from './painel';
 import { ROTAS_DO_PAINEL, type IdsDoPainel } from './painel-rotas';
 import { avaliar, pacienteNoPortal } from './portal';
@@ -10,11 +11,14 @@ import { avaliar, pacienteNoPortal } from './portal';
 // RNF-10 (D25): o painel com zero violação WCAG 2.1 AA (+ alvo de toque da 2.2) nos três modos, em TODAS as telas
 // (ROTAS_DO_PAINEL, conferida pela guarda rotas-axe.test.ts). IPs: 10.9.13.84 (nutri), .85 (outro aparelho), .83 (paciente);
 // 10.9.29.31 (o paciente que autoriza a IA, Plano 14B-2); 10.9.29.51 (a segunda paciente da IA Nutri, que envia a dúvida
-// direta para a fila, Plano 15).
+// direta para a fila, Plano 15); 10.9.20.2 (a conta E2E_FIN_AXE do Financeiro não configurado, Plano 20 — bloco 10.9.20.x).
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
+// Plano 20: consultório novo a cada `pnpm e2e:seed`, nunca configurado (copiada: importar o seed roda o seed)
+const FIN_AXE = { email: 'fin-axe-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 test.describe.configure({ mode: 'serial', timeout: 240_000 }); // cada teste visita as ~44 telas do painel
 let nutri: Page;
+let finAxe: Page | undefined;
 let rotas: string[] = [];
 let ids: IdsDoPainel;
 let errosCsp: string[] = []; // D7: a CSP vale direto porque o E2E abre todas as telas sem violação — a prova é este laço
@@ -31,6 +35,8 @@ test.beforeAll(async ({ browser }) => {
 test.afterAll(async () => {
   await escolherTema(nutri, 'Igual ao aparelho'); // o seed e as outras specs esperam o padrão
   await nutri?.context().close();
+  if (finAxe) await escolherTema(finAxe, 'Igual ao aparelho');
+  await finAxe?.context().close();
 });
 
 async function violacoes(page: Page, incluir?: string, opcoes: { ignorarForaDaTela?: boolean } = {}): Promise<string[]> {
@@ -39,6 +45,10 @@ async function violacoes(page: Page, incluir?: string, opcoes: { ignorarForaDaTe
   expect(r.passes.length, 'o axe rodou regras na página').toBeGreaterThan(0);
   // fundos com transparência caem em "incomplete" no color-contrast: não podem passar calados
   let incertos = r.incomplete.filter((i) => i.id === 'color-contrast').flatMap((i) => i.nodes.map((n) => n.target.join(' ')));
+  let doContraste: string[] = [];
+  if (incertos.length) ({ incertos, violacoes: doContraste } = await contrasteNasTabelasRolaveis(page, incertos, incluir));
+  // Os dois filtros juntos (rebase do Plano 20 sobre o PR 2 do Plano 18): primeiro a rolagem dos contêineres dá veredito ao
+  // que puder; do que continua sem veredito, com `ignorarForaDaTela`, sai só o que não cabe inteiro na tela.
   if (opcoes.ignorarForaDaTela) {
     // Plano 18: a 360 px a faixa de abas da ficha e a tabela da lista rolam na horizontal; o axe não calcula o contraste do
     // que não cabe inteiro na largura da tela (fora dela ou cortado na borda do contêiner que rola: "incomplete"). Só esses
@@ -51,8 +61,46 @@ async function violacoes(page: Page, incluir?: string, opcoes: { ignorarForaDaTe
     }), incertos);
     incertos = incertos.filter((_, i) => !fora[i]);
   }
-  const contrasteIncerto = incertos.map((alvo) => `incompleto color-contrast: ${alvo}`);
-  return [...r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`), ...contrasteIncerto];
+  return [
+    ...r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`),
+    ...doContraste,
+    ...incertos.map((t) => `incompleto color-contrast: ${t}`),
+  ];
+}
+
+/**
+ * Tabela larga num contêiner com rolagem própria (`role="region"` focável, padrão do repositório: a página não rola, a
+ * tabela rola — o Fluxo de caixa do Plano 20 a 1280 px e as tabelas a 360 px): o axe não calcula o contraste da célula
+ * cortada pela borda do contêiner ("partially obscured" → "incomplete"). Rola cada contêiner em passos de meia largura e
+ * roda o color-contrast de novo: a célula incerta só sai da lista se, em algum passo, o axe der veredito (passou ou
+ * violou — a violação entra nas falhas). O que nunca teve veredito continua "incompleto".
+ */
+async function contrasteNasTabelasRolaveis(page: Page, incertos: string[], incluir?: string): Promise<{ incertos: string[]; violacoes: string[] }> {
+  const passos = await page.evaluate(() => {
+    const largas = [...document.querySelectorAll<HTMLElement>('[role="region"][tabindex="0"]')].filter((el) => el.scrollWidth > el.clientWidth);
+    return Math.max(0, ...largas.map((el) => Math.ceil((el.scrollWidth - el.clientWidth) / Math.max(1, Math.floor(el.clientWidth / 2)))));
+  });
+  if (!passos) return { incertos, violacoes: [] };
+  const resolvidos = new Set<string>();
+  const violacoes = new Set<string>();
+  for (let passo = 1; passo <= passos; passo++) {
+    await page.evaluate((k) => {
+      for (const el of document.querySelectorAll<HTMLElement>('[role="region"][tabindex="0"]')) {
+        if (el.scrollWidth > el.clientWidth) el.scrollLeft = Math.min(k * Math.floor(el.clientWidth / 2), el.scrollWidth - el.clientWidth);
+      }
+    }, passo);
+    const so = new AxeBuilder({ page }).withRules(['color-contrast']);
+    const r = await (incluir ? so.include(incluir) : so).analyze();
+    for (const n of r.passes.flatMap((p) => p.nodes)) resolvidos.add(n.target.join(' '));
+    for (const n of r.violations.flatMap((v) => v.nodes)) {
+      resolvidos.add(n.target.join(' '));
+      violacoes.add(`color-contrast (rolando a tabela): ${n.target.join(' ')}`);
+    }
+  }
+  await page.evaluate(() => {
+    for (const el of document.querySelectorAll<HTMLElement>('[role="region"][tabindex="0"]')) el.scrollLeft = 0;
+  });
+  return { incertos: incertos.filter((t) => !resolvidos.has(t)), violacoes: [...violacoes] };
 }
 
 for (const [modo, tema, aparelho] of [
@@ -87,6 +135,65 @@ test('estados abertos também passam: menu da conta, aviso de erro de formulári
   await nutri.goto('/painel/pacientes/novo');
   await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click(); // vazio: erros por campo (role="alert")
   expect(await violacoes(nutri)).toEqual([]);
+});
+
+/**
+ * Plano 20 (RNF-302): os estados do Financeiro fora de ROTAS_DO_PAINEL — o primeiro acesso ("Comece por aqui": Resumo,
+ * Pagamentos pendentes e Configurações sem categorias) com a conta E2E_FIN_AXE, o detalhe de pagamentos pendentes vazio (um
+ * paciente sem cobrança no mesmo consultório) e o formulário de lançamento com erro (a nutricionista do E2E, que tem o
+ * Financeiro configurado pela semente: valor vazio e "Já foi recebido" sem a forma) — nos modos claro e escuro, a 1280 e
+ * a 360 px (a 360 px, sem rolagem lateral). As telas do Financeiro de ROTAS_DO_PAINEL entram também a 360 px (a 1280 px
+ * já estão no laço de cima).
+ */
+test('Plano 20: Financeiro não configurado, pagamentos pendentes vazios e lançamento com erro, claro e escuro, 1280 e 360 px', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const fa = await entrarComo(browser, FIN_AXE.email, FIN_AXE.senha, '10.9.20.2');
+  finAxe = fa; // o afterAll volta o tema desta conta também
+  await expect(fa).toHaveURL(/\/painel$/);
+  const sufixo = Date.now().toString(36);
+  const nome = `Paciente Fin Axe ${sufixo}`;
+  const semCobranca = (await criarPacientePeloFormulario(fa, { nome, email: `fin-axe-${sufixo}@nutridebby.test` })).split('/').pop()!;
+  const comece = (page: Page) => expect(page.getByRole('heading', { name: 'Comece por aqui' })).toBeVisible();
+  const estados: { page: Page; url: string; pronta: (page: Page) => Promise<void> }[] = [
+    { page: fa, url: '/painel/financeiro', pronta: comece },
+    { page: fa, url: '/painel/financeiro/pendencias', pronta: comece },
+    { page: fa, url: '/painel/financeiro/configuracoes', pronta: (p) => expect(p.getByLabel('Valor do saldo')).toBeVisible() },
+    { page: fa, url: `/painel/financeiro/pendencias/${semCobranca}`, pronta: (p) => expect(p.getByText(`Nenhum pagamento pendente de ${nome}.`)).toBeVisible() },
+    {
+      page: nutri,
+      url: '/painel/financeiro/lancamentos/novo?tipo=entrada',
+      pronta: async (p) => {
+        // A categoria já vem escolhida (a primeira ativa) e o vencimento vem com hoje: os erros que o formulário dá de fato
+        // são o valor vazio e, com "Já foi recebido" marcado, a forma em "Selecione" (role="alert", junto dos campos).
+        await p.getByLabel('Já foi recebido').check();
+        await p.getByRole('button', { name: 'Salvar entrada' }).click();
+        await expect(p.getByRole('alert').filter({ hasText: 'Informe o valor.' })).toBeVisible();
+        await expect(p.getByRole('alert').filter({ hasText: 'Escolha a forma de pagamento.' })).toBeVisible();
+      },
+    },
+  ];
+  const doFinanceiro = rotas.filter((u) => u.startsWith('/painel/financeiro'));
+  expect(doFinanceiro.length, 'as telas do Financeiro em ROTAS_DO_PAINEL').toBeGreaterThan(0);
+  const falhas: string[] = [];
+  for (const tema of ['Claro', 'Escuro'] as const) {
+    await escolherTema(fa, tema);
+    await escolherTema(nutri, tema);
+    for (const largura of [1280, 360]) {
+      const telas = largura === 360 ? [...estados, ...doFinanceiro.map((url) => ({ page: nutri, url, pronta: async () => {} }))] : estados;
+      for (const t of telas) {
+        await t.page.setViewportSize({ width: largura, height: largura === 360 ? 780 : 720 });
+        await t.page.goto(t.url);
+        await t.pronta(t.page);
+        await t.page.waitForLoadState('networkidle');
+        for (const v of await violacoes(t.page)) falhas.push(`${tema} ${largura} px ${t.url} — ${v}`);
+        if (largura === 360 && !(await t.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) {
+          falhas.push(`${tema} 360 px ${t.url} — rola na horizontal`);
+        }
+      }
+    }
+    for (const p of [fa, nutri]) await p.setViewportSize({ width: 1280, height: 720 });
+  }
+  expect(falhas).toEqual([]);
 });
 
 /**
@@ -302,10 +409,11 @@ test('teclado: Tab chega aos itens do menu na ordem da tela, e o item atual é a
   await menu.getByRole('link', { name: 'Início' }).focus();
   // Plano 12 (D11): o seed liga o recebimento de exames, então "Exames recebidos" é o 5º item; Plano 15 (US-175): e ativa a
   // IA Nutri, então "Dúvidas dos pacientes" vem antes de "Conteúdos". Os contadores " (n)" dependem do que as outras specs
-  // deixaram no banco de dev e saem da comparação
-  for (let i = 0; i < 8; i++) {
+  // deixaram no banco de dev e saem da comparação. Plano 20 (RN-327): "Financeiro" antes de "Configurações", sempre (não
+  // depende de configuração), e o menu chega a 9 itens (R-310)
+  for (let i = 0; i < 9; i++) {
     rotulos.push((await nutri.evaluate(() => document.activeElement?.textContent ?? '')).trim().replace(/ \(\d+\)$/, ''));
     await nutri.keyboard.press('Tab');
   }
-  expect(rotulos).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Dúvidas dos pacientes', 'Conteúdos', 'Configurações']);
+  expect(rotulos).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Dúvidas dos pacientes', 'Conteúdos', 'Financeiro', 'Configurações']);
 });

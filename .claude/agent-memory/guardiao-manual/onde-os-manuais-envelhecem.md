@@ -77,3 +77,15 @@ isolamento, divergência #3).
   com nome; as citações **soltas** `` `:N` `` depois do arquivo (ex.: `convite-paciente.ts:52`, `:102`; `exportacao-job.ts`
   … `:113`; `audit.ts` … `:173`; `tenant.ts:15`, recusa em `:49`) ficaram velhas. Checar também `` `:N` `` herdando o
   último arquivo citado na linha (script `bare.py`: compara base × head só nas linhas do manual que o PR não tocou).
+- Plano 20 (17/11/2026): as linhas de `lgpd.ts`, `exportacao-job.ts`, `dpa.ts`, `atendimentos.ts` e `test/isolamento.test.ts`
+  citadas nos caps. 2, 4, 5, 6, 7 e 8 estavam velhas desde planos anteriores; refiz pelas funções (`grep -n "^export"`), não
+  pelo remapeador. Rodar o remapeador DEPOIS de editar trata os números novos como base: só use antes. Laço de substituição
+  de linhas (`:415`→`:437`, `:437`→`:459`) colide: aplique em ordem decrescente.
+- Versão nova de texto legal (DPA, termo): conferir a volta atrás — `registrarAceiteDpa` não regrava o tenant se o aceite da
+  versão antiga já existe (onConflictDoNothing), e a imagem anterior prende o painel em `/painel/dpa`.
+- Plano com prefixo próprio de decisões (F-Dn, F-Pn no Plano 20) entra na tabela "Identificadores" do README.
+- Material do manual do usuário sem acesso ao Docs: na coluna "trecho atual", usar o texto antigo da tela tirado do código
+  (`git show <base>:arquivo`), e dizer isso no topo do material.
+- Rebase entre planos paralelos (Plano 20 sobre o PR 2 do Plano 18, 17/11/2026): os dois fechamentos numeraram
+  divergências do README a partir do mesmo último número (#138–#141 dos dois lados). Renumerar as do plano que entra
+  depois (e as referências "#N a #M" do capítulo dele e das memórias), e a linha da divergência no cap. 2 que mudou de número.
