@@ -7,7 +7,7 @@ import { normalizarTexto } from '@/lib/text';
 import { avisarPaciente, cancelarLembretes, dispararEnvio } from '@/modules/notificacoes/agendar';
 import { primeiroNome } from '@/modules/notificacoes/mensagens';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
-import { escolherHorario, gravarConsultaDoPaciente, localRecusado } from './agendamento-paciente';
+import { escolherHorario, gravarConsultaDoPaciente, localRecusado, travarPedidosDoTenant } from './agendamento-paciente';
 import { avisarNutri, avisarNutriDaConsulta } from './aviso-nutri';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError, ConsultaNaoEncontradaError, ehSobreposicao, lerConsultaParaEscrita, repetirSeDeadlock, STATUS_ATIVOS, type StatusConsulta, type TenantAgenda } from './consultas';
@@ -148,7 +148,8 @@ export async function cancelarFuturasPelaExclusao(tx: Tx, o: { tenantId: string;
  * Review Focus 6 (rodada 1): `escolherHorario` abre a própria transação (contexto publico) — por isso roda ANTES desta,
  * nunca dentro (seria uma segunda conexão com a trava do paciente e da consulta presa; pool max: 10). Dentro, o
  * EXCLUDE revalida o horário (outro paciente pode ter marcado no meio: "Esse horário acabou de ser ocupado").
- * Plano 23 (US-403): o horário novo vem com o local (`localId`); trocar de local na remarcação vale.
+ * Plano 23 (US-403): o horário novo vem com o local (`localId`); trocar de local na remarcação vale. O pedido (`solicitada`)
+ * não remarca (desiste e pede outro, AG-D24). Trava do tenant no começo, antes da do paciente (AG-D65).
  */
 export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAgenda, id: string, novo: { inicio: unknown; localId: unknown }, deps: Deps = {}): Promise<{ id: string; inicio: Date }> {
   if (ctx.role !== 'paciente' || !ctx.patientId) throw new Error('remarcarComoPaciente exige sessão de paciente');
@@ -162,6 +163,7 @@ export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAge
       return withTenant(
         ctx,
         async (tx) => {
+          await travarPedidosDoTenant(tx, tenant.id); // Plano 23 (AG-D65): tenant → paciente → consulta
           const p = await carregarPacienteParaEscrita(tx, ctx.patientId!); // bloqueado/anonimizado → PacienteBloqueadoError
           conferirEmailDoLink(p.email, deps);
           if (p.status !== 'ativo') throw new ConsultaError({ geral: MSG_AGENDA.naoAgendavel }); // RN-08
@@ -174,8 +176,9 @@ export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAge
             .set({ status: 'cancelada', canceladoPor: 'paciente', canceladaEm: agora, motivoCancelamento: 'Remarcada pelo paciente', pedidoRemarcacaoEm: null, updatedAt: agora })
             .where(eq(appointments.id, id));
           await cancelarLembretes(tx, id, agora);
-          const novoId = await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'remarcada', remarcadaDe: id });
-          return { id: novoId, inicio: h.inicio };
+          // Plano 23 (AG-D24): o cancelamento acima liga o marcador da remarcação; a nova nasce agendada mesmo com a chave ligada
+          const nova = await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'remarcada', remarcadaDe: id });
+          return { id: nova.id, inicio: h.inicio };
         },
         db,
       );

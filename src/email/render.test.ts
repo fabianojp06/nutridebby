@@ -320,3 +320,26 @@ describe('Plano 14A — e-mails da autorização de IA', () => {
     expect(so.text).toContain('só para ler os laudos dos seus exames e sugerir os valores para o seu prontuário.');
   });
 });
+
+describe('Plano 23 (T6b, §6.2): pedidos de consulta', () => {
+  it('à nutricionista: "Novo pedido de consulta" (Responda em Solicitações) e "Pedido de consulta retirado"; o nome só no corpo', () => {
+    const quando = 'sex., 16/10/2026 às 09:00 (horário de Brasília)';
+    const novo = renderEmail({ tipo: 'aviso_agenda', para: 'd@x', evento: 'pedido', paciente: 'Ana Souza', quando, link: 'https://x.dev/painel/agenda/solicitacoes' });
+    expect(novo.subject).toBe('Novo pedido de consulta');
+    expect(novo.text).toBe(`Ana Souza pediu ${quando}.\n\nResponda em Solicitações: https://x.dev/painel/agenda/solicitacoes`);
+    const retirado = renderEmail({ tipo: 'aviso_agenda', para: 'd@x', evento: 'pedido_desistido', paciente: 'Ana', quando, link: 'https://x.dev/painel/agenda/consultas/1' });
+    expect(retirado.subject).toBe('Pedido de consulta retirado');
+    expect(retirado.text.split('\n\n')[0]).toBe(`Ana retirou o pedido de ${quando}.`);
+    for (const r of [novo, retirado]) expect(r.subject).not.toContain('Ana');
+  });
+  it('ao paciente: "Seu pedido de consulta não foi confirmado", com "Escolha outro horário" e o link; sem link, só a primeira frase', () => {
+    const quando = 'sex., 16/10/2026 às 09:00 (horário de Brasília)';
+    const com = renderEmail({ tipo: 'pedido_nao_confirmado', para: 'a@x', quando, link: 'https://x.dev/p/agenda/nova?v=1' });
+    expect(com.subject).toBe('Seu pedido de consulta não foi confirmado');
+    expect(com.text).toBe(`O horário de ${quando} não foi confirmado.\n\nEscolha outro horário: https://x.dev/p/agenda/nova?v=1`);
+    expect(com.html).toContain('href="https://x.dev/p/agenda/nova?v=1"');
+    const sem = renderEmail({ tipo: 'pedido_nao_confirmado', para: 'a@x', quando, link: null });
+    expect(sem.text).toBe(`O horário de ${quando} não foi confirmado.`);
+    expect(sem.html).not.toContain('href=');
+  });
+});

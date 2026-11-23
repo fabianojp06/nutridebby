@@ -1,10 +1,11 @@
 import { and, asc, count, eq, gt, inArray, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { Db, Tx } from '@/db/client';
-import { appointments, locaisAtendimento, notifications, patients, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow, type TipoDeLocal } from '@/db/schema';
+import { appointments, locaisAtendimento, notifications, patients, publicBookingRequests, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow, type TipoDeLocal } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { renderEmail } from '@/email/templates';
 import type { EmailTransport } from '@/email/transport';
-import { logger, nomeDoErro } from '@/lib/logger';
+import { logger, nomeDoErro, sqlstateDoErro } from '@/lib/logger';
+import { vencerSolicitacoes } from '@/modules/agenda/solicitacoes';
 import { buscarTenant, getTenantStatus, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { adiarLembrete, ANTECEDENCIA_MS, emHorarioSilencioso, fallbackPorEmail, ignorarPendentesDoTenant, lembreteFazSentido } from './agendar';
 import { emailDaNotificacao, pushDaNotificacao, textoWhatsapp } from './mensagens';
@@ -17,8 +18,12 @@ import { digitosDoE164, type ProvedorWhatsapp, type ResultadoEnvio } from './wha
 
 /** Plano 23 (US-402): o local da consulta, lido pelo worker junto com ela (nunca a sala: o link da consulta já é a cópia). */
 export type LocalDoEnvio = { nome: string; tipo: TipoDeLocal; endereco: string | null };
-/** `local`: opcional (os testes que montam o contexto à mão continuam valendo); nulo na consulta sem local. */
-export type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date; local?: LocalDoEnvio | null };
+/**
+ * `local`: opcional (os testes que montam o contexto à mão continuam valendo); nulo na consulta sem local.
+ * `pedidoDaPagina` (Plano 23, RN-428): só no `pedido_nao_confirmado` — o pedido veio da página pública (há um pedido em
+ * `public_booking_requests` que aponta para a consulta), não do portal: decide o link "Escolha outro horário".
+ */
+export type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date; local?: LocalDoEnvio | null; pedidoDaPagina?: boolean };
 export type Resultado =
   | { status: 'enviada'; providerMsgId?: string; providerJid?: string }
   | { status: 'ignorada'; motivo: MotivoIgnorada }
@@ -52,8 +57,12 @@ export function motivoParaIgnorar(c: ContextoEnvio): Resultado | null {
   if (!c.paciente || c.paciente.status !== 'ativo' || c.paciente.anonimizadoEm) return ignorar('paciente_inativo'); // RN-08, US-018
   // US-010 (rodada 1 da T14): o convite por WhatsApp que ainda estava na fila quando o paciente aceitou pelo e-mail não sai
   if (c.n.tipo === 'convite_paciente' && c.paciente.userId) return ignorar('convite_aceito');
+  // Plano 23 (§4.3, RN-428): o "pedido não confirmado" só sai com a consulta cancelada (recusa ou vencimento)
+  if (c.n.tipo === 'pedido_nao_confirmado') return c.consulta?.status === 'cancelada' ? null : ignorar('consulta_nao_aceita');
   // lembretes, "Consulta marcada" e a resposta a "1"/"2" (T12) falam de uma consulta num horário: conferidos aqui
   if (!c.consulta || !(ehLembrete(c.n.tipo) || c.n.tipo === 'consulta_marcada' || c.n.tipo === 'resposta_confirmacao' || c.n.tipo === 'resposta_remarcar')) return null;
+  // Plano 23 (§4.3): de uma consulta que ainda é pedido (`solicitada`) nada sai — só depois do aceite
+  if (c.consulta.status === 'solicitada') return ignorar('consulta_nao_aceita');
   if (c.consulta.status === 'cancelada') return ignorar('consulta_cancelada');
   if (c.consulta.status === 'realizada' || c.consulta.status === 'faltou') return ignorar('consulta_encerrada');
   // D6/D17: linha planejada para outro horário (reservada antes de a nutricionista mudar a hora) não sai
@@ -279,7 +288,12 @@ async function carregarContexto(ctx: TenantContext, tenant: TenantRow, n: Notifi
             .from(locaisAtendimento)
             .where(eq(locaisAtendimento.id, consulta.localId))
         : [];
-      return { n, paciente, consulta: consulta ?? null, tenant, agora: deps.agora(), local: local ? { nome: local.nome, tipo: local.tipo as TipoDeLocal, endereco: local.endereco } : null };
+      // Plano 23 (RN-428): de onde veio o pedido não confirmado (página pública ou portal), para o link do e-mail
+      const [daPagina] =
+        n.tipo === 'pedido_nao_confirmado' && consulta
+          ? await tx.select({ id: publicBookingRequests.id }).from(publicBookingRequests).where(eq(publicBookingRequests.appointmentId, consulta.id)).limit(1)
+          : [];
+      return { n, paciente, consulta: consulta ?? null, tenant, agora: deps.agora(), local: local ? { nome: local.nome, tipo: local.tipo as TipoDeLocal, endereco: local.endereco } : null, pedidoDaPagina: !!daPagina };
     },
     deps.db,
   );
@@ -396,14 +410,31 @@ async function processarComSeguranca(tenantId: string, deps: DepsEnvio, limite: 
 }
 
 /**
+ * Plano 23 (RN-427, AG-D19, AG-D67): vence os pedidos de consulta de cada tenant da volta antes da varredura (o aviso
+ * "não confirmado" sai nesta mesma volta). Um `try/catch` por tenant, como `processarComSeguranca`: o vencimento nunca
+ * derruba os envios (o `vencerSolicitacoes` já isola cada pedido). Só o código no log (regra 3).
+ */
+async function vencerComSeguranca(alvos: readonly string[], deps: DepsEnvio): Promise<void> {
+  for (const tenantId of alvos) {
+    try {
+      await vencerSolicitacoes(deps.db, deps.agora(), { tenantId });
+    } catch (err) {
+      logger.error({ tenantId, err: nomeDoErro(err), sqlstate: sqlstateDoErro(err) }, 'falha ao vencer os pedidos de consulta do tenant');
+    }
+  }
+}
+
+/**
  * RN-05: varre os tenants (cron de 1 min) ou só um (envio imediato); no máximo LOTE_POR_EXECUCAO por execução.
  * Rodada 1 (D6): cada tenant tem uma parte do lote (`max(5, 40 ÷ tenants)`) numa volta que começa num tenant diferente
  * a cada minuto; o que sobrar vai, numa segunda passada, para quem encheu a parte.
+ * Plano 23 (AG-D19): antes da varredura, os pedidos vencidos dos mesmos tenants (`vencerComSeguranca`); sem fila nova.
  */
 export async function processarNotificacoes(deps: DepsEnvio, opts: { tenantId?: string } = {}): Promise<{ processadas: number }> {
   // R14: o envio imediato de um tenant não lista os outros. Na volta do cron, ordem estável (por id) antes do rodízio:
   // a ordem física de `tenants` muda com qualquer UPDATE (status, cota)
   const alvos = opts.tenantId ? [opts.tenantId] : ordemDaRodada((await listarTenantsParaVarredura(deps.db)).map((t) => t.id).sort(), deps.agora());
+  await vencerComSeguranca(alvos, deps);
   const parte = Math.max(LOTE_MIN_POR_TENANT, Math.ceil(LOTE_POR_EXECUCAO / Math.max(1, alvos.length)));
   let processadas = 0;
   const cheios: string[] = [];

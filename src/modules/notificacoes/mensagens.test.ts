@@ -5,7 +5,7 @@ import type { AppointmentRow, NotificationRow, PatientRow, TenantRow } from '@/d
 import { sealSecret } from '@/lib/crypto';
 import { chaveDosLinks, lerLinkConsulta } from '@/modules/agenda/link-consulta';
 import type { ContextoEnvio } from './enviar';
-import { dadosDaConsulta, emailDaNotificacao, emailMascarado, FINALIDADE_CONTEUDO, primeiroNome, pushDaNotificacao, textoConviteWhatsapp, textoWhatsapp } from './mensagens';
+import { dadosDaConsulta, emailDaNotificacao, emailMascarado, FINALIDADE_CONTEUDO, linkDeOutroHorario, primeiroNome, pushDaNotificacao, textoConviteWhatsapp, textoWhatsapp } from './mensagens';
 
 const deps = { appUrl: 'https://app.exemplo.com', chaveLinks: chaveDosLinks(Buffer.alloc(32, 9)) };
 const tenant = { id: '0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f', nomeExibicao: 'Debby Silva', fuso: 'America/Sao_Paulo', enderecoConsultorio: 'Rua das Flores, 10', cancelamentoMinH: 24 } as TenantRow;
@@ -196,5 +196,22 @@ describe('primeiroNome (R11: um lugar só)', () => {
       .map((d) => path.join(d.parentPath, d.name));
     const comCopia = fontes.filter((f) => /\.split\(\/\\s\+\/\)\[0\]/.test(readFileSync(f, 'utf8'))).map((f) => path.relative(path.resolve('src'), f));
     expect(comCopia).toEqual([path.join('modules', 'notificacoes', 'mensagens.ts')]);
+  });
+});
+
+describe('Plano 23 (T6b): o pedido de consulta não confirmado (RN-428, AG-D23, AG-D43)', () => {
+  const comPagina = { ...tenant, slug: 'debby-silva', agendamentoPublicoAtivo: true } as TenantRow;
+  it('o link "Escolha outro horário": do portal → /p/agenda/nova do consultório; da página pública (pessoa nova) → /n/<slug> só com a página ligada', () => {
+    expect(linkDeOutroHorario({ daPagina: false, tenant: comPagina }, deps.appUrl)).toBe(`https://app.exemplo.com/p/agenda/nova?v=${tenant.id}`);
+    expect(linkDeOutroHorario({ daPagina: true, tenant: comPagina }, deps.appUrl)).toBe('https://app.exemplo.com/n/debby-silva');
+    expect(linkDeOutroHorario({ daPagina: true, tenant: { ...comPagina, agendamentoPublicoAtivo: false } as TenantRow }, deps.appUrl)).toBeNull();
+  });
+  it('e-mail: o horário e o link; da página pública desligada, sem link; push "NutriDebby" com a agenda do portal; nada por WhatsApp', () => {
+    const c = (extra: Partial<ContextoEnvio> = {}): ContextoEnvio => ({ ...ctx('pedido_nao_confirmado'), tenant: comPagina, ...extra });
+    expect(emailDaNotificacao(c(), deps)).toEqual({ tipo: 'pedido_nao_confirmado', para: 'ana@ex.com', quando: 'sex., 16/10/2026 às 14:00 (horário de Brasília)', link: `https://app.exemplo.com/p/agenda/nova?v=${tenant.id}` });
+    expect(emailDaNotificacao(c({ pedidoDaPagina: true }), deps)).toMatchObject({ link: 'https://app.exemplo.com/n/debby-silva' });
+    expect(emailDaNotificacao(c({ pedidoDaPagina: true, tenant: { ...comPagina, agendamentoPublicoAtivo: false } as TenantRow }), deps)).toMatchObject({ link: null });
+    expect(pushDaNotificacao(c(), deps)).toEqual({ titulo: 'NutriDebby', corpo: 'Seu pedido de consulta não foi confirmado.', url: `https://app.exemplo.com/p/agenda?v=${tenant.id}` });
+    expect(textoWhatsapp(c())).toBeNull();
   });
 });

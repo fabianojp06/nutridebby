@@ -256,7 +256,8 @@ async function gravarPedido(tx: Tx, tenant: TenantRow, r: PedidoRow, h: HorarioE
     .from(appointments)
     .where(and(eq(appointments.patientId, p.id), inArray(appointments.status, STATUS_ATIVOS), gt(appointments.inicio, agora)));
   if (n >= MAX_CONSULTAS_FUTURAS_PUBLICO) throw new PublicoError(409, { geral: MSG_AGENDA.limitePublico });
-  const id = await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: novo ? 'novo_paciente_publico' : 'marcada' });
+  // Plano 23: o status (agendada ou solicitada, pelo gatilho) é da T7 (RN-426); aqui só o id
+  const { id } = await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: novo ? 'novo_paciente_publico' : 'marcada' });
   if (!novo) await reconferirPaciente(tx, p.id);
   await tx.insert(consents).values({ patientId: p.id, tenantId: tenant.id, termoVersao: r.termoVersao, aceitoEm: agora, ip: r.ip }).onConflictDoNothing();
   await tx.update(publicBookingRequests).set({ concluidoEm: agora, appointmentId: id }).where(eq(publicBookingRequests.id, r.id));

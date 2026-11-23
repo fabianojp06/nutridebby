@@ -7,12 +7,16 @@ export type TipoLembrete = 'lembrete_24h' | 'lembrete_2h';
 export type TipoNotificacao =
   | TipoLembrete | 'consulta_marcada' | 'consulta_cancelada' | 'convite_paciente' | 'resposta_confirmacao' | 'resposta_remarcar'
   | 'push_teste' | 'comentario_diario' | 'plano_novo' | 'conteudo_novo' | 'documento_novo' | 'documento_atualizado' | 'exame_revisado' | 'exame_expirado'
-  | 'duvida_vista';
+  | 'duvida_vista'
+  // Plano 23 (§9.8): a mensagem de aniversário (T10) e o aviso do pedido não confirmado (recusa e vencimento, RN-428)
+  | 'aniversario' | 'pedido_nao_confirmado';
 export type StatusNotificacao = 'pendente' | 'enviando' | 'enviada' | 'entregue' | 'lida' | 'falhou' | 'ignorada';
 export type MotivoIgnorada =
   | 'prazo_passado' | 'horario_silencioso' | 'consulta_cancelada' | 'consulta_remarcada' | 'consulta_encerrada' | 'paciente_inativo' | 'tenant_suspenso'
   | 'sem_optin' | 'sem_telefone' | 'whatsapp_desligado' | 'whatsapp_desconectado' | 'cota_esgotada' | 'sem_inscricao' | 'push_desligado'
-  | 'convite_aceito';
+  | 'convite_aceito'
+  // Plano 23: sem autorização de aniversário (T10); aviso de consulta que ainda é pedido (`solicitada`, §4.3)
+  | 'sem_autorizacao' | 'consulta_nao_aceita';
 
 export const ehLembrete = (t: string): t is TipoLembrete => t === 'lembrete_24h' || t === 'lembrete_2h';
 
@@ -33,6 +37,8 @@ export const ROTULO_TIPO: Record<TipoNotificacao, string> = {
   exame_revisado: 'Exame revisado',
   exame_expirado: 'Exame expirado',
   duvida_vista: 'Atualização no app',
+  aniversario: 'Mensagem de aniversário',
+  pedido_nao_confirmado: 'Pedido de consulta não confirmado',
 };
 export const ROTULO_CANAL: Record<Canal, string> = { email: 'E-mail', whatsapp: 'WhatsApp', push: 'Notificação no app' };
 export const ROTULO_MOTIVO: Record<MotivoIgnorada, string> = {
@@ -51,6 +57,8 @@ export const ROTULO_MOTIVO: Record<MotivoIgnorada, string> = {
   sem_inscricao: 'paciente sem notificações no app',
   push_desligado: 'notificações no app não configuradas',
   convite_aceito: 'convite já aceito',
+  sem_autorizacao: 'sem autorização de mensagem de aniversário',
+  consulta_nao_aceita: 'pedido de consulta ainda não aceito',
 };
 
 /** O motivo de não envio em texto ("consulta cancelada"…); motivo que o código não conhece não quebra a tela. */

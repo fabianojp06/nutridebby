@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, lt, ne, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, sql, type SQL } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { deadlockDetectado, exclusionViolation } from '@/db/errors';
 import { appointments, locaisAtendimento, patients, type AppointmentRow, type LocalRow, type TenantRow, type TipoDeLocal } from '@/db/schema';
@@ -338,7 +338,8 @@ export async function buscarConsulta(ctx: TenantContext, id: string, db: Db = ge
  * Revisão final: o motivo que a nutricionista escreveu ao cancelar ("Só você vê." no formulário), para a página da consulta
  * no painel. Só dela: sessão de outro papel é erro de programação; o motivo do paciente ("Remarcada pelo paciente") não
  * entra. Nunca vai para o link da consulta, e-mail, WhatsApp, PWA nem para a exportação (exportacao-job leva só o do
- * paciente). Leitura da agenda: sem auditRead (D10).
+ * paciente). Leitura da agenda: sem auditRead (D10). Plano 23 (AG-D23): também o motivo da recusa de um pedido
+ * (`pedido_recusado`), que só a nutricionista vê.
  */
 export async function motivoDoCancelamentoDaNutri(ctx: TenantContext, id: string, db: Db = getDb()): Promise<string | null> {
   if (ctx.role !== 'nutri') throw new Error('o motivo do cancelamento é só da nutricionista');
@@ -349,7 +350,7 @@ export async function motivoDoCancelamentoDaNutri(ctx: TenantContext, id: string
       tx
         .select({ motivo: appointments.motivoCancelamento })
         .from(appointments)
-        .where(and(eq(appointments.id, id), eq(appointments.status, 'cancelada'), eq(appointments.canceladoPor, 'nutri'))),
+        .where(and(eq(appointments.id, id), eq(appointments.status, 'cancelada'), inArray(appointments.canceladoPor, ['nutri', 'pedido_recusado']))),
     db,
   );
   return r?.motivo ?? null;

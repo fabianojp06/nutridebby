@@ -45,6 +45,10 @@ export function linkDaConsulta(c: { consulta: AppointmentRow; tenant: TenantRow;
  */
 export function emailDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; chaveLinks: Buffer }): EmailMessage | null {
   const evento = c.n.tipo;
+  // Plano 23 (RN-428, AG-D23): texto fixo com o horário e "Escolha outro horário" — nunca o motivo da recusa
+  if (evento === 'pedido_nao_confirmado' && c.consulta) {
+    return { tipo: 'pedido_nao_confirmado', para: c.paciente.email, quando: quandoComFuso(c.consulta.inicio, c.tenant.fuso), link: linkDeOutroHorario({ daPagina: !!c.pedidoDaPagina, tenant: c.tenant }, deps.appUrl) };
+  }
   if (!c.consulta || (evento !== 'lembrete_24h' && evento !== 'lembrete_2h' && evento !== 'consulta_marcada' && evento !== 'consulta_cancelada' && evento !== 'resposta_remarcar')) return null;
   const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant, local: c.local });
   if (evento === 'resposta_remarcar') {
@@ -55,6 +59,16 @@ export function emailDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; cha
   const doDia = evento === 'lembrete_24h' && ehHoje({ consulta: c.consulta, tenant: c.tenant, agora: c.agora }) ? 'lembrete_2h' : evento;
   const link = evento === 'consulta_cancelada' ? null : linkDaConsulta({ consulta: c.consulta, tenant: c.tenant, paciente: c.paciente }, deps);
   return { tipo: 'consulta', evento: doDia, para: c.paciente.email, nome: primeiroNome(c.paciente.nome), ...d, link };
+}
+
+/**
+ * Plano 23 (RN-428): o link "Escolha outro horário" do pedido não confirmado — `/p/agenda/nova` do consultório quando o
+ * pedido veio do portal; da página pública, `/n/<slug>` só com a página ligada (`agendamento_publico_ativo`); sem ela, nulo
+ * (o e-mail sai só com a primeira frase).
+ */
+export function linkDeOutroHorario(o: { daPagina: boolean; tenant: Pick<TenantRow, 'id' | 'slug' | 'agendamentoPublicoAtivo'> }, appUrl: string): string | null {
+  if (!o.daPagina) return urlDoApp(appUrl, telaDoPortal('/p/agenda/nova', o.tenant.id));
+  return o.tenant.agendamentoPublicoAtivo ? urlDoApp(appUrl, `/n/${o.tenant.slug}`) : null;
 }
 
 /**
@@ -143,6 +157,8 @@ export function pushDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; chav
     // a tela leva o consultório (`?v=`): com 2+ vínculos, o toque abre o diário/plano deste, não o do cookie
     return aviso ? { titulo: 'NutriDebby', corpo: aviso.corpo, url: urlDoApp(deps.appUrl, telaDoPortal(aviso.tela, c.tenant.id)) } : null;
   }
+  // Plano 23 (RN-428, §6.2): neutro, sem horário nem nutricionista; o toque abre a agenda do portal no consultório do aviso
+  if (c.n.tipo === 'pedido_nao_confirmado') return { titulo: 'NutriDebby', corpo: 'Seu pedido de consulta não foi confirmado.', url: urlDoApp(deps.appUrl, telaDoPortal('/p/agenda', c.tenant.id)) };
   const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant });
   const link = () => linkDaConsulta({ consulta: c.consulta!, tenant: c.tenant, paciente: c.paciente }, deps);
   const hoje = `Sua consulta é hoje às ${d.hora}.`;

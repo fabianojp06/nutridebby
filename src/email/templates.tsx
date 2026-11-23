@@ -353,8 +353,11 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
           subject: 'Novo paciente via agendamento online',
           linha: `${msg.paciente} marcou uma consulta pela sua página de agendamento para ${msg.quando}. Complete o cadastro (data de nascimento e sexo) antes do atendimento.`,
         },
+        // Plano 23 (§6.2): o pedido leva à fila Solicitações; a retirada só com o primeiro nome
+        pedido: { subject: 'Novo pedido de consulta', linha: `${msg.paciente} pediu ${msg.quando}.` },
+        pedido_desistido: { subject: 'Pedido de consulta retirado', linha: `${msg.paciente} retirou o pedido de ${msg.quando}.` },
       }[msg.evento];
-      return simples(subject, [linha], { href: msg.link, rotulo: 'Ver na agenda' });
+      return simples(subject, [linha], { href: msg.link, rotulo: msg.evento === 'pedido' ? 'Responda em Solicitações' : 'Ver na agenda' });
     }
     case 'codigo_agendamento':
       return simples(`Seu código para agendar com ${msg.nutri}: ${msg.codigo}`, [
@@ -465,6 +468,9 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         [MSG_REVISAO.avisoEmail, ...(msg.pendentesAntigos ? [MSG_REVISAO.lembrete30] : [])],
         { href: msg.link, rotulo: 'Ver exames recebidos' },
       );
+    case 'pedido_nao_confirmado':
+      // Plano 23 (RN-428, AG-D23): texto fixo, sem o motivo da recusa; sem link (página pública desligada), só a primeira frase
+      return simples('Seu pedido de consulta não foi confirmado', [`O horário de ${msg.quando} não foi confirmado.`], msg.link ? { href: msg.link, rotulo: 'Escolha outro horário' } : undefined);
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);

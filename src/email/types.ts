@@ -43,7 +43,8 @@ export type EmailMessage =
   | {
       tipo: 'aviso_agenda';
       para: string;
-      evento: 'marcada' | 'remarcada' | 'cancelada' | 'pedido_remarcacao' | 'novo_paciente_publico';
+      /** Plano 23 (§6.2): `pedido` (novo pedido de consulta, link da fila Solicitações) e `pedido_desistido` (o paciente o retirou). */
+      evento: 'marcada' | 'remarcada' | 'cancelada' | 'pedido_remarcacao' | 'novo_paciente_publico' | 'pedido' | 'pedido_desistido';
       paciente: string;
       /** "sex., 16/10/2026 às 09:00 (horário de Brasília)" */
       quando: string;
@@ -85,7 +86,12 @@ export type EmailMessage =
    * Plano 15 (D10 = a, DP-6, RNF-166): pergunta com sinal de risco na fila "Dúvidas dos pacientes", às nutricionistas do
    * tenant (no máximo 1 a cada 15 min); `link` = /painel/duvidas. Genérico: sem nome de paciente, texto nem categoria (C-05).
    */
-  | { tipo: 'risco_ia_nutri'; para: string; link: string };
+  | { tipo: 'risco_ia_nutri'; para: string; link: string }
+  /**
+   * Plano 23 (RN-428, AG-D23): o pedido de consulta do paciente foi recusado ou venceu. `quando` com o fuso; `link` = "Escolha
+   * outro horário" (o portal ou a página pública ligada) ou nulo. Nunca o motivo da recusa (só a nutricionista vê).
+   */
+  | { tipo: 'pedido_nao_confirmado'; para: string; quando: string; link: string | null };
 
 /** Payload do job `email` no pg-boss: nada legível além do tenant (RN-15). */
 export type EmailJobData = { tenantId: string | null; selado: string };

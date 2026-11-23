@@ -1,4 +1,4 @@
-import { and, count, eq, gt, inArray } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { appointments, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -7,7 +7,7 @@ import { agendarLembretes, avisarPaciente, dispararEnvio } from '@/modules/notif
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { dataValida } from '@/modules/pacientes/datas';
 import { avisarNutriDaConsulta } from './aviso-nutri';
-import { JANELA_PACIENTE_DIAS, MAX_CONSULTAS_FUTURAS_PUBLICO, MSG_AGENDA } from './constantes';
+import { JANELA_PACIENTE_DIAS, JANELA_RESPOSTA_PEDIDO_H, MAX_CONSULTAS_FUTURAS_PUBLICO, MSG_AGENDA } from './constantes';
 import { ConsultaError, ehSobreposicao, horariosLivres, repetirSeDeadlock, type TenantAgenda } from './consultas';
 import { segundaDaSemana, somarDias } from './fuso';
 import type { Horario, LocalVisivel, Modalidade } from './horarios';
@@ -16,9 +16,32 @@ import { STATUS_OCUPA } from './status';
 
 export type HorarioEscolhido = Horario & { modalidade: Modalidade };
 
-/** RN-03: o paciente marca a partir de agora + `antecedencia_min_h` e até 60 dias. */
-export function janelaDoPaciente(tenant: Pick<TenantAgenda, 'antecedenciaMinH'>, agora: Date): { de: Date; ate: Date } {
-  return { de: new Date(agora.getTime() + tenant.antecedenciaMinH * 3_600_000), ate: new Date(agora.getTime() + JANELA_PACIENTE_DIAS * 86_400_000) };
+/**
+ * RN-03: o paciente marca a partir de agora + `antecedencia_min_h` e até 60 dias. Plano 23 (AG-D41): com a chave dos pedidos
+ * ligada, mais `JANELA_RESPOSTA_PEDIDO_H` (12 h) — todo pedido dá ao menos 12 h para a resposta. A janela é só a oferta:
+ * quem decide o status é o gatilho (vale também para a remarcação, que nasce agendada, AG-D24).
+ */
+export function janelaDoPaciente(tenant: Pick<TenantAgenda, 'antecedenciaMinH'> & Partial<Pick<TenantAgenda, 'agendaConfirmarPedidos'>>, agora: Date): { de: Date; ate: Date } {
+  const horas = tenant.antecedenciaMinH + (tenant.agendaConfirmarPedidos ? JANELA_RESPOSTA_PEDIDO_H : 0);
+  return { de: new Date(agora.getTime() + horas * 3_600_000), ate: new Date(agora.getTime() + JANELA_PACIENTE_DIAS * 86_400_000) };
+}
+
+/**
+ * Plano 23 (RN-425, AG-D65): a trava dos pedidos do consultório (classe própria, a mesma de `app_pedido_aguardar`). Ordem
+ * global: e-mail → tenant → paciente → consulta/pedido → notificações. No portal, no começo da transação, antes de
+ * `carregarPacienteParaEscrita` — nunca dentro de `gravarConsultaDoPaciente`.
+ */
+export async function travarPedidosDoTenant(tx: Tx, tenantId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agenda-pedidos-tenant'), hashtext(${tenantId}))`);
+}
+
+/**
+ * Plano 23 (RN-425, P23-M7): sob a trava do tenant, o horário não pode cruzar um pedido de pessoa nova aguardando
+ * (`app_pedidos_aguardando`: só intervalos, nos papéis `paciente` e `publico`, AG-D58). Cruzou → "acabou de ser ocupado".
+ */
+async function conferirAguardando(tx: Tx, h: Pick<Horario, 'inicio' | 'fim'>): Promise<void> {
+  const r = await tx.execute(sql`select 1 from app_pedidos_aguardando(${h.inicio}, ${h.fim}) as t(r) limit 1`);
+  if (r.rows.length) throw new ConsultaError({ inicio: MSG_AGENDA.ocupado });
 }
 
 /**
@@ -91,6 +114,8 @@ export function localRecusado(err: unknown): boolean {
  * Grava a consulta do paciente e tudo o que vem junto, na transação de quem chama: lembretes (RN-05),
  * "Consulta marcada" ao paciente, aviso à nutricionista (D18) e envio imediato. O 23P01 sobe para quem chama.
  * A consulta é a linha recém-inserida nesta transação: ninguém mais a vê, então `avisarPaciente` já a tem sozinha.
+ * Plano 23 (AG-D53): o status é do gatilho (a chave lida no banco), lido do RETURNING: `solicitada` não tem lembrete nem
+ * "consulta marcada" — só o aviso "Novo pedido de consulta" à nutricionista (com o link da fila); `agendada`, como sempre.
  */
 export async function gravarConsultaDoPaciente(
   tx: Tx,
@@ -98,7 +123,7 @@ export async function gravarConsultaDoPaciente(
   p: Pick<PatientRow, 'id' | 'nome'>,
   h: HorarioEscolhido,
   o: { agora: Date; appUrl: string; evento: 'marcada' | 'remarcada' | 'novo_paciente_publico'; remarcadaDe?: string },
-): Promise<string> {
+): Promise<{ id: string; status: 'agendada' | 'solicitada' }> {
   const [c] = await tx
     .insert(appointments)
     .values({
@@ -118,13 +143,17 @@ export async function gravarConsultaDoPaciente(
       createdAt: o.agora,
       updatedAt: o.agora,
     })
-    .returning({ id: appointments.id });
+    .returning({ id: appointments.id, status: appointments.status });
+  if (c.status === 'solicitada') {
+    await avisarNutriDaConsulta(tx, tenant, { id: c.id, inicio: h.inicio, paciente: p.nome }, 'pedido', o.appUrl);
+    return { id: c.id, status: 'solicitada' };
+  }
   const alvo = { tenantId: tenant.id, patientId: p.id, appointmentId: c.id, inicio: h.inicio };
   await agendarLembretes(tx, alvo, tenant.fuso, o.agora);
   await avisarPaciente(tx, alvo, 'consulta_marcada', o.agora);
   await avisarNutriDaConsulta(tx, tenant, { id: c.id, inicio: h.inicio, paciente: p.nome }, o.evento, o.appUrl);
   await dispararEnvio(tx, tenant.id);
-  return c.id;
+  return { id: c.id, status: 'agendada' };
 }
 
 /**
@@ -141,7 +170,7 @@ export async function agendarComoPaciente(
   tenant: TenantAgenda,
   input: { inicio: unknown; localId: unknown },
   deps: { db?: Db; now?: Date; appUrl?: string } = {},
-): Promise<{ id: string }> {
+): Promise<{ id: string; status: 'agendada' | 'solicitada' }> {
   if (ctx.role !== 'paciente' || !ctx.patientId) throw new Error('agendarComoPaciente exige sessão de paciente');
   if (tenant.status !== 'ativa') throw new ConsultaError({ geral: MSG_AGENDA.contaIndisponivel }); // RN-15
   const db = deps.db ?? getDb();
@@ -153,6 +182,7 @@ export async function agendarComoPaciente(
       return withTenant(
         ctx,
         async (tx) => {
+          await travarPedidosDoTenant(tx, tenant.id); // AG-D65: tenant → paciente
           const p = await carregarPacienteParaEscrita(tx, ctx.patientId!);
           if (p.status !== 'ativo') throw new ConsultaError({ geral: MSG_AGENDA.naoAgendavel }); // RN-08
           const [{ n }] = await tx
@@ -160,7 +190,8 @@ export async function agendarComoPaciente(
             .from(appointments)
             .where(and(eq(appointments.patientId, p.id), inArray(appointments.status, STATUS_OCUPA), gt(appointments.inicio, agora)));
           if (n >= MAX_CONSULTAS_FUTURAS_PUBLICO) throw new ConsultaError({ geral: MSG_AGENDA.limitePublico }); // RN-16
-          return { id: await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'marcada' }) };
+          await conferirAguardando(tx, h); // RN-425
+          return gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'marcada' });
         },
         db,
       );

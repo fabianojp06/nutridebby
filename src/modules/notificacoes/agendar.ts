@@ -115,10 +115,13 @@ export async function agendarLembretes(tx: Tx, c: ConsultaParaLembrete, fuso: st
  * aviso ainda pendente ou saindo — `enviando`, revisão da T5) não gera um segundo: 14:00 (saindo) → 15:00 → 14:00 não manda
  * dois "14:00". Quem chama segura a trava da consulta (`lerConsultaParaEscrita`, ou a linha recém-criada na mesma
  * transação): duas chamadas para a mesma consulta não correm juntas.
+ * Plano 23 (RN-428): `pedido_nao_confirmado` (recusa e vencimento do pedido), também por e-mail e push — nada por WhatsApp —,
+ * inclusive de horário que já passou.
  */
-export async function avisarPaciente(tx: Tx, c: ConsultaParaLembrete, tipo: 'consulta_marcada' | 'consulta_cancelada', agora: Date): Promise<void> {
-  // D22: consulta que já começou — encaixe registrado depois, ou cancelamento que só acerta a agenda — não gera aviso
-  if (c.inicio.getTime() <= agora.getTime()) return;
+export async function avisarPaciente(tx: Tx, c: ConsultaParaLembrete, tipo: 'consulta_marcada' | 'consulta_cancelada' | 'pedido_nao_confirmado', agora: Date): Promise<void> {
+  // D22: consulta que já começou — encaixe registrado depois, ou cancelamento que só acerta a agenda — não gera aviso.
+  // Plano 23 (RN-428): o "não confirmado" sai mesmo assim (o pedido vencido com antecedência 0 ou depois de o worker parar)
+  if (tipo !== 'pedido_nao_confirmado' && c.inicio.getTime() <= agora.getTime()) return;
   const naFila = await tx
     .select({ id: notifications.id, canal: notifications.canal, status: notifications.status, inicioConsulta: notifications.inicioConsulta })
     .from(notifications)

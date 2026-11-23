@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { consultaDireta, em, localPrincipal, novoLocal, SP, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, localPrincipal, novoLocal, pedidoDireto, SP, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { transporteFalso, type TransporteFalso } from '../../../test/email';
 import { depsDeEnvio } from '../../../test/notificacoes';
@@ -14,6 +14,7 @@ import { logger } from '@/lib/logger';
 import { agendarPelaNutri, moverConsulta } from '@/modules/agenda/consultas';
 import { chaveDosLinks, lerLinkConsulta } from '@/modules/agenda/link-consulta';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
+import { partesNoFuso } from '@/modules/agenda/fuso';
 import { LOTE_POR_EXECUCAO, ordemDaRodada, processarNotificacoes, TRAVADA_MS } from './enviar';
 import type { ProvedorPush } from './push';
 
@@ -30,6 +31,7 @@ afterAll(async () => {
   await app.pool.end();
 });
 const chaveLinks = chaveDosLinks(encryptionKey());
+const partesNoFusoSP = (d: Date) => partesNoFuso(d, 'America/Sao_Paulo').data;
 const marcadaEm = new Date('2026-10-01T12:00:00Z');
 const deps = (agora: Date, transport?: TransporteFalso) => depsDeEnvio(agora, { db: app.db, transport });
 
@@ -347,5 +349,60 @@ describe('push sem consulta (Plano 06: push de teste, comentário, plano novo)',
     expect(push.payloads.map((p) => JSON.parse(p))).toEqual([{ titulo: 'NutriDebby', corpo: 'Notificações ativadas ✅', url: `http://localhost:3000/p/inicio?v=${T.tenantId}` }]);
     expect(await situacao(T, ids.arq)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'paciente_inativo' });
     expect(await situacao(T, ids.sem)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'sem_inscricao' });
+  });
+});
+
+describe('Plano 23 (T6b): o pedido no envio e o vencimento na varredura (§4.3, RN-427, RN-428, AG-D67)', () => {
+  const linhaDoPedido = async (T: TenantDeTeste, appointmentId: string, patientId: string, tipo: string, inicio: Date) =>
+    (
+      await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId, appointmentId, inicioConsulta: inicio, canal: 'email', tipo, agendadaPara: marcadaEm }).returning(), app.db)
+    )[0].id;
+  const situacao = async (T: TenantDeTeste, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.id, id)), app.db))[0];
+
+  it('"consulta marcada" e lembrete de um pedido `solicitada` → ignorada (consulta_nao_aceita); "não confirmado" só sai com a consulta cancelada', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const inicio = em('2026-10-20', '09:00');
+    const pedido = await pedidoDireto(app.db, T, ana.id, inicio);
+    const ids = {
+      marcada: await linhaDoPedido(T, pedido, ana.id, 'consulta_marcada', inicio),
+      lembrete: await linhaDoPedido(T, pedido, ana.id, 'lembrete_24h', inicio),
+      naoConfirmado: await linhaDoPedido(T, pedido, ana.id, 'pedido_nao_confirmado', inicio),
+    };
+    const d = deps(marcadaEm);
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    for (const id of Object.values(ids)) expect(await situacao(T, id), id).toMatchObject({ status: 'ignorada', motivoIgnorada: 'consulta_nao_aceita' });
+    expect(d.transport.enviados).toEqual([]);
+  });
+
+  it('processarNotificacoes({ tenantId }) vence só os pedidos daquele consultório, e o "não confirmado" sai na mesma volta', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, A.ctx);
+    const a = await pedidoDireto(app.db, A, ana.id, em('2026-10-16', '16:00'));
+    const b = await pedidoDireto(app.db, B, (await novoPaciente(app.db, B.ctx)).id, em('2026-10-16', '16:00'));
+    const d = deps(em('2026-10-16', '04:00'));
+    await processarNotificacoes(d, { tenantId: A.tenantId });
+    const status = async (T: TenantDeTeste, id: string) => (await withTenant(T.ctx, (tx) => tx.select({ s: appointments.status, por: appointments.canceladoPor }).from(appointments).where(eq(appointments.id, id)), app.db))[0];
+    expect(await status(A, a)).toEqual({ s: 'cancelada', por: 'pedido_vencido' });
+    expect(await status(B, b)).toEqual({ s: 'solicitada', por: null });
+    expect(d.transport.enviados.map((e) => [e.to, e.subject])).toEqual([[ana.email, 'Seu pedido de consulta não foi confirmado']]);
+  });
+
+  it('com um vencimento que falha, o lembrete pendente de outro consultório continua saindo (AG-D67)', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    // A: no prazo pelo relógio do banco, vencido pelo `agora` da volta → o gatilho recusa o vencimento (42501)
+    const futuro = new Date(Date.now() + 3 * 86_400_000);
+    const pedido = await pedidoDireto(app.db, A, (await novoPaciente(app.db, A.ctx)).id, new Date(futuro.getTime() + 6 * 3_600_000));
+    // B: "Consulta marcada" pendente
+    const ana = await novoPaciente(app.db, B.ctx, { nome: 'Ana Souza' });
+    const dia = partesNoFusoSP(new Date(futuro.getTime() + 2 * 86_400_000));
+    await agendarPelaNutri(B.ctx, tenantAgenda(B), { patientId: ana.id, data: dia, hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, B.ctx) }, { db: app.db, now: new Date(futuro.getTime() - 60_000) });
+    vi.mocked(listarTenantsParaVarredura).mockResolvedValueOnce([{ id: A.tenantId, fuso: SP }, { id: B.tenantId, fuso: SP }]);
+    const d = deps(futuro);
+    await processarNotificacoes(d);
+    expect(d.transport.enviados.map((e) => e.to)).toEqual([ana.email]);
+    expect((await withTenant(A.ctx, (tx) => tx.select({ s: appointments.status }).from(appointments).where(eq(appointments.id, pedido)), app.db))[0].s).toBe('solicitada');
   });
 });
