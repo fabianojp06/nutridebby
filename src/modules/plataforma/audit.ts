@@ -79,6 +79,13 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   // Plano 20 (RN-319): escritas de fin_lancamentos (gatilho), leituras de um paciente (RN-318) e o CSV (RN-321). A entidade
   // `financeiro_configuracoes` (RN-320) não tem paciente e fica fora do Histórico do paciente: sem rótulo
   financeiro: 'Financeiro',
+  // Plano 25 (RN-453, CH-D39): `chat` = escritas de chat_mensagens (gatilho) e leituras da conversa; `chat_conversa` = gatilho
+  // da linha da conversa (fora da tela, visivelNoHistorico); os atos de liberar, pausar e retomar vêm do recordAudit do módulo
+  chat: 'Mensagens (conversa com o paciente)',
+  chat_conversa: 'Mensagens — conversa',
+  chat_liberacao: 'Mensagens (conversa com o paciente)',
+  chat_pausa: 'Mensagens (conversa com o paciente)',
+  chat_retomada: 'Mensagens (conversa com o paciente)',
 };
 
 export type AccessHistoryItem = {
@@ -127,6 +134,10 @@ export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade' | 't
   // alterar o cadastro — evita dois "Criou" ao criar o paciente e o "Criou" no primeiro preenchimento de um paciente antigo.
   // O `excluir` da anonimização continua "Excluiu".
   if (i.entidade === 'patients' && i.acao === 'criar' && i.patientId !== undefined && i.entidadeId !== i.patientId) return ACAO_ROTULO.alterar;
+  // Plano 25 (RN-441, RN-442, CH-D39): os atos sobre a conversa (recordAudit de src/modules/mensagens/conversa.ts)
+  if (i.entidade === 'chat_liberacao' && i.acao === 'criar') return 'Liberou a conversa por mensagens';
+  if (i.entidade === 'chat_pausa' && i.acao === 'criar') return 'Pausou a conversa por mensagens';
+  if (i.entidade === 'chat_retomada' && i.acao === 'criar') return 'Retomou a conversa por mensagens';
   return ACAO_ROTULO[i.acao];
 }
 
@@ -146,6 +157,9 @@ export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade' | 't
  * máximo, 1 minuto depois do registrado_em (que vem do gatilho, clock_timestamp). Com SQL arbitrário, uma linha forjada
  * esconde no máximo os `alterar` do próprio ator nesse minuto; se uma revogação de verdade passar disso, sobram "Alterou"
  * na tela (falha para o lado de mostrar).
+ * Plano 25 (RN-453, CH-D39): o gatilho de chat_conversas grava a entidade neutra `chat_conversa` (o recado cria conversas
+ * sem liberação, e a pausa é um UPDATE como a liberação de uma conversa nascida de recado: o gatilho não distingue os
+ * atos); fica toda fora da tela, e o ato aparece pelo recordAudit do módulo (`chat_liberacao`, `chat_pausa`, `chat_retomada`).
  */
 const visivelNoHistorico = (patientId: string) =>
   sql`${auditLog.patientId} = ${patientId}
@@ -157,7 +171,8 @@ const visivelNoHistorico = (patientId: string) =>
          where r.patient_id = ${auditLog.patientId} and r.entidade = 'ia_nutri_revogacao' and r.acao = 'criar'
            and r.actor_user_id = ${auditLog.actorUserId}
            and c.evento = 'revogacao' and (c.registrado_por = r.actor_user_id or c.registrado_por is null)
-           and ${auditLog.criadoEm} between c.registrado_em and least(r.criado_em, c.registrado_em + interval '1 minute')))`;
+           and ${auditLog.criadoEm} between c.registrado_em and least(r.criado_em, c.registrado_em + interval '1 minute')))
+      and not (${auditLog.entidade} = 'chat_conversa')`;
 
 export type AccessHistoryPage = { itens: AccessHistoryItem[]; pagina: number; totalPaginas: number; total: number };
 
