@@ -214,7 +214,12 @@ pelo Docker rootless do CI (`DOCKER_HOST`). Fora do CI, sem `rclone`, eles são 
 
 Sobe um **segundo** container (também por `novoPostgres`/`uriDoPostgres`) e monta o banco como o runbook de produção: o migrator é dono do banco e **não** é
 superusuário (Plano 01, Tarefa 13, Ruling R49). Prova que as migrations rodam assim, que o role da aplicação não
-cria tabela temporária (M5) e que a função `SECURITY DEFINER` das métricas do admin funciona sob `FORCE RLS`.
+cria tabela temporária (M5) e que a função `SECURITY DEFINER` das métricas do admin funciona sob `FORCE RLS`. Desde o
+Plano 27, também o `REVOKE`/`GRANT` de `app_dia_no_fuso` e `app_hoje_do_tenant` feito pelo dono sem superusuário e o
+registro de meta pelo gatilho sob `FORCE RLS` (hoje e ontem no fuso de um tenant em `Asia/Tokyo`). Os gatilhos do Plano 27
+têm testes próprios em `src/modules/questionarios/banco.test.ts`, `src/modules/metas/banco.test.ts` e
+`src/modules/recordatorio/banco.test.ts` (93 chamadas `it(`; CHECKs provados pelo dono com os gatilhos desligados na
+transação, `session_replication_role`).
 
 ### Fora do Vitest
 
@@ -245,7 +250,7 @@ o porquê.
 
 **Por que a guarda confere a expressão e não só o nome.** Uma política `paciente_sem_delete USING (true)` tem o nome
 e o comando certos e não nega nada. A guarda normaliza o texto que o Postgres guarda e compara com a negação
-esperada (`normalizarExpressao` e `NEGA_PACIENTE`, `rls-guard.ts:212-213`; débito B-5 do Plano 06). O mesmo vale para a audiência: uma
+esperada (`normalizarExpressao` e `NEGA_PACIENTE`, `rls-guard.ts:216-217`; débito B-5 do Plano 06). O mesmo vale para a audiência: uma
 `paciente_conteudo_visivel USING (true)` mostraria ao paciente todo conteúdo do tenant (`AUDIENCIA_EXIGE`,
 `HERDA_DE_CONTENTS`, R11 do Plano 07). Os testes "B-5" e "R11" de `src/db/rls-guard.test.ts` (`:170` e `:204`)
 provam que essas armadilhas quebram o CI.
@@ -271,42 +276,42 @@ Outros testes de banco que funcionam como guarda:
 É o teste do RNF-07: "tenta ler, alterar e excluir dados de outro tenant e de outro paciente do mesmo tenant em
 todas as tabelas 🔒". Nasceu no Plano 02, Tarefa 8, e cada plano acrescentou as suas tabelas.
 
-**Montagem (`beforeAll`, `:278`).** Cria dois tenants, A e B, cada um com dois pacientes (`PAC`). A tem os pacientes
+**Montagem (`beforeAll`, `:331`).** Cria dois tenants, A e B, cada um com dois pacientes (`PAC`). A tem os pacientes
 P1 e P2. Para cada tabela com `tenant_id` fora de `RLS_EXCEPTIONS`, roda a fábrica uma vez por paciente de cada
-tenant, como nutricionista (`withTenant`, papel `nutri`, conexão `nutri_app`). Semear os **dois** tenants faz o teste
+tenant, como nutricionista (`withTenant`, papel `nutri`, conexão `nutri_app`), salvo o papel de `PAPEL_DA_FABRICA`. Semear os **dois** tenants faz o teste
 falhar tanto se uma política negar tudo quanto se liberar tudo (PF-F3).
 
 | Peça | Linha | O que é |
 |---|---|---|
 | `FABRICAS` | `:24` | Tabela → função `(tenantId, patientId) => SQL` que grava uma linha. Fábrica que precisa de linha-mãe cria a mãe **no mesmo comando** (CTE), ex.: `consultation_notes`, `meal_items`, `recipe_ingredients` |
-| `PAPEL_DA_FABRICA` | `:185` | Plano 17: papel do `beforeAll` quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão); `lembretes_rotina_envios` é semeada como `worker` (o gatilho `lembretes_rotina_envios_do_worker` recusa a equipe) |
-| `SO_INSERE` | `:187` | Tabelas append-only (`audit_log` e, desde o Plano 10A, `signed_document_receipts`; depois `ia_autorizacoes`, Plano 14A, e `ia_nutri_consentimentos`, Plano 15): UPDATE/DELETE já são negados por permissão |
-| `SEM_DELETE`, `DELETE_REVOGADO` | `:197`, `:204` | Plano 11 (D9): em `ia_tarefas` e `ia_uso` o DELETE da equipe é negado (gatilho `ia_tarefas_sem_apagar`; `REVOKE` em `ia_uso`): o teste do tenant B pula o DELETE e confere que nada sumiu; em `ia_uso` a recusa vem da permissão, antes da RLS, para qualquer contexto (inclusive `publico`; R4 do pre-flight). Plano 20: `fin_lancamentos` e `fin_configuracoes` nas duas listas (`REVOKE DELETE, TRUNCATE`, 0123) |
-| `IMUTAVEIS` | `:216` | Plano 10A (D19): `signed_documents`, `signed_document_notes`, `document_access_codes`; Plano 11 (revisão final): `ia_tarefas`; depois `exam_submissions` (Plano 12), `ia_geracoes_modelos` (14B-1), `ia_nutri_mensagens` (15), `lembretes_rotina` e `lembretes_rotina_envios` (17), `fin_lancamentos` (20) — o gatilho recusa mudar `tenant_id`/`patient_id` com `42501` antes do `WITH CHECK` da RLS (mensagem própria, não "row-level security") |
-| `SO_APAGA` | `:234` | Plano 10A: em `signed_documents` o DELETE de B só apaga rascunhos (os emitidos ficam, pelo gatilho); em `patients`, só os pacientes sem documento nem recibo (FK `NO ACTION`) — e, desde o Plano 20, sem lançamento do Financeiro. Um paciente a mais por tenant, sem documento, faz o filtro casar. Plano 20: `fin_categorias` só sem lançamento e sem `chave` ("Consultas" nunca sai) |
-| `ULTIMAS` | `:255` | Apagadas por último no teste de DELETE, porque as filhas têm FK `NO ACTION`/`RESTRICT` para elas (`foods`), ou cascata que zeraria linhas de B que o teste ainda conta (`contents`, `recipes`); desde o Plano 10A, `signed_documents` e `stored_files` (FKs `NO ACTION` dos PDFs); desde o Plano 17, `lembretes_rotina` (apagar antes zeraria em cascata as marcas de B); `patients` é sempre a última. `fin_categorias` (Plano 20) fica fora: a única filha está em `SEM_DELETE` e o `SO_APAGA` deixa de fora a categoria com lançamento |
-| `COLUNA_TITULAR` | `:324` | Em `patients` o titular é a coluna `id` |
-| `SEM_DELETE_DO_PACIENTE` | `:326` | O paciente nunca é apagado (arquiva, bloqueia, anonimiza) |
-| `UPDATE_DO_PACIENTE` | `:384` | O único UPDATE que a sessão de paciente consegue na própria linha de `data_exports` (`pendente → falhou`); depois `exam_submissions` (Plano 12), `ia_nutri_mensagens` (15) e `lembretes_rotina` (`desligado_pelo_paciente_em = now()`, 17) |
+| `PAPEL_DA_FABRICA` | `:215` | Plano 17: papel do `beforeAll` quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão); `lembretes_rotina_envios` é semeada como `worker` (o gatilho `lembretes_rotina_envios_do_worker` recusa a equipe). Plano 27: o valor `'dono'` roda a fábrica pelo `owner.pool`, no contexto vazio — `metas_registros`, que o gatilho `metas_registros_regras` recusa à equipe e ao `worker` |
+| `SO_INSERE` | `:217` | Tabelas append-only (`audit_log` e, desde o Plano 10A, `signed_document_receipts`; depois `ia_autorizacoes`, Plano 14A, e `ia_nutri_consentimentos`, Plano 15): UPDATE/DELETE já são negados por permissão |
+| `SEM_DELETE`, `DELETE_REVOGADO` | `:230`, `:238` | Plano 11 (D9): em `ia_tarefas` e `ia_uso` o DELETE da equipe é negado (gatilho `ia_tarefas_sem_apagar`; `REVOKE` em `ia_uso`): o teste do tenant B pula o DELETE e confere que nada sumiu; em `ia_uso` a recusa vem da permissão, antes da RLS, para qualquer contexto (inclusive `publico`; R4 do pre-flight). Plano 20: `fin_lancamentos` e `fin_configuracoes` nas duas listas (`REVOKE DELETE, TRUNCATE`, 0123). Plano 27: `questionario_envios`, `recordatorios`, `metas_paciente` e `metas_registros` nas duas (`REVOKE DELETE, TRUNCATE`, 0128) |
+| `IMUTAVEIS` | `:252` | Plano 10A (D19): `signed_documents`, `signed_document_notes`, `document_access_codes`; Plano 11 (revisão final): `ia_tarefas`; depois `exam_submissions` (Plano 12), `ia_geracoes_modelos` (14B-1), `ia_nutri_mensagens` (15), `lembretes_rotina` e `lembretes_rotina_envios` (17), `fin_lancamentos` (20) — o gatilho recusa mudar `tenant_id`/`patient_id` com `42501` antes do `WITH CHECK` da RLS (mensagem própria, não "row-level security"). Plano 27: `questionario_envios`, `recordatorios`, `recordatorio_itens`, `metas_paciente` e `metas_registros` — os gatilhos recusam coluna fixa com `42501`, mas mudar o tenant ou o titular para fora da sessão cai na RLS (QP-D35: `RETURN NEW`); o `negado` aceita qualquer 42501 |
+| `SO_APAGA` | `:281` | Plano 10A: em `signed_documents` o DELETE de B só apaga rascunhos (os emitidos ficam, pelo gatilho); em `patients`, só os pacientes sem documento nem recibo (FK `NO ACTION`) — e, desde o Plano 20, sem lançamento do Financeiro; desde o Plano 27, sem envio de questionário, recordatório, meta nem registro de meta (DELETE revogado: as linhas ficam e seguram a FK). Um paciente a mais por tenant, sem documento, faz o filtro casar. Plano 20: `fin_categorias` só sem lançamento e sem `chave` ("Consultas" nunca sai) |
+| `ULTIMAS` | `:307` | Apagadas por último no teste de DELETE, porque as filhas têm FK `NO ACTION`/`RESTRICT` para elas (`foods`), ou cascata que zeraria linhas de B que o teste ainda conta (`contents`, `recipes`); desde o Plano 10A, `signed_documents` e `stored_files` (FKs `NO ACTION` dos PDFs); desde o Plano 17, `lembretes_rotina` (apagar antes zeraria em cascata as marcas de B); `patients` é sempre a última. `fin_categorias` (Plano 20) fica fora: a única filha está em `SEM_DELETE` e o `SO_APAGA` deixa de fora a categoria com lançamento |
+| `COLUNA_TITULAR` | `:380` | Em `patients` o titular é a coluna `id` |
+| `SEM_DELETE_DO_PACIENTE` | `:385` | O paciente nunca é apagado (arquiva, bloqueia, anonimiza). Plano 27: também `questionario_envios`, `recordatorios`, `metas_paciente` e `metas_registros` — tabelas que o paciente **lê** e cujo DELETE dá "permission denied" (REVOKE) em vez de 0 linhas |
+| `UPDATE_DO_PACIENTE` | `:450` | O único UPDATE que a sessão de paciente consegue na própria linha de `data_exports` (`pendente → falhou`); depois `exam_submissions` (Plano 12), `ia_nutri_mensagens` (15) e `lembretes_rotina` (`desligado_pelo_paciente_em = now()`, 17); Plano 27: `questionario_envios` (a resposta pelo app: `respondido` com `respostas = '{}'` e via `app`) e `metas_registros` (`cumprida = cumprida`: o UPDATE sem mudança passa; o registro de hoje e de ontem é provado em `src/modules/metas/banco.test.ts`) |
 
-**O que cada caso prova (`describe` em `:397`):**
+**O que cada caso prova (`describe` em `:465`):**
 
 | Caso | Prova |
 |---|---|
-| "toda tabela com tenant_id tem fábrica neste teste" (`:398`) | Tabela nova sem fábrica quebra o CI |
-| WITH CHECK do tenant (`:403`) | B não grava linha com o `tenant_id` de A nem move a própria linha para A |
-| WITH CHECK do paciente (`:416`) | P2 não grava linha de P1 nem move a própria para P1 |
-| D1 (`:437`) | Fora de `PACIENTE_ESCREVE`, P2 não cria nem a própria linha |
-| `staff_only` (`:446`) | A sessão de paciente não vê nem grava nada nessas tabelas |
-| `publico` (`:459`) | O visitante só lê e grava o que `PUBLICO_LIBERADO` declara |
-| `conta` (`:480`) | Sem tenant, a conta do paciente não vê nem grava nada (só `patients` da própria conta) |
-| Leitura, alteração e exclusão de B (`:491`) | B só vê e só altera as próprias linhas; as de A ficam intactas (contagem feita com o dono) |
-| Leitura, alteração e exclusão de P2 (`:541`) | P2 só vê e altera as próprias linhas; as de P1 ficam intactas |
+| "toda tabela com tenant_id tem fábrica neste teste" (`:466`) | Tabela nova sem fábrica quebra o CI |
+| WITH CHECK do tenant (`:471`) | B não grava linha com o `tenant_id` de A nem move a própria linha para A |
+| WITH CHECK do paciente (`:484`) | P2 não grava linha de P1 nem move a própria para P1 |
+| D1 (`:505`) | Fora de `PACIENTE_ESCREVE`, P2 não cria nem a própria linha |
+| `staff_only` (`:514`) | A sessão de paciente não vê nem grava nada nessas tabelas |
+| `publico` (`:527`) | O visitante só lê e grava o que `PUBLICO_LIBERADO` declara |
+| `conta` (`:548`) | Sem tenant, a conta do paciente não vê nem grava nada (só `patients` da própria conta) |
+| Leitura, alteração e exclusão de B (`:559`) | B só vê e só altera as próprias linhas; as de A ficam intactas (contagem feita com o dono) |
+| Leitura, alteração e exclusão de P2 (`:609`) | P2 só vê e altera as próprias linhas; as de P1 ficam intactas |
 
 O teste distingue a recusa da RLS (`violaRls`: código `42501` e mensagem de *row-level security*) de outro erro
 qualquer. Uma FK quebrada não conta como isolamento. Desde o Plano 11 (revisão da T1), nos testes negativos de escrita a
 recusa tem de vir da política **da própria tabela** (`violaRlsDe`: a mensagem cita `for table "<tabela>"`); só as
-fábricas de `COM_MAE` (`:350`; desde o Plano 17, também `lembretes_rotina_envios`, que cria o lembrete-mãe no mesmo comando; desde o Plano 20, `fin_lancamentos`, que cria a categoria no mesmo comando — a prova da política da própria tabela no INSERT fica em `src/modules/financeiro/banco.test.ts`), que criam a mãe no mesmo comando, aceitam a recusa da mãe. Tabela nova não entra em
+fábricas de `COM_MAE` (`:409`; desde o Plano 17, também `lembretes_rotina_envios`, que cria o lembrete-mãe no mesmo comando; desde o Plano 20, `fin_lancamentos`, que cria a categoria no mesmo comando — a prova da política da própria tabela no INSERT fica em `src/modules/financeiro/banco.test.ts`; desde o Plano 27, `recordatorio_itens` e `metas_registros`, com a mãe obrigatória criada no mesmo comando e a prova da própria política em `src/modules/{recordatorio,metas}/banco.test.ts`), que criam a mãe no mesmo comando, aceitam a recusa da mãe. Tabela nova não entra em
 `COM_MAE`: a fábrica grava só a própria tabela, como a de `ia_tarefas` (`exam_id` nulo, status `falhou`).
 
 ### 7.4.3 Guardas de código (leitura do fonte)
@@ -434,7 +439,10 @@ O Safari do iOS fica no teste manual do runbook (comentário em `playwright.conf
   não se apaga): todo "Realizada" deixa a consulta no banco de dev para sempre, e nenhum spec pode esperar a agenda vazia
   (R-312); e cria **dois consultórios novos por execução**, sem Financeiro, com as contas `E2E_FIN_NOVO` (o
   `financeiro.spec` configura) e `E2E_FIN_AXE` (o axe do estado não configurado) recriadas apontando para eles — o primeiro
-  acesso fica repetível sem apagar a linha de `fin_configuracoes` ([§12.10](12-financeiro.md#1210-testes-e-e2e)).
+  acesso fica repetível sem apagar a linha de `fin_configuracoes` ([§12.10](12-financeiro.md#1210-testes-e-e2e));
+- desde o Plano 27, a consulta com envio de questionário também fica na limpeza da agenda, cancelada pelo "sistema"
+  (`comVinculo` no lugar de `comLancamento`, `scripts/e2e-seed.ts:119-120`: o envio aponta para a consulta com FK
+  `NO ACTION` e não se apaga).
 
 As senhas dessas contas são fictícias e fixas no arquivo (o GitGuardian acusou; o backlog manda marcar como
 credencial de teste). Nunca reaproveite essas contas fora do E2E.

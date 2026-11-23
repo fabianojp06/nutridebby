@@ -27,8 +27,11 @@ Duas migrations, que rodam sozinhas no boot do `nutri_app` (com o `DATABASE_URL_
   `recordatorio_itens`, `metas_modelos`, `metas_paciente`, `metas_registros`), as colunas novas de `anamnesis_templates`
   (`finalidade` com default permanente `'anamnese'`, `envio_auto`, `envio_auto_dias`), o índice do modelo padrão refeito
   por finalidade, o UNIQUE novo em `anamneses` e o tipo `questionario_novo` no CHECK de `notifications`;
-- a **custom** `…_rls_questionario_recordatorio_metas`: RLS, `staff_only` (agora também em `anamnesis_templates`),
-  auditoria, `REVOKE DELETE`, a política `paciente_meta_registro_com_conta`, os gatilhos e as funções de fuso.
+- a **custom** `…_rls_questionario_recordatorio_metas`: a FK `questionario_envios_anamnese_fk` (de `questionario_envios`
+  para `anamneses`; fica aqui porque, na gerada, o drizzle-kit cria o UNIQUE novo de `anamneses` depois das FKs e a
+  migration falharia com 42830 — ao regenerar o PR sobre a `main`, ela continua na custom), RLS, `staff_only` (agora
+  também em `anamnesis_templates`), auditoria, `REVOKE DELETE`, as políticas `paciente_meta_registro_com_conta` e
+  `paciente_recordatorio_com_conta`, os gatilhos e as funções de fuso.
 
 É **expansão, nunca contração**: nenhuma coluna existente muda, as colunas novas têm default ou são anuláveis, e as linhas
 atuais de `anamnesis_templates` ficam todas `anamnese` (nada colide no índice refeito).

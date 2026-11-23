@@ -1080,12 +1080,15 @@ pelo 26 no rebase dele.
 ### 9.6 Ordem das migrations e listas
 
 1. **Gerada**: colunas e índices de `anamnesis_templates`; as seis tabelas; CHECK de `notifications`. Sem edição à mão.
-2. **Custom** `rls_questionario_recordatorio_metas`: tudo das §9.1 a §9.4, `app_hoje_do_tenant()`, gatilhos e `REVOKE`.
+2. **Custom** `rls_questionario_recordatorio_metas`: tudo das §9.1 a §9.4, `app_hoje_do_tenant()`, gatilhos e `REVOKE`; também
+   a FK `questionario_envios_anamnese_fk` (na gerada, o drizzle-kit criaria o UNIQUE novo de `anamneses` depois das FKs: 42830).
 
 - `FUNCOES_COM_PAPEL` (se o 26 estiver na `main`): `app_questionario_envios_regras`, `app_metas_registros_regras`,
   `app_metas_paciente_regras`, `app_recordatorios_regras` → **"não se aplica (tabela negada à recepção)"**.
-- `CLAUDE.md`: **regra 2** — frase "Plano 27" no fim (as três tabelas com escrita do paciente e os gatilhos;
-  `anamnesis_templates` e `metas_modelos` em `STAFF_ONLY`; `recordatorios` e `metas_*` sem DELETE); **regra 8** —
+- `CLAUDE.md`: **regra 2** — frase "Plano 27" no fim (as duas tabelas com escrita do paciente — `questionario_envios`, `update`, e `metas_registros`,
+  `insert`/`update` — e os gatilhos;
+  `anamnesis_templates` e `metas_modelos` em `STAFF_ONLY`; `questionario_envios`, `recordatorios`, `metas_paciente` e
+  `metas_registros` sem DELETE); **regra 8** —
   entidades `questionario`, `questionario_resposta`, `recordatorio`, `recordatorio_item` (fora do Histórico), `metas` e `metas_registro`, as leituras que gravam e as que não (RN-530, RN-544, RN-548) e a
   abertura do link com ator nulo e IP.
 - `src/db/schema/`: arquivo novo `questionarios-metas.ts` (as seis tabelas), colunas em `pacientes.ts`; reexporta em

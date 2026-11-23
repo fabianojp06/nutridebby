@@ -37,7 +37,7 @@ Entidades de auditoria das tabelas deste capítulo (gatilho instalado por `app_e
 | `data_exports` | `exportacoes` | `drizzle/0035_rls_exportacoes.sql` |
 | `meal_plans`, `meals`, `meal_items` | `plano_alimentar` | `drizzle/0045_rls_planos_alimentares.sql` |
 
-Tabelas sem `patient_id` (`anamnesis_templates`, `patient_tags`, `foods`, `food_measures`) não têm gatilho.
+Tabelas sem `patient_id` (`anamnesis_templates`, `patient_tags`, `foods`, `food_measures` e, do Plano 27, `metas_modelos`) não têm gatilho.
 
 ---
 
@@ -304,11 +304,11 @@ Decisão (Plano 03, "Notas privadas e etiquetas"): tabelas próprias com a polí
 
 **Arquivos:** `anamnese.ts`, `anamnese-tipos.ts` (puro, usado também no navegador), `anamnese-padrao.ts`.
 
-**Tabelas:** `anamnesis_templates` 🔒 (`nome`, `schema jsonb`, `padrao`, `arquivado_em`; índice único parcial de um padrão por tenant; Plano 14B-1: `ia_geracao_id`, `aprovado_em`, `aprovado_por`) e `anamneses` 🔒 (`template_snapshot`, `respostas`, `data`).
+**Tabelas:** `anamnesis_templates` 🔒 (`nome`, `schema jsonb`, `padrao`, `arquivado_em`; Plano 14B-1: `ia_geracao_id`, `aprovado_em`, `aprovado_por`; **`staff_only` desde o Plano 27**, QP-D25, e as colunas `finalidade` — `anamnese`/`questionario`, default permanente `'anamnese'` —, `envio_auto` e `envio_auto_dias`; índice único parcial de um padrão por tenant **e finalidade**, [§2.5.4](02-banco-de-dados.md#254-prontuário-pacientests)) e `anamneses` 🔒 (`template_snapshot`, `respostas`, `data`; desde o Plano 27, UNIQUE (`tenant_id`, `patient_id`, `id`), alvo da FK da cópia das respostas do questionário). No PR 1 do Plano 27 só o banco mudou: o módulo ainda não filtra nem grava `finalidade` (até o PR 2 todo modelo é de anamnese, pelo default) e nunca lê modelos em contexto de paciente, então o `staff_only` novo não o afeta.
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `garantirModeloPadrao(tx, tenantId)` | Cria "Anamnese geral" se o tenant nunca teve padrão; corrida decidida pelo índice único (`ON CONFLICT DO NOTHING`) | `anamnese.ts:36` |
+| `garantirModeloPadrao(tx, tenantId)` | Cria "Anamnese geral" se o tenant nunca teve padrão; corrida decidida pelo índice único (`ON CONFLICT DO NOTHING` sem alvo, que continua valendo com o índice por finalidade do Plano 27) | `anamnese.ts:36` |
 | `listarModelos(ctx)` | Garante o padrão e lista os não arquivados, com `sugestaoIa` e `aprovadoEm` (Plano 14B-1) | `anamnese.ts:42` |
 | `listarModelosUsaveis(ctx)`, `buscarModeloUsavel(ctx, id)` | Plano 14B-1 (RN-125): só os próprios e os sugeridos pela IA **aprovados** — as escolhas do paciente (lista, página "nova" e a action) | `anamnese.ts:47,75` |
 | `aprovarModeloAnamnese(ctx, id)` | Plano 14B-1: "Aprovar modelo" com o modelo travado; grava `aprovado_por` (= `actorUserId`) e `aprovado_em`; sem origem IA → "modelo não encontrado" | `anamnese.ts:93` |
