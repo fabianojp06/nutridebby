@@ -455,3 +455,41 @@ test('Plano 26: Relatórios (seções, erro do período e impressão) a 1280 e 3
   }
   expect(falhas).toEqual([]);
 });
+
+/**
+ * Plano 23 (US-400, US-404 a US-406, RNF-403): a agenda em Mês, a Semana com "Mostrar 24 horas", filtro de local e
+ * aniversários, os Locais e a impressão — nos três modos, a 1280 e a 360 px (a 360 px a grade e o Mês viram lista por dia,
+ * sem rolagem lateral). O id do local vem do próprio filtro ("Clínica Centro E2E" da semente, AG-D59).
+ */
+test('Plano 23: agenda em Mês e em Semana com filtro e 24 horas, Locais e impressão, nos três modos, 1280 e 360 px', async () => {
+  test.setTimeout(240_000);
+  await nutri.goto('/painel/agenda');
+  const local = await nutri.getByLabel('Local', { exact: true }).locator('option', { hasText: 'Clínica Centro E2E' }).getAttribute('value');
+  expect(local).toMatch(/^[0-9a-f-]{36}$/);
+  const urls = ['/painel/agenda?visao=mes', `/painel/agenda?visao=semana&horas=24&local=${local}&aniversario=1`, '/painel/agenda?visao=lista', '/painel/agenda/locais', '/painel/agenda/imprimir'];
+  const falhas: string[] = [];
+  try {
+    for (const [modo, tema, aparelho] of [
+      ['claro', 'Claro', 'light'],
+      ['escuro', 'Escuro', 'light'],
+      ['igual ao aparelho (aparelho escuro)', 'Igual ao aparelho', 'dark'],
+    ] as const) {
+      await escolherTema(nutri, tema);
+      await nutri.emulateMedia({ colorScheme: aparelho });
+      for (const [largura, altura] of [[1280, 720], [360, 780]] as const) {
+        await nutri.setViewportSize({ width: largura, height: altura });
+        for (const url of urls) {
+          await nutri.goto(url);
+          await nutri.waitForLoadState('networkidle');
+          for (const v of await violacoes(nutri, undefined, { ignorarForaDaTela: largura === 360 })) falhas.push(`${modo} ${largura} px ${url} — ${v}`);
+          if (largura === 360 && !(await nutri.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${modo} 360 px ${url} — rola na horizontal`);
+        }
+      }
+    }
+  } finally {
+    await nutri.setViewportSize({ width: 1280, height: 720 });
+    await nutri.emulateMedia({ colorScheme: 'light' });
+    await escolherTema(nutri, 'Igual ao aparelho');
+  }
+  expect(falhas).toEqual([]);
+});

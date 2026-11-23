@@ -681,3 +681,33 @@ test('paciente não alcança o painel nem a API da nutricionista (403 ou vai ao 
     expect(await r.json(), `${metodo} ${url}`).toEqual({ erro: 'Acesso negado' });
   }
 });
+
+// Plano 23 (US-403, RNF-403): com mais de um local com agendamento (a semente tem três, AG-D59), o agendamento do portal e a
+// página pública mostram "Onde você quer ser atendido?" — rádios de bloco com alvo ≥ 44 px; axe no claro e com o aparelho
+// escuro, a 360 px, sem rolagem lateral. IP da página pública: 10.9.23.5 (bloco do Plano 23, AG-D56).
+test('Plano 23: escolha do local no agendamento do portal e na página pública, claro e escuro, a 360 px', async ({ browser }) => {
+  const anonimo = await (await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.23.5' } })).newPage();
+  const antes = paciente.page.viewportSize();
+  const falhas: string[] = [];
+  try {
+    for (const [page, url] of [[paciente.page, '/p/agenda/nova'], [anonimo, '/n/e2e-consultorio']] as const) {
+      await page.setViewportSize({ width: 360, height: 780 });
+      for (const modo of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: modo });
+        await page.goto(url);
+        await page.waitForLoadState('networkidle');
+        const grupo = page.getByRole('group', { name: 'Onde você quer ser atendido?' });
+        await expect(grupo, url).toBeVisible();
+        await expect(grupo.getByRole('radio')).toHaveCount(3);
+        for (const rotulo of await grupo.locator('label').all()) expect((await rotulo.boundingBox())?.height ?? 0, url).toBeGreaterThanOrEqual(44);
+        for (const v of await violacoes(page)) falhas.push(`${modo} ${url} — ${v}`);
+        if (!(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${modo} ${url} — rola na horizontal`);
+      }
+      await page.emulateMedia({ colorScheme: 'light' });
+    }
+  } finally {
+    if (antes) await paciente.page.setViewportSize(antes);
+    await anonimo.context().close();
+  }
+  expect(falhas).toEqual([]);
+});
