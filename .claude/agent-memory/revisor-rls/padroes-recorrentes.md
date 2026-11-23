@@ -546,3 +546,9 @@ Plano 23, T3 (local na consulta e nos horários, 23/11/2026): sem Critical; trav
   valor inicial de todo seletor que filtra arquivados contra o valor gravado no registro editado.
 - Gatilho de cópia pela `origem` (sala → link) também dispara no UPDATE da equipe: sobrescreve o valor que a nutri digitou
   numa linha nascida no portal. Conferir o gatilho de cópia nos caminhos de edição, não só no INSERT do papel alvo.
+Plano 23, T4 (local fora do painel, 23/11/2026): sem Critical; módulos limpos (projeções, chaves, localRecusado, par início+local).
+- Guarda por AST "select() sem colunas no publico" testada com script à parte (copiar as funções do teste e rodar com node +
+  typescript do projeto): 7 falsos negativos — coluna da sala explícita (`select({ l: appointments.linkOnline })`), alias de
+  import, `schema.appointments`, alias de `locaisAtendimento`, `.returning()` sem colunas no INSERT do publico (devolve a sala
+  copiada pelo gatilho), `sql` cru e ctx publico numa const. Controle positivo só com os casos que a guarda já pega não prova
+  nada sobre o resto: pedir no controle os casos de bypass, não só os acertos.
