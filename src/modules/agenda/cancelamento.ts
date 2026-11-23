@@ -12,6 +12,7 @@ import { avisarNutri, avisarNutriDaConsulta } from './aviso-nutri';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError, ConsultaNaoEncontradaError, ehSobreposicao, lerConsultaParaEscrita, repetirSeDeadlock, STATUS_ATIVOS, type StatusConsulta, type TenantAgenda } from './consultas';
 import { noInicioDoLink, normalizarEmailDoLink } from './link-consulta';
+import { STATUS_OCUPA } from './status';
 
 /**
  * `inicioDoLink` (D20, revisão da T5): o início que o link assinado carrega — ou o do lembrete do WhatsApp respondido
@@ -119,12 +120,15 @@ export async function cancelarConsulta(ctx: TenantContext, tenant: TenantAgenda,
  * (cancelarLembretes, R11) e a nutricionista recebe UM aviso (D18; só o primeiro nome e quantas, sem dado de saúde).
  * Quem chama já segura o paciente (`carregarPacienteParaEscrita`): travas paciente → consultas (por id) → notificações.
  * As escritas em `appointments` são auditadas pelo gatilho (entidade "agenda"), com o ator do pedido. Devolve quantas.
+ * Plano 23 (RN-422, §4.3, critério do /code-review do #59): o pedido (`solicitada`) futuro também é cancelado, com o mesmo
+ * `sistema` — o gatilho appointments_regras_pedido só aceita esse par na sessão `nutri` com o titular já `bloqueado`
+ * (`atenderPedidoExclusao` bloqueia antes) — e libera o horário.
  */
 export async function cancelarFuturasPelaExclusao(tx: Tx, o: { tenantId: string; patientId: string; nome: string }, agora: Date): Promise<number> {
   const futuras = await tx
     .select({ id: appointments.id })
     .from(appointments)
-    .where(and(eq(appointments.patientId, o.patientId), inArray(appointments.status, [...STATUS_ATIVOS]), gt(appointments.inicio, agora)))
+    .where(and(eq(appointments.patientId, o.patientId), inArray(appointments.status, [...STATUS_OCUPA]), gt(appointments.inicio, agora)))
     .orderBy(asc(appointments.id))
     .for('update');
   if (!futuras.length) return 0;

@@ -44,7 +44,8 @@ export async function registrarPresenca(
     async (tx) => {
       await travarPacienteDaConsulta(tx, id); // id inválido ou de outro tenant → ConsultaNaoEncontradaError
       const c = await lerConsultaParaEscrita(tx, id);
-      if (c.status === 'cancelada') throw new ConsultaError({ geral: MSG_AGENDA.naoAlteravel });
+      // Plano 23 (§4.3): o pedido não tem presença (aceitar ou recusar antes; a cobrança do Plano 20 só nasce em realizada)
+      if (c.status === 'cancelada' || c.status === 'solicitada') throw new ConsultaError({ geral: MSG_AGENDA.naoAlteravel });
       if (c.inicio.getTime() > agora.getTime()) throw new ConsultaError({ geral: MSG_PRESENCA.antesDoInicio });
       if (c.status === situacao) return { cobranca: null };
       if (situacao === 'faltou') {
@@ -79,7 +80,11 @@ export async function contarPendenciasDePresencaNaTransacao(tx: Tx, agora: Date)
 
 export type Indicadores = { consultasMes: number; faltasMes: number; iniciadasMes: number; taxaMes: number | null; taxaMesAnterior: number | null };
 
-/** CS-03 / D21: mês civil no fuso do tenant; taxa = faltas ÷ consultas não canceladas já iniciadas. Uma transação. */
+/**
+ * CS-03 / D21: mês civil no fuso do tenant; taxa = faltas ÷ consultas não canceladas já iniciadas. Uma transação.
+ * Plano 23 (§4.3, critério do /code-review do #59): o pedido (`solicitada`) não é consulta — fora de total, iniciadas e
+ * iniciadasAnt, o mesmo recorte das métricas do admin (R-410).
+ */
 export async function indicadoresDaAgenda(ctx: TenantContext, fuso: string, agora: Date, db: Db = getDb()): Promise<Indicadores> {
   return withTenant(ctx, (tx) => indicadoresDaAgendaNaTransacao(tx, fuso, agora), db);
 }
@@ -89,12 +94,13 @@ export async function indicadoresDaAgendaNaTransacao(tx: Tx, fuso: string, agora
   const anterior = inicioDoMes(new Date(ini.getTime() - 1), fuso);
   const fim = inicioDoMesSeguinte(agora, fuso);
   const doMes = sql`${appointments.inicio} >= ${ini}`;
+  const consulta = sql`${appointments.status} not in ('cancelada', 'solicitada')`;
   const [r] = await tx
     .select({
-      total: sql<number>`count(*) filter (where ${doMes} and ${appointments.status} <> 'cancelada')`.mapWith(Number),
-      iniciadas: sql<number>`count(*) filter (where ${doMes} and ${appointments.status} <> 'cancelada' and ${appointments.inicio} <= ${agora})`.mapWith(Number),
+      total: sql<number>`count(*) filter (where ${doMes} and ${consulta})`.mapWith(Number),
+      iniciadas: sql<number>`count(*) filter (where ${doMes} and ${consulta} and ${appointments.inicio} <= ${agora})`.mapWith(Number),
       faltas: sql<number>`count(*) filter (where ${doMes} and ${appointments.status} = 'faltou')`.mapWith(Number),
-      iniciadasAnt: sql<number>`count(*) filter (where ${appointments.inicio} < ${ini} and ${appointments.status} <> 'cancelada' and ${appointments.inicio} <= ${agora})`.mapWith(Number),
+      iniciadasAnt: sql<number>`count(*) filter (where ${appointments.inicio} < ${ini} and ${consulta} and ${appointments.inicio} <= ${agora})`.mapWith(Number),
       faltasAnt: sql<number>`count(*) filter (where ${appointments.inicio} < ${ini} and ${appointments.status} = 'faltou')`.mapWith(Number),
     })
     .from(appointments)
@@ -117,7 +123,11 @@ export function textoTaxa(taxa: number | null, faltas?: number, total?: number):
 
 export type Novidades = { pedidosRemarcacao: Consulta[]; marcadasPeloPaciente: Consulta[]; canceladasPeloPaciente: Consulta[] };
 
-/** US-032/033/035 no painel: o que o paciente fez na agenda nos últimos 7 dias (e os pedidos de remarcação em aberto). */
+/**
+ * US-032/033/035 no painel: o que o paciente fez na agenda nos últimos 7 dias (e os pedidos de remarcação em aberto).
+ * Plano 23 (§4.3): o pedido de consulta não conta (as marcadas são `STATUS_ATIVOS`; a retirada é `pedido_desistido`, não
+ * `paciente`) — ele tem a fila própria (Solicitações).
+ */
 export async function novidadesDaAgenda(ctx: TenantContext, agora: Date, db: Db = getDb()): Promise<Novidades> {
   return withTenant(ctx, (tx) => novidadesDaAgendaNaTransacao(tx, agora), db);
 }
@@ -136,9 +146,11 @@ export async function novidadesDaAgendaNaTransacao(tx: Tx, agora: Date): Promise
  * A regra de "Iniciar atendimento" (R11: uma regra num lugar só — a tela, via `consultaParaIniciarAtendimento`, e o
  * registro, via `registrarAtendimento`, sob a trava da consulta): não cancelada e já começada (no início em ponto, já
  * pode). "realizada"/"faltou" podem: registrar o atendimento corrige a falta. null = pode.
+ * Plano 23 (§4.3): o pedido (`solicitada`) não recebe atendimento — `'pedido'`, antes de `'nao_comecou'` (aceitar antes).
  */
-export function motivoParaNaoIniciarAtendimento(c: { status: string; inicio: Date }, agora: Date): 'cancelada' | 'nao_comecou' | null {
+export function motivoParaNaoIniciarAtendimento(c: { status: string; inicio: Date }, agora: Date): 'cancelada' | 'pedido' | 'nao_comecou' | null {
   if (c.status === 'cancelada') return 'cancelada';
+  if (c.status === 'solicitada') return 'pedido';
   if (c.inicio.getTime() > agora.getTime()) return 'nao_comecou';
   return null;
 }

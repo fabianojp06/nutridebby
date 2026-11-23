@@ -8,8 +8,6 @@ import { QuandoLocal } from '../../quando-local';
 
 export const dynamic = 'force-dynamic';
 
-const SITUACAO: Record<string, string> = { agendada: 'Agendada', confirmada: 'Confirmada', cancelada: 'Cancelada', realizada: 'Realizada', faltou: 'Faltou' };
-
 export default async function Agenda() {
   const { ctx, tenant } = await requirePaciente('/p/agenda');
   const { proximas, anteriores, podeAgendar } = await consultasDoPaciente(ctx, tenant, new Date());
@@ -17,7 +15,8 @@ export default async function Agenda() {
     <li key={c.id}>
       <Link href={`/p/agenda/${c.id}`} className="flex min-h-11 items-center underline">
         <QuandoLocal semFuso={formatarQuando(c.inicio, tenant.fuso)} comFuso={quandoComFuso(c.inicio, tenant.fuso)} fuso={tenant.fuso} />
-        {` · ${ROTULO_MODALIDADE[c.modalidade]} · ${SITUACAO[c.status]}`}
+        {/* Plano 23 (I-03, AG-D43): a situação vem do módulo (SITUACAO_NO_PORTAL, Record<StatusConsulta, string>) */}
+        {` · ${ROTULO_MODALIDADE[c.modalidade]} · ${c.situacao}`}
       </Link>
     </li>
   );

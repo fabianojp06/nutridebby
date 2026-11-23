@@ -44,7 +44,13 @@ export default async function ConsultaDoPortal({ params, searchParams }: PagePro
             <a href={c.linkOnline} className="inline-flex min-h-11 items-center underline" rel="noreferrer">Link da chamada</a>
           </p>
         )}
-        {ativa ? <AcoesConsulta id={c.id} confirmada={c.status === 'confirmada'} podeAlterar={c.podeAlterar} pedidoRemarcacao={c.pedidoRemarcacao} /> : <p>{c.status === 'cancelada' ? 'Esta consulta foi cancelada.' : 'Consulta encerrada'}</p>}
+        {ativa ? (
+          <AcoesConsulta id={c.id} confirmada={c.status === 'confirmada'} podeAlterar={c.podeAlterar} pedidoRemarcacao={c.pedidoRemarcacao} />
+        ) : (
+          // Plano 23 (AG-D43, AG-D44): o pedido mostra a situação dele ("Aguardando…", "Não confirmado", "Pedido cancelado");
+          // "Desistir do pedido" é da T8
+          <p>{c.pedido ? c.situacao : c.status === 'cancelada' ? 'Esta consulta foi cancelada.' : 'Consulta encerrada'}</p>
+        )}
         {s && (
           <section aria-labelledby="remarcar" className="space-y-3">
             <h2 id="remarcar" className="text-lg font-semibold">Remarcar</h2>

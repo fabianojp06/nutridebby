@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
-import { consultaDireta } from '../../../test/agenda';
+import { consultaDireta, pedidoDireto } from '../../../test/agenda';
 import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
 import { cobrancasDoPaciente } from '../../../test/financeiro';
 import { novoConteudo } from '../../../test/conteudos';
@@ -1170,5 +1170,25 @@ describe('Plano 22 — versões e notas do exame na LGPD (§13.3, /code-review d
     await chamar(worker(T));
     await chamar(worker(T)); // idempotente
     expect(await textosDe(T, p.id)).toEqual({ versoes: [{ j: null, titulo: 'Hemograma' }], notas: [{ t: null }] });
+  });
+});
+
+describe('Plano 23 (T6a) — o pedido de consulta na exclusão (RN-422, critério do #59)', () => {
+  it('exclusão atendida com um pedido `solicitada` pendente: cancelado pelo "sistema" depois do bloqueio, sai da agenda e libera o horário; conta no aviso', async () => {
+    const T = await novoTenant(app.db);
+    const nutriEmail = (await app.db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId)))[0].email;
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });
+    const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const inicio = new Date('2026-10-20T14:00:00-03:00');
+    const pedido = await pedidoDireto(app.db, T, ana.id, inicio);
+    const passado = await pedidoDireto(app.db, T, ana.id, new Date('2026-09-20T14:00:00-03:00')); // já passou: fica como está
+    await atenderPedidoExclusao(T.ctx, T.tenant, ana.id, 'Ana Souza', deps);
+    const [c] = await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.id, pedido)), app.db);
+    expect(c).toMatchObject({ status: 'cancelada', canceladoPor: 'sistema', canceladaEm: now, motivoCancelamento: null });
+    const [p] = await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.id, passado)), app.db);
+    expect(p.status).toBe('solicitada');
+    expect(await emailsNaFila('exclusao_consultas_canceladas', nutriEmail)).toEqual([{ tipo: 'exclusao_consultas_canceladas', para: nutriEmail, paciente: 'Ana', quantidade: 1 }]);
+    // o horário voltou a ficar livre (o EXCLUDE recusaria a consulta da Bia se o pedido ainda ocupasse)
+    await expect(consultaDireta(app.db, T.ctx, bia.id, inicio)).resolves.toEqual(expect.any(String));
   });
 });

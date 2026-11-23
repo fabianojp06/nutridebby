@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { consultaDireta } from '../../../test/agenda';
+import { consultaDireta, pedidoDireto } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { auditLog, consultationNotes, consultations } from '@/db/schema';
@@ -207,5 +207,19 @@ describe('Plano 20 (US-303, F-D13): o atendimento ligado a uma consulta que não
     await expect(registrarAtendimento(T.ctx, T.tenant, p.id, entrada(c), deps)).rejects.toMatchObject({ erros: { geral: MSG_ATENDIMENTO.consultaJaAtendida } });
     expect((await buscarConsulta(T.ctx, c, app.db))?.status).toBe('agendada');
     expect(await linhas(T.tenantId)).toEqual([]);
+  });
+});
+
+describe('Plano 23 (T6a, §4.3): o atendimento não nasce de um pedido', () => {
+  it('registrar atendimento ligado a um pedido → "Aceite o pedido antes de registrar o atendimento."; nada é gravado', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const pedido = await pedidoDireto(app.db, T, p.id, new Date('2026-10-01T12:00:00Z'));
+    const e = await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-10-01', notasPrivadas: '', orientacoes: '', appointmentId: pedido }, deps).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(AtendimentoError);
+    expect((e as AtendimentoError).erros).toEqual({ geral: 'Aceite o pedido antes de registrar o atendimento.' });
+    expect(MSG_ATENDIMENTO.pedido).toBe('Aceite o pedido antes de registrar o atendimento.');
+    expect((await buscarConsulta(T.ctx, pedido, app.db))?.status).toBe('solicitada');
+    expect(await listarAtendimentos(T.ctx, p.id, app.db)).toEqual([]);
   });
 });

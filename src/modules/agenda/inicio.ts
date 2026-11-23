@@ -46,8 +46,9 @@ export async function resumoDoDia(ctx: TenantContext, fuso: string, agora: Date,
 export async function resumoDoDiaNaTransacao(tx: Tx, fuso: string, agora: Date): Promise<ResumoDoDia> {
   const hoje = hojeNoFuso(fuso, agora);
   const agenda = (await listarAgendaNaTransacao(tx, inicioDoDia(hoje, fuso), inicioDoDia(somarDias(hoje, 1), fuso))).filter((c) => c.status !== 'cancelada');
+  // Plano 23 (§4.3): o pedido (`solicitada`) aparece na agenda de hoje com o selo, mas não é consulta: não conta no número
   const resumo = {
-    total: agenda.length,
+    total: agenda.filter((c) => c.status !== 'solicitada').length,
     confirmadas: agenda.filter((c) => c.status === 'confirmada').length,
     pedidosRemarcacao: agenda.filter((c) => c.pedidoRemarcacaoEm !== null).length,
   };

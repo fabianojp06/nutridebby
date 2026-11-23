@@ -196,3 +196,48 @@ export const MSG_VISOES = {
     colunas: { hora: 'Hora', paciente: 'Paciente', tipoConsulta: 'Tipo', local: 'Local', modalidade: 'Modalidade', situacao: 'Situação' },
   },
 } as const;
+
+/**
+ * Plano 23 (AG-D41): com a chave dos pedidos ligada, o portal e a página pública só oferecem horários que começam pelo
+ * menos `antecedencia_min_h` + 12 h depois de agora — todo pedido dá ao menos 12 h para a resposta. O vencimento continua
+ * em `inicio − antecedencia_min_h` (RN-427).
+ */
+export const JANELA_RESPOSTA_PEDIDO_H = 12;
+
+/**
+ * Plano 23 (US-407 a US-409, spec §6.2 "Solicitações", "Agenda: selos e legenda", "Portal e página pública" e
+ * "Atendimento"): textos dos pedidos de consulta. Vocabulário (AG-D43): no painel, "Pedido a responder"; no portal,
+ * "Aguardando confirmação da nutricionista".
+ */
+export const MSG_SOLICITACOES = {
+  titulo: 'Solicitações',
+  novaPessoa: (nome: string) => `Nova pessoa: ${nome}`,
+  origem: { app: 'App', pagina: 'Página de agendamento' },
+  pedidoEm: (data: string) => `Pedido em ${data}`,
+  respondaAte: (data: string, hora: string) => `Responda até ${data} às ${hora}`,
+  aceitar: 'Aceitar',
+  recusar: 'Recusar',
+  confirmarRecusa: (nome: string) => `Recusar o pedido de ${nome}? A pessoa recebe um e-mail avisando.`,
+  motivo: 'Motivo (só você vê)',
+  confirmarRecusaBotao: 'Confirmar recusa',
+  vazio: 'Nenhum pedido aguardando resposta.',
+  aceito: 'Pedido aceito. Consulta marcada.',
+  recusado: 'Pedido recusado.',
+  horarioOcupado: 'Esse horário já está ocupado. Recuse o pedido ou combine outro horário com a pessoa.',
+  emailInativo: 'Este e-mail é de um paciente arquivado ou bloqueado. Recuse o pedido ou fale com a pessoa.',
+  mudou: 'Este pedido já foi respondido ou venceu.',
+  pedidoAResponder: 'Pedido a responder',
+  primeiraOnline: 'Primeira consulta online: confira o TCLE de telenutrição antes de atender.',
+  selos: { retirado: 'Pedido retirado pelo paciente', naoAceito: 'Pedido não aceito', vencido: 'Pedido vencido' },
+  portal: {
+    aguardando: 'Aguardando confirmação da nutricionista',
+    naoConfirmado: 'Não confirmado',
+    /** AG-D44: a situação do pedido que o próprio paciente retirou (o aviso da tela é "Pedido cancelado."). */
+    pedidoCancelado: 'Pedido cancelado',
+    pedidoEnviado: 'Pedido enviado. Sua nutricionista vai confirmar o horário e você recebe um e-mail.',
+    desistir: 'Desistir do pedido',
+    desistirConfirma: 'Desistir deste pedido?',
+    cancelado: 'Pedido cancelado.',
+  },
+  atendimento: 'Aceite o pedido antes de registrar o atendimento.',
+} as const;

@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { and, count, eq } from 'drizzle-orm';
-import { consultaDireta } from '../../../test/agenda';
+import { consultaDireta, pedidoDireto } from '../../../test/agenda';
 import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { envioNoBanco } from '../../../test/exames-enviados';
@@ -106,5 +106,16 @@ describe('muralDoPaciente (Plano 16, RN-199, RN-200, RNF-190)', () => {
   it('só em sessão de paciente', async () => {
     const T = await novoTenant(app.db);
     await expect(muralDoPaciente(T.ctx, await tenantDe(T.tenantId), new Date(), app.db)).rejects.toThrow(/sessão de paciente/);
+  });
+});
+
+describe('Plano 23 (T6a, §4.3): o pedido não aparece no mural', () => {
+  it('o pedido `solicitada` dos próximos dias não vira o item "consulta"', async () => {
+    const agora = new Date();
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await pedidoDireto(app.db, T, p.id, new Date(agora.getTime() + 26 * 3600_000));
+    const mural = await muralDoPaciente(ctxPaciente(T.tenantId, p.id), await tenantDe(T.tenantId), agora, app.db);
+    expect(todos(mural).some((i) => i.tipo === 'consulta')).toBe(false);
   });
 });

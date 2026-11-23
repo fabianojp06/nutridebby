@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { consultaDireta } from '../../../test/agenda';
+import { consultaDireta, pedidoDireto } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { documentoNoBanco } from '../../../test/documentos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
@@ -75,6 +75,17 @@ describe('Início em bento (D22)', () => {
     expect(r.agenda.map((c) => c.inicio.toISOString())).toEqual([as(11), as(14)].map((d) => d.toISOString()));
     expect(r.hoje).toEqual({ total: 2, confirmadas: 0, pedidosRemarcacao: 0 });
     expect(r.proxima).toMatchObject({ consulta: { patientId: ana.id }, numero: 2, diario7d: 0, portal7d: 0 });
+  });
+  it('Plano 23 (T6a, §4.3): o pedido de hoje aparece na agenda com o selo, mas não conta no número nem é a próxima', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    await pedidoDireto(app.db, T, bia.id, as(13));
+    await consultaDireta(app.db, T.ctx, ana.id, as(15), 60, { status: 'confirmada' });
+    const r = await resumoDoDia(T.ctx, fuso, agora, app.db);
+    expect(r.agenda.map((c) => [c.inicio.toISOString(), c.status])).toEqual([[as(13).toISOString(), 'solicitada'], [as(15).toISOString(), 'confirmada']]);
+    expect(r.hoje).toEqual({ total: 1, confirmadas: 1, pedidosRemarcacao: 0 });
+    expect(r.proxima).toMatchObject({ consulta: { patientId: ana.id }, numero: 1 });
   });
   it('achado 6 do /code-review do PR #12: o nº da consulta não conta faltas (só agendada, confirmada e realizada)', async () => {
     const T = await novoTenant(app.db);

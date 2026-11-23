@@ -1,7 +1,10 @@
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { consultaDireta, em, semanaToda, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, pedidoDireto, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
+import { eq } from 'drizzle-orm';
+import { appointments } from '@/db/schema';
+import { withTenant } from '@/db/tenant';
 import { closeDb } from '@/db/client';
 import { stopBoss } from '@/jobs/boss';
 import { consultaDoPaciente, consultasDoPaciente, horariosDaSemana } from './agenda';
@@ -64,5 +67,34 @@ describe('agenda do paciente no PWA (P06-09)', () => {
     expect(r.semana <= r.ultima).toBe(true);
     expect(r.horarios.length).toBeGreaterThan(0);
     expect(r.horarios.every((h) => Date.parse(h.inicio) >= em('2026-10-05', '22:00').getTime())).toBe(true);
+  });
+});
+
+describe('Plano 23 (T6a, §4.3, AG-D43, AG-D44): o pedido em "Minhas consultas"', () => {
+  it('o pedido entra em "Próximas" como "Aguardando confirmação da nutricionista", sem alterar; conta no teto; recusado e vencido "Não confirmado"', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const ctx = ctxPaciente(T.tenantId, ana.id);
+    const agora = em('2026-10-05', '10:00');
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-09', '09:00'));
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-10', '09:00'));
+    const pedido = await pedidoDireto(app.db, T, ana.id, em('2026-10-12', '09:00'));
+    const r = await consultasDoPaciente(ctx, tenantAgenda(T, { agendaConfirmarPedidos: true }), agora, app.db);
+    expect(r.proximas.map((c) => [c.id === pedido, c.status, c.situacao, c.podeAlterar])).toEqual([
+      [false, 'agendada', 'Agendada', true],
+      [false, 'agendada', 'Agendada', true],
+      [true, 'solicitada', 'Aguardando confirmação da nutricionista', false],
+    ]);
+    expect(r.podeAgendar).toBe(false); // 2 consultas + 1 pedido = teto (RN-16)
+    // recusado e vencido: "Não confirmado" em "Anteriores"; o retirado, "Pedido cancelado"
+    const recusado = await pedidoDireto(app.db, T, ana.id, em('2026-10-13', '09:00'));
+    await withTenant(T.ctx, (tx) => tx.update(appointments).set({ status: 'cancelada', canceladoPor: 'pedido_recusado', canceladaEm: agora }).where(eq(appointments.id, recusado)), app.db);
+    const retirado = await pedidoDireto(app.db, T, ana.id, em('2026-10-14', '09:00'));
+    await withTenant(ctx, (tx) => tx.update(appointments).set({ status: 'cancelada', canceladoPor: 'pedido_desistido', canceladaEm: agora }).where(eq(appointments.id, retirado)), app.db);
+    const depois = await consultasDoPaciente(ctx, tenantAgenda(T), agora, app.db);
+    expect(Object.fromEntries(depois.anteriores.map((c) => [c.id, c.situacao]))).toEqual({ [recusado]: 'Não confirmado', [retirado]: 'Pedido cancelado' });
+    expect((await consultaDoPaciente(ctx, tenantAgenda(T), recusado, agora, app.db))?.situacao).toBe('Não confirmado');
+    // leitura preguiçosa (RN-427): às 21:00 do dia 11, o pedido das 09:00 do dia 12 (12 h de antecedência) já venceu
+    expect((await consultaDoPaciente(ctx, tenantAgenda(T), pedido, em('2026-10-11', '21:00'), app.db))?.situacao).toBe('Não confirmado');
   });
 });

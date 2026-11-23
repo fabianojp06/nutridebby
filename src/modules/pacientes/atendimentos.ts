@@ -20,6 +20,8 @@ export const MSG_ATENDIMENTO = {
   consultaInvalida: 'Consulta não encontrada para este paciente.',
   /** Code-review do PR #7: a consulta foi movida para o futuro depois de a tela abrir (ou o POST foi montado). */
   consultaNaoComecou: 'Esta consulta ainda não começou.',
+  /** Plano 23 (§4.3, §6.2 "Atendimento"): a consulta ligada ainda é um pedido (`solicitada`). */
+  pedido: 'Aceite o pedido antes de registrar o atendimento.',
 } as const;
 
 export class AtendimentoError extends Error {
@@ -90,7 +92,7 @@ export async function registrarAtendimento(
           if (!c) throw new AtendimentoError({ geral: MSG_ATENDIMENTO.consultaInvalida });
           // a regra da tela, conferida de novo sob a trava da consulta (R11: motivoParaNaoIniciarAtendimento)
           const motivo = motivoParaNaoIniciarAtendimento(c, now);
-          if (motivo) throw new AtendimentoError({ geral: motivo === 'cancelada' ? MSG_ATENDIMENTO.consultaInvalida : MSG_ATENDIMENTO.consultaNaoComecou });
+          if (motivo) throw new AtendimentoError({ geral: { cancelada: MSG_ATENDIMENTO.consultaInvalida, pedido: MSG_ATENDIMENTO.pedido, nao_comecou: MSG_ATENDIMENTO.consultaNaoComecou }[motivo] });
           if (c.status !== 'realizada') {
             await tx.update(appointments).set({ status: 'realizada', presencaEm: now, updatedAt: now }).where(eq(appointments.id, c.id));
             cobranca = await cobrarConsultaRealizada(tx, { tenantId: ctx.tenantId, fuso: tenant.fuso, consulta: { id: c.id, patientId: p.id, inicio: c.inicio } });

@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { consultaDireta, em, perdeDeadlockNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, pedidoDireto, perdeDeadlockNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
@@ -287,5 +287,21 @@ describe('confirmar presença e pedir remarcação (US-035)', () => {
     expect((await consulta(T, id)).pedidoRemarcacaoEm).toEqual(em('2026-10-16', '09:00'));
     const avisos = await emailsNaFila('aviso_agenda', await emailDaNutri(T));
     expect(avisos.filter((m) => m.evento === 'pedido_remarcacao')).toHaveLength(1);
+  });
+});
+
+describe('Plano 23 (T6a, AG-D70): o pedido não se cancela por cancelarConsulta', () => {
+  it('cancelar um pedido como paciente ou como nutricionista → "Esta consulta não pode mais ser cancelada." (a desistência é desistirDoPedido)', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const agora = em('2026-10-14', '10:00');
+    const pedido = await pedidoDireto(app.db, T, ana.id, em('2026-10-20', '09:00'));
+    expect(await erro(cancelarConsulta(ctxPaciente(T.tenantId, ana.id), tenantAgenda(T), pedido, { por: 'paciente' }, deps(agora)))).toEqual({ geral: MSG_AGENDA.naoCancelavel });
+    expect(await erro(cancelarConsulta(T.ctx, tenantAgenda(T), pedido, { por: 'nutri' }, deps(agora)))).toEqual({ geral: MSG_AGENDA.naoCancelavel });
+    expect((await consulta(T, pedido)).status).toBe('solicitada');
+    // nem remarca: o pedido desiste e pede outro (AG-D24)
+    const L = await semanaToda(app.db, T.ctx);
+    expect(await erro(remarcarComoPaciente(ctxPaciente(T.tenantId, ana.id), tenantAgenda(T), pedido, { inicio: em('2026-10-21', '09:00').toISOString(), localId: L }, deps(agora)))).toEqual({ geral: MSG_AGENDA.naoAlteravel });
+    expect((await consulta(T, pedido)).status).toBe('solicitada');
   });
 });

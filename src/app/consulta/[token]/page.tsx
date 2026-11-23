@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { abrirLinkConsulta, horariosDoLink, MENSAGEM_DO_LINK } from '@/modules/agenda/acoes-link';
 import { semanaDaJanela } from '@/modules/agenda/agendamento-paciente';
-import { MSG_AGENDA, ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
+import { MSG_AGENDA, MSG_SOLICITACOES, ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
+import type { StatusConsulta } from '@/modules/agenda/consultas';
 import { inicioDoDia, somarDias } from '@/modules/agenda/fuso';
 import { localInicial } from '@/modules/agenda/horarios';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
@@ -11,7 +12,15 @@ export const dynamic = 'force-dynamic';
 // O token está na URL: nunca mandá-lo como Referer (o next.config também manda o cabeçalho em /consulta/*)
 export const metadata: Metadata = { title: 'Sua consulta', referrer: 'no-referrer', robots: { index: false, follow: false } };
 
-const SITUACAO = { agendada: 'Agendada', confirmada: 'Presença confirmada', cancelada: MSG_AGENDA.consultaJaCancelada, realizada: 'Consulta realizada', faltou: 'Consulta encerrada' } as const;
+/** Plano 23 (I-03): um rótulo por StatusConsulta (o pedido não tem link, §4.3; o rótulo fica para o caso de existir). */
+const SITUACAO: Record<StatusConsulta, string> = {
+  agendada: 'Agendada',
+  confirmada: 'Presença confirmada',
+  cancelada: MSG_AGENDA.consultaJaCancelada,
+  realizada: 'Consulta realizada',
+  faltou: 'Consulta encerrada',
+  solicitada: MSG_SOLICITACOES.portal.aguardando,
+};
 
 function Aviso({ texto }: { texto: string }) {
   return (

@@ -12,9 +12,10 @@ import { dataDaAgendaValida, paraInstante, partesNoFuso } from './fuso';
 import { dentroDoHorario, gerarHorarios, HORA_HHMM, regraNoLocal, sobrepoe, textoAparado, type Horario, type Intervalo, type LocalDaGeracao, type Modalidade } from './horarios';
 import { linkSugerido, locaisAtivos, locaisParaAgendamento } from './locais';
 
-export type StatusConsulta = 'agendada' | 'confirmada' | 'cancelada' | 'realizada' | 'faltou';
+/** Plano 23 (RN-421, §4.3): `solicitada` = o pedido do paciente com a chave ligada (decidido pelo gatilho appointments_regras_pedido). */
+export type StatusConsulta = 'agendada' | 'confirmada' | 'cancelada' | 'realizada' | 'faltou' | 'solicitada';
 export type AvisoAgenda = 'fora_do_horario' | 'dentro_de_bloqueio';
-export type TenantAgenda = Pick<TenantRow, 'id' | 'fuso' | 'nomeExibicao' | 'enderecoConsultorio' | 'antecedenciaMinH' | 'cancelamentoMinH' | 'status' | 'agendamentoPublicoAtivo'>;
+export type TenantAgenda = Pick<TenantRow, 'id' | 'fuso' | 'nomeExibicao' | 'enderecoConsultorio' | 'antecedenciaMinH' | 'cancelamentoMinH' | 'status' | 'agendamentoPublicoAtivo' | 'agendaConfirmarPedidos'>;
 export type Consulta = {
   id: string;
   patientId: string;
@@ -28,8 +29,11 @@ export type Consulta = {
   status: StatusConsulta;
   origem: 'nutri' | 'paciente';
   confirmadaVia: 'whatsapp' | 'link' | null;
-  /** 'sistema': cancelada sozinha ao atender o pedido de exclusão (US-018, fechamento do Plano 05). */
-  canceladoPor: 'nutri' | 'paciente' | 'sistema' | null;
+  /**
+   * 'sistema': cancelada sozinha ao atender o pedido de exclusão (US-018, fechamento do Plano 05). Plano 23 (AG-D44): os
+   * três do pedido — retirado pelo paciente, não aceito pela nutricionista e vencido — só saindo de `solicitada`.
+   */
+  canceladoPor: 'nutri' | 'paciente' | 'sistema' | 'pedido_desistido' | 'pedido_recusado' | 'pedido_vencido' | null;
   pedidoRemarcacaoEm: Date | null;
   remarcadaDe: string | null;
   /** Plano 23 (RN-407): nulo só na consulta anterior ao Plano 23 (o detalhe mostra "Consultório (endereço do perfil)"). */
@@ -228,6 +232,7 @@ export async function moverConsulta(ctx: TenantContext, tenant: TenantAgenda, id
         await carregarPacienteParaEscrita(tx, antes.patientId);
         const v = await comLocal(tx, input, d, antes.origem === 'paciente');
         const c = await lerConsultaParaEscrita(tx, id);
+        // Plano 23 (§4.3): o pedido (`solicitada`) não se altera — aceitar ou recusar antes
         if (!STATUS_ATIVOS.includes(c.status as StatusConsulta)) throw new ConsultaError({ geral: MSG_AGENDA.naoAlteravel });
         const choque = await mensagemDeConflito(tx, v, tenant.fuso, id);
         if (choque) throw new ConsultaError({ geral: choque });

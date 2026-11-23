@@ -1,12 +1,12 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import type { Db } from '@/db/client';
-import { appointments, locaisAtendimento, type TipoDeLocal } from '@/db/schema';
+import { appointments, locaisAtendimento, tenants, type TipoDeLocal } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import type { TenantAgenda } from '@/modules/agenda/consultas';
 import { paraInstante } from '@/modules/agenda/fuso';
 import { garantirLocaisIniciais } from '@/modules/agenda/locais';
-import type { TenantDeTeste } from './pacientes';
+import { ctxPaciente, type TenantDeTeste } from './pacientes';
 
 export const SP = 'America/Sao_Paulo';
 export const em = (data: string, hora: string, fuso = SP) => paraInstante(data, hora, fuso)!;
@@ -21,6 +21,7 @@ export const tenantAgenda = (T: TenantDeTeste, extra: Partial<TenantAgenda> = {}
   cancelamentoMinH: 24,
   status: 'ativa',
   agendamentoPublicoAtivo: true,
+  agendaConfirmarPedidos: false,
   ...extra,
 });
 
@@ -213,4 +214,28 @@ export async function perdeDeadlockNoBanco(
     if (!encerrada) await outra.query('rollback').catch(() => undefined);
     outra.release();
   }
+}
+
+/** Plano 23 (T6): liga ou desliga "Confirmar os pedidos antes de marcar" (só a sessão `nutri` muda a chave, RN-420). */
+export async function chaveDosPedidos(db: Db, T: TenantDeTeste, ligar = true): Promise<void> {
+  await withTenant(T.ctx, (tx) => tx.update(tenants).set({ agendaConfirmarPedidos: ligar }).where(eq(tenants.id, T.tenantId)), db);
+}
+
+/**
+ * Plano 23 (T6): um pedido (`solicitada`) gravado direto, como o gatilho o decide: liga a chave e grava na sessão do
+ * paciente, com origem `paciente` (sem regra, sem lembrete, sem aviso). Devolve o id.
+ */
+export async function pedidoDireto(db: Db, T: TenantDeTeste, patientId: string, inicio: Date, minutos = 60, extra: Partial<typeof appointments.$inferInsert> = {}): Promise<string> {
+  await chaveDosPedidos(db, T);
+  const [c] = await withTenant(
+    ctxPaciente(T.tenantId, patientId),
+    (tx) =>
+      tx
+        .insert(appointments)
+        .values({ tenantId: T.tenantId, patientId, inicio, fim: new Date(inicio.getTime() + minutos * 60_000), modalidade: 'presencial', origem: 'paciente', ...extra })
+        .returning({ id: appointments.id, status: appointments.status }),
+    db,
+  );
+  if (c.status !== 'solicitada') throw new Error('pedidoDireto: o gatilho não gravou o pedido');
+  return c.id;
 }

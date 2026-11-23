@@ -1,15 +1,15 @@
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { consultaDireta, em } from '../../../test/agenda';
+import { consultaDireta, em, pedidoDireto } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
-import { novoPaciente, novoTenant } from '../../../test/pacientes';
+import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { eq } from 'drizzle-orm';
 import { closeDb } from '@/db/client';
-import { patients } from '@/db/schema';
+import { appointments, patients } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { MSG_AGENDA } from './constantes';
 import { buscarConsulta, ConsultaError } from './consultas';
-import { consultaParaIniciarAtendimento, contarPendenciasDePresenca, indicadoresDaAgenda, MSG_PRESENCA, novidadesDaAgenda, pendenciasDePresenca, registrarPresenca, textoTaxa } from './presenca';
+import { consultaParaIniciarAtendimento, contarPendenciasDePresenca, indicadoresDaAgenda, motivoParaNaoIniciarAtendimento, MSG_PRESENCA, novidadesDaAgenda, pendenciasDePresenca, registrarPresenca, textoTaxa } from './presenca';
 import { registrarAtendimento } from '@/modules/pacientes/atendimentos';
 import { listarCategorias, salvarConfiguracoes } from '@/modules/financeiro/configuracoes';
 import { editarLancamento } from '@/modules/financeiro/lancamentos';
@@ -144,6 +144,46 @@ describe('presença e falta (US-037, CS-03)', () => {
     for (const nao of [futura, cancelada, atendida]) expect(await pode(ana.id, nao)).toBeNull();
     expect(await pode(bia.id, agendada)).toBeNull(); // consulta de outro paciente
     expect(await pode(ana.id, 'nao-e-uuid')).toBeNull();
+  });
+});
+
+describe('Plano 23 (T6a, §4.3): o pedido `solicitada` na presença, no atendimento, nas métricas e nas novidades', () => {
+  it('presença em pedido → recusada (mesmo depois do início); o pedido continua solicitada', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const pedido = await pedidoDireto(app.db, T, ana.id, em('2026-10-19', '09:00'));
+    for (const s of ['realizada', 'faltou'] as const) expect(await erro(registrarPresenca(T.ctx, pedido, s, { db: app.db, now: agora }))).toEqual({ geral: MSG_AGENDA.naoAlteravel });
+    expect((await buscarConsulta(T.ctx, pedido, app.db))?.status).toBe('solicitada');
+  });
+
+  it("motivoParaNaoIniciarAtendimento → 'pedido' (antes de 'nao_comecou'); o pedido não entra em \"Iniciar atendimento\"", async () => {
+    expect(motivoParaNaoIniciarAtendimento({ status: 'solicitada', inicio: em('2026-10-19', '09:00') }, agora)).toBe('pedido');
+    expect(motivoParaNaoIniciarAtendimento({ status: 'solicitada', inicio: em('2026-10-21', '09:00') }, agora)).toBe('pedido');
+    expect(motivoParaNaoIniciarAtendimento({ status: 'cancelada', inicio: em('2026-10-19', '09:00') }, agora)).toBe('cancelada');
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const pedido = await pedidoDireto(app.db, T, ana.id, em('2026-10-20', '11:00'));
+    expect(await consultaParaIniciarAtendimento(T.ctx, ana.id, pedido, agora, app.db)).toBeNull();
+  });
+
+  it('critério do #59: um pedido no mês não muda os indicadores (total, iniciadas, iniciadasAnt) nem as pendências; as novidades não o contam', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-02', '09:00'), 60, { status: 'realizada' });
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-09-02', '09:00'), 60, { status: 'faltou' });
+    const antes = await indicadoresDaAgenda(T.ctx, SP, agora, app.db);
+    expect(antes).toEqual({ consultasMes: 1, faltasMes: 0, iniciadasMes: 1, taxaMes: 0, taxaMesAnterior: 1 });
+    // pedidos no mês (já começado, futuro e no mês anterior), um deles pendente há mais de 24 h; R4: createdAt fixo
+    await pedidoDireto(app.db, T, ana.id, em('2026-10-05', '09:00'), 60, { createdAt: em('2026-10-19', '10:00') });
+    await pedidoDireto(app.db, T, ana.id, em('2026-10-25', '09:00'), 60, { createdAt: em('2026-10-19', '10:00') });
+    await pedidoDireto(app.db, T, ana.id, em('2026-09-05', '09:00'));
+    // o pedido retirado pelo paciente (AG-D44) não é "cancelada pelo paciente"
+    const retirado = await pedidoDireto(app.db, T, ana.id, em('2026-10-26', '09:00'));
+    await withTenant(ctxPaciente(T.tenantId, ana.id), (tx) => tx.update(appointments).set({ status: 'cancelada', canceladoPor: 'pedido_desistido', canceladaEm: em('2026-10-19', '10:00') }).where(eq(appointments.id, retirado)), app.db);
+    expect(await indicadoresDaAgenda(T.ctx, SP, agora, app.db)).toEqual(antes);
+    expect(await contarPendenciasDePresenca(T.ctx, agora, app.db)).toBe(0);
+    const n = await novidadesDaAgenda(T.ctx, agora, app.db);
+    expect([n.pedidosRemarcacao.length, n.marcadasPeloPaciente.length, n.canceladasPeloPaciente.length]).toEqual([0, 0, 0]);
   });
 });
 

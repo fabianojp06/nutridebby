@@ -8,10 +8,11 @@ import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base'
 import { dataValida } from '@/modules/pacientes/datas';
 import { avisarNutriDaConsulta } from './aviso-nutri';
 import { JANELA_PACIENTE_DIAS, MAX_CONSULTAS_FUTURAS_PUBLICO, MSG_AGENDA } from './constantes';
-import { ConsultaError, ehSobreposicao, horariosLivres, repetirSeDeadlock, STATUS_ATIVOS, type TenantAgenda } from './consultas';
+import { ConsultaError, ehSobreposicao, horariosLivres, repetirSeDeadlock, type TenantAgenda } from './consultas';
 import { segundaDaSemana, somarDias } from './fuso';
 import type { Horario, LocalVisivel, Modalidade } from './horarios';
 import { locaisParaAgendamento, locaisVisiveis } from './locais';
+import { STATUS_OCUPA } from './status';
 
 export type HorarioEscolhido = Horario & { modalidade: Modalidade };
 
@@ -133,6 +134,7 @@ export async function gravarConsultaDoPaciente(
  * "Entrar (já sou paciente)" levava do caminho com teto para um sem teto (e-mails à nutricionista, lembretes na cota do
  * WhatsApp, agenda tomada). Contado sob a trava do paciente (`carregarPacienteParaEscrita`, FOR UPDATE): dois pedidos ao
  * mesmo tempo não passam juntos do teto. Remarcar não passa por aqui (troca uma consulta por outra).
+ * Plano 23 (§4.3): o pedido (`solicitada`) conta no teto (`STATUS_OCUPA`).
  */
 export async function agendarComoPaciente(
   ctx: TenantContext,
@@ -156,7 +158,7 @@ export async function agendarComoPaciente(
           const [{ n }] = await tx
             .select({ n: count() })
             .from(appointments)
-            .where(and(eq(appointments.patientId, p.id), inArray(appointments.status, STATUS_ATIVOS), gt(appointments.inicio, agora)));
+            .where(and(eq(appointments.patientId, p.id), inArray(appointments.status, STATUS_OCUPA), gt(appointments.inicio, agora)));
           if (n >= MAX_CONSULTAS_FUTURAS_PUBLICO) throw new ConsultaError({ geral: MSG_AGENDA.limitePublico }); // RN-16
           return { id: await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'marcada' }) };
         },
