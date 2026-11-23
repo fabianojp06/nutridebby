@@ -7,7 +7,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { consultaDireta, novoLocal } from '../../../test/agenda';
+import { consultaDireta, novoLocal, pedidoDireto } from '../../../test/agenda';
 import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
 import { cobrancasDoPaciente } from '../../../test/financeiro';
 import { tarefaNoBanco } from '../../../test/ia';
@@ -22,7 +22,7 @@ import { varreduraSo } from '../../../test/varredura';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
 import * as schema from '@/db/schema';
-import { auditLog, consents, dataExports, diaryEntries, exams, iaNutriConsentimentos, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
+import { appointments, auditLog, consents, dataExports, diaryEntries, exams, iaNutriConsentimentos, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
 import { financeiroParaExportacao } from '@/modules/financeiro/titular';
 import { DESTINO_ROTULO } from '@/modules/ia/constantes';
@@ -1523,6 +1523,21 @@ describe('Plano 22 (T6, RN-385, RN-399; Review Focus 6) — "Mostrar no app" no 
       expect(de('Liberado').mostradoNoAppEm, escopo).toBe(gravado.em!.toISOString());
       expect(de('Nunca liberado').mostradoNoAppEm, escopo).toBeNull();
       expect(de('Retirado').mostradoNoAppEm, escopo).toBeNull();
+    }
+  });
+});
+
+describe('Plano 23 (T6, AG-D23): o motivo da recusa do pedido de consulta não chega ao titular', () => {
+  it('pedido_recusado com motivo sai com motivoCancelamento: null nos dois escopos', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const MOTIVO = 'Recusado: suspeita de transtorno alimentar';
+    const id = await pedidoDireto(app.db, T, p.id, new Date('2026-09-22T12:00:00Z'));
+    await withTenant(T.ctx, (tx) => tx.update(appointments).set({ status: 'cancelada', canceladoPor: 'pedido_recusado', canceladaEm: now, motivoCancelamento: MOTIVO }).where(eq(appointments.id, id)), app.db);
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(dados.consultas, escopo).toEqual([expect.objectContaining({ status: 'cancelada', canceladoPor: 'pedido_recusado', motivoCancelamento: null })]);
+      expect(JSON.stringify(dados), escopo).not.toContain('transtorno');
     }
   });
 });

@@ -72,3 +72,20 @@ o PR 2 o deixou, e a imagem do PR 1 roda sobre ele com sete efeitos conhecidos:
 As visões (Dia, Semana, Mês e Lista), os filtros, a legenda, o marcador de aniversário e a impressão não gravam nada além do
 `exportar` da impressão no `audit_log` (RN-419): voltar não deixa dado para trás. Os registros `exportar` da entidade
 `agenda` ficam no `audit_log` como o resto do histórico.
+
+## PR 3 (pedidos) — Volta atrás com a chave ligada (T6)
+
+A imagem anterior ao PR 3 (a do PR 2) não conhece o status `solicitada`: grava a consulta do paciente sem olhar o `status`
+que o gatilho devolve e por isso **agenda lembretes e manda "consulta marcada"** para um pedido que a nutricionista ainda
+não aceitou; e **ninguém vence os pedidos** (o vencimento mora no `processarNotificacoes` do PR 3). Antes de trocar a
+imagem com "Confirmar os pedidos antes de marcar" ligada:
+
+1. **Desligue a chave** em Agenda › Horários (só a nutricionista muda; o gatilho `tenants_agenda_da_equipe` recusa os outros
+   papéis). Os pedidos novos voltam a nascer `agendada`.
+2. **Zere os pendentes:** responda (aceitar ou recusar) em Solicitações, ou espere vencer (`inicio − antecedência`), até não
+   restar `solicitada` futura. Conferência no banco (só leitura, com o OK do dono): `select count(*) from appointments
+   where status = 'solicitada' and inicio > now()` tem de dar 0.
+3. Só então troque a imagem. Um pedido esquecido na imagem antiga continua segurando o horário (o `EXCLUDE` não muda) e
+   aparece na agenda sem rótulo nem ação; volte ao PR 3 para respondê-lo.
+
+Com a chave desligada desde sempre, o PR 3 não grava nada novo e a volta é só trocar a imagem.

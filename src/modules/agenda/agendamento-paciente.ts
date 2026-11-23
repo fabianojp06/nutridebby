@@ -37,11 +37,13 @@ export async function travarPedidosDoTenant(tx: Tx, tenantId: string): Promise<v
 
 /**
  * Plano 23 (RN-425, P23-M7): sob a trava do tenant, o horário não pode cruzar um pedido de pessoa nova aguardando
- * (`app_pedidos_aguardando`: só intervalos, nos papéis `paciente` e `publico`, AG-D58). Cruzou → "acabou de ser ocupado".
+ * (`app_pedidos_aguardando`: só intervalos, nos papéis `paciente` e `publico`, AG-D58). Cruzou → "Esse horário não está
+ * mais disponível. Escolha outro." (o pedido aguardando não é consulta: sem o "acabou de ser ocupado" do EXCLUDE). No
+ * portal, em `agendarComoPaciente` e `remarcarComoPaciente`, antes de `gravarConsultaDoPaciente`.
  */
-async function conferirAguardando(tx: Tx, h: Pick<Horario, 'inicio' | 'fim'>): Promise<void> {
+export async function conferirAguardando(tx: Tx, h: Pick<Horario, 'inicio' | 'fim'>): Promise<void> {
   const r = await tx.execute(sql`select 1 from app_pedidos_aguardando(${h.inicio}, ${h.fim}) as t(r) limit 1`);
-  if (r.rows.length) throw new ConsultaError({ inicio: MSG_AGENDA.ocupado });
+  if (r.rows.length) throw new ConsultaError({ inicio: MSG_AGENDA.indisponivel });
 }
 
 /**

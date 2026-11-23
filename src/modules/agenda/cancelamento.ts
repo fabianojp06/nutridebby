@@ -7,7 +7,7 @@ import { normalizarTexto } from '@/lib/text';
 import { avisarPaciente, cancelarLembretes, dispararEnvio } from '@/modules/notificacoes/agendar';
 import { primeiroNome } from '@/modules/notificacoes/mensagens';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
-import { escolherHorario, gravarConsultaDoPaciente, localRecusado, travarPedidosDoTenant } from './agendamento-paciente';
+import { conferirAguardando, escolherHorario, gravarConsultaDoPaciente, localRecusado, travarPedidosDoTenant } from './agendamento-paciente';
 import { avisarNutri, avisarNutriDaConsulta } from './aviso-nutri';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError, ConsultaNaoEncontradaError, ehSobreposicao, lerConsultaParaEscrita, repetirSeDeadlock, STATUS_ATIVOS, type StatusConsulta, type TenantAgenda } from './consultas';
@@ -176,6 +176,7 @@ export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAge
             .set({ status: 'cancelada', canceladoPor: 'paciente', canceladaEm: agora, motivoCancelamento: 'Remarcada pelo paciente', pedidoRemarcacaoEm: null, updatedAt: agora })
             .where(eq(appointments.id, id));
           await cancelarLembretes(tx, id, agora);
+          await conferirAguardando(tx, h); // Plano 23 (RN-425): pedido de pessoa nova aguardando no horário novo
           // Plano 23 (AG-D24): o cancelamento acima liga o marcador da remarcação; a nova nasce agendada mesmo com a chave ligada
           const nova = await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'remarcada', remarcadaDe: id });
           return { id: nova.id, inicio: h.inicio };

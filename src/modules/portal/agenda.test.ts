@@ -98,3 +98,21 @@ describe('Plano 23 (T6a, §4.3, AG-D43, AG-D44): o pedido em "Minhas consultas"'
     expect((await consultaDoPaciente(ctx, tenantAgenda(T), pedido, em('2026-10-11', '21:00'), app.db))?.situacao).toBe('Não confirmado');
   });
 });
+
+describe('Plano 23 (T6, AG-D23): o motivo da recusa não chega ao portal', () => {
+  it('ConsultaDoPaciente não tem o motivo (nem a chave) e o texto não aparece em "Minhas consultas" nem em "Sua consulta"', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const ctx = ctxPaciente(T.tenantId, ana.id);
+    const agora = em('2026-10-05', '10:00');
+    const id = await pedidoDireto(app.db, T, ana.id, em('2026-10-12', '09:00'));
+    await withTenant(T.ctx, (tx) => tx.update(appointments).set({ status: 'cancelada', canceladoPor: 'pedido_recusado', canceladaEm: agora, motivoCancelamento: 'Recusado por suspeita de diabetes' }).where(eq(appointments.id, id)), app.db);
+    const lista = await consultasDoPaciente(ctx, tenantAgenda(T), agora, app.db);
+    const uma = await consultaDoPaciente(ctx, tenantAgenda(T), id, agora, app.db);
+    for (const c of [...lista.anteriores, uma!]) {
+      expect(c).not.toHaveProperty('motivoCancelamento');
+      expect(c.situacao).toBe('Não confirmado');
+    }
+    expect(JSON.stringify({ lista, uma })).not.toContain('diabetes');
+  });
+});

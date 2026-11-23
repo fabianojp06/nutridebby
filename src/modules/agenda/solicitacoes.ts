@@ -220,11 +220,14 @@ export async function vencerSolicitacoes(db: Db, agora: Date, o: { tenantId?: st
         const venceu = await withTenant(
           ctx,
           async (tx) => {
-            const { c } = await travarPedido(tx, p.id);
+            // o job de minuto não espera trava alheia: 2 s e o erro cai no catch deste pedido (55P03), que volta na próxima volta
+            await tx.execute(sql`select set_config('lock_timeout', '2s', true)`);
+            const { c, p: titular } = await travarPedido(tx, p.id);
             if (c.status !== 'solicitada' || prazoDoPedido(c.inicio, p).getTime() > agora.getTime()) return false;
             await tx.update(appointments).set({ status: 'cancelada', canceladoPor: 'pedido_vencido', canceladaEm: agora, updatedAt: agora }).where(eq(appointments.id, c.id));
             await cancelarLembretes(tx, c.id, agora);
-            await avisarPaciente(tx, { tenantId, patientId: c.patientId, appointmentId: c.id, inicio: c.inicio }, 'pedido_nao_confirmado', agora);
+            // titular arquivado ou bloqueado (exclusão pedida, LGPD art. 18, IV): o pedido vence sem criar aviso para ele
+            if (titular.status === 'ativo') await avisarPaciente(tx, { tenantId, patientId: c.patientId, appointmentId: c.id, inicio: c.inicio }, 'pedido_nao_confirmado', agora);
             return true;
           },
           db,

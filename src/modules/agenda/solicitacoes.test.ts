@@ -1,12 +1,12 @@
 import { inspect } from 'node:util';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { chaveDosPedidos, consultaDireta, em, novoLocal, pedidoDireto, semanaToda, tenantAgenda } from '../../../test/agenda';
+import { chaveDosPedidos, consultaDireta, dbQueMudaNoMeio, em, novoLocal, pedidoDireto, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { depsDeEnvio } from '../../../test/notificacoes';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, notifications, user } from '@/db/schema';
+import { appointments, notifications, patients, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
@@ -245,19 +245,83 @@ describe('vencimento (RN-427, RN-427a, AG-D67)', () => {
     }
   });
 
-  it('corrida aceite × vencimento: só um vence — o aceite ganha (e o vencimento pula) ou o vencimento ganha (e o aceite recebe PedidoMudouError)', async () => {
+  it('corrida aceite × vencimento: as duas transações se sobrepõem de fato (pg_blocking_pids) e só uma age — o aceite ganha (e o vencimento pula) ou o vencimento ganha (e o aceite recebe PedidoMudouError)', async () => {
     const T = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, T.ctx);
     const id = await pedidoDireto(app.db, T, ana.id, em('2026-10-16', '16:00'));
-    const [aceite, venc] = await Promise.allSettled([
-      aceitarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'consulta', id }, depsSol(em('2026-10-16', '03:00'))),
-      vencerSolicitacoes(app.db, em('2026-10-16', '04:00'), { tenantId: T.tenantId }),
-    ]);
-    expect(venc.status).toBe('fulfilled');
-    const vencidos = (venc as PromiseFulfilledResult<number>).value;
-    const c = await consulta(T, id);
-    if (aceite.status === 'fulfilled') expect([vencidos, c.status]).toEqual([0, 'agendada']);
-    else expect([(aceite.reason as Error).name, vencidos, c.status]).toEqual(['PedidoMudouError', 1, 'cancelada']);
+    // barreira: uma terceira conexão segura o paciente; aceite e vencimento chegam os dois à trava dele (RN-427a) e só
+    // seguem juntos quando ela solta — daí em diante uma espera a outra
+    const barreira = await app.pool.connect();
+    try {
+      await barreira.query('begin');
+      await barreira.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
+      await barreira.query('select id from patients where id = $1 for no key update', [ana.id]);
+      const pid = (await barreira.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const corrida = Promise.allSettled([
+        aceitarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'consulta', id }, depsSol(em('2026-10-16', '03:00'))),
+        vencerSolicitacoes(app.db, em('2026-10-16', '04:00'), { tenantId: T.tenantId }),
+      ]);
+      // na fila da trava de linha, o segundo a chegar espera o primeiro (não a barreira): conta a cadeia
+      const presas = `with a as (select pid from pg_stat_activity where $1 = any(pg_blocking_pids(pid)))
+        select count(*)::int as n from pg_stat_activity where $1 = any(pg_blocking_pids(pid)) or pg_blocking_pids(pid) && array(select pid from a)`;
+      for (let i = 0; ; i++) {
+        if ((await owner.pool.query<{ n: number }>(presas, [pid])).rows[0].n >= 2) break;
+        if (i > 500) throw new Error('aceite e vencimento não chegaram juntos à trava do paciente');
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      await barreira.query('rollback');
+      const [aceite, venc] = await corrida;
+      expect(venc.status).toBe('fulfilled');
+      const vencidos = (venc as PromiseFulfilledResult<number>).value;
+      const c = await consulta(T, id);
+      if (aceite.status === 'fulfilled') expect([vencidos, c.status]).toEqual([0, 'agendada']);
+      else expect([(aceite.reason as Error).name, vencidos, c.status]).toEqual(['PedidoMudouError', 1, 'cancelada']);
+      const naoConfirmado = (await avisos(T, id)).filter((n) => n.tipo === 'pedido_nao_confirmado');
+      expect(naoConfirmado).toHaveLength(vencidos ? 2 : 0);
+    } finally {
+      await barreira.query('rollback').catch(() => undefined);
+      barreira.release();
+    }
+  });
+
+  it('lock_timeout de 2 s: o paciente travado por outra transação não segura a varredura — o pedido fica para a próxima volta (55P03 no log)', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const id = await pedidoDireto(app.db, T, ana.id, em('2026-10-16', '16:00'));
+    const outra = await app.pool.connect();
+    const aviso = vi.spyOn(logger, 'warn');
+    try {
+      await outra.query('begin');
+      await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
+      await outra.query('select id from patients where id = $1 for update', [ana.id]);
+      const t0 = Date.now();
+      expect(await vencerSolicitacoes(app.db, em('2026-10-16', '04:00'), { tenantId: T.tenantId })).toBe(0);
+      expect(Date.now() - t0).toBeLessThan(10_000);
+      expect(aviso.mock.calls.filter((c) => c[1] === 'falha ao vencer pedido de consulta').map((c) => (c[0] as { sqlstate?: string }).sqlstate)).toEqual(['55P03']);
+    } finally {
+      aviso.mockRestore();
+      await outra.query('rollback').catch(() => undefined);
+      outra.release();
+    }
+    expect((await consulta(T, id)).status).toBe('solicitada');
+    expect(await vencerSolicitacoes(app.db, em('2026-10-16', '04:00'), { tenantId: T.tenantId })).toBe(1);
+  }, 20_000);
+
+  it('titular arquivado ou bloqueado (art. 18, IV): o pedido vence sem criar aviso para ele', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const bia = await novoPaciente(app.db, T.ctx);
+    const daAna = await pedidoDireto(app.db, T, ana.id, em('2026-10-16', '16:00'));
+    const daBia = await pedidoDireto(app.db, T, bia.id, em('2026-10-16', '17:00'));
+    await withTenant(T.ctx, async (tx) => {
+      await tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: agora, anonimizarApos: '2046-10-16' }).where(eq(patients.id, ana.id));
+      await tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, bia.id));
+    }, app.db);
+    expect(await vencerSolicitacoes(app.db, em('2026-10-16', '06:00'), { tenantId: T.tenantId })).toBe(2);
+    for (const id of [daAna, daBia]) {
+      expect(await consulta(T, id), id).toMatchObject({ status: 'cancelada', canceladoPor: 'pedido_vencido' });
+      expect(await avisos(T, id), id).toEqual([]);
+    }
   });
 });
 
@@ -283,6 +347,16 @@ describe('ordem global de travas (AG-D65): o portal toma a trava do tenant antes
         if (i > 500) throw new Error('o portal não esperou a trava do tenant');
         await new Promise((r) => setTimeout(r, 10));
       }
+      // prova direta, sem depender do repetirSeDeadlock: com o portal preso na trava do tenant, o paciente está livre
+      const terceira = await app.pool.connect();
+      try {
+        await terceira.query('begin');
+        await terceira.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
+        expect((await terceira.query('select id from patients where id = $1 for update nowait', [ana.id])).rowCount).toBe(1);
+      } finally {
+        await terceira.query('rollback').catch(() => undefined);
+        terceira.release();
+      }
       // o portal está preso na trava do tenant, sem ter travado o paciente: a outra grava e confirma
       await outra.query(`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem) values ($1, $2, $3, $4, 'presencial', 'nutri')`, [T.tenantId, ana.id, inicio, new Date(inicio.getTime() + 3_600_000)]);
       await outra.query('commit');
@@ -295,6 +369,31 @@ describe('ordem global de travas (AG-D65): o portal toma a trava do tenant antes
     }
     const doHorario = await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(and(eq(appointments.patientId, ana.id), inArray(appointments.status, ['agendada', 'solicitada']))), app.db);
     expect(doHorario).toHaveLength(1);
+  });
+});
+
+describe('remarcação × pedido de pessoa nova aguardando (RN-425)', () => {
+  it('um pedido aguardando gravado entre a escolha do horário e o INSERT → "Esse horário não está mais disponível. Escolha outro."; nada muda', async () => {
+    const T = await novoTenant(app.db);
+    const L = await semanaToda(app.db, T.ctx);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const antiga = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-20', '09:00'), 60, { origem: 'paciente', localId: L });
+    const inicio = em('2026-10-21', '14:00');
+    // depois da 1ª transação (a leitura dos horários livres de escolherHorario), a pessoa nova confirma o código do mesmo horário
+    const meio = dbQueMudaNoMeio(app.db, 1, () =>
+      withTenant(
+        T.ctx,
+        (tx) =>
+          tx.execute(sql`insert into public_booking_requests (id, tenant_id, token_hash, codigo_hash, email, nome, inicio, fim, modalidade, termo_versao, expira_em, verificado_em, local_id, aguardando_desde)
+            values (gen_random_uuid(), ${T.tenantId}, gen_random_uuid()::text, 'x', 'rita@teste.dev', 'Rita Lima', ${inicio}, ${new Date(inicio.getTime() + 3_600_000)}, 'presencial', 't', now() + interval '10 minutes', now(), ${L}, now())`),
+        app.db,
+      ),
+    );
+    const e = await erro(remarcarComoPaciente(ctxPaciente(T.tenantId, ana.id), tenantAgenda(T), antiga, { inicio: inicio.toISOString(), localId: L }, { ...deps, db: meio.db }));
+    expect(meio.rodou()).toBe(true);
+    expect((e as ConsultaError).erros).toEqual({ inicio: MSG_AGENDA.indisponivel });
+    expect(await consulta(T, antiga)).toMatchObject({ status: 'agendada' });
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.patientId, ana.id)), app.db)).toHaveLength(1);
   });
 });
 
