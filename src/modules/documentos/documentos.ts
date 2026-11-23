@@ -18,7 +18,7 @@ import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } f
 import { validarParecerParaPreparar, validarRascunhoParecer, type ConteudoDocumento, type ConteudoParecer } from './parecer';
 import { copiarExames } from './parecer-exames';
 import { copiaDoPerfil, type CopiaDoDocumento } from './perfil-profissional';
-import { validarParaPreparar, validarRascunho } from './prescricao';
+import { validarParaPreparar, validarRascunho, type ConteudoReceita } from './prescricao';
 import { lerMotivoRetificacao } from './retificacao';
 import { validarRascunhoSolicitacao, validarSolicitacaoParaPreparar } from './solicitacao';
 import { assertNever, conteudoVazio } from './tipos-de-documento';
@@ -64,10 +64,10 @@ export const criarParecer = (ctx: TenantContext, patientId: string, deps: { db?:
 /** Plano 22 (US-377, RN-388): "Nova solicitação de exames". */
 export const criarSolicitacao = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, conteudoVazio('solicitacao_exames'), deps.db ?? getDb());
 
-/** "Rascunho salvo." — valida os itens (habilitação no servidor, RN-150) e grava conteúdo e justificativa. */
+/** "Rascunho salvo." — valida os itens (habilitação no servidor, RN-150) e grava conteúdo e justificativa; devolve o conteúdo gravado. */
 export async function salvarRascunhoReceita(
   ctx: TenantContext, tenant: TenantRow, patientId: string, docId: string, input: { conteudo: unknown; justificativa: unknown; motivoRetificacao?: unknown }, deps: { db?: Db } = {},
-): Promise<void> {
+): Promise<ConteudoReceita> {
   const conteudo = validarRascunho(input.conteudo, { habilitada: !!tenant.fitoterapiaRegistro });
   // SUS-109: um NUL na coluna text daria 22021 com o texto no log
   const j = typeof input.justificativa === 'string' ? semInvalidosNoBanco(input.justificativa).trim() : '';
@@ -84,6 +84,7 @@ export async function salvarRascunhoReceita(
       .set({ justificativaUso: j || null, ...(d.retificaId && motivo !== undefined ? { motivoRetificacao: motivo } : {}), updatedAt: new Date() })
       .where(eq(signedDocumentNotes.documentoId, docId));
   }, deps.db ?? getDb());
+  return conteudo; // Plano 22 (RN-394): o "Carregar modelo" devolve o conteúdo gravado (modelos.ts)
 }
 
 /**

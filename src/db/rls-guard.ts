@@ -125,6 +125,8 @@ export const STAFF_ONLY: Record<string, string> = {
   locais_atendimento: 'link da sala: fora do paciente e do público; projeções `app_locais_para_agendamento`/`app_local_da_consulta` (Plano 23, AG-D4)',
   recados: 'Plano 25 (RN-462): o recado do consultório e o filtro (etiquetas) — só a equipe; o paciente lê a cópia na própria conversa',
   chat_avisos_nutri: 'Plano 25 (CH-D70, RN-458): preferência e marca do último aviso por e-mail à nutricionista — pela data da marca, o paciente saberia que outro paciente escreveu nas últimas 2 h; a sessão de paciente só passa pela função app_chat_aviso_nutri_devido',
+  prescricao_itens_salvos: 'Plano 22 (EP-D8, EP-D29, EP-D30): bibliotecas do consultório — só a equipe; sem paciente',
+  prescricao_modelos: 'Plano 22 (EP-D8, EP-D29, EP-D30): bibliotecas do consultório — só a equipe; sem paciente',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {

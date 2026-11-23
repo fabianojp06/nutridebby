@@ -228,6 +228,14 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   recados: (t) =>
     sql`insert into recados (tenant_id, texto, filtro, destinatarios, autor_nome, autor_crn, criado_por)
         values (${t}, 'Iso', '{"tipo":"todos"}', 1, ${CARIMBO.nome}, ${CARIMBO.crn}, coalesce(app_current_user(), gen_random_uuid()))`,
+  // Plano 22 (T10a, spec §9.3, §9.4): itens salvos e modelos de prescrição — nome único por consultório: um por chamada; um
+  // suplemento válido (tipo = 'suplemento', o CHECK prescricao_itens_salvos_tipo_coerente)
+  prescricao_itens_salvos: (t) =>
+    sql`insert into prescricao_itens_salvos (tenant_id, nome, tipo, item) values (${t}, 'Iso ' || gen_random_uuid()::text, 'suplemento',
+        '{"tipo":"suplemento","categoria":"nutriente","composicao":[{"nome":"Iso","quantidade":1,"unidade":"mg"}],"forma":"Cápsula","via":"oral","posologia":"1 ao dia","duracao":"","manipulado":false}')`,
+  prescricao_modelos: (t) =>
+    sql`insert into prescricao_modelos (tenant_id, nome, itens) values (${t}, 'Iso ' || gen_random_uuid()::text,
+        '[{"tipo":"suplemento","categoria":"nutriente","composicao":[{"nome":"Iso","quantidade":1,"unidade":"mg"}],"forma":"Cápsula","via":"oral","posologia":"1 ao dia","duracao":"","manipulado":false}]')`,
 };
 /** Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). */
 const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker', chat_leituras: 'paciente' };
