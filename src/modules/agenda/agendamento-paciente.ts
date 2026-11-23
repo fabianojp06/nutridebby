@@ -50,8 +50,10 @@ export async function escolherHorario(tenant: TenantAgenda, inicio: unknown, mod
   const t = typeof inicio === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(inicio) ? Date.parse(inicio) : NaN;
   if (!Number.isFinite(t) || (modalidade !== 'presencial' && modalidade !== 'online')) throw indisponivel();
   const alvo = new Date(t);
-  const [h] = await horariosParaPaciente(tenant, agora, { ...opts, de: alvo, ate: new Date(t + 60_000) });
-  if (!h || h.inicio.getTime() !== t || !h.modalidades.includes(modalidade)) throw indisponivel();
+  // Plano 23 (T3): um horário por local no mesmo instante; até a T4 (escolha pelo local), o primeiro da modalidade pedida
+  const hs = await horariosParaPaciente(tenant, agora, { ...opts, de: alvo, ate: new Date(t + 60_000) });
+  const h = hs.find((x) => x.inicio.getTime() === t && x.modalidades.includes(modalidade));
+  if (!h) throw indisponivel();
   return { ...h, modalidade };
 }
 
@@ -75,7 +77,10 @@ export async function gravarConsultaDoPaciente(
       inicio: h.inicio,
       fim: h.fim,
       modalidade: h.modalidade,
-      linkOnline: h.modalidade === 'online' ? tenant.linkOnlinePadrao : null,
+      // Plano 23 (RN-406, T3): o local do horário; o link da consulta online é a sala do local, copiada pelo gatilho
+      // appointments_link_da_sala (o local com agendamento pelo paciente sempre tem sala: CHECK locais_atendimento_agendamento)
+      localId: h.localId,
+      linkOnline: null,
       status: 'agendada',
       origem: 'paciente',
       remarcadaDe: o.remarcadaDe ?? null,

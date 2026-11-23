@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { consultaDireta, em, SP, tenantAgenda } from '../../../../test/agenda';
+import { consultaDireta, em, localPrincipal, SP, tenantAgenda } from '../../../../test/agenda';
 import { makeDb } from '../../../../test/db';
 import { depsDeEnvio } from '../../../../test/notificacoes';
 import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../../test/pacientes';
@@ -220,13 +220,13 @@ describe('cota de WhatsApp (RN-09, US-036)', () => {
     const T = await novoTenant(app.db);
     await conexaoDeTeste(app.db, T.ctx, 'conectada');
     const p = await novoPaciente(app.db, T.ctx, comWhats);
-    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: p.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: em('2026-10-01', '09:00') });
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: p.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now: em('2026-10-01', '09:00') });
     try {
       const w = whatsappFalso();
       const uso = (agora: Date) => withTenant(T.ctx, (tx) => usoDoMes(tx, SP, agora), app.db);
       await processarNotificacoes(deps(em('2026-10-15', '14:00'), w), { tenantId: T.tenantId });
       expect(await uso(em('2026-10-15', '15:00'))).toBe(1);
-      await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-17', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: em('2026-10-15', '15:00') });
+      await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-17', hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now: em('2026-10-15', '15:00') });
       expect(await uso(em('2026-10-15', '15:00'))).toBe(1); // a enviada continua lá, com enviada_em
       await processarNotificacoes(deps(em('2026-10-16', '14:00'), w), { tenantId: T.tenantId });
       expect(w.enviados).toHaveLength(2);

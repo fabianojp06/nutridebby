@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { consultaDireta, em, semanaToda, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, localPrincipal, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
@@ -121,7 +121,7 @@ describe('link da consulta (D20, US-033, US-035)', () => {
     const { T, ana, id, token } = await cenario(); // link de 16/10 às 14:00
     const d = deps(em('2026-10-14', '09:00'));
     for (const hora of ['10:00', '18:00']) {
-      await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: em('2026-10-14', '08:00') });
+      await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now: em('2026-10-14', '08:00') });
       expect(await abrirLinkConsulta(token, d), hora).toEqual({ estado: 'expirado' });
       expect(await horariosDoLink(token, em('2026-10-16', '00:00'), em('2026-10-17', '00:00'), d)).toEqual([]);
       const acoes = [

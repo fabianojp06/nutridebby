@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { em, tenantAgenda } from '../../../test/agenda';
+import { em, localPrincipal, novoLocal, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
@@ -61,7 +61,7 @@ describe('lembretes da consulta no banco', () => {
   it('marcar cria 24 h e 2 h nos 3 canais + "Consulta marcada" por e-mail e push, e pede envio imediato', async () => {
     const T = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, T.ctx);
-    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now });
     const ls = await linhas(T.ctx, id);
     expect(ls.map((l) => `${l.tipo}/${l.canal}/${l.status}`).sort()).toEqual([
       'consulta_marcada/email/pendente', 'consulta_marcada/push/pendente',
@@ -76,10 +76,10 @@ describe('lembretes da consulta no banco', () => {
   it('alterar a hora (D6/D17, rodada 1): o horário novo ganha linhas próprias, a pendente do antigo vira "consulta_remarcada" e a enviada não é reaberta; o mesmo horário de novo não duplica', async () => {
     const T = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, T.ctx);
-    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now });
     const enviadaEm = em('2026-10-15', '14:00');
     await withTenant(T.ctx, (tx) => tx.update(notifications).set({ status: 'enviada', enviadaEm, tentativas: 1 }).where(and(eq(notifications.appointmentId, id), eq(notifications.tipo, 'lembrete_24h'), eq(notifications.canal, 'email'))), app.db);
-    const novo = { data: '2026-10-17', hora: '08:00', duracaoMin: '60', modalidade: 'presencial' };
+    const novo = { data: '2026-10-17', hora: '08:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) };
     await moverConsulta(T.ctx, tenantAgenda(T), id, novo, { db: app.db, now: em('2026-10-15', '15:00') });
     const depois = await linhas(T.ctx, id);
     const doHorario = (data: string, hora: string) => depois.filter((l) => l.inicioConsulta?.getTime() === em(data, hora).getTime());
@@ -97,7 +97,7 @@ describe('lembretes da consulta no banco', () => {
   it('R3 / D17: mudar só a duração, a modalidade e o link não cria "Consulta marcada", não reabre linha nenhuma nem pede envio', async () => {
     const T = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, T.ctx);
-    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now });
     const daLinha = (tipo: string, canal: string) => and(eq(notifications.appointmentId, id), eq(notifications.tipo, tipo), eq(notifications.canal, canal));
     // o que já saiu e o que não sai mais: um novo "Consulta marcada" (gravar com ON CONFLICT) reabriria a ignorada e a que falhou
     await withTenant(T.ctx, async (tx) => {
@@ -109,7 +109,7 @@ describe('lembretes da consulta no banco', () => {
     const antes = porId(await linhas(T.ctx, id));
     const pedidos = async () => (await (await getBoss()).findJobs<{ tenantId?: string }>('notificacoes')).filter((j) => j.data.tenantId === T.tenantId).length;
     const pedidosAntes = await pedidos();
-    await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora: '14:00', duracaoMin: '45', modalidade: 'online', linkOnline: 'https://meet.exemplo.com/abc' }, { db: app.db, now: em('2026-10-10', '09:00') });
+    await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora: '14:00', duracaoMin: '45', localId: await novoLocal(app.db, T.ctx, { tipo: 'online', linkSala: null }), linkOnline: 'https://meet.exemplo.com/abc' }, { db: app.db, now: em('2026-10-10', '09:00') });
     const [c] = await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.id, id)), app.db);
     expect(c).toMatchObject({ modalidade: 'online', linkOnline: 'https://meet.exemplo.com/abc', fim: em('2026-10-16', '14:45') }); // a alteração valeu
     expect(porId(await linhas(T.ctx, id))).toEqual(antes); // mesmas linhas, mesmas situações (nem `updated_at` mudou)
@@ -119,7 +119,7 @@ describe('lembretes da consulta no banco', () => {
   it('avisarPaciente repetido para o mesmo evento (mesmo início, ainda pendente) não duplica; um início novo deixa o pendente do antigo como "consulta_remarcada"', async () => {
     const T = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, T.ctx);
-    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now });
     const alvo = { tenantId: T.tenantId, patientId: ana.id, appointmentId: id, inicio: em('2026-10-16', '14:00') };
     const avisos = async () =>
       (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.appointmentId, id), eq(notifications.tipo, 'consulta_marcada'))), app.db)).map((l) => `${l.canal}/${l.status}`).sort();
@@ -138,11 +138,12 @@ describe('lembretes da consulta no banco', () => {
   it('revisão da T5: o aviso do mesmo início que já está "enviando" conta como avisado — 14:00 (saindo) → 15:00 → 14:00 não manda um segundo "14:00"', async () => {
     const T = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, T.ctx);
-    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now });
     // o worker reservou o e-mail da marcação (pendente → enviando) e ainda não registrou o resultado
     const doAviso = and(eq(notifications.appointmentId, id), eq(notifications.tipo, 'consulta_marcada'));
     await withTenant(T.ctx, (tx) => tx.update(notifications).set({ status: 'enviando', tentativas: 1 }).where(and(doAviso, eq(notifications.canal, 'email'))), app.db);
-    const mover = (hora: string) => moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    const localId = await localPrincipal(app.db, T.ctx);
+    const mover = (hora: string) => moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', localId }, { db: app.db, now });
     await mover('15:00');
     await mover('14:00');
     const ls = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(doAviso), app.db);
@@ -169,7 +170,7 @@ describe('lembretes da consulta no banco', () => {
   it('US-004: suspender enfileira o job; o worker troca os pendentes para "tenant_suspenso"; reativar reagenda os futuros', async () => {
     const T = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, T.ctx);
-    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now });
     await suspenderConta(T.tenantId, T.nutriId, app.db);
     const jobs = await (await getBoss()).findJobs<{ tenantId: string; evento: string }>('agenda-tenant');
     expect(jobs.some((j) => j.data.tenantId === T.tenantId && j.data.evento === 'suspenso')).toBe(true);
@@ -188,7 +189,7 @@ describe('lembretes da consulta no banco', () => {
   it('US-004 (rodada 1): jobs fora de ordem — o "suspenso" atrasado, que roda depois da reativação, não ignora nada; o "reativado" atrasado não reabre nada numa nova suspensão', async () => {
     const T = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, T.ctx);
-    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now });
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now });
     const lembretes = async () => (await linhas(T.ctx, id)).filter((l) => l.tipo.startsWith('lembrete'));
     await suspenderConta(T.tenantId, T.nutriId, app.db);
     await reativarConta(T.tenantId, T.nutriId, app.db);

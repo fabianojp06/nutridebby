@@ -90,7 +90,8 @@ const naoEncontrado = () => new LocalError({ geral: MSG_LOCAIS.naoEncontrado });
  * P23-BACKFILL, na mesma ordem de escolha do local: principal, depois o mais antigo): "ambas" vira presencial e ganha a
  * cópia online quando há local online ativo; presencial e online vão para o local ativo do tipo; a online sem local online
  * espera. Idempotente; sem trabalho a fazer, não trava nada (é chamada a cada abertura do Início do painel). Chamadores:
- * `lerInicio`, `listarRegras`, `listarLocais` (e, nas T3 e T5, Nova consulta e a Agenda).
+ * `lerInicio`, `listarHorarios`/`criarRegra` (disponibilidade.ts), `listarLocais`, `locaisDoPainel` (Nova consulta e Alterar) e,
+ * na T5, a Agenda.
  */
 export async function garantirLocaisIniciais(tx: Tx, tenant: Pick<TenantRow, 'id' | 'enderecoConsultorio'>): Promise<void> {
   const pendente = async () =>
@@ -312,6 +313,31 @@ export async function excluirLocal(ctx: TenantContext, id: string, deps: Deps = 
     if (fkViolation(e) !== null) throw new LocalError({ geral: MSG_LOCAIS.emUso });
     throw e;
   }
+}
+
+/** O que os seletores de local do painel mostram (Nova consulta, Alterar, Horários). A sala só vai à tela da equipe. */
+export type LocalDoSeletor = Pick<LocalRow, 'id' | 'nome' | 'linkSala' | 'principal'> & { tipo: TipoDeLocal };
+
+/**
+ * AG-D45 / RN-407: os locais ativos para os seletores do painel, o principal primeiro, depois de garantir os locais iniciais
+ * (e o local das regras antigas). Só a sessão `nutri` (nunca passar a sala a um componente do portal).
+ */
+export async function locaisDoPainel(ctx: TenantContext, deps: Deps = {}): Promise<LocalDoSeletor[]> {
+  exigirNutri(ctx);
+  return withTenant(
+    ctx,
+    async (tx) => {
+      const [t] = await tx.select({ id: tenants.id, enderecoConsultorio: tenants.enderecoConsultorio }).from(tenants).where(eq(tenants.id, ctx.tenantId));
+      if (t) await garantirLocaisIniciais(tx, t);
+      return locaisDoSeletor(tx);
+    },
+    deps.db ?? getDb(),
+  );
+}
+
+/** `locaisAtivos` no formato dos seletores do painel, na transação de quem chama (sessão `nutri`). */
+export async function locaisDoSeletor(tx: Tx): Promise<LocalDoSeletor[]> {
+  return (await locaisAtivos(tx)).map(({ id, nome, tipo, linkSala, principal }) => ({ id, nome, tipo: tipo as TipoDeLocal, linkSala, principal }));
 }
 
 /** Locais ativos, o principal primeiro (sessão `nutri`: seletores do painel). */

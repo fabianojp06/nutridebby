@@ -4,7 +4,7 @@ import { lerAvisos, lerVisao, periodoDaVisao, selosDaConsulta } from './periodo'
 
 const base: Consulta = {
   id: '1', patientId: 'p', paciente: 'Ana Souza', pacienteNovoPublico: false, inicio: new Date(), fim: new Date(), modalidade: 'presencial', linkOnline: null,
-  status: 'agendada', origem: 'nutri', confirmadaVia: null, canceladoPor: null, pedidoRemarcacaoEm: null, remarcadaDe: null,
+  status: 'agendada', origem: 'nutri', confirmadaVia: null, canceladoPor: null, pedidoRemarcacaoEm: null, remarcadaDe: null, localId: null, local: null,
 };
 
 describe('período da agenda', () => {

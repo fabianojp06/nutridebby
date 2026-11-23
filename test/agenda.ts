@@ -1,10 +1,11 @@
-import { sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import type { Db } from '@/db/client';
-import { appointments } from '@/db/schema';
+import { appointments, locaisAtendimento, type TipoDeLocal } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import type { TenantAgenda } from '@/modules/agenda/consultas';
 import { paraInstante } from '@/modules/agenda/fuso';
+import { garantirLocaisIniciais } from '@/modules/agenda/locais';
 import type { TenantDeTeste } from './pacientes';
 
 export const SP = 'America/Sao_Paulo';
@@ -24,8 +25,51 @@ export const tenantAgenda = (T: TenantDeTeste, extra: Partial<TenantAgenda> = {}
   ...extra,
 });
 
-/** Atende todos os dias, 08:00–20:00, consultas de 60 min, presencial ou online. */
+/**
+ * Plano 23 (AG-D45): o "Consultório" principal (presencial, com agendamento pelo paciente), como `garantirLocaisIniciais` o
+ * cria na sessão `nutri`; devolve o id do principal ativo.
+ */
+export async function localPrincipal(db: Db, ctx: TenantContext): Promise<string> {
+  return withTenant(
+    ctx,
+    async (tx) => {
+      await garantirLocaisIniciais(tx, { id: ctx.tenantId, enderecoConsultorio: null });
+      const [l] = await tx.select({ id: locaisAtendimento.id }).from(locaisAtendimento).where(and(eq(locaisAtendimento.principal, true), isNull(locaisAtendimento.arquivadoEm)));
+      return l.id;
+    },
+    db,
+  );
+}
+
+let locaisCriados = 0;
+/** Plano 23: um local gravado direto. O online vem com sala e "Aceita agendamento pelo paciente"; o presencial, com agendamento. */
+export async function novoLocal(
+  db: Db,
+  ctx: TenantContext,
+  o: { nome?: string; tipo?: TipoDeLocal; linkSala?: string | null; agendamentoOnline?: boolean; principal?: boolean; arquivado?: boolean } = {},
+): Promise<string> {
+  const tipo = o.tipo ?? 'presencial';
+  const linkSala = tipo === 'online' ? (o.linkSala === undefined ? 'https://sala.exemplo.test/fixa' : o.linkSala) : null;
+  const agendamentoOnline = !o.arquivado && (o.agendamentoOnline ?? (tipo === 'presencial' || !!linkSala));
+  const [l] = await withTenant(
+    ctx,
+    (tx) =>
+      tx
+        .insert(locaisAtendimento)
+        .values({ tenantId: ctx.tenantId, nome: o.nome ?? `Local ${++locaisCriados}`, tipo, linkSala, agendamentoOnline, principal: o.principal ?? false, arquivadoEm: o.arquivado ? new Date() : null })
+        .returning({ id: locaisAtendimento.id }),
+    db,
+  );
+  return l.id;
+}
+
+/**
+ * Atende todos os dias, 08:00–20:00, consultas de 60 min, presencial ou online. Plano 23: as regras ficam sem local (como
+ * a imagem anterior ao PR 2 as grava) e valem pela RN-410a; o consultório ganha antes o "Consultório" principal. Horário
+ * online só com um local online ativo (`novoLocal(…, { tipo: 'online' })`).
+ */
 export async function semanaToda(db: Db, ctx: TenantContext, extra: { duracaoMin?: number; modalidade?: string } = {}) {
+  await localPrincipal(db, ctx);
   await withTenant(ctx, (tx) =>
     tx.execute(sql`insert into availability_rules (tenant_id, dia_semana, inicio, fim, duracao_min, modalidade)
       select ${ctx.tenantId}, d, '08:00', '20:00', ${extra.duracaoMin ?? 60}, ${extra.modalidade ?? 'ambas'} from generate_series(0, 6) d`), db);

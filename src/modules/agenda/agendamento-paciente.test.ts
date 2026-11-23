@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { consultaDireta, em, perdeCorridaNoBanco, perdeDeadlockNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, novoLocal, perdeCorridaNoBanco, perdeDeadlockNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
@@ -63,17 +63,21 @@ describe('horários para o paciente (US-032, RN-03)', () => {
     expect(await horas({ ignorarConsultaId: id })).toEqual(['08:00', '09:00', '10:00']);
   });
 
-  it('AG-D47 (Plano 23, PR 1): sobre as regras "ambas" desdobradas pelo backfill (presencial + online), escolherHorario aceita online e presencial no horário juntado', async () => {
+  it('AG-D47 por local (Plano 23, T3): sobre as regras "ambas" desdobradas (presencial + online), um horário por local no mesmo instante; escolherHorario aceita online e presencial', async () => {
     const T = await novoTenant(app.db);
     await semanaToda(app.db, T.ctx, { modalidade: 'presencial' });
     await semanaToda(app.db, T.ctx, { modalidade: 'online' });
-    const tenant = tenantAgenda(T, { linkOnlinePadrao: 'https://meet.google.com/abc' });
+    const video = await novoLocal(app.db, T.ctx, { nome: 'Videoconferência', tipo: 'online', linkSala: 'https://meet.google.com/abc' });
+    const tenant = tenantAgenda(T);
     const inicio = em('2026-10-16', '09:00');
     const hs = await horariosParaPaciente(tenant, agora, { db: app.db, de: inicio, ate: em('2026-10-16', '11:00') });
     expect(hs.map((h) => [partesNoFuso(h.inicio, SP).hora, h.modalidades])).toEqual([
-      ['09:00', ['presencial', 'online']],
-      ['10:00', ['presencial', 'online']],
+      ['09:00', ['presencial']],
+      ['09:00', ['online']],
+      ['10:00', ['presencial']],
+      ['10:00', ['online']],
     ]);
+    expect(hs.filter((h) => h.modalidades.includes('online')).map((h) => h.localId)).toEqual([video, video]);
     await expect(escolherHorario(tenant, inicio.toISOString(), 'online', agora, { db: app.db })).resolves.toMatchObject({ inicio, modalidade: 'online' });
     await expect(escolherHorario(tenant, inicio.toISOString(), 'presencial', agora, { db: app.db })).resolves.toMatchObject({ inicio, modalidade: 'presencial' });
   });
@@ -114,9 +118,13 @@ describe('agendar pelo paciente (US-032)', () => {
     expect(await erro(agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em('2026-10-14', '19:00').toISOString(), modalidade: 'presencial' }, deps))).toEqual(indisponivel); // < 12 h
     expect(await erro(agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em('2026-12-20', '09:00').toISOString(), modalidade: 'presencial' }, deps))).toEqual(indisponivel); // > 60 dias
     expect(await erro(agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em('2026-10-16', '21:00').toISOString(), modalidade: 'presencial' }, deps))).toEqual(indisponivel); // fora das regras
-    expect(await erro(agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em('2026-10-16', '09:00').toISOString(), modalidade: 'online' }, deps))).toEqual(indisponivel); // sem link padrão
+    // Plano 23: o link padrão do Perfil não vale mais; online só com um local online com agendamento
+    expect(await erro(agendarComoPaciente(ctx, tenantAgenda(T, { linkOnlinePadrao: 'https://meet.google.com/abc' }), { inicio: em('2026-10-16', '09:00').toISOString(), modalidade: 'online' }, deps))).toEqual(indisponivel); // sem local online
     expect(await erro(agendarComoPaciente(ctx, tenantAgenda(T), { inicio: 'amanhã', modalidade: 'presencial' }, deps))).toEqual(indisponivel);
-    await expect(agendarComoPaciente(ctx, tenantAgenda(T, { linkOnlinePadrao: 'https://meet.google.com/abc' }), { inicio: em('2026-10-16', '09:00').toISOString(), modalidade: 'online' }, deps)).resolves.toMatchObject({ id: expect.any(String) });
+    const video = await novoLocal(app.db, T.ctx, { nome: 'Videoconferência', tipo: 'online', linkSala: 'https://meet.google.com/abc' });
+    const { id } = await agendarComoPaciente(ctx, tenantAgenda(T), { inicio: em('2026-10-16', '09:00').toISOString(), modalidade: 'online' }, deps);
+    // o local do horário e a sala dele (pelo gatilho appointments_link_da_sala)
+    expect(await withTenant(T.ctx, async (tx) => (await tx.select({ localId: appointments.localId, link: appointments.linkOnline }).from(appointments).where(eq(appointments.id, id)))[0], app.db)).toEqual({ localId: video, link: 'https://meet.google.com/abc' });
   });
 
   it('paciente arquivado não agenda; tenant suspenso não agenda; só com sessão de paciente', async () => {

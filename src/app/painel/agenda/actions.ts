@@ -10,7 +10,8 @@ import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pa
 
 export type ConsultaState = { erros?: Record<string, string>; valores?: Record<string, string> };
 
-const CAMPOS = ['patientId', 'data', 'hora', 'duracaoMin', 'modalidade', 'linkOnline'] as const;
+// Plano 23 (RN-407): o local no lugar da modalidade (a modalidade é o tipo do local)
+const CAMPOS = ['patientId', 'data', 'hora', 'duracaoMin', 'localId', 'linkOnline'] as const;
 const valores = (fd: FormData) => Object.fromEntries(CAMPOS.map((c) => [c, String(fd.get(c) ?? '')])) as Record<(typeof CAMPOS)[number], string>;
 
 function tratar(e: unknown, v: Record<string, string>): ConsultaState {

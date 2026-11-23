@@ -5,7 +5,8 @@ import type { Modalidade, ModalidadeRegra } from './horarios';
 export const DURACAO_MIN = 15;
 export const DURACAO_MAX = 240;
 export const DURACOES = [15, 20, 30, 40, 45, 50, 60, 75, 90, 120, 150, 180, 240] as const;
-export const MAX_REGRAS = 30;
+/** Plano 23 (RN-410, AG-D9): 60 regras por consultório (cada metade do par de videoconferência conta). */
+export const MAX_REGRAS = 60;
 /** RN-03: o paciente marca até 60 dias à frente. */
 export const JANELA_PACIENTE_DIAS = 60;
 /** RN-16: no máximo 3 consultas futuras por e-mail no tenant (página pública e, desde a revisão da T12 do Plano 06, agendamento pelo PWA). */
@@ -23,7 +24,12 @@ export const MSG_AGENDA = {
   sobreposicao: 'Este horário se sobrepõe a outro do mesmo dia.',
   diaSemana: 'Escolha o dia da semana',
   modalidade: 'Escolha a modalidade',
-  limiteRegras: 'Limite de 30 horários de atendimento.',
+  limiteRegras: 'Você chegou ao limite de 60 horários. Apague um antes de criar outro.',
+  /** Plano 23 (RN-407, RN-410, §6.2): regra e consulta sem local ativo do consultório. */
+  escolhaOLocal: 'Escolha o local.',
+  /** Plano 23 (§6.2, "Horários"). */
+  horarioCriado: 'Horário criado.',
+  horarioExcluido: 'Horário excluído.',
   dataInvalida: 'Informe uma data válida',
   dataFinalAntes: 'A data final deve ser igual ou posterior à inicial',
   bloqueioLongo: 'O bloqueio pode ter no máximo 366 dias',
