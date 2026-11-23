@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { focarPrimeiroErro } from '@/components/focar-primeiro-erro';
 import type { ItemDoCatalogo } from '@/app/painel/exames/escolher-do-catalogo';
@@ -42,12 +42,19 @@ export function ExameForm({
   const [chavesDoEnvio, setChavesDoEnvio] = useState<number[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [ok, setOk] = useState(false);
+  /** Conta as respostas com erro: cada uma (também a repetida) leva o foco ao primeiro erro, como no `EditarForm`. */
+  const [envioComErro, setEnvioComErro] = useState(0);
+
+  // depois de desenhar os erros: o foco vai ao primeiro (formulário longo, o botão fica longe do topo). Sem temporizador:
+  // a guarda de `src/lib/consulta-automatica.test.ts` lê temporizador + fetch como consulta automática (RNF-06)
+  useEffect(() => {
+    if (envioComErro) focarPrimeiroErro(form.current);
+  }, [envioComErro]);
 
   const comErros = (e: Record<string, string>, chaves: number[]) => {
     setErros(e);
     setChavesDoEnvio(chaves);
-    // depois de desenhar os erros: o foco vai ao primeiro (formulário longo, o botão fica longe do topo)
-    window.setTimeout(() => focarPrimeiroErro(form.current), 0);
+    setEnvioComErro((n) => n + 1);
   };
 
   async function enviar(ev: FormEvent<HTMLFormElement>) {
