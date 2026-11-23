@@ -773,10 +773,13 @@ describe('Plano 23 — Agenda 2 no banco (T1b: gatilhos)', () => {
     expect(await em(T.ctx, mudar(true))).toHaveLength(1);
     expect(await em(T.ctx, mudar(false))).toHaveLength(1);
     expect(await em(T.ctx, mudar(true))).toHaveLength(1);
-    // o mesmo valor, ou outra coluna, passa por este gatilho
+    // o mesmo valor, ou outra coluna, passa por este gatilho (a outra coluna na sessão de paciente quem recusa é o
+    // `tenants_por_sessao` da 0126, SUS-102: paciente, publico e conta não mudam o consultório)
     expect(await em(comoP, mudar(true))).toHaveLength(1);
     expect(await em(worker(T), mudar(true))).toHaveLength(1);
-    expect(await em(comoP, sql`update tenants set updated_at = now() where id = ${T.tenantId} returning id`)).toHaveLength(1);
+    await expect(em(comoP, sql`update tenants set updated_at = now() where id = ${T.tenantId} returning id`)).rejects.toSatisfy(
+      negadoPor('as sessões de paciente, pública e de conta não mudam o consultório'),
+    );
     expect(await em(worker(T), sql`update tenants set updated_at = now() where id = ${T.tenantId} returning id`)).toHaveLength(1);
     expect(await em(T.ctx, sql`select agenda_confirmar_pedidos from tenants where id = ${T.tenantId}`)).toEqual([{ agenda_confirmar_pedidos: true }]);
   });
