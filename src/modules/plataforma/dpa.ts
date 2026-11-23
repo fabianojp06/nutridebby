@@ -18,7 +18,7 @@ export const DPA_VERSAO = '1.1';
  * A data impressa no fim da versão em vigor. R-309: fixa no PR e conferida (e ajustada, se o deploy mudar de dia) antes
  * do merge.
  */
-export const DPA_VERSAO_DATA = '2026-11-17';
+export const DPA_VERSAO_DATA = '2026-11-23';
 export const DPA_TERMO = `dpa-${DPA_VERSAO}`;
 export const DPA_TITULO = 'Contrato de tratamento de dados (DPA)';
 export const DPA_ROTULO = `Li e aceito o contrato de tratamento de dados (DPA), versão ${DPA_VERSAO}`;

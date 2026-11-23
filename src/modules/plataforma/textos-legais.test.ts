@@ -78,7 +78,7 @@ describe('Contrato de tratamento de dados (DPA) 1.1 (Plano 20, F-D17)', () => {
     expect(DPA_VERSAO).toBe('1.1');
     expect(DPA_TERMO).toBe('dpa-1.1');
     // R-309: a data fica fixa no PR e é conferida (e ajustada, se o deploy mudar de dia) antes do merge
-    expect(DPA_VERSAO_DATA).toBe('2026-11-17');
+    expect(DPA_VERSAO_DATA).toBe('2026-11-23');
     for (const t of [DPA_TITULO, DPA_ROTULO, ...DPA_PARAGRAFOS]) expect(t).not.toMatch(/provis/i);
     expect(DPA_ROTULO).toBe('Li e aceito o contrato de tratamento de dados (DPA), versão 1.1');
     expect(DPA_MUDOU).toBe(`O contrato de tratamento de dados mudou (versão 1.1, de ${DATA_DPA}). Leia e aceite para continuar usando o painel.`);
