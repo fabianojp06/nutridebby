@@ -41,7 +41,11 @@ export async function avisarPaciente(tx: Tx, a: { tenant: { id: string; fuso: st
     .select({ id: notifications.id })
     .from(notifications)
     .where(and(eq(notifications.tenantId, a.tenant.id), eq(notifications.patientId, a.patientId), eq(notifications.tipo, a.tipo), eq(notifications.status, 'pendente')))
-    .limit(1);
+    .limit(1)
+    // revisão da T4 (M1): o motor pode estar levando esse aviso a "enviando" sem ter commitado (`reservar`); com o FOR UPDATE a
+    // consulta espera, reavalia a linha (já não está pendente) e o aviso da mensagem nova nasce. Última trava da ordem global
+    // (paciente → conversa → mensagem → notifications); o motor não trava paciente nem conversa
+    .for('update');
   if (pendente) return;
   const q = quandoAvisar(a.tipo, a.agora, a.tenant.fuso);
   const linha = (canal: 'push' | 'email', agendadaPara: Date) => ({ tenantId: a.tenant.id, patientId: a.patientId, canal, tipo: a.tipo, agendadaPara, createdAt: a.agora, updatedAt: a.agora });

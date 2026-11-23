@@ -3,7 +3,7 @@ import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { consultorioDoChat, naSessao, pacienteDoChat, type PacienteDoChat } from '../../../test/mensagens';
+import { consultorioDoChat, esperarBloqueio, naSessao, pacienteDoChat, type PacienteDoChat } from '../../../test/mensagens';
 import { depsDeEnvio } from '../../../test/notificacoes';
 import { emailsNaFila, novoPaciente, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
@@ -145,6 +145,39 @@ describe('Plano 25 — avisarPaciente (RN-456; CH-D61)', () => {
     await avisar(T, p.id, 'chat_mensagem', as('10:00'));
     await avisar(T, p.id, 'recado', as('10:00'));
     expect(await avisosDe(T, p.id)).toEqual([]);
+  });
+
+  it('revisão da T4, M1: o motor marcando o aviso pendente como "enviando" (sem commit) não engole o aviso da mensagem nova — o FOR UPDATE espera e reavalia', async () => {
+    const T = await consultorio();
+    const c = await pacienteDoChat(app.db, T);
+    await avisar(T, c.p, 'chat_mensagem', as('10:00'));
+    const motor = await app.pool.connect();
+    let fechada = false;
+    try {
+      // como `reservar` do motor: as devidas travadas e levadas a "enviando", ainda sem commit
+      await motor.query('begin');
+      await motor.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'worker', true)`, [T.tenantId]);
+      await motor.query("select id from notifications where patient_id = $1 and status = 'pendente' for update skip locked", [c.p]);
+      await motor.query("update notifications set status = 'enviando', tentativas = tentativas + 1 where patient_id = $1 and status = 'pendente'", [c.p]);
+      const pid = (await motor.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const aviso = avisar(T, c.p, 'chat_mensagem', as('10:05')).then(
+        () => 'ok',
+        (e: unknown) => e,
+      );
+      await esperarBloqueio(owner.pool, pid);
+      await motor.query('commit');
+      fechada = true;
+      expect(await aviso).toBe('ok');
+    } finally {
+      if (!fechada) await motor.query('rollback').catch(() => undefined);
+      motor.release();
+    }
+    expect((await avisosDe(T, c.p)).map((a) => [a.canal, a.status])).toEqual([
+      ['email', 'enviando'],
+      ['push', 'enviando'],
+      ['email', 'pendente'],
+      ['push', 'pendente'],
+    ]);
   });
 
   it('o envio da nutricionista não chama o aviso à nutricionista (o e-mail "Mensagens novas" é só do envio do paciente)', async () => {
@@ -300,17 +333,29 @@ describe('Plano 25 — aviso à nutricionista no envio do paciente (RN-458; CH-D
     expect(await emailsNaFila('aviso_mensagens_nutri', emailDaNutri(T))).toEqual([]);
   });
 
-  it('app_chat_aviso_nutri_devido e avisarNutriDeMensagem só no envio do paciente (a T1c prova a recusa da função fora da sessão de paciente)', () => {
+  it('app_chat_aviso_nutri_devido e avisarNutriDeMensagem: uma CHAMADA cada, só em gravarDoPaciente, a função antes do INSERT (CH-D72; a T1c prova a recusa da função fora da sessão de paciente)', () => {
     const fontes = readdirSync('src', { recursive: true, encoding: 'utf8' })
       .map((f) => path.join('src', f))
       .filter((f) => /\.(tsx?|sql)$/.test(f) && !/\.test\./.test(f));
-    const quem = (re: RegExp) => fontes.filter((f) => re.test(readFileSync(f, 'utf8'))).sort();
-    expect(quem(/app_chat_aviso_nutri_devido\(/)).toEqual(['src/modules/mensagens/envio.ts']);
-    expect(quem(/avisarNutriDeMensagem\(/)).toEqual(['src/modules/mensagens/avisos.ts', 'src/modules/mensagens/envio.ts']);
+    /** As chamadas (não a declaração `function nome(`) em cada arquivo. */
+    const chamadas = (nome: string) =>
+      fontes.flatMap((f) => [...readFileSync(f, 'utf8').matchAll(new RegExp(`(?<!function\\s+)\\b${nome}\\(`, 'g'))].map((m) => ({ f, i: m.index })));
+    const devido = chamadas('app_chat_aviso_nutri_devido');
+    const aviso = chamadas('avisarNutriDeMensagem');
+    expect(devido.map((c) => c.f)).toEqual(['src/modules/mensagens/envio.ts']);
+    expect(aviso.map((c) => c.f)).toEqual(['src/modules/mensagens/envio.ts']);
     const envio = readFileSync('src/modules/mensagens/envio.ts', 'utf8');
-    const gravarDoPaciente = envio.slice(envio.indexOf('async function gravarDoPaciente'), envio.indexOf('export async function enviarComoPaciente'));
-    expect(gravarDoPaciente).toMatch(/avisarNutriDeMensagem\(/);
-    expect(envio.replace(gravarDoPaciente, '')).not.toMatch(/avisarNutriDeMensagem\(/);
+    const inicio = envio.indexOf('async function gravarDoPaciente');
+    const fim = envio.indexOf('export async function enviarComoPaciente');
+    const insert = envio.indexOf('.insert(chatMensagens)', inicio);
+    expect(inicio).toBeGreaterThan(-1);
+    expect(insert).toBeGreaterThan(inicio);
+    expect(insert).toBeLessThan(fim);
+    // a função roda antes do INSERT (CH-D72: ordena os envios); o e-mail sai depois dele
+    expect(devido[0].i).toBeGreaterThan(inicio);
+    expect(devido[0].i).toBeLessThan(insert);
+    expect(aviso[0].i).toBeGreaterThan(insert);
+    expect(aviso[0].i).toBeLessThan(fim);
   });
 });
 
