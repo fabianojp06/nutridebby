@@ -10,7 +10,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 /**
  * Plano 17 (spec §5.3, §5.5): o banco confere quem muda o quê nos lembretes de rotina — gatilhos lembretes_rotina_regras,
  * lembretes_rotina_envios_do_worker e patients_lembretes_do_paciente, e a lista de colunas do paciente (paciente_colunas), 0119;
- * o DELETE da marca de envio (TRI-17-20 #5).
+ * o paciente sem conta, o `updated_at` do paciente, e o DELETE da marca de envio (TRI-17-20 #5 e #6).
  */
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -106,6 +106,28 @@ describe('lembretes_rotina: quem muda o quê (Plano 17, §5.3)', () => {
     expect(await falhaCom(paciente(T.ctx, { status: 'bloqueado', bloqueadoEm: new Date(), lembretesPausadosEm: new Date() }))).toBe('42501');
     const [bloqueado] = await paciente(T.ctx, { status: 'bloqueado', bloqueadoEm: new Date(), lembretesPausadosEm: null });
     expect(bloqueado).toMatchObject({ status: 'bloqueado', lembretesPausadosEm: null });
+  });
+
+  it('paciente sem conta (link, WhatsApp, convite) não grava nada nos lembretes (TRI-17-20 #6)', async () => {
+    const { T, p, criar, lembrete, em } = await cenario();
+    const agua = await criar();
+    const semConta: TenantContext = { tenantId: T.tenantId, role: 'paciente', patientId: p.id, semConta: true };
+    // a RLS de paciente mostra a linha (a recusa vem do gatilho, não de 0 linhas)
+    expect(await em(semConta, (tx) => tx.select({ id: lembretesRotina.id }).from(lembretesRotina))).toEqual([{ id: agua.id }]);
+    expect(await falhaCom(lembrete(semConta, agua.id, { desligadoPeloPacienteEm: new Date() }))).toBe('42501');
+    expect(await falhaCom(lembrete(semConta, agua.id, { updatedAt: new Date() }))).toBe('42501');
+    const [depois] = await em(T.ctx, (tx) => tx.select().from(lembretesRotina).where(eq(lembretesRotina.id, agua.id)));
+    expect(depois.desligadoPeloPacienteEm).toBeNull();
+  });
+
+  it('o updated_at do paciente é o relógio da transação, não o valor enviado (TRI-17-20 #6)', async () => {
+    const { comoPaciente, criar, em } = await cenario();
+    const agua = await criar();
+    const r = await em(comoPaciente, async (tx) => {
+      await tx.update(lembretesRotina).set({ desligadoPeloPacienteEm: new Date(), updatedAt: ANTIGA }).where(eq(lembretesRotina.id, agua.id));
+      return tx.execute<{ igual: boolean }>(sql`select updated_at = now() as igual from lembretes_rotina where id = ${agua.id}`);
+    });
+    expect(r.rows).toEqual([{ igual: true }]);
   });
 
   it('a equipe não grava a marca do paciente ao criar (lembrete nem paciente)', async () => {
