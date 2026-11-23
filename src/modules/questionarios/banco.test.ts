@@ -203,10 +203,10 @@ describe('Plano 27 — questionario_envios no banco (spec §9.2)', () => {
     const outroMotivo = sql`update questionario_envios set situacao = 'cancelado', cancelado_em = now(), cancelado_por = ${C.nutriId}, cancelado_motivo = 'outro' where id = ${e.id}`;
     await expect(em(C.ctx, outroMotivo)).rejects.toSatisfy(doGatilho);
     await expect(semGatilho(outroMotivo)).rejects.toSatisfy(comCodigo('23514'));
-    // via inválida: o gatilho do paciente só confere 'app' (com login) e 'link' (sem); o resto é do CHECK
-    await expect(
-      em(ctxPaciente(C.tenantId, C.p), sql`update questionario_envios set situacao = 'respondido', respostas = '{}'::jsonb, respondido_via = 'whatsapp', respondido_em = now() where id = ${e.id}`),
-    ).rejects.toSatisfy(comCodigo('23514'));
+    // via inválida: o gatilho do paciente recusa antes (42501, P27-01c: o 23514 levaria a linha ao log); o CHECK, sem o gatilho
+    const viaInvalida = sql`update questionario_envios set situacao = 'respondido', respostas = '{}'::jsonb, respondido_via = 'whatsapp', respondido_em = now() where id = ${e.id}`;
+    await expect(em(ctxPaciente(C.tenantId, C.p), viaInvalida)).rejects.toSatisfy(doGatilho);
+    await expect(semGatilho(viaInvalida)).rejects.toSatisfy(comCodigo('23514'));
   });
 
   it('CHECKs da resposta: acima de 2.000.000 bytes → 23514; respondido sem respostas → 23514', async () => {
@@ -214,9 +214,10 @@ describe('Plano 27 — questionario_envios no banco (spec §9.2)', () => {
     const e = await enviar(C);
     const grande = JSON.stringify({ q1: 'x'.repeat(2_000_000) });
     await expect(responder(C, e.id, grande)).rejects.toSatisfy(comCodigo('23514'));
-    await expect(
-      em(ctxPaciente(C.tenantId, C.p), sql`update questionario_envios set situacao = 'respondido', respondido_via = 'app', respondido_em = now() where id = ${e.id}`),
-    ).rejects.toSatisfy(comCodigo('23514'));
+    // respondido sem respostas: o gatilho do paciente recusa antes (42501, P27-01c); o CHECK, sem o gatilho
+    const semRespostas = sql`update questionario_envios set situacao = 'respondido', respondido_via = 'app', respondido_em = now() where id = ${e.id}`;
+    await expect(em(ctxPaciente(C.tenantId, C.p), semRespostas)).rejects.toSatisfy(doGatilho);
+    await expect(semGatilho(semRespostas)).rejects.toSatisfy(comCodigo('23514'));
     expect((await responder(C, e.id))[0]).toMatchObject({ situacao: 'respondido', respondido_via: 'app', respostas: { q1: 'Emagrecer' } });
   });
 
@@ -230,15 +231,13 @@ describe('Plano 27 — questionario_envios no banco (spec §9.2)', () => {
       await expect(em(C.ctx, q)).rejects.toSatisfy(doGatilho);
       await expect(semGatilho(q)).rejects.toSatisfy(comCodigo('23514'));
     }
-    // cancelado sem cancelado_em: o cancelamento legal da nutricionista passa pelo gatilho e cai no CHECK
-    await expect(
-      em(C.ctx, sql`update questionario_envios set situacao = 'cancelado', cancelado_por = ${C.nutriId}, cancelado_motivo = 'nutri' where id = ${e.id}`),
-    ).rejects.toSatisfy(comCodigo('23514'));
-    const [ok] = await em(
-      C.ctx,
-      sql`update questionario_envios set situacao = 'cancelado', cancelado_em = now(), cancelado_por = ${C.nutriId}, cancelado_motivo = 'nutri' where id = ${e.id} returning *`,
-    );
+    // cancelado sem cancelado_em: o gatilho grava o relógio do banco nos dois ramos de cancelamento (P27-01c), e nenhum papel
+    // chega ao CHECK; o CHECK, sem o gatilho
+    const semData = sql`update questionario_envios set situacao = 'cancelado', cancelado_por = ${C.nutriId}, cancelado_motivo = 'nutri' where id = ${e.id}`;
+    await expect(semGatilho(semData)).rejects.toSatisfy(comCodigo('23514'));
+    const [ok] = await em(C.ctx, sql`${semData} returning *`);
     expect(ok).toMatchObject({ situacao: 'cancelado', cancelado_motivo: 'nutri' });
+    expect(ok.cancelado_em).not.toBeNull();
   });
 
   it('anamnese_id: só em respondido; FK composta recusa a anamnese de outro paciente (23503); uma anamnese para um envio só', async () => {
@@ -347,7 +346,9 @@ const insertAuto = (C: Cenario, paciente = C.p) =>
       values (${C.tenantId}, ${paciente}, ${SNAPSHOT}::jsonb, 'automatico', now() + interval '1 day') returning *`;
 const RESPONDIDO_APP = sql`situacao = 'respondido', respostas = '{"q1":"Emagrecer"}'::jsonb, respondido_via = 'app'`;
 const RESPONDIDO_LINK = sql`situacao = 'respondido', respostas = '{"q1":"Emagrecer"}'::jsonb, respondido_via = 'link'`;
-const cancelamento = (motivo: string, por: string | null) => sql`situacao = 'cancelado', cancelado_em = now(), cancelado_por = ${por}, cancelado_motivo = ${motivo}`;
+const cancelamento = (motivo: string, por: string | null, em: SQL = sql`now()`) =>
+  sql`situacao = 'cancelado', cancelado_em = ${em}, cancelado_por = ${por}, cancelado_motivo = ${motivo}`;
+const NO_ANO_2000 = sql`'2000-01-01T00:00:00Z'::timestamptz`;
 
 describe('Plano 27 — gatilho questionario_envios_regras: INSERT (spec §9.2, RN-533)', () => {
   it('a nutricionista só envia em nome próprio, como envio manual; o worker e o contexto vazio, só o automático sem autora', async () => {
@@ -417,6 +418,19 @@ describe('Plano 27 — gatilho questionario_envios_regras: o paciente responde (
     expect((await atualizar(ctxPaciente(C.tenantId, C.p), b.id, RESPONDIDO_APP))[0]).toMatchObject({ situacao: 'respondido', respondido_via: 'app' });
   });
 
+  it('via fora de "app"/"link" (ou nula) e respostas nulas → 42501 do gatilho, antes do CHECK (regra 3: o 23514 levaria a linha ao log)', async () => {
+    const C = await cenario();
+    const e = await enviar(C);
+    const RESPOSTAS = sql`situacao = 'respondido', respostas = '{"q1":"Emagrecer"}'::jsonb`;
+    for (const ctx of [ctxPaciente(C.tenantId, C.p), semConta(C, C.p)]) {
+      await expect(atualizar(ctx, e.id, sql`${RESPOSTAS}, respondido_via = 'whatsapp'`)).rejects.toSatisfy(doGatilho);
+      await expect(atualizar(ctx, e.id, sql`${RESPOSTAS}, respondido_via = null`)).rejects.toSatisfy(doGatilho);
+    }
+    await expect(atualizar(ctxPaciente(C.tenantId, C.p), e.id, sql`situacao = 'respondido', respostas = null, respondido_via = 'app'`)).rejects.toSatisfy(doGatilho);
+    await expect(atualizar(semConta(C, C.p), e.id, sql`situacao = 'respondido', respondido_via = 'link'`)).rejects.toSatisfy(doGatilho);
+    expect(await ler(e.id)).toMatchObject({ situacao: 'enviado', respostas: null, respondido_via: null });
+  });
+
   it('depois de expira_em, em envio que não está aberto, ou mudando outra coluna (consulta, prazo, situação) → 42501', async () => {
     const C = await cenario();
     const pac = ctxPaciente(C.tenantId, C.p);
@@ -460,8 +474,10 @@ describe('Plano 27 — gatilho questionario_envios_regras: a nutricionista (spec
     await expect(atualizar(C.ctx, e.id, sql`${cancelamento('nutri', C.nutriId)}, expira_em = expira_em + interval '1 day'`)).rejects.toSatisfy(doGatilho);
     await expect(atualizar(C.ctx, e.id, sql`situacao = 'expirado'`)).rejects.toSatisfy(doGatilho);
     await expect(atualizar(C.ctx, e.id, sql`expira_em = expira_em + interval '1 day'`)).rejects.toSatisfy(doGatilho);
-    const [c] = await atualizar(C.ctx, e.id, cancelamento('nutri', C.nutriId));
+    // cancelado_em do relógio do banco (P27-01c): o valor mandado não vale
+    const [c] = await atualizar(C.ctx, e.id, cancelamento('nutri', C.nutriId, NO_ANO_2000));
     expect(c).toMatchObject({ situacao: 'cancelado', cancelado_motivo: 'nutri', cancelado_por: C.nutriId });
+    expect(Math.abs(new Date(c.cancelado_em as string).getTime() - Date.now())).toBeLessThan(5 * 60_000);
     await expect(atualizar(C.ctx, e.id, sql`situacao = 'enviado', cancelado_em = null, cancelado_por = null, cancelado_motivo = null`)).rejects.toSatisfy(doGatilho);
     const r = await enviar(C);
     await responder(C, r.id);
@@ -473,7 +489,9 @@ describe('Plano 27 — gatilho questionario_envios_regras: a nutricionista (spec
     const e = await enviar(C);
     await expect(atualizar(C.ctx, e.id, cancelamento('paciente_bloqueado', C.nutriId))).rejects.toSatisfy(doGatilho);
     await bloquear(C);
-    expect((await atualizar(C.ctx, e.id, cancelamento('paciente_bloqueado', C.nutriId)))[0]).toMatchObject({ situacao: 'cancelado', cancelado_motivo: 'paciente_bloqueado' });
+    const [c] = await atualizar(C.ctx, e.id, sql`situacao = 'cancelado', cancelado_por = ${C.nutriId}, cancelado_motivo = 'paciente_bloqueado', cancelado_em = null`);
+    expect(c).toMatchObject({ situacao: 'cancelado', cancelado_motivo: 'paciente_bloqueado' });
+    expect(Math.abs(new Date(c.cancelado_em as string).getTime() - Date.now())).toBeLessThan(5 * 60_000); // do relógio do banco (P27-01c)
   });
 
   it('liga a anamnese da cópia uma vez, de nulo para valor, só num respondido; troca, retirada ou outra coluna junto → 42501', async () => {
@@ -531,8 +549,15 @@ describe('Plano 27 — gatilho questionario_envios_regras: o worker (RN-534, RN-
     await expect(atualizar(worker(C), e.id, cancelamento('nutri', C.nutriId))).rejects.toSatisfy(doGatilho);
     await expect(atualizar(worker(C), e.id, cancelamento('consulta_cancelada', C.nutriId))).rejects.toSatisfy(doGatilho);
     await expect(atualizar(worker(C), e.id, cancelamento('paciente_bloqueado', null))).rejects.toSatisfy(doGatilho);
-    const [c] = await atualizar(worker(C), e.id, PELA_CONSULTA);
+    // cancelado_em do relógio do banco (P27-01c): o valor mandado não vale, nem no worker nem no contexto vazio
+    const [c] = await atualizar(worker(C), e.id, cancelamento('consulta_cancelada', null, NO_ANO_2000));
     expect(c).toMatchObject({ situacao: 'cancelado', cancelado_motivo: 'consulta_cancelada', cancelado_por: null });
+    expect(Math.abs(new Date(c.cancelado_em as string).getTime() - Date.now())).toBeLessThan(5 * 60_000);
+    const b = await consulta(C);
+    const doDono = await enviar(C, { consulta: b });
+    await cancelarConsulta(C, b);
+    const [d] = await dono(sql`update questionario_envios set ${cancelamento('consulta_cancelada', null, NO_ANO_2000)} where id = ${doDono.id} returning *`);
+    expect(Math.abs(new Date(d.cancelado_em as string).getTime() - Date.now())).toBeLessThan(5 * 60_000);
   });
 
   it('remarcação e consulta movida (RN-535): expira_em só para o início da consulta de NEW.appointment_id', async () => {

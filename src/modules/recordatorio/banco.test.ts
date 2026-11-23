@@ -8,7 +8,8 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 /**
  * Plano 27 (spec §9.3): `recordatorios` e `recordatorio_itens` no banco — RLS, CHECKs, FKs, REVOKE e auditoria. Tudo por
  * SQL cru, sem o módulo. T1a: RLS, CHECKs, FKs, REVOKE e auditoria; T1b: os gatilhos recordatorios_regras (criado_por
- * pelo gatilho, worker recusado — QP-D59 —, colunas fixas) e recordatorio_itens_colunas_fixas.
+ * pelo gatilho, worker recusado — QP-D59 —, colunas fixas) e recordatorio_itens_colunas_fixas; P27-01c:
+ * recordatorio_itens_sem_worker (o worker não grava nem apaga item, como a mãe).
  */
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -227,5 +228,26 @@ describe('Plano 27 — gatilhos recordatorios_regras e recordatorio_itens_coluna
     await expect(dono(sql`update recordatorio_itens set tenant_id = ${D.tenantId} where id = ${i.id}`)).rejects.toSatisfy(doGatilho);
     await expect(em(C.ctx, sql`update recordatorio_itens set tenant_id = ${D.tenantId} where id = ${i.id}`)).rejects.toSatisfy(rlsDe('recordatorio_itens'));
     expect(await em(C.ctx, sql`update recordatorio_itens set recordatorio_id = recordatorio_id where id = ${i.id} returning id`)).toHaveLength(1);
+  });
+
+  it('itens e o worker no próprio tenant (P27-01c, como a mãe — QP-D59): INSERT, UPDATE e DELETE → 42501 do gatilho; o UPDATE sem mudança passa; o contexto vazio é livre', async () => {
+    const C = await cenario();
+    const D = await cenario();
+    const r = await recordatorio(C);
+    const [i] = await em(C.ctx, novoItem(C, r.id));
+    await expect(em(worker(C), novoItem(C, r.id))).rejects.toSatisfy(doGatilho);
+    await expect(em(worker(C), sql`update recordatorio_itens set quantidade_g = 150 where id = ${i.id}`)).rejects.toSatisfy(doGatilho);
+    await expect(em(worker(C), sql`delete from recordatorio_itens where id = ${i.id}`)).rejects.toSatisfy(doGatilho);
+    expect(await em(worker(C), sql`update recordatorio_itens set quantidade_g = quantidade_g where id = ${i.id} returning id`)).toHaveLength(1);
+    expect((await owner.pool.query('select quantidade_g from recordatorio_itens where id = $1', [i.id])).rows[0].quantidade_g).toBe('100.00');
+    // o worker de outro tenant: o INSERT cai na RLS (o gatilho devolve NEW) e o DELETE não vê a linha
+    await expect(em(worker(D), novoItem(C, r.id))).rejects.toSatisfy(rlsDe('recordatorio_itens'));
+    expect(await em(worker(D), sql`delete from recordatorio_itens where id = ${i.id} returning id`)).toHaveLength(0);
+    // o contexto vazio (fábrica, semente) grava, altera e apaga
+    const [j] = await dono(novoItem(C, r.id));
+    expect(await dono(sql`update recordatorio_itens set quantidade_g = 150 where id = ${j.id} returning id`)).toHaveLength(1);
+    expect(await dono(sql`delete from recordatorio_itens where id = ${j.id} returning id`)).toHaveLength(1);
+    // a nutricionista segue apagando o item que saiu da edição
+    expect(await em(C.ctx, sql`delete from recordatorio_itens where id = ${i.id} returning id`)).toHaveLength(1);
   });
 });

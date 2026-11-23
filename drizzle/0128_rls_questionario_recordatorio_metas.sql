@@ -116,16 +116,20 @@ GRANT EXECUTE ON FUNCTION app_hoje_do_tenant() TO nutri_app_role;
 --   'paciente': só enviado → respondido (RN-529), clock_timestamp() < OLD.expira_em, titular ativo e não anonimizado
 --           (lê patients FOR KEY SHARE — visível: a sessão de paciente tem update em patients; o módulo já travou antes,
 --           QP-D33), respondido_em := clock_timestamp(), respondido_via 'app' ⇔ app_current_user() IS NOT NULL;
---           nenhuma outra coluna (to_jsonb(NEW) - lista = to_jsonb(OLD) - lista)
+--           nenhuma outra coluna (to_jsonb(NEW) - lista = to_jsonb(OLD) - lista); respondido_via fora de 'app'/'link' (ou
+--           nulo) e respostas nulas → 42501 do gatilho, antes do CHECK (P27-01c: o 23514 levaria a linha — snapshot e
+--           respostas — ao log do Postgres; regra 3)
 --   'nutri': enviado → cancelado (cancelado_por = app_current_user(); motivo 'nutri', ou 'paciente_bloqueado' só com o
---           titular já em status 'bloqueado'); anamnese_id de nulo para valor só em 'respondido'; nada mais
+--           titular já em status 'bloqueado'; cancelado_em := clock_timestamp()); anamnese_id de nulo para valor só em
+--           'respondido'; nada mais
 --   'worker'/'': enviado → expirado (só com OLD.expira_em <= clock_timestamp() ou, com consulta, o inicio dela já passado);
 --           enviado → cancelado (motivo 'consulta_cancelada', cancelado_por nulo, só com a consulta de OLD.appointment_id
---           em 'cancelada' — QP-D59); com situacao 'enviado', troca de expira_em, com ou sem troca de appointment_id
+--           em 'cancelada' — QP-D59; cancelado_em := clock_timestamp()); com situacao 'enviado', troca de expira_em, com ou
+--           sem troca de appointment_id
 --           (remarcação e consulta movida, RN-535: lê a consulta de NEW.appointment_id e exige expira_em = inicio dela)
 --   qualquer outro caso: 42501
--- A consulta é lida com FOR KEY SHARE (ordem de travas RN-559: paciente → envio → consulta). O valor inválido de
--- respondido_via (nem 'app' nem 'link') fica para o CHECK questionario_envios_via_valida.
+-- A consulta é lida com FOR KEY SHARE (ordem de travas RN-559: paciente → envio → consulta). cancelado_em, como
+-- respondido_em, é do relógio do banco: o valor mandado não vale (P27-01c).
 CREATE OR REPLACE FUNCTION app_questionario_envios_regras() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp AS $$
@@ -197,6 +201,9 @@ BEGIN
        OR (to_jsonb(NEW) - v_resposta) IS DISTINCT FROM (to_jsonb(OLD) - v_resposta) THEN
       RAISE EXCEPTION 'o paciente só responde o questionário enviado' USING ERRCODE = '42501';
     END IF;
+    IF NEW.respondido_via IS NULL OR NEW.respondido_via NOT IN ('app', 'link') OR NEW.respostas IS NULL THEN
+      RAISE EXCEPTION 'resposta do questionário sem respostas ou com canal inválido' USING ERRCODE = '42501';
+    END IF;
     IF clock_timestamp() >= OLD.expira_em THEN
       RAISE EXCEPTION 'o prazo do questionário acabou' USING ERRCODE = '42501';
     END IF;
@@ -221,6 +228,7 @@ BEGIN
         RAISE EXCEPTION 'o cancelamento sai em nome da usuária da sessão' USING ERRCODE = '42501';
       END IF;
       IF NEW.cancelado_motivo IS NOT DISTINCT FROM 'nutri' THEN
+        NEW.cancelado_em := clock_timestamp();
         RETURN NEW;
       END IF;
       IF NEW.cancelado_motivo IS NOT DISTINCT FROM 'paciente_bloqueado' THEN
@@ -228,6 +236,7 @@ BEGIN
           FROM public.patients p WHERE p.tenant_id = OLD.tenant_id AND p.id = OLD.patient_id
           FOR KEY SHARE;
         IF v_status IS NOT DISTINCT FROM 'bloqueado' THEN
+          NEW.cancelado_em := clock_timestamp();
           RETURN NEW;
         END IF;
         RAISE EXCEPTION 'cancelamento por bloqueio só com o titular bloqueado' USING ERRCODE = '42501';
@@ -266,6 +275,7 @@ BEGIN
         FROM public.appointments a WHERE a.tenant_id = OLD.tenant_id AND a.id = OLD.appointment_id
         FOR KEY SHARE;
       IF v_consulta_status IS NOT DISTINCT FROM 'cancelada' THEN
+        NEW.cancelado_em := clock_timestamp();
         RETURN NEW;
       END IF;
       RAISE EXCEPTION 'a consulta do envio não foi cancelada' USING ERRCODE = '42501';
@@ -345,6 +355,37 @@ BEGIN
 END $$;
 --> statement-breakpoint
 CREATE TRIGGER recordatorio_itens_colunas_fixas BEFORE UPDATE ON recordatorio_itens FOR EACH ROW EXECUTE FUNCTION app_recordatorio_itens_colunas_fixas();
+--> statement-breakpoint
+-- recordatorio_itens_sem_worker (BEFORE INSERT OR UPDATE OR DELETE), P27-01c: como a mãe (recordatorios_regras, QP-D59), o
+--   'worker' no próprio tenant → 42501 no INSERT, no UPDATE e no DELETE (nenhum fluxo do worker grava ou apaga item, e o papel
+--   worker também roda no processo web); o UPDATE sem mudança passa (QP-D35); tenant de fora → segue (a RLS recusa o INSERT e
+--   o UPDATE e esconde a linha do DELETE); os outros papéis seguem (a RLS e recordatorio_itens_colunas_fixas decidem); o
+--   contexto vazio ('': migration, semente, fábrica) é livre
+CREATE OR REPLACE FUNCTION app_recordatorio_itens_sem_worker() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp AS $$
+DECLARE
+  r text := coalesce(app_current_role(), '');
+BEGIN
+  IF r <> 'worker' THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.tenant_id IS DISTINCT FROM app_current_tenant() THEN
+      RETURN OLD;
+    END IF;
+    RAISE EXCEPTION 'o item do recordatório só pela sessão da nutricionista' USING ERRCODE = '42501';
+  END IF;
+  IF TG_OP = 'UPDATE' AND to_jsonb(NEW) IS NOT DISTINCT FROM to_jsonb(OLD) THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.tenant_id IS DISTINCT FROM app_current_tenant() THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'o item do recordatório só pela sessão da nutricionista' USING ERRCODE = '42501';
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER recordatorio_itens_sem_worker BEFORE INSERT OR UPDATE OR DELETE ON recordatorio_itens FOR EACH ROW EXECUTE FUNCTION app_recordatorio_itens_sem_worker();
 --> statement-breakpoint
 -- metas_paciente_regras (BEFORE INSERT OR UPDATE), QP-D35: tenant de fora e papéis 'paciente', 'publico', 'conta', 'recepcao'
 --   → RETURN NEW (a RLS recusa); INSERT 'nutri' → criado_por := app_current_user(); UPDATE sem mudança passa;

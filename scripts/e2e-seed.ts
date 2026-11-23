@@ -114,17 +114,20 @@ await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
   // appointment_id é fixo. A consulta com lançamento fica, cancelada pelo sistema (o EXCLUDE ignora as canceladas e libera o
   // horário) e sem `remarcada_de` (a consulta de origem é apagada abaixo); as outras saem. Os lançamentos antigos ficam: o E2E
   // do Financeiro confere só os valores do paciente que ele cria.
-  const comLancamento = sql`exists (select 1 from fin_lancamentos f where f.tenant_id = appointments.tenant_id and f.appointment_id = appointments.id)`;
+  // Plano 27 (spec §13, rls I6): o envio de questionário da consulta também aponta para ela (FK NO ACTION, DELETE revogado e
+  // appointment_id só muda em `enviado`): a consulta com envio fica, como a com lançamento.
+  const comVinculo = sql`(exists (select 1 from fin_lancamentos f where f.tenant_id = appointments.tenant_id and f.appointment_id = appointments.id)
+    or exists (select 1 from questionario_envios q where q.tenant_id = appointments.tenant_id and q.appointment_id = appointments.id))`;
   for (const t of AGENDA_E2E) {
     if (t !== 'appointments') {
       await tx.execute(sql`delete from ${sql.identifier(t)}`);
       continue;
     }
-    await tx.execute(sql`update appointments set remarcada_de = null where remarcada_de is not null and ${comLancamento}`);
+    await tx.execute(sql`update appointments set remarcada_de = null where remarcada_de is not null and ${comVinculo}`);
     await tx.execute(
-      sql`update appointments set status = 'cancelada', cancelado_por = 'sistema', cancelada_em = now(), updated_at = now() where status <> 'cancelada' and ${comLancamento}`,
+      sql`update appointments set status = 'cancelada', cancelado_por = 'sistema', cancelada_em = now(), updated_at = now() where status <> 'cancelada' and ${comVinculo}`,
     );
-    await tx.execute(sql`delete from appointments where not ${comLancamento}`);
+    await tx.execute(sql`delete from appointments where not ${comVinculo}`);
   }
   // Os pacientes ativos das execuções anteriores vão para "arquivado": a lista de pacientes da nova consulta tem teto
   // (LIMITE_LISTA, por nome) e, no banco de dev reaproveitado, o paciente criado agora ficava fora dela (portal.spec, agenda)

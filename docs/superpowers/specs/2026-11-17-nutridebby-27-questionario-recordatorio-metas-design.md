@@ -871,12 +871,15 @@ REVOKE DELETE, TRUNCATE ON questionario_envios FROM nutri_app_role;
 --   'paciente': só enviado → respondido (RN-529), clock_timestamp() < OLD.expira_em, titular ativo e não anonimizado
 --           (lê patients FOR KEY SHARE — visível: a sessão de paciente tem update em patients; o módulo já travou antes,
 --           QP-D33), respondido_em := clock_timestamp(), respondido_via 'app' ⇔ app_current_user() IS NOT NULL;
---           nenhuma outra coluna (to_jsonb(NEW) - lista = to_jsonb(OLD) - lista)
+--           nenhuma outra coluna (to_jsonb(NEW) - lista = to_jsonb(OLD) - lista); respondido_via fora de 'app'/'link' (ou
+--           nulo) e respostas nulas → 42501 do gatilho, antes do CHECK (o 23514 levaria a linha ao log; regra 3, P27-01c)
 --   'nutri': enviado → cancelado (cancelado_por = app_current_user(); motivo 'nutri', ou 'paciente_bloqueado' só com o
---           titular já em status 'bloqueado'); anamnese_id de nulo para valor só em 'respondido'; nada mais
+--           titular já em status 'bloqueado'; cancelado_em := clock_timestamp()); anamnese_id de nulo para valor só em
+--           'respondido'; nada mais
 --   'worker'/'': enviado → expirado (só com OLD.expira_em <= clock_timestamp() ou, com consulta, o inicio dela já passado);
 --           enviado → cancelado (motivo 'consulta_cancelada', cancelado_por nulo, só com a consulta de OLD.appointment_id
---           em 'cancelada' — QP-D59); com situacao 'enviado', troca de expira_em, com ou sem troca de appointment_id
+--           em 'cancelada' — QP-D59; cancelado_em := clock_timestamp()); com situacao 'enviado', troca de expira_em, com ou
+--           sem troca de appointment_id
 --           (remarcação e consulta movida, RN-535: lê a consulta de NEW.appointment_id e exige expira_em = inicio dela)
 --   qualquer outro caso: 42501
 ```
@@ -955,6 +958,8 @@ REVOKE DELETE, TRUNCATE ON recordatorios FROM nutri_app_role;
 --   UPDATE: id, tenant_id, patient_id, criado_por, created_at fixos (42501); 'worker' → 42501
 -- recordatorio_itens_colunas_fixas (BEFORE UPDATE): id, tenant_id, patient_id, recordatorio_id fixos (42501): um item nunca
 --   muda de recordatório nem de paciente
+-- recordatorio_itens_sem_worker (BEFORE INSERT OR UPDATE OR DELETE, P27-01c): como a mãe, 'worker' no próprio tenant → 42501
+--   no INSERT, no UPDATE (salvo sem mudança) e no DELETE; '' livre (fábrica, semente)
 ```
 
 - **Sem** `staff_only` (dado do titular; o portal não lê na v1, QP-D16); sem escrita do paciente (nega por

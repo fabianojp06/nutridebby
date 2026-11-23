@@ -13,7 +13,7 @@
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import * as schema from '@/db/schema';
@@ -192,7 +192,7 @@ async function semearRegistros(ctx: TenantContext, pacientes: string[]): Promise
     ctx,
     async (tx) => {
       await garantirModeloPadrao(tx, tenantId); // o "Anamnese geral" que a tela usa (anamneses guardam o snapshot)
-      const [modelo] = await tx.select().from(anamnesisTemplates).where(eq(anamnesisTemplates.padrao, true));
+      const [modelo] = await tx.select().from(anamnesisTemplates).where(and(eq(anamnesisTemplates.padrao, true), eq(anamnesisTemplates.finalidade, 'anamnese')));
       for (const e of extras) {
         for (let i = 0; i < registrosDe(e.p).anamneses; i++) {
           const data = diaAntes(i * 90 + 2);

@@ -262,11 +262,21 @@ const IMUTAVEIS = new Set([
   // Plano 20: fin_lancamentos_regras recusa mudar tenant_id/patient_id com 42501 antes da RLS
   'fin_lancamentos',
   'patient_cadastro',
+  // Plano 27: questionario_envios_regras, recordatorios_regras, recordatorio_itens_colunas_fixas, metas_paciente_regras e
+  // metas_registros_regras (0128) recusam colunas fixas com 42501; a recusa de mudar o tenant ou o titular para fora da sessão
+  // vem da RLS (QP-D35: RETURN NEW), e o `negado` aceita as duas
+  'questionario_envios',
+  'recordatorios',
+  'recordatorio_itens',
+  'metas_paciente',
+  'metas_registros',
 ]);
 /**
  * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
  * FK composta signed_documents_paciente_fk (NO ACTION), o `delete from patients` de B falharia com 23503 nos pacientes
  * que ainda têm documento emitido ou recibo — então patients de B só apaga os pacientes sem eles (revisão do rascunho).
+ * Plano 27: o mesmo para os titulares com linha em questionario_envios, recordatorios, metas_paciente e metas_registros (DELETE
+ * revogado: as linhas ficam e seguram a FK).
  */
 const SO_APAGA: Record<string, SQL> = {
   signed_documents: sql`status = 'rascunho'`,
@@ -433,12 +443,17 @@ const negado = (e: unknown) => (((e as { cause?: unknown }).cause ?? e) as { cod
  * Plano 12: exam_submissions — gatilho exam_submissions_regras (0102); o paciente só cancela o próprio recebido.
  * Plano 15: ia_nutri_mensagens — gatilho ia_nutri_mensagens_regras (0116); o paciente encaminha a própria pergunta respondida.
  * Plano 17: lembretes_rotina — gatilho lembretes_rotina_regras (0119); o paciente desliga o próprio lembrete.
+ * Plano 27: questionario_envios — gatilho questionario_envios_regras (0128); o paciente com login responde pelo app o próprio
+ * envio aberto. metas_registros — gatilho metas_registros_regras (0128); o UPDATE sem mudança passa (o registro de hoje e de
+ * ontem é provado em src/modules/metas/banco.test.ts).
  */
 const UPDATE_DO_PACIENTE: Record<string, SQL> = {
   data_exports: sql`status = 'falhou'`,
   exam_submissions: sql`status = 'cancelado'`,
   ia_nutri_mensagens: sql`encaminhada_em = now()`,
   lembretes_rotina: sql`desligado_pelo_paciente_em = now()`,
+  questionario_envios: sql`situacao = 'respondido', respostas = '{}'::jsonb, respondido_via = 'app'`,
+  metas_registros: sql`cumprida = cumprida`,
 };
 
 const contarPaciente = async (t: string, col: string, tenantId: string, patientId: string) =>
