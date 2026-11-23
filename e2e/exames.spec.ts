@@ -116,7 +116,7 @@ test('US-374: marcar 2 exames e abrir o comparativo; fora de 2 a 6 o botão fica
   await nutri.getByRole('checkbox', { name: new RegExp(`^Comparar Hemograma ${sufixo} de `) }).check();
   await expect(botao).toHaveText('Comparar 1 exames');
   await expect(botao).toHaveAttribute('aria-disabled', 'true');
-  await botao.click(); // desabilitado: não sai da aba
+  await botao.click({ force: true }); // aria-disabled: o Playwright esperaria "enabled"; o force prova que o envio é barrado e não sai da aba
   await expect(nutri).toHaveURL(new RegExp(`${prontuario}/exames$`));
 
   await nutri.getByRole('checkbox', { name: new RegExp(`^Comparar Anterior ${sufixo} de 15/01/2026$`) }).check();
