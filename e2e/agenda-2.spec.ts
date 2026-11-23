@@ -1,3 +1,4 @@
+import { PDFiumLibrary } from '@hyzyla/pdfium';
 import { expect, test, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
 import { criarPacientePeloFormulario } from './pacientes-form';
@@ -28,6 +29,9 @@ const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julh
 const SEGUNDA = segundaDepoisDe(120);
 const TERCA = somar(SEGUNDA, 1);
 const QUARTA = somar(SEGUNDA, 2);
+const QUINTA = somar(SEGUNDA, 3);
+/** Bloqueio desta semana (o axe do acessibilidade-painel mede a semana com consulta, bloqueio e marcador; M1 da revisão). */
+const SEXTA = somar(SEGUNDA, 4);
 const sufixo = Date.now().toString(36);
 const LIA = { nome: `Lia Visoes ${sufixo}`, email: `lia-visoes-${sufixo}@ex.com` };
 const RUI = { nome: `Rui Visoes ${sufixo}`, email: `rui-visoes-${sufixo}@ex.com` };
@@ -58,6 +62,13 @@ test('Semana em grade: filtro de local, "Próximo" mantém o filtro, 24 horas, "
   await criarPacientePeloFormulario(nutri, RUI);
   await marcar(LIA, SEGUNDA, '07:40', '45', 'Clínica Centro E2E (Presencial)');
   await marcar(RUI, TERCA, '07:00', '90', 'Consultório E2E (Presencial)');
+  // um bloqueio de um dia (não é regra: não cruza as do agenda.spec)
+  await nutri.goto('/painel/agenda/horarios');
+  await nutri.getByLabel('Data inicial').fill(SEXTA);
+  await nutri.getByLabel('Data final').fill(SEXTA);
+  await nutri.getByLabel('Motivo (opcional)').fill(`Feriado E2E ${sufixo}`);
+  await nutri.getByRole('button', { name: 'Adicionar bloqueio' }).click();
+  await expect(nutri.getByText(`Feriado E2E ${sufixo}`)).toBeVisible();
 
   await nutri.goto(`/painel/agenda?visao=semana&data=${SEGUNDA}`);
   await expect(nutri.getByRole('navigation', { name: 'Seções da agenda' }).getByRole('link', { name: 'Agenda' })).toHaveAttribute('aria-current', 'page');
@@ -68,6 +79,7 @@ test('Semana em grade: filtro de local, "Próximo" mantém o filtro, 24 horas, "
   await expect(grade.getByRole('link', { name: new RegExp(`07:40–08:25 ${LIA.nome} Primeira consulta · Clínica Centro E2E`) })).toBeVisible();
   await expect(grade.getByRole('link', { name: new RegExp(`07:00 \\(até 08:30\\) ${RUI.nome}`) })).toHaveCount(1);
   await expect(grade.getByRole('row', { name: /^07h/ }).getByRole('link', { name: new RegExp(LIA.nome) })).toBeVisible();
+  await expect(grade.getByText(`Bloqueado: Feriado E2E ${sufixo}`)).toBeVisible();
 
   // filtro de local (formulário GET): só a consulta da Clínica; "Próximo" e "Anterior" mantêm o filtro
   await nutri.getByLabel('Local', { exact: true }).selectOption({ label: 'Clínica Centro E2E' });
@@ -106,9 +118,10 @@ test('Semana em grade: filtro de local, "Próximo" mantém o filtro, 24 horas, "
 
   // legenda em texto; sem o marcador de previsão de retorno no PR 2 (AG-D73)
   const legenda = nutri.getByRole('region', { name: 'Legenda' });
-  for (const r of ['Primeira consulta', 'Retorno', 'Pedido a responder', 'Presença a registrar', 'Bloqueio', 'Aniversário']) {
+  for (const r of ['Primeira consulta', 'Retorno', 'Presença a registrar', 'Bloqueio', 'Aniversário']) {
     await expect(legenda.getByText(r, { exact: true })).toBeVisible();
   }
+  await expect(legenda.getByText('Pedido a responder')).toHaveCount(0); // AG-D72: só com o status `solicitada` (T6/T8)
   await expect(nutri.getByText('Previsões de retorno')).toHaveCount(0);
   await nutri.getByRole('link', { name: 'Limpar filtros' }).click();
   await expect(nutri).toHaveURL(new RegExp(`/painel/agenda\\?visao=semana&data=${TERCA}$`));
@@ -172,6 +185,46 @@ test('impressão: mesmos filtros, só os campos da RN-418, rodapé e Cache-Contr
   }
   await nutri.getByRole('link', { name: 'Voltar à agenda' }).click();
   await expect(nutri).toHaveURL(new RegExp(`/painel/agenda\\?visao=semana&data=${SEGUNDA}&local=`));
+});
+
+/** Texto de cada página de um PDF (PDFium do próprio projeto, sem dependência nova), com os traços normalizados. */
+async function paginasDoPdf(pdf: Buffer): Promise<string[]> {
+  const biblioteca = await PDFiumLibrary.init();
+  try {
+    const doc = await biblioteca.loadDocument(new Uint8Array(pdf));
+    try {
+      return [...doc.pages()].map((p) => p.getText().replace(/[\u2010-\u2015]/g, '-').replace(/\s+/g, ' '));
+    } finally {
+      doc.destroy();
+    }
+  } finally {
+    biblioteca.destroy();
+  }
+}
+
+test('impressão em PDF A4 com várias páginas: nenhuma linha some, e o rodapé sai em toda página (revisão da T5, I-1)', async () => {
+  test.setTimeout(300_000);
+  // 50 consultas de 15 min na quinta, de 00:00 a 12:15: mais de uma página A4
+  const horas: string[] = [];
+  for (let i = 0; i < 50; i++) {
+    const ini = `${String(Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15).padStart(2, '0')}`;
+    const fim = `${String(Math.floor((i + 1) / 4)).padStart(2, '0')}:${String(((i + 1) % 4) * 15).padStart(2, '0')}`;
+    await marcar(LIA, QUINTA, ini, '15', 'Consultório E2E (Presencial)');
+    horas.push(`${ini}-${fim}`);
+  }
+  await nutri.goto(`/painel/agenda/imprimir?visao=dia&data=${QUINTA}`);
+  await expect(nutri.getByRole('row', { name: new RegExp(`^12:15`) })).toBeVisible();
+  const paginas = await paginasDoPdf(await nutri.pdf({ format: 'A4' }));
+  expect(paginas.length, 'o dia ocupa mais de uma página').toBeGreaterThan(1);
+  const tudo = paginas.join(' ');
+  // a última linha de cada página (e todas as outras) está no PDF: nenhuma ficou sob o rodapé
+  for (const h of horas) expect(tudo, h).toContain(h);
+  for (const [i, p] of paginas.entries()) {
+    expect(p, `página ${i + 1}`).toContain('Contém dados pessoais de pacientes. Uso restrito do consultório.');
+    const ultima = [...p.matchAll(/\d{2}:\d{2}-\d{2}:\d{2}/g)].at(-1)?.[0];
+    expect(ultima, `página ${i + 1} tem linhas`).toBeDefined();
+    expect(horas, `a última linha da página ${i + 1}`).toContain(ultima);
+  }
 });
 
 test('locais: criar, arquivar e reativar (US-400)', async () => {

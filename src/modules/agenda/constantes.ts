@@ -165,6 +165,17 @@ export const MSG_VISOES = {
   /** Fora da §6.2: a lista por dia do celular e a do Mês. */
   semConsultasNoDia: 'Nenhuma consulta.',
   semConsultasNoMes: 'Nenhuma consulta neste mês.',
+  /** Fora da §6.2 (já existia no cabeçalho do dia): o dia de hoje em texto, na Semana e no Mês (a cor só reforça). */
+  hojeMarca: '(hoje)',
+  /** Fora da §6.2: o complemento só para leitor de tela de "Anterior"/"Próximo", com a visão (o texto visível vem antes). */
+  vizinhos: {
+    dia: { anterior: 'dia anterior', proximo: 'próximo dia' },
+    semana: { anterior: 'semana anterior', proximo: 'próxima semana' },
+    mes: { anterior: 'mês anterior', proximo: 'próximo mês' },
+    lista: { anterior: 'período anterior', proximo: 'próximo período' },
+  },
+  /** Fora da §6.2: nome acessível dos dois formulários GET da agenda. */
+  formularioFiltros: 'Filtros da agenda',
   /** Fora da §6.2: cabeçalhos da grade (a coluna das horas e a linha dos marcadores). */
   hora: 'Hora',
   marcadores: 'Marcadores',

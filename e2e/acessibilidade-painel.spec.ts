@@ -466,7 +466,19 @@ test('Plano 23: agenda em Mês e em Semana com filtro e 24 horas, Locais e impre
   await nutri.goto('/painel/agenda');
   const local = await nutri.getByLabel('Local', { exact: true }).locator('option', { hasText: 'Clínica Centro E2E' }).getAttribute('value');
   expect(local).toMatch(/^[0-9a-f-]{36}$/);
-  const urls = ['/painel/agenda?visao=mes', `/painel/agenda?visao=semana&horas=24&local=${local}&aniversario=1`, '/painel/agenda?visao=lista', '/painel/agenda/locais', '/painel/agenda/imprimir'];
+  // M1 (revisão da T5): a semana do agenda-2.spec (segunda daqui a ~120 dias), com consulta, bloqueio e o aniversário da
+  // Lia — quando o agenda-2.spec roda antes (o comando do E2E o põe primeiro); sem ele, a semana vem vazia e o axe mede o resto
+  const d = new Date(Date.now() + 120 * 86_400_000);
+  d.setUTCDate(d.getUTCDate() + ((8 - d.getUTCDay()) % 7));
+  const semana = d.toISOString().slice(0, 10);
+  const urls = [
+    `/painel/agenda?visao=mes&data=${semana}&aniversario=1`,
+    `/painel/agenda?visao=semana&data=${semana}&horas=24&local=${local}&aniversario=1`,
+    `/painel/agenda?visao=semana&data=${semana}&aniversario=1`,
+    `/painel/agenda?visao=lista&data=${semana}`,
+    '/painel/agenda/locais',
+    `/painel/agenda/imprimir?visao=semana&data=${semana}`,
+  ];
   const falhas: string[] = [];
   try {
     for (const [modo, tema, aparelho] of [

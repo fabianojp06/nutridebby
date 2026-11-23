@@ -51,9 +51,9 @@ export default async function AgendaPage({ searchParams }: PageProps<'/painel/ag
           <Link key={v} href={hrefDaAgenda({ ...f, visao: v })} aria-current={v === f.visao ? 'page' : undefined} className={`inline-flex min-h-11 items-center ${v === f.visao ? 'font-semibold' : 'text-link underline'}`}>{M.visoes[v]}</Link>
         ))}
         <span aria-hidden="true">·</span>
-        <Link href={hrefDaAgenda({ ...f, data: p.anterior })} className={LINK}>{M.anterior}</Link>
+        <Link href={hrefDaAgenda({ ...f, data: p.anterior })} className={LINK}>{M.anterior}<span className="sr-only">{` (${M.vizinhos[f.visao].anterior})`}</span></Link>
         <Link href={hrefDaAgenda({ ...f, data: hoje })} className={LINK}>{M.hoje}</Link>
-        <Link href={hrefDaAgenda({ ...f, data: p.proximo })} className={LINK}>{M.proximo}</Link>
+        <Link href={hrefDaAgenda({ ...f, data: p.proximo })} className={LINK}>{M.proximo}<span className="sr-only">{` (${M.vizinhos[f.visao].proximo})`}</span></Link>
         <span>{rotulo}</span>
         <Link prefetch={false} href={hrefDaAgenda(f, '/painel/agenda/imprimir')} className={`${LINK} md:ml-auto`}>{M.imprimir}</Link>
       </nav>

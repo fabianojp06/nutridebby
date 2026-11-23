@@ -27,10 +27,21 @@ function Marca({ nome, valor, rotulo, marcada }: { nome: string; valor: string; 
 }
 
 export function FiltrosDaAgendaForm({ f, opcoes, hoje }: { f: FiltrosDaAgenda; opcoes: AgendaDoPeriodo['opcoes']; hoje: string }) {
+  // "Aniversários" não vale na Lista (sem marcadores); "Mostrar 24 horas", só na grade de horas (Dia e Semana)
+  const comAniversario = f.visao !== 'lista';
+  const com24Horas = f.visao === 'dia' || f.visao === 'semana';
   return (
     <div className="space-y-3 text-sm">
-      <form method="get" action="/painel/agenda" className="flex flex-wrap items-end gap-3">
-        <Ocultos campos={[['visao', f.visao], ['data', f.data]]} />
+      <form method="get" action="/painel/agenda" aria-label={M.formularioFiltros} className="flex flex-wrap items-end gap-3">
+        <Ocultos
+          campos={[
+            ['visao', f.visao],
+            ['data', f.data],
+            // M3 (revisão da T5): as marcas que não valem nesta visão saem da tela, mas o valor segue (volta ao trocar de visão)
+            ['aniversario', !comAniversario && f.aniversario ? '1' : undefined],
+            ['horas', !com24Horas && f.horas24 ? '24' : undefined],
+          ]}
+        />
         <div className="min-w-44 max-w-full space-y-1">
           <label htmlFor="filtro-local" className="block font-medium">{M.local}</label>
           <select id="filtro-local" name="local" defaultValue={f.local ?? ''} className={CAMPO}>
@@ -46,12 +57,12 @@ export function FiltrosDaAgendaForm({ f, opcoes, hoje }: { f: FiltrosDaAgenda; o
           </select>
         </div>
         {MARCADOR_RETORNO_LIGADO && <Marca nome="retorno" valor="1" rotulo={M.previsoesDeRetorno} marcada={f.retorno} />}
-        <Marca nome="aniversario" valor="1" rotulo={M.aniversarios} marcada={f.aniversario} />
-        <Marca nome="horas" valor="24" rotulo={M.mostrar24Horas} marcada={f.horas24} />
+        {comAniversario && <Marca nome="aniversario" valor="1" rotulo={M.aniversarios} marcada={f.aniversario} />}
+        {com24Horas && <Marca nome="horas" valor="24" rotulo={M.mostrar24Horas} marcada={f.horas24} />}
         <button className={BOTAO}>{M.filtrar}</button>
         <Link href={hrefDaAgenda({ visao: f.visao, data: f.data })} className="inline-flex min-h-11 items-center text-link underline">{M.limparFiltros}</Link>
       </form>
-      <form method="get" action="/painel/agenda" className="flex flex-wrap items-end gap-3">
+      <form method="get" action="/painel/agenda" aria-label={M.irParaData} className="flex flex-wrap items-end gap-3">
         <Ocultos
           campos={[
             ['visao', f.visao],

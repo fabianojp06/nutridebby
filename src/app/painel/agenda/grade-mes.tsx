@@ -57,9 +57,9 @@ export function GradeDoMes({ semanas, mes, caption, hoje, fuso, itens, marcadore
                 const ms = marcadoresDoDia(d);
                 return (
                   <td key={d} className="h-24 border border-borda p-1 align-top">
-                    <Link href={hrefDoDia(d)} className={`inline-flex min-h-6 min-w-6 items-center font-semibold text-link underline ${d === hoje ? 'text-ok' : ''}`}>
+                    <Link href={hrefDoDia(d)} className={`inline-flex min-h-6 min-w-6 items-center font-semibold underline ${d === hoje ? 'text-ok' : 'text-link'}`}>
                       {nomeDoDia(d)}
-                      <span className="sr-only">{` ${diaCurto(d)}`}</span>
+                      <span className="sr-only">{` ${diaCurto(d)}${d === hoje ? ` ${M.hojeMarca}` : ''}`}</span>
                     </Link>
                     {cs.length > 0 && (
                       <>
@@ -92,7 +92,7 @@ export function GradeDoMes({ semanas, mes, caption, hoje, fuso, itens, marcadore
             return (
               <section key={d} aria-labelledby={`mes-dia-${d}`} className="space-y-1 text-sm">
                 <h2 id={`mes-dia-${d}`} className="font-semibold">
-                  <Link href={hrefDoDia(d)} className={`inline-flex min-h-11 items-center text-link underline ${d === hoje ? 'text-ok' : ''}`}>{diaCurto(d)}</Link>
+                  <Link href={hrefDoDia(d)} className={`inline-flex min-h-11 items-center underline ${d === hoje ? 'text-ok' : 'text-link'}`}>{`${diaCurto(d)}${d === hoje ? ` ${M.hojeMarca}` : ''}`}</Link>
                 </h2>
                 {cs.length > 0 && <p>{M.consultas(cs.length)}</p>}
                 {cs.length > 0 && <ul className="text-suave">{cs.map((c) => <li key={c.id}>{c.paciente}</li>)}</ul>}

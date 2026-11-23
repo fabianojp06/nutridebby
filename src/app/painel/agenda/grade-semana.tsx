@@ -88,7 +88,7 @@ export function GradeDaSemana({ dias, hoje, fuso, faixa, caption, itens, bloquei
   const horas = Array.from({ length: faixa.ate - faixa.de }, (_, i) => faixa.de + i);
   const naLinha = (min: number) => Math.min(Math.max(Math.floor(min / 60), faixa.de), faixa.ate - 1);
   const comMarcadores = marcadores.aniversarios.length + marcadores.retornos.length > 0;
-  const titulo = (dia: string) => `${diaCurto(dia)}${dia === hoje ? ' (hoje)' : ''}`;
+  const titulo = (dia: string) => `${diaCurto(dia)}${dia === hoje ? ` ${M.hojeMarca}` : ''}`;
   return (
     <>
       <table data-testid="agenda-grade" className="hidden w-full table-fixed border-collapse text-sm break-words md:table">

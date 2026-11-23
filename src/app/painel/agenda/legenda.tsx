@@ -1,6 +1,6 @@
 import { MSG_VISOES as M } from '@/modules/agenda/constantes';
 import { ROTULO_TIPO_CONSULTA, SELO_PRESENCA_A_REGISTRAR } from '@/modules/agenda/status';
-import { MARCADOR_RETORNO_LIGADO } from '@/modules/agenda/visoes';
+import { MARCADOR_RETORNO_LIGADO, PEDIDOS_NA_AGENDA } from '@/modules/agenda/visoes';
 
 /**
  * Plano 23 (RN-415, spec §7): as marcas da grade, só com os tokens que já existem (`bg-linha`, `aviso`, `ok`, nos dois
@@ -19,7 +19,7 @@ export const MARCA = {
 const ITENS: { rotulo: string; marca: string }[] = [
   { rotulo: ROTULO_TIPO_CONSULTA.primeira, marca: MARCA.primeira },
   { rotulo: ROTULO_TIPO_CONSULTA.retorno, marca: MARCA.retorno },
-  { rotulo: M.pedidoAResponder, marca: MARCA.pedido },
+  ...(PEDIDOS_NA_AGENDA ? [{ rotulo: M.pedidoAResponder, marca: MARCA.pedido }] : []),
   { rotulo: SELO_PRESENCA_A_REGISTRAR, marca: MARCA.presenca },
   { rotulo: M.bloqueio, marca: MARCA.bloqueio },
   ...(MARCADOR_RETORNO_LIGADO ? [{ rotulo: M.retornoPrevisto, marca: MARCA.retornoPrevisto }] : []),

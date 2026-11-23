@@ -110,7 +110,13 @@ describe('/painel/agenda (US-404, US-405)', () => {
     expect(h).toMatch(/<th scope="row"[^>]*>00h<\/th>/);
     expect(h).toMatch(/<th scope="row"[^>]*>23h<\/th>/);
     const legenda = texto(/<section[^>]*aria-labelledby="titulo-legenda"[\s\S]*?<\/section>/.exec(h)?.[0] ?? '');
-    for (const r of ['Legenda', 'Primeira consulta', 'Retorno', 'Pedido a responder', 'Presença a registrar', 'Bloqueio', 'Aniversário']) expect(legenda).toContain(r);
+    for (const r of ['Legenda', 'Primeira consulta', 'Retorno', 'Presença a registrar', 'Bloqueio', 'Aniversário']) expect(legenda).toContain(r);
+    expect(legenda).not.toContain('Pedido a responder'); // AG-D72: só com o status `solicitada` (T6/T8, PEDIDOS_NA_AGENDA)
+    // M4: os dois formulários com nome; M5: "Anterior"/"Próximo" dizem a visão ao leitor de tela, depois do texto visível
+    expect(filtrar).toContain('aria-label="Filtros da agenda"');
+    expect(irPara).toContain('aria-label="Ir para data"');
+    expect(h).toMatch(/>Anterior<span class="sr-only"> \(semana anterior\)<\/span><\/a>/);
+    expect(h).toMatch(/>Próximo<span class="sr-only"> \(próxima semana\)<\/span><\/a>/);
     expect(texto(h)).not.toContain('Previsões de retorno');
     expect(texto(h)).not.toContain('Retorno previsto');
     // só Ana, na Clínica (Carla continua como opção do filtro "Paciente")
@@ -119,12 +125,39 @@ describe('/painel/agenda (US-404, US-405)', () => {
     expect(texto(grade)).not.toContain('Carla Dias');
   });
 
+  it('"hoje" no Mês em texto, não só pela cor (I-2): "(hoje)" no nome do link e a cor do link trocada, não somada', async () => {
+    const h = await html({ visao: 'mes', data: hoje });
+    const grade = /<table[^>]*data-testid="agenda-mes"[\s\S]*?<\/table>/.exec(h)?.[0] ?? '';
+    const link = new RegExp(`<a [^>]*href="/painel/agenda\\?visao=dia&amp;data=${hoje}"[^>]*>[\\s\\S]*?</a>`).exec(grade)?.[0] ?? '';
+    expect(texto(link)).toContain('(hoje)');
+    expect(link).toContain('text-ok');
+    expect(link).not.toContain('text-link');
+    const outro = new RegExp(`<a [^>]*href="/painel/agenda\\?visao=dia&amp;data=(?!${hoje})[0-9-]+"[^>]*>[\\s\\S]*?</a>`).exec(grade)?.[0] ?? '';
+    expect(outro).toContain('text-link');
+    expect(texto(outro)).not.toContain('(hoje)');
+  });
+
+  it('M3: "Aniversários" some na Lista e "Mostrar 24 horas" no Mês e na Lista, sem perder o valor (campo oculto)', async () => {
+    const mes = await html({ visao: 'mes', data: hoje, horas: '24', aniversario: '1' });
+    expect(texto(mes)).not.toContain('Mostrar 24 horas');
+    expect(texto(mes)).toContain('Aniversários');
+    expect(mes).toContain('<input type="hidden" name="horas" value="24"/>');
+    const lista = await html({ visao: 'lista', data: hoje, horas: '24', aniversario: '1' });
+    expect(texto(lista)).not.toContain('Mostrar 24 horas');
+    expect(texto(lista)).not.toContain('Aniversários');
+    expect(lista).toContain('<input type="hidden" name="aniversario" value="1"/>');
+    const semana = await html({ visao: 'semana', data: hoje });
+    expect(texto(semana)).toContain('Mostrar 24 horas');
+    expect(texto(semana)).toContain('Aniversários');
+  });
+
   it('Lista: o ItemConsulta de sempre, com o local e o tipo; data inválida volta para hoje', async () => {
     const h = await html({ visao: 'lista', data: segunda });
     expect(texto(h)).toContain('Ana Souza');
     expect(texto(h)).toContain('Clínica Centro · Presencial');
     expect(texto(h)).toContain('Primeira consulta');
     expect(h).not.toContain('data-testid="agenda-grade"');
+    expect(h).toMatch(/<a class="inline-flex min-h-11 items-center text-link underline" href="\/painel\/agenda\/consultas\/[0-9a-f-]{36}">Ana Souza<\/a>/); // M2: alvo de 44 px
     const invalida = await html({ visao: 'lista', data: '9999-12-31' });
     expect(invalida).toContain(`href="/painel/agenda?visao=lista&amp;data=${hoje}"`); // "Hoje"
   });

@@ -18,7 +18,7 @@ export function ItemConsulta({ c, fuso, dentroDeBloqueio, comData = false, tipo,
   return (
     <li className="rounded-2xl border border-borda bg-cartao p-2 text-sm text-texto">
       <p className={`font-medium ${riscado}`}>{`${comData ? formatarQuando(c.inicio, fuso) : partesNoFuso(c.inicio, fuso).hora}–${partesNoFuso(c.fim, fuso).hora}`}</p>
-      <p className={riscado}><Link href={`/painel/agenda/consultas/${c.id}`} className="text-link underline">{c.paciente}</Link>{`${c.local ? ` · ${c.local.nome}` : ''} · ${ROTULO_MODALIDADE[c.modalidade]}`}</p>
+      <p className={riscado}><Link href={`/painel/agenda/consultas/${c.id}`} className="inline-flex min-h-11 items-center text-link underline">{c.paciente}</Link>{`${c.local ? ` · ${c.local.nome}` : ''} · ${ROTULO_MODALIDADE[c.modalidade]}`}</p>
       <ul className="mt-1 flex flex-wrap gap-1" aria-label="Situação">
         {todos.map((s) => <li key={s} className="rounded bg-linha px-1.5 text-texto">{s}</li>)}
       </ul>

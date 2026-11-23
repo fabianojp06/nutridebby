@@ -44,7 +44,14 @@ describe('/painel/agenda/imprimir (US-406)', () => {
     expect(dynamic).toBe('force-dynamic');
     expect(h).toMatch(/<h1[^>]*>Agenda de \d{2}\/\d{2}\/\d{4} a \d{2}\/\d{2}\/\d{4}<\/h1>/);
     expect(texto(h)).toContain('Local: Todos os locais');
-    expect(h).toContain('<table');
+    // I-1: uma tabela só, um <tbody> por dia (o dia num th scope="rowgroup"), o rodapé no <tfoot> (repete em toda página,
+    // dentro do fluxo) — nada de position: fixed cobrindo a última linha
+    expect(h.split('<table').length - 1).toBe(1);
+    expect(h).toMatch(/<caption class="sr-only">Agenda de [^<]+\. Local: Todos os locais<\/caption>/);
+    expect(h.split('<tbody').length - 1).toBe(3); // segunda, terça e o bloqueio de quinta (a cancelada de quarta fica fora)
+    expect(h.split('scope="rowgroup"').length - 1).toBe(3);
+    expect(h).toMatch(/<tfoot><tr><td colSpan="6"[^>]*>Contém dados pessoais de pacientes\. Uso restrito do consultório\.<\/td><\/tr><\/tfoot>/i);
+    expect(h).not.toContain('print:fixed');
     expect(texto(h)).toContain('08:40–09:30');
     expect(texto(h)).toContain('Ana Souza');
     expect(texto(h)).toContain('Bloqueado');
