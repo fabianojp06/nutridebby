@@ -616,7 +616,7 @@ isolamento), `app_patients_lembretes_do_paciente` (BEFORE INSERT OR UPDATE em `p
 `SET search_path = public, pg_temp` e nomes com `public.`, e a `app_anonimizar_financeiro(uuid)`, que segue o molde da
 `app_anonimizar_documentos`: `SECURITY INVOKER`, só `worker`, chamada por `anonimizarVencidos` só quando o paciente tem
 lançamento ([§12.3](12-financeiro.md#123-banco)); testes em `src/modules/financeiro/banco.test.ts` e
-`src/db/migrate-owner.test.ts`.
+`src/db/migrate-owner.test.ts`. SUS-102 (0126): `app_tenants_por_sessao` (BEFORE INSERT OR UPDATE OR DELETE em `tenants`, gatilho `tenants_por_sessao`, roda depois dos dois de antes): só o `worker` e o contexto vazio (admin, seed) criam e apagam consultório; paciente, público e conta só tocam a linha do próprio consultório (a conta, nenhuma), mesmo num UPDATE sem mudança, e não mudam coluna nenhuma (o paciente só sobe `armazenamento_bytes` do próprio consultório até `COTA_BYTES`, teto replicado na migration, na reserva de cota de `salvarArquivo`/`salvarArquivos`); a `nutri` só toca a própria linha, sem trocar o `id` nem mudar as colunas da admin (`status`, `wa_cota_mensal`, `taxa_faltas_base`, `go_live_em`, `dpa_*`), com `armazenamento_bytes` livre (o `apagarArquivo` dela devolve o espaço); `worker`, admin e contexto vazio livres no UPDATE; testes em `src/db/tenants-gatilho.test.ts`.
 
 Funções sem `SECURITY DEFINER` de apoio: `app_unaccent` (wrapper `IMMUTABLE` para índice, Plano 04, D6; `0040`), `app_versao_atende(text, text)` (o `versaoAtende` de `textos-legais.ts` em SQL, usado pelas funções da IA Nutri; Plano 15, `0117`), `app_etiquetas_validas` (CHECK de etiquetas; `0082`), `app_audit_row_change` (gatilho; §2.8) e as `app_paciente_colunas_*` (§2.6.6).
 
