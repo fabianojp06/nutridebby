@@ -11,7 +11,7 @@ import * as schema from '@/db/schema';
 import { appointments, locaisAtendimento, notifications, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
-import { agendarComoPaciente, escolherHorario, horariosParaPaciente, janelaDoPaciente, locaisDoAgendamento } from './agendamento-paciente';
+import { agendarComoPaciente, escolherHorario, horariosParaPaciente, janelaDoPaciente, locaisDoAgendamento, localRecusado } from './agendamento-paciente';
 import { remarcarComoPaciente } from './cancelamento';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError } from './consultas';
@@ -251,6 +251,27 @@ describe('Plano 23 (T4): local no portal (US-403, RN-405, RN-406, RN-409, AG-D40
     expect(await localDa(T, id)).toMatchObject({ localId: centro, modalidade: 'presencial' });
     // o instante ficou ocupado nos dois locais (RN-408): o principal não oferece mais 09:00
     expect(await erro(escolherHorario(tenantAgenda(T), inicio.toISOString(), L, agora, { db: app.db }))).toEqual({ inicio: MSG_AGENDA.indisponivel });
+  });
+
+  it('localRecusado só reconhece o 42501 do gatilho do local: o 42501 da RLS (paciente gravando consulta de outro paciente) continua sendo erro', async () => {
+    expect(localRecusado({ code: '42501', message: 'o local não aceita agendamento pelo paciente' })).toBe(true);
+    expect(localRecusado(new Error('Falha no banco', { cause: { code: '42501', message: 'o local não aceita agendamento pelo paciente' } }))).toBe(true);
+    expect(localRecusado({ code: '42501', message: 'new row violates row-level security policy for table "appointments"' })).toBe(false);
+    expect(localRecusado({ code: '23514', message: 'o local não aceita agendamento pelo paciente' })).toBe(false);
+    const T = await novoTenant(app.db);
+    const L = await semanaToda(app.db, T.ctx, { modalidade: 'presencial' });
+    const [ana, bia] = [await novoPaciente(app.db, T.ctx), await novoPaciente(app.db, T.ctx)];
+    const inicio = em('2026-10-16', '09:00');
+    const err = await withTenant(
+      ctxPaciente(T.tenantId, ana.id),
+      (tx) => tx.insert(appointments).values({ tenantId: T.tenantId, patientId: bia.id, inicio, fim: em('2026-10-16', '10:00'), modalidade: 'presencial', localId: L, origem: 'paciente' }),
+      app.db,
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect((err as { code?: string } | null)?.code).toBe('42501');
+    expect(localRecusado(err)).toBe(false);
   });
 
   it('local sem agendamento entre a tela e o envio: o 42501 do gatilho vira "Esse horário não está mais disponível. Escolha outro." (agendar e remarcar), sem consulta gravada', async () => {

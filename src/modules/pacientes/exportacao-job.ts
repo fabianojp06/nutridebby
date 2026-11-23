@@ -530,11 +530,6 @@ export async function montarDados(
     .where(eq(privacyRequests.patientId, patientId))
     .orderBy(asc(privacyRequests.createdAt));
   const cs = await tx.select().from(appointments).where(eq(appointments.patientId, patientId)).orderBy(asc(appointments.inicio));
-  // Plano 23 (RN-438): o nome de cada local das consultas (o worker lê a tabela; só o nome)
-  const idsDosLocais = [...new Set(cs.flatMap((c) => (c.localId ? [c.localId] : [])))];
-  const nomesDosLocais = new Map(
-    idsDosLocais.length ? (await tx.select({ id: locaisAtendimento.id, nome: locaisAtendimento.nome }).from(locaisAtendimento).where(inArray(locaisAtendimento.id, idsDosLocais))).map((l) => [l.id, l.nome]) : [],
-  );
   const ns = await tx
     .select({ tipo: notifications.tipo, canal: notifications.canal, status: notifications.status, agendadaPara: notifications.agendadaPara, enviadaEm: notifications.enviadaEm, motivo: notifications.motivoIgnorada })
     .from(notifications)
@@ -624,6 +619,11 @@ export async function montarDados(
     e.status === 'recebido' && e.arquivoPath
       ? [{ tipo: 'envio' as const, indice: i, caminho: e.arquivoPath, nome: `envios/${e.dataColeta}-${String(i + 1).padStart(2, '0')}.pdf` }]
       : [],
+  );
+  // Plano 23 (RN-438): o nome de cada local das consultas (o worker lê a tabela; só o nome)
+  const idsDosLocais = [...new Set(cs.flatMap((c) => (c.localId ? [c.localId] : [])))];
+  const nomesDosLocais = new Map(
+    idsDosLocais.length ? (await tx.select({ id: locaisAtendimento.id, nome: locaisAtendimento.nome }).from(locaisAtendimento).where(inArray(locaisAtendimento.id, idsDosLocais))).map((l) => [l.id, l.nome]) : [],
   );
   const dados: DadosExportacao = {
     versao: 1,
