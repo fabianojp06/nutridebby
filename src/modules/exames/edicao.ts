@@ -192,7 +192,8 @@ export async function versoesDoExame(
         .from(examVersoes)
         .where(and(eq(examVersoes.examId, exameId), eq(examVersoes.patientId, patientId)))
         .orderBy(desc(examVersoes.versao));
-      if (versoes.length) await auditRead(tx, { entidade: 'exames_versoes', entidadeId: exameId, patientId });
+      // sempre que o exame é achado: a tela devolve o título e a data mesmo sem versão (regra 8; code review do PR 2)
+      await auditRead(tx, { entidade: 'exames_versoes', entidadeId: exameId, patientId });
       return { exame: e, versoes };
     },
     db,

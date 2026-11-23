@@ -1,4 +1,5 @@
 import type { FaixaDoConsultorio } from '@/db/schema/exames-catalogo';
+import { numeroParaCampo } from '@/lib/numero';
 
 /**
  * Plano 22 (T3): o que as telas de /painel/exames e as actions dividem, sem import do servidor (o formulário 'use client'
@@ -27,7 +28,8 @@ const FAIXA = /^faixas\.(\d{1,3})\.(sexo|idadeMin|idadeMax|aPartirDe|abaixoDe|ca
 
 export const faixaVazia = (): FaixaDoFormulario => ({ sexo: 'todos', idadeMin: '', idadeMax: '', aPartirDe: '', abaixoDe: '', categoria: '', fonte: '' });
 
-const texto = (n: number | null) => (n === null ? '' : String(n).replace('.', ','));
+/** Sem notação exponencial ("5e-7" o `lerDecimal` recusaria no próximo Salvar): o mesmo do formulário do exame (T4). */
+const texto = (n: number | null) => numeroParaCampo(n);
 
 /** O exame gravado → o formulário (números com vírgula decimal, listas um por linha). */
 export function exameParaFormulario(e: {

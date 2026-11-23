@@ -133,8 +133,10 @@ export function EscolherDoCatalogo(p: Props) {
                     className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto"
                   />
                 </div>
-                {/* sempre montada: "Nenhum exame encontrado." é anunciado quando a busca esvazia a lista */}
-                <p role="status" className="empty:hidden">{mostrados.length === 0 ? V.semResultado : ''}</p>
+                {/* sempre montada e na árvore de acessibilidade (sem `empty:hidden`, que a tiraria com display:none e o texto
+                    chegaria como região nova, sem anúncio confiável): "Nenhum exame encontrado." é anunciado quando a busca
+                    esvazia a lista; vazia, o <p> não ocupa altura */}
+                <p role="status">{mostrados.length === 0 ? V.semResultado : ''}</p>
                 {mostrados.length > 0 && (
                   <>
                     <Botao

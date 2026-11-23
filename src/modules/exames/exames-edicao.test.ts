@@ -399,10 +399,10 @@ describe('versoesDoExame ("Versões anteriores", M8)', () => {
     expect((await versoesDoExame(T.ctx, p.id, exameId, deps))!.versoes.map((x) => [x.versao, x.por])).toEqual([[2, 'Usuário removido'], [1, 'Debby Silva']]);
   });
 
-  it('exame sem versão → lista vazia e nenhum ler/exames_versoes', async () => {
+  it('exame sem versão → lista vazia, mas o título e a data saem: grava o ler/exames_versoes (regra 8; code review do PR 2)', async () => {
     const { T, p, exameId } = await cenario();
     expect(await versoesDoExame(T.ctx, p.id, exameId, deps)).toEqual({ exame: { titulo: 'Rotina', data: '2026-09-01' }, versoes: [] });
-    expect((await logDo(T, exameId)).filter((l) => l.entidade === 'exames_versoes')).toEqual([]);
+    expect((await logDo(T, exameId)).filter((l) => l.entidade === 'exames_versoes')).toEqual([{ acao: 'ler', entidade: 'exames_versoes', actor: T.nutriId, patientId: p.id }]);
   });
 
   it('exame de outro paciente na URL → null e nenhum ler', async () => {
