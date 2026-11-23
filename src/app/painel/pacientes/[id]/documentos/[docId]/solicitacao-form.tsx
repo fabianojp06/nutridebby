@@ -13,6 +13,7 @@ import { LISTA_DE_EXAMES_MAX, MSG_EXAMES, NOME_MAX } from '@/modules/exames/cons
 import { normalizarNome } from '@/modules/ia/correspondencia';
 import { prepararSolicitacaoAction, salvarSolicitacaoAction, type EstadoForm } from '../actions';
 import { MotivoRetificacao } from './motivo-retificacao';
+import { OrientacoesCampo } from './orientacoes-campo';
 import { Preparar } from './preparar';
 
 /** Um modelo de solicitação do consultório (cópia dos exames e as orientações; sem indicação clínica, RN-391). */
@@ -161,8 +162,7 @@ function RemoverTodos({ aoRemover, focoAoFechar }: { aoRemover: () => void; foco
  * formulário, como a receita e o parecer (o botão envia o que está na tela). "Exames" com "Remover" por exame (um painel
  * é um item, com o nome dele), "Adicionar do catálogo" (`EscolherDoCatalogo`, modo `lista`), "Adicionar exame fora do
  * catálogo" com a ajuda fixa da Lei 8.234, "Carregar modelo" e "Remover todos"; "Indicação clínica (opcional)" com a linha
- * fixa e "Orientações ao paciente (opcional)" com a ajuda (texto puro nesta tarefa; a barra de marcação e a prévia vêm na
- * T9); o aviso dos planos de saúde (só na tela, nunca no PDF, EP-D4); a declaração da solicitação no preparo. **Nenhum
+ * fixa e "Orientações ao paciente (opcional)" com a ajuda, a barra de marcação e a prévia (`OrientacoesCampo`, T9); o aviso dos planos de saúde (só na tela, nunca no PDF, EP-D4); a declaração da solicitação no preparo. **Nenhum
  * campo de laboratório** (EP-D2, C-374). Tudo controlado (o React 19 reseta campos não controlados depois de cada action).
  */
 export function SolicitacaoForm({
@@ -331,16 +331,8 @@ export function SolicitacaoForm({
         <textarea id="indicacaoClinica" rows={3} maxLength={INDICACAO_MAX} value={indicacao} onChange={(ev) => setIndicacao(ev.target.value)} {...aria('indicacaoClinica', 'indicacaoClinica-dica')} className={CAMPO} />
         {msg('indicacaoClinica')}
       </div>
-      <div className="space-y-1">
-        <label htmlFor="orientacoes" className="block font-medium">
-          {S.orientacoes}
-        </label>
-        <p id="orientacoes-dica" className="text-sm text-suave">
-          {S.ajudaOrientacoes}
-        </p>
-        <textarea id="orientacoes" rows={4} maxLength={ORIENTACOES_SOLICITACAO_MAX} value={orientacoes} onChange={(ev) => setOrientacoes(ev.target.value)} {...aria('orientacoes', 'orientacoes-dica')} className={CAMPO} />
-        {msg('orientacoes')}
-      </div>
+      {/* Plano 22 (T9, RN-395): "Negrito", "Lista" e a "Prévia" (marcação mínima, nunca HTML) */}
+      <OrientacoesCampo id="orientacoes" rotulo={S.orientacoes} max={ORIENTACOES_SOLICITACAO_MAX} valor={orientacoes} aoMudar={setOrientacoes} dica={S.ajudaOrientacoes} erro={e.orientacoes} />
 
       {s.intencao !== 'preparar' && aviso}
       {/* sempre montada: "Rascunho salvo." é anunciado quando entra */}

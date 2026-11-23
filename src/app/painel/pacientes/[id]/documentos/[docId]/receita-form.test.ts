@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { DECLARACAO_RECEITA, FRASE_FORMULA_FITOTERAPICA } from '@/modules/documentos/constantes';
 import type { ConteudoReceita } from '@/modules/documentos/prescricao';
 
 // Só a montagem do editor com um estado de erro (o useActionState devolve o estado pedido; as ações não rodam). O
@@ -18,43 +19,40 @@ const VITD = { nome: 'Vitamina D3', quantidade: 2000, unidade: 'UI' };
 function montar(itens: ConteudoReceita['itens'], erros: Record<string, string> = {}, extra: Record<string, unknown> = {}): string {
   estado.atual = { erros, ...extra };
   const conteudo = { versao: 1, tipo: 'receita', itens, orientacoes: '' } as ConteudoReceita;
-  return renderToStaticMarkup(createElement(ReceitaForm, { patientId: 'p', docId: 'd', conteudo, justificativa: '', habilitada: false, declaracao: 'Declaro que…' }));
+  return renderToStaticMarkup(createElement(ReceitaForm, { patientId: 'p', docId: 'd', conteudo, justificativa: '', habilitada: false }));
 }
 /** A tag de abertura do controle com o id pedido. */
 const tag = (html: string, id: string) => html.match(new RegExp(`<(?:input|select|textarea|fieldset)[^>]*\\bid="${id}"[^>]*>`))?.[0] ?? '';
 
 describe('editor da receita: erros visíveis e ligados ao campo (revisão da T6)', () => {
-  it('composição vazia: "Informe de 1 a 10 componentes." aparece na Composição, ligado ao grupo', () => {
-    const html = montar([suplemento([])], { 'itens.0.composicao': 'Informe de 1 a 10 componentes.' });
-    expect(html).toMatch(/<p id="itens-0-composicao-erro" role="alert"[^>]*>Informe de 1 a 10 componentes\.<\/p>/);
-    expect(tag(html, 'itens-0-composicao')).toContain('aria-describedby="itens-0-composicao-erro"');
+  // Plano 22 (T9): os casos de cada item (composição, componentes, selects) foram para campos-do-item.test.ts
+  it('Plano 22 (T9, R22-10): um CamposDoItem por item (o seletor do tipo de cada um) e "Adicionar item"', () => {
+    const html = montar([suplemento([VITD]), suplemento([VITD])]);
+    expect(html.match(/<select[^>]*\bid="itens-\d+-tipo"/g)).toHaveLength(2);
+    expect(html).toContain('<legend class="px-1 font-semibold">Item 2: Suplemento alimentar</legend>');
+    expect(html).toContain('>Adicionar item</button>');
   });
 
-  it('"Remover componente" só aparece quando há mais de um componente', () => {
-    expect(montar([suplemento([VITD])])).not.toContain('Remover componente');
-    const dois = montar([suplemento([VITD, { nome: 'Vitamina K2', quantidade: 100, unidade: 'mcg' }])]);
-    expect(dois).toContain('Remover componente 1');
-    expect(dois).toContain('Remover componente 2');
-  });
-
-  it('selects, componente, orientações e justificativa: aria-invalid e aria-describedby apontando para o erro (RNF-10)', () => {
-    const erros = {
-      'itens.0.categoria': 'Escolha uma das opções.',
-      'itens.0.via': 'Escolha uma das opções.',
-      'itens.0.composicao.0.nome': 'Informe o nome.',
-      'itens.0.composicao.0.quantidade': 'Informe uma quantidade maior que zero.',
-      'itens.0.composicao.0.unidade': 'Escolha uma das opções.',
-      orientacoes: 'Use no máximo 2000 caracteres.',
-    };
-    const html = montar([suplemento([VITD])], { ...erros, justificativa: 'Escreva a justificativa de uso (fica no prontuário, não vai na receita).' });
-    for (const k of Object.keys(erros)) {
-      const id = k.replace(/\./g, '-');
-      expect(tag(html, id), id).toContain('aria-invalid="true"');
-      expect(tag(html, id), id).toContain(`aria-describedby="${id}-erro"`);
-      expect(html, id).toContain(`<p id="${id}-erro" role="alert"`);
-    }
+  it('orientações e justificativa: aria-invalid e aria-describedby apontando para o erro (RNF-10); a ajuda da marcação ligada às orientações', () => {
+    const html = montar([suplemento([VITD])], { orientacoes: 'Use no máximo 2000 caracteres.', justificativa: 'Escreva a justificativa de uso (fica no prontuário, não vai na receita).' });
+    expect(tag(html, 'orientacoes')).toContain('aria-invalid="true"');
+    expect(tag(html, 'orientacoes')).toContain('aria-describedby="orientacoes-marcacao orientacoes-erro"');
+    expect(html).toContain('<p id="orientacoes-erro" role="alert"');
     expect(tag(html, 'justificativa')).toContain('aria-describedby="justificativa-dica justificativa-erro"');
     expect(html).toContain('<p id="justificativa-erro" role="alert"');
+  });
+
+  it('Plano 22 (T9, RN-395): "Orientações gerais (opcional)" com "Negrito", "Lista", a ajuda da marcação e "Prévia"', () => {
+    const html = montar([suplemento([VITD])]);
+    expect(html).toContain('>Orientações gerais (opcional)</label>');
+    for (const b of ['Negrito', 'Lista', 'Prévia']) expect(html, b).toMatch(new RegExp(`<button[^>]*type="button"[^>]*>${b}</button>`));
+    expect(html).toContain('Escreva ** antes e depois do trecho para negrito; comece a linha com um hífen para fazer lista.');
+  });
+
+  it('Plano 22 (T9, EP-D56): a declaração mostrada é a do conteúdo da tela — com a fórmula, a frase do art. 9º, II', () => {
+    const formula = { tipo: 'formula_fitoterapica', compostos: [], formaFarmaceutica: 'Cápsula', via: 'oral', posologia: '1', duracao: '' } as unknown as ConteudoReceita['itens'][number];
+    expect(montar([suplemento([VITD])])).toContain(`<label for="declaracao">${DECLARACAO_RECEITA}</label>`);
+    expect(montar([suplemento([VITD]), formula])).toContain(`<label for="declaracao">${DECLARACAO_RECEITA.slice(0, -1)}${FRASE_FORMULA_FITOTERAPICA}.</label>`);
   });
 
   it('erro de uma chave que nenhum campo mostra: aparece no aviso geral (nada some em silêncio)', () => {

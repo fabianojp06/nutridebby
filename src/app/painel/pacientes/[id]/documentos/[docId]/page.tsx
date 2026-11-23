@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { MarcacaoBlocos } from '@/components/marcacao-blocos';
 import { Aviso } from '@/components/ui/aviso';
 import { BotaoLink } from '@/components/ui/botao';
 import { Cartao } from '@/components/ui/cartao';
 import { Selo } from '@/components/ui/selo';
 import { idValido } from '@/modules/pacientes/base';
 import { formatarCodigo } from '@/modules/documentos/codigo';
-import { DECLARACAO_PARECER, DECLARACAO_RECEITA, DECLARACAO_SOLICITACAO, envioEmCurso, linhaDaVersao, podeVoltarAEditar, ROTULO_ASSINATURA, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
+import { declaracaoDoDocumento, envioEmCurso, linhaDaVersao, podeVoltarAEditar, ROTULO_ASSINATURA, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO } from '@/modules/documentos/constantes';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { MSG_CANCELAMENTO } from '@/modules/documentos/cancelamento';
 import { MSG_DIGITALIZADA } from '@/modules/documentos/digitalizada';
@@ -124,14 +125,15 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
       {d.status === 'rascunho' && !bloqueado && receita && (
         <>
           {/* o preparo é um botão do mesmo formulário: envia o que está na tela (revisão da T6) */}
-          <ReceitaForm patientId={paciente.id} docId={d.id} conteudo={receita} justificativa={d.justificativa ?? ''} habilitada={habilitada} declaracao={DECLARACAO_RECEITA} motivo={motivo} />
+          {/* Plano 22 (EP-D56): a declaração vem do conteúdo da tela (declaracaoDoDocumento, no próprio formulário) */}
+          <ReceitaForm patientId={paciente.id} docId={d.id} conteudo={receita} justificativa={d.justificativa ?? ''} habilitada={habilitada} motivo={motivo} />
           <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
         </>
       )}
 
       {d.status === 'rascunho' && !bloqueado && parecer && (
         <>
-          <ParecerForm patientId={paciente.id} docId={d.id} conteudo={parecer} exames={examesParaEscolher} declaracao={DECLARACAO_PARECER} motivo={motivo} />
+          <ParecerForm patientId={paciente.id} docId={d.id} conteudo={parecer} exames={examesParaEscolher} declaracao={declaracaoDoDocumento(parecer)} motivo={motivo} />
           <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
         </>
       )}
@@ -144,7 +146,7 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
             conteudo={solicitacao}
             catalogo={bibliotecas.catalogo.map(({ nome, unidade, sinonimos, componentes }) => ({ nome, unidade, sinonimos, componentes }))}
             modelos={bibliotecas.modelos}
-            declaracao={DECLARACAO_SOLICITACAO}
+            declaracao={declaracaoDoDocumento(solicitacao)}
             motivo={motivo}
           />
           <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
@@ -166,7 +168,12 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
               );
             })}
           </ol>
-          {receita.orientacoes && <p className="mt-3">{receita.orientacoes}</p>}
+          {/* Plano 22 (RN-395): a marcação em componentes (nunca HTML); a receita antiga, em texto puro */}
+          {receita.orientacoes && (
+            <div className="mt-3">
+              <MarcacaoBlocos texto={receita.orientacoes} formato={receita.orientacoesFormato} />
+            </div>
+          )}
           {d.justificativa && <p className="mt-3 text-sm text-suave">{`Justificativa de uso (fica no prontuário, não vai na receita): ${d.justificativa}`}</p>}
         </Cartao>
       )}

@@ -38,7 +38,7 @@ describe('editor da solicitação de exames (US-377)', () => {
     expect(html).toContain('Preparo, jejum, horário. Aparecem no pedido.');
     // as ajudas ligadas aos campos (aria-describedby), sempre — não só com erro
     expect(tag(html, 'indicacaoClinica')).toContain('aria-describedby="indicacaoClinica-dica"');
-    expect(tag(html, 'orientacoes')).toContain('aria-describedby="orientacoes-dica"');
+    expect(tag(html, 'orientacoes')).toContain('aria-describedby="orientacoes-dica orientacoes-marcacao"'); // Plano 22 (T9): e a ajuda da marcação
     expect(tag(html, 'exame-livre')).toContain('aria-describedby="exame-livre-dica"');
   });
 
@@ -111,8 +111,18 @@ describe('editor da solicitação de exames (US-377)', () => {
     const html = montar({ erros: { indicacaoClinica: MSG_SOLICITACAO.erros.indicacao, orientacoes: MSG_SOLICITACAO.erros.orientacoes, 'exames.1.nome': MSG_SOLICITACAO.erros.repetido } });
     expect(tag(html, 'indicacaoClinica')).toContain('aria-invalid="true"');
     expect(tag(html, 'indicacaoClinica')).toContain('aria-describedby="indicacaoClinica-dica indicacaoClinica-erro"');
-    expect(tag(html, 'orientacoes')).toContain('aria-describedby="orientacoes-dica orientacoes-erro"');
+    expect(tag(html, 'orientacoes')).toContain('aria-describedby="orientacoes-dica orientacoes-marcacao orientacoes-erro"');
     expect(html).toMatch(/<p id="exames-1-nome-erro" class="[^"]*">Este exame já está na lista\.<\/p>/);
+  });
+
+  it('Plano 22 (T9, RN-395): as orientações com "Negrito", "Lista", a ajuda da marcação e "Prévia" (a prévia monta componentes, nunca HTML)', () => {
+    const html = montar({ conteudo: { ...CONTEUDO, orientacoes: '**Jejum** <script>x</script>' } });
+    for (const b of ['Negrito', 'Lista', 'Prévia']) expect(html, b).toMatch(new RegExp(`<button[^>]*type="button"[^>]*>${b}</button>`));
+    expect(html).toContain('<p id="orientacoes-marcacao" class="text-sm text-suave">Escreva ** antes e depois do trecho para negrito; comece a linha com um hífen para fazer lista.</p>');
+    expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*aria-controls="orientacoes-previa"[^>]*>Prévia<\/button>/);
+    // o texto do campo sai escapado (o único <script> da página é o do React para a action do formulário)
+    expect(html).not.toContain('<script>x</script>');
+    expect(html).toContain('&lt;script&gt;x&lt;/script&gt;');
   });
 
   it('numa retificação, o motivo (Q13-1 ★); na versão 1, sem o campo', () => {
@@ -122,14 +132,15 @@ describe('editor da solicitação de exames (US-377)', () => {
 });
 
 describe('visão da solicitação (somente leitura)', () => {
-  it('cartões "Exames solicitados", "Indicação clínica" e "Orientações"; os dois últimos só quando preenchidos; texto puro', () => {
+  it('cartões "Exames solicitados", "Indicação clínica" e "Orientações"; os dois últimos só quando preenchidos; orientações pela marcação', () => {
     const com = renderToStaticMarkup(createElement(SolicitacaoVisao, { conteudo: { ...CONTEUDO, indicacaoClinica: 'Acompanhar a dieta.', orientacoes: 'Jejum de 8 h. <b>x</b> & **y**' } }));
     expect(com).toContain('Exames solicitados');
     expect(com).toContain('<li>Hemograma completo</li>');
     expect(com).toContain('Indicação clínica');
     expect(com).toContain('Acompanhar a dieta.');
     expect(com).toContain('Orientações');
-    expect(com).toContain('Jejum de 8 h. &lt;b&gt;x&lt;/b&gt; &amp; **y**'); // nunca HTML (RN-395)
+    // Plano 22 (T9): orientacoesFormato "marcacao" → negrito em componente; "<b>" e "&" continuam texto (nunca HTML, RN-395)
+    expect(com).toContain('Jejum de 8 h. &lt;b&gt;x&lt;/b&gt; &amp; <strong>y</strong>');
     const sem = renderToStaticMarkup(createElement(SolicitacaoVisao, { conteudo: CONTEUDO }));
     expect(sem).not.toContain('Indicação clínica');
     expect(sem).not.toContain('Orientações');

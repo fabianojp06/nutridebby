@@ -351,3 +351,41 @@ describe('página do documento: solicitação de exames (Plano 22, T8, US-377)',
     expect(bibliotecas.lidas).toBe(0);
   });
 });
+
+describe('página do documento: fórmula e orientações formatadas (Plano 22, T9, US-378, RN-395)', () => {
+  const FORMULA = {
+    tipo: 'formula_fitoterapica', formaFarmaceutica: 'Cápsula', via: 'oral', posologia: '1 cápsula à noite', duracao: '',
+    compostos: [{ nomenclatura: 'Passiflora incarnata L.', parte: 'Folhas', extracao: 'Extrato seco', padronizacao: '', quantidade: 200, unidade: 'mg' }, { nomenclatura: 'Melissa officinalis L.', parte: 'Folhas', extracao: 'Extrato seco', padronizacao: '', quantidade: 150.5, unidade: 'mg' }],
+  };
+  const receita = (status: string, conteudo: Record<string, unknown>) => ({
+    id: DOC, tipo: 'receita', status, codigo: status === 'rascunho' ? null : 'ABCDEFGHJKMN', createdAt: new Date('2026-09-01T12:00:00Z'), assinadoEm: status === 'assinado' ? new Date('2026-09-02T12:00:00Z') : null,
+    assinaturaTipo: status === 'assinado' ? 'digitalizada' : null, pdfStatus: null, entregueEm: null, recibos: [], conteudo: { versao: 1, tipo: 'receita', ...conteudo },
+    justificativa: 'Insônia leve', motivoCancelamento: null, assinanteNome: null, basePdfPath: null, pdfPath: status === 'assinado' ? 'x' : null, pdfSha256: null, digitalizacaoStatus: null, anonimizadoEm: null,
+  });
+  const pagina = async (doc: Record<string, unknown>) => {
+    caso.paciente = { id: PACIENTE, status: 'ativo', anonimizadoEm: null, userId: 'u1', email: 'ana@ex.com' };
+    caso.doc = doc;
+    return renderToStaticMarkup(await DocumentoPage({ params: Promise.resolve({ id: PACIENTE, docId: DOC }), searchParams: Promise.resolve({}) } as never));
+  };
+
+  it('assinada: a fórmula descrita (um composto por linha) e as orientações em componentes; "<script>" e tags como texto', async () => {
+    const html = await pagina(receita('assinado', { itens: [FORMULA], orientacoes: 'Tome **à noite**.\n\n- <script>alert(1)</script>\n- <b>x</b> & y', orientacoesFormato: 'marcacao' }));
+    expect(html).toContain('<p class="font-semibold">Fórmula magistral fitoterápica</p>');
+    expect(html).toContain('Melissa officinalis L. · Folhas · Extrato seco · 150,5 mg');
+    expect(html).toContain('Tome <strong>à noite</strong>.');
+    expect(html).toMatch(/<ul[^>]*><li>&lt;script&gt;alert\(1\)&lt;\/script&gt;<\/li><li>&lt;b&gt;x&lt;\/b&gt; &amp; y<\/li><\/ul>/);
+    expect(html).not.toContain('<script>alert(1)'); // (o único <script> da página é o do React para as actions dos formulários)
+  });
+
+  it('receita antiga (sem orientacoesFormato): as orientações em texto puro, os "**" como foram escritos', async () => {
+    const html = await pagina(receita('assinado', { itens: [], orientacoes: 'Tome **à noite**.' }));
+    expect(html).toContain('<p class="whitespace-pre-line">Tome **à noite**.</p>');
+    expect(html).not.toContain('<strong>');
+  });
+
+  it('rascunho com a fórmula: o editor mostra a declaração da receita com a frase do art. 9º, II (EP-D56)', async () => {
+    const html = await pagina(receita('rascunho', { itens: [FORMULA], orientacoes: '' }));
+    expect(html).toContain('a fórmula magistral fitoterápica tem só derivados vegetais');
+    expect(html).toContain('Compostos');
+  });
+});

@@ -1,5 +1,8 @@
+import type { ConteudoDocumento } from './parecer';
+
 /**
- * Planos 10A e 10B — documentos assinados. SEM imports: componentes 'use client' leem daqui (como marca-constantes.ts).
+ * Planos 10A e 10B — documentos assinados. SEM imports de valor (Plano 22: só o `import type` acima, apagado na
+ * compilação): componentes 'use client' leem daqui (como marca-constantes.ts).
  * No Plano 10A só existe a assinatura digitalizada (opção E); o Plano 10B amplia `TipoAssinatura` e `ROTULO_ASSINATURA`
  * com 'govbr' e 'icp' (e os CHECKs do banco, migration própria).
  */
@@ -72,6 +75,23 @@ export const DECLARACAO_POR_TIPO: Record<TipoDocumento, string> = {
   solicitacao_exames: DECLARACAO_SOLICITACAO,
 };
 export const MSG_DECLARACAO = 'Confirme a declaração para continuar.';
+
+/**
+ * Plano 22 (RN-392, EP-D56; RASCUNHO para a Debby e o CRN-3, como a declaração): a frase que a declaração da receita ganha,
+ * antes do ponto final, quando a receita tem a fórmula magistral fitoterápica (Res. CFN 680/2021, art. 9º, II).
+ */
+export const FRASE_FORMULA_FITOTERAPICA =
+  ', e que a fórmula magistral fitoterápica tem só derivados vegetais, sem vitaminas, minerais, aminoácidos ou substâncias isoladas (Resolução CFN nº 680/2021, art. 9º, II)';
+
+/**
+ * Plano 22 (EP-D56): a declaração gravada no preparo E mostrada na tela (o mesmo texto, do mesmo conteúdo). A declaração
+ * continua por tipo de documento (`DECLARACAO_POR_TIPO`); só a da receita com `formula_fitoterapica` ganha a frase. Aqui
+ * o `=== 'receita'` não decide o tipo por exclusão (DEP-E7): todo tipo cai em `DECLARACAO_POR_TIPO[c.tipo]`.
+ */
+export function declaracaoDoDocumento(c: ConteudoDocumento): string {
+  if (c.tipo === 'receita' && c.itens.some((i) => i.tipo === 'formula_fitoterapica')) return `${DECLARACAO_RECEITA.replace(/\.$/, '')}${FRASE_FORMULA_FITOTERAPICA}.`;
+  return DECLARACAO_POR_TIPO[c.tipo];
+}
 
 /** Q13-5 ★ (proposto na spec v0.5): a versão no portal e no link ("Versão 2") e no PDF e no painel (a linha abaixo do título). */
 export const rotuloDaVersao = (versao: number): string => `Versão ${versao}`;

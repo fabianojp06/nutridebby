@@ -36,7 +36,8 @@ describe('tipos de documento (Plano 22, RN-397, DEP-E7, EP-D34)', () => {
   });
 
   it('conteudoVazio de cada tipo', () => {
-    expect(conteudoVazio('receita')).toEqual({ versao: 1, tipo: 'receita', itens: [], orientacoes: '' });
+    // Plano 22 (T9, RN-395): a receita nova também nasce em marcação mínima
+    expect(conteudoVazio('receita')).toEqual({ versao: 1, tipo: 'receita', itens: [], orientacoes: '', orientacoesFormato: 'marcacao' });
     expect(conteudoVazio('parecer')).toEqual({ versao: 1, tipo: 'parecer', exames: [], avaliacao: '', conduta: '', encaminhamentos: '' });
     expect(conteudoVazio('solicitacao_exames')).toEqual({ versao: 1, tipo: 'solicitacao_exames', exames: [], indicacaoClinica: null, orientacoes: '', orientacoesFormato: 'marcacao' });
     // um objeto novo a cada chamada (o rascunho de um não muda o de outro)

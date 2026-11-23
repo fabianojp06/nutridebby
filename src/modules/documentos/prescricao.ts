@@ -9,6 +9,8 @@ export const TIPOS_ITEM = {
   planta_cha: 'Planta medicinal ou droga vegetal (chá)',
   derivado_vegetal: 'Droga ou derivado vegetal classificado como alimento ou suplemento',
   fitoterapico: 'Fitoterápico (forma farmacêutica ou fórmula magistral)',
+  /** Plano 22 (RN-392, §6.2, EP-D48): a fórmula magistral com vários compostos vegetais (2 a 10), só com a habilitação. */
+  formula_fitoterapica: 'Fórmula magistral com vários compostos vegetais',
 } as const;
 export const CATEGORIAS = { nutriente: 'Nutriente', enzima: 'Enzima', probiotico: 'Probiótico', outro: 'Outro' } as const;
 export const UNIDADES = ['g', 'mg', 'mcg', 'UI', 'U', 'UFC', 'mL'] as const;
@@ -20,8 +22,9 @@ export const MODOS_PREPARO = { infusao: 'Infusão', decoccao: 'Decocção', mace
 export const MSG_PRESCRICAO = {
   probiotico: 'Probióticos são prescritos em UFC (Resolução CFN nº 656/2020, art. 3º, IX).',
   enzima: 'Enzimas são prescritas em Unidades (U) (Resolução CFN nº 656/2020, art. 3º, IX).',
+  /** Plano 22 (§6.2: "semHabilitacao … passa a citar os dois tipos"; rascunho para a Debby). */
   semHabilitacao:
-    'Exige habilitação em Fitoterapia registrada no CRN (Resolução CFN nº 680/2021). Para produto vegetal classificado como alimento ou suplemento, use "Droga ou derivado vegetal classificado como alimento ou suplemento". Registre a habilitação no seu perfil.',
+    '"Fitoterápico (forma farmacêutica ou fórmula magistral)" e "Fórmula magistral com vários compostos vegetais" exigem habilitação em Fitoterapia registrada no CRN (Resolução CFN nº 680/2021). Para produto vegetal classificado como alimento ou suplemento, use "Droga ou derivado vegetal classificado como alimento ou suplemento". Registre a habilitação no seu perfil.',
   justificativa: 'Escreva a justificativa de uso (fica no prontuário, não vai na receita).',
   semItens: 'Inclua ao menos um item na receita.',
   itensDemais: 'A receita pode ter até 20 itens.',
@@ -34,18 +37,38 @@ export const MSG_PRESCRICAO = {
   opcao: 'Escolha uma das opções.',
   orientacoes: 'Use no máximo 2000 caracteres.',
   /** Minor 11 da revisão de normas (texto novo, rascunho para a Debby): o extrato vegetal não é "Outro". */
-  dicaOutro: 'Extrato ou produto vegetal não entra em "Outro": use "Droga ou derivado vegetal classificado como alimento ou suplemento" ou, com a habilitação, "Fitoterápico (forma farmacêutica ou fórmula magistral)".',
+  /** Plano 22 (§6.2): também a fórmula de vários compostos vegetais (rascunho para a Debby). */
+  dicaOutro:
+    'Extrato ou produto vegetal não entra em "Outro": use "Droga ou derivado vegetal classificado como alimento ou suplemento" ou, com a habilitação, "Fitoterápico (forma farmacêutica ou fórmula magistral)" ou "Fórmula magistral com vários compostos vegetais".',
   /** Plano 22 (RN-392, §6.2; rascunho para a Debby): a fórmula magistral fitoterápica (o tipo entra em TIPOS_ITEM só na T9, EP-D48). */
   compostos: 'Informe de 2 a 10 compostos vegetais.',
   binomio: 'Use a nomenclatura botânica (Gênero espécie), como Matricaria chamomilla L.',
   naoVegetal: 'Fórmula fitoterápica não pode ter vitaminas, minerais, aminoácidos ou substâncias isoladas (Resolução CFN nº 680/2021, art. 9º, II).',
+  /** Plano 22 (T9, §6.2, US-378): a ajuda sob o seletor do tipo do item (ligada por aria-describedby). */
+  ajudaTipo: "Use 'Fórmula magistral com vários compostos vegetais' quando a fórmula tiver de 2 a 10 derivados vegetais em quantidades próprias; 'Fitoterápico' para o produto de uma planta só.",
+  /** Plano 22 (T9, §6.2): os rótulos da fórmula no editor. `titulo` é texto novo (o PDF, o painel e a exportação; rascunho para a Debby). */
+  formula: {
+    titulo: 'Fórmula magistral fitoterápica',
+    compostos: 'Compostos',
+    composto: (n: number) => `Composto ${n}`,
+    acrescentar: 'Acrescentar composto',
+    remover: (n: number) => `Remover composto ${n}`,
+    nomenclatura: 'Nomenclatura botânica',
+    parte: 'Parte usada',
+    extracao: 'Derivado ou extração',
+    padronizacao: 'Padronização (opcional)',
+    quantidade: 'Quantidade',
+    unidade: 'Unidade',
+    formaFarmaceutica: 'Forma farmacêutica',
+  },
 } as const;
 
 /**
- * Plano 22 (RN-392, EP-D26, EP-D27; Res. CFN 680/2021, art. 9º, II): termos que a nomenclatura e o "Derivado ou
- * extração" de uma fórmula fitoterápica não podem ter. **Rascunho para a Debby** (e o CRN-3). Conferência de apoio, não
- * garantia: a responsabilidade pela composição é da nutricionista. A padronização fica de fora (cita o marcador
- * legitimamente, art. 12, I, "d"). "L-" no começo de palavra é conferido à parte (`temTermoNaoVegetal`).
+ * Plano 22 (RN-392, EP-D26, EP-D27; Res. CFN 680/2021, art. 9º, II): termos que a nomenclatura botânica do fitoterápico e
+ * de cada composto da fórmula fitoterápica não pode ter. **Rascunho para a Debby** (e o CRN-3). Conferência de apoio, não
+ * garantia: a responsabilidade pela composição é da nutricionista. O "Derivado ou extração" e a padronização ficam de fora
+ * (citam o marcador legitimamente, art. 12, I, "d"; ajuste do /code-review do PR 1). "L-" no começo de palavra é
+ * conferido à parte (`temTermoNaoVegetal`).
  */
 export const TERMOS_NAO_VEGETAIS: readonly string[] = [
   // nutrientes, sais e formas químicas
@@ -144,6 +167,8 @@ export function exigeHabilitacao(tipo: string): boolean {
 
 /** Uma linha: espaços repetidos viram um; sem NUL nem surrogate sem par (SUS-109: o jsonb recusaria e levaria o texto ao log). */
 const esp = (s: string) => semInvalidosNoBanco(s).trim().replace(/\s+/g, ' ');
+/** Plano 22 (RN-395): as orientações guardam as quebras de linha (parágrafo e lista da marcação); sem NUL nem surrogate sem par (SUS-109), `\r\n` → `\n`. */
+const multilinha = (s: string) => semInvalidosNoBanco(s).replace(/\r\n?/g, '\n').trim();
 const obrig = (rotulo: string, min: number, max: number) =>
   z.string({ message: `Informe ${rotulo} (até ${max} caracteres).` }).transform(esp).pipe(z.string().min(min, `Informe ${rotulo} (até ${max} caracteres).`).max(max, `Informe ${rotulo} (até ${max} caracteres).`));
 const opc = (max: number) => z.string().optional().transform((s) => (s ? esp(s) : '')).pipe(z.string().max(max, `Use no máximo ${max} caracteres.`));
@@ -221,19 +246,58 @@ const fitoterapico = z
   .superRefine((f, c) => {
     if (temTermoNaoVegetal(f.nomenclatura)) c.addIssue({ code: 'custom', path: ['nomenclatura'], message: MSG_PRESCRICAO.naoVegetal });
   });
-const item = z.discriminatedUnion('tipo', [suplemento, plantaCha, derivadoVegetal, fitoterapico], { message: MSG_PRESCRICAO.opcao });
+/**
+ * Plano 22 (RN-392, EP-D26, EP-D27, US-378; Res. CFN 680/2021, arts. 9º, II, e 12, I): a fórmula magistral fitoterápica,
+ * de 2 a 10 compostos vegetais em quantidades próprias. Em cada composto, a nomenclatura passa pela conferência de apoio
+ * (termo não vegetal primeiro — "Vitamina C" não é binômio, mas a mensagem certa é a do art. 9º, II —, depois o binômio);
+ * o "Derivado ou extração" e a padronização ficam de fora (RN-392). Exige a habilitação (`exigeHabilitacao`).
+ */
+const composto = z.object({
+  nomenclatura: obrig('a nomenclatura botânica', 2, 120),
+  parte: obrig('a parte usada', 1, 60),
+  extracao: obrig('o derivado ou a extração', 1, 120),
+  padronizacao: opc(120),
+  quantidade: numero,
+  unidade: z.enum(UNIDADES, { message: MSG_PRESCRICAO.opcao }),
+});
+const formulaFitoterapica = z
+  .object({
+    tipo: z.literal('formula_fitoterapica'),
+    compostos: z.array(composto, { message: MSG_PRESCRICAO.compostos }).min(2, MSG_PRESCRICAO.compostos).max(10, MSG_PRESCRICAO.compostos),
+    formaFarmaceutica: obrig('a forma farmacêutica', 1, 60),
+    via: escolha(VIAS),
+    posologia: obrig('a posologia', 1, 300),
+    duracao: opc(100),
+  })
+  .superRefine((f, c) => {
+    f.compostos.forEach((k, i) => {
+      const path = ['compostos', i, 'nomenclatura'];
+      if (temTermoNaoVegetal(k.nomenclatura)) c.addIssue({ code: 'custom', path, message: MSG_PRESCRICAO.naoVegetal });
+      else if (!binomioValido(k.nomenclatura)) c.addIssue({ code: 'custom', path, message: MSG_PRESCRICAO.binomio });
+    });
+  });
+const item = z.discriminatedUnion('tipo', [suplemento, plantaCha, derivadoVegetal, fitoterapico, formulaFitoterapica], { message: MSG_PRESCRICAO.opcao });
 export type ItemPrescricao = z.output<typeof item>;
 
-const rascunho = z.object({ itens: z.array(item).max(20, MSG_PRESCRICAO.itensDemais).default([]), orientacoes: opc(2000) });
+/** Plano 22 (RN-395): as orientações guardam as quebras de linha (a marcação mínima depende delas). */
+const orientacoes = z.string().optional().transform((s) => (s ? multilinha(s) : '')).pipe(z.string().max(2000, MSG_PRESCRICAO.orientacoes));
+const rascunho = z.object({ itens: z.array(item).max(20, MSG_PRESCRICAO.itensDemais).default([]), orientacoes });
+/** Plano 22 (R22-09, RN-394): o modelo de prescrição — 1 a 20 itens pelo mesmo Zod do item; sem justificativa de uso. */
+const modelo = z.object({ itens: z.array(item, { message: MSG_PRESCRICAO.semItens }).min(1, MSG_PRESCRICAO.semItens).max(20, MSG_PRESCRICAO.itensDemais), orientacoes });
 
 export type ConteudoReceita = {
   versao: 1;
   tipo: 'receita';
   itens: ItemPrescricao[];
   orientacoes: string;
+  /**
+   * Plano 22 (RN-395): `'marcacao'` em todo conteúdo novo (e no rascunho antigo salvo de novo no editor); sem a chave, as
+   * orientações são texto puro (receitas de antes do Plano 22 não mudam).
+   */
+  orientacoesFormato?: 'marcacao';
   /** RN-154: a cópia congelada no preparo. */
   copia?: CopiaDoDocumento;
-  /** D5 da spec: o texto da declaração confirmada no preparo. */
+  /** D5 da spec: o texto da declaração confirmada no preparo (`declaracaoDoDocumento`, Plano 22). */
   declaracao?: string;
 };
 
@@ -256,7 +320,26 @@ export function validarRascunho(input: unknown, o: { habilitada: boolean }): Con
   const p = rascunho.safeParse(input ?? {});
   if (!p.success) throw new DocumentoError(erros(p.error));
   conferirHabilitacao(p.data.itens, o.habilitada);
-  return { versao: 1, tipo: 'receita', itens: p.data.itens, orientacoes: p.data.orientacoes };
+  return { versao: 1, tipo: 'receita', itens: p.data.itens, orientacoes: p.data.orientacoes, orientacoesFormato: 'marcacao' };
+}
+
+/**
+ * Plano 22 (R22-09, RN-393): um item avulso (o item salvo da T10a) pelo **mesmo** Zod do item da receita e a mesma
+ * conferência da habilitação. As chaves dos erros são as do item (`tipo`, `posologia`, `compostos.0.nomenclatura`…).
+ */
+export function validarItem(input: unknown, o: { habilitada: boolean }): ItemPrescricao {
+  const p = item.safeParse(input);
+  if (!p.success) throw new DocumentoError(erros(p.error));
+  if (exigeHabilitacao(p.data.tipo) && !o.habilitada) throw new DocumentoError({ tipo: MSG_PRESCRICAO.semHabilitacao });
+  return p.data;
+}
+
+/** Plano 22 (R22-09, RN-394): os itens e as orientações de um modelo de prescrição (1 a 20 itens; orientações em marcação). */
+export function validarItensDoModelo(input: { itens: unknown; orientacoes: unknown }, o: { habilitada: boolean }): { itens: ItemPrescricao[]; orientacoes: string; orientacoesFormato: 'marcacao' } {
+  const p = modelo.safeParse({ itens: input.itens, orientacoes: input.orientacoes ?? undefined });
+  if (!p.success) throw new DocumentoError(erros(p.error));
+  conferirHabilitacao(p.data.itens, o.habilitada);
+  return { itens: p.data.itens, orientacoes: p.data.orientacoes, orientacoesFormato: 'marcacao' };
 }
 
 /** US-142/US-143: para preparar, 1 a 20 itens e a justificativa; a habilitação de novo (pode ter sido retirada depois do salvar). */
@@ -268,6 +351,11 @@ export function validarParaPreparar(c: ConteudoReceita, justificativa: string | 
 }
 
 const qtd = (n: number) => String(n).replace('.', ',');
+/** O `default` do `switch` de `descreverItem`: aqui, e não o `assertNever` de `tipos-de-documento.ts`, que reexporta deste arquivo (sem ciclo). */
+function itemInesperado(x: never): never {
+  void x;
+  throw new Error('prescricao: tipo de item inesperado');
+}
 /** Texto do item no PDF, no portal e no painel (nunca a justificativa). */
 export function descreverItem(it: ItemPrescricao): { titulo: string; linhas: string[] } {
   const comum = (via?: keyof typeof VIAS) => [...(via ? [`Via: ${VIAS[via]}`] : []), `Posologia: ${it.posologia}`, ...('duracao' in it && it.duracao ? [`Duração: ${it.duracao}`] : [])];
@@ -290,5 +378,17 @@ export function descreverItem(it: ItemPrescricao): { titulo: string; linhas: str
           ...comum(it.via),
         ],
       };
+    case 'formula_fitoterapica':
+      // Plano 22 (RN-392): um composto por linha, com a parte usada, o derivado, a padronização (se houver) e a quantidade
+      return {
+        titulo: MSG_PRESCRICAO.formula.titulo,
+        linhas: [
+          ...it.compostos.map((k) => [k.nomenclatura, k.parte, k.extracao, ...(k.padronizacao ? [`Padronização: ${k.padronizacao}`] : []), `${qtd(k.quantidade)} ${k.unidade}`].join(' · ')),
+          `${MSG_PRESCRICAO.formula.formaFarmaceutica}: ${it.formaFarmaceutica}`,
+          ...comum(it.via),
+        ],
+      };
+    default:
+      return itemInesperado(it);
   }
 }

@@ -13,7 +13,7 @@ import { apagarArquivo, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenam
 import { auditRead } from '@/modules/plataforma/audit';
 import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { gerarCodigo } from './codigo';
-import { DECLARACAO_POR_TIPO, DIGITALIZACAO_MAX_MS, envioEmCurso, MSG_DECLARACAO, MSG_RETIFICACAO, type EventoRecibo, type StatusDocumento, type TipoAssinatura, type TipoDocumento, type ViaRecibo } from './constantes';
+import { declaracaoDoDocumento, DIGITALIZACAO_MAX_MS, envioEmCurso, MSG_DECLARACAO, MSG_RETIFICACAO, type EventoRecibo, type StatusDocumento, type TipoAssinatura, type TipoDocumento, type ViaRecibo } from './constantes';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from './erros';
 import { validarParecerParaPreparar, validarRascunhoParecer, type ConteudoDocumento, type ConteudoParecer } from './parecer';
 import { copiarExames } from './parecer-exames';
@@ -189,7 +189,8 @@ export async function prepararParaAssinatura(
         status: 'preparando',
         codigo: gerarCodigo(),
         declaracaoEm: agora,
-        conteudo: { ...conteudo, copia: { profissional, paciente: { nome: paciente.nome }, ...(retificacao ? { retificacao } : {}) }, declaracao: DECLARACAO_POR_TIPO[tipo] },
+        // Plano 22 (EP-D56): a declaração do conteúdo preparado (a da receita com fórmula ganha a frase do art. 9º, II)
+        conteudo: { ...conteudo, copia: { profissional, paciente: { nome: paciente.nome }, ...(retificacao ? { retificacao } : {}) }, declaracao: declaracaoDoDocumento(conteudo) },
         pdfStatus: 'pendente',
         pdfPedidoEm: agora,
         updatedAt: agora,

@@ -22,7 +22,8 @@ export type ConteudoAnonimizado = { tipo?: undefined };
 export function conteudoVazio(tipo: TipoDocumento): ConteudoDocumento {
   switch (tipo) {
     case 'receita':
-      return { versao: 1, tipo: 'receita', itens: [], orientacoes: '' };
+      // Plano 22 (T9, RN-395): a receita nova também nasce em marcação mínima
+      return { versao: 1, tipo: 'receita', itens: [], orientacoes: '', orientacoesFormato: 'marcacao' };
     case 'parecer':
       return { versao: 1, tipo: 'parecer', exames: [], avaliacao: '', conduta: '', encaminhamentos: '' };
     case 'solicitacao_exames':

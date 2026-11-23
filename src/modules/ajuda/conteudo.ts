@@ -110,7 +110,10 @@ export const GUIAS: readonly Guia[] = [
             'O parecer guarda uma cópia dos valores dos exames. Se o exame mudar depois de preparar, a tela avisa e o parecer continua com a cópia.',
             'O parecer não afirma diagnóstico de doença nem prescreve medicamento: para isso, encaminhe ao médico.',
             'Qualquer pessoa com o código de verificação (o paciente, uma farmácia) confere a autenticidade sem ver o conteúdo.',
-            '"Fitoterápico (forma farmacêutica ou fórmula magistral)" só aparece com a habilitação registrada em Configurações.',
+            // Plano 22 (T9, §6.2, US-378): os dois tipos e o "desabilitado" (rascunho para a Debby e o revisor-interface)
+            'Sem a habilitação em Fitoterapia registrada em Configurações, "Fitoterápico (forma farmacêutica ou fórmula magistral)" e "Fórmula magistral com vários compostos vegetais" aparecem desabilitados no tipo do item. Use a fórmula para 2 a 10 derivados vegetais em quantidades próprias; o fitoterápico, para o produto de uma planta só.',
+            'A fórmula magistral fitoterápica só aceita derivados vegetais: a nomenclatura botânica de cada composto é conferida (Gênero espécie, sem vitaminas, minerais, aminoácidos ou substâncias isoladas). É uma conferência de apoio: a responsabilidade pela composição continua sua.',
+            'Nas orientações, "Negrito" e "Lista" formatam o texto (o mesmo sai no PDF) e "Prévia" mostra como fica.',
             // Plano 22 (T8, RN-390): rascunho para a Debby e o revisor-interface
             'Com a solicitação assinada, "Lançar resultados" abre o "Novo exame" na aba Exames com o título e uma linha por exame pedido (um painel, como o hemograma, vira uma linha por exame que o compõe). É uma cópia: o exame lançado não muda a solicitação.',
             'Planos de saúde podem recusar pedido de exame feito por nutricionista: o aviso aparece no rascunho, não no PDF.',
@@ -377,7 +380,8 @@ export const GUIAS: readonly Guia[] = [
           titulo: 'Dados para documentos',
           itens: [
             'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone que saem no carimbo das receitas e dos pareceres, junto com o CRN.',
-            'A habilitação em Fitoterapia é uma declaração sua, com o registro no CRN; sem ela, a receita não oferece "Fitoterápico (forma farmacêutica ou fórmula magistral)".',
+            // Plano 22 (T9, §6.2): os dois tipos e o "desabilitado" (rascunho para a Debby e o revisor-interface)
+            'A habilitação em Fitoterapia é uma declaração sua, com o registro no CRN; sem ela, a receita mostra desabilitados "Fitoterápico (forma farmacêutica ou fórmula magistral)" e "Fórmula magistral com vários compostos vegetais".',
             'Para assinar documentos, a verificação em duas etapas precisa estar ativa (cartão "Segurança").',
           ],
         },

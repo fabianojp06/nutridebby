@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { paraWinAnsi as w } from '@/modules/pacientes/prontuario-pdf';
 import { formatarCodigo } from './codigo';
 import { AREA_ASSINATURA as A, linhaDaVersao, RESSALVA_PARECER } from './constantes';
+import { lerMarcacao, type Trecho } from './marcacao';
 import { CABECALHO_VALORES, linhaDoValor, MSG_PARECER, rotuloDoExame, type ConteudoDocumento, type ConteudoParecer } from './parecer';
 import { descreverItem, type ConteudoReceita } from './prescricao';
 import type { ConteudoSolicitacao } from './solicitacao';
@@ -22,10 +23,48 @@ const s = StyleSheet.create({
   secao: { marginTop: 12, fontFamily: 'Helvetica-Bold' },
   cabecalho: { fontSize: 8, color: '#666666' },
   ressalva: { marginTop: 14, fontSize: 9, fontFamily: 'Helvetica-Oblique' },
+  negrito: { fontFamily: 'Helvetica-Bold' },
+  bloco: { marginTop: 4 },
   carimbo: { marginTop: 18, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#999999' },
   quadro: { position: 'absolute', left: A.x1, bottom: A.y1, width: A.x2 - A.x1, height: A.y2 - A.y1, borderWidth: 1, borderColor: '#999999', borderStyle: 'dashed' },
   rodape: { position: 'absolute', left: 36, right: 36, bottom: 16, flexDirection: 'row', alignItems: 'center' },
 });
+
+/** Um trecho da marcação: o negrito na Helvetica-Bold; o texto passa por `paraWinAnsi` como todo o resto. */
+const trecho = (t: Trecho, i: number) => (
+  <Text key={i} style={t.negrito ? s.negrito : undefined}>
+    {w(t.texto)}
+  </Text>
+);
+
+/**
+ * Plano 22 (RN-395, EP-D31, RNF-374): as orientações em marcação mínima viram `<Text>` (parágrafo; lista com "•"; negrito
+ * em trecho) a partir dos blocos de `lerMarcacao` — nada de link, imagem ou HTML: `<`, `>` e `&` são texto. Sem
+ * `orientacoesFormato` (conteúdo de antes do Plano 22), o texto puro de sempre.
+ */
+function Orientacoes({ texto, formato }: { texto: string; formato?: 'marcacao' }) {
+  if (formato !== 'marcacao') return <Text>{w(texto)}</Text>;
+  return (
+    <>
+      {lerMarcacao(texto).map((b, i) =>
+        b.tipo === 'paragrafo' ? (
+          <Text key={i} style={s.bloco}>
+            {b.trechos.map(trecho)}
+          </Text>
+        ) : (
+          <View key={i} style={s.bloco}>
+            {b.itens.map((item, j) => (
+              <Text key={j} wrap={false}>
+                {'• '}
+                {item.map(trecho)}
+              </Text>
+            ))}
+          </View>
+        ),
+      )}
+    </>
+  );
+}
 
 function CorpoReceita({ c }: { c: ConteudoReceita }) {
   return (
@@ -39,7 +78,14 @@ function CorpoReceita({ c }: { c: ConteudoReceita }) {
           </View>
         );
       })}
-      {c.orientacoes ? <Text style={{ marginTop: 12 }}>{w(`Orientações gerais: ${c.orientacoes}`)}</Text> : null}
+      {/* Plano 22 (RN-395): a receita antiga (sem a chave) sai como antes, numa linha; a nova, pela marcação */}
+      {c.orientacoes && c.orientacoesFormato !== 'marcacao' ? <Text style={{ marginTop: 12 }}>{w(`Orientações gerais: ${c.orientacoes}`)}</Text> : null}
+      {c.orientacoes && c.orientacoesFormato === 'marcacao' ? (
+        <>
+          <Text style={s.secao} minPresenceAhead={14}>Orientações gerais</Text>
+          <Orientacoes texto={c.orientacoes} formato="marcacao" />
+        </>
+      ) : null}
     </>
   );
 }
@@ -91,8 +137,7 @@ function CorpoParecer({ c }: { c: ConteudoParecer }) {
 
 /**
  * Plano 22 (RN-389, EP-D2, US-377): título fixo (o do tipo, no `Documento`), os exames — um painel com o nome dele —, a
- * indicação clínica só se preenchida e as orientações; nenhum campo de laboratório. Texto puro nesta tarefa (T7); a
- * marcação (`lerMarcacao`) entra com o editor.
+ * indicação clínica só se preenchida e as orientações, pela marcação mínima (`lerMarcacao`, T9); nenhum campo de laboratório.
  */
 function CorpoSolicitacao({ c }: { c: ConteudoSolicitacao }) {
   return (
@@ -108,7 +153,7 @@ function CorpoSolicitacao({ c }: { c: ConteudoSolicitacao }) {
       {c.orientacoes ? (
         <>
           <Text style={s.secao} minPresenceAhead={14}>Orientações</Text>
-          <Text>{w(c.orientacoes)}</Text>
+          <Orientacoes texto={c.orientacoes} formato={c.orientacoesFormato} />
         </>
       ) : null}
     </>

@@ -940,6 +940,33 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(equipe.map((d) => [d.situacao, 'indicacaoClinica' in d ? d.indicacaoClinica : undefined]).sort()).toEqual([['Assinado', 'Acompanhar a resposta à dieta.'], ['Rascunho', 'Rascunho da equipe']]);
   });
 
+  it('Plano 22 (T9, RN-392, PM-E13): a fórmula magistral fitoterápica descrita item a item em `documentos` (um composto por linha), com as orientações como foram escritas', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const formula = {
+      tipo: 'formula_fitoterapica', formaFarmaceutica: 'Cápsula', via: 'oral', posologia: '1 cápsula à noite', duracao: '30 dias',
+      compostos: [
+        { nomenclatura: 'Passiflora incarnata L.', parte: 'Folhas', extracao: 'Extrato seco', padronizacao: '', quantidade: 200, unidade: 'mg' },
+        { nomenclatura: 'Matricaria chamomilla L.', parte: 'Flores', extracao: 'Extrato seco', padronizacao: '1,2% de apigenina', quantidade: 150.5, unidade: 'mg' },
+      ],
+    };
+    await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', conteudo: { versao: 1, tipo: 'receita', itens: [formula], orientacoes: '**Tomar à noite**', orientacoesFormato: 'marcacao' } });
+    const docs = (await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db)).dados.documentos;
+    expect(docs).toEqual([
+      expect.objectContaining({
+        tipo: 'Receita', situacao: 'Assinado', orientacoes: '**Tomar à noite**',
+        itens: [{
+          titulo: 'Fórmula magistral fitoterápica',
+          linhas: [
+            'Passiflora incarnata L. · Folhas · Extrato seco · 200 mg',
+            'Matricaria chamomilla L. · Flores · Extrato seco · Padronização: 1,2% de apigenina · 150,5 mg',
+            'Forma farmacêutica: Cápsula', 'Via: Oral', 'Posologia: 1 cápsula à noite', 'Duração: 30 dias',
+          ],
+        }],
+      }),
+    ]);
+  });
+
   it('L-2: titular que deixou de ser ativo depois de pedir os dados — o pedido dele vira "falhou", sem ZIP e sem e-mail; o da equipe segue gerando', async () => {
     for (const status of ['bloqueado', 'arquivado'] as const) {
       const T = await novoTenant(app.db);
