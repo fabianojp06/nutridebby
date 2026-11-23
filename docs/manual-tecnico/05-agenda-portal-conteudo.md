@@ -663,16 +663,22 @@ flowchart TD
 | Quem | Pode | Onde |
 |---|---|---|
 | Equipe (sessão `nutri`) | Criar, editar (sem trocar o tipo), ligar/desligar (`ligado`) e apagar; ver a marca do paciente e a pausa geral (com a data), os aparelhos com notificação e o previsto para hoje | `equipe.ts`; sempre trava o paciente (`carregarPacienteParaEscrita`: recusa bloqueado e anonimizado) |
-| Paciente (sessão de paciente) | Desligar e religar cada lembrete (`desligado_pelo_paciente_em`) e "Pausar todos os lembretes" / "Retomar os lembretes" (`patients.lembretes_pausados_em`); não cria, não edita, não apaga | `paciente.ts`; só `new Date()` ou nulo, só quando o estado muda (UPDATE condicional) |
-| Worker | Gravar a marca de envio; apagar e limpar na anonimização | `envio.ts`, `lgpd.ts` |
+| Paciente (sessão de paciente **com conta**; sem conta — link, WhatsApp — nada) | Desligar e religar cada lembrete (`desligado_pelo_paciente_em`) e "Pausar todos os lembretes" / "Retomar os lembretes" (`patients.lembretes_pausados_em`); não cria, não edita, não apaga | `paciente.ts`; só `new Date()` ou nulo, só quando o estado muda (UPDATE condicional) |
+| Worker | Gravar e apagar a marca de envio (a equipe não apaga a marca: ela só sai junto com o lembrete, pela cascata); apagar e limpar na anonimização | `envio.ts`, `lgpd.ts` |
 
 **"A nutricionista não religa" vale no banco** (autonomia do titular; decisão da revisão do plano), não só na tela:
 
-- Gatilho `lembretes_rotina_regras` (`app_lembretes_rotina_regras`, `drizzle/0119_rls_lembretes_rotina.sql:24-55`): `id`,
-  tenant, paciente, `tipo`, `criado_por` e `created_at` fixos para todos; a sessão de paciente só muda
-  `desligado_pelo_paciente_em` (e `updated_at`), com o relógio do banco (`clock_timestamp()`) ao desligar; a sessão `nutri`
-  muda a configuração mas **nunca** essa marca (nem para religar, nem para desligar em nome do paciente, nem ao criar);
+- Gatilho `lembretes_rotina_regras` (`app_lembretes_rotina_regras`, criada na `0119` e refeita inteira na
+  `drizzle/0126_lembretes_rotina_regras_2.sql`, TRI-17-20 #6/#7): `id`, tenant, paciente, `tipo`, `criado_por` e
+  `created_at` fixos para todos; a sessão de paciente sem conta (`app_current_user()` nulo: link de documento, WhatsApp)
+  não grava nada, nem o UPDATE sem mudança (`42501`); a sessão de paciente com conta só muda `desligado_pelo_paciente_em`,
+  com o relógio do banco (`clock_timestamp()`) ao desligar, e o `updated_at` dela é sempre o `now()` da transação (o valor
+  enviado é ignorado); a sessão `nutri` muda a configuração mas **nunca** essa marca (nem para religar, nem para desligar
+  em nome do paciente, nem ao criar) e só cria lembrete com `criado_por = app_current_user()` (outro valor, `42501`);
   público e conta não escrevem; worker e contexto vazio mudam a marca.
+- Gatilho `lembretes_rotina_envios_sem_apagar` (BEFORE DELETE em `lembretes_rotina_envios`, `0126`, TRI-17-20 #5): só o
+  worker, o contexto vazio e a cascata do apagamento do lembrete (`pg_trigger_depth() > 1`) apagam a marca de envio; a
+  equipe que a apagasse reabriria o slot e o push sairia de novo. Testes em `src/modules/lembretes/banco.test.ts`.
 - Gatilho `lembretes_rotina_sem_apagar` (`drizzle/0120_lembretes_rotina_sem_apagar.sql`): a equipe não apaga o lembrete
   que o paciente desligou (senão apagaria e criaria outro igual, ligado); passam o worker, o contexto vazio e o paciente já
   `bloqueado` (a exclusão atendida). `apagarLembrete` recusa antes, com "O paciente desligou este lembrete. Você pode

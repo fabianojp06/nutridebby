@@ -389,7 +389,9 @@ A coluna `patients.lembretes_pausados_em` ("Pausar todos os lembretes") também 
 'update')`, `app_enable_staff_only('lembretes_rotina_envios')`, os gatilhos `app_lembretes_rotina_regras`,
 `app_lembretes_rotina_envios_do_worker` e `app_patients_lembretes_do_paciente` e a `app_paciente_colunas_patients` refeita
 (0085 + `lembretes_pausados_em` em `livres`, linha a linha), da `0119`; o gatilho `app_lembretes_rotina_sem_apagar` (BEFORE
-DELETE), da `0120` (revisão da Tarefa 1). Nenhuma migração de dados, nenhum `DISABLE TRIGGER`. Regras de cada gatilho e o
+DELETE), da `0120` (revisão da Tarefa 1); a `app_lembretes_rotina_regras` refeita (paciente sem conta recusado, `updated_at`
+do paciente pelo `now()`, `criado_por` da `nutri` conferido) e o gatilho `app_lembretes_rotina_envios_sem_apagar` (BEFORE
+DELETE da marca), da `0126` (limpeza dos Minor, TRI-17-20). Nenhuma migração de dados, nenhum `DISABLE TRIGGER`. Regras de cada gatilho e o
 motor de envio em [§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17); testes do banco em
 `src/modules/lembretes/banco.test.ts`.
 
@@ -548,9 +550,9 @@ Os documentos do Plano 10A têm gatilhos de colunas que valem para **todo** pape
 `app_codigo_acesso_regras` (`document_access_codes`) e `app_verificacao_situacao` (`document_verifications`, 0092).
 Detalhe em [§9.3.3](09-documentos-assinados.md#933-gatilhos-e-funções).
 
-Os lembretes do Plano 17 também (`0119`, `0120`): `app_lembretes_rotina_regras` (a sessão de paciente só muda
-`desligado_pelo_paciente_em`; a `nutri` nunca a muda), `app_lembretes_rotina_envios_do_worker` e
-`app_lembretes_rotina_sem_apagar` ([§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17)).
+Os lembretes do Plano 17 também (`0119`, `0120`, `0126`): `app_lembretes_rotina_regras` (a sessão de paciente com conta só
+muda `desligado_pelo_paciente_em`, a sem conta nada; a `nutri` nunca a muda e só cria em nome próprio),
+`app_lembretes_rotina_envios_do_worker`, `app_lembretes_rotina_envios_sem_apagar` e `app_lembretes_rotina_sem_apagar` ([§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17)).
 
 ### 2.6.7 Conteúdo pela audiência e a exceção do plano
 
