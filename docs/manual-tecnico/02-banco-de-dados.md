@@ -616,7 +616,7 @@ isolamento), `app_patients_lembretes_do_paciente` (BEFORE INSERT OR UPDATE em `p
 `SET search_path = public, pg_temp` e nomes com `public.`, e a `app_anonimizar_financeiro(uuid)`, que segue o molde da
 `app_anonimizar_documentos`: `SECURITY INVOKER`, só `worker`, chamada por `anonimizarVencidos` só quando o paciente tem
 lançamento ([§12.3](12-financeiro.md#123-banco)); testes em `src/modules/financeiro/banco.test.ts` e
-`src/db/migrate-owner.test.ts`.
+`src/db/migrate-owner.test.ts`. SUS-102 (0126): `app_tenants_por_sessao` (BEFORE UPDATE em `tenants`, gatilho `tenants_por_sessao`, roda depois dos dois de antes): paciente, público e conta não mudam coluna nenhuma (o paciente só sobe `armazenamento_bytes` do próprio consultório, na reserva de cota de `salvarArquivo`), a `nutri` só toca a própria linha; `worker`, admin e contexto vazio livres; testes em `src/db/tenants-gatilho.test.ts`.
 
 Funções sem `SECURITY DEFINER` de apoio: `app_unaccent` (wrapper `IMMUTABLE` para índice, Plano 04, D6; `0040`), `app_versao_atende(text, text)` (o `versaoAtende` de `textos-legais.ts` em SQL, usado pelas funções da IA Nutri; Plano 15, `0117`), `app_etiquetas_validas` (CHECK de etiquetas; `0082`), `app_audit_row_change` (gatilho; §2.8) e as `app_paciente_colunas_*` (§2.6.6).
 

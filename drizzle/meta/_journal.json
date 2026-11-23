@@ -883,6 +883,13 @@
       "when": 1794894965076,
       "tag": "0125_rls_patient_cadastro",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1795433388620,
+      "tag": "0126_tenants_gatilho_update",
+      "breakpoints": true
     }
   ]
 }
