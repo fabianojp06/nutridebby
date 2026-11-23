@@ -79,10 +79,17 @@ export function situacaoDaNotificacao(n: Pick<NotificationRow, 'status' | 'motiv
 }
 
 /**
+ * Plano 26 (RN-507): os tipos do CHECK `notifications_tipo_valido`. `aniversario` e `pedido_nao_confirmado` (Plano 23, 0130)
+ * ainda não estão em TipoNotificacao (sem rótulo nem envio até o 23 PR 2); quando entrarem, este tipo volta a ser TipoNotificacao.
+ */
+type TipoDoCheck = TipoNotificacao | 'aniversario' | 'pedido_nao_confirmado';
+
+/**
  * Plano 26 (RN-507, RE-D57): os tipos que a sessão `recepcao` lê e grava — os da agenda —, iguais à lista da condição
  * `recepcao_cond_notificacoes_da_agenda` (custom rls_recepcao). Sem `convite_paciente`: a recepção não envia o convite do app
  * (RE-D37). Todo tipo do CHECK `notifications_tipo_valido` está aqui ou em TIPOS_FORA_DA_RECEPCAO (tipos.test.ts): tipo novo
  * de outro plano entra com a decisão; o que entra aqui entra também na política (ALTER POLICY, ou DROP/CREATE, da condição).
+ * Plano 23 (0130): `pedido_nao_confirmado` (recusa ou vencimento do pedido de consulta do paciente cadastrado, RN-428) entra.
  */
 export const TIPOS_DA_AGENDA = [
   'lembrete_24h',
@@ -91,9 +98,14 @@ export const TIPOS_DA_AGENDA = [
   'consulta_cancelada',
   'resposta_confirmacao',
   'resposta_remarcar',
-] as const satisfies readonly TipoNotificacao[];
+  'pedido_nao_confirmado',
+] as const satisfies readonly TipoDoCheck[];
 
-/** Plano 26 (RN-507): os tipos que a recepção não lê nem grava — convite do app (RE-D37), avisos clínicos e do portal. */
+/**
+ * Plano 26 (RN-507): os tipos que a recepção não lê nem grava — convite do app (RE-D37), avisos clínicos e do portal.
+ * Plano 23 (0130): `aniversario` fica fora (RN-432: mensagem da nutricionista, com a autorização de `aniversario_autorizacoes`,
+ * negada à recepção; não é aviso da consulta).
+ */
 export const TIPOS_FORA_DA_RECEPCAO = [
   'convite_paciente',
   'push_teste',
@@ -105,4 +117,5 @@ export const TIPOS_FORA_DA_RECEPCAO = [
   'exame_revisado',
   'exame_expirado',
   'duvida_vista',
-] as const satisfies readonly TipoNotificacao[];
+  'aniversario',
+] as const satisfies readonly TipoDoCheck[];

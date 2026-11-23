@@ -365,7 +365,8 @@ const FINANCEIRO: CondicaoDaRecepcao = {
 /** RN-507 (T5a): a lista é TIPOS_DA_AGENDA (src/modules/notificacoes/tipos.ts; tipos.test.ts compara as três). */
 const TIPOS_DA_AGENDA_NA_POLITICA =
   "app_current_role() IS DISTINCT FROM 'recepcao'::text OR tipo = ANY (ARRAY['lembrete_24h'::text, 'lembrete_2h'::text, " +
-  "'consulta_marcada'::text, 'consulta_cancelada'::text, 'resposta_confirmacao'::text, 'resposta_remarcar'::text])";
+  "'consulta_marcada'::text, 'consulta_cancelada'::text, 'resposta_confirmacao'::text, 'resposta_remarcar'::text, " +
+  "'pedido_nao_confirmado'::text])";
 
 export const RECEPCAO_CONDICOES: Record<string, Record<string, CondicaoDaRecepcao>> = {
   equipe_membros: {
