@@ -1,4 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+// SUS-101: fora do CI, o .env.local do worktree (DATABASE_URL, APP_URL…) vale para o config, os workers do Playwright e
+// os helpers que abrem o banco (e2e/whatsapp.ts), como no `pnpm worker` e no `pnpm e2e:seed`. Variável já exportada no
+// shell vence (process.loadEnvFile não sobrescreve), como no `tsx --env-file-if-exists`. No CI, só as variáveis do job.
+const ENV_LOCAL = fileURLToPath(new URL('./.env.local', import.meta.url));
+if (!process.env.CI && existsSync(ENV_LOCAL)) process.loadEnvFile(ENV_LOCAL);
 
 // PF-N16: 3000 é o painel do Easypanel na VPS; 3100 em dev/E2E local, 3000 em CI/containers.
 const baseURL = process.env.APP_URL ?? (process.env.CI ? 'http://localhost:3000' : 'http://localhost:3100');
