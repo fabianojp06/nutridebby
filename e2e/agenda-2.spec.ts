@@ -463,6 +463,8 @@ test.describe('Plano 23 (T8): Solicitações — chave, portal, fila, pessoa nov
   test('remarcar a consulta já marcada com a chave ligada → a nova nasce "Agendada", sem passar pela fila (AG-D24)', async () => {
     await paula.goto('/p/agenda');
     await paula.getByRole('region', { name: 'Próximas' }).getByRole('link', { name: /Agendada/ }).click();
+    // espera a navegação: sem isto, `paula.url()` ainda é a lista (/p/agenda) e a semana abre no lugar errado
+    await expect(paula).toHaveURL(/\/p\/agenda\/[0-9a-f-]{36}$/);
     await paula.goto(`${new URL(paula.url()).pathname}?semana=${D2}`);
     await paula.getByRole('group', { name: grupo(D2) }).getByRole('radio', { name: '10:00' }).check();
     await paula.getByRole('button', { name: 'Remarcar para este horário' }).click();
