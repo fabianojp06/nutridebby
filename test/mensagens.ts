@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { eq, sql, type SQL } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import type { Db } from '@/db/client';
@@ -84,4 +86,35 @@ export async function esperarBloqueio(owner: Pool, pid: number): Promise<void> {
     if (i > 300) throw new Error('ninguém ficou preso na trava');
     await new Promise((r) => setTimeout(r, 10));
   }
+}
+
+export type EstadoDoAnexo = 'pronto' | 'processando' | 'pronto_com_original' | 'falhou_com_original';
+/**
+ * Plano 25 (T5): uma foto do paciente gravada pelo dono (superusuário: gatilho e RLS não se aplicam), com os arquivos no
+ * disco (`dataDir`) e as linhas de `stored_files`. `pronto_com_original`: o job caiu entre gravar `pronto` e apagar o
+ * original (CH-D59); `falhou_com_original`: a conversão falhou e o original ainda não saiu.
+ */
+export async function anexoDoDono(owner: Pool, dataDir: string, T: TenantDeTeste, c: PacienteDoChat, estado: EstadoDoAnexo): Promise<{ id: string; caminhos: string[] }> {
+  const arquivo = async (tipo: 'chat_anexo' | 'chat_anexo_original') => {
+    const caminho = `${T.tenantId}/${tipo}/${randomUUID()}.jpg`;
+    const destino = path.join(dataDir, caminho);
+    mkdirSync(path.dirname(destino), { recursive: true });
+    writeFileSync(destino, Buffer.alloc(64, 1));
+    await owner.query("insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values ($1, $2, $3, 64, 'image/jpeg', $4)", [T.tenantId, tipo, caminho, c.p]);
+    return caminho;
+  };
+  const anexo = estado === 'processando' || estado === 'falhou_com_original' ? null : await arquivo('chat_anexo');
+  const original = estado === 'pronto' ? null : await arquivo('chat_anexo_original');
+  const status = estado === 'pronto_com_original' ? 'pronto' : estado === 'falhou_com_original' ? 'falhou' : estado;
+  const r = await owner.query<{ id: string }>(
+    `insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, anexo_status, anexo_tipo, anexo_path, anexo_original_path, anexo_bytes)
+     values ($1, $2, 'paciente', $3, $4, 'imagem', $5, $6, 64) returning id`,
+    [T.tenantId, c.p, c.u, status, anexo, original],
+  );
+  return { id: r.rows[0].id, caminhos: [anexo, original].filter((x): x is string => x !== null) };
+}
+
+/** Titular na anonimização pelo relógio do banco: bloqueado com `anonimizar_apos` já vencido no fuso (dois dias atrás). */
+export async function bloqueadoVencido(owner: Pool, patientId: string): Promise<void> {
+  await owner.query("update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = current_date - 2 where id = $1", [patientId]);
 }

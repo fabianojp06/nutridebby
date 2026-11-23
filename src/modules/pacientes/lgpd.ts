@@ -30,6 +30,7 @@ import { cancelarTarefas } from '@/modules/ia/cancelar';
 import { apagarIaNutriDoTitular, limparIaNutriNaAnonimizacao } from '@/modules/ia/nutri-paciente/lgpd';
 import { anonimizarDocumentosDoPaciente, pdfsDeDocumentosRestantes } from '@/modules/documentos/lgpd-documentos';
 import { apagarUsoDeConteudo } from '@/modules/conteudo/titular';
+import { anexosDeChatRestantes, apagarConversaDoTitular, apagarConversasDosAnonimizados } from '@/modules/mensagens/lgpd';
 import { temLancamentos } from '@/modules/financeiro/titular';
 import { apagarAcessosDoTitular } from '@/modules/portal/acesso';
 import { carregarPacienteParaEscrita } from './base';
@@ -510,6 +511,8 @@ export async function anonimizarVencidos(
     const hoje = hojeNoFuso(t.fuso, now);
     // Plano 18 (RN-283): a rede do cadastro complementar roda aqui, antes da listagem — o `continue` abaixo pula o tenant
     await apagarCadastrosDosAnonimizados(ctx, db);
+    // Plano 25 (RN-466, §9.9): a rede da conversa por mensagens de quem a imagem antiga anonimizou sem conhecer o chat
+    await apagarConversasDosAnonimizados(ctx, { db, dataDir: deps.dataDir });
     await apagarFotosDosBloqueados(ctx, db, deps);
     await apagarEnviosDosBloqueados(ctx, db, deps);
     let vencidos: { id: string }[];
@@ -544,6 +547,8 @@ export async function anonimizarVencidos(
         await apagarEnviosDoTitular(ctx, id, { db, dataDir: deps.dataDir });
         // Plano 14A (US-113): os termos em papel da autorização de IA, num passo próprio (FK NO ACTION, função do worker)
         await apagarTermosDeAutorizacao(ctx, id, { db, dataDir: deps.dataDir });
+        // Plano 25 (RN-466): a conversa por mensagens — anexos (originais, depois convertidos) e as linhas, pela função do worker
+        await apagarConversaDoTitular(ctx, id, { db, dataDir: deps.dataDir });
         for (const caminho of await withTenant(ctx, (tx) => anexosDoPaciente(tx, id), db)) {
           await apagarArquivo(
             ctx,
@@ -589,6 +594,8 @@ export async function anonimizarVencidos(
             if (r.length && (await pdfsDeDocumentosRestantes(tx, id))) throw new Error('documento novo durante a anonimização');
             // Plano 14A (US-113): nenhum termo em papel da autorização de IA pode ter sobrado
             if (r.length && (await termosDeAutorizacaoRestantes(tx, id))) throw new Error('termo de autorização novo durante a anonimização');
+            // Plano 25 (RN-466): nenhum anexo de chat pode ter sobrado
+            if (r.length && (await anexosDeChatRestantes(tx, id))) throw new Error('anexo de chat novo durante a anonimização');
             // Plano 18 (D18, RN-283): o cadastro complementar (CPF, endereço, observação…) sai inteiro — depois do UPDATE
             // acima, que grava anonimizado_em (o gatilho patient_cadastro_sem_apagar só deixa o worker apagar com o titular
             // já anonimizado; o patient_cadastro_titular_ativo recusa gravar de novo). O gatilho de auditoria registra o

@@ -12,6 +12,7 @@ import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
 import { cobrancasDoPaciente } from '../../../test/financeiro';
 import { tarefaNoBanco } from '../../../test/ia';
 import { mensagemNoBanco } from '../../../test/ia-nutri';
+import { consultorioDoChat, pacienteDoChat } from '../../../test/mensagens';
 import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { caminhoAte, grafoDeImports, raizesDoNext } from '../../../test/grafo-de-imports';
@@ -27,6 +28,7 @@ import { idTaco } from '@/modules/alimentos/taco';
 import { financeiroParaExportacao } from '@/modules/financeiro/titular';
 import { DESTINO_ROTULO } from '@/modules/ia/constantes';
 import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
+import { enviarComoNutri, enviarComoPaciente } from '@/modules/mensagens/envio';
 import { TEXTOS_FIXOS } from '@/modules/ia/nutri-paciente/textos';
 import { editarPublicado, publicarPlano } from '@/modules/plano-alimentar/publicacao';
 import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunho';
@@ -655,6 +657,8 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         ia: [],
         examesEnviados: [],
         iaNutri: { consentimentos: [], mensagens: [] },
+        conversa: null, // Plano 25
+        mensagens: [],
         laudosForaDoZip: false,
         financeiro: [],
       },
@@ -1106,6 +1110,8 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         ia: [],
         examesEnviados: [],
         iaNutri: { consentimentos: [], mensagens: [] },
+        conversa: null, // Plano 25
+        mensagens: [],
         laudosForaDoZip: false,
         financeiro: [],
       },
@@ -1424,5 +1430,36 @@ describe('Plano 18 (§10, D7, D18, RN-262, RN-266) — o cadastro complementar n
     expect(texto).toContain('Nome social: Joana Silva');
     expect(texto).not.toContain('529.982.247-25');
     expect(texto).not.toContain(CPF);
+  });
+});
+
+describe('Plano 25 (RN-467; CH-D74) — a conversa por mensagens no dados.json', () => {
+  it('conversa (liberação com nome e CRN, forma do TCLE) e mensagens nos dois escopos, também pelo job (worker); sem conversa, nula e vazia', async () => {
+    const T = await consultorioDoChat(app.db, dono.pool);
+    await dono.pool.query("update tenants set crn = 'CRN-4 54321' where id = $1", [T.tenantId]);
+    const c = await pacienteDoChat(app.db, T);
+    await enviarComoNutri(T.ctx, c.p, { texto: 'Bom dia, Ana!' }, app.db);
+    await enviarComoPaciente(c.P, { texto: 'Posso trocar a banana?' }, app.db);
+    const esperado = {
+      conversa: { liberadaEm: expect.any(String), formaDoTcle: 'Aceite por escrito (mensagem ou e-mail)', liberadaPor: { nome: 'Débora Nutricionista', crn: 'CRN-4 54321' }, pausadaEm: null, pausadaPor: null },
+      mensagens: [
+        { criadaEm: expect.any(String), autor: 'nutricionista', autorNome: 'Débora Nutricionista', autorCrn: 'CRN-4 54321', texto: 'Bom dia, Ana!', recado: false },
+        { criadaEm: expect.any(String), autor: 'paciente', texto: 'Posso trocar a banana?', recado: false },
+      ],
+    };
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, c.p, now, 'America/Sao_Paulo', escopo), app.db);
+      expect({ conversa: dados.conversa, mensagens: dados.mensagens }, escopo).toEqual(esperado);
+    }
+    const daEquipe = await solicitarExportacao(T.ctx, c.p, deps);
+    const doTitular = await solicitarExportacao(c.P, c.p, { ...deps, escopo: 'titular' });
+    for (const id of [daEquipe, doTitular]) {
+      expect(await gerarExportacao({ tenantId: T.tenantId, exportId: id }, { ...deps, ultimaTentativa: false })).toBe('pronta');
+      const dados = await dadosDoZip(T, id);
+      expect({ conversa: dados.conversa, mensagens: dados.mensagens }, id).toEqual(esperado);
+    }
+    const semConversa = await novoPaciente(app.db, T.ctx);
+    const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, semConversa.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect({ conversa: dados.conversa, mensagens: dados.mensagens }).toEqual({ conversa: null, mensagens: [] });
   });
 });

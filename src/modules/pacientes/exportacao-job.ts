@@ -53,6 +53,7 @@ import { DESTINO_ROTULO, ROTULO_DESTINO_LEGADO, type DestinoIA } from '@/modules
 import { iaNutriParaExportacao, type IaNutriExportado } from '@/modules/ia/nutri-paciente/lgpd';
 import { documentosParaExportacao, type DocumentoExportado } from '@/modules/documentos/lgpd-documentos';
 import { financeiroParaExportacao, type FinanceiroExportado } from '@/modules/financeiro/titular';
+import { mensagensParaExportacao, type ConversaExportada, type MensagemExportada } from '@/modules/mensagens/lgpd';
 import { ROTULO_RESPOSTA, type RespostaDoDiario } from '@/modules/portal/diario-constantes';
 import { respostaParaCampo } from './anamnese-tipos';
 import { ESCOLARIDADES, ESTADOS_CIVIS, IDENTIDADES_DE_GENERO, type Opcao } from './cadastro-textos';
@@ -339,6 +340,12 @@ export type DadosExportacao = {
    * Na equipe, a pergunta com risco de quem desativou a IA Nutri vem sem o texto (D22: lê-se uma vez, pela fila).
    */
   iaNutri: IaNutriExportado;
+  /**
+   * Plano 25 (RN-467, CH-D74): a conversa por mensagens com a nutricionista — a liberação (forma do TCLE, nome e CRN de quem
+   * liberou), a pausa e as mensagens (o carimbo só nas da nutricionista) — nos dois escopos: é prontuário (CH-D2).
+   */
+  conversa: ConversaExportada | null;
+  mensagens: MensagemExportada[];
   /** Os laudos, fotos do diário ou PDFs de documentos passaram do teto de memória da exportação e não foram no ZIP. */
   laudosForaDoZip: boolean;
   /**
@@ -522,6 +529,8 @@ export async function montarDados(
     .orderBy(asc(iaAutorizacoes.registradoEm), asc(iaAutorizacoes.id));
   // Plano 15 (§7.6): a conversa com a IA Nutri e os consentimentos (os dois escopos; na equipe, sem o texto da D22)
   const iaNutri = await iaNutriParaExportacao(tx, patientId, escopo);
+  // Plano 25 (RN-467): a conversa por mensagens (os dois escopos)
+  const chat = await mensagensParaExportacao(tx, patientId);
   // Plano 20 (US-307): a situação no dia da exportação, no fuso do consultório (RN-305)
   const financeiro = await financeiroParaExportacao(tx, patientId, hojeNoFuso(fuso, now));
   // O termo em papel no ZIP: a data do ato (no fuso do consultório, como a escolhida no registro) e a ordem entre os
@@ -697,6 +706,8 @@ export async function montarDados(
       };
     }),
     iaNutri,
+    conversa: chat.conversa,
+    mensagens: chat.mensagens,
     laudosForaDoZip: false,
     financeiro,
   };
