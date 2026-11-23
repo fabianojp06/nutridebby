@@ -194,7 +194,7 @@ export function AdicionarItemSalvo({ itens, habilitada, aoAdicionar, focoAoFecha
                       <ul className="divide-y divide-linha">
                         {doGrupo.map((i) => (
                           <li key={i.id} className="flex flex-wrap items-center justify-between gap-3 py-2">
-                            <span>
+                            <span className="min-w-0 wrap-anywhere">
                               <span className="font-semibold">{i.nome}</span>
                               <span className="text-suave">{` · ${TIPOS_ITEM[i.tipo as keyof typeof TIPOS_ITEM] ?? i.tipo}`}</span>
                             </span>
@@ -292,7 +292,7 @@ export function CarregarModelo({
                   {modelos.map((m) => (
                     <li key={m.id} className="space-y-2 py-2">
                       <p>
-                        <span className="font-semibold">{m.nome}</span>
+                        <span className="font-semibold wrap-anywhere">{m.nome}</span>
                         <span className="text-suave">{` · ${M.itensN(m.itens)}`}</span>
                       </p>
                       <div className="flex flex-wrap gap-2">

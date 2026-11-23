@@ -248,7 +248,7 @@ export function SolicitacaoForm({
       {motivo !== null && <MotivoRetificacao valor={motivoRet} aoMudar={setMotivoRet} erro={e.motivoRetificacao} />}
 
       {/* só aria-describedby: aria-invalid não vale num grupo (fieldset) */}
-      <fieldset id="exames" className="space-y-3 rounded-2xl border border-borda p-4" aria-describedby={e.exames ? 'exames-erro' : undefined}>
+      <fieldset id="exames" className="min-w-0 space-y-3 rounded-2xl border border-borda p-4" aria-describedby={e.exames ? 'exames-erro' : undefined}>
         {/* tabIndex -1: o foco vem para cá depois de "Remover" e de "Remover todos" (o botão sai da lista) */}
         <legend ref={titulo} tabIndex={-1} className="px-1 font-semibold">
           {S.exames} <span className="font-normal text-suave">({MSG_EXAMES.modelosSolicitacao.examesN(exames.length)})</span>
@@ -260,7 +260,7 @@ export function SolicitacaoForm({
               <li key={`${i}-${x.nome}`} className="py-1">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   {/* T12 (Minor da T8): nome longo sem espaço quebra a 360 px */}
-                  <span className="min-w-0 wrap-break-word">
+                  <span className="min-w-0 wrap-anywhere">
                     {x.nome}
                     {x.painel && <span className="text-suave"> · {MSG_EXAMES.catalogo.painel(componentes.get(x.nome) ?? 0)}</span>}
                   </span>
