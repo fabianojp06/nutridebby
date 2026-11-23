@@ -343,3 +343,26 @@ describe('Plano 23 (T6b, §6.2): pedidos de consulta', () => {
     expect(sem.html).not.toContain('href=');
   });
 });
+
+describe('Plano 23 (T7, §6.2): pedido da página pública', () => {
+  const quando = 'sex., 16/10/2026 às 09:00 (horário de Brasília)';
+  it('"Recebemos seu pedido de consulta": a mesma frase para paciente e pessoa nova; só a pessoa nova leva "Desistir do pedido"', () => {
+    const nova = renderEmail({ tipo: 'pedido_recebido', para: 'a@x', quando, linkDesistir: 'https://x.dev/n/debby/pedido/tok' });
+    expect(nova.subject).toBe('Recebemos seu pedido de consulta');
+    expect(nova.text).toBe(`Seu pedido para ${quando} foi enviado. Você recebe outro e-mail quando a nutricionista responder.\n\nDesistir do pedido: https://x.dev/n/debby/pedido/tok`);
+    expect(nova.html).toContain('href="https://x.dev/n/debby/pedido/tok"');
+    const paciente = renderEmail({ tipo: 'pedido_recebido', para: 'a@x', quando, linkDesistir: null });
+    expect(paciente.subject).toBe(nova.subject);
+    expect(paciente.text).toBe(`Seu pedido para ${quando} foi enviado. Você recebe outro e-mail quando a nutricionista responder.`);
+    expect(paciente.html).not.toContain('href=');
+  });
+  it('"Seu pedido de consulta não foi confirmado" da pessoa nova: com o link da página ou só a primeira frase; nunca um motivo', () => {
+    const com = renderEmail({ tipo: 'pedido_nao_confirmado_publico', para: 'a@x', quando, link: 'https://x.dev/n/debby' });
+    expect(com.subject).toBe('Seu pedido de consulta não foi confirmado');
+    expect(com.text).toBe(`O horário de ${quando} não foi confirmado.\n\nEscolha outro horário: https://x.dev/n/debby`);
+    const sem = renderEmail({ tipo: 'pedido_nao_confirmado_publico', para: 'a@x', quando, link: null });
+    expect(sem.text).toBe(`O horário de ${quando} não foi confirmado.`);
+    expect(sem.html).not.toContain('href=');
+    for (const r of [com, sem]) expect(`${r.subject} ${r.text}`).not.toMatch(/motivo/i);
+  });
+});

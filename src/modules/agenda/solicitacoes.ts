@@ -1,18 +1,27 @@
-import { and, asc, count, eq, gt, sql } from 'drizzle-orm';
+import { and, asc, count, eq, gt, isNotNull, isNull, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
+import { uniqueViolation } from '@/db/errors';
 import { appointments, locaisAtendimento, patients, publicBookingRequests, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { enqueueEmail } from '@/email/queue';
 import { getEnv } from '@/env';
 import { logger, nomeDoErro, sqlstateDoErro } from '@/lib/logger';
 import { normalizarTexto } from '@/lib/text';
-import { agendarLembretes, avisarPaciente, cancelarLembretes, dispararEnvio } from '@/modules/notificacoes/agendar';
+import { agendarLembretes, avisarPaciente, cancelarLembretes, dispararEnvio, emHorarioSilencioso, fimDoSilencio } from '@/modules/notificacoes/agendar';
 import { idValido } from '@/modules/pacientes/base';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
+import { travarPedidosDoTenant } from './agendamento-paciente';
+import { aceitarPedidoPublico } from './agendamento-publico';
 import { avisarNutriDaConsulta } from './aviso-nutri';
-import { MSG_AGENDA, MSG_SOLICITACOES } from './constantes';
+import { MSG_AGENDA } from './constantes';
 import { ConsultaError, type TenantAgenda } from './consultas';
+import { quandoComFuso } from './fuso';
+import { linkDeOutroHorario } from './link-outro-horario';
+import { PedidoMudouError } from './pedido-mudou';
 import { prazoDoPedido } from './status';
 import { tiposDasConsultas } from './visoes';
+
+export { PedidoMudouError };
 
 /**
  * Plano 23 (US-407 a US-409, RN-420 a RN-428): a fila "Solicitações" e as respostas ao pedido do paciente (a consulta
@@ -21,7 +30,10 @@ import { tiposDasConsultas } from './visoes';
  *
  * Travas (RN-427a, AG-D65): paciente (`FOR NO KEY UPDATE`, que basta contra o `KEY SHARE` da FK de `notifications`) →
  * consulta (`FOR UPDATE`) → notificações, em aceitar, recusar, desistir e vencer. A pessoa nova (pedido aguardando em
- * `public_booking_requests`) é da T7: trava do tenant → linha do pedido.
+ * `public_booking_requests`, T7): trava do tenant → linha do pedido (e, no aceite, o paciente do e-mail).
+ *
+ * AG-D75: o "não confirmado" (recusa e vencimento) que cairia entre 21h e 8h no fuso do consultório sai às 08:00 — a linha
+ * de `notifications` do paciente com `agendada_para` e o e-mail da pessoa nova com o `startAfter` do pg-boss.
  *
  * Grafo de imports: nunca `notificacoes/enviar.ts`, `push.ts` nem `mensagens.ts` (o motor de envio só no worker).
  */
@@ -29,14 +41,6 @@ import { tiposDasConsultas } from './visoes';
 export type PedidoNaFila =
   | { tipo: 'consulta'; id: string; patientId: string; nome: string; inicio: Date; fim: Date; local: string | null; origem: 'app' | 'pagina'; pedidoEm: Date; respondaAte: Date; primeiraOnline: boolean }
   | { tipo: 'pessoa_nova'; id: string; nome: string; inicio: Date; fim: Date; local: string | null; origem: 'pagina'; pedidoEm: Date; respondaAte: Date };
-
-/** O pedido venceu ou já foi respondido (em outra aba, pela varredura, pelo paciente) entre a tela e a ação. */
-export class PedidoMudouError extends Error {
-  override name = 'PedidoMudouError';
-  constructor() {
-    super(MSG_SOLICITACOES.mudou);
-  }
-}
 
 type Deps = { db?: Db; agora?: Date; appUrl?: string };
 type Alvo = { tipo: 'consulta' | 'pessoa_nova'; id: string };
@@ -50,11 +54,16 @@ const exigirNutri = (ctx: TenantContext) => {
 const noPrazo = (antecedenciaMinH: number, agora: Date) => gt(appointments.inicio, new Date(agora.getTime() + antecedenciaMinH * 3_600_000));
 /** Veio da página pública: há um pedido em `public_booking_requests` que aponta para a consulta (RN-426). */
 const daPagina = sql<boolean>`exists (select 1 from ${publicBookingRequests} b where b.tenant_id = ${appointments.tenantId} and b.appointment_id = ${appointments.id})`;
+/** O pedido da pessoa nova ainda aguardando a resposta (T7). */
+const aguardandoResposta = and(isNotNull(publicBookingRequests.aguardandoDesde), isNull(publicBookingRequests.resolvidoEm));
+/** AG-D75: o instante em que o aviso do "não confirmado" pode sair — já, ou às 08:00 se `agora` cai entre 21h e 8h. */
+const quandoAvisar = (agora: Date, fuso: string) => (emHorarioSilencioso(agora, fuso) ? fimDoSilencio(agora, fuso) : agora);
 
 /**
  * US-409: os pedidos de paciente que ainda estão no prazo, do que vence primeiro ao último (leitura preguiçosa: o vencido
  * e ainda não processado pela varredura não aparece, RN-427). `primeiraOnline`: consulta online com "Primeira consulta"
- * (RN-404, RN-416). A pessoa nova entra na T7. Leitura da agenda: sem `auditRead` (RN-414).
+ * (RN-404, RN-416). A pessoa nova (T7): "Nova pessoa: {nome}" na tela, origem `pagina`, `pedidoEm` = quando passou a
+ * aguardar; nunca o e-mail, o telefone nem o IP. Leitura da agenda: sem `auditRead` (RN-414).
  */
 export async function listarSolicitacoes(ctx: TenantContext, tenant: Pick<TenantAgenda, 'antecedenciaMinH'>, deps: Deps = {}): Promise<PedidoNaFila[]> {
   exigirNutri(ctx);
@@ -70,7 +79,23 @@ export async function listarSolicitacoes(ctx: TenantContext, tenant: Pick<Tenant
         .where(and(eq(appointments.status, 'solicitada'), noPrazo(tenant.antecedenciaMinH, agora)))
         .orderBy(asc(appointments.inicio), asc(appointments.id));
       const tipos = await tiposDasConsultas(tx, rs.filter((r) => r.c.modalidade === 'online').map((r) => r.c.id));
-      return rs.map(({ c, nome, local, daPagina: pagina }): PedidoNaFila => ({
+      const limite = new Date(agora.getTime() + tenant.antecedenciaMinH * 3_600_000);
+      const novas = await tx
+        .select({
+          id: publicBookingRequests.id,
+          nome: publicBookingRequests.nome,
+          inicio: publicBookingRequests.inicio,
+          fim: publicBookingRequests.fim,
+          desde: publicBookingRequests.aguardandoDesde,
+          local: locaisAtendimento.nome,
+        })
+        .from(publicBookingRequests)
+        .leftJoin(locaisAtendimento, and(eq(locaisAtendimento.tenantId, publicBookingRequests.tenantId), eq(locaisAtendimento.id, publicBookingRequests.localId)))
+        .where(and(aguardandoResposta, gt(publicBookingRequests.inicio, limite)));
+      const daPessoaNova = novas.map(
+        (b): PedidoNaFila => ({ tipo: 'pessoa_nova', id: b.id, nome: b.nome, inicio: b.inicio, fim: b.fim ?? b.inicio, local: b.local, origem: 'pagina', pedidoEm: b.desde ?? b.inicio, respondaAte: prazoDoPedido(b.inicio, tenant) }),
+      );
+      const deConsulta = rs.map(({ c, nome, local, daPagina: pagina }): PedidoNaFila => ({
         tipo: 'consulta',
         id: c.id,
         patientId: c.patientId,
@@ -83,6 +108,7 @@ export async function listarSolicitacoes(ctx: TenantContext, tenant: Pick<Tenant
         respondaAte: prazoDoPedido(c.inicio, tenant),
         primeiraOnline: tipos.get(c.id) === 'primeira',
       }));
+      return [...deConsulta, ...daPessoaNova].sort((a, b) => a.inicio.getTime() - b.inicio.getTime() || a.id.localeCompare(b.id));
     },
     deps.db ?? getDb(),
   );
@@ -91,7 +117,9 @@ export async function listarSolicitacoes(ctx: TenantContext, tenant: Pick<Tenant
 /** "Solicitações ({n})" (abas e Início, T8): quantos pedidos no prazo, na transação de quem chama (sessão `nutri`). */
 export async function contarSolicitacoesNaTransacao(tx: Tx, tenant: Pick<TenantAgenda, 'antecedenciaMinH'>, agora: Date): Promise<number> {
   const [r] = await tx.select({ n: count() }).from(appointments).where(and(eq(appointments.status, 'solicitada'), noPrazo(tenant.antecedenciaMinH, agora)));
-  return r.n;
+  const limite = new Date(agora.getTime() + tenant.antecedenciaMinH * 3_600_000);
+  const [b] = await tx.select({ n: count() }).from(publicBookingRequests).where(and(aguardandoResposta, gt(publicBookingRequests.inicio, limite)));
+  return r.n + b.n;
 }
 
 /**
@@ -108,6 +136,36 @@ async function travarPedido(tx: Tx, id: string) {
   return { c, p };
 }
 
+type PedidoPublico = typeof publicBookingRequests.$inferSelect;
+
+/**
+ * Plano 23 (RN-425, AG-D65): a pessoa nova — trava do tenant e depois a linha do pedido; só segue o que ainda aguarda.
+ * Id inválido ou de outro consultório (RLS) → `PedidoMudouError`.
+ */
+async function travarPedidoPublico(tx: Tx, tenantId: string, id: string): Promise<PedidoPublico> {
+  if (!idValido(id)) throw new PedidoMudouError();
+  await travarPedidosDoTenant(tx, tenantId);
+  const [r] = await tx.select().from(publicBookingRequests).where(eq(publicBookingRequests.id, id)).for('update');
+  if (!r?.aguardandoDesde || r.resolvidoEm) throw new PedidoMudouError();
+  return r;
+}
+
+/**
+ * Plano 23 (RN-428, AG-D23, AG-D63, AG-D75): a recusa ou o vencimento da pessoa nova — `resolvido_em` + `resolucao` e o
+ * "Seu pedido de consulta não foi confirmado" (link da página pública só com ela ligada; nunca motivo), na mesma
+ * transação, às 08:00 se cair no horário silencioso. Sem paciente: nada de `notifications`.
+ */
+async function resolverPedidoPublico(tx: Tx, r: PedidoPublico, resolucao: 'recusado' | 'vencido', fuso: string, agora: Date, appUrl: string): Promise<void> {
+  await tx.update(publicBookingRequests).set({ resolvidoEm: agora, resolucao }).where(eq(publicBookingRequests.id, r.id));
+  const [t] = await tx.select({ slug: tenants.slug, ativa: tenants.agendamentoPublicoAtivo }).from(tenants).where(eq(tenants.id, r.tenantId));
+  const link = t ? linkDeOutroHorario({ daPagina: true, tenant: { id: r.tenantId, slug: t.slug, agendamentoPublicoAtivo: t.ativa } }, appUrl) : null;
+  const sai = quandoAvisar(agora, fuso);
+  await enqueueEmail(
+    { tipo: 'pedido_nao_confirmado_publico', para: r.email, quando: quandoComFuso(r.inicio, fuso), link },
+    { tenantId: r.tenantId, tx, ...(sai.getTime() === agora.getTime() ? {} : { startAfter: sai }) },
+  );
+}
+
 /** Sob a trava: ainda `solicitada` e no prazo (`inicio − antecedência > agora`), senão `PedidoMudouError`. */
 function conferirNoPrazo(c: { status: string; inicio: Date }, tenant: Pick<TenantAgenda, 'antecedenciaMinH'>, agora: Date): void {
   if (c.status !== 'solicitada' || prazoDoPedido(c.inicio, tenant).getTime() <= agora.getTime()) throw new PedidoMudouError();
@@ -116,12 +174,24 @@ function conferirNoPrazo(c: { status: string; inicio: Date }, tenant: Pick<Tenan
 /**
  * US-409 "Aceitar": o pedido vira `agendada` (o gatilho só deixa a sessão `nutri`), com os lembretes, o "consulta marcada"
  * ao paciente e o envio já, na mesma transação (RN-428). Paciente arquivado: a nutricionista desarquiva antes (como em
- * `agendarPelaNutri`). A pessoa nova é da T7 (`aceitarPedidoPublico`): até lá, nenhum pedido aguardando existe.
+ * `agendarPelaNutri`). A pessoa nova (T7) delega a `aceitarPedidoPublico` (cadastro, aceite do termo e consulta); se a
+ * nutricionista cadastrou o mesmo e-mail ao mesmo tempo (23505), uma segunda vez — agora o paciente existe.
  */
 export async function aceitarSolicitacao(ctx: TenantContext, tenant: TenantAgenda, alvo: Alvo, deps: Deps = {}): Promise<void> {
   exigirNutri(ctx);
-  if (alvo.tipo !== 'consulta') throw new PedidoMudouError(); // T7: aceitarPedidoPublico
   const agora = deps.agora ?? new Date();
+  if (alvo.tipo === 'pessoa_nova') {
+    const o = { agora, appUrl: deps.appUrl ?? getEnv().APP_URL };
+    for (let tentativa = 0; ; tentativa++) {
+      try {
+        await withTenant(ctx, (tx) => aceitarPedidoPublico(tx, tenant, alvo.id, o), deps.db ?? getDb());
+        return;
+      } catch (e) {
+        if (tentativa === 0 && uniqueViolation(e) === 'patients_tenant_email_unique') continue;
+        throw e;
+      }
+    }
+  }
   await withTenant(
     ctx,
     async (tx) => {
@@ -146,8 +216,20 @@ export async function recusarSolicitacao(ctx: TenantContext, tenant: TenantAgend
   exigirNutri(ctx);
   const motivo = normalizarTexto(alvo.motivo);
   if (motivo.length > 300) throw new ConsultaError({ motivo: MSG_AGENDA.motivoCancelamentoLongo });
-  if (alvo.tipo !== 'consulta') throw new PedidoMudouError(); // T7: a recusa da pessoa nova
   const agora = deps.agora ?? new Date();
+  if (alvo.tipo === 'pessoa_nova') {
+    // AG-D23: sem motivo (texto livre por e-mail pode levar dado de saúde; o pedido some em 24 h) — o recebido é ignorado
+    await withTenant(
+      ctx,
+      async (tx) => {
+        const r = await travarPedidoPublico(tx, ctx.tenantId, alvo.id);
+        if (prazoDoPedido(r.inicio, tenant).getTime() <= agora.getTime()) throw new PedidoMudouError();
+        await resolverPedidoPublico(tx, r, 'recusado', tenant.fuso, agora, deps.appUrl ?? getEnv().APP_URL);
+      },
+      deps.db ?? getDb(),
+    );
+    return;
+  }
   await withTenant(
     ctx,
     async (tx) => {
@@ -158,8 +240,9 @@ export async function recusarSolicitacao(ctx: TenantContext, tenant: TenantAgend
         .set({ status: 'cancelada', canceladoPor: 'pedido_recusado', canceladaEm: agora, motivoCancelamento: motivo || null, updatedAt: agora })
         .where(eq(appointments.id, c.id));
       await cancelarLembretes(tx, c.id, agora);
-      await avisarPaciente(tx, { tenantId: ctx.tenantId, patientId: c.patientId, appointmentId: c.id, inicio: c.inicio }, 'pedido_nao_confirmado', agora);
-      await dispararEnvio(tx, ctx.tenantId);
+      const sai = quandoAvisar(agora, tenant.fuso); // AG-D75
+      await avisarPaciente(tx, { tenantId: ctx.tenantId, patientId: c.patientId, appointmentId: c.id, inicio: c.inicio }, 'pedido_nao_confirmado', agora, sai);
+      if (sai.getTime() === agora.getTime()) await dispararEnvio(tx, ctx.tenantId);
     },
     deps.db ?? getDb(),
   );
@@ -191,24 +274,34 @@ export async function desistirDoPedido(ctx: TenantContext, tenant: TenantAgenda,
  * "não confirmado" ao paciente (RN-428). Seleciona sem trava; depois, **uma transação por pedido**, no papel `worker`,
  * com as travas da RN-427a e a reconferência (respondido ou desistido no meio: pula). O erro de um pedido vai ao log só
  * com o código (regra 3) e não para os outros. Com `tenantId`, só aquele consultório. Idempotente. Devolve quantos venceu.
- * A pessoa nova (aguardando) é da T7.
+ * A pessoa nova (T7): tenant → linha do pedido, `vencido` e o e-mail "não confirmado" (sem `notifications`: não há
+ * paciente). AG-D75: no horário silencioso, os avisos saem às 08:00 no fuso do consultório.
  */
-export async function vencerSolicitacoes(db: Db, agora: Date, o: { tenantId?: string } = {}): Promise<number> {
+export async function vencerSolicitacoes(db: Db, agora: Date, o: { tenantId?: string; appUrl?: string } = {}): Promise<number> {
   const alvos = o.tenantId ? [o.tenantId] : (await listarTenantsParaVarredura(db)).map((t) => t.id);
   let vencidos = 0;
   for (const tenantId of alvos) {
     const ctx: TenantContext = { tenantId, role: 'worker' };
-    let candidatos: { id: string; antecedenciaMinH: number }[];
+    type Candidato = { id: string; antecedenciaMinH: number; fuso: string };
+    let candidatos: Candidato[];
+    let novas: Candidato[];
     try {
-      candidatos = await withTenant(
+      [candidatos, novas] = await withTenant(
         ctx,
-        (tx) =>
-          tx
-            .select({ id: appointments.id, antecedenciaMinH: tenants.antecedenciaMinH })
+        async (tx): Promise<[Candidato[], Candidato[]]> => [
+          await tx
+            .select({ id: appointments.id, antecedenciaMinH: tenants.antecedenciaMinH, fuso: tenants.fuso })
             .from(appointments)
             .innerJoin(tenants, eq(tenants.id, appointments.tenantId))
             .where(and(eq(appointments.status, 'solicitada'), sql`${appointments.inicio} - make_interval(hours => ${tenants.antecedenciaMinH}) <= ${agora}`))
             .orderBy(asc(appointments.inicio)),
+          await tx
+            .select({ id: publicBookingRequests.id, antecedenciaMinH: tenants.antecedenciaMinH, fuso: tenants.fuso })
+            .from(publicBookingRequests)
+            .innerJoin(tenants, eq(tenants.id, publicBookingRequests.tenantId))
+            .where(and(aguardandoResposta, sql`${publicBookingRequests.inicio} - make_interval(hours => ${tenants.antecedenciaMinH}) <= ${agora}`))
+            .orderBy(asc(publicBookingRequests.inicio)),
+        ],
         db,
       );
     } catch (err) {
@@ -227,7 +320,9 @@ export async function vencerSolicitacoes(db: Db, agora: Date, o: { tenantId?: st
             await tx.update(appointments).set({ status: 'cancelada', canceladoPor: 'pedido_vencido', canceladaEm: agora, updatedAt: agora }).where(eq(appointments.id, c.id));
             await cancelarLembretes(tx, c.id, agora);
             // titular arquivado ou bloqueado (exclusão pedida, LGPD art. 18, IV): o pedido vence sem criar aviso para ele
-            if (titular.status === 'ativo') await avisarPaciente(tx, { tenantId, patientId: c.patientId, appointmentId: c.id, inicio: c.inicio }, 'pedido_nao_confirmado', agora);
+            if (titular.status === 'ativo') {
+              await avisarPaciente(tx, { tenantId, patientId: c.patientId, appointmentId: c.id, inicio: c.inicio }, 'pedido_nao_confirmado', agora, quandoAvisar(agora, p.fuso));
+            }
             return true;
           },
           db,
@@ -236,6 +331,25 @@ export async function vencerSolicitacoes(db: Db, agora: Date, o: { tenantId?: st
       } catch (err) {
         if (err instanceof PedidoMudouError) continue; // sumiu no meio (não acontece: o pedido não se apaga); nada a vencer
         logger.warn({ tenantId, consultaId: p.id, err: nomeDoErro(err), sqlstate: sqlstateDoErro(err) }, 'falha ao vencer pedido de consulta');
+      }
+    }
+    for (const b of novas) {
+      try {
+        const venceu = await withTenant(
+          ctx,
+          async (tx) => {
+            await tx.execute(sql`select set_config('lock_timeout', '2s', true)`);
+            const r = await travarPedidoPublico(tx, tenantId, b.id);
+            if (prazoDoPedido(r.inicio, b).getTime() > agora.getTime()) return false;
+            await resolverPedidoPublico(tx, r, 'vencido', b.fuso, agora, o.appUrl ?? getEnv().APP_URL);
+            return true;
+          },
+          db,
+        );
+        if (venceu) vencidos++;
+      } catch (err) {
+        if (err instanceof PedidoMudouError) continue; // respondido ou desistido no meio
+        logger.warn({ tenantId, pedidoId: b.id, err: nomeDoErro(err), sqlstate: sqlstateDoErro(err) }, 'falha ao vencer pedido de consulta');
       }
     }
   }

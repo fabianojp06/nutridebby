@@ -375,18 +375,31 @@ describe('Plano 23 (T6b): o pedido no envio e o vencimento na varredura (§4.3, 
     expect(d.transport.enviados).toEqual([]);
   });
 
-  it('processarNotificacoes({ tenantId }) vence só os pedidos daquele consultório, e o "não confirmado" sai na mesma volta', async () => {
+  it('processarNotificacoes({ tenantId }) vence só os pedidos daquele consultório, e o "não confirmado" sai na mesma volta (fora do horário silencioso)', async () => {
     const A = await novoTenant(app.db);
     const B = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, A.ctx);
-    const a = await pedidoDireto(app.db, A, ana.id, em('2026-10-16', '16:00'));
-    const b = await pedidoDireto(app.db, B, (await novoPaciente(app.db, B.ctx)).id, em('2026-10-16', '16:00'));
-    const d = deps(em('2026-10-16', '04:00'));
+    const a = await pedidoDireto(app.db, A, ana.id, em('2026-10-16', '20:00'));
+    const b = await pedidoDireto(app.db, B, (await novoPaciente(app.db, B.ctx)).id, em('2026-10-16', '20:00'));
+    const d = deps(em('2026-10-16', '08:30'));
     await processarNotificacoes(d, { tenantId: A.tenantId });
     const status = async (T: TenantDeTeste, id: string) => (await withTenant(T.ctx, (tx) => tx.select({ s: appointments.status, por: appointments.canceladoPor }).from(appointments).where(eq(appointments.id, id)), app.db))[0];
     expect(await status(A, a)).toEqual({ s: 'cancelada', por: 'pedido_vencido' });
     expect(await status(B, b)).toEqual({ s: 'solicitada', por: null });
     expect(d.transport.enviados.map((e) => [e.to, e.subject])).toEqual([[ana.email, 'Seu pedido de consulta não foi confirmado']]);
+  });
+
+  it('AG-D75: vencido às 04:00 (horário silencioso), o "não confirmado" não sai na volta da madrugada; sai na volta das 08:00', async () => {
+    const A = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, A.ctx);
+    const a = await pedidoDireto(app.db, A, ana.id, em('2026-10-16', '16:00'));
+    const madrugada = deps(em('2026-10-16', '04:00'));
+    await processarNotificacoes(madrugada, { tenantId: A.tenantId });
+    expect((await withTenant(A.ctx, (tx) => tx.select({ s: appointments.status }).from(appointments).where(eq(appointments.id, a)), app.db))[0].s).toBe('cancelada');
+    expect(madrugada.transport.enviados).toEqual([]);
+    const oito = deps(em('2026-10-16', '08:00'));
+    await processarNotificacoes(oito, { tenantId: A.tenantId });
+    expect(oito.transport.enviados.map((e) => [e.to, e.subject])).toEqual([[ana.email, 'Seu pedido de consulta não foi confirmado']]);
   });
 
   it('com um vencimento que falha, o lembrete pendente de outro consultório continua saindo (AG-D67)', async () => {

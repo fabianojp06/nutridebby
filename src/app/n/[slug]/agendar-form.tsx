@@ -15,9 +15,13 @@ type Props = {
   localInicial: string | null;
   semana: { rotulo: string; anterior: string | null; proxima: string | null };
   horarios: HorarioVisivel[];
+  /** Plano 23 (RN-429): a chave "Confirmar os pedidos antes de marcar" — mostra a frase do ponto de coleta. */
+  confirmarPedidos?: boolean;
+  /** O nome da nutricionista para "Pedido enviado. {nome} vai confirmar…" (RN-426). */
+  nutri?: string;
   termo: { titulo: string; paragrafos: string[]; rotulo: string; versao: string };
 };
-type Resposta = { erro?: string; erros?: Record<string, string>; pedido?: string; estado?: 'agendada' | 'horario_ocupado'; quando?: string; horarios?: HorarioVisivel[]; indisponivel?: boolean };
+type Resposta = { erro?: string; erros?: Record<string, string>; pedido?: string; estado?: 'agendada' | 'pedido' | 'horario_ocupado'; quando?: string; horarios?: HorarioVisivel[]; indisponivel?: boolean };
 type Dados = { nome: string; email: string; telefone: string; whatsapp: boolean; maiorDeIdade: boolean; aceitouTermo: boolean };
 
 async function enviar(url: string, corpo: unknown): Promise<{ status: number; r: Resposta }> {
@@ -36,8 +40,8 @@ const texto = (v: FormDataEntryValue | null) => (typeof v === 'string' ? v : '')
  * o pedido (já verificado) escolhe outro sem novo código. Plano 23 (I-13): o local escolhido filtra os horários aqui mesmo
  * (nada do que foi digitado se perde) e vai junto no pedido; a semana anterior/próxima o mantém (`?local=`).
  */
-export function AgendarForm({ slug, siteKey, locais, localInicial, semana, horarios, termo }: Props) {
-  const [etapa, setEtapa] = useState<'dados' | 'codigo' | 'outro' | 'pronto'>('dados');
+export function AgendarForm({ slug, siteKey, locais, localInicial, semana, horarios, confirmarPedidos = false, nutri = '', termo }: Props) {
+  const [etapa, setEtapa] = useState<'dados' | 'codigo' | 'outro' | 'pronto' | 'pedido'>('dados');
   const [local, setLocal] = useState<string | null>(localInicial);
   const [token, setToken] = useState<string | null>(null);
   const [widget, setWidget] = useState(0);
@@ -62,6 +66,8 @@ export function AgendarForm({ slug, siteKey, locais, localInicial, semana, horar
     if (status === 200 && r.estado === 'agendada') {
       setQuando(r.quando ?? '');
       setEtapa('pronto');
+    } else if (status === 200 && r.estado === 'pedido') {
+      setEtapa('pedido'); // Plano 23 (RN-426): a mesma tela para paciente e pessoa nova
     } else if (status === 200 && r.estado === 'horario_ocupado') {
       setOutros(r.horarios ?? []);
       setErro(r.indisponivel ? MSG_AGENDA.indisponivel : MSG_AGENDA.ocupado);
@@ -126,6 +132,7 @@ export function AgendarForm({ slug, siteKey, locais, localInicial, semana, horar
   );
 
   if (etapa === 'pronto') return <p role="status" className="rounded bg-emerald-50 p-3">{MSG_PUBLICO.agendada(quando)}</p>;
+  if (etapa === 'pedido') return <p role="status" className="rounded bg-emerald-50 p-3">{MSG_PUBLICO.pedidoEnviado(nutri)}</p>;
   if (etapa === 'codigo') {
     return (
       <form method="post" onSubmit={confirmar} className="max-w-sm space-y-3">
@@ -196,6 +203,7 @@ export function AgendarForm({ slug, siteKey, locais, localInicial, semana, horar
           <label htmlFor="aceitouTermo">{termo.rotulo}</label>
         </div>
         {msg('aceitouTermo')}
+        {confirmarPedidos && <p className="text-sm">{MSG_PUBLICO.pontoDeColeta}</p>}
         <TurnstileWidget key={widget} siteKey={siteKey} onToken={setToken} onIndisponivel={() => setErro(MSG_TURNSTILE_FORA)} />
         {alerta}
         {botao('Enviar código', enviando || !token)}

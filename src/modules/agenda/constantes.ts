@@ -94,6 +94,21 @@ export const MSG_PUBLICO = {
   ondeAtender: 'Onde você quer ser atendido?',
   /** Plano 23 (§6.2, US-403): o cabeçalho da página pública — o CRN como gravado; sem CRN, sem a última parte. */
   cabecalho: (nome: string, crn: string | null) => (crn ? `${nome} · Nutricionista · ${crn}` : `${nome} · Nutricionista`),
+  /** Plano 23 (§6.2, RN-426): a tela depois do código com a chave dos pedidos ligada — a mesma para paciente e pessoa nova. */
+  pedidoEnviado: (nome: string) => `Pedido enviado. ${nome} vai confirmar o horário e você recebe um e-mail.`,
+  /** Plano 23 (§6.2, RN-425, RN-426): só depois do código (a dona do e-mail já provou que é ela). */
+  pedidoAguardando: 'Você já tem um pedido aguardando resposta. Espere a resposta antes de pedir outro horário.',
+  /** Plano 23 (§6.2, RN-429, AG-D21): o ponto de coleta, antes de enviar, com a chave ligada (igual ao Termo 1.0). */
+  pontoDeColeta:
+    'Até a resposta, guardamos seu nome, e-mail, telefone e o número de rede (IP) do seu aparelho só para este pedido. Se ele não for aceito ou o horário passar, apagamos esses dados depois de 24 horas, na limpeza diária.',
+  /** Plano 23 (§6.2, AG-D42): a página do link de desistência da pessoa nova. */
+  pedido: {
+    titulo: 'Seu pedido de consulta',
+    pergunta: (quando: string) => `Desistir do pedido de ${quando}?`,
+    desistir: 'Desistir do pedido',
+    cancelado: 'Pedido cancelado.',
+    invalido: 'Este link não é válido.',
+  },
 } as const;
 
 /** Plano 23 (US-400, spec §6.2): rótulos do campo "Tipo" do local. */

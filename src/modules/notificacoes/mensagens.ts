@@ -4,6 +4,7 @@ import { openSecret } from '@/lib/crypto';
 import { urlDoApp } from '@/lib/url-do-app';
 import { partesNoFuso, quandoComFuso, rotuloDoFuso } from '@/modules/agenda/fuso';
 import { assinarLinkConsulta, urlDaConsulta } from '@/modules/agenda/link-consulta';
+import { linkDeOutroHorario } from '@/modules/agenda/link-outro-horario';
 import { telaDoPortal } from '@/modules/portal/link-portal';
 import type { ContextoEnvio, LocalDoEnvio } from './enviar';
 
@@ -61,15 +62,8 @@ export function emailDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; cha
   return { tipo: 'consulta', evento: doDia, para: c.paciente.email, nome: primeiroNome(c.paciente.nome), ...d, link };
 }
 
-/**
- * Plano 23 (RN-428): o link "Escolha outro horário" do pedido não confirmado — `/p/agenda/nova` do consultório quando o
- * pedido veio do portal; da página pública, `/n/<slug>` só com a página ligada (`agendamento_publico_ativo`); sem ela, nulo
- * (o e-mail sai só com a primeira frase).
- */
-export function linkDeOutroHorario(o: { daPagina: boolean; tenant: Pick<TenantRow, 'id' | 'slug' | 'agendamentoPublicoAtivo'> }, appUrl: string): string | null {
-  if (!o.daPagina) return urlDoApp(appUrl, telaDoPortal('/p/agenda/nova', o.tenant.id));
-  return o.tenant.agendamentoPublicoAtivo ? urlDoApp(appUrl, `/n/${o.tenant.slug}`) : null;
-}
+/** Plano 23 (RN-428): mora em `agenda/link-outro-horario.ts` (arquivo puro, T7). */
+export { linkDeOutroHorario };
 
 /**
  * Texto pronto, cifrado na linha até o envio: uma linha com `conteudo_selado` sai com esse texto, qualquer que seja o tipo.

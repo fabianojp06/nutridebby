@@ -410,3 +410,83 @@ describe('desligar a chave com pedidos pendentes (US-407, RN-420)', () => {
     expect(r.status).toBe('agendada');
   });
 });
+
+describe('AG-D65 completo: aceite da pessoa nova com o e-mail de um paciente × portal do mesmo paciente', () => {
+  it('os dois presos na trava do tenant (nenhum segura o paciente); solta a barreira → os dois gravam, sem 40P01', async () => {
+    const T = await novoTenant(app.db);
+    const L = await semanaToda(app.db, T.ctx);
+    await chaveDosPedidos(app.db, T);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const inicioNova = em('2026-10-16', '09:00');
+    // o pedido da pessoa nova aguardando, com o e-mail que depois virou o de Ana (a nutricionista a cadastrou)
+    const [{ id: pedidoId }] = await withTenant(
+      T.ctx,
+      (tx) =>
+        tx.execute<{ id: string }>(sql`insert into public_booking_requests (id, tenant_id, token_hash, codigo_hash, email, nome, inicio, fim, modalidade, termo_versao, expira_em, verificado_em, local_id, aguardando_desde)
+          values (gen_random_uuid(), ${T.tenantId}, gen_random_uuid()::text, 'x', ${ana.email}, 'Ana Souza', ${inicioNova}, ${new Date(inicioNova.getTime() + 3_600_000)}, 'presencial', 't', now(), now(), ${L}, now()) returning id`),
+      app.db,
+    ).then((r) => r.rows);
+    const barreira = await app.pool.connect();
+    try {
+      await barreira.query('begin');
+      await barreira.query(`select pg_advisory_xact_lock(hashtext('agenda-pedidos-tenant'), hashtext($1))`, [T.tenantId]);
+      const pid = (await barreira.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const corrida = Promise.allSettled([
+        aceitarSolicitacao(T.ctx, tenantAgenda(T, { agendaConfirmarPedidos: true }), { tipo: 'pessoa_nova', id: pedidoId }, depsSol()),
+        agendarComoPaciente(ctxPaciente(T.tenantId, ana.id), tenantAgenda(T, { agendaConfirmarPedidos: true }), { inicio: em('2026-10-17', '09:00').toISOString(), localId: L }, deps),
+      ]);
+      const presas = `with a as (select pid from pg_stat_activity where $1 = any(pg_blocking_pids(pid)))
+        select count(*)::int as n from pg_stat_activity where $1 = any(pg_blocking_pids(pid)) or pg_blocking_pids(pid) && array(select pid from a)`;
+      for (let i = 0; ; i++) {
+        if ((await owner.pool.query<{ n: number }>(presas, [pid])).rows[0].n >= 2) break;
+        if (i > 1000) throw new Error('aceite e portal não chegaram juntos à trava do tenant');
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      const terceira = await app.pool.connect();
+      try {
+        await terceira.query('begin');
+        await terceira.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
+        expect((await terceira.query('select id from patients where id = $1 for update nowait', [ana.id])).rowCount).toBe(1);
+      } finally {
+        await terceira.query('rollback').catch(() => undefined);
+        terceira.release();
+      }
+      await barreira.query('commit');
+      const [aceite, portal] = await corrida;
+      expect(aceite.status, inspect(aceite)).toBe('fulfilled');
+      expect(portal.status, inspect(portal)).toBe('fulfilled');
+    } finally {
+      await barreira.query('rollback').catch(() => undefined);
+      barreira.release();
+    }
+    const daAna = await withTenant(T.ctx, (tx) => tx.select({ status: appointments.status, origem: appointments.origem }).from(appointments).where(eq(appointments.patientId, ana.id)), app.db);
+    expect(daAna.map((c) => c.status).sort()).toEqual(['agendada', 'solicitada']);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(patients).where(eq(patients.email, ana.email)), app.db)).toHaveLength(1);
+  });
+});
+
+describe('AG-D75: o "não confirmado" ao paciente fora do horário silencioso (21h–8h no fuso do consultório)', () => {
+  const agendadas = async (T: TenantDeTeste, id: string) =>
+    (
+      await withTenant(T.ctx, (tx) => tx.select({ canal: notifications.canal, para: notifications.agendadaPara }).from(notifications).where(and(eq(notifications.appointmentId, id), eq(notifications.tipo, 'pedido_nao_confirmado'))), app.db)
+    )
+      .map((n) => `${n.canal}@${n.para.toISOString()}`)
+      .sort();
+
+  it('recusa às 22:00 → e-mail e push às 08:00 do dia seguinte; vencimento às 03:00 → às 08:00; recusa às 10:00 → na hora', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const r22 = await pedidoDireto(app.db, T, ana.id, em('2026-10-17', '09:00'));
+    await recusarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'consulta', id: r22 }, depsSol(em('2026-10-14', '22:00')));
+    const oito = em('2026-10-15', '08:00').toISOString();
+    expect(await agendadas(T, r22)).toEqual([`email@${oito}`, `push@${oito}`]);
+    const v03 = await pedidoDireto(app.db, T, ana.id, em('2026-10-16', '14:00'));
+    await vencerSolicitacoes(app.db, em('2026-10-16', '03:00'), { tenantId: T.tenantId });
+    const oito16 = em('2026-10-16', '08:00').toISOString();
+    expect(await agendadas(T, v03)).toEqual([`email@${oito16}`, `push@${oito16}`]);
+    const r10 = await pedidoDireto(app.db, T, ana.id, em('2026-10-18', '09:00'));
+    await recusarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'consulta', id: r10 }, depsSol(em('2026-10-14', '10:00')));
+    const dez = em('2026-10-14', '10:00').toISOString();
+    expect(await agendadas(T, r10)).toEqual([`email@${dez}`, `push@${dez}`]);
+  });
+});

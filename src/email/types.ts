@@ -91,7 +91,17 @@ export type EmailMessage =
    * Plano 23 (RN-428, AG-D23): o pedido de consulta do paciente foi recusado ou venceu. `quando` com o fuso; `link` = "Escolha
    * outro horário" (o portal ou a página pública ligada) ou nulo. Nunca o motivo da recusa (só a nutricionista vê).
    */
-  | { tipo: 'pedido_nao_confirmado'; para: string; quando: string; link: string | null };
+  | { tipo: 'pedido_nao_confirmado'; para: string; quando: string; link: string | null }
+  /**
+   * Plano 23 (RN-426, AG-D42): "Recebemos seu pedido de consulta", o mesmo para paciente e pessoa nova, depois do código;
+   * `linkDesistir` = /n/<slug>/pedido/<token> só na pessoa nova (o token do próprio pedido), nulo no paciente.
+   */
+  | { tipo: 'pedido_recebido'; para: string; quando: string; linkDesistir: string | null }
+  /**
+   * Plano 23 (RN-428, AG-D23): o pedido da pessoa nova foi recusado ou venceu. `link` = a página pública (/n/<slug>) só
+   * ligada; senão nulo. Nunca motivo (a recusa da pessoa nova nem tem campo de motivo).
+   */
+  | { tipo: 'pedido_nao_confirmado_publico'; para: string; quando: string; link: string | null };
 
 /** Payload do job `email` no pg-boss: nada legível além do tenant (RN-15). */
 export type EmailJobData = { tenantId: string | null; selado: string };

@@ -79,3 +79,16 @@ describe('/n/[slug]: Plano 23 (US-403, I-13)', () => {
     expect(html).not.toContain('Nutricionista ·');
   });
 });
+
+describe('/n/[slug]: Plano 23 (RN-429, AG-D21): ponto de coleta', () => {
+  const FRASE =
+    'Até a resposta, guardamos seu nome, e-mail, telefone e o número de rede (IP) do seu aparelho só para este pedido. Se ele não for aceito ou o horário passar, apagamos esses dados depois de 24 horas, na limpeza diária.';
+  it('com a chave dos pedidos ligada, a frase aparece antes de enviar; desligada, não', async () => {
+    carregar.mockResolvedValue({ ...ATIVA, confirmarPedidos: true, horarios: [horario('08:00', CONSULTORIO)] });
+    const html = await render();
+    expect(html).toContain(FRASE);
+    expect(html.indexOf(FRASE)).toBeLessThan(html.indexOf('Enviar código'));
+    carregar.mockResolvedValue({ ...ATIVA, confirmarPedidos: false, horarios: [horario('08:00', CONSULTORIO)] });
+    expect(await render()).not.toContain(FRASE);
+  });
+});

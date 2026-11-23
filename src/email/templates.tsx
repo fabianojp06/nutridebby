@@ -471,6 +471,16 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
     case 'pedido_nao_confirmado':
       // Plano 23 (RN-428, AG-D23): texto fixo, sem o motivo da recusa; sem link (página pública desligada), só a primeira frase
       return simples('Seu pedido de consulta não foi confirmado', [`O horário de ${msg.quando} não foi confirmado.`], msg.link ? { href: msg.link, rotulo: 'Escolha outro horário' } : undefined);
+    case 'pedido_recebido':
+      // Plano 23 (RN-426): o mesmo texto para paciente e pessoa nova; só a pessoa nova leva o link de desistência (AG-D42)
+      return simples(
+        'Recebemos seu pedido de consulta',
+        [`Seu pedido para ${msg.quando} foi enviado. Você recebe outro e-mail quando a nutricionista responder.`],
+        msg.linkDesistir ? { href: msg.linkDesistir, rotulo: 'Desistir do pedido' } : undefined,
+      );
+    case 'pedido_nao_confirmado_publico':
+      // Plano 23 (RN-428, AG-D23): o mesmo texto do paciente; o link só com a página pública ligada
+      return simples('Seu pedido de consulta não foi confirmado', [`O horário de ${msg.quando} não foi confirmado.`], msg.link ? { href: msg.link, rotulo: 'Escolha outro horário' } : undefined);
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);

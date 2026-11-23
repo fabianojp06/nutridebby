@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto';
+import { inspect } from 'node:util';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { consultaDireta, em, novoLocal, perdeCorridaNoBanco, semanaNoLocal, semanaToda, SP } from '../../../test/agenda';
+import { chaveDosPedidos, consultaDireta, em, novoLocal, pedidoDireto, perdeCorridaNoBanco, semanaNoLocal, semanaToda, SP, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
-import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { varreduraSo } from '../../../test/varredura';
 import { closeDb } from '@/db/client';
 import { appointments, consents, locaisAtendimento, notifications, patientCadastro, patients, publicBookingRequests, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { agendarLembretes, avisarPaciente } from '@/modules/notificacoes/agendar';
+import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
 import { buscarTenantPorSlug } from '@/modules/plataforma/tenant-status';
 import { MSG_TEXTO_ATUALIZADO } from '@/modules/plataforma/textos-versionados';
@@ -23,7 +25,10 @@ import {
   solicitarCodigo,
   type DepsPublico,
 } from './agendamento-publico';
+import { agendarComoPaciente } from './agendamento-paciente';
 import { MSG_AGENDA } from './constantes';
+import { ConsultaError } from './consultas';
+import { quandoComFuso, somarDias } from './fuso';
 
 // SUS-105: a limpeza diária passa só pelo tenant do próprio teste (varreduraSo; implementação real por baixo)
 vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
@@ -637,5 +642,211 @@ describe('Plano 23: local (US-403, RN-405, RN-406, AG-D40, AG-D60, AG-D62)', () 
     expect(await pacientesCom(T, e.email)).toEqual([]);
     // o pedido continua verificado: outro horário no principal conclui
     expect(await escolherOutroHorario(T.slug, { pedido: t.pedido, inicio: em('2026-10-16', '10:00').toISOString(), localId: T.localId }, deps())).toMatchObject({ estado: 'agendada' });
+  });
+});
+
+describe('Plano 23: pedido aguardando (RN-424, RN-424a, RN-425, RN-426, RN-429)', () => {
+  /**
+   * `app_pedido_aguardar` confere o código pelo `now()` do banco (até 30 min depois da verificação): os testes da pessoa nova
+   * usam o relógio de verdade e horários a partir de 3 dias depois de hoje (fuso do consultório).
+   */
+  const agoraReal = new Date();
+  const dia = (n: number) => somarDias(hojeNoFuso(SP, agoraReal), n);
+  const depsR = (extra: Partial<DepsPublico> = {}) => deps({ agora: agoraReal, ...extra });
+  const comChave = async () => {
+    const T = await consultorio();
+    await chaveDosPedidos(app.db, T);
+    return T;
+  };
+  const aguardandoDe = (T: TenantDeTeste, email: string) => withTenant(T.ctx, (tx) => tx.select().from(publicBookingRequests).where(eq(publicBookingRequests.email, email)), app.db);
+  const emailDaNutri = async (T: TenantDeTeste) => (await app.db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId)))[0].email;
+  const quandoDe = (d: string, h: string) => quandoComFuso(em(d, h), SP);
+
+  it('2 consultas + 1 pedido `solicitada` → o teto de 3 futuras aparece depois do código (STATUS_OCUPA, §4.3)', async () => {
+    const T = await consultorio();
+    const ana = await novoPaciente(app.db, T.ctx);
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-20', '09:00'));
+    await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-21', '09:00'));
+    await pedidoDireto(app.db, T, ana.id, em('2026-10-22', '09:00')); // liga a chave
+    const t = await solicitarCodigo(T.slug, pedido(em('2026-10-17', '09:00'), { email: ana.email }), deps());
+    expect(t).toEqual({ pedido: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) });
+    expect(await falha(confirmarCodigo(T.slug, { pedido: t.pedido, codigo: await codigoDe(ana.email) }, deps()))).toEqual({ status: 409, erros: { geral: MSG_AGENDA.limitePublico } });
+  });
+
+  it('chave ligada + e-mail novo: o pedido fica aguardando, nenhum paciente; "Recebemos seu pedido" com o link de desistência; a nutricionista recebe "Novo pedido" com "Nova pessoa: {nome}"', async () => {
+    const T = await comChave();
+    const p = await carregarPaginaPublica(T.slug, { agora: agoraReal, db: app.db });
+    expect(p).toMatchObject({ estado: 'ativa', confirmarPedidos: true });
+    const e = pedido(em(dia(3), '09:00'), { nome: 'Carla Dias' });
+    const t = await solicitarCodigo(T.slug, e, depsR());
+    const r = await confirmarCodigo(T.slug, { pedido: t.pedido, codigo: await codigoDe(e.email) }, depsR());
+    expect(r).toEqual({ estado: 'pedido', quando: quandoDe(dia(3), '09:00') });
+    expect(await pacientesCom(T, e.email)).toEqual([]);
+    const [b] = await aguardandoDe(T, e.email);
+    expect(b).toMatchObject({ aguardandoDesde: expect.any(Date), resolvidoEm: null, concluidoEm: null, localId: T.localId, modalidade: 'presencial', inicio: em(dia(3), '09:00'), fim: em(dia(3), '10:00') });
+    expect(await emailsNaFila('pedido_recebido', e.email)).toEqual([
+      { tipo: 'pedido_recebido', para: e.email, quando: quandoDe(dia(3), '09:00'), linkDesistir: `http://localhost:3000/n/${T.slug}/pedido/${t.pedido}` },
+    ]);
+    expect(await emailsNaFila('aviso_agenda', await emailDaNutri(T))).toEqual([
+      expect.objectContaining({ evento: 'pedido', paciente: 'Nova pessoa: Carla Dias', link: 'http://localhost:3000/painel/agenda/solicitacoes' }),
+    ]);
+    // o horário aguardando sai dos horários livres da página
+    const depois = await carregarPaginaPublica(T.slug, { agora: agoraReal, db: app.db, semana: dia(3) });
+    if (depois.estado !== 'ativa') throw new Error(depois.estado);
+    expect(depois.horarios.filter((h) => h.data === dia(3)).map((h) => h.hora)).not.toContain('09:00');
+  });
+
+  it('e-mail de paciente (chave ligada): consulta `solicitada` e o mesmo "Recebemos seu pedido", sem o link; a mesma resposta da tela (RN-426); antes do código, nada difere', async () => {
+    const T = await comChave();
+    const ana = await novoPaciente(app.db, T.ctx);
+    const e = pedido(em('2026-10-16', '09:00'), { email: ana.email });
+    const t = await solicitarCodigo(T.slug, e, deps());
+    expect(t).toEqual({ pedido: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) });
+    expect(await confirmarCodigo(T.slug, { pedido: t.pedido, codigo: await codigoDe(ana.email) }, deps())).toEqual({ estado: 'pedido', quando: 'sex., 16/10/2026 às 09:00 (horário de Brasília)' });
+    expect((await consultasDe(T, ana.id)).map((c) => c.status)).toEqual(['solicitada']);
+    expect(await emailsNaFila('pedido_recebido', ana.email)).toEqual([{ tipo: 'pedido_recebido', para: ana.email, quando: 'sex., 16/10/2026 às 09:00 (horário de Brasília)', linkDesistir: null }]);
+    expect(await pacientesCom(T, ana.email)).toHaveLength(1);
+  });
+
+  it('segundo pedido do mesmo e-mail com um aguardando → "Você já tem um pedido aguardando resposta…" só depois do código; 21º aguardando no consultório → "Não foi possível agendar…"', async () => {
+    const T = await comChave();
+    const e = pedido(em(dia(3), '09:00'));
+    const t1 = await solicitarCodigo(T.slug, e, depsR());
+    expect(await confirmarCodigo(T.slug, { pedido: t1.pedido, codigo: await codigoDe(e.email) }, depsR())).toMatchObject({ estado: 'pedido' });
+    const mais = depsR({ agora: new Date(agoraReal.getTime() + 61_000) });
+    const t2 = await solicitarCodigo(T.slug, pedido(em(dia(3), '11:00'), { email: e.email }), mais);
+    expect(t2).toEqual({ pedido: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) }); // antes do código, a mesma resposta
+    expect(await falha(confirmarCodigo(T.slug, { pedido: t2.pedido, codigo: await codigoDe(e.email) }, mais))).toEqual({ status: 409, erros: { geral: MSG_PUBLICO.pedidoAguardando } });
+    expect(await aguardandoDe(T, e.email)).toHaveLength(2);
+    expect((await aguardandoDe(T, e.email)).filter((b) => b.aguardandoDesde)).toHaveLength(1);
+    // mais 19 aguardando (20 no total) em horários de outro dia → o 21º é recusado
+    await withTenant(
+      T.ctx,
+      (tx) =>
+        tx.execute(sql`insert into public_booking_requests (id, tenant_id, token_hash, codigo_hash, email, nome, inicio, fim, modalidade, termo_versao, expira_em, verificado_em, local_id, aguardando_desde)
+          select gen_random_uuid(), ${T.tenantId}, gen_random_uuid()::text, 'x', 'teto' || g || '@teste.dev', 'Pessoa Teto', ${em(dia(5), '08:00')}::timestamptz + make_interval(hours => g),
+                 ${em(dia(5), '08:00')}::timestamptz + make_interval(hours => g) + interval '30 minutes', 'presencial', 't', now(), now(), ${T.localId}, now()
+            from generate_series(0, 18) g`),
+      app.db,
+    );
+    const e3 = pedido(em(dia(4), '09:00'));
+    const t3 = await solicitarCodigo(T.slug, e3, depsR());
+    expect(await falha(confirmarCodigo(T.slug, { pedido: t3.pedido, codigo: await codigoDe(e3.email) }, depsR()))).toEqual({ status: 409, erros: { geral: MSG_AGENDA.naoAgendavel } });
+    expect((await aguardandoDe(T, e3.email))[0].aguardandoDesde).toBeNull();
+  });
+
+  it('RN-424a: o token de um pedido aguardando não conclui de novo — reabrir o código ou "Escolher outro horário" → 410, e o horário não muda', async () => {
+    const T = await comChave();
+    const e = pedido(em(dia(3), '14:00'));
+    const t = await solicitarCodigo(T.slug, e, depsR());
+    const codigo = await codigoDe(e.email);
+    expect(await confirmarCodigo(T.slug, { pedido: t.pedido, codigo }, depsR())).toMatchObject({ estado: 'pedido' });
+    expect(await falha(confirmarCodigo(T.slug, { pedido: t.pedido, codigo }, depsR()))).toEqual({ status: 410, erros: { geral: MSG_PUBLICO.codigoExpirado } });
+    expect(await falha(escolherOutroHorario(T.slug, { pedido: t.pedido, inicio: em(dia(3), '16:00').toISOString(), localId: T.localId }, depsR()))).toEqual({ status: 410, erros: { geral: MSG_PUBLICO.codigoExpirado } });
+    const [b] = await aguardandoDe(T, e.email);
+    expect([b.inicio, b.fim, b.localId]).toEqual([em(dia(3), '14:00'), em(dia(3), '15:00'), T.localId]);
+  });
+
+  it('corrida pessoa nova × paciente (página pública) × portal no mesmo horário, todos presos na trava do tenant: só um fica, sem 40P01 (AG-D65)', async () => {
+    const T = await comChave();
+    const ana = await novoPaciente(app.db, T.ctx);
+    const bia = await novoPaciente(app.db, T.ctx);
+    const inicio = em(dia(3), '10:00');
+    const nova = pedido(inicio, { nome: 'Carla Dias' });
+    const tNova = await solicitarCodigo(T.slug, nova, depsR());
+    const cNova = await codigoDe(nova.email);
+    const tAna = await solicitarCodigo(T.slug, pedido(inicio, { email: ana.email }), depsR());
+    const cAna = await codigoDe(ana.email);
+    // a barreira e a conferência do paciente vão por outro pool: os três participantes ocupam o pool do app (max 4) inteiro
+    const barreira = await owner.pool.connect();
+    try {
+      await barreira.query('begin');
+      await barreira.query(`select pg_advisory_xact_lock(hashtext('agenda-pedidos-tenant'), hashtext($1))`, [T.tenantId]);
+      const pid = (await barreira.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const resultado = (p: Promise<unknown>) => p.then((v) => v, (e: unknown) => e);
+      const corrida = [
+        resultado(confirmarCodigo(T.slug, { pedido: tNova.pedido, codigo: cNova }, depsR())),
+        resultado(confirmarCodigo(T.slug, { pedido: tAna.pedido, codigo: cAna }, depsR())),
+        resultado(agendarComoPaciente(ctxPaciente(T.tenantId, bia.id), tenantAgenda(T, { agendaConfirmarPedidos: true }), { inicio: inicio.toISOString(), localId: T.localId }, { db: app.db, now: agoraReal, appUrl: 'http://localhost:3000' })),
+      ];
+      const presas = `with a as (select pid from pg_stat_activity where $1 = any(pg_blocking_pids(pid)))
+        select count(*)::int as n from pg_stat_activity where $1 = any(pg_blocking_pids(pid)) or pg_blocking_pids(pid) && array(select pid from a)`;
+      for (let i = 0; ; i++) {
+        if ((await owner.pool.query<{ n: number }>(presas, [pid])).rows[0].n >= 3) break;
+        if (i > 1000) throw new Error('os três não chegaram juntos à trava do tenant');
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      // presos na trava do tenant, nenhum segura um paciente: a trava do paciente está livre
+      const terceira = await owner.pool.connect();
+      try {
+        await terceira.query('begin');
+        await terceira.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
+        expect((await terceira.query('select id from patients where id = any($1::uuid[]) for update nowait', [[ana.id, bia.id]])).rowCount).toBe(2);
+      } finally {
+        await terceira.query('rollback').catch(() => undefined);
+        terceira.release();
+      }
+      await barreira.query('commit');
+      const [rNova, rAna, rBia] = await Promise.all(corrida);
+      const ficou = [
+        (rNova as { estado?: string }).estado === 'pedido',
+        (rAna as { estado?: string }).estado === 'pedido',
+        !!(rBia as { id?: string }).id,
+      ];
+      expect(ficou.filter(Boolean), inspect([rNova, rAna, rBia])).toHaveLength(1);
+      for (const r of [rNova, rAna]) if ((r as { estado?: string }).estado !== 'pedido') expect(r, inspect(r)).toMatchObject({ estado: 'horario_ocupado' });
+      if (!(rBia as { id?: string }).id) expect(rBia, inspect(rBia)).toBeInstanceOf(ConsultaError);
+      const consultas = await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(and(eq(appointments.tenantId, T.tenantId), eq(appointments.inicio, inicio))), app.db);
+      const aguardando = (await aguardandoDe(T, nova.email)).filter((b) => b.aguardandoDesde);
+      expect(consultas.length + aguardando.length).toBe(1);
+    } finally {
+      await barreira.query('rollback').catch(() => undefined);
+      barreira.release();
+    }
+  }, 60_000);
+
+  it('limpeza (RN-429), relógio às 04:30: recusado, vencido, desistido e aceito somem 24 h depois de `resolvido_em`; sem código, 24 h depois da criação; aguardando nunca pelas 24 h da criação', async () => {
+    const T = await consultorio();
+    const agoraL = new Date('2001-01-10T07:30:00Z'); // 04:30 em São Paulo
+    const h = (horas: number) => new Date(agoraL.getTime() - horas * 3_600_000);
+    const linha = (email: string, o: { createdAt: Date; resolvidoEm?: Date; resolucao?: string; aguardando?: boolean }) => ({
+      id: randomUUID(),
+      tenantId: T.tenantId,
+      tokenHash: randomUUID(),
+      codigoHash: 'x',
+      email,
+      nome: 'Carla Dias',
+      inicio: em('2001-01-20', '09:00'),
+      fim: em('2001-01-20', '10:00'),
+      modalidade: 'presencial',
+      localId: T.localId,
+      termoVersao: TERMO_PACIENTE,
+      expiraEm: new Date(o.createdAt.getTime() + 10 * 60_000),
+      verificadoEm: o.aguardando || o.resolvidoEm ? o.createdAt : null,
+      aguardandoDesde: o.aguardando || o.resolvidoEm ? o.createdAt : null,
+      resolvidoEm: o.resolvidoEm ?? null,
+      resolucao: o.resolucao ?? null,
+      createdAt: o.createdAt,
+    });
+    const n = (s: string) => `${s}-${randomUUID().slice(0, 8)}@ex.com`;
+    const e = { recusadoVelho: n('rv'), vencidoVelho: n('vv'), desistidoVelho: n('dv'), aceitoVelho: n('av'), recusadoNovo: n('rn'), semCodigoVelho: n('sv'), semCodigoNovo: n('sn'), aguardandoVelho: n('ag') };
+    await withTenant(
+      T.ctx,
+      (tx) =>
+        tx.insert(publicBookingRequests).values([
+          linha(e.recusadoVelho, { createdAt: h(80), resolvidoEm: h(25), resolucao: 'recusado' }),
+          linha(e.vencidoVelho, { createdAt: h(80), resolvidoEm: h(25), resolucao: 'vencido' }),
+          linha(e.desistidoVelho, { createdAt: h(80), resolvidoEm: h(25), resolucao: 'desistido' }),
+          linha(e.aceitoVelho, { createdAt: h(80), resolvidoEm: h(25), resolucao: 'aceito' }),
+          linha(e.recusadoNovo, { createdAt: h(80), resolvidoEm: h(23), resolucao: 'recusado' }),
+          linha(e.semCodigoVelho, { createdAt: h(25) }),
+          linha(e.semCodigoNovo, { createdAt: h(23) }),
+          linha(e.aguardandoVelho, { createdAt: h(80), aguardando: true }),
+        ]),
+      app.db,
+    );
+    expect(await limparPedidosPublicos(app.db, agoraL)).toBeGreaterThanOrEqual(5);
+    const restam = await withTenant(T.ctx, (tx) => tx.select({ email: publicBookingRequests.email }).from(publicBookingRequests), app.db);
+    expect(restam.map((r) => r.email).sort()).toEqual([e.recusadoNovo, e.semCodigoNovo, e.aguardandoVelho].sort());
   });
 });

@@ -1,26 +1,42 @@
 import { createHmac, hkdfSync, randomInt, randomUUID } from 'node:crypto';
-import { and, count, eq, gt, inArray, lt, max, sql } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, isNotNull, isNull, lt, max, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { deadlockDetectado, uniqueViolation } from '@/db/errors';
-import { appointments, consents, patients, publicBookingRequests, type TenantRow } from '@/db/schema';
+import { appointments, consents, patients, publicBookingRequests, tenants, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getEnv } from '@/env';
 import { encryptionKey, randomToken, safeEqual, sha256 } from '@/lib/crypto';
+import { urlDoApp } from '@/lib/url-do-app';
 import { normalizeEmail, normalizarTexto } from '@/lib/text';
 import { MSG_TURNSTILE_FORA, MSG_TURNSTILE_INVALIDO, type ResultadoTurnstile } from '@/lib/turnstile';
+import { agendarLembretes, avisarPaciente, dispararEnvio } from '@/modules/notificacoes/agendar';
+import { idValido } from '@/modules/pacientes/base';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { normalizarTelefone } from '@/modules/pacientes/telefone';
 import { TERMO_PACIENTE, TERMO_PACIENTE_VERSAO } from '@/modules/pacientes/termo-paciente';
 import { MSG_TEXTO_ATUALIZADO } from '@/modules/plataforma/textos-versionados';
 import { buscarTenantPorSlug, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
-import { escolherHorario, gravarConsultaDoPaciente, horariosParaPaciente, localRecusado, locaisDoAgendamento, semanaDaJanela, type HorarioEscolhido } from './agendamento-paciente';
-import { MAX_CONSULTAS_FUTURAS_PUBLICO, MSG_AGENDA, MSG_PUBLICO } from './constantes';
-import { ConsultaError, ehSobreposicao, STATUS_ATIVOS } from './consultas';
+import {
+  conferirAguardando,
+  escolherHorario,
+  gravarConsultaDoPaciente,
+  horariosParaPaciente,
+  localRecusado,
+  locaisDoAgendamento,
+  semanaDaJanela,
+  travarPedidosDoTenant,
+  type HorarioEscolhido,
+} from './agendamento-paciente';
+import { avisarNutri, avisarNutriDaConsulta } from './aviso-nutri';
+import { MAX_CONSULTAS_FUTURAS_PUBLICO, MSG_AGENDA, MSG_PUBLICO, MSG_SOLICITACOES } from './constantes';
+import { ConsultaError, ehSobreposicao, type TenantAgenda } from './consultas';
 import { inicioDoDia, quandoComFuso, somarDias } from './fuso';
 import { horariosVisiveis, localInicial, type HorarioVisivel, type LocalVisivel, type Modalidade } from './horarios';
 import { chaveDoLimite, consumirLimite } from './limite-ip';
+import { PedidoMudouError } from './pedido-mudou';
+import { prazoDoPedido, STATUS_OCUPA } from './status';
 
 export { MSG_PUBLICO };
 
@@ -48,6 +64,8 @@ export type PaginaPublica =
       cabecalho: CabecalhoPublico;
       /** Plano 23 (I-13): os locais com agendamento pelo paciente, sem a sala; `localInicial` vem de `?local=`. */
       locais: LocalVisivel[];
+      /** Plano 23 (RN-429): a chave "Confirmar os pedidos antes de marcar" — a tela mostra a frase do ponto de coleta. */
+      confirmarPedidos: boolean;
       localInicial: string | null;
       semana: string;
       primeira: string;
@@ -68,9 +86,14 @@ export type DepsPublico = {
 };
 /**
  * `horario_ocupado`: outro horário a escolher. `indisponivel` (Plano 23): o local deixou de aceitar agendamento entre a
- * escolha e a gravação — a tela diz "não está mais disponível" em vez de "acabou de ser ocupado".
+ * escolha e a gravação — a tela diz "não está mais disponível" em vez de "acabou de ser ocupado". `pedido` (Plano 23,
+ * RN-426): com a chave ligada, a mesma resposta para quem já é paciente (consulta `solicitada`) e para a pessoa nova
+ * (pedido aguardando).
  */
-export type ResultadoConfirmacao = { estado: 'agendada'; quando: string } | { estado: 'horario_ocupado'; horarios: HorarioVisivel[]; indisponivel?: true };
+export type ResultadoConfirmacao =
+  | { estado: 'agendada'; quando: string }
+  | { estado: 'pedido'; quando: string }
+  | { estado: 'horario_ocupado'; horarios: HorarioVisivel[]; indisponivel?: true };
 
 const CODIGO_VALIDADE_MS = 10 * 60_000;
 /** Depois do código certo, o pedido ainda escolhe outro horário (se o dele foi ocupado) por 30 min, sem novo código. */
@@ -120,7 +143,19 @@ export async function carregarPaginaPublica(slug: string, opts: { semana?: unkno
   const { semana, primeira, ultima } = semanaDaJanela(opts.semana, hojeNoFuso(t.fuso, agora));
   const locais = await locaisDoAgendamento(t, { db });
   const horarios = await horariosDaSemana(t, semana, agora, db);
-  return { estado: 'ativa', tenantId: t.id, nome: t.nomeExibicao, cabecalho: cabecalhoPublico(t), locais, localInicial: localInicial(locais, horarios, opts.local), semana, primeira, ultima, horarios };
+  return {
+    estado: 'ativa',
+    tenantId: t.id,
+    nome: t.nomeExibicao,
+    cabecalho: cabecalhoPublico(t),
+    locais,
+    localInicial: localInicial(locais, horarios, opts.local),
+    confirmarPedidos: t.agendaConfirmarPedidos,
+    semana,
+    primeira,
+    ultima,
+    horarios,
+  };
 }
 
 type DadosDoPedido = { nome: string; email: string; telefone: string | null; whatsapp: boolean };
@@ -226,23 +261,45 @@ const verificadoValido = (p: PedidoRow, agora: Date) => !!p.verificadoEm && agor
 const tokenDoPedido = (v: unknown) => (typeof v === 'string' && TOKEN_PEDIDO.test(v) ? v : null);
 const pedidoExpirado = () => new PublicoError(410, { geral: MSG_PUBLICO.codigoExpirado });
 
+/** Plano 23: `app_pedido_aguardar` disse que o horário (`ocupado`) ou o local (`invalido`) mudou — a tela mostra outros horários. */
+class HorarioDoPedidoMudou extends Error {
+  override name = 'HorarioDoPedidoMudou';
+  constructor(readonly indisponivel: boolean) {
+    super('o horário do pedido mudou');
+  }
+}
+
 /**
  * Grava, numa transação no contexto `publico`: o paciente (ou reaproveita o ativo do mesmo e-mail — ele provou o
  * e-mail), a consulta com lembretes e avisos (`gravarConsultaDoPaciente`), o aceite do termo (D13) e o pedido concluído.
- * O limite de 3 consultas futuras é conferido aqui, depois do código (D12). Travas: e-mail (advisory) → pedido →
- * consulta nova (EXCLUDE) → paciente (FOR KEY SHARE da FK, no fim do INSERT). O `publico` não trava linha de `patients`
- * com SELECT (FOR UPDATE/SHARE/KEY SHARE exigem a política de UPDATE, que ele não tem: a linha some do resultado): a
- * trava do e-mail serializa os pedidos públicos, e a corrida com a nutricionista no mesmo paciente vira 40P01 (tratado
- * em `concluir`). Fechamento (corrida com o pedido de exclusão): a trava do paciente é a da FK da consulta nova (o
- * gatilho da FK não passa pela RLS), e o status é relido logo depois, sob ela — ver `reconferirPaciente`.
+ * O limite de 3 consultas futuras é conferido aqui, depois do código (D12). Travas: e-mail (advisory) → tenant (Plano 23,
+ * AG-D65, classe própria) → pedido → consulta nova (EXCLUDE) → paciente (FOR KEY SHARE da FK, no fim do INSERT). O
+ * `publico` não trava linha de `patients` com SELECT (FOR UPDATE/SHARE/KEY SHARE exigem a política de UPDATE, que ele não
+ * tem: a linha some do resultado): a trava do e-mail serializa os pedidos públicos, e a corrida com a nutricionista no
+ * mesmo paciente vira 40P01 (tratado em `concluir`). Fechamento (corrida com o pedido de exclusão): a trava do paciente é
+ * a da FK da consulta nova (o gatilho da FK não passa pela RLS), e o status é relido logo depois, sob ela — ver
+ * `reconferirPaciente`.
+ *
+ * Plano 23 (RN-424 a RN-426): sob a trava do tenant, o horário não pode cruzar um pedido de pessoa nova aguardando
+ * (`conferirAguardando`). Com a chave "Confirmar os pedidos" ligada (lida no banco, na transação), o e-mail sem paciente
+ * vira pedido aguardando por `app_pedido_aguardar`, **sem cadastro**; o e-mail de paciente grava a consulta, que o gatilho
+ * faz `solicitada` (o status do RETURNING decide, AG-D53). Nos dois casos, a mesma tela ("pedido") e o mesmo "Recebemos seu
+ * pedido de consulta" (por `enqueueEmail`, nesta transação); só a pessoa nova leva o link de desistência (o token do
+ * próprio pedido, AG-D48).
  */
-async function gravarPedido(tx: Tx, tenant: TenantRow, r: PedidoRow, h: HorarioEscolhido, deps: DepsPublico, agora: Date): Promise<ResultadoConfirmacao> {
+async function gravarPedido(tx: Tx, tenant: TenantRow, r: PedidoRow, token: string, h: HorarioEscolhido, deps: DepsPublico, agora: Date): Promise<ResultadoConfirmacao> {
   await travarEmail(tx, tenant.id, r.email);
+  await travarPedidosDoTenant(tx, tenant.id); // AG-D65: e-mail → tenant → paciente → pedido/consulta
   const [atual] = await tx.select().from(publicBookingRequests).where(eq(publicBookingRequests.id, r.id)).for('update');
-  if (!atual || atual.concluidoEm) throw pedidoExpirado();
+  if (!atual || atual.concluidoEm || atual.aguardandoDesde) throw pedidoExpirado(); // RN-424a
+  const appUrl = deps.appUrl ?? getEnv().APP_URL;
+  const quando = quandoComFuso(h.inicio, tenant.fuso);
+  const [chave] = await tx.select({ ligada: tenants.agendaConfirmarPedidos }).from(tenants).where(eq(tenants.id, tenant.id));
   let [p] = await tx.select().from(patients).where(eq(patients.email, r.email));
   // RN-08 / US-018: arquivado, bloqueado ou anonimizado não marca por aqui (nunca 500 nem PacienteBloqueadoError)
   if (p && (p.status !== 'ativo' || p.anonimizadoEm)) throw new PublicoError(409, { geral: MSG_AGENDA.naoAgendavel });
+  if (!p && chave?.ligada) return aguardar(tx, tenant, r, token, h, appUrl, quando);
+  await conferirAguardando(tx, h); // RN-425 (ConsultaError → "não está mais disponível", em `concluir`)
   const novo = !p;
   if (!p) {
     const optin = r.whatsappOptin && r.telefoneE164 ? { whatsappOptinEm: agora, whatsappOptinOrigem: 'paciente' } : {};
@@ -251,17 +308,42 @@ async function gravarPedido(tx: Tx, tenant: TenantRow, r: PedidoRow, h: HorarioE
       .values({ tenantId: tenant.id, nome: r.nome, email: r.email, telefoneE164: r.telefoneE164, origem: 'agendamento_publico', ...optin, createdAt: agora, updatedAt: agora })
       .returning();
   }
+  // Plano 23 (§4.3): o pedido `solicitada` conta no teto (com a chave ligada, sem isso o paciente pediria sem limite)
   const [{ n }] = await tx
     .select({ n: count() })
     .from(appointments)
-    .where(and(eq(appointments.patientId, p.id), inArray(appointments.status, STATUS_ATIVOS), gt(appointments.inicio, agora)));
+    .where(and(eq(appointments.patientId, p.id), inArray(appointments.status, STATUS_OCUPA), gt(appointments.inicio, agora)));
   if (n >= MAX_CONSULTAS_FUTURAS_PUBLICO) throw new PublicoError(409, { geral: MSG_AGENDA.limitePublico });
-  // Plano 23: o status (agendada ou solicitada, pelo gatilho) é da T7 (RN-426); aqui só o id
-  const { id } = await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: novo ? 'novo_paciente_publico' : 'marcada' });
+  const { id, status } = await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl, evento: novo ? 'novo_paciente_publico' : 'marcada' });
   if (!novo) await reconferirPaciente(tx, p.id);
   await tx.insert(consents).values({ patientId: p.id, tenantId: tenant.id, termoVersao: r.termoVersao, aceitoEm: agora, ip: r.ip }).onConflictDoNothing();
   await tx.update(publicBookingRequests).set({ concluidoEm: agora, appointmentId: id }).where(eq(publicBookingRequests.id, r.id));
-  return { estado: 'agendada', quando: quandoComFuso(h.inicio, tenant.fuso) };
+  if (status === 'solicitada') {
+    // RN-426: o mesmo e-mail da pessoa nova, sem o link de desistência (o paciente desiste pelo portal)
+    await enqueueEmail({ tipo: 'pedido_recebido', para: r.email, quando, linkDesistir: null }, { tenantId: tenant.id, tx });
+    return { estado: 'pedido', quando };
+  }
+  return { estado: 'agendada', quando };
+}
+
+/**
+ * Plano 23 (RN-424, RN-425): a pessoa nova — `app_pedido_aguardar` grava o aguardando (tetos, sobreposição e a trava do
+ * tenant, que esta transação já segura). `email` e `teto_tenant` só aparecem depois do código (RN-426); `ocupado` e
+ * `invalido` (o local deixou de aceitar agendamento) voltam à escolha de outro horário. A nutricionista recebe "Novo pedido
+ * de consulta" com "Nova pessoa: {nome}" (o link da fila).
+ */
+async function aguardar(tx: Tx, tenant: TenantRow, r: PedidoRow, token: string, h: HorarioEscolhido, appUrl: string, quando: string): Promise<ResultadoConfirmacao> {
+  if (!h.localId) throw new HorarioDoPedidoMudou(true);
+  const res = await tx.execute<{ r: string }>(sql`select app_pedido_aguardar(${r.id}, ${h.localId}, ${h.inicio}, ${h.fim}) as r`);
+  const motivo = res.rows[0]?.r;
+  if (motivo === 'email') throw new PublicoError(409, { geral: MSG_PUBLICO.pedidoAguardando });
+  if (motivo === 'teto_tenant') throw new PublicoError(409, { geral: MSG_AGENDA.naoAgendavel });
+  if (motivo === 'ocupado') throw new HorarioDoPedidoMudou(false);
+  if (motivo !== 'ok') throw new HorarioDoPedidoMudou(true);
+  await avisarNutriDaConsulta(tx, tenant, { id: r.id, inicio: h.inicio, paciente: MSG_SOLICITACOES.novaPessoa(r.nome) }, 'pedido', appUrl);
+  const linkDesistir = urlDoApp(appUrl, `/n/${tenant.slug}/pedido/${token}`);
+  await enqueueEmail({ tipo: 'pedido_recebido', para: r.email, quando, linkDesistir }, { tenantId: tenant.id, tx });
+  return { estado: 'pedido', quando };
 }
 
 /**
@@ -277,7 +359,7 @@ async function reconferirPaciente(tx: Tx, patientId: string): Promise<void> {
 }
 
 /** Confere o horário (antes da transação: uma conexão por vez) e grava; ocupado → outros horários da mesma semana. */
-async function concluir(tenant: TenantRow, r: PedidoRow, escolha: { inicio: unknown; localId: unknown }, deps: DepsPublico, db: Db, agora: Date): Promise<ResultadoConfirmacao> {
+async function concluir(tenant: TenantRow, r: PedidoRow, token: string, escolha: { inicio: unknown; localId: unknown }, deps: DepsPublico, db: Db, agora: Date): Promise<ResultadoConfirmacao> {
   const outros = async (indisponivel = false): Promise<ResultadoConfirmacao> => {
     // a semana do horário pedido, presa à janela (o valor vem do visitante: nunca uma data sem teto)
     const ref = typeof escolha.inicio === 'string' ? Date.parse(escolha.inicio) : NaN;
@@ -294,9 +376,15 @@ async function concluir(tenant: TenantRow, r: PedidoRow, escolha: { inicio: unkn
       throw e;
     }
     try {
-      return await withTenant(comoPublico(tenant, deps), (tx) => gravarPedido(tx, tenant, r, h, deps, agora), db);
+      return await withTenant(comoPublico(tenant, deps), (tx) => gravarPedido(tx, tenant, r, token, h, deps, agora), db);
     } catch (e) {
       if (ehSobreposicao(e)) return outros(); // RN-03 / D9: ocupado entre a checagem e a gravação — o EXCLUDE decide
+      // Plano 23 (RN-425): um pedido de pessoa nova aguardando cruzou o horário (conferirAguardando) ou app_pedido_aguardar
+      // achou o horário ocupado ou o local sem agendamento — outros horários
+      if (e instanceof HorarioDoPedidoMudou) return outros(e.indisponivel);
+      if (e instanceof ConsultaError) return outros(true);
+      // a rede do índice único (1 aguardando por e-mail): a mesma mensagem do motivo `email`, só depois do código (RN-426)
+      if (uniqueViolation(e) === 'public_booking_requests_aguardando_email_unique') throw new PublicoError(409, { geral: MSG_PUBLICO.pedidoAguardando });
       // Plano 23 (RN-406): o local foi arquivado ou deixou de aceitar agendamento entre a checagem e a gravação (42501 do
       // gatilho appointments_link_da_sala): "não está mais disponível", com os outros horários
       if (localRecusado(e)) return outros(true);
@@ -321,7 +409,8 @@ export async function confirmarCodigo(slug: string, input: Record<string, unknow
     comoPublico(tenant, deps),
     async (tx): Promise<{ pedido: PedidoRow } | { erro: PublicoError }> => {
       const [p] = await tx.select().from(publicBookingRequests).where(eq(publicBookingRequests.tokenHash, sha256(token))).for('update');
-      if (!p || p.concluidoEm) return { erro: pedidoExpirado() };
+      // RN-424a: o aguardando nem aparece ao publico (aguardando_fora_do_publico); a regra fica aqui também
+      if (!p || p.concluidoEm || p.aguardandoDesde) return { erro: pedidoExpirado() };
       if (p.verificadoEm) return verificadoValido(p, agora) ? { pedido: p } : { erro: pedidoExpirado() };
       if (p.tentativas >= MAX_ERROS_CODIGO) return { erro: new PublicoError(410, { geral: MSG_PUBLICO.codigoBloqueado }) };
       if (p.expiraEm.getTime() <= agora.getTime()) return { erro: pedidoExpirado() };
@@ -340,7 +429,7 @@ export async function confirmarCodigo(slug: string, input: Record<string, unknow
   );
   if ('erro' in r) throw r.erro;
   const localId = r.pedido.localId ?? (await localDoPedidoSemLocal(tenant, r.pedido, agora, db));
-  return concluir(tenant, r.pedido, { inicio: r.pedido.inicio.toISOString(), localId }, deps, db, agora);
+  return concluir(tenant, r.pedido, token, { inicio: r.pedido.inicio.toISOString(), localId }, deps, db, agora);
 }
 
 /**
@@ -362,20 +451,133 @@ export async function escolherOutroHorario(slug: string, input: Record<string, u
   const token = tokenDoPedido(input.pedido);
   if (!token) throw pedidoExpirado();
   const [p] = await withTenant(comoPublico(tenant, deps), (tx) => tx.select().from(publicBookingRequests).where(eq(publicBookingRequests.tokenHash, sha256(token))), db);
-  if (!p || p.concluidoEm || !verificadoValido(p, agora)) throw pedidoExpirado();
-  return concluir(tenant, p, { inicio: input.inicio, localId: input.localId }, deps, db, agora);
+  if (!p || p.concluidoEm || p.aguardandoDesde || !verificadoValido(p, agora)) throw pedidoExpirado(); // RN-424a
+  return concluir(tenant, p, token, { inicio: input.inicio, localId: input.localId }, deps, db, agora);
 }
 
-/** Diário (agenda-limpeza): pedidos com mais de 24 h somem (LGPD: minimização). */
+/**
+ * Diário (agenda-limpeza, 04:30): LGPD (minimização). Plano 23 (RN-429, AG-D21): o pedido sem aguardar (sem código, ou o
+ * concluído na hora) some 24 h depois da criação, como antes; o da pessoa nova, 24 h depois da resposta (`resolvido_em`:
+ * aceito, recusado, vencido ou desistido); o aguardando nunca pelas 24 h da criação.
+ */
 export async function limparPedidosPublicos(db: Db, agora: Date): Promise<number> {
+  const limite = new Date(agora.getTime() - 86_400_000);
   let n = 0;
   for (const t of await listarTenantsParaVarredura(db)) {
     const r = await withTenant(
       { tenantId: t.id, role: 'worker' },
-      (tx) => tx.delete(publicBookingRequests).where(lt(publicBookingRequests.createdAt, new Date(agora.getTime() - 86_400_000))).returning({ id: publicBookingRequests.id }),
+      (tx) =>
+        tx
+          .delete(publicBookingRequests)
+          .where(
+            or(
+              and(isNull(publicBookingRequests.aguardandoDesde), lt(publicBookingRequests.createdAt, limite)),
+              and(isNotNull(publicBookingRequests.resolvidoEm), lt(publicBookingRequests.resolvidoEm, limite)),
+            ),
+          )
+          .returning({ id: publicBookingRequests.id }),
       db,
     );
     n += r.length;
   }
   return n;
+}
+
+/**
+ * Plano 23 (RN-424, US-409 "Aceitar pessoa nova"): na sessão `nutri`, na transação de `aceitarSolicitacao`. Travas: tenant
+ * → linha do pedido (`FOR UPDATE`) → paciente do e-mail (`FOR NO KEY UPDATE`), AG-D65. Pedido que não aguarda mais, ou fora
+ * do prazo (`início − antecedência ≤ agora`) → `PedidoMudouError`. E-mail de paciente ativo: a consulta vai para ele (o
+ * opt-in dele não muda); arquivado, bloqueado ou anonimizado → "Este e-mail é de um paciente arquivado ou bloqueado…".
+ * Senão nasce o cadastro (origem `agendamento_publico`; opt-in do WhatsApp do pedido com a data da verificação do código),
+ * o aceite do termo (versão, momento da verificação e IP do pedido; CLAUDE.md regra 1) e a consulta `agendada` (origem
+ * `paciente`; num local online, o gatilho appointments_link_da_sala copia a sala). Horário tomado no meio (23P01) →
+ * "Esse horário já está ocupado…" (tudo desfeito). O pedido fica concluído e `aceito` (RN-429: some 24 h depois).
+ */
+export async function aceitarPedidoPublico(tx: Tx, tenant: TenantAgenda, pedidoId: string, o: { agora: Date; appUrl: string }): Promise<{ appointmentId: string }> {
+  if (!idValido(pedidoId)) throw new PedidoMudouError();
+  await travarPedidosDoTenant(tx, tenant.id);
+  const [r] = await tx.select().from(publicBookingRequests).where(eq(publicBookingRequests.id, pedidoId)).for('update');
+  if (!r || !r.aguardandoDesde || r.resolvidoEm || !r.fim || !r.localId || !r.verificadoEm) throw new PedidoMudouError();
+  if (prazoDoPedido(r.inicio, tenant).getTime() <= o.agora.getTime()) throw new PedidoMudouError();
+  let [p] = await tx.select().from(patients).where(eq(patients.email, r.email)).for('no key update');
+  if (p && (p.status !== 'ativo' || p.anonimizadoEm)) throw new ConsultaError({ geral: MSG_SOLICITACOES.emailInativo });
+  if (!p) {
+    const optin = r.whatsappOptin && r.telefoneE164 ? { whatsappOptinEm: r.verificadoEm, whatsappOptinOrigem: 'paciente' } : {};
+    [p] = await tx
+      .insert(patients)
+      .values({ tenantId: tenant.id, nome: r.nome, email: r.email, telefoneE164: r.telefoneE164, origem: 'agendamento_publico', ...optin, createdAt: o.agora, updatedAt: o.agora })
+      .returning();
+    await tx.insert(consents).values({ patientId: p.id, tenantId: tenant.id, termoVersao: r.termoVersao, aceitoEm: r.verificadoEm, ip: r.ip }).onConflictDoNothing();
+  }
+  let c: { id: string };
+  try {
+    [c] = await tx
+      .insert(appointments)
+      .values({
+        tenantId: tenant.id,
+        patientId: p.id,
+        inicio: r.inicio,
+        fim: r.fim,
+        modalidade: r.modalidade,
+        localId: r.localId,
+        linkOnline: null, // a sala do local online vem do gatilho appointments_link_da_sala (origem paciente)
+        status: 'agendada',
+        origem: 'paciente',
+        createdAt: o.agora,
+        updatedAt: o.agora,
+      })
+      .returning({ id: appointments.id });
+  } catch (e) {
+    if (ehSobreposicao(e)) throw new ConsultaError({ geral: MSG_SOLICITACOES.horarioOcupado }); // R-408
+    throw e;
+  }
+  const aviso = { tenantId: tenant.id, patientId: p.id, appointmentId: c.id, inicio: r.inicio };
+  await agendarLembretes(tx, aviso, tenant.fuso, o.agora);
+  await avisarPaciente(tx, aviso, 'consulta_marcada', o.agora);
+  await tx.update(publicBookingRequests).set({ concluidoEm: o.agora, appointmentId: c.id, resolvidoEm: o.agora, resolucao: 'aceito' }).where(eq(publicBookingRequests.id, r.id));
+  await dispararEnvio(tx, tenant.id);
+  return { appointmentId: c.id };
+}
+
+export type EstadoDaDesistencia = { estado: 'aguardando' | 'cancelado'; quando: string } | { estado: 'invalido' | 'limite'; quando?: undefined };
+
+/**
+ * Plano 23 (AG-D42, AG-D48, AG-D49, AG-D63): a pessoa nova desiste do pedido aguardando pelo link do e-mail, no contexto
+ * `publico` (que não lê a linha: tudo por `app_pedido_publico_desistir`, com o hash do token). `confirmar` falso (GET da
+ * página) só mostra e não gasta o limite; verdadeiro (o POST do botão) grava `desistido`, conta no limite por IP da página
+ * pública (`ip` = o balde, IPv6 /64) e avisa a nutricionista só quando a função diz que gravou agora ("Nova pessoa: {primeiro
+ * nome}"): F5, duplo clique e o leitor de link que reabre não repetem o aviso. Token fora do formato, consultório que não
+ * existe ou pedido que não aguarda (aceito, recusado, vencido) → `invalido`; POST além do limite por IP → `limite` (nada gravado).
+ */
+export async function desistirDoPedidoPublico(
+  slug: string,
+  token: string,
+  o: { confirmar: boolean; ip: string | null; agora?: Date; db?: Db; appUrl?: string },
+): Promise<EstadoDaDesistencia> {
+  const db = o.db ?? getDb();
+  const agora = o.agora ?? new Date();
+  if (o.confirmar && !(await consumirLimite(db, chaveDoLimite('ip', o.ip ?? 'desconhecido'), LIMITE_IP_HORA, 3600, agora))) return { estado: 'limite' };
+  const t = tokenDoPedido(token);
+  if (!t) return { estado: 'invalido' };
+  const tenant = await buscarTenantPorSlug(db, slug);
+  if (!tenant) return { estado: 'invalido' };
+  return withTenant(
+    { tenantId: tenant.id, role: 'publico', ip: o.ip },
+    async (tx): Promise<EstadoDaDesistencia> => {
+      const res = await tx.execute<{ estado: string; inicio: Date | string | null; gravou: boolean | null; primeiro_nome: string | null }>(
+        sql`select estado, inicio, gravou, primeiro_nome from app_pedido_publico_desistir(${sha256(t)}, ${o.confirmar})`,
+      );
+      const row = res.rows[0];
+      if (!row?.inicio || (row.estado !== 'aguardando' && row.estado !== 'cancelado')) return { estado: 'invalido' };
+      const inicio = new Date(row.inicio);
+      const quando = quandoComFuso(inicio, tenant.fuso);
+      const nome = row.primeiro_nome;
+      if (row.gravou && nome) {
+        const link = urlDoApp(o.appUrl ?? getEnv().APP_URL, '/painel/agenda');
+        await avisarNutri(tx, tenant.id, (para) => ({ tipo: 'aviso_agenda', para, evento: 'pedido_desistido', paciente: MSG_SOLICITACOES.novaPessoa(nome), quando, link }));
+      }
+      return { estado: row.estado, quando };
+    },
+    db,
+  );
 }
