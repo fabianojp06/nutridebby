@@ -9,9 +9,9 @@ import { escolherTema } from './painel';
 // três modos (o laço de acessibilidade-painel.spec.ts vê a caixa vazia do consultório principal) e o menu que quebra linha
 // sem cobrir o conteúdo. Bloco de IP deste spec (o limite de login é por IP; bloco do Plano 25, CH-D50): 10.9.25.1 a
 // 10.9.25.5 na T6a — nutricionista .1; T6b: .6 a .15 — a segunda paciente do chat .6, o painel sem JS .7. A T6c usa .16
-// em diante. Credenciais copiadas (importar o seed roda o seed).
+// em diante (T6c: .16 a .19 — a primeira paciente do chat no app .16). Credenciais copiadas (importar o seed roda o seed).
 const CHAT_NUTRI = { email: 'chat-nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
-const CHAT_PACIENTE = { nome: 'Paciente Chat E2E' };
+const CHAT_PACIENTE = { nome: 'Paciente Chat E2E', email: 'chat-paciente-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 // T6b: a segunda paciente do chat, com conta e sem a conversa liberada (scripts/e2e-seed.ts)
 const CHAT_PACIENTE_2 = { email: 'chat-paciente-2-e2e@nutridebby.test', senha: 'Nutri2026segura', nome: 'Paciente Chat Dois E2E' };
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
@@ -241,4 +241,74 @@ test('T6b: sem JavaScript, a conversa abre, mostra as mensagens e envia texto (R
   await expect(page).toHaveURL(new RegExp(`${url}$`));
   await expect(listaDeMensagens(page).getByText(texto)).toBeVisible();
   await semJs.close();
+});
+
+// ——— T6c: configuração e ficha ———
+
+test('T6c: "Atendimento por mensagens" pelo hub — erro de sobreposição junto à faixa, salvar e ver o resumo no app (T7)', async ({ browser }) => {
+  test.setTimeout(120_000);
+  await nutri.goto('/painel/configuracoes');
+  await nutri.getByRole('link', { name: /^Atendimento por mensagens/ }).click();
+  await expect(nutri).toHaveURL(/\/painel\/configuracoes\/mensagens$/);
+  await expect(nutri.getByRole('heading', { level: 1, name: 'Atendimento por mensagens' })).toBeVisible();
+  await nutri.waitForLoadState('networkidle'); // "Acrescentar faixa" é do cliente
+  await nutri.getByLabel('Mostrar horário de atendimento aos pacientes').check();
+  const segunda = nutri.getByRole('group', { name: 'Segunda' });
+  await segunda.getByRole('button', { name: 'Acrescentar faixa' }).click();
+  await segunda.getByLabel('Segunda, faixa 1, das').selectOption({ label: '09:00' });
+  await segunda.getByLabel('Segunda, faixa 1, às').selectOption({ label: '18:00' });
+  await segunda.getByRole('button', { name: 'Acrescentar faixa' }).click();
+  await segunda.getByLabel('Segunda, faixa 2, das').selectOption({ label: '17:00' });
+  await segunda.getByLabel('Segunda, faixa 2, às').selectOption({ label: '24:00' });
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(segunda.getByRole('alert')).toHaveText('As faixas do mesmo dia não podem se sobrepor.');
+  await expect(segunda.getByLabel('Segunda, faixa 2, das')).toHaveAttribute('aria-invalid', 'true');
+  // o que foi escolhido continua na tela; remove a faixa que sobrepõe e salva
+  await expect(segunda.getByLabel('Segunda, faixa 1, das')).toHaveValue('540');
+  await segunda.getByRole('button', { name: 'Remover faixa 2 de Segunda' }).click();
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri).toHaveURL(/\?ok=salva&r=[0-9a-f]{8}$/);
+  await expect(nutri.locator('main p[role="status"]')).toHaveText('Configuração salva.');
+  await expect(nutri.getByLabel('Segunda, faixa 1, às')).toHaveValue('1080');
+  // a paciente vê o resumo no app (/p/mensagens, T7)
+  const paciente = await entrarComo(browser, CHAT_PACIENTE.email, CHAT_PACIENTE.senha, '10.9.25.16');
+  await paciente.goto('/p/mensagens');
+  await expect(paciente.getByText(/^Horário de atendimento por mensagens: .*9h às 18h\.$/)).toBeVisible();
+  await paciente.context().close();
+});
+
+test('T6c: axe de "Atendimento por mensagens" com faixas e o erro na tela, nos três modos', async () => {
+  const falhas: string[] = [];
+  for (const [tema, aparelho] of [['Claro', 'light'], ['Escuro', 'light'], ['Igual ao aparelho', 'dark']] as const) {
+    await escolherTema(nutri, tema);
+    await nutri.emulateMedia({ colorScheme: aparelho });
+    await nutri.goto('/painel/configuracoes/mensagens');
+    await nutri.waitForLoadState('networkidle');
+    const segunda = nutri.getByRole('group', { name: 'Segunda' });
+    await segunda.getByRole('button', { name: 'Acrescentar faixa' }).click();
+    await segunda.getByLabel('Segunda, faixa 2, das').selectOption({ label: '10:00' });
+    await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await expect(segunda.getByRole('alert')).toBeVisible();
+    for (const v of await violacoes(nutri)) falhas.push(`${tema} /painel/configuracoes/mensagens — ${v}`);
+  }
+  await nutri.emulateMedia({ colorScheme: 'light' });
+  await escolherTema(nutri, 'Igual ao aparelho');
+  expect(falhas).toEqual([]);
+});
+
+test('T6c: a seção "Mensagens" no Início da ficha — "{n} não lidas", os itens sem o texto, "Ver todos" e "Enviar mensagem" em Outros', async () => {
+  await nutri.goto(`/painel/pacientes?busca=${encodeURIComponent(CHAT_PACIENTE_2.nome)}`);
+  await nutri.getByRole('link', { name: CHAT_PACIENTE_2.nome, exact: true }).click();
+  await expect(nutri).toHaveURL(new RegExp(`/painel/pacientes/${UUID}$`));
+  const id = /\/painel\/pacientes\/([0-9a-f-]{36})$/.exec(new URL(nutri.url()).pathname)![1];
+  const secao = nutri.locator('details').filter({ has: nutri.getByRole('heading', { name: /^Mensagens \(\d+ não lidas?\)$/ }) });
+  await expect(secao).toBeVisible();
+  await expect(secao.getByRole('link', { name: /^Mensagem (do paciente|enviada)/ }).first()).toBeVisible();
+  await expect(secao).not.toContainText('Pode me escrever por aqui');
+  await expect(secao.getByRole('link', { name: 'Ver todos: Mensagens' })).toHaveAttribute('href', `/painel/mensagens/${id}`);
+  await nutri.getByRole('button', { name: 'Adicionar ao prontuário' }).click();
+  const dialogo = nutri.getByRole('dialog', { name: 'Adicionar ao prontuário' });
+  await expect(dialogo.getByRole('heading', { name: 'Outros' })).toBeVisible();
+  await expect(dialogo.getByRole('link', { name: 'Enviar mensagem' })).toHaveAttribute('href', `/painel/mensagens/${id}`);
+  await nutri.keyboard.press('Escape');
 });

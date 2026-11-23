@@ -76,7 +76,7 @@ export async function ativarIaNutriAction(): Promise<void> {
     if (e instanceof IaNutriError) redirect('/painel/configuracoes?ia-nutri=indisponivel#ia-nutri-titulo');
     throw e;
   }
-  revalidatePath('/painel', 'layout'); // o menu ("Dúvidas dos pacientes") depende da ativação
+  revalidatePath('/painel', 'layout'); // as abas de Mensagens ("Dúvidas da IA Nutri") dependem da ativação
   redirect('/painel/configuracoes?ia-nutri=ativada#ia-nutri-titulo');
 }
 

@@ -120,12 +120,12 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 15: o aditivo 1.2 e a IA Nutri em Configurações (versão 8, com o passo da subseção); a 1.2 não invalida autorização nenhuma', () => {
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
-    expect(config.versao).toBe(8);
+    expect(config.versao).toBeGreaterThanOrEqual(8); // 9 desde o Plano 25 (abaixo)
     const ia = config.ajuda.secoes.find((s) => s.titulo === 'Inteligência artificial (IA)')!.itens;
     expect(ia).toContain(
       'O aditivo está na versão 1.2, que inclui o resumo do histórico, o rascunho de plano alimentar e a IA Nutri para pacientes. Quem aceitou a versão 1.1 continua usando a leitura de laudos, o resumo, o rascunho e os modelos; só a IA Nutri pede o aceite da 1.2 ("Aceitar a versão atual").',
     );
-    expect(ia).toContain('IA Nutri para pacientes: ative em Configurações, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas dos pacientes".');
+    expect(ia).toContain('IA Nutri para pacientes: ative em Configurações, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas da IA Nutri".'); // Plano 25 (CH-D45): o nome novo da fila
     expect(ia.join(' ')).not.toContain('A autorização que o paciente deu na versão anterior também não vale mais');
     expect(ia.join(' ')).not.toContain('versão 1.1, que inclui');
     expect(config.passos.map((p) => p.alvo)).toContain('ia-nutri-secao');
@@ -281,6 +281,30 @@ describe('conteúdo do manual (P08-10)', () => {
     const textos = [g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)].join(' ');
     expect(textos).toContain('TCLE de telenutrição');
     expect(textos).not.toMatch(/CRN CRN/);
+  });
+  it('Plano 25 (T6c): o guia "configuracoes-mensagens" (versão 1) casa com a tela antes do genérico; "configuracoes" 8 → 9 cita o cartão e as mensagens', () => {
+    const g = GUIAS.find((x) => x.id === 'configuracoes-mensagens')!;
+    expect(g.versao).toBe(1);
+    expect(g.titulo).toBe('Atendimento por mensagens');
+    expect(guiaDaRota('/painel/configuracoes/mensagens')?.id).toBe('configuracoes-mensagens');
+    expect(guiaDaRota('/painel/configuracoes')?.id).toBe('configuracoes');
+    expect(guiaDaRota('/painel/configuracoes/perfil')?.id).toBe('configuracoes');
+    expect(GUIAS.findIndex((x) => x.id === 'configuracoes-mensagens')).toBeLessThan(GUIAS.findIndex((x) => x.id === 'configuracoes'));
+    expect(g.passos.map((p) => p.alvo)).toEqual(['mensagens-horario', 'mensagens-faixas', 'mensagens-24h', 'mensagens-aviso-email']);
+    const textos = [g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)].join(' ');
+    expect(textos).toContain('24:00');
+    expect(textos).toContain('2 horas');
+    expect(textos).not.toMatch(/próximo horário|em até \d/); // CH-D73: sem prometer prazo de leitura
+    const config = GUIAS.find((x) => x.id === 'configuracoes')!;
+    expect(config.versao).toBe(9);
+    expect(config.passos.find((p) => p.alvo === 'cartoes-configuracoes')?.texto).toContain('"Atendimento por mensagens"');
+    expect(config.ajuda.resumo).toContain('mensagens');
+    expect(config.ajuda.resumo).toContain('"Dúvidas da IA Nutri"');
+  });
+  it('Plano 25 (CH-D45): nenhum guia nem o aviso de ativação da IA Nutri chamam a fila de "Dúvidas dos pacientes"', () => {
+    const textos = GUIAS.flatMap((g) => [g.titulo, g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.flatMap((p) => [p.titulo, p.texto])]);
+    expect(textos.filter((t) => t.includes('Dúvidas dos pacientes'))).toEqual([]);
+    expect(readFileSync('src/modules/ia/nutri-paciente/constantes.ts', 'utf8')).not.toMatch(/fila "Dúvidas dos pacientes"/);
   });
   it('Plano 25 (CH-D45): o guia da fila de dúvidas com o nome "Dúvidas da IA Nutri", sem subir a versão (sobe na T9, CH-D55)', () => {
     const g = GUIAS.find((x) => x.id === 'duvidas')!;

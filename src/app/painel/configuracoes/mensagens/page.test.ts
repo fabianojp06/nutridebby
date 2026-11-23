@@ -1,0 +1,159 @@
+import { readFileSync } from 'node:fs';
+import { eq } from 'drizzle-orm';
+import { createElement, type ReactElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { afterAll, describe, expect, inject, it, vi } from 'vitest';
+import { makeDb } from '../../../../../test/db';
+import { consultorioDoChat } from '../../../../../test/mensagens';
+import type { TenantDeTeste } from '../../../../../test/pacientes';
+import { closeDb, getDb } from '@/db/client';
+import { tenants } from '@/db/schema';
+import { MSG_MENSAGENS } from '@/modules/mensagens/constantes';
+import { lerConfiguracao } from '@/modules/mensagens/horario';
+
+// Plano 25, T6c (US-446, RN-451, RN-472, §6.2 "Configuração", §7.5): a tela "Atendimento por mensagens", com o banco de
+// verdade; só a sessão e o runtime do Next simulados.
+const sessao = vi.hoisted(() => ({ atual: null as unknown }));
+const cache = vi.hoisted(() => ({ revalidatePath: vi.fn() }));
+vi.mock('server-only', () => ({}));
+vi.mock('@/lib/tenant-session', () => ({ requireNutri: vi.fn(async () => sessao.atual) }));
+vi.mock('next/cache', () => cache);
+vi.mock('next/navigation', () => ({
+  redirect: (url: string) => {
+    throw new Error(`redirect ${url}`);
+  },
+  notFound: () => {
+    throw new Error('notFound');
+  },
+}));
+const { default: Configuracao } = await import('./page');
+const { salvarHorarioAction } = await import('./actions');
+const { FormularioDoHorario } = await import('./horario-form');
+
+const db = getDb();
+const owner = makeDb(inject('ownerDatabaseUrl'));
+afterAll(async () => {
+  await closeDb();
+  await owner.pool.end();
+});
+const C = MSG_MENSAGENS.configuracao;
+
+async function consultorio(): Promise<TenantDeTeste> {
+  const T = await consultorioDoChat(db, owner.pool);
+  const [tenant] = await db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+  sessao.atual = { ctx: T.ctx, tenant };
+  return T;
+}
+const html = (el: unknown) => renderToStaticMarkup(el as ReactElement);
+const tela = async (busca: Record<string, string> = {}) => html(await Configuracao({ searchParams: Promise.resolve(busca) } as never));
+const form = (pares: [string, string][]) => {
+  const f = new FormData();
+  for (const [k, v] of pares) f.append(k, v);
+  return f;
+};
+const erro = (p: Promise<unknown>) => p.then(() => null, (e: Error) => e.message);
+const fieldset = (h: string, dia: string) => new RegExp(`<fieldset[^>]*>\\s*<legend[^>]*>${dia}</legend>[\\s\\S]*?</fieldset>`).exec(h)?.[0] ?? '';
+
+describe('/painel/configuracoes/mensagens (US-446)', () => {
+  it('h1, as duas chaves no topo (padrões sem linha: horário desligado, aviso ligado), um <fieldset> com <legend> por dia e "Salvar"', async () => {
+    await consultorio();
+    const h = await tela();
+    expect(h).toMatch(new RegExp(`<h1[^>]*>${C.titulo}</h1>`));
+    expect(h).toMatch(/<input(?=[^>]*type="checkbox")(?=[^>]*name="horario")(?![^>]*checked)[^>]*>/);
+    expect(h).toContain(C.mostrarHorario);
+    expect(h).toMatch(/<input(?=[^>]*type="checkbox")(?=[^>]*name="aviso")(?=[^>]*checked="")[^>]*>/);
+    expect(h).toContain(C.avisoEmail);
+    // a ajuda do aviso ligada ao campo
+    const idAjuda = new RegExp(`<p[^>]*id="([^"]+)"[^>]*>${C.ajudaAviso}</p>`).exec(h)?.[1];
+    expect(idAjuda).toBeTruthy();
+    expect(h).toMatch(new RegExp(`<input(?=[^>]*name="aviso")(?=[^>]*aria-describedby="${idAjuda}")[^>]*>`));
+    for (const dia of C.dias) expect(fieldset(h, dia), dia).toBeTruthy();
+    expect(h.match(/<fieldset/g)?.length).toBe(7);
+    expect(h.match(new RegExp(`>${C.acrescentarFaixa}</button>`, 'g'))?.length).toBe(7);
+    expect(h).toContain(`>${C.salvar}</button>`);
+    expect(h).toMatch(/<p(?=[^>]*role="status")[^>]*><\/p>/);
+  });
+
+  it('cada faixa: "Das"/"Às" em <select> de 15 em 15 min com "24:00" no fim e o nome acessível completo; "Remover faixa {k} de {dia}"', () => {
+    const h = html(
+      createElement(FormularioDoHorario, {
+        inicial: { horarioAtivo: true, avisoEmail: true, faixas: [{ diaSemana: 1, inicioMin: 540, fimMin: 720 }, { diaSemana: 1, inicioMin: 840, fimMin: 1440 }] },
+      }),
+    );
+    const segunda = fieldset(h, 'Segunda');
+    const selects = [...segunda.matchAll(/<select[^>]*>[\s\S]*?<\/select>/g)].map((m) => m[0]);
+    expect(selects).toHaveLength(4);
+    expect(selects[0]).toMatch(/aria-label="Segunda, faixa 1, das"/);
+    expect(selects[1]).toMatch(/aria-label="Segunda, faixa 1, às"/);
+    expect(selects[3]).toMatch(/aria-label="Segunda, faixa 2, às"/);
+    const opcoes = [...selects[0].matchAll(/<option[^>]*value="(\d+)"[^>]*>([^<]*)<\/option>/g)].map((m) => [m[1], m[2]]);
+    expect(opcoes).toHaveLength(97);
+    expect(opcoes[0]).toEqual(['0', '00:00']);
+    expect(opcoes[1]).toEqual(['15', '00:15']);
+    expect(opcoes.at(-1)).toEqual(['1440', '24:00']);
+    expect(selects[0]).toMatch(/<option[^>]*value="540"[^>]*selected=""/);
+    expect(selects[3]).toMatch(/<option[^>]*value="1440"[^>]*selected=""/);
+    expect(segunda).toMatch(new RegExp(`<label[^>]*>${C.das}</label>`));
+    expect(segunda).toMatch(new RegExp(`<label[^>]*>${C.as}</label>`));
+    expect(segunda).toMatch(/<button(?=[^>]*type="button")(?=[^>]*aria-label="Remover faixa 2 de Segunda")[^>]*>Remover faixa<\/button>/);
+    expect(fieldset(h, 'Domingo')).not.toContain('<select');
+  });
+
+  it('salvar: grava e volta com "Configuração salva." na região de status; a tela mostra o que foi gravado', async () => {
+    const T = await consultorio();
+    const r = await erro(salvarHorarioAction(null, form([['horario', 'sim'], ['inicio-1', '540'], ['fim-1', '720'], ['inicio-1', '840'], ['fim-1', '1440'], ['inicio-5', '480'], ['fim-5', '600']])));
+    expect(r).toMatch(/^redirect \/painel\/configuracoes\/mensagens\?ok=salva&r=[0-9a-f]{8}$/);
+    expect(cache.revalidatePath).toHaveBeenCalled();
+    expect(await lerConfiguracao(T.ctx, db)).toEqual({
+      horarioAtivo: true,
+      avisoEmail: false,
+      faixas: [
+        { diaSemana: 1, inicioMin: 540, fimMin: 720 },
+        { diaSemana: 1, inicioMin: 840, fimMin: 1440 },
+        { diaSemana: 5, inicioMin: 480, fimMin: 600 },
+      ],
+    });
+    const h = await tela({ ok: 'salva', r: 'abcdef01' });
+    expect(h).toMatch(new RegExp(`<p(?=[^>]*role="status")[^>]*>${C.salva}</p>`));
+    expect(h).toMatch(/<input(?=[^>]*name="horario")(?=[^>]*checked="")[^>]*>/);
+    expect(h).toMatch(/<input(?=[^>]*name="aviso")(?![^>]*checked)[^>]*>/);
+    expect(fieldset(h, 'Segunda').match(/<select/g)).toHaveLength(4);
+    expect(await tela({ ok: 'outra' })).toMatch(/<p(?=[^>]*role="status")[^>]*><\/p>/);
+  });
+
+  it('os erros exatos junto à faixa (aria-describedby, aria-invalid), com as faixas enviadas de volta; nada gravado', async () => {
+    const T = await consultorio();
+    const casos: [[string, string][], string, string][] = [
+      [[['inicio-2', '720'], ['fim-2', '540']], C.fimAntesDoInicio, 'Terça, faixa 1, das'],
+      [[['inicio-2', '540'], ['fim-2', '720'], ['inicio-2', '600'], ['fim-2', '900']], C.sobreposicao, 'Terça, faixa 2, das'],
+      [[['inicio-3', '0'], ['fim-3', '60'], ['inicio-3', '120'], ['fim-3', '180'], ['inicio-3', '240'], ['fim-3', '300'], ['inicio-3', '360'], ['fim-3', '420']], C.faixasDemais, 'Quarta, faixa 4, das'],
+    ];
+    for (const [pares, mensagem, rotulo] of casos) {
+      const estado = await salvarHorarioAction(null, form([['aviso', 'sim'], ...pares]));
+      expect(estado, mensagem).toMatchObject({ erro: { mensagem } });
+      const h = html(createElement(FormularioDoHorario, { inicial: { horarioAtivo: false, avisoEmail: true, faixas: [] }, estadoInicial: estado }));
+      const id = new RegExp(`<p(?=[^>]*id="([^"]+)")(?=[^>]*role="alert")[^>]*>${mensagem}</p>`).exec(h)?.[1];
+      expect(id, mensagem).toBeTruthy();
+      expect(h).toMatch(new RegExp(`<select(?=[^>]*aria-label="${rotulo}")(?=[^>]*aria-describedby="${id}")(?=[^>]*aria-invalid="true")[^>]*>`));
+    }
+    expect(await lerConfiguracao(T.ctx, db)).toEqual({ horarioAtivo: false, avisoEmail: true, faixas: [] });
+  });
+
+  it('valor que o formulário não produz (fora do passo de 15 min, texto) é recusado sem gravar', async () => {
+    const T = await consultorio();
+    expect(await erro(salvarHorarioAction(null, form([['inicio-1', '545'], ['fim-1', '720']])))).toMatch(/faixa inválida/);
+    expect(await erro(salvarHorarioAction(null, form([['inicio-1', 'abc'], ['fim-1', '720']])))).toMatch(/faixa inválida/);
+    expect(await lerConfiguracao(T.ctx, db)).toEqual({ horarioAtivo: false, avisoEmail: true, faixas: [] });
+  });
+
+  it('o hub: o cartão "Atendimento por mensagens" no fim de CARTOES; page e action com requireNutri', () => {
+    const hub = readFileSync('src/app/painel/configuracoes/page.tsx', 'utf8');
+    const cartoes = /const CARTOES = \[([\s\S]*?)\];/.exec(hub)?.[1] ?? '';
+    const linhas = cartoes.split('\n').filter((l) => l.includes('href:'));
+    expect(linhas.at(-1)).toContain("'/painel/configuracoes/mensagens'");
+    expect(linhas.at(-1)).toMatch(/MSG_MENSAGENS\.configuracao\.hubTitulo/);
+    expect(linhas.at(-1)).toMatch(/MSG_MENSAGENS\.configuracao\.hubDescricao/);
+    expect(readFileSync('src/app/painel/configuracoes/mensagens/page.tsx', 'utf8')).toMatch(/requireNutri\(/);
+    expect(readFileSync('src/app/painel/configuracoes/mensagens/actions.ts', 'utf8')).toMatch(/requireNutri\(/);
+  });
+});

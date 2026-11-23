@@ -38,6 +38,8 @@ const IMPORTS_PERMITIDOS = [
   'drizzle-orm/pg-core',
   // só o `idValido` (NOMES_PERMITIDOS, abaixo)
   '@/modules/pacientes/base',
+  // Plano 25 (mensagens.ts): os rótulos da seção e o "{n} não lidas" — constantes puras, sem banco nem auditoria
+  '@/modules/mensagens/constantes',
 ];
 /**
  * Módulos da lista em que só alguns nomes podem vir (o resto do módulo fica fora): de `pacientes/base`, só o `idValido`
@@ -75,7 +77,8 @@ describe('registro de seções (RN-277, RN-278)', () => {
       'Exames enviados pelo paciente',
       'Documentos',
     ]);
-    expect(SECOES_18.map((s) => s.titulo)).toEqual(Object.values(MSG_FICHA.titulos));
+    // Plano 25: as seções de outros planos também tiram o título de MSG_FICHA.titulos (na ordem do registro)
+    expect(SECOES_DA_FICHA.map((s) => s.titulo)).toEqual(Object.values(MSG_FICHA.titulos));
   });
 
   it('a lista de nomes por módulo pega o que vier além do permitido (controle da guarda)', () => {

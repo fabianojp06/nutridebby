@@ -395,12 +395,38 @@ export const GUIAS: readonly Guia[] = [
     ],
   },
   {
+    id: 'configuracoes-mensagens',
+    versao: 1, // Plano 25 (T6c): antes do genérico `configuracoes`, como /painel/agenda/horarios antes da agenda
+    padrao: /^\/painel\/configuracoes\/mensagens$/,
+    titulo: 'Atendimento por mensagens',
+    ajuda: {
+      resumo: 'O horário em que você atende por mensagens e o aviso por e-mail quando um paciente escreve. O horário só informa o paciente: ele pode escrever a qualquer hora, e a mensagem fica guardada.',
+      secoes: [
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Com "Mostrar horário de atendimento aos pacientes" ligado, o app mostra o seu horário e, fora dele, avisa que a mensagem será lida quando você voltar ao atendimento por mensagens.',
+            'Cada dia aceita até 3 faixas, sem sobrepor. Para atender até a meia-noite, escolha 24:00 em "Às".',
+            'O aviso por e-mail chega no máximo a cada 2 horas, sem nome de paciente nem o texto da mensagem, e não sai fora do horário de mensagens.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'mensagens-horario', titulo: 'Mostrar o horário', texto: 'Ligue para o app mostrar ao paciente o seu horário de atendimento por mensagens. Desligado, as faixas ficam guardadas.' },
+      { alvo: 'mensagens-faixas', titulo: 'Faixas por dia', texto: 'Em cada dia, toque em "Acrescentar faixa" e escolha "Das" e "Às", de 15 em 15 minutos. Até 3 faixas por dia, sem sobrepor.' },
+      { alvo: 'mensagens-24h', titulo: 'Até a meia-noite', texto: 'O último horário de "Às" é 24:00: a faixa vai até o fim do dia.' },
+      { alvo: 'mensagens-aviso-email', titulo: 'Aviso por e-mail', texto: 'Com o aviso ligado, você recebe um e-mail quando chega mensagem de paciente, no máximo a cada 2 horas e sem o texto.' },
+    ],
+  },
+  {
     id: 'configuracoes',
-    versao: 8, // Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
+    // 9 = Plano 25: o cartão "Atendimento por mensagens" e a fila "Dúvidas da IA Nutri" (sobe +1 sobre a da main no rebase)
+    versao: 9, // Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
-      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança e o tema do painel.',
+      resumo: 'Perfil e marca, dados para documentos, horários, atendimento por mensagens, WhatsApp, alimentos, modelos, segurança e o tema do painel. As dúvidas da IA Nutri para pacientes chegam à fila "Dúvidas da IA Nutri", em Mensagens.',
       secoes: [
         { titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] },
         {
@@ -420,19 +446,19 @@ export const GUIAS: readonly Guia[] = [
             'Antes de usar a IA com um paciente, peça a autorização dele (aba Privacidade do paciente, "Uso de IA"): pelo app, pelo link do e-mail ou pelo termo em papel. Recusar ou retirar não muda nada no atendimento, e a retirada vale na hora.',
             'O uso do mês aparece em porcentagem do limite do consultório; com 80% você recebe um aviso, e em 100% a IA para até o dia 1º.',
             'Modelos sugeridos pela IA: escolha a área e a IA prepara 2 modelos de plano e 1 de anamnese com os alimentos da sua tabela, sem nenhum dado de paciente.',
-            'IA Nutri para pacientes: ative em Configurações, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas dos pacientes".',
+            'IA Nutri para pacientes: ative em Configurações, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas da IA Nutri".',
           ],
         },
       ],
     },
     passos: [
-      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório.' },
+      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório, como o horário e os avisos das mensagens em "Atendimento por mensagens".' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
       { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas e dos pareceres. Mudar depois não altera documento já preparado.' },
       // Plano 14B: a seção só aparece com a IA ativa no consultório; sem ela, o passo abre no centro, sem destaque (como o de cima)
       { alvo: 'modelos-ia', titulo: 'Modelos sugeridos pela IA', texto: 'Com a IA ativa, escolha a área e clique em "Gerar modelos": a IA prepara 2 modelos de plano e 1 de anamnese, sem nenhum dado de paciente. Revise e aprove cada um antes de usar com pacientes.' },
       // Plano 15: a subseção só aparece com a IA ativa no consultório (como a dos modelos)
-      { alvo: 'ia-nutri-secao', titulo: 'IA Nutri para pacientes', texto: 'Com a IA ativa, a IA Nutri responde dúvidas dos pacientes sobre o plano publicado. Ative aqui, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas dos pacientes".' },
+      { alvo: 'ia-nutri-secao', titulo: 'IA Nutri para pacientes', texto: 'Com a IA ativa, a IA Nutri responde dúvidas dos pacientes sobre o plano publicado. Ative aqui, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas da IA Nutri".' },
     ],
   },
   {

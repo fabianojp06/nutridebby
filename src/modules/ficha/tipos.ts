@@ -60,6 +60,11 @@ export type SecaoDaFicha = {
   leitura?: { entidade: string };
   /** Lista: Documentos tem Receita e Parecer nutricional. */
   adicionar?: readonly EntradaDoAdicionar[];
+  /**
+   * Plano 25 (§4.4): o rótulo do total no título ("Mensagens (2 não lidas)"), quando o total não é o número de registros (a
+   * seção "Mensagens" conta as não lidas). Sem ele, "{Título} ({n})".
+   */
+  rotuloDoTotal?: (total: number) => string;
   /** O que o paciente vê no app, contado no contexto de paciente (Tarefa 9). */
   noApp?: {
     contar(tx: TxDePaciente, patientId: string): Promise<number>;

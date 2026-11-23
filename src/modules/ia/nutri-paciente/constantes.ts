@@ -104,7 +104,7 @@ export const MSG_IA_NUTRI = {
   ativar: 'Ativar a IA Nutri para pacientes',
   avisoAtivar: 'A IA Nutri responde dúvidas dos pacientes sobre o plano publicado e as suas orientações. Ela não faz diagnóstico, não muda o plano e não indica suplementos ou remédios. Libere paciente por paciente.',
   // novo (US-170, D7, D11): o que a ativação liga e o que se espera da nutricionista — mostrado antes do botão de ativar
-  avisoAtivacaoFila: 'Ao ativar: a ficha de cada paciente liberado ganha a aba "IA Nutri", onde você lê as conversas dele; as dúvidas que os pacientes enviarem e as mensagens com sinal de risco chegam à fila "Dúvidas dos pacientes", com as de risco no topo e um e-mail de aviso; o consultório não precisa responder em tempo real, mas deve abrir a fila com frequência e seguir o protocolo do "Sinal de risco".',
+  avisoAtivacaoFila: 'Ao ativar: a ficha de cada paciente liberado ganha a aba "IA Nutri", onde você lê as conversas dele; as dúvidas que os pacientes enviarem e as mensagens com sinal de risco chegam à fila "Dúvidas da IA Nutri", com as de risco no topo e um e-mail de aviso; o consultório não precisa responder em tempo real, mas deve abrir a fila com frequência e seguir o protocolo do "Sinal de risco".',
   // novo — texto FINAL a partir da D11, publicado pelo dono sem a psicóloga (DP-18, ★ DO-2 trocada, D37); quando ela
   // reescrever, um PR curto troca as linhas (texto da equipe: não muda a versão do consentimento)
   protocoloRisco: [

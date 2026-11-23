@@ -103,4 +103,22 @@ describe('seção do Início (spec §8.3)', () => {
     expect(links.length).toBeGreaterThanOrEqual(2); // os itens e o "Ver todos"
     for (const l of links) expect(l).toContain('prefetch={false}');
   });
+  it('Plano 25 (§4.4): com rotuloDoTotal, o título leva o rótulo ("Mensagens (2 não lidas)"); com 0 não lidas e mensagens, os itens aparecem', () => {
+    const MENSAGENS: SecaoNoInicio = {
+      id: 'mensagens',
+      titulo: 'Mensagens',
+      aba: '',
+      verTodos: `/painel/mensagens/${PACIENTE}`,
+      podeAdicionar: true,
+      rotuloDoTotal: '2 não lidas',
+      resumo: { total: 2, ultimos: [{ id: 'm1', rotulo: 'Mensagem do paciente', data: '2026-11-12', situacao: 'Sinal de risco', noApp: false, href: `/painel/mensagens/${PACIENTE}` }] },
+    };
+    const h = html(MENSAGENS);
+    expect(summary(h)).toContain('>Mensagens (2 não lidas)</h3>');
+    expect(h).toContain(`href="/painel/mensagens/${PACIENTE}"`);
+    const zero = html({ ...MENSAGENS, rotuloDoTotal: '0 não lidas', resumo: { ...MENSAGENS.resumo, total: 0 } });
+    expect(summary(zero)).toContain('>Mensagens (0 não lidas)</h3>');
+    expect(zero).toContain('Mensagem do paciente');
+    expect(zero).toMatch(/<details[^>]*open=""/);
+  });
 });

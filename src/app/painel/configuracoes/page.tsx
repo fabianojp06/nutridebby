@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
+import { MSG_MENSAGENS } from '@/modules/mensagens/constantes';
 import { ehTema } from '@/modules/plataforma/preferencias-tipos';
 import { ExamesSecao } from './exames-secao';
 import { IaSecao } from './ia-secao';
@@ -16,6 +17,7 @@ const CARTOES = [
   { href: '/painel/planos/modelos', titulo: 'Modelos de plano', texto: 'Planos prontos para começar mais rápido.' },
   { href: '/painel/anamnese/modelos', titulo: 'Modelos de anamnese', texto: 'Perguntas da primeira consulta.' },
   { href: '/conta/seguranca', titulo: 'Segurança', texto: 'Senha e verificação em duas etapas.' },
+  { href: '/painel/configuracoes/mensagens', titulo: MSG_MENSAGENS.configuracao.hubTitulo, texto: MSG_MENSAGENS.configuracao.hubDescricao }, // Plano 25 (US-446)
 ];
 
 /** D20: hub de Configurações. */
