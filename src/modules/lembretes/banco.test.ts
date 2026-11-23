@@ -9,7 +9,8 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 
 /**
  * Plano 17 (spec §5.3, §5.5): o banco confere quem muda o quê nos lembretes de rotina — gatilhos lembretes_rotina_regras,
- * lembretes_rotina_envios_do_worker e patients_lembretes_do_paciente, e a lista de colunas do paciente (paciente_colunas), 0119.
+ * lembretes_rotina_envios_do_worker e patients_lembretes_do_paciente, e a lista de colunas do paciente (paciente_colunas), 0119;
+ * o DELETE da marca de envio (TRI-17-20 #5).
  */
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -207,6 +208,38 @@ describe('lembretes_rotina_envios: a marca do último envio (Plano 17, §5.5)', 
     // apagar o lembrete leva a marca junto (ON DELETE CASCADE)
     await em(T.ctx, (tx) => tx.delete(lembretesRotina).where(eq(lembretesRotina.id, agua.id)));
     expect(await em(worker, (tx) => tx.select().from(lembretesRotinaEnvios))).toEqual([]);
+  });
+
+  it('a equipe não apaga a marca; o worker e a cascata do lembrete apagam (TRI-17-20 #5)', async () => {
+    const { T, p, comoPaciente, worker, em, criar, lembrete } = await cenario();
+    const agua = await criar();
+    const supl = await criar({ tipo: 'suplemento', config: HORARIOS, texto: 'Vitamina D' });
+    const marcar = (id: string) =>
+      em(worker, (tx) => tx.insert(lembretesRotinaEnvios).values({ lembreteId: id, tenantId: T.tenantId, patientId: p.id, ultimoSlotEm: new Date() }));
+    const marcas = () => em(worker, (tx) => tx.select({ id: lembretesRotinaEnvios.lembreteId }).from(lembretesRotinaEnvios));
+    await marcar(agua.id);
+    await marcar(supl.id);
+
+    // apagar a marca reabriria o slot (o push sairia de novo)
+    expect(await falhaCom(em(T.ctx, (tx) => tx.delete(lembretesRotinaEnvios).where(eq(lembretesRotinaEnvios.lembreteId, agua.id))))).toBe('42501');
+    expect(await falhaCom(em(T.ctx, (tx) => tx.execute(sql`delete from lembretes_rotina_envios`)))).toBe('42501');
+    expect(await marcas()).toHaveLength(2);
+
+    // o worker apaga
+    expect((await em(worker, (tx) => tx.delete(lembretesRotinaEnvios).where(eq(lembretesRotinaEnvios.lembreteId, agua.id)).returning())).length).toBe(1);
+    await marcar(agua.id);
+
+    // a equipe apaga o lembrete e a marca sai junto (ON DELETE CASCADE)
+    await em(T.ctx, (tx) => tx.delete(lembretesRotina).where(eq(lembretesRotina.id, agua.id)));
+    expect(await marcas()).toEqual([{ id: supl.id }]);
+
+    // exclusão atendida (lgpd.ts): o paciente desligou, o titular vai a `bloqueado` e a equipe apaga — a marca sai em cascata
+    await lembrete(comoPaciente, supl.id, { desligadoPeloPacienteEm: new Date() });
+    await em(T.ctx, async (tx) => {
+      await tx.update(patients).set({ status: 'bloqueado', bloqueadoEm: new Date() }).where(eq(patients.id, p.id));
+      await tx.delete(lembretesRotina).where(eq(lembretesRotina.patientId, p.id));
+    });
+    expect(await marcas()).toEqual([]);
   });
 
   it('escrita da equipe vira audit_log', async () => {

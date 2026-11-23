@@ -48,7 +48,8 @@ export type LembreteRotinaRow = typeof lembretesRotina.$inferSelect;
 /**
  * Plano 17 (§5.5): a marca do último slot enviado, uma linha por lembrete, atualizada no lugar — escrita só pelo worker
  * (gatilho lembretes_rotina_envios_do_worker, 0119), STAFF_ONLY e sem gatilho de auditoria (AUDIT_EXCEPTIONS: cada push
- * viraria uma linha de audit_log). Sai junto com o lembrete (ON DELETE CASCADE).
+ * viraria uma linha de audit_log). Apagada só pelo worker ou junto com o lembrete (ON DELETE CASCADE; gatilho
+ * lembretes_rotina_envios_sem_apagar, TRI-17-20 #5).
  */
 export const lembretesRotinaEnvios = pgTable(
   'lembretes_rotina_envios',
