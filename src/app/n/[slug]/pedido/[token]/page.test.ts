@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const desistir = vi.hoisted(() => vi.fn());
 vi.mock('@/modules/agenda/agendamento-publico', () => ({ desistirDoPedidoPublico: desistir }));
 vi.mock('@serwist/turbopack', () => ({ withSerwist: <T,>(c: T) => c })); // só a configuração do Next
+vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'x-forwarded-for': '198.51.100.23' }) }));
+vi.mock('@/env', () => ({ getEnv: () => ({ TRUSTED_PROXIES: [] }) }));
 
 const { default: PaginaDoPedido } = await import('./page');
 const { default: nextConfig } = await import('../../../../../../next.config');
@@ -39,6 +41,14 @@ describe('/n/[slug]/pedido/[token]', () => {
     expect(i).not.toContain('<form');
     desistir.mockResolvedValue({ estado: 'aguardando', quando: QUANDO });
     expect(await render({ erro: 'limite' })).toContain('Muitas tentativas. Tente novamente mais tarde.');
+  });
+
+  it('revisão da T7 (M3): acima do limite, só a mensagem de limite, sem formulário', async () => {
+    desistir.mockResolvedValue({ estado: 'limite' });
+    const html = await render();
+    expect(desistir).toHaveBeenCalledWith('debby', TOKEN, expect.objectContaining({ confirmar: false }));
+    expect(html).toContain('Muitas tentativas. Tente novamente mais tarde.');
+    expect(html).not.toContain('<form');
   });
 
   it('next.config.ts: no-referrer + no-store na página e na rota do token, depois da regra /:path* (AG-D71)', async () => {

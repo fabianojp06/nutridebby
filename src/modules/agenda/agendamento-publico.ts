@@ -102,6 +102,8 @@ const MAX_ERROS_CODIGO = 5;
 const LIMITE_IP_HORA = 10;
 const LIMITE_EMAIL_HORA = 5;
 const INTERVALO_CODIGO_MS = 60_000;
+/** Plano 23 (revisão da T7, M3): aberturas da página do link de desistência por IP e hora (balde próprio, não o do botão). */
+const LIMITE_LINK_PEDIDO_HORA = 30;
 /** O token do pedido é `randomToken()` (32 bytes em base64url). */
 const TOKEN_PEDIDO = /^[A-Za-z0-9_-]{43}$/;
 
@@ -458,7 +460,9 @@ export async function escolherOutroHorario(slug: string, input: Record<string, u
 /**
  * Diário (agenda-limpeza, 04:30): LGPD (minimização). Plano 23 (RN-429, AG-D21): o pedido sem aguardar (sem código, ou o
  * concluído na hora) some 24 h depois da criação, como antes; o da pessoa nova, 24 h depois da resposta (`resolvido_em`:
- * aceito, recusado, vencido ou desistido); o aguardando nunca pelas 24 h da criação.
+ * aceito, recusado, vencido ou desistido); o aguardando nunca pelas 24 h da criação. Rede (revisão da T7): o aguardando
+ * nunca resolvido cujo horário passou há mais de 24 h também sai — a frase do ponto de coleta vale mesmo se o vencimento
+ * (`vencerSolicitacoes`) falhar sempre.
  */
 export async function limparPedidosPublicos(db: Db, agora: Date): Promise<number> {
   const limite = new Date(agora.getTime() - 86_400_000);
@@ -473,6 +477,7 @@ export async function limparPedidosPublicos(db: Db, agora: Date): Promise<number
             or(
               and(isNull(publicBookingRequests.aguardandoDesde), lt(publicBookingRequests.createdAt, limite)),
               and(isNotNull(publicBookingRequests.resolvidoEm), lt(publicBookingRequests.resolvidoEm, limite)),
+              and(isNotNull(publicBookingRequests.aguardandoDesde), isNull(publicBookingRequests.resolvidoEm), lt(publicBookingRequests.inicio, limite)),
             ),
           )
           .returning({ id: publicBookingRequests.id }),
@@ -492,10 +497,18 @@ export async function limparPedidosPublicos(db: Db, agora: Date): Promise<number
  * o aceite do termo (versão, momento da verificação e IP do pedido; CLAUDE.md regra 1) e a consulta `agendada` (origem
  * `paciente`; num local online, o gatilho appointments_link_da_sala copia a sala). Horário tomado no meio (23P01) →
  * "Esse horário já está ocupado…" (tudo desfeito). O pedido fica concluído e `aceito` (RN-429: some 24 h depois).
+ * O aceite do termo (D13) vale também para o e-mail que já é de paciente ativo: quem provou o código aceitou o termo na
+ * página (revisão da T7, M1); o opt-in do WhatsApp do pedido só entra no cadastro novo.
+ * Revisão da T7 (M4): confere no banco o papel da sessão (`nutri`, senão erro antes de qualquer trava) e usa o consultório
+ * da sessão (`app_current_tenant()`) para a trava e as gravações; `tenant` de outro consultório é recusado.
  */
 export async function aceitarPedidoPublico(tx: Tx, tenant: TenantAgenda, pedidoId: string, o: { agora: Date; appUrl: string }): Promise<{ appointmentId: string }> {
+  const [sessao] = (await tx.execute<{ papel: string | null; tenant: string | null }>(sql`select app_current_role() as papel, app_current_tenant()::text as tenant`)).rows;
+  if (sessao?.papel !== 'nutri' || !sessao.tenant) throw new Error('agenda: só a sessão nutri');
+  if (sessao.tenant !== tenant.id) throw new Error('agenda: consultório diferente do da sessão');
+  const tenantId = sessao.tenant;
   if (!idValido(pedidoId)) throw new PedidoMudouError();
-  await travarPedidosDoTenant(tx, tenant.id);
+  await travarPedidosDoTenant(tx, tenantId);
   const [r] = await tx.select().from(publicBookingRequests).where(eq(publicBookingRequests.id, pedidoId)).for('update');
   if (!r || !r.aguardandoDesde || r.resolvidoEm || !r.fim || !r.localId || !r.verificadoEm) throw new PedidoMudouError();
   if (prazoDoPedido(r.inicio, tenant).getTime() <= o.agora.getTime()) throw new PedidoMudouError();
@@ -505,16 +518,16 @@ export async function aceitarPedidoPublico(tx: Tx, tenant: TenantAgenda, pedidoI
     const optin = r.whatsappOptin && r.telefoneE164 ? { whatsappOptinEm: r.verificadoEm, whatsappOptinOrigem: 'paciente' } : {};
     [p] = await tx
       .insert(patients)
-      .values({ tenantId: tenant.id, nome: r.nome, email: r.email, telefoneE164: r.telefoneE164, origem: 'agendamento_publico', ...optin, createdAt: o.agora, updatedAt: o.agora })
+      .values({ tenantId, nome: r.nome, email: r.email, telefoneE164: r.telefoneE164, origem: 'agendamento_publico', ...optin, createdAt: o.agora, updatedAt: o.agora })
       .returning();
-    await tx.insert(consents).values({ patientId: p.id, tenantId: tenant.id, termoVersao: r.termoVersao, aceitoEm: r.verificadoEm, ip: r.ip }).onConflictDoNothing();
   }
+  await tx.insert(consents).values({ patientId: p.id, tenantId, termoVersao: r.termoVersao, aceitoEm: r.verificadoEm, ip: r.ip }).onConflictDoNothing();
   let c: { id: string };
   try {
     [c] = await tx
       .insert(appointments)
       .values({
-        tenantId: tenant.id,
+        tenantId,
         patientId: p.id,
         inicio: r.inicio,
         fim: r.fim,
@@ -531,11 +544,11 @@ export async function aceitarPedidoPublico(tx: Tx, tenant: TenantAgenda, pedidoI
     if (ehSobreposicao(e)) throw new ConsultaError({ geral: MSG_SOLICITACOES.horarioOcupado }); // R-408
     throw e;
   }
-  const aviso = { tenantId: tenant.id, patientId: p.id, appointmentId: c.id, inicio: r.inicio };
+  const aviso = { tenantId, patientId: p.id, appointmentId: c.id, inicio: r.inicio };
   await agendarLembretes(tx, aviso, tenant.fuso, o.agora);
   await avisarPaciente(tx, aviso, 'consulta_marcada', o.agora);
   await tx.update(publicBookingRequests).set({ concluidoEm: o.agora, appointmentId: c.id, resolvidoEm: o.agora, resolucao: 'aceito' }).where(eq(publicBookingRequests.id, r.id));
-  await dispararEnvio(tx, tenant.id);
+  await dispararEnvio(tx, tenantId);
   return { appointmentId: c.id };
 }
 
@@ -544,7 +557,8 @@ export type EstadoDaDesistencia = { estado: 'aguardando' | 'cancelado'; quando: 
 /**
  * Plano 23 (AG-D42, AG-D48, AG-D49, AG-D63): a pessoa nova desiste do pedido aguardando pelo link do e-mail, no contexto
  * `publico` (que não lê a linha: tudo por `app_pedido_publico_desistir`, com o hash do token). `confirmar` falso (GET da
- * página) só mostra e não gasta o limite; verdadeiro (o POST do botão) grava `desistido`, conta no limite por IP da página
+ * página) só mostra, com um limite por IP próprio (`pedido-link-ip`, revisão da T7, M3: leitores de link não gastam o balde
+ * do botão); verdadeiro (o POST do botão) grava `desistido`, conta no limite por IP da página
  * pública (`ip` = o balde, IPv6 /64) e avisa a nutricionista só quando a função diz que gravou agora ("Nova pessoa: {primeiro
  * nome}"): F5, duplo clique e o leitor de link que reabre não repetem o aviso. Token fora do formato, consultório que não
  * existe ou pedido que não aguarda (aceito, recusado, vencido) → `invalido`; POST além do limite por IP → `limite` (nada gravado).
@@ -556,7 +570,8 @@ export async function desistirDoPedidoPublico(
 ): Promise<EstadoDaDesistencia> {
   const db = o.db ?? getDb();
   const agora = o.agora ?? new Date();
-  if (o.confirmar && !(await consumirLimite(db, chaveDoLimite('ip', o.ip ?? 'desconhecido'), LIMITE_IP_HORA, 3600, agora))) return { estado: 'limite' };
+  const balde = o.confirmar ? chaveDoLimite('ip', o.ip ?? 'desconhecido') : chaveDoLimite('pedido-link-ip', o.ip ?? 'desconhecido');
+  if (!(await consumirLimite(db, balde, o.confirmar ? LIMITE_IP_HORA : LIMITE_LINK_PEDIDO_HORA, 3600, agora))) return { estado: 'limite' };
   const t = tokenDoPedido(token);
   if (!t) return { estado: 'invalido' };
   const tenant = await buscarTenantPorSlug(db, slug);

@@ -747,7 +747,7 @@ describe('Plano 23: pedido aguardando (RN-424, RN-424a, RN-425, RN-426, RN-429)'
     expect([b.inicio, b.fim, b.localId]).toEqual([em(dia(3), '14:00'), em(dia(3), '15:00'), T.localId]);
   });
 
-  it('corrida pessoa nova × paciente (página pública) × portal no mesmo horário, todos presos na trava do tenant: só um fica, sem 40P01 (AG-D65)', async () => {
+  it('ordem de travas (AG-D65): pessoa nova, paciente (página pública) e portal no mesmo horário ficam presos na trava do tenant sem segurar nenhum paciente (sonda FOR UPDATE NOWAIT); soltos, só um fica com o horário', async () => {
     const T = await comChave();
     const ana = await novoPaciente(app.db, T.ctx);
     const bia = await novoPaciente(app.db, T.ctx);
@@ -805,19 +805,19 @@ describe('Plano 23: pedido aguardando (RN-424, RN-424a, RN-425, RN-426, RN-429)'
     }
   }, 60_000);
 
-  it('limpeza (RN-429), relógio às 04:30: recusado, vencido, desistido e aceito somem 24 h depois de `resolvido_em`; sem código, 24 h depois da criação; aguardando nunca pelas 24 h da criação', async () => {
+  it('limpeza (RN-429), relógio às 04:30: recusado, vencido, desistido e aceito somem 24 h depois de `resolvido_em`; sem código, 24 h depois da criação; aguardando nunca pelas 24 h da criação, mas sai (rede) com o horário passado há mais de 24 h', async () => {
     const T = await consultorio();
     const agoraL = new Date('2001-01-10T07:30:00Z'); // 04:30 em São Paulo
     const h = (horas: number) => new Date(agoraL.getTime() - horas * 3_600_000);
-    const linha = (email: string, o: { createdAt: Date; resolvidoEm?: Date; resolucao?: string; aguardando?: boolean }) => ({
+    const linha = (email: string, o: { createdAt: Date; resolvidoEm?: Date; resolucao?: string; aguardando?: boolean; inicio?: Date }) => ({
       id: randomUUID(),
       tenantId: T.tenantId,
       tokenHash: randomUUID(),
       codigoHash: 'x',
       email,
       nome: 'Carla Dias',
-      inicio: em('2001-01-20', '09:00'),
-      fim: em('2001-01-20', '10:00'),
+      inicio: o.inicio ?? em('2001-01-20', '09:00'),
+      fim: new Date((o.inicio ?? em('2001-01-20', '09:00')).getTime() + 3_600_000),
       modalidade: 'presencial',
       localId: T.localId,
       termoVersao: TERMO_PACIENTE,
@@ -829,7 +829,7 @@ describe('Plano 23: pedido aguardando (RN-424, RN-424a, RN-425, RN-426, RN-429)'
       createdAt: o.createdAt,
     });
     const n = (s: string) => `${s}-${randomUUID().slice(0, 8)}@ex.com`;
-    const e = { recusadoVelho: n('rv'), vencidoVelho: n('vv'), desistidoVelho: n('dv'), aceitoVelho: n('av'), recusadoNovo: n('rn'), semCodigoVelho: n('sv'), semCodigoNovo: n('sn'), aguardandoVelho: n('ag') };
+    const e = { recusadoVelho: n('rv'), vencidoVelho: n('vv'), desistidoVelho: n('dv'), aceitoVelho: n('av'), recusadoNovo: n('rn'), semCodigoVelho: n('sv'), semCodigoNovo: n('sn'), aguardandoVelho: n('ag'), aguardandoPassado: n('ap'), aguardandoRecente: n('ar') };
     await withTenant(
       T.ctx,
       (tx) =>
@@ -842,11 +842,14 @@ describe('Plano 23: pedido aguardando (RN-424, RN-424a, RN-425, RN-426, RN-429)'
           linha(e.semCodigoVelho, { createdAt: h(25) }),
           linha(e.semCodigoNovo, { createdAt: h(23) }),
           linha(e.aguardandoVelho, { createdAt: h(80), aguardando: true }),
+          // revisão da T7 (M2): a rede — o aguardando nunca resolvido cujo horário passou há mais de 24 h sai; há menos, fica
+          linha(e.aguardandoPassado, { createdAt: h(80), aguardando: true, inicio: h(25) }),
+          linha(e.aguardandoRecente, { createdAt: h(80), aguardando: true, inicio: h(23) }),
         ]),
       app.db,
     );
-    expect(await limparPedidosPublicos(app.db, agoraL)).toBeGreaterThanOrEqual(5);
+    expect(await limparPedidosPublicos(app.db, agoraL)).toBeGreaterThanOrEqual(6);
     const restam = await withTenant(T.ctx, (tx) => tx.select({ email: publicBookingRequests.email }).from(publicBookingRequests), app.db);
-    expect(restam.map((r) => r.email).sort()).toEqual([e.recusadoNovo, e.semCodigoNovo, e.aguardandoVelho].sort());
+    expect(restam.map((r) => r.email).sort()).toEqual([e.recusadoNovo, e.semCodigoNovo, e.aguardandoVelho, e.aguardandoRecente].sort());
   });
 });

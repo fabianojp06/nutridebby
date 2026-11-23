@@ -3,17 +3,17 @@ import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { consultaDireta, em, novoLocal, semanaNoLocal, semanaToda, SP, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
-import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { appointments, consents, notifications, patients, publicBookingRequests, tenants, user } from '@/db/schema';
-import { withTenant } from '@/db/tenant';
+import { withTenant, type TenantContext } from '@/db/tenant';
 import { EMAIL_FINALIDADE } from '@/email/queue';
 import type { EmailJobData, EmailMessage } from '@/email/types';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { openSecret, randomToken, sha256 } from '@/lib/crypto';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
-import { desistirDoPedidoPublico } from './agendamento-publico';
+import { aceitarPedidoPublico, desistirDoPedidoPublico } from './agendamento-publico';
 import { MSG_SOLICITACOES } from './constantes';
 import { ConsultaError } from './consultas';
 import { quandoComFuso, somarDias } from './fuso';
@@ -127,6 +127,10 @@ describe('aceite da pessoa nova (RN-424, US-409)', () => {
     const p = await aguardando(T, { email: ana.email.toUpperCase() });
     await aceitarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'pessoa_nova', id: p.id }, depsSol());
     expect(await pacientesCom(T, ana.email)).toMatchObject([{ id: ana.id, whatsappOptinEm: null, origem: ana.origem }]);
+    // revisão da T7 (M1): quem provou o código aceitou o termo na página — o aceite vale também para o paciente que já existia
+    expect(await app.db.select().from(consents).where(eq(consents.patientId, ana.id))).toMatchObject([
+      { tenantId: T.tenantId, userId: null, termoVersao: TERMO_PACIENTE, aceitoEm: em('2026-10-14', '09:30'), ip: '198.51.100.7' },
+    ]);
     expect(await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.patientId, ana.id)), app.db)).toMatchObject([{ status: 'agendada' }]);
     expect(await linhaDoPedido(T, p.id)).toMatchObject({ resolucao: 'aceito' });
   });
@@ -171,6 +175,22 @@ describe('aceite da pessoa nova (RN-424, US-409)', () => {
     expect(await erro(aceitarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'pessoa_nova', id: p.id }, depsSol()))).toBeInstanceOf(PedidoMudouError);
     expect(await pacientesCom(T, p.email)).toEqual([]);
     expect(await erro(aceitarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'pessoa_nova', id: 'nao-e-uuid' }, depsSol()))).toBeInstanceOf(PedidoMudouError);
+  });
+});
+
+describe('revisão da T7 (M4): aceitarPedidoPublico confere a sessão', () => {
+  it('fora da sessão nutri (worker, paciente) ou com o consultório de outra sessão → erro antes de qualquer gravação', async () => {
+    const T = await consultorio();
+    const B = await consultorio();
+    const p = await aguardando(T);
+    const o = { agora, appUrl: 'http://localhost:3000' };
+    const ana = await novoPaciente(app.db, T.ctx);
+    for (const ctx of [{ tenantId: T.tenantId, role: 'worker' as const }, ctxPaciente(T.tenantId, ana.id)] as TenantContext[]) {
+      expect(String(await erro(withTenant(ctx, (tx) => aceitarPedidoPublico(tx, tenantAgenda(T), p.id, o), app.db)))).toContain('agenda: só a sessão nutri');
+    }
+    expect(String(await erro(withTenant(B.ctx, (tx) => aceitarPedidoPublico(tx, tenantAgenda(T), p.id, o), app.db)))).toContain('consultório diferente');
+    expect(await pacientesCom(T, p.email)).toEqual([]);
+    expect(await linhaDoPedido(T, p.id)).toMatchObject({ resolvidoEm: null });
   });
 });
 
@@ -274,5 +294,14 @@ describe('desistência pelo link do e-mail (AG-D42, AG-D48, AG-D49, AG-D63)', ()
     for (let i = 0; i < 10; i++) await desistirDoPedidoPublico(T.slug, randomToken(), { ip, confirmar: true, db: app.db });
     expect(await desistirDoPedidoPublico(T.slug, p.token, { ip, confirmar: true, db: app.db })).toEqual({ estado: 'limite' });
     expect(await linhaDoPedido(T, p.id)).toMatchObject({ resolvidoEm: null });
+  });
+
+  it('revisão da T7 (M3): o GET tem um balde próprio (30 por hora e IP) — acima dele, `limite` sem chamar a função; o POST do mesmo IP segue valendo', async () => {
+    const T = await consultorio();
+    const p = await aguardando(T, { inicio: inicioReal, verificadoEm: new Date() });
+    const ip = `10.78.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+    for (let i = 0; i < 30; i++) expect((await desistirDoPedidoPublico(T.slug, p.token, { ip, confirmar: false, db: app.db })).estado).toBe('aguardando');
+    expect(await desistirDoPedidoPublico(T.slug, p.token, { ip, confirmar: false, db: app.db })).toEqual({ estado: 'limite' });
+    expect((await desistirDoPedidoPublico(T.slug, p.token, { ip, confirmar: true, db: app.db, appUrl: 'http://localhost:3000' })).estado).toBe('cancelado');
   });
 });
