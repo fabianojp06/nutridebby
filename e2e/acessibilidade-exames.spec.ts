@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type Request } from '@playwright/test';
 import { entrarComo } from './helpers';
-import { bibliotecasDeExames, escolherTema } from './painel';
+import { bibliotecasDeExames, contrasteIncerto, escolherTema } from './painel';
 import { criarPacientePeloFormulario } from './pacientes-form';
 
 // Plano 22 (T3, EP-D54, R22-22): o axe dos estados de /painel/exames que não são rota (diálogos abertos, formulário com
@@ -34,7 +34,9 @@ async function violacoes(page: Page, incluir?: string): Promise<string[]> {
   const axe = new AxeBuilder({ page }).withTags(TAGS);
   const r = await (incluir ? axe.include(incluir) : axe).analyze();
   expect(r.passes.length, 'o axe rodou regras na página').toBeGreaterThan(0);
-  const incertos = r.incomplete.filter((i) => i.id === 'color-contrast').flatMap((i) => i.nodes.map((n) => `incompleto color-contrast: ${n.target.join(' ')}`));
+  // a 360 px as abas da ficha e a tabela de valores rolam na horizontal: o que fica fora da tela sai (o resto é conferido)
+  const ignorarForaDaTela = (page.viewportSize()?.width ?? 1280) < 1280;
+  const incertos = (await contrasteIncerto(page, r.incomplete, { ignorarForaDaTela })).map((alvo) => `incompleto color-contrast: ${alvo}`);
   return [...r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`), ...incertos];
 }
 
@@ -151,7 +153,9 @@ test('Dialogo: ocupado segura o Esc duplo (continua aberto, aoFechar não chamad
   await expect(dialogo).toBeVisible();
   await aberto(dialogo);
   await expect(dialogo.getByRole('button', { name: 'Cancelar' })).toHaveAttribute('aria-disabled', 'true');
-  await dialogo.getByRole('button', { name: 'Cancelar' }).click(); // ocupado: "Cancelar" também não fecha
+  // ocupado: "Cancelar" também não fecha. O force aqui é para provar que o botão desativado NÃO faz nada (o Playwright
+  // não clica em aria-disabled sem ele): a linha seguinte confere o diálogo aberto; o fluxo só segue depois do soltar.
+  await dialogo.getByRole('button', { name: 'Cancelar' }).click({ force: true });
   await expect(dialogo).toBeVisible();
 
   action.soltar();
@@ -381,7 +385,8 @@ for (const [modo, tema] of [
 
       await nutri.goto(`${prontuarioDoDetalhe}/exames`);
       await nutri.getByLabel('Marcador 1', { exact: true }).fill(nomeExame);
-      await nutri.getByRole('button', { name: `Referência de ${nomeExame}` }).click();
+      // a linha do formulário (o exame já salvo deste marcador, na lista abaixo, tem o mesmo botão)
+      await nutri.getByRole('group', { name: /^Linha 1:/ }).getByRole('button', { name: `Referência de ${nomeExame}` }).click();
       await expect(nutri.getByRole('dialog', { name: `Referência de ${nomeExame}` })).toContainText('Faixas do consultório');
       for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`ver referência (novo exame) — ${v}`);
       await nutri.keyboard.press('Escape');
@@ -399,7 +404,7 @@ test('Nota de interpretação (T5a): Esc do "Ver referência" devolve o foco; sa
   await nutri.keyboard.press('Escape');
   await expect(verRef).toBeFocused();
 
-  const campo = nutri.getByLabel('Nota de interpretação', { exact: true });
+  const campo = nutri.getByRole('textbox', { name: 'Nota de interpretação' });
   await expect(nutri.getByText('Escreva fatores a investigar e encaminhamentos; não afirme doença.')).toBeVisible();
   await expect(nutri.getByText('Não aparece no app; entra na cópia dos dados que o paciente pedir.')).toBeVisible();
   // o limite: a mensagem e o texto digitado continuam no campo

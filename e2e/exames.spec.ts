@@ -87,7 +87,7 @@ test('CS-371: hemograma de 20 linhas pelo painel do catálogo, classificação a
   await expect(nutri.getByRole('rowheader')).toHaveCount(20);
 
   // a nota de interpretação
-  const campo = nutri.getByLabel('Nota de interpretação', { exact: true });
+  const campo = nutri.getByRole('textbox', { name: 'Nota de interpretação' });
   await campo.fill('Investigar hidratação e repetir o hemograma no retorno.');
   await nutri.getByRole('button', { name: 'Salvar nota' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Nota salva.' })).toBeVisible();

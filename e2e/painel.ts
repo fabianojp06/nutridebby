@@ -1,8 +1,52 @@
+import type AxeBuilder from '@axe-core/playwright';
 import { expect, type Browser, type Page } from '@playwright/test';
 import { PDFDocument } from 'pdf-lib';
 import type { IdsDoPainel } from './painel-rotas';
 import { entrarComo } from './helpers';
 import { avaliar, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
+
+type IncompletoDoAxe = Awaited<ReturnType<AxeBuilder['analyze']>>['incomplete'][number];
+
+/**
+ * Plano 22: os "incomplete" do color-contrast que continuam valendo como falha (alvo do axe de cada um). Saem só dois
+ * casos que o axe não sabe resolver e que aqui são conferidos de outro jeito:
+ * - `elmPartiallyObscuring` dentro de `dialog[open]`: o axe não entende a camada de cima (top layer) do diálogo modal e
+ *   acha que a página por baixo encobre o texto. Sai só se `elementsFromPoint` achar o próprio elemento (ou um filho)
+ *   por cima perto dos quatro cantos e no centro.
+ * - `imgNode` em `text` de `svg[role="img"]` (gráfico da evolução, que aparece com os exames lançados na preparação):
+ *   o axe não mede texto dentro de imagem. Sai só se o texto pinta com a cor do texto em volta do gráfico (`fill`
+ *   calculado igual ao `color` do pai do svg, texto que o axe confere no mesmo fundo) e o svg não tem fundo próprio.
+ * Com `ignorarForaDaTela` (telas a menos de 1280 px, como no axe do painel do Plano 18): sai também o que não cabe inteiro
+ * na largura da tela (abas da ficha e tabelas que rolam na horizontal); o que aparece inteiro continua conferido.
+ */
+export async function contrasteIncerto(page: Page, incompletos: IncompletoDoAxe[], opcoes: { ignorarForaDaTela?: boolean } = {}): Promise<string[]> {
+  const nos = incompletos
+    .filter((i) => i.id === 'color-contrast')
+    .flatMap((i) => i.nodes.map((n) => ({ alvo: n.target.join(' '), motivo: String((n.any[0]?.data as { messageKey?: string } | undefined)?.messageKey ?? '') })));
+  const conferidos = await page.evaluate(({ lista, foraDaTela }) => lista.map(({ alvo, motivo }) => {
+    const el = document.querySelector(alvo);
+    if (!el) return false;
+    if (foraDaTela) {
+      const r = el.getBoundingClientRect();
+      if (r.left < 0 || r.right > window.innerWidth) return true;
+    }
+    if (motivo === 'elmPartiallyObscuring' && el.closest('dialog[open]')) {
+      const r = el.getBoundingClientRect();
+      // 8 px para dentro (ou até o meio): o canto exato de um aviso `rounded-2xl` fica fora da borda arredondada
+      const dx = Math.min(8, r.width / 2);
+      const dy = Math.min(8, r.height / 2);
+      const pontos = [[r.left + dx, r.top + dy], [r.right - dx, r.top + dy], [r.left + dx, r.bottom - dy], [r.right - dx, r.bottom - dy], [r.left + r.width / 2, r.top + r.height / 2]];
+      return r.width > 0 && pontos.every(([x, y]) => { const topo = document.elementFromPoint(x, y); return !!topo && (topo === el || el.contains(topo)); });
+    }
+    const svg = el.closest('svg[role="img"]');
+    if (motivo === 'imgNode' && el.tagName.toLowerCase() === 'text' && svg?.parentElement) {
+      const fundo = getComputedStyle(svg).backgroundColor;
+      return getComputedStyle(el).fill === getComputedStyle(svg.parentElement).color && (fundo === 'rgba(0, 0, 0, 0)' || fundo === 'transparent');
+    }
+    return false;
+  }), { lista: nos, foraDaTela: !!opcoes.ignorarForaDaTela });
+  return nos.filter((_, i) => !conferidos[i]).map((n) => n.alvo);
+}
 
 /** D17: grava o tema pela tela de Configurações (o caminho real da usuária). */
 export async function escolherTema(page: Page, rotulo: 'Claro' | 'Escuro' | 'Igual ao aparelho'): Promise<void> {
