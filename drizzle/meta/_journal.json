@@ -904,6 +904,13 @@
       "when": 1795463961440,
       "tag": "0128_rls_exames_catalogo",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1795468212566,
+      "tag": "0129_lembretes_rotina_regras_2",
+      "breakpoints": true
     }
   ]
 }

@@ -19,7 +19,8 @@ const LINK = 'text-link underline';
 /**
  * US-302: a edição do lançamento, h1 "Entrada — {categoria}" / "Saída — {categoria}" (sem paciente nem data, §4.1).
  * Tipo, paciente e consulta como texto (fixos, RN-308; a consulta é link). Paciente bloqueado (RN-315): o aviso, só o
- * valor no formulário, receber/desfazer e cancelar. Cancelado ou anonimizado: só leitura, com a mensagem da §6.2.
+ * valor no formulário, receber/desfazer e cancelar. Cancelado ou anonimizado: só leitura, com a mensagem da §6.2 (o de
+ * paciente anonimizado, com a do paciente — nunca o aviso do bloqueado, TRI-17-20 #130).
  * Com paciente, abrir é leitura auditada (RN-318), na transação da tela (`telaDeEdicao`, RNF-301).
  */
 export default async function EditarLancamento({
@@ -36,11 +37,13 @@ export default async function EditarLancamento({
   const hoje = hojeNoFuso(tenant.fuso);
   const titulo = `${M.csv.tipos[l.tipo]} — ${l.categoria.nome}`;
   const volta = `/painel/financeiro/lancamentos/${l.id}`;
-  const fechado = l.anonimizado
-    ? M.erros.anonimizado
-    : l.situacao === 'cancelado'
-      ? M.erros.cancelado
-      : null;
+  const fechado = l.paciente?.anonimizado
+    ? M.pacienteAnonimizado
+    : l.anonimizado
+      ? M.erros.anonimizado
+      : l.situacao === 'cancelado'
+        ? M.erros.cancelado
+        : null;
   const consulta = l.consulta && partesNoFuso(l.consulta.inicio, tenant.fuso);
 
   const fixos = (

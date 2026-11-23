@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
+import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from '../../../../../test/db';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../../../test/pacientes';
 
@@ -24,6 +25,7 @@ vi.mock('next/navigation', async (orig) => ({
 const { default: Lista } = await import('./page');
 const { default: Detalhe } = await import('./[patientId]/page');
 const { closeDb } = await import('@/db/client');
+const { withTenant } = await import('@/db/tenant');
 const { listarCategorias, salvarConfiguracoes } = await import('@/modules/financeiro/configuracoes');
 const { criarLancamento } = await import('@/modules/financeiro/lancamentos');
 const { MSG_FINANCEIRO: M } = await import('@/modules/financeiro/constantes');
@@ -137,6 +139,23 @@ describe('Pagamentos pendentes de {nome} (US-304)', () => {
     expect(html).toMatch(/<a [^>]*href="\/painel\/financeiro\/pendencias"[^>]*>Voltar aos pagamentos pendentes<\/a>/);
     expect(html).not.toContain('Marcar como recebido');
     expect(await leituras(C.tenantId)).toEqual([]);
+  });
+
+  it('paciente bloqueado: o aviso do bloqueado; anonimizado: o aviso do anonimizado, sem o do bloqueado (TRI-17-20 #130)', async () => {
+    const C = await cenario();
+    await cobranca(C, somarDias(C.hoje, -1));
+    const worker = { tenantId: C.tenantId, role: 'worker' } as const;
+    const em = (q: SQL) => withTenant(worker, (tx) => tx.execute(q), app.db);
+    await em(sql`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2020-01-01' where id = ${C.ana}`);
+    const bloqueado = await detalhe(C.ana);
+    expect(bloqueado).toContain(M.bloqueado);
+    expect(bloqueado).not.toContain(M.pacienteAnonimizado);
+    await em(sql`select app_anonimizar_financeiro(${C.ana})`);
+    await em(sql`update patients set anonimizado_em = now() where id = ${C.ana}`);
+    const anonimizado = await detalhe(C.ana);
+    expect(anonimizado).toContain(M.pacienteAnonimizado);
+    expect(anonimizado).not.toContain(M.bloqueado);
+    expect(anonimizado).not.toContain('Marcar como recebido');
   });
 
   it('paciente de outro consultório ou id inválido → 404', async () => {

@@ -414,3 +414,24 @@ Plano 20, revisão final do PR 2 (17/11/2026):
   automático do Next chama o GET. Conferir guarda `Sec-Fetch-Site` (same-origin/none) antes do módulo e HEAD 405.
 - `onConflictDoNothing` + `return` cedo que pula efeito colateral (marca no tenant): idempotente demais — depois de uma
   volta atrás o reaceite não regrava e o usuário fica preso. Conferir o caminho "linha já existe" de todo aceite.
+
+SUS-102 (gatilho de UPDATE em tenants, 23/11/2026): limpo na lente banco. Resíduos a lembrar em tabelas sem RLS guardadas por
+gatilho de sessão: (1) "só a própria linha" para a `nutri` não fecha as colunas que só a admin deveria mudar (status, cotas
+fora das da IA, contador de armazenamento para baixo) — conferir coluna a coluna quem é o dono; (2) liberação "só para cima"
+de contador ainda deixa a sessão inflar o contador e esgotar a cota do consultório (DoS) — sugerir teto no gatilho.
+- Re-revisão (23/11): o "só para cima/teto" do contador NÃO serve para a sessão que também devolve espaço (`apagarArquivo`
+  na `nutri`) nem para a troca com `liberados` (passa a cota por um instante) — aceitar como resíduo Minor (cota própria,
+  não isolamento). Teto do paciente replicado como literal no SQL: conferir que o teste compara com a constante TS.
+TRI-17-20 Tarefa A (gatilhos dos lembretes, 23/11/2026): limpa na lente banco. Molde aceito e o resíduo a lembrar:
+- Exceção "a cascata da mãe apaga a filha" por `pg_trigger_depth() > 1` (RI cascade = profundidade 2): aceita QUALQUER DELETE
+  feito de dentro de outro gatilho. Defesa mais estreita: `NOT EXISTS` da mãe (já apagada no snapshot do gatilho). Minor.
+- Paciente sem conta no banco = `app_current_user()` nulo (withTenant grava '' e assertContext recusa semConta com ator).
+
+Limpeza Minor P17-P20, revisão final (23/11/2026):
+- Gatilho novo que passa a recusar (42501) um INSERT/DELETE antes livre (criado_por = sessão, DELETE só worker/cascata):
+  a tarefa roda só a pasta do módulo; conferir com grep os INSERTs/DELETEs da tabela em TODOS os testes e sementes
+  (ficha/no-app, lgpd, exportacao, e2e-seed, carga) e na imagem antiga (expand/contract). Aqui estavam todos coerentes.
+Plano 27, T1a (tabelas e RLS sem gatilhos, 23/11/2026): limpa na lente banco. A conferir em tarefas "fundação em fatias":
+- Commit intermediário com `app_allow_paciente_escrita` e SEM o gatilho de colunas/transições (fica para a fatia seguinte):
+  o paciente reescreve qualquer coluna da própria linha. Só aceitável se o PR sai inteiro; conferir antes do PR.
+- FK de UNIQUE novo em tabela existente: o drizzle-kit cria o UNIQUE depois das FKs (42830) → FK só na custom (molde 0112).

@@ -51,11 +51,23 @@ export function sincronizarAparelho(dono: string): Promise<'ativo' | 'sem_inscri
   return p;
 }
 
+/** O estado do aparelho ao abrir a tela (exportado para o teste): a única detecção de "negado" do portal. */
+export async function estadoDoAparelho(chavePublica: string | null, dono: string): Promise<Exclude<Estado, 'carregando' | 'falhou'>> {
+  if (ehIos(navigator.userAgent, navigator.platform, navigator.maxTouchPoints) && !standalone()) return 'instale';
+  if (!chavePublica || !temPush()) return 'indisponivel';
+  if (Notification.permission === 'denied') return 'negado';
+  // "ativo" só com o servidor confirmando que a inscrição é desta conta (nunca só porque o navegador tem uma)
+  return (await sincronizarAparelho(dono)) === 'ativo' ? 'ativo' : 'pode';
+}
+
+type Moldura = { cartao?: (conteudo: ReactNode) => ReactNode; negado?: ReactNode };
+
 /**
  * US-040 "Permissão de push". No iPhone, só depois de instalado (o tutorial da Tarefa 5 cobre antes). Plano 16: `cartao`
- * embrulha o conteúdo (o cartão de Hoje, RN-201).
+ * embrulha o conteúdo (o cartão de Hoje, RN-201). TRI-17-20 #47: com `cartao`, `negado` é o que aparece no lugar do nada
+ * quando as notificações já estavam bloqueadas no aparelho ao abrir a tela (Eu › Lembretes explica por que não chegam).
  */
-export function AtivarNotificacoes({ chavePublica, dono, cartao }: { chavePublica: string | null; dono: string; cartao?: (conteudo: ReactNode) => ReactNode }) {
+export function AtivarNotificacoes({ chavePublica, dono, cartao, negado }: { chavePublica: string | null; dono: string } & Moldura) {
   const [estado, setEstado] = useState<Estado>('carregando');
   /** A pessoa tocou em "Ativar notificações" nesta tela: o cartão fica com o resultado até a próxima abertura. */
   const [agiu, setAgiu] = useState(false);
@@ -68,15 +80,9 @@ export function AtivarNotificacoes({ chavePublica, dono, cartao }: { chavePublic
   }, [agiu, estado]);
   useEffect(() => {
     let vivo = true;
-    void (async () => {
-      let e: Estado;
-      if (ehIos(navigator.userAgent, navigator.platform, navigator.maxTouchPoints) && !standalone()) e = 'instale';
-      else if (!chavePublica || !temPush()) e = 'indisponivel';
-      else if (Notification.permission === 'denied') e = 'negado';
-      // "ativo" só com o servidor confirmando que a inscrição é desta conta (nunca só porque o navegador tem uma)
-      else e = (await sincronizarAparelho(dono)) === 'ativo' ? 'ativo' : 'pode';
+    void estadoDoAparelho(chavePublica, dono).then((e) => {
       if (vivo) setEstado(e);
-    })();
+    });
     return () => {
       vivo = false;
     };
@@ -95,11 +101,26 @@ export function AtivarNotificacoes({ chavePublica, dono, cartao }: { chavePublic
       setEstado('falhou');
     }
   };
+  return <NotificacoesNoEstado estado={estado} agiu={agiu} recusa={recusa} aoAtivar={ativar} aviso={aviso} cartao={cartao} negado={negado} />;
+}
+
+/** O que AtivarNotificacoes mostra depois da detecção (exportado para o teste: o efeito não roda na renderização do servidor). */
+export function NotificacoesNoEstado({
+  estado,
+  agiu,
+  recusa,
+  aoAtivar,
+  aviso,
+  cartao,
+  negado,
+}: { estado: Estado; agiu: boolean; recusa: RecusaDoPortal | null; aoAtivar: () => void; aviso?: RefObject<HTMLParagraphElement | null> } & Moldura) {
   if (estado === 'carregando' || estado === 'instale') return null;
+  // bloqueadas antes de agir: a explicação da tela, se ela tiver uma (depois de agir, o "negado" da região viva de sempre)
+  if (cartao && !agiu && estado === 'negado' && negado) return negado;
   // Plano 16 (RN-201): no mural, o cartão só aparece quando dá para ativar (ou a tentativa falhou); depois de agir nesta
   // tela, fica até a próxima abertura, com o resultado (ativo/negado) anunciado pela região viva de sempre
   if (cartao && !agiu && estado !== 'pode' && estado !== 'falhou') return null;
-  const conteudo = <PainelDeNotificacoes estado={estado} recusa={recusa} aoAtivar={ativar} aviso={aviso} />;
+  const conteudo = <PainelDeNotificacoes estado={estado} recusa={recusa} aoAtivar={aoAtivar} aviso={aviso} />;
   return cartao ? cartao(conteudo) : conteudo;
 }
 

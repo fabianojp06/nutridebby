@@ -212,7 +212,9 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autoriza
  * recusa o DELETE fora do worker (e, no worker, sem o titular anonimizado).
  */
 // Plano 20: fin_lancamentos (cancela-se, nunca se apaga) e fin_configuracoes (a linha do consultório) — DELETE revogado (0123)
-const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro']);
+// Plano 17 (TRI-17-20 #5): lembretes_rotina_envios — gatilho lembretes_rotina_envios_sem_apagar: a marca só sai pelo worker
+// ou pela cascata do lembrete (apagado depois, em ULTIMAS)
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro', 'lembretes_rotina_envios']);
 /**
  * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
  * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.

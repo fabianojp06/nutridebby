@@ -4,6 +4,7 @@
  */
 import { diaDaSemana, paraInstante, somarDias } from '@/modules/agenda/fuso';
 import { HORA_HHMM, minutosDe } from '@/modules/agenda/horarios';
+import { rotuloDaRefeicao } from '@/modules/portal/diario-constantes';
 import type { LembreteNovo, SemTexto } from './config';
 import { JANELA_FIM_MIN, JANELA_INICIO_MIN, PRIORIDADE, TETO_POR_DIA } from './constantes';
 
@@ -19,7 +20,7 @@ type Entrada = {
   refeicoes: RefeicaoDoPlano[];
   data: string /* AAAA-MM-DD no fuso */;
   fuso: string;
-  refeicoesNoDiario?: string[]; // nomes das refeições do plano já registradas no dia local (só o worker passa)
+  refeicoesNoDiario?: string[]; // rótulos `nome · HH:MM` (`rotuloDaRefeicao`) das refeições do plano já registradas no dia local (só o worker passa)
 };
 type Resultado = { slots: Slot[]; cortados: { total: number; tipos: TipoSlot[] }; refeicoesSemHorario: string[]; refeicoesForaDaJanela: string[] };
 
@@ -66,7 +67,8 @@ function calcular(e: Entrada, previsao: boolean): Resultado {
           if (!naJanela(h - antecedenciaMin)) foraDaJanela.add(r.nome);
           add(h - antecedenciaMin, 'refeicao', r.nome, ordem);
           // o diário já registrado sai antes da janela, da fusão e do teto: não derruba a água do mesmo minuto
-          if (diarioDepoisMin !== null && !noDiario.has(r.nome)) add(h + diarioDepoisMin, 'diario', r.nome, ordem);
+          // pelo rótulo com a hora: duas refeições de mesmo nome não se confundem (TRI-17-20 #14)
+          if (diarioDepoisMin !== null && !noDiario.has(rotuloDaRefeicao(r.nome, hora))) add(h + diarioDepoisMin, 'diario', r.nome, ordem);
         });
         break;
       }
@@ -111,7 +113,7 @@ function calcular(e: Entrada, previsao: boolean): Resultado {
 
 /**
  * Slots do dia `data` (no fuso), ordenados por `em`: gera os de cada lembrete `ativo`, descarta os anteriores a
- * `validoDesde` e os `diario` das refeições em `refeicoesNoDiario`, depois os fora da janela 06:00–22:00, funde os do
+ * `validoDesde` e os `diario` das refeições cujo rótulo está em `refeicoesNoDiario`, depois os fora da janela 06:00–22:00, funde os do
  * mesmo minuto e corta acima de 24 pelos de menor prioridade (refeição > suplemento > livre > diário > água).
  * `refeicoesSemHorario` e `refeicoesForaDaJanela` (a refeição cujo aviso cai fora da janela) só com um lembrete de refeições ativo.
  */

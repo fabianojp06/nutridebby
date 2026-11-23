@@ -108,8 +108,10 @@ async function refeicoesDosPlanos(tx: Tx, patientIds: string[]): Promise<Map<str
 /**
  * §5.1/§5.2: refeição do plano já registrada hoje (no dia local do tenant, como `diaDe` do diário) — pela refeição do plano
  * escolhida no registro (`refeicao_slot`, gravado com ou sem resposta), pela cópia da resposta (`refeicao_do_plano`) ou,
- * quando o nome está na lista fechada, pela refeição do registro. Conferência de estado do worker: nada volta a uma
- * usuária, então sem `auditRead`; só `patient_id`, `refeicao`, `refeicao_do_plano` e `refeicao_slot` (nunca `texto`).
+ * só no registro sem nenhuma das duas e quando o nome está na lista fechada, pela refeição do registro. Devolve o rótulo
+ * `nome · HH:MM` (`rotuloDaRefeicao`): duas refeições de mesmo nome ("Lanche" às 10:00 e às 16:00) não se confundem
+ * (TRI-17-20 #14). Conferência de estado do worker: nada volta a uma usuária, então sem `auditRead`; só `patient_id`,
+ * `refeicao`, `refeicao_do_plano` e `refeicao_slot` (nunca `texto`).
  */
 async function registradasNoDiario(tx: Tx, refeicoes: Map<string, RefeicaoDoPlano[]>, patientIds: string[], hoje: string, fuso: string): Promise<Map<string, string[]>> {
   const porPaciente = new Map<string, string[]>();
@@ -122,13 +124,17 @@ async function registradasNoDiario(tx: Tx, refeicoes: Map<string, RefeicaoDoPlan
   for (const patientId of alvo) {
     const doPaciente = registros.filter((r) => r.patientId === patientId);
     if (!doPaciente.length) continue;
-    const registradas = refeicoes.get(patientId)!.filter((r) => {
-      if (!r.horario) return false; // sem horário não há slot
+    const registradas: string[] = [];
+    for (const r of refeicoes.get(patientId)!) {
+      if (!r.horario) continue; // sem horário não há slot
       const rotulo = rotuloDaRefeicao(r.nome, r.horario.slice(0, 5));
       const daLista = refeicaoDoDiario(r.nome);
-      return doPaciente.some((d) => d.refeicaoSlot === rotulo || d.refeicaoDoPlano === rotulo || (daLista !== 'Outro' && d.refeicao === daLista));
-    });
-    porPaciente.set(patientId, registradas.map((r) => r.nome));
+      // a refeição da lista fechada só casa o registro livre: o que escolheu a refeição do plano casa só pelo rótulo
+      const casa = (d: (typeof doPaciente)[number]) =>
+        d.refeicaoSlot === rotulo || d.refeicaoDoPlano === rotulo || (daLista !== 'Outro' && d.refeicaoSlot === null && d.refeicaoDoPlano === null && d.refeicao === daLista);
+      if (doPaciente.some(casa)) registradas.push(rotulo);
+    }
+    porPaciente.set(patientId, registradas);
   }
   return porPaciente;
 }

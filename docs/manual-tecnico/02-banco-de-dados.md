@@ -212,8 +212,8 @@ Legenda da coluna "Proteção":
 | `ia_nutri_participacoes` (Plano 15) | T, P, A `ia_nutri_liberacao` | 0116 |
 | `ia_nutri_mensagens` (Plano 15) | T, P, PE `update` (`avaliacao` e `encaminhada_em`; INSERT só pelas funções da 0117), A `ia_nutri`; gatilhos `ia_nutri_mensagens_regras` (colunas por papel; a `nutri` só abre e resolve, e `responde_a` → nulo só pela ação referencial da FK) e `ia_nutri_mensagens_sem_apagar` (DELETE do `worker` só com a mensagem vencida, o titular bloqueado ou anonimizado ou o marcador da revogação; da `nutri` só a pergunta com risco de quem revogou, depois de aberta); FK composta `responde_a` `ON DELETE SET NULL (responde_a)`; índice único parcial de uma pergunta em andamento por paciente | 0115, 0116 |
 | `ia_nutri_consentimentos` (Plano 15) | T, P, PE `insert` (sem auditoria, `AUDIT_EXCEPTIONS`), X `paciente_consentimento_proprio` (RESTRICTIVE, só o próprio aceite, canal `app`, com a própria conta); `REVOKE UPDATE, DELETE, TRUNCATE`; gatilho `ia_nutri_consentimentos_regras` (relógio do banco; revogação só com o marcador de `app_ia_nutri_revogar`) | 0116 |
-| `lembretes_rotina` (Plano 17) | T, P, PE `update` (só `desligado_pelo_paciente_em`), A `lembretes`; gatilhos `lembretes_rotina_regras` (colunas fixas; o paciente só a própria marca, com o relógio do banco; a `nutri` nunca a marca) e `lembretes_rotina_sem_apagar` (a equipe não apaga o que o paciente desligou, salvo com o titular `bloqueado`) | 0119, 0120 |
-| `lembretes_rotina_envios` (Plano 17) | T, P, S (sem auditoria, `AUDIT_EXCEPTIONS`); gatilho `lembretes_rotina_envios_do_worker` (INSERT e UPDATE que muda algo só pelo `worker` e pelo contexto vazio; tenant, paciente e lembrete fixos); FK para o lembrete `ON DELETE CASCADE` | 0119 |
+| `lembretes_rotina` (Plano 17) | T, P, PE `update` (só `desligado_pelo_paciente_em`), A `lembretes`; gatilhos `lembretes_rotina_regras` (colunas fixas; o paciente com conta só a própria marca, com o relógio do banco, e o `updated_at` vai ao `now()`; o paciente sem conta nada; a `nutri` nunca a marca e só cria com `criado_por` = a usuária da sessão) e `lembretes_rotina_sem_apagar` (a equipe não apaga o que o paciente desligou, salvo com o titular `bloqueado`) | 0119, 0120, 0129 |
+| `lembretes_rotina_envios` (Plano 17) | T, P, S (sem auditoria, `AUDIT_EXCEPTIONS`); gatilhos `lembretes_rotina_envios_do_worker` (INSERT e UPDATE que muda algo só pelo `worker` e pelo contexto vazio; tenant, paciente e lembrete fixos) e `lembretes_rotina_envios_sem_apagar` (DELETE só pelo `worker`, pelo contexto vazio e pela cascata do lembrete, `pg_trigger_depth() > 1`); FK para o lembrete `ON DELETE CASCADE` | 0119, 0129 |
 | `patient_cadastro` (Plano 18) | T, P, A `patients` (como `patients`: o "Alterou" do Histórico, `entidade_id` = id da linha), X `patient_cadastro_paciente_com_conta` (RESTRICTIVE, `FOR ALL`: a sessão de paciente sem login — `semConta` — não lê nem grava nem a própria linha); sem `S`, `Pub` e `PE` (o titular com login só **lê** a própria linha); `REVOKE TRUNCATE`; gatilhos `patient_cadastro_colunas_fixas` (`id`, `tenant_id`, `patient_id` fixos, 42501), `patient_cadastro_sem_apagar` (DELETE só do `worker` com o titular já anonimizado) e `patient_cadastro_titular_ativo` (INSERT/UPDATE recusado com o titular anonimizado, para qualquer papel) | 0125 (tabela na 0124) |
 | `fin_configuracoes` (Plano 20) | T, S (sem `patient_id`, sem gatilho; o módulo grava `recordAudit` de `financeiro_configuracoes`); `REVOKE DELETE, TRUNCATE` | 0123 |
 | `fin_categorias` (Plano 20) | T, S; gatilho `fin_categorias_fixas` (`tipo` e `chave` fixos; "Consultas" nunca apagada) | 0123 |
@@ -389,7 +389,9 @@ A coluna `patients.lembretes_pausados_em` ("Pausar todos os lembretes") também 
 'update')`, `app_enable_staff_only('lembretes_rotina_envios')`, os gatilhos `app_lembretes_rotina_regras`,
 `app_lembretes_rotina_envios_do_worker` e `app_patients_lembretes_do_paciente` e a `app_paciente_colunas_patients` refeita
 (0085 + `lembretes_pausados_em` em `livres`, linha a linha), da `0119`; o gatilho `app_lembretes_rotina_sem_apagar` (BEFORE
-DELETE), da `0120` (revisão da Tarefa 1). Nenhuma migração de dados, nenhum `DISABLE TRIGGER`. Regras de cada gatilho e o
+DELETE), da `0120` (revisão da Tarefa 1); a `app_lembretes_rotina_regras` refeita (paciente sem conta recusado, `updated_at`
+do paciente pelo `now()`, `criado_por` da `nutri` conferido) e o gatilho `app_lembretes_rotina_envios_sem_apagar` (BEFORE
+DELETE da marca), da `0129` (limpeza dos Minor, TRI-17-20). Nenhuma migração de dados, nenhum `DISABLE TRIGGER`. Regras de cada gatilho e o
 motor de envio em [§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17); testes do banco em
 `src/modules/lembretes/banco.test.ts`.
 
@@ -548,9 +550,9 @@ Os documentos do Plano 10A têm gatilhos de colunas que valem para **todo** pape
 `app_codigo_acesso_regras` (`document_access_codes`) e `app_verificacao_situacao` (`document_verifications`, 0092).
 Detalhe em [§9.3.3](09-documentos-assinados.md#933-gatilhos-e-funções).
 
-Os lembretes do Plano 17 também (`0119`, `0120`): `app_lembretes_rotina_regras` (a sessão de paciente só muda
-`desligado_pelo_paciente_em`; a `nutri` nunca a muda), `app_lembretes_rotina_envios_do_worker` e
-`app_lembretes_rotina_sem_apagar` ([§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17)).
+Os lembretes do Plano 17 também (`0119`, `0120`, `0129`): `app_lembretes_rotina_regras` (a sessão de paciente com conta só
+muda `desligado_pelo_paciente_em`, a sem conta nada; a `nutri` nunca a muda e só cria em nome próprio),
+`app_lembretes_rotina_envios_do_worker`, `app_lembretes_rotina_envios_sem_apagar` e `app_lembretes_rotina_sem_apagar` ([§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17)).
 
 ### 2.6.7 Conteúdo pela audiência e a exceção do plano
 
@@ -611,7 +613,9 @@ testes em `src/db/ia-resumo-rascunho.test.ts`. Plano 15 (0116): `app_ia_nutri_co
 `clock_timestamp()`; a `nutri` nunca a marca, nem ao criar; público e conta, `42501`), `app_lembretes_rotina_envios_do_worker`
 (BEFORE INSERT OR UPDATE; só `worker` e contexto vazio gravam a marca; o UPDATE sem mudança passa, para o teste de
 isolamento), `app_patients_lembretes_do_paciente` (BEFORE INSERT OR UPDATE em `patients`, no molde do
-`app_patients_ia_quem`) e `app_lembretes_rotina_sem_apagar` (BEFORE DELETE); testes em `src/modules/lembretes/banco.test.ts`. Plano 20 (0123):
+`app_patients_ia_quem`) e `app_lembretes_rotina_sem_apagar` (BEFORE DELETE); na 0129 (TRI-17-20), `app_lembretes_rotina_regras` refeita
+(paciente sem conta recusado, `updated_at` do paciente pelo `now()`, `criado_por` da `nutri` conferido) e
+`app_lembretes_rotina_envios_sem_apagar` (BEFORE DELETE da marca: `worker`, contexto vazio e a cascata do lembrete); testes em `src/modules/lembretes/banco.test.ts`. Plano 20 (0123):
 `app_fin_categorias_fixas` (BEFORE UPDATE OR DELETE) e `app_fin_lancamentos_regras` (BEFORE INSERT OR UPDATE), ambas com
 `SET search_path = public, pg_temp` e nomes com `public.`, e a `app_anonimizar_financeiro(uuid)`, que segue o molde da
 `app_anonimizar_documentos`: `SECURITY INVOKER`, só `worker`, chamada por `anonimizarVencidos` só quando o paciente tem

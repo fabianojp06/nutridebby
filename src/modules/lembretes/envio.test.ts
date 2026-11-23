@@ -13,6 +13,7 @@ import { stopBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
 import type { InscricaoPush, ProvedorPush, ResultadoPush } from '@/modules/notificacoes/push';
 import { registrarNoDiario } from '@/modules/portal/diario';
+import { rotuloDaRefeicao } from '@/modules/portal/diario-constantes';
 import { CONCORRENCIA_ENVIO, processarLembretes, type DepsLembretes } from './envio';
 
 /**
@@ -68,7 +69,7 @@ async function cenario(o: { fuso?: string; T?: TenantDeTeste } = {}) {
   return { T, p, userId, inscricao };
 }
 const comPlano = async (T: TenantDeTeste, patientId: string, refeicoesDoPlano: RefeicaoDeTeste[]) => planoPublicado(app.db, T, patientId, { refeicoes: refeicoesDoPlano });
-const noDiario = (T: TenantDeTeste, patientId: string, userId: string, v: { refeicao: string; dataHora: Date; refeicaoDoPlano?: string }) =>
+const noDiario = (T: TenantDeTeste, patientId: string, userId: string, v: { refeicao: string; dataHora: Date; refeicaoDoPlano?: string; refeicaoSlot?: string }) =>
   withTenant(
     ctxPaciente(T.tenantId, patientId, userId),
     (tx) =>
@@ -77,6 +78,7 @@ const noDiario = (T: TenantDeTeste, patientId: string, userId: string, v: { refe
         patientId,
         refeicao: v.refeicao,
         dataHora: v.dataHora,
+        refeicaoSlot: v.refeicaoSlot ?? null,
         ...(v.refeicaoDoPlano ? { resposta: 'como_no_plano', refeicaoDoPlano: v.refeicaoDoPlano } : { texto: 'arroz e feijão' }),
       }),
     app.db,
@@ -266,6 +268,43 @@ describe('refeições do plano (Review Focus 2) e textos da tela de bloqueio', (
     const doDiario = push.enviados.filter((e) => e.payload.corpo === 'Registre sua refeição no diário');
     expect(doDiario.map((e) => e.endpoint)).toEqual([semRegistro.inscricao.endpoint]);
     expect(push.enviados.filter((e) => e.endpoint === registrou.inscricao.endpoint).map((e) => e.payload.corpo)).toEqual(['Hora da sua refeição']);
+  });
+
+  it('TRI-17-20 #14: refeições de mesmo nome — o registro do "Lanche · 10:00" (refeicao_slot) não derruba o pedido do diário do "Lanche · 16:00"', async () => {
+    const { T, p, userId, inscricao } = await cenario();
+    await lembrete(T, p.id, refeicoes(0, 30));
+    await comPlano(T, p.id, [
+      { nome: 'Lanche', horario: '10:00' },
+      { nome: 'Lanche', horario: '16:00' },
+    ]);
+    await noDiario(T, p.id, userId, { refeicao: 'Outro', refeicaoSlot: rotuloDaRefeicao('Lanche', '10:00'), dataHora: as('10:10') });
+    const push = pushFalso();
+    for (const h of ['10:00', '10:30', '16:00', '16:30']) await rodar(T, as(h, 10), push);
+    expect(push.enviados.map((e) => e.endpoint)).toEqual(Array(3).fill(inscricao.endpoint));
+    expect(push.enviados.map((e) => e.payload.corpo)).toEqual(['Hora da sua refeição', 'Hora da sua refeição', 'Registre sua refeição no diário']);
+    expect((await marcas(T))[0].ultimoSlotEm).toEqual(as('16:30'));
+  });
+
+  it('TRI-17-20 #14: a refeição da lista fechada só casa o registro sem refeicao_slot nem refeicao_do_plano', async () => {
+    const T = await novoTenant(app.db);
+    const comSlot = await cenario({ T });
+    const semSlot = await cenario({ T });
+    for (const c of [comSlot, semSlot]) {
+      await lembrete(T, c.p.id, refeicoes(0, 30));
+      await comPlano(T, c.p.id, [
+        { nome: 'Almoço', horario: '12:00' },
+        { nome: 'Almoço', horario: '19:00' },
+      ]);
+    }
+    // pelo link da refeição das 12:00: a refeição da lista ('Almoço') não marca também a das 19:00
+    await noDiario(T, comSlot.p.id, comSlot.userId, { refeicao: 'Almoço', refeicaoSlot: rotuloDaRefeicao('Almoço', '12:00'), dataHora: as('12:10') });
+    // registro livre, sem refeição do plano (comportamento antigo, preservado): casa as duas pela lista fechada
+    await noDiario(T, semSlot.p.id, semSlot.userId, { refeicao: 'Almoço', dataHora: as('12:20') });
+    const push = pushFalso();
+    for (const h of ['12:30', '19:30']) await rodar(T, as(h, 10), push);
+    const doDiario = push.enviados.filter((e) => e.payload.corpo === 'Registre sua refeição no diário');
+    expect(doDiario.map((e) => e.endpoint)).toEqual([comSlot.inscricao.endpoint]);
+    expect((await marcas(T)).find((m) => m.patientId === comSlot.p.id)?.ultimoSlotEm).toEqual(as('19:30'));
   });
 
   it('Review Focus 1: o dia do diário é o do tenant — em America/Manaus, o Almoço das 23:30 do dia 16 (03:30Z do 17) não conta para o 17', async () => {

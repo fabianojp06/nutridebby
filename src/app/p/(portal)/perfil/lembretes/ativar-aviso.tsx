@@ -7,6 +7,12 @@ import { AtivarNotificacoes } from '../../../notificacoes';
 const MOLDURA = 'space-y-2 rounded-2xl border border-borda bg-cartao p-3';
 const semAssinatura = () => () => {};
 
+/** TRI-17-20 #47 (T6-N2): notificações já bloqueadas no aparelho (texto provisório, a revisar pela Debby). */
+export const MSG_NOTIFICACOES_BLOQUEADAS =
+  'As notificações estão bloqueadas neste aparelho, por isso os lembretes não chegam. Para receber, libere as notificações deste app nas configurações do navegador ou do celular.';
+/** No estilo do aviso da pausa (interruptor.tsx), sem região viva: o texto já está na tela quando ela abre. */
+const BLOQUEADAS = <p className="rounded-2xl border border-aviso bg-aviso-fundo p-3 font-semibold text-aviso">{MSG_NOTIFICACOES_BLOQUEADAS}</p>;
+
 // funções com nome (react/display-name): o cartão em volta do que AtivarNotificacoes/Instalar decidem mostrar
 function CartaoDeNotificacoes(conteudo: ReactNode) {
   return (
@@ -28,8 +34,8 @@ function CartaoDoIphone(conteudo: ReactNode) {
 
 /**
  * Plano 17 (Tarefa 6), no molde de CartoesDoAparelho: o pedido de notificações em Eu › Lembretes, só quando dá para ativar
- * ou quando a tentativa falhou (com `cartao`, AtivarNotificacoes não mostra nada com as notificações já ativas, bloqueadas
- * ou indisponíveis). No iPhone fora da tela inicial (onde o push não existe), os passos do Instalar; no Android o Instalar
+ * ou quando a tentativa falhou (com `cartao`, AtivarNotificacoes não mostra nada com as notificações já ativas ou
+ * indisponíveis); bloqueadas no aparelho, o aviso de que os lembretes não chegam e como liberar. No iPhone fora da tela inicial (onde o push não existe), os passos do Instalar; no Android o Instalar
  * não entra aqui (o cartão fala do iPhone, e as notificações funcionam sem instalar).
  */
 export function AtivarAviso({ chavePublica, dono }: { chavePublica: string | null; dono: string }) {
@@ -38,7 +44,7 @@ export function AtivarAviso({ chavePublica, dono }: { chavePublica: string | nul
   const iphoneSemInstalar = noCliente && ehIos(navigator.userAgent, navigator.platform, navigator.maxTouchPoints) && !standalone();
   return (
     <>
-      <AtivarNotificacoes chavePublica={chavePublica} dono={dono} cartao={CartaoDeNotificacoes} />
+      <AtivarNotificacoes chavePublica={chavePublica} dono={dono} cartao={CartaoDeNotificacoes} negado={BLOQUEADAS} />
       {iphoneSemInstalar && <Instalar cartao={CartaoDoIphone} />}
     </>
   );
