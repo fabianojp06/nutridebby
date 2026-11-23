@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { corDaFaixa } from '@/lib/tema/marca-tema';
+import { emitirReceita, entrarComoDocs } from './documentos';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 import { avaliar, entradasDoPlano, marcarParaPaciente, mostrarPercGordura, pacienteNoPortal, publicarPlanoSimples } from './portal';
@@ -449,5 +451,37 @@ test('cor do consultório no portal: a faixa e a seção atual, no claro e com o
     }
   } finally {
     await salvar(original);
+  }
+});
+
+// Plano 22 (T11, US-380, RN-396): "Compartilhar" o PDF assinado em dois passos. O Chromium do Playwright no Linux não
+// compartilha arquivo (e o `canShare` é tirado no começo da página, para valer também no Windows e no macOS): o caminho é o
+// download, com a mensagem da spec. Assinar exige o 2FA (a conta E2E_DOCS). IPs (faixa do Plano 22, EP-D58): nutricionista
+// 10.9.22.50, paciente 10.9.22.51.
+test('"Compartilhar" o PDF assinado (US-380): Preparar → foco no Compartilhar → sem compartilhar de arquivo, baixa o PDF e explica', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const docs = await entrarComoDocs(browser, '10.9.22.50');
+  const p = await pacienteNoPortal(browser, docs, '10.9.22.51');
+  try {
+    await emitirReceita(docs, p.prontuario);
+    const page = p.page;
+    await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'canShare', { configurable: true, value: undefined }));
+    await page.goto('/p/documentos');
+    await expect(page.getByText('Envie à farmácia que você escolher. O PDF tem dados da sua saúde. Envie só a quem você quiser que veja.')).toBeVisible();
+    await page.getByRole('button', { name: /^Preparar para compartilhar a receita de \d{2}\/\d{2}\/\d{4}$/ }).click();
+    const compartilhar = page.getByRole('button', { name: /^Compartilhar a receita de \d{2}\/\d{2}\/\d{4}$/ });
+    await expect(compartilhar).toBeFocused();
+    await expect(page.getByRole('status').filter({ hasText: 'PDF pronto. Toque em Compartilhar.' })).toBeVisible();
+    const [download] = await Promise.all([page.waitForEvent('download'), compartilhar.click()]);
+    expect(download.suggestedFilename()).toMatch(/^receita-\d{2}-\d{2}-\d{4}\.pdf$/);
+    expect(readFileSync(await download.path()).subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Este aparelho não consegue compartilhar o arquivo. O PDF foi baixado; envie pelo aplicativo que preferir.' }),
+    ).toBeVisible();
+    await expect(page.getByText('Não foi possível preparar o PDF. Tente de novo.')).toHaveCount(0);
+    await expect(compartilhar).toBeVisible(); // o PDF segue em memória: baixar de novo não lê a rota outra vez
+  } finally {
+    await p.page.context().close();
+    await docs.context().close();
   }
 });

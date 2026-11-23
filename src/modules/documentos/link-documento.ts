@@ -96,7 +96,7 @@ export class LinkError extends Error {
   }
 }
 export type DepsLink = { db?: Db; agora?: Date; ip: string | null; ipDoLimite: string | null; verificarTurnstile: (t: string | null) => Promise<'ok' | 'invalido' | 'indisponivel'>; appUrl: string };
-export type EstadoLink = { tipo: 'invalido' | 'expirado' | 'indisponivel' } | { tipo: 'pedir_codigo' } | { tipo: 'aberto'; titulo: string; versao: number; data: Date; recebidoEm: Date | null };
+export type EstadoLink = { tipo: 'invalido' | 'expirado' | 'indisponivel' } | { tipo: 'pedir_codigo' } | { tipo: 'aberto'; titulo: string; versao: number; data: Date; recebidoEm: Date | null; tipoDoc: TipoDocumento };
 
 /** HMAC do código amarrado ao id do pedido (o mesmo código em outro pedido não confere); chave derivada do link. */
 const hashDoCodigo = (pedido: string, codigo: string) => createHmac('sha256', chaveDoLinkDocumento()).update(`codigo:${pedido}:${codigo}`).digest('base64url');
@@ -165,7 +165,8 @@ export async function estadoDoLink(token: unknown, sessao: string | undefined, d
   if (l.expirado) return { tipo: 'expirado' };
   if (!(await sessaoValida(l.ids, sessao, deps))) return { tipo: 'pedir_codigo' };
   const recebido = await withTenant(ctxDo(l.ids, deps.ip), (tx) => recebidoEm(tx, l.ids.documentoId), deps.db ?? getDb());
-  return { tipo: 'aberto', titulo: rotuloDoTipo(tipoDoc), versao: l.dados.versao, data: l.dados.assinadoEm!, recebidoEm: recebido };
+  // Plano 22 (T11, RN-396): `tipoDoc` para o texto por tipo do "Compartilhar" na página do link
+  return { tipo: 'aberto', titulo: rotuloDoTipo(tipoDoc), versao: l.dados.versao, data: l.dados.assinadoEm!, recebidoEm: recebido, tipoDoc };
 }
 
 async function linkUtilizavel(token: unknown, deps: DepsLink) {

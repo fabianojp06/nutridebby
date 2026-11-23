@@ -13,10 +13,12 @@ import type { Guia } from './conteudo';
  * todos); o tour não muda. A subida mostra "O manual do app foi atualizado" uma vez a quem já viu a versão 2.
  * Plano 22: versão 4 (T6, EP-D52) — Exames também mostra os resultados que a nutricionista liberar no app ("Mostrar no app",
  * US-375); o menu passa a ter "Exames" com eles, mesmo sem o recebimento ligado. O tour não muda.
+ * Plano 22: versão 5 (T11, EP-D52) — "Compartilhar" o PDF assinado em Eu › Meus documentos (US-380), em "Perguntas comuns",
+ * com o aviso de dado de saúde. O tour não muda.
  */
 export const GUIA_PORTAL: Guia = {
   id: 'portal-novidades',
-  versao: 4,
+  versao: 5,
   padrao: /^\/p\/inicio$/,
   titulo: 'Como usar o app',
   ajuda: {
@@ -45,6 +47,8 @@ export const GUIA_PORTAL: Guia = {
           `Se o seu consultório usar IA, você pode receber dois pedidos separados: um para os exames (em Eu › Privacidade) e outro para a ${NOME_IA_NUTRI} (em Plano). Cada um é opcional. Recusar ou retirar não muda nada no seu atendimento.`,
           // Plano 17: depende da nutricionista ter configurado (o guia é o mesmo para todos os pacientes)
           'Se a sua nutricionista configurou lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um.',
+          // Plano 22 (T11, US-380): o paciente compartilha pelo aparelho, com quem ele escolher (a plataforma não envia)
+          'Quando a sua nutricionista emitir um documento assinado, ele fica em Eu › Meus documentos. Para mandá-lo à farmácia, ao laboratório ou a quem você escolher, toque em "Preparar para compartilhar" e depois em "Compartilhar". O PDF tem dados da sua saúde: envie só a quem você quiser que veja.',
         ],
       },
     ],

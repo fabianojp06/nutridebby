@@ -4,6 +4,8 @@ import { linhaDaAssinatura, rotuloDaVersao, TIPO_DOCUMENTO_COM_ARTIGO } from '@/
 import { documentosDoPaciente, MSG_PORTAL_DOC } from '@/modules/documentos/portal';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
 import { CabecalhoDetalhe } from '@/components/portal/cabecalho-detalhe';
+import { CompartilharPdf } from '@/components/portal/compartilhar-pdf';
+import { nomeDoPdf } from '@/components/portal/compartilhar-pdf-estado';
 import { confirmarRecebimentoAction } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -37,6 +39,10 @@ export default async function MeusDocumentos() {
               <a href={`/api/p/documentos/${d.id}/pdf`} className="inline-flex min-h-11 items-center underline">
                 Abrir PDF<span className="sr-only">{` ${TIPO_DOCUMENTO_COM_ARTIGO[d.tipo]} de ${data(d.data)}`}</span>
               </a>
+              {/* Plano 22 (US-380, RN-396): "Compartilhar" só no assinado em vigor, pela mesma rota do "Abrir PDF" */}
+              {d.status === 'assinado' && (
+                <CompartilharPdf url={`/api/p/documentos/${d.id}/pdf`} tipo={d.tipo} data={data(d.data)} nomeDoArquivo={nomeDoPdf(d.tipo, data(d.data))} />
+              )}
               {d.status === 'assinado' &&
                 (d.recebidoEm ? (
                   <p role="status">{`Recebimento confirmado em ${data(d.recebidoEm)}.`}</p>

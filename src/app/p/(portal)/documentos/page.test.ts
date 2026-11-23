@@ -75,6 +75,27 @@ describe('/p/documentos (US-146)', () => {
     expect(html).not.toContain('Confirmo que recebi este documento');
   });
 
+  it('Plano 22 (US-380, RN-396): "Preparar para compartilhar" só no assinado em vigor, pela rota de sempre; substituído e cancelado com os textos de hoje e sem ele', async () => {
+    lista.push(doc({ tipo: 'solicitacao_exames', titulo: 'Solicitação de exames laboratoriais' }));
+    let html = await render();
+    expect(html).toContain('Preparar para compartilhar<span class="sr-only"> a solicitação de exames laboratoriais de 04/10/2026</span>');
+    expect(html).toContain('Envie ao laboratório que você escolher.');
+    expect(html).toContain('O PDF tem dados da sua saúde. Envie só a quem você quiser que veja.');
+    // a região do componente, montada antes do toque (a outra é a do cabeçalho)
+    expect(html.match(/<p role="status"[^>]*><\/p>/g)).toHaveLength(2);
+    lista.splice(0, lista.length, doc({ status: 'substituido' }), doc({ id: '00000000-0000-4000-8000-0000000000d2', status: 'cancelado' }));
+    html = await render();
+    expect(html).toContain('Substituído por uma versão mais nova.');
+    expect(html).toContain('Cancelado pela nutricionista. Não use este documento.');
+    expect(html).not.toContain('Preparar para compartilhar');
+    expect(html).not.toContain('Envie ');
+    // um assinado e um substituído: um "Preparar" só, o do assinado
+    lista.splice(0, lista.length, doc({ status: 'substituido' }), doc({ id: '00000000-0000-4000-8000-0000000000d3' }));
+    html = await render();
+    expect(html.match(/Preparar para compartilhar</g)).toHaveLength(1);
+    expect(html).toContain('Envie à farmácia que você escolher.');
+  });
+
   it('D20: com o interruptor do admin desligado, 404 sem consultar a lista', async () => {
     sessao.liberado = false;
     await expect(MeusDocumentos()).rejects.toMatchObject({ digest: expect.stringContaining('404') });

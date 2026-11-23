@@ -61,8 +61,9 @@ describe('link de uso único (RN-158, Review Focus 4)', () => {
       const { sessao } = await confirmarCodigoDocumento(x.token, { codigo: await ultimoCodigo(x.p.email) }, deps());
       return estadoDoLink(x.token, sessao, deps());
     };
-    expect(await abrir('solicitacao_exames')).toMatchObject({ tipo: 'aberto', titulo: 'Solicitação de exames laboratoriais', versao: 1 });
-    expect(await abrir('receita')).toMatchObject({ tipo: 'aberto', titulo: 'Receita', versao: 1 });
+    // Plano 22 (T11, RN-396): o estado aberto também traz o tipo, para o texto por tipo do "Compartilhar"
+    expect(await abrir('solicitacao_exames')).toMatchObject({ tipo: 'aberto', titulo: 'Solicitação de exames laboratoriais', tipoDoc: 'solicitacao_exames', versao: 1 });
+    expect(await abrir('receita')).toMatchObject({ tipo: 'aberto', titulo: 'Receita', tipoDoc: 'receita', versao: 1 });
   });
 
   it('limites: 1 código por minuto e 5 por hora por documento; 5 erros invalidam o código', async () => {

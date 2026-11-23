@@ -12,11 +12,11 @@ const FONTES = ['src/app/p', 'src/components/portal']
   .join('\n');
 
 describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
-  it('id no formato do progresso e fora dos guias do painel; versão 4 (Plano 22: os resultados liberados em Exames); 5 passos com "1 de 5"', () => {
+  it('id no formato do progresso e fora dos guias do painel; versão 5 (Plano 22: os resultados liberados em Exames e o "Compartilhar" do PDF); 5 passos com "1 de 5"', () => {
     expect(GUIA_PORTAL.id).toBe('portal-novidades');
     expect(GUIA_PORTAL.id).toMatch(ID_GUIA);
     expect(GUIAS.map((g) => g.id)).not.toContain(GUIA_PORTAL.id);
-    expect(GUIA_PORTAL.versao).toBe(4);
+    expect(GUIA_PORTAL.versao).toBe(5);
     expect(GUIA_PORTAL.passos).toHaveLength(5);
   });
   it('todo alvo do tour existe numa tela do portal (data-guia); a faixa, o mural, as respostas, as ações e a seção Eu', () => {
@@ -61,13 +61,25 @@ describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
     expect(avisoDoGuia({}, false)).toBe(AVISO_PORTAL.boasVindas);
     expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 2, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 17: a versão 2 já é anterior
     expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 3, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 22: a versão 3 já é anterior
-    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 4, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 4, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 22 (T11): a versão 4 já é anterior
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 5, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
     expect(avisoDoGuia({ outro: { v: 1, estado: 'visto' } }, false)).toBe(AVISO_PORTAL.boasVindas); // o progresso de outro guia não conta
   });
 
   it('Plano 17 (Tarefa 6): os lembretes em "Perguntas comuns", com a ressalva de que dependem da nutricionista; o tour não muda', () => {
     const itens = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')?.itens ?? [];
     expect(itens).toContain('Se a sua nutricionista configurou lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um.');
+    expect(GUIA_PORTAL.passos.map((p) => p.alvo)).toEqual(['faixa', 'mural', 'respostas', 'acoes', 'secao-eu']);
+  });
+
+  it('Plano 22 (T11, US-380, EP-D52): "Compartilhar" o PDF assinado em "Perguntas comuns", com o aviso de dado de saúde; o tour não muda', () => {
+    const itens = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')?.itens ?? [];
+    expect(itens.at(-1)).toBe(
+      'Quando a sua nutricionista emitir um documento assinado, ele fica em Eu › Meus documentos. Para mandá-lo à farmácia, ao laboratório ou a quem você escolher, toque em "Preparar para compartilhar" e depois em "Compartilhar". O PDF tem dados da sua saúde: envie só a quem você quiser que veja.',
+    );
+    // os rótulos citados existem na tela do portal
+    expect(FONTES).toContain("preparar: 'Preparar para compartilhar'");
+    expect(FONTES).toContain("compartilhar: 'Compartilhar'");
     expect(GUIA_PORTAL.passos.map((p) => p.alvo)).toEqual(['faixa', 'mural', 'respostas', 'acoes', 'secao-eu']);
   });
 });
