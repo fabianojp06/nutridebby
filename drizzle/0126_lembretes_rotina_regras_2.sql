@@ -16,10 +16,12 @@ END $$;
 --> statement-breakpoint
 CREATE TRIGGER lembretes_rotina_envios_sem_apagar BEFORE DELETE ON lembretes_rotina_envios FOR EACH ROW EXECUTE FUNCTION app_lembretes_rotina_envios_sem_apagar();
 --> statement-breakpoint
--- TRI-17-20 #6 (triagem, seção 3, item 5): 0119 + duas regras, o resto linha a linha:
+-- TRI-17-20 #6 e #7 (triagem, seção 3, itens 5 e 6): 0119 + três regras, o resto linha a linha:
 -- (#6) a sessão de paciente sem conta (link, WhatsApp, convite: app.user_id vazio — mesmo critério da política
 --      patient_cadastro_paciente_com_conta, 0125) não grava nada; nem o UPDATE sem mudança.
 -- (#6) na sessão de paciente, `updated_at` é o now() da transação, não o valor enviado.
+-- (#7) no INSERT da sessão `nutri`, `criado_por` é a usuária da sessão (app_current_user()); diferente → 42501, sem reescrever
+--      em silêncio (equipe.ts já manda ctx.actorUserId). O worker e o contexto vazio continuam livres (sementes, testes).
 CREATE OR REPLACE FUNCTION app_lembretes_rotina_regras() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp AS $$
@@ -29,6 +31,9 @@ BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NEW.desligado_pelo_paciente_em IS NOT NULL AND r NOT IN ('', 'worker') THEN
       RAISE EXCEPTION 'só o paciente desliga o próprio lembrete' USING ERRCODE = '42501';
+    END IF;
+    IF r = 'nutri' AND NEW.criado_por IS DISTINCT FROM app_current_user() THEN
+      RAISE EXCEPTION 'o lembrete é criado em nome da usuária da sessão' USING ERRCODE = '42501';
     END IF;
     RETURN NEW;
   END IF;

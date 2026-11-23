@@ -3,14 +3,14 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
-import { auditLog, lembretesRotina, lembretesRotinaEnvios, patients } from '@/db/schema';
+import { auditLog, lembretesRotina, lembretesRotinaEnvios, patients, user } from '@/db/schema';
 import type { Tx } from '@/db/client';
 import { withTenant, type TenantContext } from '@/db/tenant';
 
 /**
  * Plano 17 (spec §5.3, §5.5): o banco confere quem muda o quê nos lembretes de rotina — gatilhos lembretes_rotina_regras,
  * lembretes_rotina_envios_do_worker e patients_lembretes_do_paciente, e a lista de colunas do paciente (paciente_colunas), 0119;
- * o paciente sem conta, o `updated_at` do paciente, e o DELETE da marca de envio (TRI-17-20 #5 e #6).
+ * o paciente sem conta, o `updated_at` do paciente, o `criado_por` da equipe e o DELETE da marca de envio (TRI-17-20 #5–#7).
  */
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -128,6 +128,17 @@ describe('lembretes_rotina: quem muda o quê (Plano 17, §5.3)', () => {
       return tx.execute<{ igual: boolean }>(sql`select updated_at = now() as igual from lembretes_rotina where id = ${agua.id}`);
     });
     expect(r.rows).toEqual([{ igual: true }]);
+  });
+
+  it('a equipe cria o lembrete em nome da própria usuária (criado_por, TRI-17-20 #7)', async () => {
+    const { T, criar, worker } = await cenario();
+    const colegaId = randomUUID();
+    await app.db.insert(user).values({ id: colegaId, name: 'Colega', email: `colega-${colegaId.slice(0, 8)}@teste.dev`, appRole: 'nutri', tenantId: T.tenantId });
+    expect(await falhaCom(criar({ criadoPor: colegaId }))).toBe('42501');
+    expect(await falhaCom(criar({ criadoPor: randomUUID() }))).toBe('42501');
+    expect(await criar({ criadoPor: T.nutriId })).toMatchObject({ criadoPor: T.nutriId });
+    // worker e contexto vazio continuam livres (sementes, testes)
+    expect(await criar({ tipo: 'refeicoes', config: { antecedenciaMin: 0, diarioDepoisMin: null }, criadoPor: colegaId }, worker)).toMatchObject({ criadoPor: colegaId });
   });
 
   it('a equipe não grava a marca do paciente ao criar (lembrete nem paciente)', async () => {
