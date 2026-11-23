@@ -10,7 +10,7 @@ import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { arquivarPaciente, desarquivarPaciente } from '@/modules/pacientes/lgpd';
 import { ENTIDADE_ROTULO, listAccessHistory, rotuloDaAcao } from '@/modules/plataforma/audit';
 import { consultorioDoChat, esperarBloqueio as esperarTrava, mensagemDoDono, pacienteDoChat, recadoPara } from '../../../test/mensagens';
-import { conversaNoPainel, estadoDaConversa, liberarConversa, marcarLida, minhaConversa, pausarConversa, retomarConversa, situacao } from './conversa';
+import { conversaNoPainel, estadoDaConversa, liberarConversa, marcarLida, mensagensNaFaixa, minhaConversa, pausarConversa, retomarConversa, situacao } from './conversa';
 import { enviarComoNutri, enviarComoPaciente } from './envio';
 import { contadorDeMensagens } from './caixa';
 import { salvarConfiguracao } from './horario';
@@ -668,5 +668,44 @@ describe('Plano 25 — marcador e cursores pelo id (CH-D40)', () => {
       outra.release();
     }
     expect((await conversaNoPainel(T.ctx, c.p, {}, app.db)).mensagens.map((m) => m.texto)).toEqual(['primeiro', 'segundo']);
+  });
+});
+
+describe('Plano 25, T7 — mensagensNaFaixa (o link "Mensagens" da faixa do portal, RN-473, US-443)', () => {
+  it('sem conversa → null (sem link); com a conversa liberada → as mensagens da nutricionista não lidas pelo paciente (0 depois de abrir)', async () => {
+    const T = await chat();
+    const sem = await pacienteDoChat(app.db, T, { liberar: false });
+    expect(await mensagensNaFaixa(sem.P, app.db)).toBeNull();
+    const c = await pacienteDoChat(app.db, T);
+    expect(await mensagensNaFaixa(c.P, app.db)).toBe(0);
+    await enviarComoPaciente(c.P, { texto: 'Oi' }, app.db); // a própria mensagem não conta
+    expect(await mensagensNaFaixa(c.P, app.db)).toBe(0);
+    await enviarComoNutri(T.ctx, c.p, { texto: 'Oi, Ana' }, app.db);
+    await enviarComoNutri(T.ctx, c.p, { texto: 'Tudo bem?' }, app.db);
+    expect(await mensagensNaFaixa(c.P, app.db)).toBe(2);
+    await minhaConversa(c.P, {}, app.db);
+    expect(await mensagensNaFaixa(c.P, app.db)).toBe(0);
+    // pausada: o link fica (o paciente lê), com as não lidas
+    await enviarComoNutri(T.ctx, c.p, { texto: 'Vou pausar' }, app.db);
+    expect(await pausarConversa(T.ctx, c.p, app.db)).toBe('ok');
+    expect(await mensagensNaFaixa(c.P, app.db)).toBe(1);
+  });
+
+  it('só com recado (sem liberação) → o link, com o recado não lido; nada do outro consultório; sem auditRead; sessão sem conta ou da equipe → null, sem transação', async () => {
+    const T = await chat();
+    const c = await pacienteDoChat(app.db, T, { liberar: false });
+    await recadoPara(app.db, T, [c.p], 'Feriado na sexta');
+    expect(await mensagensNaFaixa(c.P, app.db)).toBe(1);
+    const outro = await chat();
+    const d = await pacienteDoChat(app.db, outro);
+    await enviarComoNutri(outro.ctx, d.p, { texto: 'de outro consultório' }, app.db);
+    expect(await mensagensNaFaixa(c.P, app.db)).toBe(1);
+    expect(await leiturasAuditadas(T)).toEqual([]);
+    const semConta: TenantContext = { tenantId: T.tenantId, role: 'paciente', patientId: c.p, semConta: true };
+    for (const ctx of [semConta, T.ctx]) {
+      const { db, transaction } = semTransacao();
+      expect(await mensagensNaFaixa(ctx, db)).toBeNull();
+      expect(transaction).not.toHaveBeenCalled();
+    }
   });
 });

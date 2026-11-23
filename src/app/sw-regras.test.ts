@@ -1,22 +1,28 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MSG_PORTAL_MENSAGENS } from '@/modules/mensagens/constantes';
 import {
+  CABECALHO_PEDIDO_DA_COPIA,
   CABECALHO_BUILD,
   CABECALHO_DONO,
   CABECALHO_GUARDADO_EM,
   CABECALHO_VERSAO,
   cabecalhosDaCopia,
   CACHE_PLANO,
+  ehConversaDoPortal,
   ehNavegacaoDoPortal,
   ehPaginaDoPlano,
   esquecerPlanoGuardadoForaDe,
   idDoBuild,
   lerMensagem,
   mensagemDaPropriaOrigem,
+  paginaSemConexao,
   planoValido,
   podeGuardarPlano,
   precisaBuscarPlano,
   RENOVAR_PLANO_MS,
   saiuDoPlano,
+  TEXTO_SEM_CONEXAO,
   URL_PLANO,
   urlDaNotificacao,
   VALIDADE_PLANO_MS,
@@ -218,5 +224,52 @@ describe('P09-05 (D8): as regras do service worker nunca tratam o painel', () =>
       expect(ehNavegacaoDoPortal(new URL(`${O}${p}`), 'navigate', O), p).toBe(false);
       expect(ehPaginaDoPlano(new URL(`${O}${p}`), 'navigate', O), p).toBe(false);
     }
+  });
+});
+
+// Plano 25, T7 (RN-473, CH-D46): a conversa nunca fica no aparelho e, sem rede, nunca mostra o plano no lugar dela
+describe('Plano 25 (T7): /p/mensagens fora do cache e do plano guardado', () => {
+  it('/p/mensagens (com ou sem query, e as subpáginas) não casa com a navegação do portal nem com "Meu plano"; casa só com a regra da conversa', () => {
+    for (const p of ['/p/mensagens', '/p/mensagens?v=00000000-0000-4000-8000-000000000001', '/p/mensagens?antes=x', '/p/mensagens/']) {
+      const u = new URL(`${O}${p}`);
+      expect(ehNavegacaoDoPortal(u, 'navigate', O), p).toBe(false);
+      expect(ehPaginaDoPlano(u, 'navigate', O), p).toBe(false);
+      expect(ehConversaDoPortal(u, 'navigate', O), p).toBe(true);
+    }
+    expect(ehConversaDoPortal(new URL(`${O}/p/mensagens`), 'cors', O)).toBe(false); // RSC do roteador: rede, sem regra
+    expect(ehConversaDoPortal(new URL('https://outro.com/p/mensagens'), 'navigate', O)).toBe(false);
+    expect(ehConversaDoPortal(new URL(`${O}/p/mensagens-antigas`), 'navigate', O)).toBe(false);
+    expect(ehNavegacaoDoPortal(new URL(`${O}/p/mensagens-antigas`), 'navigate', O)).toBe(true);
+    expect(ehNavegacaoDoPortal(new URL(`${O}/p/inicio`), 'navigate', O)).toBe(true);
+    expect(podeGuardarPlano(resposta({ url: `${O}/p/mensagens` }), O)).toBe(false);
+  });
+
+  it('sem rede: a página do aviso — "Sem conexão. Escreva quando voltar." na região de status, nada guardado, nenhum dado do paciente', async () => {
+    const r = paginaSemConexao();
+    expect(r.status).toBe(503);
+    expect(r.headers.get('content-type')).toBe('text/html; charset=utf-8');
+    expect(r.headers.get('cache-control')).toBe('no-store');
+    const html = await r.text();
+    expect(TEXTO_SEM_CONEXAO).toBe(MSG_PORTAL_MENSAGENS.erros.semInternet);
+    expect(html).toMatch(/<html lang="pt-BR">/);
+    expect(html).toMatch(/<title>Mensagens<\/title>/);
+    expect(html).toMatch(/<h1>Mensagens<\/h1>/);
+    expect(html).toContain(`<p role="status">${MSG_PORTAL_MENSAGENS.erros.semInternet}</p>`);
+    expect(html).toContain('<a href="/p/inicio">Voltar para Hoje</a>');
+    expect(html).not.toMatch(/<script/);
+  });
+
+  it('sw.ts: a regra da conversa vem antes da navegação do portal e responde a página do aviso; só /p/plano vai para o cache; a busca da cópia avisa o servidor (o link "Mensagens" sai sem contador)', () => {
+    const sw = readFileSync('src/app/sw.ts', 'utf8');
+    const conversa = sw.indexOf('ehConversaDoPortal(url, request.mode, origem)');
+    const navegacao = sw.indexOf('ehNavegacaoDoPortal(url, request.mode, origem)');
+    expect(conversa).toBeGreaterThan(0);
+    expect(conversa).toBeLessThan(navegacao);
+    expect(sw.slice(conversa, navegacao)).toMatch(/new NetworkOnly\(\{ plugins: \[\{ handlerDidError: async \(\) => paginaSemConexao\(\) \}\] \}\)/);
+    expect(sw.slice(conversa, navegacao)).not.toMatch(/planoGuardado|cacheName/);
+    const puts = [...sw.matchAll(/\.put\(([^,]+),/g)].map((m) => m[1].trim());
+    expect(puts).toEqual(['URL_PLANO']);
+    expect(sw).toMatch(/fetch\(URL_PLANO, \{[^}]*headers: \{ \[CABECALHO_PEDIDO_DA_COPIA\]: '1' \}/);
+    expect(CABECALHO_PEDIDO_DA_COPIA).toBe('x-nd-copia');
   });
 });

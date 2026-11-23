@@ -12,11 +12,11 @@ const FONTES = ['src/app/p', 'src/components/portal']
   .join('\n');
 
 describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
-  it('id no formato do progresso e fora dos guias do painel; versão 3 (Plano 17: os lembretes em "Perguntas comuns"); 5 passos com "1 de 5"', () => {
+  it('id no formato do progresso e fora dos guias do painel; versão 4 (Plano 25: as Mensagens); 5 passos com "1 de 5"', () => {
     expect(GUIA_PORTAL.id).toBe('portal-novidades');
     expect(GUIA_PORTAL.id).toMatch(ID_GUIA);
     expect(GUIAS.map((g) => g.id)).not.toContain(GUIA_PORTAL.id);
-    expect(GUIA_PORTAL.versao).toBe(3);
+    expect(GUIA_PORTAL.versao).toBe(4);
     expect(GUIA_PORTAL.passos).toHaveLength(5);
   });
   it('todo alvo do tour existe numa tela do portal (data-guia); a faixa, o mural, as respostas, as ações e a seção Eu', () => {
@@ -58,7 +58,8 @@ describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
     expect(avisoDoGuia({}, true)).toBe(AVISO_PORTAL.pergunta); // já usava o app e nunca viu o guia (Plano 16, G-D17)
     expect(avisoDoGuia({}, false)).toBe(AVISO_PORTAL.boasVindas);
     expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 2, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 17: a versão 2 já é anterior
-    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 3, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 3, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 25: a versão 3 já é anterior
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 4, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
     expect(avisoDoGuia({ outro: { v: 1, estado: 'visto' } }, false)).toBe(AVISO_PORTAL.boasVindas); // o progresso de outro guia não conta
   });
 
@@ -66,5 +67,18 @@ describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
     const itens = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')?.itens ?? [];
     expect(itens).toContain('Se a sua nutricionista configurou lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um.');
     expect(GUIA_PORTAL.passos.map((p) => p.alvo)).toEqual(['faixa', 'mural', 'respostas', 'acoes', 'secao-eu']);
+  });
+
+  it('Plano 25 (T7, §6.2 "Portal: ajuda"): "Mensagens" na faixa quando o consultório liberar; a pergunta da urgência em "Perguntas comuns", com o texto exato', () => {
+    const itens = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')?.itens ?? [];
+    expect(itens).toContain(
+      'Posso usar as Mensagens numa urgência? Não. Em caso de urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo. Sua nutricionista lê as mensagens no horário de atendimento por mensagens, não em tempo real, e a conversa fica guardada no seu prontuário.',
+    );
+    const faixa = GUIA_PORTAL.passos.find((p) => p.alvo === 'faixa')?.texto ?? '';
+    expect(faixa).toContain('Quando o consultório liberar, o link "Mensagens" também fica aqui');
+    // o rótulo citado existe numa tela do portal (a faixa)
+    expect(FONTES).toMatch(/entrada\.rotulo|E\.rotulo/);
+    // CH-D73: nenhuma promessa de prazo de leitura
+    for (const t of [faixa, itens.at(-1) ?? '']) expect(t).not.toMatch(/em até \d|responde em|prazo|tempo real e/i);
   });
 });

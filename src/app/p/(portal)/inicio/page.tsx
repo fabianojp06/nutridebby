@@ -15,7 +15,7 @@ import { dataDaFaixa } from '@/modules/portal/datas-portal';
 import { faixaDeHoje } from '@/modules/portal/hoje';
 import { muralDoPaciente } from '@/modules/portal/mural';
 import { MSG_MURAL } from '@/modules/portal/mural-regras';
-import { molduraComExames } from '../../moldura';
+import { mensagensDaFaixa, molduraComExames } from '../../moldura';
 import { AtualizarAoVoltar } from './atualizar-ao-voltar';
 import { CartoesDoAparelho } from './cartoes-do-aparelho';
 import { ConviteIaNutri } from './convite-ia-nutri';
@@ -37,15 +37,16 @@ export default async function Hoje({ searchParams }: PageProps<'/p/inicio'>) {
   const { ctx, tenant, vinculo, data } = acesso;
   const agora = new Date();
   const hoje = hojeNoFuso(tenant.fuso, agora);
-  const [mural, { mini, jaUsava, exames }, progresso, entradaIaNutri, comLembretes, { tour }] = await Promise.all([
+  const [mural, { mini, jaUsava, exames }, progresso, entradaIaNutri, comLembretes, mensagens, { tour }] = await Promise.all([
     muralDoPaciente(ctx, tenant, agora),
     faixaDeHoje(ctx, tenant, agora, hoje),
     lerGuia(data.user.id),
     entradaDoPaciente(ctx, tenant, configIA(getEnv())),
     temLembretes(ctx),
+    mensagensDaFaixa(ctx), // Plano 25: o link "Mensagens" da faixa
     searchParams,
   ]);
-  const moldura = molduraComExames(tenant, exames);
+  const moldura = molduraComExames(tenant, exames, mensagens);
   return (
     <>
       <Faixa {...moldura} atual="/p/inicio" titulo={MSG_G.titulos.hoje(mural.primeiroNome)} subtitulo={dataDaFaixa(hoje)}>

@@ -390,3 +390,185 @@ test('T6c: a seção "Mensagens" no Início da ficha — "{n} não lidas", os it
   await expect(dialogo.getByRole('link', { name: 'Enviar mensagem' })).toHaveAttribute('href', `/painel/mensagens/${id}`);
   await nutri.keyboard.press('Escape');
 });
+
+// ——— T7: a conversa no app (/p/mensagens). Bloco de IP: 10.9.25.20 a 10.9.25.39 — a primeira paciente do chat .20 (a
+// faixa, o envio e o "Lida"), .21 (sinal de risco), .22 (400 px e axe), .23 (sem rede), .24 (sem JavaScript), .25 (mensagem
+// nova com a tela aberta) ———
+
+const NO_APP = { campo: 'Escreva sua mensagem', urgencia: 'Este canal não é para urgências. Em caso de urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo.' };
+const listaDoApp = (page: Page) => page.getByRole('list', { name: 'Mensagens' });
+const regiaoDoApp = (page: Page) => page.locator('#regiao-da-conversa');
+
+async function primeiraPacienteNoApp(browser: Browser, ip: string, opcoes: Parameters<Browser['newContext']>[0] = {}): Promise<Page> {
+  const p = await entrarComo(browser, CHAT_PACIENTE.email, CHAT_PACIENTE.senha, ip, opcoes);
+  await expect(p).toHaveURL(/\/p\//);
+  return p;
+}
+/** A nutricionista do chat escreve à primeira paciente pela conversa do painel (a T6b já cobre a tela). */
+async function nutriEscreve(texto: string): Promise<string> {
+  const url = await abrirConversa(nutri, CHAT_PACIENTE.nome);
+  await nutri.waitForLoadState('networkidle');
+  await nutri.getByLabel('Mensagem').fill(texto);
+  await nutri.getByRole('button', { name: 'Enviar', exact: true }).click();
+  await expect(listaDeMensagens(nutri).locator('li[data-mensagem]').filter({ hasText: texto })).toBeVisible();
+  return url;
+}
+
+test('T7: a paciente abre pela faixa ("Mensagens (1)"), vê o cabeçalho e o aviso, envia ("Você", "Enviada"); a faixa volta a "Mensagens"; no painel, aberta → no app, "Lida"', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const daNutri = `Bom dia! Como foi a semana? ${Date.now()}`;
+  const url = await nutriEscreve(daNutri);
+  const paciente = await primeiraPacienteNoApp(browser, '10.9.25.20');
+  await paciente.goto('/p/inicio');
+  const link = paciente.getByRole('link', { name: 'Mensagens, 1 não lida' });
+  await expect(link).toHaveText('Mensagens (1)');
+  await link.click();
+  await expect(paciente).toHaveURL(/\/p\/mensagens$/);
+  await expect(paciente.getByRole('heading', { level: 1, name: 'Mensagens' })).toBeVisible();
+  await expect(paciente.getByText('Conversa com Nutri Chat E2E da Silva, nutricionista, CRN-3 25025', { exact: true })).toBeVisible();
+  await expect(paciente.getByText(NO_APP.urgencia)).toBeVisible();
+  await expect(paciente.getByRole('link', { name: 'Voltar para Hoje' })).toHaveAttribute('href', '/p/inicio');
+  const dela = listaDoApp(paciente).locator('li[data-mensagem]').filter({ hasText: daNutri });
+  await expect(dela).toContainText('Nutri Chat E2E da Silva · Nutricionista · CRN-3 25025');
+  await expect(listaDoApp(paciente)).not.toContainText('CRN CRN');
+  // o recado da semente, com o rótulo do consultório
+  await expect(listaDoApp(paciente).locator('li[data-recado]').first()).toContainText('Recado do consultório · Nutri Chat E2E da Silva · CRN-3 25025');
+  // enviar: "Você" e "Enviada"; o campo esvazia e fica com o foco
+  await paciente.waitForLoadState('networkidle');
+  const texto = `Foi boa, obrigada! ${Date.now()}`;
+  const campo = paciente.getByLabel(NO_APP.campo);
+  await campo.fill(texto);
+  await paciente.getByRole('button', { name: 'Enviar', exact: true }).click();
+  const minha = listaDoApp(paciente).locator('li[data-mensagem]').filter({ hasText: texto });
+  await expect(minha).toContainText('Enviada');
+  await expect(minha).toContainText('Você');
+  await expect(campo).toHaveValue('');
+  await expect(campo).toBeFocused();
+  // de volta a Hoje: o link sem número (a conversa já foi lida)
+  await paciente.getByRole('link', { name: 'Voltar para Hoje' }).click();
+  await expect(paciente.getByRole('link', { name: 'Mensagens', exact: true })).toBeVisible();
+  // a nutricionista abre a conversa; no app, "Lida"
+  await nutri.goto(url);
+  await expect(listaDeMensagens(nutri).getByText(texto)).toBeVisible();
+  await paciente.goto('/p/mensagens');
+  await expect(listaDoApp(paciente).locator('li[data-mensagem]').filter({ hasText: texto })).toContainText('Lida');
+  await paciente.context().close();
+});
+
+test('T7: sinal de risco — o socorro de sintoma agudo logo abaixo da mensagem (com o foco), o de emergência com o CVV; a mensagem chega ao painel com o selo', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const paciente = await primeiraPacienteNoApp(browser, '10.9.25.21');
+  await paciente.goto('/p/mensagens');
+  await paciente.waitForLoadState('networkidle');
+  const sufixo = Date.now();
+  await paciente.getByLabel(NO_APP.campo).fill(`estou com dor no peito e falta de ar ${sufixo}`);
+  await paciente.getByRole('button', { name: 'Enviar', exact: true }).click();
+  const agudo = listaDoApp(paciente).locator('li[data-mensagem]').filter({ hasText: `falta de ar ${sufixo}` });
+  const socorro = agudo.locator('[data-socorro]');
+  await expect(socorro).toContainText('Esses sinais precisam de atendimento médico agora.');
+  await expect(socorro).not.toContainText('CVV');
+  await expect(socorro).toBeFocused();
+  await expect(socorro.getByRole('link', { name: '192' })).toHaveAttribute('href', 'tel:192');
+  await paciente.getByLabel(NO_APP.campo).fill(`não aguento mais, quero sumir ${sufixo}`);
+  await paciente.getByRole('button', { name: 'Enviar', exact: true }).click();
+  const emergencia = listaDoApp(paciente).locator('li[data-mensagem]').filter({ hasText: `quero sumir ${sufixo}` }).locator('[data-socorro]');
+  await expect(emergencia).toContainText('ligue para o CVV no 188');
+  await paciente.context().close();
+  await abrirConversa(nutri, CHAT_PACIENTE.nome);
+  await expect(listaDeMensagens(nutri).locator('li[data-mensagem]').filter({ hasText: `falta de ar ${sufixo}` })).toContainText('Sinal de risco');
+});
+
+test('T7: 400 px sem rolagem lateral, alvos de 44 px no rodapé; axe de /p/mensagens (risco, socorro e recado na tela) no claro e no escuro', async ({ browser }) => {
+  const paciente = await primeiraPacienteNoApp(browser, '10.9.25.22', { viewport: { width: 400, height: 800 } });
+  const falhas: string[] = [];
+  for (const esquema of ['light', 'dark'] as const) {
+    await paciente.emulateMedia({ colorScheme: esquema });
+    await paciente.goto('/p/mensagens');
+    await expect(listaDoApp(paciente).locator('[data-socorro]').first()).toBeVisible();
+    await expect(listaDoApp(paciente).locator('li[data-recado]').first()).toBeVisible();
+    await paciente.waitForLoadState('networkidle');
+    expect(await paciente.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), esquema).toBe(true);
+    for (const v of await violacoes(paciente)) falhas.push(`${esquema} /p/mensagens — ${v}`);
+  }
+  const enviar = (await paciente.getByRole('button', { name: 'Enviar', exact: true }).boundingBox())!;
+  expect(enviar.height).toBeGreaterThanOrEqual(44);
+  const voltar = (await paciente.getByRole('link', { name: 'Voltar para Hoje' }).boundingBox())!;
+  expect(voltar.height).toBeGreaterThanOrEqual(44);
+  await paciente.goto('/p/inicio');
+  const link = (await paciente.getByRole('link', { name: /^Mensagens/ }).boundingBox())!;
+  expect(link.height).toBeGreaterThanOrEqual(44);
+  expect(await paciente.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await paciente.context().close();
+  expect(falhas).toEqual([]);
+});
+
+test('T7: sem rede — "Sem conexão. Escreva quando voltar." na região, campo e botão desabilitados com o texto preservado; recarregar sem rede mostra o aviso, nunca o plano', async ({ browser }) => {
+  const paciente = await primeiraPacienteNoApp(browser, '10.9.25.23');
+  await paciente.goto('/p/mensagens');
+  await paciente.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await paciente.waitForLoadState('networkidle');
+  const campo = paciente.getByLabel(NO_APP.campo);
+  const rascunho = `Escrevendo no metrô ${Date.now()}`;
+  await campo.fill(rascunho);
+  await expect(regiaoDoApp(paciente)).toHaveText('');
+  await paciente.context().setOffline(true);
+  try {
+    await expect(regiaoDoApp(paciente)).toHaveText('Sem conexão. Escreva quando voltar.');
+    await expect(campo).toBeDisabled();
+    await expect(campo).toHaveValue(rascunho);
+    await expect(paciente.getByRole('button', { name: 'Enviar', exact: true })).toBeDisabled();
+    // a navegação sem rede: o service worker responde a página do aviso (nada guardado, nunca o plano)
+    await paciente.goto('/p/mensagens');
+    await expect(paciente.getByRole('status').filter({ hasText: 'Sem conexão. Escreva quando voltar.' })).toBeVisible();
+    await expect(paciente.getByText('Offline — exibindo última versão')).toHaveCount(0);
+    await expect(paciente.getByRole('heading', { name: 'Plano de hoje' })).toHaveCount(0);
+    expect(await paciente.evaluate(async () => (await Promise.all((await caches.keys()).map(async (k) => (await (await caches.open(k)).keys()).map((r) => r.url)))).flat().filter((u) => u.includes('/p/mensagens')))).toEqual([]);
+  } finally {
+    await paciente.goto('about:blank');
+    await paciente.context().setOffline(false);
+  }
+  // a rede voltou: a conversa abre de novo
+  await paciente.goto('/p/mensagens');
+  await expect(paciente.getByLabel(NO_APP.campo)).toBeEnabled();
+  await paciente.context().close();
+});
+
+test('T7: sem JavaScript, a conversa abre, mostra as mensagens e envia texto (RNF-443)', async ({ browser }) => {
+  const comJs = await primeiraPacienteNoApp(browser, '10.9.25.24');
+  await comJs.goto('/p/mensagens');
+  const semJs = await browser.newContext({ storageState: await comJs.context().storageState(), javaScriptEnabled: false, extraHTTPHeaders: { 'x-forwarded-for': '10.9.25.24' } });
+  await comJs.context().close();
+  const page = await semJs.newPage();
+  await page.goto('/p/mensagens');
+  await expect(page.getByRole('heading', { level: 1, name: 'Mensagens' })).toBeVisible();
+  await expect(listaDoApp(page).locator('li[data-mensagem]').first()).toBeVisible();
+  const texto = `Enviada do app sem JavaScript ${Date.now()}`;
+  await page.getByLabel(NO_APP.campo).fill(texto);
+  await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+  await expect(page).toHaveURL(/\/p\/mensagens$/);
+  await expect(listaDoApp(page).getByText(texto)).toBeVisible();
+  await semJs.close();
+});
+
+test('T7: mensagem nova com a tela aberta — em 15 s "Nova mensagem da sua nutricionista." sem o texto; "Mostrar novas mensagens" leva o foco à nova e o rascunho fica', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const paciente = await primeiraPacienteNoApp(browser, '10.9.25.25');
+  await paciente.clock.install();
+  await paciente.goto('/p/mensagens');
+  await paciente.waitForLoadState('networkidle');
+  const rascunho = `Rascunho do app ${Date.now()}`;
+  await paciente.getByLabel(NO_APP.campo).fill(rascunho);
+  const daNutri = `Lembrete: traga os exames ${Date.now()}`;
+  await nutriEscreve(daNutri);
+  await paciente.clock.runFor(15_000);
+  await expect(regiaoDoApp(paciente)).toHaveText('Nova mensagem da sua nutricionista.');
+  await expect(paciente.getByText(daNutri)).toHaveCount(0);
+  await paciente.getByRole('button', { name: 'Mostrar novas mensagens' }).click();
+  const nova = listaDoApp(paciente).locator('li[data-mensagem]').filter({ hasText: daNutri });
+  await expect(nova).toBeFocused();
+  await expect(paciente.getByLabel(NO_APP.campo)).toHaveValue(rascunho);
+  await expect(regiaoDoApp(paciente)).toHaveText('');
+  await paciente.context().close();
+});

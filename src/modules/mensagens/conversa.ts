@@ -395,3 +395,30 @@ export async function situacao(ctx: TenantContext, o: { patientId?: string; depo
     db,
   );
 }
+
+/**
+ * Plano 25, T7 (§4.1 "Portal", RN-463, RN-473, US-443): o link "Mensagens" da faixa do portal. `null` = sem link (o paciente
+ * não tem conversa liberada nem recado); senão, quantas mensagens da nutricionista (as cópias de recado também) vieram depois
+ * do marcador do paciente — o "{n}" de "Mensagens ({n})". Só contagem: sem auditRead, sem texto, sem mexer no marcador (o
+ * "lido" só anda quando a conversa abre, CH-D72). Sessão que não é de paciente com conta → `null`, sem abrir transação (a
+ * faixa aparece em toda seção; a recusa do banco, `paciente_com_conta`, fica como rede).
+ */
+export async function mensagensNaFaixa(ctx: TenantContext, db: Db = getDb()): Promise<number | null> {
+  if (!sessaoDePacienteComConta(ctx)) return null;
+  return withTenant(
+    ctx,
+    async (tx) => {
+      const r = await tx.execute<{ n: number }>(sql`
+        select (select count(*)::int from chat_mensagens m
+                 where m.tenant_id = c.tenant_id and m.patient_id = c.patient_id and m.autor = 'nutri'
+                   and (l.lida_ate is null or m.criada_em > l.lida_ate)) as n
+          from chat_conversas c
+          left join chat_leituras l on l.tenant_id = c.tenant_id and l.patient_id = c.patient_id and l.lado = 'paciente'
+         where c.tenant_id = app_current_tenant() and c.patient_id = ${ctx.patientId}
+           and (c.liberada_em is not null
+                or exists (select 1 from chat_mensagens r where r.tenant_id = c.tenant_id and r.patient_id = c.patient_id and r.recado_id is not null))`);
+      return r.rows[0]?.n ?? null;
+    },
+    db,
+  );
+}

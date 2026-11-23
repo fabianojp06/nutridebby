@@ -9,12 +9,14 @@ vi.mock('@/lib/paciente-session', () => ({
   requirePaciente: async () => ({ ctx: {}, data: { user: { id: 'u1', email: 'marina@ex.com' } }, vinculo: { patientId: 'p1' }, tenant: { fuso: 'America/Sao_Paulo', examesPacienteAtivadoEm: null } }),
 }));
 // a seção "Exames" vem da faixa (faixaDeHoje): o mock guarda o que a página repassou à moldura
-const moldura = vi.hoisted(() => ({ exames: null as boolean | null }));
+const moldura = vi.hoisted(() => ({ exames: null as boolean | null, mensagens: null as number | null }));
 vi.mock('@/app/p/moldura', () => ({
-  molduraComExames: (_t: unknown, exames: boolean) => {
+  molduraComExames: (_t: unknown, exames: boolean, mensagens: number | null = null) => {
     moldura.exames = exames;
-    return { marca: { nome: 'Consultório Debby', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [] };
+    return { marca: { nome: 'Consultório Debby', cor: '#1d6b5a', corNoEscuro: '#6fcfb2', logoUrl: null }, secoes: [], mensagens };
   },
+  // Plano 25 (T7): o link "Mensagens" da faixa
+  mensagensDaFaixa: async () => moldura.mensagens,
 }));
 vi.mock('@/modules/portal/mural', () => ({ muralDoPaciente: async () => ({ primeiroNome: 'Marina', vazio: true, semPlano: true, hoje: [], anteriores: [] }) }));
 const estado = vi.hoisted(() => ({ jaUsava: true, exames: false, guia: {} as Record<string, unknown> }));
@@ -53,6 +55,7 @@ describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
     estado.guia = {};
     ia.entrada = 'nenhuma';
     lembretes.tem = false;
+    moldura.mensagens = null;
   });
   it('faixa com "Olá, Marina", a mini-jornada (link para Jornada, nome acessível que contém o texto visível), o rodapé fixo, "Ver todo o diário" e a barra de ações', async () => {
     const html = await pagina();
@@ -82,6 +85,11 @@ describe('/p/inicio — Hoje (US-191, RN-193, RN-202)', () => {
     expect(moldura.exames).toBe(false);
   });
 
+  it('Plano 25 (T7): o link "Mensagens" da faixa com as não lidas (mensagensDaFaixa); sem conversa, sem link', async () => {
+    expect(await pagina()).not.toContain('href="/p/mensagens"');
+    moldura.mensagens = 2;
+    expect(await pagina()).toMatch(/<a (?=[^>]*href="\/p\/mensagens")(?=[^>]*aria-label="Mensagens, 2 não lidas")[^>]*>Mensagens \(2\)<\/a>/);
+  });
   it('G-D17 = a: quem nunca abriu o app antes de hoje recebe as boas-vindas, não "O app mudou"', async () => {
     estado.jaUsava = false;
     const html = await pagina();
