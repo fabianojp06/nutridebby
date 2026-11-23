@@ -721,7 +721,11 @@ suplemento e livre; §5.5.2):
   redirecionar: o push antigo abre uma frase com sentido).
 - Pedido de notificações (`ativar-aviso.tsx`): "Ative as notificações para receber os lembretes da sua nutricionista."
   quando dá para ativar; no iPhone fora da tela inicial, "Para receber os lembretes no iPhone, instale o app na tela
-  inicial." com os passos do `Instalar`.
+  inicial." com os passos do `Instalar`. Com as notificações já bloqueadas no aparelho ao abrir a tela
+  (`Notification.permission === 'denied'`, detectado só por `estadoDoAparelho`, `src/app/p/notificacoes.tsx`), o aviso
+  "As notificações estão bloqueadas neste aparelho, por isso os lembretes não chegam. Para receber, libere as
+  notificações deste app nas configurações do navegador ou do celular." (prop `negado` de `AtivarNotificacoes`, sem região
+  viva; TRI-17-20 #47, texto provisório).
 - Eu mostra a seção "Lembretes" com "Ver meus lembretes" enquanto houver lembrete ligado pela equipe
   (`temLembretesNaTela`), mesmo que o paciente tenha desligado todos ou pausado — é o único caminho para religar. O
   cartão de notificações de Hoje usa `temLembretes` (ligado pelas duas partes; a pausa não conta) e troca o texto para o
