@@ -125,3 +125,55 @@ export const MSG_LOCAIS = {
   telenutricao: 'Antes do primeiro atendimento online, faça o cadastro no e-Nutricionista e colha o TCLE de telenutrição, guardando o comprovante. Não grave as consultas.',
   salaDeEspera: 'Use sala de espera ou senha e admita um paciente por vez.',
 } as const;
+
+/**
+ * Plano 23 (US-404 a US-406, spec §6.2 "Agenda: navegação", "Agenda: filtros", "Agenda: selos e legenda" e "Impressão"):
+ * textos das visões, dos filtros, da legenda e da impressão. Os marcados como "fora da §6.2" vão à tabela na T12.
+ */
+export const MSG_VISOES = {
+  visoes: { dia: 'Dia', semana: 'Semana', mes: 'Mês', lista: 'Lista' },
+  hoje: 'Hoje',
+  anterior: 'Anterior',
+  proximo: 'Próximo',
+  irParaData: 'Ir para data',
+  irParaAData: 'Ir para a data',
+  mostrar24Horas: 'Mostrar 24 horas',
+  imprimir: 'Imprimir ou salvar em PDF',
+  local: 'Local',
+  todosOsLocais: 'Todos os locais',
+  paciente: 'Paciente',
+  todos: 'Todos',
+  previsoesDeRetorno: 'Previsões de retorno',
+  aniversarios: 'Aniversários',
+  filtrar: 'Filtrar',
+  limparFiltros: 'Limpar filtros',
+  legenda: 'Legenda',
+  pedidoAResponder: 'Pedido a responder',
+  bloqueio: 'Bloqueio',
+  retornoPrevisto: 'Retorno previsto',
+  aniversario: 'Aniversário',
+  marcadorRetorno: (nome: string) => `Retorno previsto: ${nome}`,
+  marcadorAniversario: (nome: string) => `Aniversário: ${nome}`,
+  bloqueado: (motivo: string) => (motivo ? `Bloqueado: ${motivo}` : 'Bloqueado'),
+  mais: (n: number) => `mais ${n}`,
+  /** Fora da §6.2 ("{n} consultas" está no esboço da §7; o singular não). */
+  consultas: (n: number) => `${n} ${n === 1 ? 'consulta' : 'consultas'}`,
+  /** §7: a consulta que atravessa linhas da grade aparece uma vez, no início, com "até hh:mm". */
+  ate: (inicio: string, fim: string) => `${inicio} (até ${fim})`,
+  /** Fora da §6.2 (já existia na Lista). */
+  semConsultas: 'Nenhuma consulta neste período.',
+  /** Fora da §6.2: a lista por dia do celular e a do Mês. */
+  semConsultasNoDia: 'Nenhuma consulta.',
+  semConsultasNoMes: 'Nenhuma consulta neste mês.',
+  /** Fora da §6.2: cabeçalhos da grade (a coluna das horas e a linha dos marcadores). */
+  hora: 'Hora',
+  marcadores: 'Marcadores',
+  impressao: {
+    local: (nome: string) => `Local: ${nome}`,
+    voltar: 'Voltar à agenda',
+    bloqueado: 'Bloqueado',
+    rodape: 'Contém dados pessoais de pacientes. Uso restrito do consultório.',
+    /** Fora da §6.2: cabeçalhos da tabela da impressão (os campos da RN-418). */
+    colunas: { hora: 'Hora', paciente: 'Paciente', tipoConsulta: 'Tipo', local: 'Local', modalidade: 'Modalidade', situacao: 'Situação' },
+  },
+} as const;

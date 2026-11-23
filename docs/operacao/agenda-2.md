@@ -26,3 +26,29 @@ Se o PR 1 der problema em produção:
 3. Mudança de configuração do serviço (imagem, variáveis) só pelo Easypanel (`CLAUDE.md` do servidor, regra 1); antes
    de qualquer mudança arriscada, lembrar do snapshot no hPanel **e** do risco atual: o snapshot congela a VPS e exige
    reboot manual (aviso de 06/11/2026) — não tirar snapshot com a produção no ar sem decidir isso antes.
+
+---
+
+## PR 2 (locais e visões) — Volta atrás
+
+O PR 2 não tem migration: voltar é trocar a imagem pela do **PR 1** (nunca pela anterior ao PR 1, acima). O banco fica como
+o PR 2 o deixou, e a imagem do PR 1 roda sobre ele com três efeitos conhecidos:
+
+1. **Alterar consulta num local (o `moverConsulta` do PR 1).** A imagem do PR 1 ainda troca a modalidade (presencial ↔
+   online) sem trocar o local. Numa consulta gravada pelo PR 2, que tem `local_id`, a FK composta
+   `(tenant_id, local_id, modalidade)` recusa a troca: o `UPDATE` cai em **23503** e a tela dá erro 500. Mudar a data, a
+   hora ou a duração sem trocar a modalidade continua funcionando. Enquanto a imagem do PR 1 estiver no ar, a
+   nutricionista troca a modalidade cancelando a consulta e marcando outra.
+2. **Perfil e marca.** A tela do PR 1 volta a mostrar e a gravar o "Link padrão da videoconferência"
+   (`tenants.link_online_padrao`), que o PR 2 deixou de editar: o valor que aparece é o de antes do PR 2, **já
+   desatualizado** — a sala de cada local, em "Locais de atendimento", é o que o PR 2 usava. Avise a nutricionista para não
+   confiar nesse campo até voltar ao PR 2 (a coluna fica, AG-D7; nada é apagado).
+3. **Pedido da página pública sem local.** A imagem do PR 1 grava o pedido de pessoa nova (`public_booking_requests`) sem
+   `local_id`. Se a imagem do PR 2 voltar ao ar com um desses pedidos aberto (o código vale 10 minutos; o pedido
+   verificado, 30), a confirmação não acha o horário (`escolherHorario` do PR 2 exige o local) e a pessoa vê "horário
+   ocupado" com os outros horários da semana: escolhe de novo, sem pedir outro código. Nada fica gravado pela metade; o
+   pedido que não for concluído sai na limpeza de sempre.
+
+As visões (Dia, Semana, Mês e Lista), os filtros, a legenda, o marcador de aniversário e a impressão não gravam nada além do
+`exportar` da impressão no `audit_log` (RN-419): voltar não deixa dado para trás. Os registros `exportar` da entidade
+`agenda` ficam no `audit_log` como o resto do histórico.

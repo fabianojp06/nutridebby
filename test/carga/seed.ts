@@ -434,6 +434,37 @@ for (const tenantId of tenantIds) {
     where id in (select id from notifications where status = 'pendente' order by random() limit 150)`), db);
 }
 
+// Plano 23 (CS-402, RNF-400): "Mês com marcadores" — a agenda do ano com 2.000 consultas por consultório (as do mês, acima,
+// mais as do ano: realizadas nos ~10 meses de trás e agendadas nos 2 de frente, em horas que não cruzam as do mês), os
+// aniversários espalhados pelo ano (o marcador "Aniversário" do Mês tem nomes em quase todo dia) e a previsão de retorno em
+// 1 de cada 3 atendimentos (o marcador "Retorno previsto", quando a T9 o ligar). Só na pilha nova (a segunda rodada sai acima).
+const CONSULTAS_NO_ANO = Number(process.env.CARGA_CONSULTAS_ANO ?? 2000);
+for (const tenantId of tenantIds) {
+  const [n] = await db.select({ id: user.id }).from(user).where(sql`${user.tenantId} = ${tenantId} and ${user.appRole} = 'nutri'`);
+  const ctx: TenantContext = { tenantId, role: 'nutri', actorUserId: n.id, ip: '127.0.0.1' };
+  await withTenant(ctx, async (tx) => {
+    const ids = (await tx.select({ id: patients.id }).from(patients).orderBy(patients.id)).map((x) => x.id);
+    await tx.execute(sql`update patients set data_nascimento = date '1990-01-01' + (abs(hashtext(id::text)) % 365) where tenant_id = ${tenantId}`);
+    await tx.execute(sql`update consultations set retorno_previsto_em = data + 30 + (abs(hashtext(id::text)) % 60) where tenant_id = ${tenantId} and abs(hashtext(id::text)) % 3 = 0`);
+    const ja = Number((await tx.execute<{ n: string }>(sql`select count(*) as n from appointments where tenant_id = ${tenantId}`)).rows[0].n);
+    const linhas: { patient_id: string; inicio: string; status: string }[] = [];
+    for (let d = -300; d <= 60 && ja + linhas.length < CONSULTAS_NO_ANO; d++) {
+      const dia = new Date(agora.getTime() + d * 86_400_000);
+      if ([0, 6].includes(dia.getUTCDay())) continue;
+      for (const h of [7, 8, 9, 10, 19, 20, 21, 22]) {
+        if (ja + linhas.length >= CONSULTAS_NO_ANO) break;
+        const inicio = new Date(Date.UTC(dia.getUTCFullYear(), dia.getUTCMonth(), dia.getUTCDate(), h, 0));
+        linhas.push({ patient_id: ids[(linhas.length * 7) % ids.length], inicio: inicio.toISOString(), status: inicio < agora ? 'realizada' : 'agendada' });
+      }
+    }
+    for (let i = 0; i < linhas.length; i += 500) {
+      await tx.execute(sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status)
+        select ${tenantId}, x.patient_id, x.inicio, x.inicio + interval '1 hour', 'presencial', 'nutri', x.status
+          from jsonb_to_recordset(${JSON.stringify(linhas.slice(i, i + 500))}::jsonb) as x(patient_id uuid, inicio timestamptz, status text)`);
+    }
+  }, db);
+}
+
 writeFileSync('test/carga/.sessoes.json', JSON.stringify(sessoes), { mode: 0o600 }); // cookies de sessão: só o dono lê
 await stopBoss();
 await pool.end();

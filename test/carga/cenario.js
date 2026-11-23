@@ -29,6 +29,8 @@ const ROTAS = [
 ];
 const STATUS_PUSH = [204, 409, 429]; // 204 inscrito; 409 inscrição de outra conta (falha: não deveria acontecer); 429 limite da T6
 
+// Plano 23 (CS-402): a tag própria do Mês com marcadores (a rota é /painel/agenda, que já está em ROTAS sem query)
+const MES_COM_MARCADORES = '/painel/agenda (mês com marcadores)';
 const rampa = (alvo) => [{ duration: '2m', target: alvo }, { duration: '10m', target: alvo }, { duration: '1m', target: 0 }];
 export const options = {
   scenarios: {
@@ -39,6 +41,8 @@ export const options = {
     // Plano 26 (CS-483): 3 nutricionistas abrindo os Relatórios, além dos 100 (a divisão dos 25 da nutricionista é revista
     // na rodada do fechamento do PR 1)
     relatorios: { executor: 'ramping-vus', exec: 'relatorios', stages: rampa(3) },
+    // Plano 23 (CS-402): 5 nutricionistas a mais, só no Mês com os marcadores ligados (a rodada passa a 105 VUs)
+    mes: { executor: 'ramping-vus', exec: 'mesComMarcadores', stages: rampa(5) },
   },
   thresholds: {
     // O resumo do k6 (tela e --summary-export) só mostra a sub-métrica que tem threshold: `[]` cria a linha sem meta.
@@ -54,6 +58,8 @@ export const options = {
     'http_req_duration{nome:/painel/pacientes/:id}': ['p(95)<800'],
     // Plano 26 (CS-483, RNF-01): cada seção dos Relatórios abre com p95 ≤ 800 ms (tag `scenario` do próprio k6)
     'http_req_duration{scenario:relatorios}': ['p(95)<800'],
+    // Plano 23 (CS-402, RNF-400): o Mês com 300 pacientes, 2.000 consultas no ano e os marcadores ligados (linha própria)
+    [`http_req_duration{nome:${MES_COM_MARCADORES}}`]: ['p(95)<800'],
     http_req_failed: ['rate<0.01'],
     checks: ['rate>0.99'],
   },
@@ -140,6 +146,17 @@ export function relatorios() {
   pausa();
 }
 
+// Plano 23 (CS-402, RNF-400): o Mês do mês corrente e do anterior, com "Aniversários" e "Previsões de retorno" na URL (a
+// previsão só conta quando a T9 ligar o marcador; até lá, o parâmetro é lido e ignorado). Tag própria, fora de `nome()`.
+export function mesComMarcadores() {
+  const n = nutris[(__VU * 5 + __ITER) % nutris.length];
+  for (const data of ['', `&data=${new Date(Date.now() - 31 * 86_400_000).toISOString().slice(0, 10)}`]) {
+    const r = http.get(`${BASE}/painel/agenda?visao=mes&aniversario=1&retorno=1${data}`, { headers: { cookie: n.cookie }, redirects: 0, tags: { tipo: 'pagina', area: 'painel', nome: MES_COM_MARCADORES } });
+    check(r, { 'página 200 (sessão válida)': (x) => x.status === 200 });
+    pausa();
+  }
+}
+
 // Fumaça (`--vus 3 --duration 30s` na linha de comando troca os cenários por um só, que roda o `default`): os quatro perfis
 export default function fumaca() {
   paciente();
@@ -147,4 +164,5 @@ export default function fumaca() {
   ficha();
   publico();
   relatorios(); // Plano 26
+  mesComMarcadores();
 }

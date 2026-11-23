@@ -23,6 +23,7 @@ const SEM_AJUDA: Record<string, string> = {
   '/painel/ajuda': 'é o próprio manual',
   '/conta/outro-papel': 'aviso de aparelho conectado com outro papel (P09-03): uma frase e o botão Sair, sem fluxo para ensinar',
   '/painel/relatorios/imprimir': 'Plano 26 (RN-495): página de impressão, sem menu; o guia é o dos Relatórios, de onde se chega a ela',
+  '/painel/agenda/imprimir': 'Plano 23 (US-406): página de impressão, sem fluxo para ensinar',
 };
 const UUID = '0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b';
 // D18 (Plano 10A): as páginas de /conta (Segurança) também têm guia, mostrado na própria tela (fora do layout do painel)
