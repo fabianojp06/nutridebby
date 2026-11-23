@@ -422,3 +422,7 @@ de contador ainda deixa a sessão inflar o contador e esgotar a cota do consult�
 - Re-revisão (23/11): o "só para cima/teto" do contador NÃO serve para a sessão que também devolve espaço (`apagarArquivo`
   na `nutri`) nem para a troca com `liberados` (passa a cota por um instante) — aceitar como resíduo Minor (cota própria,
   não isolamento). Teto do paciente replicado como literal no SQL: conferir que o teste compara com a constante TS.
+TRI-17-20 Tarefa A (gatilhos dos lembretes, 23/11/2026): limpa na lente banco. Molde aceito e o resíduo a lembrar:
+- Exceção "a cascata da mãe apaga a filha" por `pg_trigger_depth() > 1` (RI cascade = profundidade 2): aceita QUALQUER DELETE
+  feito de dentro de outro gatilho. Defesa mais estreita: `NOT EXISTS` da mãe (já apagada no snapshot do gatilho). Minor.
+- Paciente sem conta no banco = `app_current_user()` nulo (withTenant grava '' e assertContext recusa semConta com ator).
