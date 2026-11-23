@@ -105,3 +105,9 @@ isolamento, divergência #3).
   branch de plano longo, conferir `git show origin/main:docs/manual-tecnico/README.md` (a `main` local do worktree pode
   estar velha: usar `origin/main`). O "remapeamento" de citações do fechamento preservou erros antigos de novo
   (`exportacao-job.ts:97/:503/:118`, `lgpd.ts:584`, `exportacao.test.ts:1133`): conferir pelo símbolo, não pelo deslocamento.
+
+- Plano 23 PR 2 (23/11/2026): o brief dizia que o PR 1 "já tinha a parte no manual" e não tinha (`grep` do nome da tabela
+  nova em `docs/manual-tecnico` antes de assumir). Arquivo disputado (cap. 5): seções no fim, e as frases velhas das
+  seções antigas ajustadas só na linha (MAX_REGRAS, `link_online_padrao`, visões). O remapeador casa `constantes.ts`,
+  `inicio.ts`, `paciente.ts`, `job.ts` pelo nome-base e dá falso positivo (lembretes/, ficha/, ia/): conferir o contexto.
+  `exportacao-job.ts` muda em quase todo plano — refazer por símbolo nos caps. 4, 5, 6, 10 e 12.

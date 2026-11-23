@@ -86,20 +86,20 @@ Decisão (Plano 02, "Suspensão"): status + revogação das sessões + bloqueio 
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `atualizarPerfil(tenantId, input)` | Valida `perfilSchema` e grava em `tenants`. O `tenantId` vem sempre da sessão (`requireNutri`), nunca do formulário (`tenants` não tem RLS) | `marca.ts:64` |
-| `getTenantBrand(tenant)` | `{nome, cor, corNoEscuro, logoUrl}`; logo servido por `signFileUrl`. `server-only` | `marca.ts:73` |
+| `atualizarPerfil(tenantId, input)` | Valida `perfilSchema` e grava em `tenants`. O `tenantId` vem sempre da sessão (`requireNutri`), nunca do formulário (`tenants` não tem RLS) | `marca.ts:58` |
+| `getTenantBrand(tenant)` | `{nome, cor, corNoEscuro, logoUrl}`; logo servido por `signFileUrl`. `server-only` | `marca.ts:67` |
 | `processarLogo(conteudo)` | Tipo pelo conteúdo; PNG/JPEG redimensionados com `sharp` para ≤ 512 px, sem EXIF; SVG rasterizado num **processo filho** (`scripts/svg-raster.mjs`) morto por `SIGKILL` em 5 s ou com saída > 2 MB | `logo.ts:230`, `rasterizarSvg` |
 | `contemFiltroSvg(buf)` | Recusa SVG com `filter`/primitivas `<fe…>`, inclusive escondidos por referência numérica, escape CSS, comentário ou CDATA; recusa DOCTYPE fora da forma comum | `logo.ts:127` |
 | `trocarLogo(ctx, conteudo)` | `processarLogo` → `salvarArquivo(tipo 'logo', ['png'])` → `apontarLogo` (troca atômica de `tenants.logo_path` com `FOR UPDATE`) → apaga o logo antigo. Se o ponteiro falha, apaga o arquivo novo | `logo.ts:274`, `apontarLogo` `logo.ts:266` |
 
-Validações de `perfilSchema` (`marca.ts:31`):
+Validações de `perfilSchema` (`marca.ts:29`):
 
 | Campo | Regra |
 |---|---|
 | `corPrimaria` | `#RRGGBB` e contraste ≥ 4,5:1 com branco (`contrasteComBranco`) |
 | `antecedenciaMinH`, `cancelamentoMinH` | inteiro 0–72 |
-| `linkOnlinePadrao` | vazio ou `https://…`, até 500 caracteres |
-| `enderecoConsultorio` | até 200 caracteres |
+| `linkOnlinePadrao` | Fora do `perfilSchema` desde o Plano 23 (AG-D7; o zod descarta a chave): o Perfil não lê nem grava `tenants.link_online_padrao`, que fica para a imagem anterior e para o aviso de link divergente em Locais; a sala de cada local de videoconferência fica em Locais de atendimento ([§5.11.1](05-agenda-portal-conteudo.md#5111-locais-de-atendimento-us-400-rn-400-a-rn-405)) |
+| `enderecoConsultorio` | até 200 caracteres. Desde o Plano 23, rótulo "Endereço profissional (documentos)": vai no cabeçalho dos documentos assinados, é o endereço do "Consultório" criado por `garantirLocaisIniciais` e o das mensagens da consulta sem local (RN-407) |
 | `fuso` | só os 15 fusos de `FUSOS_BRASIL` (`marca-constantes.ts:15`) |
 
 Constantes: `COR_PADRAO = '#1d6b5a'` (Plano 08, D23; `marca-constantes.ts:8`), `LOGO_MAX_BYTES = 2 MB`, `LOGO_LADO_MAX = 512` (`marca-constantes.ts:10-11`).
@@ -575,11 +575,11 @@ sequenceDiagram
 | `estadoDaExportacao(...)` | Estado para a página do link; entregar o link pronto audita `exportacoes` | `exportacao.ts:129` |
 | `exportacoesRecentes(...)` | Últimos 5 pedidos, auditados | `exportacao.ts:171` |
 | `linkDaExportacao(appUrl, pedido)` | Titular: `/p/meus-dados/exportacoes/<id>` (com o consultório); equipe: `/painel/pacientes/<id>/exportacoes/<id>` | `exportacao.ts:37` |
-| `montarDados(tx, patientId, now, fuso, escopo)` | `dados.json` com paciente, anamneses, antropometria, gasto energético, exames, atendimentos (só orientações), planos (rascunho só no escopo `equipe`), pedidos LGPD, consultas, lembretes (mensagens das consultas), aceites, dispositivos push (sem endpoint), lembretes de rotina (`lembretesDeRotina`, Plano 17: configuração, texto, `ligado` e a escolha do titular, sem a marca de envio; e `paciente.lembretesPausadosEm`, nos dois escopos), diário e conteúdos; desde o Plano 18, `paciente.cadastro` (abaixo) | `exportacao-job.ts:429` |
-| `gerarExportacao(data, deps)` | Job idempotente: só age sobre `pendente`; cota esgotada, anonimização no meio ou última tentativa → `falhou` | `exportacao-job.ts:791` |
-| `expirarExportacao` / `expirarExportacoesVencidas` | Apaga o ZIP e marca `expirada` na transação do arquivo; a varredura diária pega o que o job de +24 h não conseguiu | `exportacao-job.ts:1032,943` |
+| `montarDados(tx, patientId, now, fuso, escopo)` | `dados.json` com paciente, anamneses, antropometria, gasto energético, exames, atendimentos (só orientações), planos (rascunho só no escopo `equipe`), pedidos LGPD, consultas, lembretes (mensagens das consultas), aceites, dispositivos push (sem endpoint), lembretes de rotina (`lembretesDeRotina`, Plano 17: configuração, texto, `ligado` e a escolha do titular, sem a marca de envio; e `paciente.lembretesPausadosEm`, nos dois escopos), diário e conteúdos; desde o Plano 18, `paciente.cadastro` (abaixo) | `exportacao-job.ts:440` |
+| `gerarExportacao(data, deps)` | Job idempotente: só age sobre `pendente`; cota esgotada, anonimização no meio ou última tentativa → `falhou` | `exportacao-job.ts:808` |
+| `expirarExportacao` / `expirarExportacoesVencidas` | Apaga o ZIP e marca `expirada` na transação do arquivo; a varredura diária pega o que o job de +24 h não conseguiu | `exportacao-job.ts:1049,960` |
 
-Conteúdo do ZIP: `dados.json`, `prontuario.pdf`, `laudos/<data>-<nn>.<ext>` e `diario/<data>-<n>.jpg` (nomes sem texto do usuário; `exportacao-job.ts:542,550,849-850`). Laudos e fotos guardados sem recompressão. Acima de `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:361`) o que não cabe fica fora com `laudosForaDoZip = true`.
+Conteúdo do ZIP: `dados.json`, `prontuario.pdf`, `laudos/<data>-<nn>.<ext>` e `diario/<data>-<n>.jpg` (nomes sem texto do usuário; `exportacao-job.ts:553,561,866-867`). Laudos e fotos guardados sem recompressão. Acima de `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:372`) o que não cabe fica fora com `laudosForaDoZip = true`.
 
 Nunca exportados: `consultation_notes`, `patient_tags`/`patient_tag_links` (Plano 03, "Conteúdo da exportação"), motivo de cancelamento escrito pela nutricionista, texto e destino das mensagens.
 
@@ -601,7 +601,7 @@ revogação fica de fora. No escopo da equipe, a pergunta com risco de quem desa
 uma vez, pela fila "Dúvidas dos pacientes"; [§10.14.7](10-ia.md#10147-retenção-exclusão-anonimização-e-exportação-rn-181-d8--180-dias-d22-76-133)).
 
 Plano 18 (§10, D18, RN-262): o `dados.json` ganha `paciente.cadastro` nos **dois** escopos (`cadastroParaExportacao`,
-`exportacao-job.ts:101`, por inclusão explícita de cada coluna): `cpf` e `telefoneFixo` formatados como a tela,
+`exportacao-job.ts:102`, por inclusão explícita de cada coluna): `cpf` e `telefoneFixo` formatados como a tela,
 `identidadeDeGenero`, `estadoCivil` e `escolaridade` pelo **rótulo** que a tela mostra (LGPD, art. 18, II e V; art. 19,
 § 3º), `nomeSocial`, `ocupacao`, `nacionalidade`, `naturalidade`, `endereco` (`cep` com hífen, `rua`, `numero`,
 `complemento`, `bairro`, `cidade`, `uf`) e `observacao`; sem linha, `cadastro: null`. É o único lugar fora do
@@ -614,7 +614,7 @@ CPF (RN-262) e **sem** a observação (fica no `dados.json`). Campo vazio sai "-
 exportação, anonimização e IA (§2.11, passo 8).
 
 Plano 20: o `dados.json` ganha a chave `financeiro` (a última; `financeiroParaExportacao`, `src/modules/financeiro/titular.ts`,
-chamada em `exportacao-job.ts:526`), nos **dois escopos**, por inclusão explícita (`fin_lancamentos` é `staff_only`, como
+chamada em `exportacao-job.ts:537`), nos **dois escopos**, por inclusão explícita (`fin_lancamentos` é `staff_only`, como
 `ia_tarefas`; o comentário de `montarDados` cita as duas): vencimento, pagamento, valor (centavos e "R$ …"), forma, situação
 no dia da exportação (no fuso), categoria, descrição, início da consulta ligada, data e motivo do cancelamento; nunca quem
 lançou nem quem cancelou (F-D22: cópia integral do que é do titular, LGPD art. 19, § 3º). O `prontuario.pdf` não muda e
@@ -1441,7 +1441,7 @@ Spec × código (o código foi descrito acima; a spec deve ser corrigida ou a de
 
 Plano × código:
 
-9. **Teto de laudos na exportação.** Decisão do dono no Plano 03: 200 MB. Código: `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:361`), valor do Plano 06, D16 (que passou a incluir as fotos do diário no mesmo teto). A tabela de decisões do Plano 03 ficou desatualizada.
+9. **Teto de laudos na exportação.** Decisão do dono no Plano 03: 200 MB. Código: `LIMITE_LAUDOS_BYTES = 100 MB` (`exportacao-job.ts:372`), valor do Plano 06, D16 (que passou a incluir as fotos do diário no mesmo teto). A tabela de decisões do Plano 03 ficou desatualizada.
 10. **DPA e termo do paciente.** **Resolvida (P08-06, 15/10/2026):** `DPA_VERSAO` e `TERMO_PACIENTE_VERSAO = '1.0'` (`dpa.ts:16`, `termo-paciente.ts:7`; o DPA está na 1.1 desde o Plano 20), como previa o Plano 08, D14, mas com o texto publicado pelo dono sem o advogado (na linha da A-D27). Antes, `'0.1-provisorio'` (Tarefa 8 bloqueada no E-09).
 
 Plano 18, PR 1 (ficha: Início, Perfil, cabeçalho e registro de seções; conferido no branch `plano-18-ficha-cadastro` em
@@ -1475,7 +1475,7 @@ Plano 18, PR 2 (cadastro complementar, lista, "No app", LGPD e IA; conferido no 
 
 17. **Spec §10: "O LEIA-ME da exportação cita o bloco novo."** O ZIP não tem LEIA-ME (`dados.json`, `prontuario.pdf`,
     `laudos/`, `diario/`, `documentos/`, `autorizacao-ia/`; §4.2.9); o bloco `paciente.cadastro` fica descrito só no
-    tipo `CadastroExportado` (`exportacao-job.ts:69`) e no comentário de `DadosExportacao.paciente.cadastro`. Mesma
+    tipo `CadastroExportado` (`exportacao-job.ts:72`) e no comentário de `DadosExportacao.paciente.cadastro`. Mesma
     situação que o Plano 20 registrou para a seção `financeiro` (revisão de normas, M-4). Criar o LEIA-ME é decisão à
     parte (texto ao titular: passa pelo `normas-cfn-lgpd`), não deste PR.
 18. **RN-283: a rede idempotente roda "no fim" da varredura diária.** O código a roda no **início** de cada tenant, antes
