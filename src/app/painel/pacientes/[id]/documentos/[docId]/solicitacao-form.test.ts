@@ -77,8 +77,34 @@ describe('editor da solicitação de exames (US-377)', () => {
   it('sem exames: sem "Remover todos" (nada a remover); com o erro da lista, o aviso ligado ao grupo', () => {
     const vazio = montar({ conteudo: { ...CONTEUDO, exames: [] }, erros: { exames: 'Inclua ao menos um exame.' } });
     expect(vazio).not.toContain(`>${MSG_SOLICITACAO.removerTodos}</button>`);
-    expect(vazio).toMatch(/<p id="exames-erro" role="alert"[^>]*>Inclua ao menos um exame\.<\/p>/);
+    // junto da lista, sem região viva (quem anuncia é o aviso perto do botão)
+    expect(vazio).toMatch(/<p id="exames-erro" class="[^"]*">Inclua ao menos um exame\.<\/p>/);
     expect(tag(vazio, 'exames')).toContain('aria-describedby="exames-erro"');
+  });
+
+  // revisão da P22-08 (Plano 13: erro longe do botão): a lista fica no topo e pode passar de 40 linhas; o erro dela se
+  // repete, com o mesmo texto, no aviso perto do botão que a nutricionista usou
+  const bloco = (html: string, inicio: string, fim: string) => html.slice(html.indexOf(inicio), html.indexOf(fim, html.indexOf(inicio)));
+  const ALERTA = (t: string) => new RegExp(`<div role="alert"[^>]*>(?:(?!</div>).)*<p>${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</p>`);
+
+  it('"Preparar" com o erro da lista (vazia ou mais de 40): o mesmo texto no aviso dentro do bloco do Preparar', () => {
+    for (const texto of ['Inclua ao menos um exame.', MSG_SOLICITACAO.erros.max]) {
+      const html = montar({ conteudo: { ...CONTEUDO, exames: [] }, erros: { exames: texto }, extra: { intencao: 'preparar' } });
+      const preparar = bloco(html, 'data-guia="preparar-documento"', 'Preparar para assinatura');
+      expect(preparar).toMatch(ALERTA(texto));
+      // e só ali anunciado (o de perto do "Salvar rascunho" não aparece)
+      expect(html.match(/role="alert"/g)).toHaveLength(1);
+    }
+  });
+
+  it('"Salvar rascunho" com o erro da lista ou de uma linha: o aviso fica logo antes do botão, depois das orientações', () => {
+    const html = montar({ erros: { exames: MSG_SOLICITACAO.erros.max, 'exames.1.nome': MSG_SOLICITACAO.erros.repetido }, extra: { intencao: 'salvar' } });
+    const perto = bloco(html, 'id="orientacoes"', '>Salvar rascunho<');
+    expect(perto).toMatch(ALERTA(MSG_SOLICITACAO.erros.max));
+    expect(perto).toMatch(ALERTA(MSG_SOLICITACAO.erros.repetido));
+    expect(bloco(html, 'data-guia="preparar-documento"', 'Preparar para assinatura')).not.toContain('role="alert"');
+    // controle positivo: sem erro, nenhum aviso
+    expect(montar({ extra: { intencao: 'salvar' } })).not.toContain('role="alert"');
   });
 
   it('erros de campo ligados ao controle (aria-invalid + aria-describedby com a ajuda e o erro); o erro de uma linha junto dela', () => {
@@ -86,7 +112,7 @@ describe('editor da solicitação de exames (US-377)', () => {
     expect(tag(html, 'indicacaoClinica')).toContain('aria-invalid="true"');
     expect(tag(html, 'indicacaoClinica')).toContain('aria-describedby="indicacaoClinica-dica indicacaoClinica-erro"');
     expect(tag(html, 'orientacoes')).toContain('aria-describedby="orientacoes-dica orientacoes-erro"');
-    expect(html).toMatch(/<p id="exames-1-nome-erro" role="alert"[^>]*>Este exame já está na lista\.<\/p>/);
+    expect(html).toMatch(/<p id="exames-1-nome-erro" class="[^"]*">Este exame já está na lista\.<\/p>/);
   });
 
   it('numa retificação, o motivo (Q13-1 ★); na versão 1, sem o campo', () => {

@@ -205,6 +205,8 @@ export function SolicitacaoForm({
     return { 'aria-invalid': e[k] ? (true as const) : undefined, 'aria-describedby': descr || undefined };
   };
   const msg = (k: string) => e[k] && <p id={`${k.replace(/\./g, '-')}-erro`} role="alert" className="text-sm text-erro">{e[k]}</p>;
+  /** O erro da lista e o de uma linha ficam junto dela sem região viva: quem anuncia é o aviso perto do botão usado (abaixo). */
+  const msgDaLista = (k: string) => e[k] && <p id={`${k.replace(/\./g, '-')}-erro`} className="text-sm text-erro">{e[k]}</p>;
 
   const adicionarLivre = () => {
     const nome = livre.replace(/\s+/g, ' ').trim();
@@ -221,7 +223,10 @@ export function SolicitacaoForm({
     if (!orientacoes.trim() && m.orientacoes) setOrientacoes(m.orientacoes);
   };
 
-  const sobras = [...new Set(Object.keys(e).filter((k) => !CAMPOS.has(k) && !daLinha.test(k)).map((k) => e[k]))];
+  // o erro da lista de exames (vazia, mais de 40) e os das linhas se repetem perto do botão usado: a lista fica no topo do
+  // editor e, depois de um modelo ou do catálogo, pode ter mais de 40 linhas — o botão está no fim (mesmo texto da spec)
+  const daLista = [e.exames, ...Object.keys(e).filter((k) => daLinha.test(k)).map((k) => e[k])].filter(Boolean);
+  const sobras = [...new Set([...daLista, ...Object.keys(e).filter((k) => !CAMPOS.has(k) && !daLinha.test(k)).map((k) => e[k])])];
   const aviso: ReactNode = (e.geral || sobras.length > 0) && (
     <div role="alert" className="space-y-1 text-erro">
       {e.geral && (
@@ -248,7 +253,7 @@ export function SolicitacaoForm({
         <legend ref={titulo} tabIndex={-1} className="px-1 font-semibold">
           {S.exames} <span className="font-normal text-suave">({MSG_EXAMES.modelosSolicitacao.examesN(exames.length)})</span>
         </legend>
-        {msg('exames')}
+        {msgDaLista('exames')}
         {exames.length > 0 && (
           <ul className="divide-y divide-linha">
             {exames.map((x, i) => (
@@ -270,7 +275,7 @@ export function SolicitacaoForm({
                     {MSG_EXAMES.lancamento.remover}
                   </Botao>
                 </div>
-                {msg(`exames.${i}.nome`)}
+                {msgDaLista(`exames.${i}.nome`)}
               </li>
             ))}
           </ul>
