@@ -70,7 +70,7 @@ function lerJustificativa(v: unknown): string | null | undefined {
   if (v.includes('\u0000')) return undefined;
   const t = v.trim();
   if (!t) return null;
-  // por code point, como o CHECK `char_length` (0126): "🙂🙂🙂" tem 3, não 6 (a recusa nunca chega ao banco nem ao log)
+  // por code point, como o CHECK `char_length` (0127): "🙂🙂🙂" tem 3, não 6 (a recusa nunca chega ao banco nem ao log)
   const tamanho = [...t].length;
   return tamanho >= JUSTIFICATIVA_MIN && tamanho <= JUSTIFICATIVA_MAX ? t : undefined;
 }

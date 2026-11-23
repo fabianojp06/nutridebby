@@ -37,8 +37,8 @@ Entidades de auditoria das tabelas deste capítulo (gatilho instalado por `app_e
 | `privacy_requests` | `pedidos_titular` | `drizzle/0033_rls_privacidade.sql` |
 | `data_exports` | `exportacoes` | `drizzle/0035_rls_exportacoes.sql` |
 | `meal_plans`, `meals`, `meal_items` | `plano_alimentar` | `drizzle/0045_rls_planos_alimentares.sql` |
-| `exam_interpretacoes` | `exames_nota` (Plano 22, EP-D61) | `drizzle/0127_rls_exames_catalogo.sql` |
-| `exam_versoes` | `exames_versoes` (Plano 22) | `drizzle/0127_rls_exames_catalogo.sql` |
+| `exam_interpretacoes` | `exames_nota` (Plano 22, EP-D61) | `drizzle/0128_rls_exames_catalogo.sql` |
+| `exam_versoes` | `exames_versoes` (Plano 22) | `drizzle/0128_rls_exames_catalogo.sql` |
 
 Tabelas sem `patient_id` (`anamnesis_templates`, `patient_tags`, `foods`, `food_measures`) não têm gatilho.
 Plano 22: `exames_catalogo` e `exames_modelos_solicitacao` também não (bibliotecas do consultório, sem paciente).
@@ -628,7 +628,7 @@ sem o autor) e `notaDeInterpretacao` (a em vigor, de `exam_interpretacoes`, `nul
 entra na cópia dos dados que o paciente pedir."). Só no escopo da equipe, `notasAnteriores` (`versao`, `texto` — nulo =
 "Apagar nota" — e `criadoEm`, sem o autor). São duas consultas a mais, depois da de `exams` (`montarDados`,
 `exportacao-job.ts:475`, `:487`; montagem em `:664-666`; tipo em `:239-260`). A nota não vai ao `prontuario.pdf`. Depois da
-anonimização, a nota e a justificativa saem nulas ([§2.5.12](02-banco-de-dados.md#2512-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)). O `mostradoNoAppEm` da spec (RN-399) é do
+anonimização, a nota e a justificativa saem nulas ([§2.5.13](02-banco-de-dados.md#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)). O `mostradoNoAppEm` da spec (RN-399) é do
 PR 3 (divergência #22 abaixo).
 
 Validade do link: 24 h (`EXPORTACAO_VALIDADE_MS`, `exportacao.ts:14`). O ZIP não vai para o backup de `/data` (Plano 03, decisão do dono).
@@ -980,7 +980,7 @@ dentro e fora dos 30 dias, paciente arquivado; CS-261), `no-app-fonte.test.ts` (
 Conferido no branch `plano-22-exames-prescricao` em `829b0a7` (Tarefas 3 a 5b, 23/11/2026), com o PR 1 (#58: banco,
 regras puras e `Dialogo`) ainda fora da `main`. Spec: `docs/superpowers/specs/2026-11-17-nutridebby-22-exames-prescricao-design.md`;
 decisões EP-Dxx na §14.1 da spec e na tabela "Decisões" do plano `docs/superpowers/plans/2026-11-17-nutridebby-22-exames-prescricao.md`.
-O banco está na [§2.5.12](02-banco-de-dados.md#2512-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22).
+O banco está na [§2.5.13](02-banco-de-dados.md#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22).
 
 **Módulo `src/modules/exames/`.** As regras puras (`catalogo-regras.ts`, `classificacao.ts`, `constantes.ts`) vieram no PR 1;
 o PR 2 acrescenta `catalogo.ts`, `modelos-solicitacao.ts`, `edicao.ts`, `detalhe.ts`, `interpretacao.ts` e `comparativo.ts`.
@@ -1468,7 +1468,7 @@ Plano 22, PR 2 (catálogo, edição com versão, detalhe, nota, comparativo e ex
     Decidir se a RN-382 perde "e no comparativo" ou se o comparativo ganha o botão por célula.
 22. **Pendências do PR 3 (Tarefa 6, "Mostrar no app").** A spec já descreve, e o código ainda não tem: o botão "Mostrar no
     app do paciente" no detalhe, o `mostradoNoAppEm` em `exames[]` do `dados.json` (RN-399) e os rótulos
-    `exame_no_app_liberado`/`exame_no_app_retirado` (cap. 2, #13). A coluna, a política e os avisos de edição e exclusão
+    `exame_no_app_liberado`/`exame_no_app_retirado` (cap. 2, #14). A coluna, a política e os avisos de edição e exclusão
     já existem. Pendência, não erro.
 23. **EP-D61: "Apagar nota" no Histórico de acessos.** Uma ação deixa duas linhas: "Criou · Nota de interpretação do
     exame" (o gatilho, pela linha de texto nulo, `entidade_id` = id da linha) e "Excluiu · Nota de interpretação do exame"
