@@ -17,8 +17,8 @@ const ID = '[0-9a-f-]{36}';
 export const GUIAS: readonly Guia[] = [
   {
     id: ID_BOAS_VINDAS,
-    versao: 4, // Plano 12: o passo do menu passou a citar "Exames recebidos"; 3 = Plano 15: o passo do menu cita "Dúvidas dos pacientes" (★ DO-6)
-    // 4 = Plano 20: o passo do menu cita "Financeiro" (sobe +1 sobre a da main no rebase)
+    versao: 5, // Plano 12: o passo do menu passou a citar "Exames recebidos"; 3 = Plano 15: o passo do menu cita "Dúvidas dos pacientes" (★ DO-6)
+    // 4 = Plano 20: o passo do menu cita "Financeiro" (sobe +1 sobre a da main no rebase); 5 = Plano 26: e "Relatórios" (idem)
     padrao: /^\/painel$/,
     titulo: 'Início',
     ajuda: {
@@ -30,7 +30,7 @@ export const GUIAS: readonly Guia[] = [
     },
     passos: [
       { titulo: 'Boas-vindas ao NutriDebby', texto: 'Um passeio rápido pelo painel. Você pode pular agora e rever depois no menu da sua conta.' },
-      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Conteúdos, Financeiro e Configurações ficam no topo. Com o recebimento de exames ligado, "Exames recebidos" aparece também, com o número dos que aguardam. Quando você ativa a IA Nutri para pacientes, "Dúvidas dos pacientes" aparece também, com o número das abertas.' },
+      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Conteúdos, Financeiro, Relatórios e Configurações ficam no topo. Com o recebimento de exames ligado, "Exames recebidos" aparece também, com o número dos que aguardam. Com a IA Nutri ativada, "Dúvidas dos pacientes" aparece também, com o número das abertas.' },
       { alvo: 'proxima-consulta', titulo: 'Próxima consulta', texto: 'A consulta mais próxima de hoje, com atalhos para o prontuário e para a chamada online.' },
       { alvo: 'atalhos', titulo: 'Atalhos', texto: 'Cadastre um paciente, marque uma consulta ou publique um conteúdo direto do Início.' },
       { alvo: 'tema', titulo: 'Claro ou escuro', texto: 'Este botão liga e desliga o modo escuro. A escolha fica salva na sua conta, em qualquer aparelho.' },
@@ -473,6 +473,41 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'novo-exame-catalogo', titulo: 'Novo exame', texto: 'Nome, unidade e outros nomes. Para um painel, preencha "Exames que compõem este".' },
       { alvo: 'faixas-consultorio', titulo: 'Faixas do consultório', texto: 'Faixas que você define, com a fonte. Servem para mostrar uma categoria ao lado do resultado, só no painel.' },
       { alvo: 'modelos-nota', titulo: 'Modelos de nota', texto: 'Textos seus para quando o resultado está abaixo ou acima da referência. Escreva fatores a investigar e encaminhamentos; não afirme doença.' },
+    ],
+  },
+  {
+    // Plano 26 (PR 1, spec §6.2): só da nutricionista na v1; a v2 (PR 3, T11a) traz a recepção e a frase do local. Antes
+    // do Financeiro, que continua o último da lista (as rotas não se cruzam). A impressão fica em SEM_AJUDA.
+    id: 'relatorios',
+    versao: 1,
+    padrao: /^\/painel\/relatorios(\/(atendimentos|planos|agenda|financeiro|ranking))?$/,
+    titulo: 'Relatórios',
+    ajuda: {
+      resumo: 'Os números do consultório por período: pacientes, atendimentos, planos alimentares, agenda, financeiro e o ranking de pacientes. Nenhum prontuário é aberto para montar os relatórios.',
+      secoes: [
+        {
+          titulo: 'O que dá para fazer aqui',
+          itens: [
+            'Escolha os meses em "De" e "Até" (até 12 meses) e clique em "Aplicar". Sem escolher, os relatórios mostram o mês atual e os 11 anteriores.',
+            'Ao trocar de aba, o período escolhido continua o mesmo.',
+            'Use "Baixar CSV" para abrir os números numa planilha ou "Ver versão para imprimir" para imprimir ou salvar em PDF.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Pacientes anonimizados não entram nos números de pacientes; os novos pacientes de cada mês contam todos os cadastros feitos no mês.',
+            'A taxa de faltas usa a mesma conta do Início.',
+            'O Financeiro conta só os lançamentos recebidos ou pagos no mês, pela data do pagamento.',
+            'O Ranking mostra nomes de pacientes: ao baixar o CSV ou imprimir o Ranking, cada paciente da lista registra "Exportou — Relatórios" no Histórico de acessos.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'abas-relatorios', titulo: 'Seções dos relatórios', texto: 'Cada aba mostra um assunto. Os números são do consultório inteiro, sem abrir nenhum prontuário.' },
+      { alvo: 'filtro-periodo', titulo: 'Período', texto: 'Escolha até 12 meses.' },
+      { alvo: 'exportar', titulo: 'Baixar ou imprimir', texto: 'Baixe em CSV para planilha ou imprima e salve em PDF.' },
     ],
   },
   {

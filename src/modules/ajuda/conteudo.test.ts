@@ -10,7 +10,7 @@ const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
   .join('\n');
 
 // Rótulos que vêm de módulos (opções da agenda, filtros): citados no manual, desenhados fora do .tsx
-const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes', 'src/modules/ficha', 'src/modules/financeiro', 'src/modules/exames']
+const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes', 'src/modules/ficha', 'src/modules/financeiro', 'src/modules/exames', 'src/modules/relatorios']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.ts') && !d.name.endsWith('.test.ts')).map((d) => path.join(d.parentPath, d.name)))
   // Plano 16: os rótulos da resposta do diário ("Comeu como no plano") vêm de uma constante do portal (sem import de servidor)
   .concat(path.resolve('src/modules/portal/diario-constantes.ts'))
@@ -22,6 +22,7 @@ const SEM_AJUDA: Record<string, string> = {
   '/painel/dpa': 'aceite do contrato: a nutricionista ainda não usa o painel',
   '/painel/ajuda': 'é o próprio manual',
   '/conta/outro-papel': 'aviso de aparelho conectado com outro papel (P09-03): uma frase e o botão Sair, sem fluxo para ensinar',
+  '/painel/relatorios/imprimir': 'Plano 26 (RN-495): página de impressão, sem menu; o guia é o dos Relatórios, de onde se chega a ela',
 };
 const UUID = '0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b';
 // D18 (Plano 10A): as páginas de /conta (Segurança) também têm guia, mostrado na própria tela (fora do layout do painel)
@@ -157,7 +158,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 20: o passo do menu do boas-vindas cita "Financeiro" e a versão sobe para 4 (quem já viu o tour, vê de novo)', () => {
     const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
-    expect(g.versao).toBe(4);
+    expect(g.versao).toBeGreaterThanOrEqual(4); // 5 desde o Plano 26 (abaixo)
     expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('Financeiro');
   });
   it('Plano 20 (T7): o guia da Agenda cita a cobrança criada ao marcar "Realizada" e a versão sobe para 2', () => {
@@ -260,6 +261,26 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('D18 (Plano 10A): /conta/seguranca tem guia (o 2FA é exigido para assinar documentos)', () => {
     expect(guiaDaRota('/conta/seguranca')?.id).toBe('seguranca');
+  });
+  it('Plano 26 (PR 1): o passo do menu do boas-vindas cita "Relatórios" e a versão sobe para 5 (quem já viu o tour, vê de novo)', () => {
+    const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
+    expect(g.versao).toBe(5);
+    expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('Financeiro, Relatórios e Configurações');
+  });
+  it('Plano 26 (PR 1): os Relatórios têm guia próprio (versão 1) nas seis seções, com os passos da spec §6.2; a impressão fica em SEM_AJUDA', () => {
+    const g = GUIAS.find((x) => x.id === 'relatorios')!;
+    expect(g.versao).toBe(1);
+    expect(g.titulo).toBe('Relatórios');
+    for (const rota of ['/painel/relatorios', '/painel/relatorios/atendimentos', '/painel/relatorios/planos', '/painel/relatorios/agenda', '/painel/relatorios/financeiro', '/painel/relatorios/ranking'])
+      expect(guiaDaRota(rota)?.id, rota).toBe('relatorios');
+    for (const rota of ['/painel/relatorios/imprimir', '/painel/relatorios/outra', '/painel/relatoriosx']) expect(guiaDaRota(rota), rota).toBeNull();
+    expect(g.passos).toEqual([
+      { alvo: 'abas-relatorios', titulo: 'Seções dos relatórios', texto: 'Cada aba mostra um assunto. Os números são do consultório inteiro, sem abrir nenhum prontuário.' },
+      // v1 sem o local (a frase do local entra na v2, com o Plano 23 — T11a)
+      { alvo: 'filtro-periodo', titulo: 'Período', texto: 'Escolha até 12 meses.' },
+      { alvo: 'exportar', titulo: 'Baixar ou imprimir', texto: 'Baixe em CSV para planilha ou imprima e salve em PDF.' },
+    ]);
+    expect([g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens)].join(' ')).not.toMatch(/local/i);
   });
   it('precisaDoGuia: versão nova volta a pedir; concluído/dispensado na versão atual, não', () => {
     const g = GUIAS[0];

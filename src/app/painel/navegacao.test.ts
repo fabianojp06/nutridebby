@@ -8,7 +8,7 @@ describe('menu do painel (D20)', () => {
     expect(iniciais('Consultório')).toBe('C');
   });
   it('os itens fixos, nesta ordem (Plano 20: "Financeiro" entre "Conteúdos" e "Configurações")', () => {
-    expect(ITENS_DO_MENU.map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Conteúdos', 'Financeiro', 'Configurações']);
+    expect(ITENS_DO_MENU.map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Conteúdos', 'Financeiro', 'Relatórios', 'Configurações']);
   });
   it.each([
     ['/painel', '/painel'],
@@ -37,17 +37,17 @@ describe('menu do painel (D20)', () => {
     expect(readFileSync('src/app/painel/menu-painel.tsx', 'utf8')).toMatch(/className=\{classeDoItem\(atual === i\.href\)\}/);
   });
   it('Plano 12 (D11): "Exames recebidos" entra depois de "Diários" só quando pedido, com o contador no rótulo; marca as subpáginas', () => {
-    expect(itensDoMenu({ exames: false }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Conteúdos', 'Financeiro', 'Configurações']);
-    expect(itensDoMenu({ exames: true }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Conteúdos', 'Financeiro', 'Configurações']);
+    expect(itensDoMenu({ exames: false }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Conteúdos', 'Financeiro', 'Relatórios', 'Configurações']);
+    expect(itensDoMenu({ exames: true }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Conteúdos', 'Financeiro', 'Relatórios', 'Configurações']);
     expect(rotuloDoItem(ITEM_EXAMES.rotulo, 3)).toBe('Exames recebidos (3)');
     expect(rotuloDoItem(ITEM_EXAMES.rotulo, 0)).toBe('Exames recebidos');
     expect(itemAtual('/painel/exames-recebidos')).toBe('/painel/exames-recebidos');
     expect(itemAtual('/painel/exames-recebidos/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b')).toBe('/painel/exames-recebidos');
   });
   it('Plano 15 (US-175): "Dúvidas dos pacientes" entra antes de "Conteúdos" só quando pedido, com ou sem "Exames recebidos"; marca as subpáginas', () => {
-    expect(itensDoMenu({ exames: false, duvidas: false }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Conteúdos', 'Financeiro', 'Configurações']);
-    expect(itensDoMenu({ exames: false, duvidas: true }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Dúvidas dos pacientes', 'Conteúdos', 'Financeiro', 'Configurações']);
-    expect(itensDoMenu({ exames: true, duvidas: true }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Dúvidas dos pacientes', 'Conteúdos', 'Financeiro', 'Configurações']);
+    expect(itensDoMenu({ exames: false, duvidas: false }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Conteúdos', 'Financeiro', 'Relatórios', 'Configurações']);
+    expect(itensDoMenu({ exames: false, duvidas: true }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Dúvidas dos pacientes', 'Conteúdos', 'Financeiro', 'Relatórios', 'Configurações']);
+    expect(itensDoMenu({ exames: true, duvidas: true }).map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Dúvidas dos pacientes', 'Conteúdos', 'Financeiro', 'Relatórios', 'Configurações']);
     expect(rotuloDoItem(ITEM_DUVIDAS.rotulo, 2)).toBe('Dúvidas dos pacientes (2)');
     expect(itemAtual('/painel/duvidas')).toBe('/painel/duvidas');
     expect(itemAtual('/painel/duvidas/123')).toBe('/painel/duvidas');
@@ -59,9 +59,20 @@ describe('menu do painel (D20)', () => {
         const rotulos = itensDoMenu({ exames, duvidas }).map((i) => i.rotulo);
         expect(rotulos.indexOf('Financeiro'), `${exames}/${duvidas}`).toBe(rotulos.indexOf('Conteúdos') + 1);
         expect(rotulos.at(-1)).toBe('Configurações');
-        expect(rotulos.at(-2)).toBe('Financeiro');
+        expect(rotulos.at(-3)).toBe('Financeiro'); // Plano 26: "Relatórios" entre os dois
       }
-    expect(itensDoMenu({ exames: true, duvidas: true })).toHaveLength(9); // R-310: o máximo do menu
+    expect(itensDoMenu({ exames: true, duvidas: true })).toHaveLength(10); // R-310: o máximo do menu (10 com "Relatórios", Plano 26)
+  });
+  it('Plano 26 (§4.1): "Relatórios" entre "Financeiro" e "Configurações", em todas as combinações do menu; marca as seções', () => {
+    expect(ITENS_DO_MENU.map((i) => i.rotulo)).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Conteúdos', 'Financeiro', 'Relatórios', 'Configurações']);
+    for (const exames of [false, true])
+      for (const duvidas of [false, true]) {
+        const rotulos = itensDoMenu({ exames, duvidas }).map((i) => i.rotulo);
+        expect(rotulos.slice(-3), `${exames}/${duvidas}`).toEqual(['Financeiro', 'Relatórios', 'Configurações']);
+      }
+    for (const caminho of ['/painel/relatorios', '/painel/relatorios/agenda', '/painel/relatorios/ranking', '/painel/relatorios/imprimir'])
+      expect(itemAtual(caminho), caminho).toBe('/painel/relatorios');
+    expect(itemAtual('/painel/relatoriosx')).toBeNull();
   });
 
   it('Plano 22 (EP-D51): as telas de /painel/exames moram no hub e marcam "Configurações"; "Exames recebidos" continua com o próprio item', () => {
