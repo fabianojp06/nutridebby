@@ -79,8 +79,8 @@ export const recados = pgTable(
   (t) => [
     unique('recados_tenant_id_unique').on(t.tenantId, t.id),
     check('recados_texto_tamanho', sql`char_length(btrim(${t.texto})) between 1 and 1000`),
-    // o filtro sem "tipo" (NULL no IN) é recusado por recados_filtro_com_tipo, na custom rls_mensagens
-    check('recados_filtro_valido', sql`${t.filtro} ->> 'tipo' in ('todos', 'etiquetas', 'local')`),
+    // coalesce: o filtro sem "tipo" daria NULL no IN e passaria
+    check('recados_filtro_valido', sql`coalesce(${t.filtro} ->> 'tipo', '') in ('todos', 'etiquetas', 'local')`),
     check('recados_filtro_rotulo_tamanho', sql`${t.filtroRotulo} is null or char_length(${t.filtroRotulo}) between 1 and 300`),
     check('recados_destinatarios_positivo', sql`${t.destinatarios} > 0`),
     index('recados_tenant_criado_idx').on(t.tenantId, t.criadoEm),

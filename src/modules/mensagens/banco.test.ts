@@ -474,8 +474,8 @@ describe('Plano 25 — CHECKs (spec §9.1–§9.6)', () => {
     await expect(rec('  ', '{"tipo":"todos"}', null, 1)).rejects.toSatisfy(check('recados_texto_tamanho'));
     await expect(rec('a'.repeat(1001), '{"tipo":"todos"}', null, 1)).rejects.toSatisfy(check('recados_texto_tamanho'));
     await expect(rec('Oi', '{"tipo":"pacientes"}', null, 1)).rejects.toSatisfy(check('recados_filtro_valido'));
-    // sem "tipo", o IN da gerada dá NULL e não recusa: recados_filtro_com_tipo (custom) fecha
-    await expect(rec('Oi', '{}', null, 1)).rejects.toSatisfy(check('recados_filtro_com_tipo'));
+    // sem "tipo": o coalesce do recados_filtro_valido recusa (sem ele, o IN daria NULL e passaria)
+    await expect(rec('Oi', '{}', null, 1)).rejects.toSatisfy(check('recados_filtro_valido'));
     await expect(rec('Oi', '{"tipo":"todos"}', 'x'.repeat(301), 1)).rejects.toSatisfy(check('recados_filtro_rotulo_tamanho'));
     await expect(rec('Oi', '{"tipo":"todos"}', null, 0)).rejects.toSatisfy(check('recados_destinatarios_positivo'));
     await expect(rec('a'.repeat(1000), '{"tipo":"etiquetas","ids":[]}', 'Etiquetas: Gestante', 3)).resolves.toEqual([]);

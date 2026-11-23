@@ -224,7 +224,7 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autoriza
  * recusa o DELETE fora do worker (e, no worker, sem o titular anonimizado).
  */
 // Plano 20: fin_lancamentos (cancela-se, nunca se apaga) e fin_configuracoes (a linha do consultório) — DELETE revogado (0123)
-// Plano 25: chat_conversas e chat_leituras — DELETE revogado (0127; só app_chat_apagar_do_titular apaga); chat_avisos_nutri
+// Plano 25: chat_conversas e chat_leituras — DELETE revogado (0128; só app_chat_apagar_do_titular apaga); chat_avisos_nutri
 // (CH-D70) — DELETE revogado (a linha do consultório)
 const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro', 'chat_conversas', 'chat_leituras', 'chat_avisos_nutri']);
 /**
@@ -233,7 +233,7 @@ const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_gera
  */
 // Plano 14B: ia_geracoes_modelos também tem DELETE/TRUNCATE revogados (0112).
 // Plano 20: fin_lancamentos e fin_configuracoes também (0123).
-// Plano 25: chat_conversas, chat_leituras e chat_avisos_nutri também (0127).
+// Plano 25: chat_conversas, chat_leituras e chat_avisos_nutri também (0128).
 const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancamentos', 'fin_configuracoes', 'chat_conversas', 'chat_leituras', 'chat_avisos_nutri']);
 /**
  * D19 (Plano 10A): os gatilhos de imutabilidade (0091, T2) — app_documento_imutavel, o das notas e app_codigo_acesso_regras

@@ -105,7 +105,7 @@ CREATE TABLE "recados" (
 	"criado_em" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
 	CONSTRAINT "recados_tenant_id_unique" UNIQUE("tenant_id","id"),
 	CONSTRAINT "recados_texto_tamanho" CHECK (char_length(btrim("recados"."texto")) between 1 and 1000),
-	CONSTRAINT "recados_filtro_valido" CHECK ("recados"."filtro" ->> 'tipo' in ('todos', 'etiquetas', 'local')),
+	CONSTRAINT "recados_filtro_valido" CHECK (coalesce("recados"."filtro" ->> 'tipo', '') in ('todos', 'etiquetas', 'local')),
 	CONSTRAINT "recados_filtro_rotulo_tamanho" CHECK ("recados"."filtro_rotulo" is null or char_length("recados"."filtro_rotulo") between 1 and 300),
 	CONSTRAINT "recados_destinatarios_positivo" CHECK ("recados"."destinatarios" > 0)
 );

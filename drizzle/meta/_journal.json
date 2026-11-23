@@ -890,6 +890,20 @@
       "when": 1795450693968,
       "tag": "0126_tenants_gatilho_update",
       "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1795462784175,
+      "tag": "0127_mensagens",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1795462791899,
+      "tag": "0128_rls_mensagens",
+      "breakpoints": true
     }
   ]
 }

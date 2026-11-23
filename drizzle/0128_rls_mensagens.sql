@@ -121,10 +121,6 @@ REVOKE DELETE, TRUNCATE ON chat_avisos_nutri FROM nutri_app_role;
 -- §9.5: o recado é só de inclusão
 REVOKE UPDATE, DELETE, TRUNCATE ON recados FROM nutri_app_role;
 --> statement-breakpoint
--- §9.5: o CHECK recados_filtro_valido (filtro->>'tipo' in (…), da gerada) deixa passar o filtro sem "tipo" (NULL no IN não
--- recusa); este fecha o buraco sem mexer na gerada
-ALTER TABLE recados ADD CONSTRAINT recados_filtro_com_tipo CHECK (filtro ->> 'tipo' IS NOT NULL);
---> statement-breakpoint
 -- §9.4: sem sobreposição de faixas no mesmo dia (o Drizzle não escreve EXCLUDE; btree_gist já existe pela 0051)
 ALTER TABLE chat_horarios ADD CONSTRAINT chat_horarios_sem_sobreposicao
   EXCLUDE USING gist (tenant_id WITH =, dia_semana WITH =, int4range(inicio_min, fim_min) WITH &&);
@@ -576,6 +572,8 @@ BEGIN
   END IF;
   -- revisão (M1): as mensagens do titular travadas antes da conferência — um job que concluísse processando → pronto entre o
   -- EXISTS e o DELETE deixaria o chat_anexo órfão. Anexo em processamento também recusa, mesmo sem caminho (falha fechada)
+  -- ordem global de travas (RN-447): paciente → conversa → mensagem
+  PERFORM 1 FROM public.chat_conversas c WHERE c.tenant_id = v_tenant AND c.patient_id = p_patient FOR UPDATE;
   PERFORM 1 FROM public.chat_mensagens m WHERE m.tenant_id = v_tenant AND m.patient_id = p_patient FOR UPDATE;
   IF EXISTS (SELECT 1 FROM public.chat_mensagens m WHERE m.tenant_id = v_tenant AND m.patient_id = p_patient
                AND (m.anexo_path IS NOT NULL OR m.anexo_original_path IS NOT NULL OR m.anexo_status = 'processando')) THEN
