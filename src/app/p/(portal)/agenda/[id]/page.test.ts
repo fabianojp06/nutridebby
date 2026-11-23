@@ -1,3 +1,4 @@
+import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -81,5 +82,15 @@ describe('/p/agenda/[id]: Plano 23 (US-408, AG-D43)', () => {
       expect(html).toContain(situacao);
       expect(html).not.toContain('Desistir do pedido');
     }
+  });
+});
+
+describe('/p/agenda/[id]: a confirmação da desistência (revisão da T8, I-2)', () => {
+  it('a ação não tem volta: o foco começa em "Voltar", não em "Desistir do pedido"', async () => {
+    const { FormularioDaDesistencia } = await import('../acoes-consulta');
+    const html = renderToStaticMarkup(createElement(FormularioDaDesistencia, { id: ID, aoVoltar: () => undefined, aoMudarPendente: () => undefined }));
+    const botao = (rotulo: string) => new RegExp(`<button[^>]*>${rotulo}</button>`).exec(html)?.[0] ?? '';
+    expect(botao('Voltar')).toContain('data-foco-inicial');
+    expect(botao('Desistir do pedido')).not.toContain('data-foco-inicial');
   });
 });

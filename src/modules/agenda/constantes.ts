@@ -247,8 +247,8 @@ export const MSG_SOLICITACOES = {
     rotulo: 'Confirmar os pedidos antes de marcar',
     ajuda: 'Os pedidos feitos pelo app e pela página de agendamento esperam a sua resposta em Solicitações.',
     salva: 'Configuração salva.',
-    /** Fora da §6.2: o botão do formulário da chave. */
-    salvar: 'Salvar',
+    /** Fora da §6.2: o botão do formulário da chave (revisão da T8: diz o que salva). */
+    salvar: 'Salvar configuração',
   },
   motivo: 'Motivo (só você vê)',
   confirmarRecusaBotao: 'Confirmar recusa',

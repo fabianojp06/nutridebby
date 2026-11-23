@@ -141,7 +141,7 @@ describe('Plano 23: o pedido no portal (US-408, AG-D42, AG-D53)', () => {
     expect(r.ok).toMatch(/^Consulta marcada para /);
   });
 
-  it('desistir → volta a "Minhas consultas" com ?ok=pedido-cancelado e o pedido "pedido_desistido"; de novo → "Este pedido já foi respondido ou venceu." na própria tela', async () => {
+  it('desistir → volta a "Minhas consultas" com ?ok=pedido-cancelado e o pedido "pedido_desistido"; de novo → também volta, com ?ok=pedido-mudou (revisão da T8, I-1)', async () => {
     const { T, ana } = await cenario();
     const id = await pedidoDireto(db, T, ana.id, new Date(Date.now() + 5 * 24 * H));
     sessao.atual = { ctx: ctxPaciente(T.tenantId, ana.id), tenant: tenantAgenda(T, { agendaConfirmarPedidos: true }) };
@@ -152,6 +152,13 @@ describe('Plano 23: o pedido no portal (US-408, AG-D42, AG-D53)', () => {
     expect(err?.url).toBe('/p/agenda?ok=pedido-cancelado');
     expect(await consulta(T, id)).toMatchObject({ status: 'cancelada', canceladoPor: 'pedido_desistido' });
     expect(sessao.revalidados).toEqual(expect.arrayContaining(['/p/agenda', `/p/agenda/${id}`]));
-    await expect(desistirAction(id)).resolves.toEqual({ erro: MSG_SOLICITACOES.mudou });
+    sessao.revalidados = [];
+    const mudou = await desistirAction(id).then(
+      () => null,
+      (e: { url?: string }) => e,
+    );
+    expect(mudou?.url).toBe('/p/agenda?ok=pedido-mudou');
+    expect(sessao.revalidados).toEqual(expect.arrayContaining(['/p/agenda', `/p/agenda/${id}`]));
+    expect(await consulta(T, id)).toMatchObject({ status: 'cancelada', canceladoPor: 'pedido_desistido' });
   });
 });

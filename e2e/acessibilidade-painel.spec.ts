@@ -507,16 +507,32 @@ test('Plano 23: agenda em Mês e em Semana com filtro e 24 horas, Locais e impre
 });
 
 /**
- * Plano 23 (T8, US-409, RNF-401): a fila "Solicitações" com pedido (o da paciente e o da pessoa nova) e a recusa aberta
- * (o `Dialogo` com "Motivo (só você vê)"), nos três modos, a 1280 e a 360 px. Num consultório próprio da semente
- * (`e2e-pedidos-axe`: a chave ligada e os dois pedidos; só leitura — a recusa é aberta e fechada com Esc, nunca confirmada).
- * IP: 10.9.23.20 (bloco do Plano 23, AG-D56).
+ * Plano 23 (T8, US-409, RNF-401): num consultório próprio da semente (`e2e-pedidos-axe`: a chave ligada, o pedido da
+ * paciente "Pia Pedido Semente" daqui a 10 dias e a pessoa nova "Nina Nova Semente" aguardando; só leitura — as recusas são
+ * abertas e fechadas com Esc, nunca confirmadas), nos três modos, a 1280 e a 360 px: o Início com o cartão "Solicitações
+ * (2)", a fila (também com `?erro=ocupado` e `?ok=mudou` na região de status), a tela da consulta com o pedido (ações e o
+ * aviso do TCLE quando houver) e as duas recusas abertas — a da paciente com "Motivo (só você vê)" e a da pessoa nova sem
+ * o campo. IP: 10.9.23.20 (bloco do Plano 23, AG-D56).
  */
-test('Plano 23: Solicitações com pedido e a recusa aberta, nos três modos, 1280 e 360 px', async ({ browser }) => {
-  test.setTimeout(240_000);
+test('Plano 23: Início com "Solicitações (2)", a fila (com as voltas), a consulta com o pedido e as recusas abertas, nos três modos, 1280 e 360 px', async ({ browser }) => {
+  test.setTimeout(300_000);
   const AXE = { email: 'pedidos-axe-e2e@nutridebby.test', senha: 'Nutri2026segura' }; // copiada da semente
   const pagina = await entrarComo(browser, AXE.email, AXE.senha, '10.9.23.20');
   await expect(pagina).toHaveURL(/\/painel$/);
+  // a tela da consulta do pedido da paciente: pela agenda do dia (a semente o põe daqui a 10 dias, às 10:00 de São Paulo)
+  const hojeSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  const dia10 = new Date(Date.parse(`${hojeSP}T12:00:00Z`) + 10 * 86_400_000).toISOString().slice(0, 10);
+  await pagina.goto(`/painel/agenda?visao=dia&data=${dia10}`);
+  await pagina.getByTestId('agenda-grade').getByRole('link', { name: /Pia Pedido Semente/ }).click();
+  await expect(pagina).toHaveURL(/\/painel\/agenda\/consultas\/[0-9a-f-]{36}$/);
+  const consulta = new URL(pagina.url()).pathname;
+  const telas = [
+    '/painel',
+    '/painel/agenda/solicitacoes',
+    '/painel/agenda/solicitacoes?erro=ocupado&envio=1',
+    '/painel/agenda/solicitacoes?ok=mudou&envio=2',
+    consulta,
+  ];
   const falhas: string[] = [];
   try {
     for (const [modo, tema, aparelho] of [
@@ -528,18 +544,31 @@ test('Plano 23: Solicitações com pedido e a recusa aberta, nos três modos, 12
       await pagina.emulateMedia({ colorScheme: aparelho });
       for (const [largura, altura] of [[1280, 720], [360, 780]] as const) {
         await pagina.setViewportSize({ width: largura, height: altura });
+        for (const url of telas) {
+          await pagina.goto(url);
+          await pagina.waitForLoadState('networkidle');
+          if (url === '/painel') await expect(pagina.getByRole('heading', { name: 'Solicitações (2)' })).toBeVisible();
+          if (url === consulta) await expect(pagina.getByRole('button', { name: 'Aceitar o pedido de Pia Pedido Semente' })).toBeVisible();
+          for (const v of await violacoes(pagina, undefined, { ignorarForaDaTela: largura === 360 })) falhas.push(`${modo} ${largura} px ${url} — ${v}`);
+          if (largura === 360 && !(await pagina.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${modo} 360 px ${url} — rola na horizontal`);
+        }
+        // as duas recusas abertas, na fila (a paciente: foco no motivo; a pessoa nova, sem motivo: foco em "Cancelar")
         await pagina.goto('/painel/agenda/solicitacoes');
-        await pagina.waitForLoadState('networkidle');
-        await expect(pagina.getByRole('article')).toHaveCount(2); // a paciente e a pessoa nova
-        for (const v of await violacoes(pagina, undefined, { ignorarForaDaTela: largura === 360 })) falhas.push(`${modo} ${largura} px fila — ${v}`);
-        if (largura === 360 && !(await pagina.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${modo} 360 px fila — rola na horizontal`);
-        await pagina.getByRole('button', { name: 'Recusar o pedido de Pia Pedido Semente' }).click();
-        const dialogo = pagina.getByRole('dialog', { name: 'Recusar o pedido de Pia Pedido Semente?' });
-        await expect(dialogo.getByLabel('Motivo (só você vê)')).toBeFocused();
-        for (const v of await violacoes(pagina)) falhas.push(`${modo} ${largura} px recusa aberta — ${v}`);
-        await pagina.keyboard.press('Escape');
-        await expect(dialogo).toBeHidden();
-        await expect(pagina.getByRole('button', { name: 'Recusar o pedido de Pia Pedido Semente' })).toBeFocused(); // o foco volta
+        await expect(pagina.getByRole('article')).toHaveCount(2);
+        for (const [nome, foco] of [['Pia Pedido Semente', 'motivo'], ['Nina Nova Semente', 'cancelar']] as const) {
+          const recusar = pagina.getByRole('button', { name: `Recusar o pedido de ${nome}` });
+          await recusar.click();
+          const dialogo = pagina.getByRole('dialog', { name: `Recusar o pedido de ${nome}?` });
+          if (foco === 'motivo') await expect(dialogo.getByLabel('Motivo (só você vê)')).toBeFocused();
+          else {
+            await expect(dialogo.getByLabel('Motivo (só você vê)')).toHaveCount(0);
+            await expect(dialogo.getByRole('button', { name: 'Cancelar' })).toBeFocused();
+          }
+          for (const v of await violacoes(pagina)) falhas.push(`${modo} ${largura} px recusa aberta (${nome}) — ${v}`);
+          await pagina.keyboard.press('Escape');
+          await expect(dialogo).toBeHidden();
+          await expect(recusar).toBeFocused(); // o foco volta ao "Recusar"
+        }
       }
     }
   } finally {

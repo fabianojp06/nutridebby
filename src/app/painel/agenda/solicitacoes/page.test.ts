@@ -81,6 +81,9 @@ describe('/painel/agenda/solicitacoes (US-409, §7)', () => {
     expect(t).not.toContain('Bia Vencida'); // leitura preguiçosa (RN-427)
     expect(h).toContain('aria-label="Aceitar o pedido de Ana Souza"');
     expect(h).toContain('aria-label="Recusar o pedido de Carla Dias"');
+    // revisão da T8: o nome da pessoa nova (até 120 caracteres, sem espaço) quebra no cartão e no título do diálogo
+    expect(h).toMatch(/<article [^>]*class="[^"]*\[overflow-wrap:anywhere\]/);
+    expect(h).toMatch(/<div class="[^"]*\[overflow-wrap:anywhere\][^"]*"><form/);
     // o diálogo da recusa (fechado): título e aviso da §6.2; o formulário só monta aberto
     expect(t).toContain('Recusar o pedido de Ana Souza? A pessoa recebe um e-mail avisando.');
     // a região de status fica montada acima da lista, vazia sem `?ok=`
@@ -180,6 +183,11 @@ describe('a chave em Horários e a aba nas telas da agenda (US-407, AG-D72)', ()
     expect(caixa).not.toContain('checked');
     expect(h).toMatch(/<p id="chave-pedidos-ajuda"[^>]*>Os pedidos feitos pelo app e pela página de agendamento esperam a sua resposta em Solicitações\.<\/p>/);
     expect(texto(h)).toContain('Confirmar os pedidos antes de marcar');
+    // revisão da T8: o botão diz o que salva; durante o envio, aria-disabled (nunca `disabled`, o foco não sai dele)
+    const salvar = /<button[^>]*>Salvar configuração<\/button>/.exec(h)?.[0] ?? '';
+    expect(salvar).toContain('type="submit"');
+    expect(salvar).not.toMatch(/\s(aria-)?disabled=/); // nem `disabled` nem `aria-disabled` fora do envio
+    expect(h).toMatch(/<p role="status"><\/p><button/); // a região montada, vazia antes de salvar
     expect(texto(h)).not.toContain('Solicitações ('); // desligada e sem pedido: sem a aba
     await chaveDosPedidos(app.db, T);
     entrar(T, { agendaConfirmarPedidos: true });

@@ -119,10 +119,10 @@ describe('salvarChaveAction (US-407)', () => {
     const chave = async () => (await db.select({ v: tenants.agendaConfirmarPedidos }).from(tenants).where(eq(tenants.id, T.tenantId)))[0].v;
     const marcada = new FormData();
     marcada.set('confirmar', 'on');
-    expect(await salvarChaveAction({}, marcada)).toEqual({ ok: 'Configuração salva.' });
+    expect(await salvarChaveAction({}, marcada)).toEqual({ ok: 'Configuração salva.', envio: expect.any(Number) }); // o marcador de cada salvamento
     expect(await chave()).toBe(true);
     expect(sessao.revalidados).toEqual(expect.arrayContaining(['/painel/agenda/horarios', '/painel/agenda', '/painel']));
-    expect(await salvarChaveAction({}, new FormData())).toEqual({ ok: 'Configuração salva.' });
+    expect(await salvarChaveAction({}, new FormData())).toEqual({ ok: 'Configuração salva.', envio: expect.any(Number) });
     expect(await chave()).toBe(false);
   });
 });

@@ -42,16 +42,19 @@ export function AcoesConsulta({ id, confirmada, podeAlterar, pedidoRemarcacao }:
 
 const P = MSG_SOLICITACOES.portal;
 
-/** O formulário dentro da confirmação: "Voltar" e "Desistir do pedido" (o `<form>` dentro do diálogo, nunca o contrário). */
-function FormularioDaDesistencia({ id, aoVoltar, aoMudarPendente }: { id: string; aoVoltar: () => void; aoMudarPendente: (p: boolean) => void }) {
+/**
+ * O formulário dentro da confirmação: "Voltar" e "Desistir do pedido" (o `<form>` dentro do diálogo, nunca o contrário). A
+ * desistência não tem volta: o foco começa em "Voltar" (contrato do `Dialogo`, revisão da T8, I-2).
+ */
+export function FormularioDaDesistencia({ id, aoVoltar, aoMudarPendente }: { id: string; aoVoltar: () => void; aoMudarPendente: (p: boolean) => void }) {
   const [s, desistir, pendente] = useActionState<AgendaState>(desistirAction.bind(null, id), {});
   useEffect(() => aoMudarPendente(pendente), [pendente, aoMudarPendente]);
   return (
     <form action={desistir} className="space-y-3">
       <Retorno s={s} />
       <div className="flex flex-wrap justify-end gap-3">
-        <Botao type="button" variante="secundario" onClick={() => !pendente && aoVoltar()} aria-disabled={pendente || undefined} className="aria-disabled:opacity-60">Voltar</Botao>
-        <Botao type="submit" variante="escuro" aria-disabled={pendente || undefined} className="aria-disabled:opacity-60" onClick={(e) => pendente && e.preventDefault()} data-foco-inicial="">{P.desistir}</Botao>
+        <Botao type="button" variante="secundario" onClick={() => !pendente && aoVoltar()} aria-disabled={pendente || undefined} className="aria-disabled:opacity-60" data-foco-inicial="">Voltar</Botao>
+        <Botao type="submit" variante="escuro" aria-disabled={pendente || undefined} className="aria-disabled:opacity-60" onClick={(e) => pendente && e.preventDefault()}>{P.desistir}</Botao>
       </div>
     </form>
   );

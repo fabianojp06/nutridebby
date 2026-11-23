@@ -98,18 +98,18 @@ export async function avisarAction(id: string): Promise<AgendaState> {
 /**
  * Plano 23 (US-408, AG-D42, AG-D70): "Desistir do pedido" — o próprio pedido ainda no prazo vira "Pedido cancelado" e a
  * nutricionista é avisada. Volta a "Minhas consultas" com `?ok=pedido-cancelado` ("Pedido cancelado." na região fixa). O
- * pedido que já mudou (respondido ou vencido) fica na própria tela com o aviso.
+ * pedido que já mudou (respondido ou vencido) também volta a "Minhas consultas", com `?ok=pedido-mudou` ("Este pedido já
+ * foi respondido ou venceu.") — revisão da T8 (I-1): na própria tela, o botão (e o diálogo aberto) sumiria junto com o erro.
  */
 export async function desistirAction(id: string): Promise<AgendaState> {
   const { ctx, tenant } = await requirePaciente(`/p/agenda/${id}`);
   try {
     await desistirDoPedido(ctx, tenant, id);
   } catch (e) {
-    if (e instanceof PedidoMudouError) {
-      revalidatePath(`/p/agenda/${id}`);
-      return { erro: MSG_SOLICITACOES.mudou };
-    }
-    return tratar(e);
+    if (!(e instanceof PedidoMudouError)) return tratar(e);
+    revalidatePath('/p/agenda');
+    revalidatePath(`/p/agenda/${id}`);
+    redirect('/p/agenda?ok=pedido-mudou');
   }
   revalidatePath('/p/agenda');
   revalidatePath(`/p/agenda/${id}`);

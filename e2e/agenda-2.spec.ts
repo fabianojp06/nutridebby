@@ -296,7 +296,7 @@ test.describe('Plano 23 (T8): Solicitações — chave, portal, fila, pessoa nov
       const caixa = painel.getByLabel('Confirmar os pedidos antes de marcar');
       if (await caixa.isChecked()) {
         await caixa.uncheck();
-        await painel.getByRole('button', { name: 'Salvar' }).click();
+        await painel.getByRole('button', { name: 'Salvar configuração' }).click();
         await expect(painel.getByRole('status').filter({ hasText: 'Configuração salva.' })).toBeVisible();
       }
     }
@@ -331,7 +331,7 @@ test.describe('Plano 23 (T8): Solicitações — chave, portal, fila, pessoa nov
       await visitante.getByRole('button', { name: 'Enviar código' }).click();
       await expect(visitante.getByText(`Enviamos um código de 6 dígitos para ${email}. Ele vale por 10 minutos.`)).toBeVisible();
       await expect(pontoDeColeta).toBeVisible();
-      const m = await esperarEmail(email, { assuntoComeca: 'Seu código para agendar' });
+      const m = await esperarEmail(email, { assuntoComeca: 'Seu código para agendar', timeoutMs: 75_000 });
       await visitante.getByLabel('Código').fill(/\b(\d{6})\b/.exec(m.assunto)![1]);
       await visitante.getByRole('button', { name: 'Confirmar agendamento' }).click();
       await expect(visitante.getByRole('status').filter({ hasText: `Pedido enviado. ${PEDIDOS.nome} vai confirmar o horário e você recebe um e-mail.` })).toBeVisible();
@@ -348,13 +348,14 @@ test.describe('Plano 23 (T8): Solicitações — chave, portal, fila, pessoa nov
     await expect(painel.getByRole('heading', { name: 'Pedidos de consulta' })).toBeVisible();
     await expect(painel.getByText('Os pedidos feitos pelo app e pela página de agendamento esperam a sua resposta em Solicitações.')).toBeVisible();
     await painel.getByLabel('Confirmar os pedidos antes de marcar').check();
-    await painel.getByRole('button', { name: 'Salvar' }).click();
+    await painel.getByRole('button', { name: 'Salvar configuração' }).click();
     await expect(painel.getByRole('status').filter({ hasText: 'Configuração salva.' })).toBeVisible();
     await expect(abas.getByRole('link', { name: 'Solicitações (0)' })).toBeVisible();
     await expect(painel.getByLabel('Confirmar os pedidos antes de marcar')).toBeChecked();
   });
 
   test('portal: pedido "Aguardando confirmação da nutricionista"; a nutricionista aceita e a paciente recebe "consulta marcada" (US-408, US-409)', async () => {
+    test.setTimeout(120_000); // o e-mail chega em até ~75 s com o servidor carregado
     await pedirPeloPortal(D1, '09:00');
     await paula.goto('/p/agenda');
     await expect(paula.getByRole('region', { name: 'Próximas' }).getByRole('link', { name: /Aguardando confirmação da nutricionista/ })).toHaveCount(1);
@@ -372,12 +373,13 @@ test.describe('Plano 23 (T8): Solicitações — chave, portal, fila, pessoa nov
     await expect(painel.getByRole('status').filter({ hasText: 'Pedido aceito. Consulta marcada.' })).toBeVisible();
     await expect(painel.getByRole('heading', { level: 1, name: 'Solicitações' })).toBeFocused(); // §7: o foco no h1
     await expect(painel.getByText('Nenhum pedido aguardando resposta.')).toBeVisible();
-    await esperarEmail(PAULA.email, { assuntoComeca: `Consulta marcada: ${quando(D1, '09:00')}`, depoisDe: depois });
+    await esperarEmail(PAULA.email, { assuntoComeca: `Consulta marcada: ${quando(D1, '09:00')}`, depoisDe: depois, timeoutMs: 75_000 });
     await paula.goto('/p/agenda');
     await expect(paula.getByRole('region', { name: 'Próximas' }).getByRole('link', { name: /Agendada/ })).toHaveCount(1);
   });
 
   test('portal: outro pedido recusado com motivo — a confirmação, "Pedido recusado.", "Não confirmado" no portal e o e-mail sem o motivo (US-409, AG-D23)', async () => {
+    test.setTimeout(120_000); // o e-mail chega em até ~75 s com o servidor carregado
     await pedirPeloPortal(D1, '11:00');
     await painel.goto('/painel/agenda/solicitacoes');
     const cartao = painel.getByRole('article', { name: PAULA.nome });
@@ -394,7 +396,7 @@ test.describe('Plano 23 (T8): Solicitações — chave, portal, fila, pessoa nov
     await paula.goto('/p/agenda');
     await expect(paula.getByRole('region', { name: 'Anteriores' }).getByRole('link', { name: /Não confirmado/ })).toHaveCount(1);
     if (!silencio()) {
-      const m = await esperarEmail(PAULA.email, { assunto: 'Seu pedido de consulta não foi confirmado', depoisDe: depois });
+      const m = await esperarEmail(PAULA.email, { assunto: 'Seu pedido de consulta não foi confirmado', depoisDe: depois, timeoutMs: 75_000 });
       expect(m.texto).toContain(`O horário de ${quando(D1, '11:00')}`);
       expect(m.texto).not.toContain(`Motivo E2E ${sufixo}`);
     }
@@ -416,10 +418,10 @@ test.describe('Plano 23 (T8): Solicitações — chave, portal, fila, pessoa nov
   });
 
   test('pessoa nova pela página pública (código pelo Mailpit) → "Nova pessoa: …" na fila → aceitar cria o cadastro e a consulta (RN-424, RN-426)', async ({ browser }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(120_000); // o e-mail chega em até ~75 s com o servidor carregado
     const nome = `Nina Nova ${sufixo}`;
     const email = await pedirPelaPagina(browser, '10.9.23.12', nome, '13:00');
-    await esperarEmail(email, { assunto: 'Recebemos seu pedido de consulta' });
+    await esperarEmail(email, { assunto: 'Recebemos seu pedido de consulta', timeoutMs: 75_000 });
     await painel.goto('/painel/agenda/solicitacoes');
     const cartao = painel.getByRole('article', { name: `Nova pessoa: ${nome}` });
     await expect(cartao.getByText('Consultório · Página de agendamento')).toBeVisible();
@@ -429,14 +431,14 @@ test.describe('Plano 23 (T8): Solicitações — chave, portal, fila, pessoa nov
     const grade = painel.getByTestId('agenda-grade');
     await expect(grade.getByRole('link', { name: new RegExp(`13:00–14:00 ${nome}`) })).toBeVisible();
     await expect(grade.getByText('Novo paciente via agendamento online')).toBeVisible();
-    await esperarEmail(email, { assuntoComeca: `Consulta marcada: ${quando(D1, '13:00')}` });
+    await esperarEmail(email, { assuntoComeca: `Consulta marcada: ${quando(D1, '13:00')}`, timeoutMs: 75_000 });
   });
 
   test('pessoa nova desiste pelo link do e-mail: a página não grava até "Desistir do pedido"; "Pedido cancelado." e o pedido sai da fila (AG-D42, AG-D48)', async ({ browser }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(120_000); // o e-mail chega em até ~75 s com o servidor carregado
     const nome = `Otto Novo ${sufixo}`;
     const email = await pedirPelaPagina(browser, '10.9.23.13', nome, '15:00');
-    const recebido = await esperarEmail(email, { assunto: 'Recebemos seu pedido de consulta' });
+    const recebido = await esperarEmail(email, { assunto: 'Recebemos seu pedido de consulta', timeoutMs: 75_000 });
     const link = primeiroLink(recebido.texto, `/n/${PEDIDOS.slug}/pedido/`);
     await painel.goto('/painel/agenda/solicitacoes');
     await expect(painel.getByRole('article', { name: `Nova pessoa: ${nome}` })).toBeVisible();

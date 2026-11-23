@@ -15,6 +15,10 @@ describe('/p/agenda: ?ok=pedido-cancelado (US-408)', () => {
     expect(html.indexOf('Pedido cancelado.')).toBeLessThan(html.indexOf('Próximas'));
   });
 
+  it('revisão da T8 (I-1): ?ok=pedido-mudou → "Este pedido já foi respondido ou venceu." na mesma região, com o foco', async () => {
+    expect(await pagina({ ok: 'pedido-mudou' })).toMatch(/<p role="status" tabindex="-1"[^>]*>Este pedido já foi respondido ou venceu\.<\/p>/);
+  });
+
   it('sem o parâmetro (ou com outro valor), a região fica montada e vazia', async () => {
     for (const sp of [{}, { ok: 'outra-coisa' }] as Record<string, string>[]) expect(await pagina(sp)).toMatch(/<p role="status" tabindex="-1"><\/p>/);
   });

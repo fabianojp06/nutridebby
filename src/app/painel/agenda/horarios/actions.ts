@@ -51,7 +51,8 @@ export async function excluirBloqueioAction(id: string): Promise<void> {
   revalidatePath('/painel/agenda');
 }
 
-export type ChaveState = { ok?: string; erro?: string };
+/** `envio`: marcador de cada salvamento (o mesmo texto volta e é anunciado de novo, padrão `Mensagens`). */
+export type ChaveState = { ok?: string; envio?: number };
 
 /**
  * Plano 23 (US-407, RN-420): "Confirmar os pedidos antes de marcar". A caixa desmarcada não vai no formulário: desliga. As
@@ -63,5 +64,5 @@ export async function salvarChaveAction(_prev: ChaveState, fd: FormData): Promis
   revalidatePath(CAMINHO);
   revalidatePath('/painel/agenda');
   revalidatePath('/painel');
-  return { ok: MSG_SOLICITACOES.chave.salva };
+  return { ok: MSG_SOLICITACOES.chave.salva, envio: Date.now() };
 }

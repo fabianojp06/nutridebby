@@ -9,10 +9,14 @@ import { AvisoDaLista } from './aviso-da-lista';
 
 export const dynamic = 'force-dynamic';
 
+/** A volta de "Desistir do pedido": desistiu, ou o pedido já tinha sido respondido ou vencido (revisão da T8, I-1). */
+const AVISOS: Record<string, string> = { 'pedido-cancelado': MSG_SOLICITACOES.portal.cancelado, 'pedido-mudou': MSG_SOLICITACOES.mudou };
+
 export default async function Agenda({ searchParams }: PageProps<'/p/agenda'>) {
   const { ctx, tenant } = await requirePaciente('/p/agenda');
   // Plano 23 (US-408): a volta da desistência (lista fechada: outro valor não mostra nada)
-  const aviso = (await searchParams).ok === 'pedido-cancelado' ? MSG_SOLICITACOES.portal.cancelado : '';
+  const ok = (await searchParams).ok;
+  const aviso = typeof ok === 'string' && Object.hasOwn(AVISOS, ok) ? AVISOS[ok] : '';
   const { proximas, anteriores, podeAgendar } = await consultasDoPaciente(ctx, tenant, new Date());
   const linha = (c: ConsultaDoPaciente) => (
     <li key={c.id}>

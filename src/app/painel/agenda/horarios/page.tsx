@@ -36,8 +36,11 @@ function ListaDeRegras({ regras, local }: { regras: RegraSalva[]; local?: string
 export default async function HorariosPage() {
   const { ctx, tenant } = await requireNutri('/painel/agenda/horarios');
   const agora = new Date();
-  const [{ regras, locais }, bloqueios] = await Promise.all([listarHorarios(ctx), listarBloqueios(ctx, agora, new Date(agora.getTime() + 10 * 366 * 86_400_000))]);
-  const solicitacoes = await abaDeSolicitacoes(ctx, tenant, { agora });
+  const [{ regras, locais }, bloqueios, solicitacoes] = await Promise.all([
+    listarHorarios(ctx),
+    listarBloqueios(ctx, agora, new Date(agora.getTime() + 10 * 366 * 86_400_000)),
+    abaDeSolicitacoes(ctx, tenant, { agora }),
+  ]);
   const ativos = new Set(locais.map((l) => l.id));
   const semLocal = regras.filter((r) => !r.localId || !ativos.has(r.localId));
   return (

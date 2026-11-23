@@ -46,7 +46,7 @@ export default async function SolicitacoesPage({ searchParams }: PageProps<'/pai
             const nome = nomeNaFila(p);
             return (
               <li key={`${p.tipo}-${p.id}`}>
-                <article aria-labelledby={`pedido-${p.id}`} className="space-y-2 rounded-3xl border border-borda bg-cartao p-5">
+                <article aria-labelledby={`pedido-${p.id}`} className="min-w-0 space-y-2 rounded-3xl border border-borda bg-cartao p-5 [overflow-wrap:anywhere]">
                   <h2 id={`pedido-${p.id}`} className="font-titulo text-lg font-semibold">{nome}</h2>
                   <p>{`${formatarQuando(p.inicio, tenant.fuso)}–${hora(p.fim)}`}</p>
                   <p>{[p.local, M.origem[p.origem]].filter(Boolean).join(' · ')}</p>

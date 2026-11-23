@@ -68,7 +68,9 @@ export function AcoesDoPedido({ nome, comMotivo, aceitar, recusar }: { nome: str
   const [ocupado, setOcupado] = useState(false);
   const idRecusar = useId();
   return (
-    <div className="flex flex-wrap gap-3">
+    // o nome da pessoa nova vem do formulário público (até 120 caracteres, sem espaço): quebra em qualquer ponto, também no
+    // título do diálogo (herda daqui; o `Dialogo` compartilhado não muda)
+    <div className="flex flex-wrap gap-3 [overflow-wrap:anywhere]">
       <form action={aceitar}>
         <BotaoAceitar nome={nome} />
       </form>
