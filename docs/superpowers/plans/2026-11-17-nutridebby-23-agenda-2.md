@@ -743,6 +743,7 @@ AG-D1 a AG-D45 (spec §14.1), todas. As que mudam a forma das tarefas: AG-D4 (ta
 | AG-D72 | **Abas da agenda sem link para página que ainda não existe**: no PR 2, só Agenda · Pendências · Horários · Locais; a T8 liga Solicitações e a T10, Aniversariantes | O deploy do PR 2 levaria um link 404 para produção |
 | AG-D73 | **Filtro "Previsões de retorno" e item "Retorno previsto" da legenda atrás de `MARCADOR_RETORNO_LIGADO`**, desligado no PR 2 e ligado na T9 | No PR 2 não há onde preencher a previsão; o filtro iria a produção sempre vazio |
 | AG-D74 | **Título da seção "Consultas" em `TITULO_SECAO_CONSULTAS` (`src/modules/agenda/status.ts`)**, não em `MSG_FICHA.titulos` | `registro.test.ts:56` exige que os títulos sejam exatamente os 8 do Plano 18; `status.ts` já entra em `IMPORTS_PERMITIDOS` |
+| AG-D75 | **Aviso de pedido não confirmado fora do horário silencioso** (decisão da orquestradora, 23/11/2026): o `pedido_nao_confirmado` ao paciente (e-mail e push) e o e-mail `pedido_nao_confirmado_publico` à pessoa nova, quando o vencimento ou a recusa cair entre 21h e 8h no fuso do consultório, saem às 08:00 locais (`emHorarioSilencioso`/`fimDoSilencio`, molde de `conteudo/aviso.ts`), como os lembretes (RN-05) | O vencimento roda a qualquer hora (`inicio − antecedência`: consulta às 15h com 12 h de antecedência vence às 03h); a revisão de normas da T6 (M3) apontou o aviso de madrugada | RN-427, RN-428, RN-05 |
 
 ---
 
