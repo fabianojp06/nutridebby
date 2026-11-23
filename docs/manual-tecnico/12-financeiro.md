@@ -401,7 +401,8 @@ cobrança (inclusive "Faltou"); h2 com `tabIndex={-1}` que recebe o foco depois 
   pela data de referência, cancelados incluídos com a situação, do mais antigo ao mais novo. **Sem** "Incluir o nome dos
   pacientes" (padrão), não há a coluna "Paciente" **e** a "Descrição" sai vazia nas entradas com paciente (a descrição livre
   pode identificar, F-D27); com a opção, o nome **civil** (`patients.nome`, documento fiscal) e a descrição em toda linha.
-  Célula de texto (descrição, categoria, paciente) que começa com `=`, `+`, `-`, `@`, tabulação ou CR ganha `'` na frente
+  Célula de texto (descrição, categoria, paciente) que começa com `=`, `+`, `-`, `@`, tabulação ou CR, também depois de
+  espaços na frente (os Unicode, o BOM e os de largura zero; TRI-17-20 #107), ganha `'` antes do texto original
   (`celulaTexto`); números gerados pelo sistema não.
 - **Cabeçalhos** (`arquivoCsv`): `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="…"`
   (nome montado só com datas e ano já validados), `Cache-Control: no-store`.
