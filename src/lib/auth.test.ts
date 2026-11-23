@@ -420,3 +420,39 @@ describe('cookie de sessão: a equipe sai ao fechar o navegador; o paciente fica
     expect(Math.abs((await expira(p)) - 30 * 24 * 60 * 60_000)).toBeLessThan(60_000);
   });
 });
+
+describe('Plano 26: último acesso da recepção (RN-516, RE-D43)', () => {
+  const t = { id: '' };
+  beforeAll(async () => {
+    const [novo] = await app.db.insert(tenants).values({ slug: `rec-${randomUUID().slice(0, 8)}`, nomeExibicao: 'Recepção' }).returning();
+    t.id = novo.id;
+  });
+  async function conta(appRole: 'nutri' | 'recepcao', twoFactorEnabled = false) {
+    const id = randomUUID();
+    const e = `${appRole}-ua-${id.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id, name: 'Conta', email: e, emailVerified: true, appRole, tenantId: t.id, twoFactorEnabled });
+    await app.db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha) });
+    return { id, e };
+  }
+  const ultimoAcesso = async (id: string) => (await app.db.select({ u: user.ultimoAcessoEm }).from(user).where(eq(user.id, id)))[0].u;
+
+  it('o login da recepção grava ultimo_acesso_em; o da nutricionista não muda nada', async () => {
+    const r = await conta('recepcao');
+    const n = await conta('nutri');
+    const antes = Date.now();
+    expect((await post('/sign-in/email', { email: r.e, password: senha }, '10.7.1.1')).status).toBe(200);
+    expect((await post('/sign-in/email', { email: n.e, password: senha }, '10.7.1.2')).status).toBe(200);
+    const gravado = await ultimoAcesso(r.id);
+    expect(gravado).not.toBeNull();
+    expect(Math.abs(new Date(gravado!).getTime() - antes)).toBeLessThan(60_000);
+    expect(await ultimoAcesso(n.id)).toBeNull();
+  });
+
+  it('com o 2FA ativo, a senha sozinha não conta como acesso (a sessão provisória do desafio é apagada pelo Better Auth)', async () => {
+    const r = await conta('recepcao', true);
+    const res = await post('/sign-in/email', { email: r.e, password: senha }, '10.7.1.3');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ twoFactorRedirect: true });
+    expect(await ultimoAcesso(r.id)).toBeNull();
+  });
+});

@@ -1,11 +1,14 @@
-import { requireNutri } from '@/lib/tenant-session';
+import { requireEquipe } from '@/lib/tenant-session';
 import { GUIAS } from '@/modules/ajuda/conteudo';
 
 export const dynamic = 'force-dynamic';
 
-/** D26: o manual completo — funciona sem JavaScript, dá para imprimir e é a base do treinamento (P08-08). */
+/**
+ * D26: o manual completo — funciona sem JavaScript, dá para imprimir e é a base do treinamento (P08-08). Plano 26
+ * (RN-513): abre também para a recepção; o filtro dos guias por papel é da T8.
+ */
 export default async function AjudaPage() {
-  await requireNutri('/painel/ajuda');
+  await requireEquipe('/painel/ajuda');
   return (
     <main className="mx-auto w-full max-w-3xl space-y-8 p-4 md:p-6 print:max-w-none">
       <h1 className="font-titulo text-3xl font-extrabold">Manual do NutriDebby</h1>

@@ -23,6 +23,9 @@ const SEM_AJUDA: Record<string, string> = {
   '/painel/ajuda': 'é o próprio manual',
   '/conta/outro-papel': 'aviso de aparelho conectado com outro papel (P09-03): uma frase e o botão Sair, sem fluxo para ensinar',
   '/painel/relatorios/imprimir': 'Plano 26 (RN-495): página de impressão, sem menu; o guia é o dos Relatórios, de onde se chega a ela',
+  '/painel/sem-permissao': 'Plano 26 (RE-D47): tela de aviso, sem tarefa — uma frase e o "Voltar ao início"',
+  '/painel/contrato-pendente': 'Plano 26 (RN-501): tela de aviso, sem tarefa — a recepção espera a nutricionista aceitar o contrato',
+  '/conta/acesso-desativado': 'Plano 26 (RN-503): tela de aviso, sem tarefa — uma frase e o "Sair"',
 };
 const UUID = '0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b';
 // D18 (Plano 10A): as páginas de /conta (Segurança) também têm guia, mostrado na própria tela (fora do layout do painel)
@@ -309,5 +312,16 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(passo).toContain('"Editar"');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/editar`)?.id).toBe('prontuario');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/versoes`)?.id).toBe('prontuario');
+  });
+
+  it('Plano 26 (RE-D20): o guia da Segurança diz que, para a recepção, a verificação em duas etapas é obrigatória', () => {
+    const g = GUIAS.find((x) => x.id === 'seguranca')!;
+    expect(g.ajuda.secoes.flatMap((s) => s.itens)).toContain('Para a recepção, a verificação em duas etapas é obrigatória: o painel só abre depois de ativá-la.');
+  });
+  it('Plano 26 (T6): as telas de aviso da recepção ficam sem guia (SEM_AJUDA)', () => {
+    for (const rota of ['/painel/sem-permissao', '/painel/contrato-pendente', '/conta/acesso-desativado']) {
+      expect(guiaDaRota(rota), rota).toBeNull();
+      expect(rota in SEM_AJUDA, rota).toBe(true);
+    }
   });
 });

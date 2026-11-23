@@ -5,8 +5,11 @@ import { estadoDaSessao, type AppRole } from '@/lib/session-rules';
 
 export const dynamic = 'force-dynamic';
 
-/** Só a equipe: o paciente (30 dias, PWA) não tem aviso de inatividade e recebe 403. */
-const EQUIPE: readonly AppRole[] = ['admin', 'nutri'];
+/**
+ * Só a equipe: o paciente (30 dias, PWA) não tem aviso de inatividade e recebe 403. Plano 26 (RE-D67, RN-501): a recepção
+ * tem os prazos da equipe, o aviso e a renovação pelo uso (a desativada recebe 403).
+ */
+const EQUIPE: readonly AppRole[] = ['admin', 'nutri', 'recepcao'];
 
 /** Quanto falta (ms relativos) e os prazos — nada de dado pessoal, sem cache. */
 function estado(req: Request, a: ApiAuth & { ok: true }): Response {

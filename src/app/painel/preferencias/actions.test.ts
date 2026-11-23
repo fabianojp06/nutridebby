@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const marcarGuia = vi.fn();
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-vi.mock('@/lib/tenant-session', () => ({ requireNutri: vi.fn(async () => ({ data: { user: { id: 'u1', tema: 'sistema' } } })) }));
+// Plano 26 (RN-513): alternarTemaAction e marcarGuiaAction abrem para a equipe (requireEquipe); escolherTemaAction, só a nutricionista
+const sessao = vi.hoisted(() => ({ data: { user: { id: 'u1', tema: 'sistema' } } }));
+vi.mock('@/lib/tenant-session', () => ({ requireNutri: vi.fn(async () => sessao), requireEquipe: vi.fn(async () => ({ ...sessao, papel: 'recepcao', financeiro: false })) }));
 vi.mock('@/modules/plataforma/preferencias', async (original) => ({
   ...(await original<typeof import('@/modules/plataforma/preferencias')>()),
   marcarGuia: (...a: unknown[]) => marcarGuia(...a),

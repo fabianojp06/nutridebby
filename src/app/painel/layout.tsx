@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { FONTES_DO_PAINEL } from '@/app/fontes-painel';
 import { METADADOS_DO_PAINEL } from '@/app/manifesto-painel';
 import { VigiaDeSessao } from '@/components/vigia-sessao';
-import { requireNutri } from '@/lib/tenant-session';
+import { requireEquipe } from '@/lib/tenant-session';
 import { contadorDeDuvidas } from '@/modules/ia/nutri-paciente/duvidas';
 import { contarEnviosRecebidos } from '@/modules/pacientes/exames-enviados';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
@@ -16,15 +16,20 @@ export const metadata: Metadata = METADADOS_DO_PAINEL;
 
 /**
  * Visual V2 (D24): o tema (data-tema, D17) e a cor do consultório (D19) valem para todas as telas do painel. O layout
- * NÃO é barreira de segurança: cada página chama requireNutri (guarda em cabecalho.test.ts). O contêiner é bloco, não
- * flex: num flex em coluna, o `<main className="mx-auto max-w-*">` das telas ficaria com a largura do próprio conteúdo.
+ * NÃO é barreira de segurança: cada página chama requireNutri, ou requireEquipe nas de ROTAS_DA_RECEPCAO (guardas em
+ * cabecalho.test.ts e rotas-da-recepcao.test.ts). O contêiner é bloco, não flex: num flex em coluna, o
+ * `<main className="mx-auto max-w-*">` das telas ficaria com a largura do próprio conteúdo.
+ *
+ * Plano 26 (T6): o layout abre também para a recepção — "Sem permissão" e "Contrato pendente" ficam dentro do painel, e
+ * com requireNutri aqui a recepção voltaria a "Sem permissão" sem fim. Até a T8 (menu, guia e Início por papel), a
+ * recepção tem o cabeçalho mínimo (marca, tema e "Sair"), sem menu, sem guia e sem os contadores clínicos.
  */
 export default async function PainelLayout({ children }: LayoutProps<'/painel'>) {
-  const { data, tenant, ctx } = await requireNutri('/painel', { permitirDpaPendente: true });
+  const { data, tenant, ctx, papel } = await requireEquipe('/painel', { permitirDpaPendente: true });
   const marca = getTenantBrand(tenant);
   const tema = ehTema(data.user.tema) ? data.user.tema : 'sistema';
   const cores = { '--nd-marca-base': marca.cor, '--nd-marca-clara': marca.corNoEscuro } as CSSProperties;
-  const completo = tenant.dpaVersao === DPA_VERSAO;
+  const completo = papel === 'nutri' && tenant.dpaVersao === DPA_VERSAO;
   // D27: o progresso do manual guiado é só o valor inicial do GuiaDoPainel (a navegação pelo cliente não refaz o layout)
   const progresso = completo ? await lerGuia(data.user.id) : null;
   // US-162 / D11: o contador do menu; o layout não refaz na navegação pelo cliente — as ações da revisão chamam

@@ -20,6 +20,14 @@ export const MSG_2FA = {
   okAdmin: 'Verificação em duas etapas reiniciada. As sessões da conta foram encerradas e ela recebeu um e-mail. No próximo login, a configuração será obrigatória.',
 } as const;
 
+/**
+ * A confirmação do reinício (P09-02): o admin e a recepção (Plano 26, RE-D20) têm a configuração obrigatória no próximo
+ * login; a nutricionista e o paciente ativam de novo quando quiserem.
+ */
+export function mensagemDoReinicio(papel: AppRole): string {
+  return papel === 'admin' || papel === 'recepcao' ? MSG_2FA.okAdmin : MSG_2FA.ok;
+}
+
 export type Codigo2fa = 'email' | 'nao_encontrada' | 'propria' | 'sem_2fa' | 'paciente' | 'codigo' | 'tentativas';
 const MENSAGEM: Record<Codigo2fa, string> = {
   email: MSG_2FA.email,

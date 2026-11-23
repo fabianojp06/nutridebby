@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { ROTAS_DA_RECEPCAO } from './rotas-da-recepcao';
 
 // Plano 08 (T14): o cabeçalho do painel é desenhado SÓ pelo layout (src/app/painel/layout.tsx). Nenhuma página nem layout
 // interno desenha outro (menu em dobro). O layout não é barreira: toda página continua conferindo a sessão.
@@ -16,7 +17,9 @@ describe('cabeçalho do painel (D20)', () => {
   it('o layout do painel desenha o CabecalhoPainel e lê a sessão com o DPA pendente permitido', () => {
     const s = ler('layout.tsx');
     expect(s).toMatch(/<CabecalhoPainel[\s/>]/);
-    expect(s).toMatch(/requireNutri\([^)]*permitirDpaPendente:\s*true/);
+    // Plano 26 (T6): o layout abre também para a recepção (as telas de aviso dela ficam dentro do painel)
+    expect(s).toMatch(/requireEquipe\([^)]*permitirDpaPendente:\s*true/);
+    expect(s).not.toMatch(/requireNutri\(/);
     expect(s).toMatch(/data-tema=/);
   });
   it('o link da marca tem o alvo de 44 px e o logo é decorativo (o nome do consultório já está no link)', () => {
@@ -48,7 +51,10 @@ describe('cabeçalho do painel (D20)', () => {
     expect(s).not.toMatch(/<Cabecalho(Painel)?[\s/>]/);
     expect(s).not.toMatch(/from '(\.\.\/)+cabecalho'|from '\.\/cabecalho'/);
   });
-  it.each(PAGINAS)('%s confere a sessão (requireNutri ou carregarProntuario)', (f) => {
-    expect(ler(f)).toMatch(/requireNutri\(|carregarProntuario\(/);
+  // Plano 26 (RN-513): requireEquipe só nas páginas de ROTAS_DA_RECEPCAO (a guarda completa, com as actions e as rotas da
+  // API, é a de rotas-da-recepcao.test.ts)
+  it.each(PAGINAS)('%s confere a sessão (requireNutri ou carregarProntuario; requireEquipe só em ROTAS_DA_RECEPCAO)', (f) => {
+    const rota = `/painel${f === 'page.tsx' ? '' : `/${f.replace(/\/page\.tsx$/, '')}`}`;
+    expect(ler(f)).toMatch(ROTAS_DA_RECEPCAO.includes(rota) ? /requireEquipe\(/ : /requireNutri\(|carregarProntuario\(/);
   });
 });

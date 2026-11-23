@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ACESSO_DESATIVADO_PATH,
   caminhoOutroPapel,
   capSessionExpiry,
   ehMotivoDoFim,
@@ -18,6 +19,8 @@ import {
   PRAZOS_DA_EQUIPE,
   prazosDeTeste,
   ROTULO_CONTINUAR,
+  ROTULO_PAPEL,
+  semPermissaoPath,
   sessionExpiresAt,
   STAFF_IDLE_MS,
   STAFF_MAX_MS,
@@ -186,8 +189,62 @@ describe('outro papel no aparelho (P09-03)', () => {
     expect(textoOutroPapel('nutri', 'paciente')).toBe('Este aparelho está conectado como nutricionista. Saia e entre com a conta de paciente.');
     expect(textoOutroPapel('paciente', 'admin')).toBe('Este aparelho está conectado como paciente. Saia e entre com a conta de administrador.');
   });
-  it('ehPapel só aceita os três papéis', () => {
-    for (const v of ['admin', 'nutri', 'paciente']) expect(ehPapel(v)).toBe(true);
+  it('ehPapel só aceita os quatro papéis (Plano 26: recepcao)', () => {
+    for (const v of ['admin', 'nutri', 'paciente', 'recepcao']) expect(ehPapel(v)).toBe(true);
     for (const v of ['javascript:alert(1)', 'Nutri', '', undefined, ['nutri'], 'root']) expect(ehPapel(v)).toBe(false);
+  });
+});
+
+describe('Plano 26: papel recepcao (RN-498, RN-500, RN-501, RN-503)', () => {
+  const recepcao = (o: { path?: string; allowed?: readonly ('admin' | 'nutri' | 'paciente' | 'recepcao')[]; doisFatores?: boolean; equipe?: { ativo: boolean } | null; session?: { updatedAt: Date; createdAt: Date } } = {}) =>
+    evaluateSession({
+      now,
+      path: o.path ?? '/painel',
+      allowed: o.allowed ?? ['nutri', 'recepcao'],
+      session: o.session ?? ativa,
+      user: { appRole: 'recepcao', twoFactorEnabled: o.doisFatores ?? true },
+      equipe: o.equipe === undefined ? { ativo: true } : o.equipe,
+    });
+
+  it('Record<AppRole, …> exaustivo: rótulo "recepção", home /painel', () => {
+    expect(Object.keys(ROTULO_PAPEL).sort()).toEqual(['admin', 'nutri', 'paciente', 'recepcao']);
+    expect(ROTULO_PAPEL.recepcao).toBe('recepção');
+    expect(homeFor('recepcao')).toBe('/painel');
+    expect(textoOutroPapel('recepcao', 'paciente')).toBe('Este aparelho está conectado como recepção. Saia e entre com a conta de paciente.');
+  });
+  it('ativa e com 2FA → ok; sem 2FA → setup-2fa, menos na Segurança (RE-D20)', () => {
+    expect(recepcao()).toBe('ok');
+    expect(recepcao({ doisFatores: false })).toBe('setup-2fa');
+    expect(recepcao({ doisFatores: false, path: '/conta/seguranca', allowed: ['admin', 'nutri', 'recepcao'] })).toBe('ok');
+  });
+  it('prazos da equipe: 31 min sem uso e mais de 8 h desde o login → expired; 29 min → ok', () => {
+    expect(recepcao({ session: { updatedAt: antes(29 * MIN), createdAt: logada } })).toBe('ok');
+    expect(recepcao({ session: { updatedAt: antes(31 * MIN), createdAt: logada } })).toBe('expired');
+    expect(recepcao({ session: { updatedAt: recent, createdAt: antes(8 * H + MIN) } })).toBe('expired');
+    expect(capSessionExpiry(new Date(now.getTime() + 30 * 24 * H), 'recepcao', now).getTime()).toBe(now.getTime() + STAFF_IDLE_MS);
+  });
+  it('desativada (ou sem a linha de equipe_membros: falha fechada) → desativada em toda tela, inclusive a Segurança e as de outro papel', () => {
+    for (const equipe of [{ ativo: false }, null]) {
+      expect(recepcao({ equipe })).toBe('desativada');
+      expect(recepcao({ equipe, path: '/conta/seguranca', allowed: ['admin', 'nutri', 'recepcao'] })).toBe('desativada');
+      expect(recepcao({ equipe, allowed: ['nutri'] })).toBe('desativada');
+      expect(recepcao({ equipe, allowed: ['paciente'], path: '/p/inicio' })).toBe('desativada');
+    }
+    expect(evaluateSession({ now, path: '/painel', allowed: ['recepcao'], session: ativa, user: { appRole: 'recepcao', twoFactorEnabled: true } })).toBe('desativada');
+  });
+  it('a página "Acesso desativado" abre para a desativada (mesmo sem 2FA); sessão ociosa continua expired', () => {
+    expect(recepcao({ equipe: { ativo: false }, path: ACESSO_DESATIVADO_PATH, allowed: ['recepcao'], doisFatores: false })).toBe('ok');
+    expect(recepcao({ equipe: { ativo: false }, session: { updatedAt: idle, createdAt: logada } })).toBe('expired');
+  });
+  it('ativa numa tela de outro papel → forbidden (a sessão leva a Sem permissão ou ao aviso de outro papel)', () => {
+    expect(recepcao({ allowed: ['nutri'] })).toBe('forbidden');
+    expect(recepcao({ allowed: ['admin'], path: '/admin' })).toBe('forbidden');
+  });
+  it('a linha da equipe não vale para os outros papéis', () => {
+    expect(evaluateSession({ now, path: '/painel', allowed: ['nutri'], session: ativa, user: { appRole: 'nutri' }, equipe: { ativo: false } })).toBe('ok');
+  });
+  it('Sem permissão: os dois motivos (RE-D47)', () => {
+    expect(semPermissaoPath('nutri')).toBe('/painel/sem-permissao?motivo=nutri');
+    expect(semPermissaoPath('financeiro')).toBe('/painel/sem-permissao?motivo=financeiro');
   });
 });

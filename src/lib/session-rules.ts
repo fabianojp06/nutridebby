@@ -1,5 +1,7 @@
-export type AppRole = 'admin' | 'nutri' | 'paciente';
-export type SessionDecision = 'ok' | 'login' | 'expired' | 'setup-2fa' | 'forbidden' | 'suspended';
+/** Plano 26 (RN-498): `recepcao` — a pessoa da recepção de um consultório (linha em `equipe_membros`). */
+export type AppRole = 'admin' | 'nutri' | 'paciente' | 'recepcao';
+/** `desativada` (Plano 26, RN-503): a conta da recepção sem linha ativa em `equipe_membros` — recusada em toda tela. */
+export type SessionDecision = 'ok' | 'login' | 'expired' | 'setup-2fa' | 'forbidden' | 'suspended' | 'desativada';
 
 /**
  * RNF-06 (decisão do dono 07/10/2026, P12-14; boa prática SBIS NGS1 — bloqueio de sessão por inatividade): a equipe
@@ -56,15 +58,27 @@ export const SUSPENDED_PATH = '/indisponivel';
 export const MSG_SESSAO_EXPIRADA = 'Sessão expirada. Entre de novo.';
 
 export function homeFor(role: AppRole): string {
-  return role === 'admin' ? '/admin' : role === 'nutri' ? '/painel' : '/p/inicio';
+  return role === 'admin' ? '/admin' : role === 'nutri' || role === 'recepcao' ? '/painel' : '/p/inicio';
 }
+
+/**
+ * Plano 26 (RE-D47, RN-504): "Sem permissão" — `nutri`, a recepção numa tela só da nutricionista (requireNutri); `financeiro`,
+ * a recepção sem a permissão do Financeiro (requireEquipe com `financeiro: true`).
+ */
+export type MotivoSemPermissao = 'nutri' | 'financeiro';
+export const SEM_PERMISSAO_PATH = '/painel/sem-permissao';
+export const semPermissaoPath = (motivo: MotivoSemPermissao): string => `${SEM_PERMISSAO_PATH}?motivo=${motivo}`;
+/** RN-501 (RE-D29): o DPA do consultório pendente, para a recepção (quem aceita é a nutricionista). */
+export const CONTRATO_PENDENTE_PATH = '/painel/contrato-pendente';
+/** RN-503 (RE-D45): a conta da recepção desativada; fora do painel, como a Segurança. */
+export const ACESSO_DESATIVADO_PATH = '/conta/acesso-desativado';
 
 /** P09-03: tela "este aparelho está conectado com outra conta" (o caso `forbidden` de requireUser). */
 export const OUTRO_PAPEL_PATH = '/conta/outro-papel';
-export const ROTULO_PAPEL: Record<AppRole, string> = { admin: 'administrador', nutri: 'nutricionista', paciente: 'paciente' };
+export const ROTULO_PAPEL: Record<AppRole, string> = { admin: 'administrador', nutri: 'nutricionista', paciente: 'paciente', recepcao: 'recepção' };
 
 export function ehPapel(v: unknown): v is AppRole {
-  return v === 'admin' || v === 'nutri' || v === 'paciente';
+  return v === 'admin' || v === 'nutri' || v === 'paciente' || v === 'recepcao';
 }
 
 /** O papel que a tela pedia. A Segurança aceita admin e nutricionista: o aviso pede a conta de nutricionista. */
@@ -152,15 +166,25 @@ export function evaluateSession(input: {
   tenantStatus?: 'ativa' | 'suspensa' | null;
   /** Os prazos da equipe (os encurtados só no E2E). */
   prazos?: PrazosDaEquipe;
+  /**
+   * Plano 26 (RN-503, RN-504): a linha de `equipe_membros` da conta `recepcao`, lida com a sessão. Sem ela, ou desativada,
+   * a recepção é recusada em toda tela (falha fechada); não vale para os outros papéis.
+   */
+  equipe?: { ativo: boolean } | null;
 }): SessionDecision {
   const { session, user, allowed, now, path, hasSessionCookie, tenantStatus, prazos } = input;
   if (!session || !user) return hasSessionCookie ? 'expired' : 'login';
   const role = user.appRole as AppRole;
-  if (!allowed.includes(role)) return 'forbidden';
+  const desativada = role === 'recepcao' && input.equipe?.ativo !== true;
+  // a desativada é recusada em toda tela, inclusive nas de outro papel: o aviso dela vence o de outro papel
+  if (!allowed.includes(role) && !desativada) return 'forbidden';
   // RNF-06: inatividade (30 min) e limite (8 h) da equipe. Defesa extra ao expiresAt: exige a leitura sem renovar
   // (disableRefresh) e vale também para sessões abertas antes desta regra (P12-14, item 6)
   if (ehEquipe(role) && fimDaSessao(session, now, prazos)) return 'expired';
+  // RN-503 (RE-D45): só a própria página do aviso abre (sem pedir o 2FA: não há o que proteger nela)
+  if (desativada) return path === ACESSO_DESATIVADO_PATH && allowed.includes(role) ? 'ok' : 'desativada';
   if (tenantStatus === 'suspensa') return 'suspended';
-  if (role === 'admin' && !user.twoFactorEnabled && path !== SECURITY_PATH) return 'setup-2fa';
+  // RE-D20 (Plano 26): a recepção tem o 2FA obrigatório, como o admin
+  if ((role === 'admin' || role === 'recepcao') && !user.twoFactorEnabled && path !== SECURITY_PATH) return 'setup-2fa';
   return 'ok';
 }

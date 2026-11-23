@@ -24,7 +24,7 @@ export async function entrar(auth: Auth, email: string, senha = SENHA_TESTE, ip 
 export async function criarEEntrar(
   db: Db,
   auth: Auth,
-  opts: { appRole: 'admin' | 'nutri' | 'paciente'; tenantId?: string; twoFactorEnabled?: boolean },
+  opts: { appRole: 'admin' | 'nutri' | 'paciente' | 'recepcao'; tenantId?: string; twoFactorEnabled?: boolean },
 ): Promise<{ id: string; email: string; cookie: string }> {
   const id = randomUUID();
   const email = `${opts.appRole}-${id.slice(0, 8)}@teste.dev`;

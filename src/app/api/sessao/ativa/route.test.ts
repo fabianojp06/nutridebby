@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { session } from '@/db/schema';
+import { session, tenants } from '@/db/schema';
 import { getAuth } from '@/lib/auth';
 import { PRAZOS_DA_EQUIPE } from '@/lib/session-rules';
+import { recepcaoComLogin } from '../../../../../test/equipe';
 import { criarEEntrar } from '../../../../../test/sessao';
 
 // P12-14 (RNF-06): a rota do relógio da tela da equipe pelo caminho real (Better Auth + Postgres do Testcontainers).
@@ -121,5 +122,42 @@ describe('GET /api/sessao/ativa — a tela pergunta quanto falta, sem renovar', 
     expect((await GET(pedido('GET', n.cookie, null))).status).toBe(401);
     const p = await criarEEntrar(db, auth, { appRole: 'paciente' });
     expect((await GET(pedido('GET', p.cookie, null))).status).toBe(403);
+  });
+});
+
+describe('Plano 26 (RE-D67, RN-501): a recepção tem o aviso de inatividade e a renovação pelo uso, como a nutricionista', () => {
+  async function recepcao(o: Parameters<typeof recepcaoComLogin>[3] = {}) {
+    const [t] = await db.insert(tenants).values({ slug: `sa-${Math.random().toString(36).slice(2, 10)}`, nomeExibicao: 'SA' }).returning();
+    return recepcaoComLogin(db, auth, t.id, o);
+  }
+
+  it('GET: 200 com os prazos, sem renovar', async () => {
+    const r = await recepcao();
+    await envelhecer(r.id, 6 * MIN, 24 * MIN, 2 * H);
+    const antes = await lerSessao(r.id);
+    const res = await GET(pedido('GET', r.cookie));
+    expect(res.status).toBe(200);
+    const corpo = (await res.json()) as Record<string, number>;
+    expect(Object.keys(corpo).sort()).toEqual(['avisoMs', 'cadenciaMs', 'inatividadeMs', 'limiteMs']);
+    perto(corpo.inatividadeMs, 24 * MIN);
+    expect(await lerSessao(r.id)).toEqual(antes);
+  });
+
+  it('POST: renova como para a nutricionista (passada a cadência de 5 min)', async () => {
+    const r = await recepcao();
+    await envelhecer(r.id, 6 * MIN, 24 * MIN, 2 * H);
+    const res = await POST(pedido('POST', r.cookie));
+    expect(res.status).toBe(200);
+    perto(((await res.json()) as { inatividadeMs: number }).inatividadeMs, 30 * MIN);
+    perto(new Date((await lerSessao(r.id)).expiresAt).getTime(), Date.now() + 30 * MIN);
+  });
+
+  it('desativada → 403 nos dois, sem renovar', async () => {
+    const r = await recepcao({ desativada: true });
+    await envelhecer(r.id, 6 * MIN, 24 * MIN, 2 * H);
+    const antes = await lerSessao(r.id);
+    expect((await GET(pedido('GET', r.cookie))).status).toBe(403);
+    expect((await POST(pedido('POST', r.cookie))).status).toBe(403);
+    expect(await lerSessao(r.id)).toEqual(antes);
   });
 });

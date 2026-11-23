@@ -5,16 +5,31 @@ import { redirect } from 'next/navigation';
 import { getSessionCookie } from 'better-auth/cookies';
 import { getDb } from '@/db/client';
 import type { TenantRow } from '@/db/schema';
+import { lerMembroDaEquipe, type MembroDaEquipe } from '@/modules/plataforma/membro-da-equipe';
 import { buscarTenant, statusDe } from '@/modules/plataforma/tenant-status';
 import { getAuth, slideSession, type Auth } from './auth';
 import { logger, nomeDoErro } from './logger';
 import { CURRENT_PATH_HEADER, safeReturnPath } from './safe-return';
 import { prazosDaRequisicao } from './sessao-prazos';
-import { caminhoOutroPapel, evaluateSession, fimDaSessao, SECURITY_PATH, SUSPENDED_PATH, type AppRole, type PrazosDaEquipe } from './session-rules';
+import {
+  ACESSO_DESATIVADO_PATH,
+  caminhoOutroPapel,
+  evaluateSession,
+  fimDaSessao,
+  SECURITY_PATH,
+  semPermissaoPath,
+  SUSPENDED_PATH,
+  type AppRole,
+  type PrazosDaEquipe,
+} from './session-rules';
 
 export type SessionData = NonNullable<Awaited<ReturnType<Auth['api']['getSession']>>>;
 
-/** T14 (S-7, nutricionista): uma leitura de sessão + tenant por requisição, dividida entre o layout e a página. */
+/**
+ * T14 (S-7, nutricionista): uma leitura de sessão + tenant por requisição, dividida entre o layout e a página. Plano 26
+ * (RN-504): com a conta `recepcao`, também a linha dela em `equipe_membros` (ativa? Financeiro?), na mesma leitura — a
+ * desativação e a permissão valem na próxima requisição.
+ */
 const lerSessaoDaRequisicao = cache(async () => {
   const h = await headers();
   // disableRefresh: a inatividade é avaliada com o updatedAt/expiresAt gravados, antes de
@@ -23,8 +38,15 @@ const lerSessaoDaRequisicao = cache(async () => {
   const tenantId = (data?.user as { tenantId?: string | null } | undefined)?.tenantId;
   // RN-15: 1 leitura por PK; a suspensão vale na próxima requisição, mesmo com sessão aberta
   const tenant = tenantId ? await buscarTenant(getDb(), tenantId) : null;
-  return { h, data, tenant, prazos: prazosDaRequisicao(h) };
+  const membro = await membroDaSessao(data, tenantId);
+  return { h, data, tenant, membro, prazos: prazosDaRequisicao(h) };
 });
+
+/** Plano 26 (RN-503, RN-504): a linha da recepção em `equipe_membros`; `null` para os outros papéis (e sem consultório). */
+async function membroDaSessao(data: SessionData | null, tenantId: string | null | undefined): Promise<MembroDaEquipe | null> {
+  if (!data || data.user.appRole !== 'recepcao' || !tenantId) return null;
+  return lerMembroDaEquipe(getDb(), tenantId, data.user.id);
+}
 
 /**
  * A renovação da sessão, uma vez por requisição. A chave do cache é o próprio objeto da leitura (o mesmo para o layout e
@@ -48,13 +70,14 @@ export async function requireUser(allowed: readonly AppRole[], path: string): Pr
 
 /**
  * requireUser devolvendo também a linha do tenant já lida para o RN-15 (F8: quem precisa
- * do tenant — requireNutri — não lê `tenants` de novo). `null` para admin.
+ * do tenant — requireNutri — não lê `tenants` de novo). `null` para admin. `membro` (Plano 26): a linha da recepção em
+ * `equipe_membros`, lida na mesma requisição (`null` para os outros papéis).
  */
 export async function requireUserComTenant(
   allowed: readonly AppRole[],
   path: string,
-): Promise<{ data: SessionData; tenant: TenantRow | null }> {
-  const { h, data, tenant, prazos } = await lerSessaoDaRequisicao();
+): Promise<{ data: SessionData; tenant: TenantRow | null; membro: MembroDaEquipe | null }> {
+  const { h, data, tenant, membro, prazos } = await lerSessaoDaRequisicao();
   const auth = getAuth();
   const now = new Date();
   const decision = evaluateSession({
@@ -66,13 +89,14 @@ export async function requireUserComTenant(
     hasSessionCookie: getSessionCookie(h, { cookiePrefix: 'nd' }) !== null,
     tenantStatus: statusDe(tenant),
     prazos,
+    equipe: membro,
   });
   // Página pedida (caminho + query, gravada pelo proxy); sem ela, o caminho fixo da página
   const volta = encodeURIComponent(safeReturnPath(h.get(CURRENT_PATH_HEADER)) ?? path);
   switch (decision) {
     case 'ok':
       await deslizarUmaVez(data!, prazos);
-      return { data: data!, tenant };
+      return { data: data!, tenant, membro };
     case 'login':
       redirect(`/entrar?volta=${volta}`);
     case 'expired': {
@@ -86,7 +110,12 @@ export async function requireUserComTenant(
       redirect(SECURITY_PATH);
     case 'suspended':
       redirect(SUSPENDED_PATH);
+    case 'desativada':
+      // Plano 26 (RN-503, RE-D45): a conta da recepção desativada não abre nada; a página do aviso tem o "Sair"
+      redirect(ACESSO_DESATIVADO_PATH);
     case 'forbidden':
+      // Plano 26 (RN-504): a recepção numa tela só da nutricionista (requireNutri) vê "Sem permissão", dentro do painel
+      if (data?.user.appRole === 'recepcao' && allowed.includes('nutri')) redirect(semPermissaoPath('nutri'));
       // P09-03: nada de redirect calado para a home do papel — a tela diz com qual conta o aparelho está
       redirect(caminhoOutroPapel(allowed));
     default: {

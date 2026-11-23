@@ -432,6 +432,8 @@ export const GUIAS: readonly Guia[] = [
             'Ao enviar um documento assinado à mão (digitalizado), o sistema pede o código do aplicativo a cada envio.',
             'Depois de 5 códigos errados, espere 15 minutos para tentar de novo.',
             'Se o código não confere, confira se a hora do celular está automática.',
+            // Plano 26 (RE-D20, RN-500): o 2FA obrigatório da recepção
+            'Para a recepção, a verificação em duas etapas é obrigatória: o painel só abre depois de ativá-la.',
           ],
         },
       ],

@@ -5,7 +5,7 @@ import { Cartao } from '@/components/ui/cartao';
 import { formatarBytes } from '@/lib/format';
 import { formatarDecimal } from '@/lib/numero';
 import { CINZA_SOBRE_DESTAQUE } from '@/lib/tema/marca-tema';
-import { requireNutri } from '@/lib/tenant-session';
+import { requireEquipe } from '@/lib/tenant-session';
 import type { Consulta } from '@/modules/agenda/consultas';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
 import { lerInicio, MSG_INICIO, textoSemProxima } from '@/modules/agenda/inicio';
@@ -26,7 +26,16 @@ const LINK_CLARO = 'inline-flex min-h-11 items-center rounded-full bg-white px-5
 const LINK_PILULA = 'inline-flex min-h-11 items-center rounded-full border border-current px-4';
 
 export default async function PainelHome() {
-  const { data, tenant, ctx } = await requireNutri('/painel');
+  const { data, tenant, ctx, papel } = await requireEquipe('/painel');
+  // Plano 26 (RN-514): a recepção tem o Início dela — o h1 de sempre; a T8 traz a agenda do dia e a presença a registrar.
+  // Nada do Início da nutricionista (indicadores, armazenamento, WhatsApp, IA, exames) é lido na sessão dela.
+  if (papel === 'recepcao') {
+    return (
+      <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
+        <h1 className="font-titulo text-3xl font-extrabold">{`Seu dia, ${primeiroNome(data.user.name)}`}</h1>
+      </main>
+    );
+  }
   const agora = new Date();
   // tudo numa transação só: com leituras em paralelo, o Início de duas nutricionistas ocupava o pool (achado 3)
   const { whatsapp, cota, indicadores: ind, pendentes, novidades: nov, pedidos, dia, naoVistos, metricas: cs, documentosAguardando } = await lerInicio(ctx, tenant, agora, { whatsappLigado: provedorDoApp() !== null });

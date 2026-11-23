@@ -10,7 +10,7 @@ import { requireUser } from '@/lib/session';
 import { ContaError, criarContaNutri, definirDocumentosLiberados, definirIaLiberada, IaProvisoriaError, reenviarConvite, type ErrosDeCampo } from '@/modules/plataforma/contas';
 import { pausarIaNutri, retomarIaNutri } from '@/modules/plataforma/ia-nutri-pausa';
 import { ajustarCotaIa, ajustarCotaIaNutri, ajustarCotaWhatsapp, CotaIaAdminError, CotaWhatsappError, MSG_METRICAS, salvarMetricasBase } from '@/modules/plataforma/metricas';
-import { MSG_2FA, Reiniciar2faError, reiniciarPeloAdmin } from '@/modules/plataforma/reiniciar-2fa';
+import { mensagemDoReinicio, Reiniciar2faError, reiniciarPeloAdmin } from '@/modules/plataforma/reiniciar-2fa';
 import { reativarConta, suspenderConta } from '@/modules/plataforma/suspensao';
 import { ContaNaoEncontradaError, MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
 
@@ -207,7 +207,7 @@ export async function reiniciar2faAction(_prev: Reiniciar2faState, formData: For
   const email = campo(formData, 'email');
   try {
     const r = await reiniciarPeloAdmin(email, { adminId: user.id, codigo: formData.get('codigo'), headers: new Headers(await headers()) });
-    return { ok: r.papel === 'admin' ? MSG_2FA.okAdmin : MSG_2FA.ok };
+    return { ok: mensagemDoReinicio(r.papel) };
   } catch (e) {
     if (e instanceof Reiniciar2faError) return { erro: e.message, valor: email, campo: e.codigo === 'codigo' || e.codigo === 'tentativas' ? 'codigo' : 'email' };
     throw e;

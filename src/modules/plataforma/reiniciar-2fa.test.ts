@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
-import { adminActions, session, twoFactor, user } from '@/db/schema';
+import { adminActions, session, tenants, twoFactor, user } from '@/db/schema';
 import { getAuth } from '@/lib/auth';
 import { confirmarCodigo2fa } from '@/lib/confirmar-2fa';
+import { evaluateSession } from '@/lib/session-rules';
+import { recepcaoComLogin } from '../../../test/equipe';
 import { criarEEntrar, entrar } from '../../../test/sessao';
-import { mensagemDaFalha, MSG_2FA, Reiniciar2faError, reiniciarDoisFatores, reiniciarPeloAdmin, type Codigo2fa } from './reiniciar-2fa';
+import { mensagemDaFalha, mensagemDoReinicio, MSG_2FA, Reiniciar2faError, reiniciarDoisFatores, reiniciarPeloAdmin, type Codigo2fa } from './reiniciar-2fa';
 
 const db = getDb();
 const auth = getAuth();
@@ -173,5 +175,27 @@ describe('mensagemDaFalha do comando no servidor (code review do PR #22, item 9)
     const m = mensagemDaFalha(drizzle);
     expect(m).toBe('Erro inesperado ao reiniciar a verificação em duas etapas (DrizzleQueryError, SQLSTATE 42501)');
     expect(mensagemDaFalha(new TypeError('x@y.z'))).toBe('Erro inesperado ao reiniciar a verificação em duas etapas (TypeError)');
+  });
+});
+
+describe('Plano 26 (§3, RE-D20): reiniciar o 2FA de uma conta da recepção', () => {
+  it('pelo admin: admin_actions.alvo_papel = recepcao; a próxima entrada dela cai na configuração obrigatória (setup-2fa)', async () => {
+    const admin = await criarEEntrar(db, auth, { appRole: 'admin', twoFactorEnabled: true });
+    const [t] = await db.insert(tenants).values({ slug: `r2-${randomUUID().slice(0, 8)}`, nomeExibicao: 'R2' }).returning();
+    const r = await recepcaoComLogin(db, auth, t.id);
+    await db.insert(twoFactor).values({ userId: r.id, secret: 'cifrado-qualquer', backupCodes: 'cifrado-qualquer' });
+    const res = await reiniciarPeloAdmin(r.email, { adminId: admin.id, codigo: '123456', headers: new Headers() }, { db, avisar: avisos(), confirmar2fa: async () => 'ok' });
+    expect(res).toMatchObject({ userId: r.id, papel: 'recepcao' });
+    const [reg] = await db.select().from(adminActions).where(eq(adminActions.alvoUserId, r.id));
+    expect(reg).toMatchObject({ acao: 'reiniciar_2fa', alvoPapel: 'recepcao', origem: 'admin' });
+    expect(mensagemDoReinicio(res.papel)).toBe(MSG_2FA.okAdmin);
+    await expect(entrar(auth, r.email)).resolves.toMatch(/^nd\.session_token=/); // sem o desafio do 2FA
+    const [u] = await db.select({ appRole: user.appRole, twoFactorEnabled: user.twoFactorEnabled }).from(user).where(eq(user.id, r.id));
+    const agora = new Date();
+    expect(evaluateSession({ now: agora, path: '/painel', allowed: ['nutri', 'recepcao'], session: { updatedAt: agora, createdAt: agora }, user: u, equipe: { ativo: true } })).toBe('setup-2fa');
+  });
+  it('a mensagem do reinício: admin e recepção têm a configuração obrigatória no próximo login; nutricionista e paciente, não', () => {
+    expect([mensagemDoReinicio('admin'), mensagemDoReinicio('recepcao')]).toEqual([MSG_2FA.okAdmin, MSG_2FA.okAdmin]);
+    expect([mensagemDoReinicio('nutri'), mensagemDoReinicio('paciente')]).toEqual([MSG_2FA.ok, MSG_2FA.ok]);
   });
 });

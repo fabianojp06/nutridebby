@@ -1,3 +1,4 @@
+import { semPermissaoPath } from '@/lib/session-rules';
 import type { Acesso } from '@/modules/relatorios/acesso';
 import { RANKING_POR, SECOES, type RankingPor, type Secao } from '@/modules/relatorios/constantes';
 import { periodoDaUrl, type ErroDoPeriodo, type Periodo } from '@/modules/relatorios/periodo';
@@ -23,6 +24,9 @@ export const ROTA_DO_CSV = '/api/painel/relatorios/csv';
  * as seções). A T11b troca por `requireEquipe` e pelo acesso da sessão.
  */
 export const ACESSO_DA_NUTRI: Acesso = { papel: 'nutri', financeiro: true };
+
+/** Plano 26 (RE-D47): "Sem permissão" para a seção que o acesso não vê — o Financeiro pela permissão, o resto por ser da nutricionista. */
+export const semPermissaoDaSecao = (s: Secao): string => semPermissaoPath(s === 'financeiro' ? 'financeiro' : 'nutri');
 
 export type ParametrosDaUrl = Record<string, string | string[] | undefined>;
 

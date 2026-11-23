@@ -9,7 +9,7 @@ import { ehTema } from '@/modules/plataforma/preferencias-tipos';
 export const metadata: Metadata = { title: 'Conectado com outra conta' };
 export const dynamic = 'force-dynamic';
 
-const VOLTAR: Record<AppRole, string> = { admin: 'Ir para a administração', nutri: 'Ir para o painel', paciente: 'Ir para o portal' };
+const VOLTAR: Record<AppRole, string> = { admin: 'Ir para a administração', nutri: 'Ir para o painel', paciente: 'Ir para o portal', recepcao: 'Ir para o painel' };
 
 /**
  * P09-03: quem abre uma tela de outro papel (a nutricionista no portal, o paciente no painel, a nutricionista no admin)
@@ -17,12 +17,13 @@ const VOLTAR: Record<AppRole, string> = { admin: 'Ir para a administração', nu
  * `/conta` é protegido no proxy; o `esperado` só vale se for um dos papéis e diferente do atual.
  */
 export default async function OutroPapelPage({ searchParams }: PageProps<'/conta/outro-papel'>) {
-  const { user } = await requireUser(['admin', 'nutri', 'paciente'], OUTRO_PAPEL_PATH);
+  // Plano 26 (RE-D67): a recepção também (numa tela do portal ou do admin)
+  const { user } = await requireUser(['admin', 'nutri', 'paciente', 'recepcao'], OUTRO_PAPEL_PATH);
   const atual = user.appRole as AppRole;
   const { esperado } = await searchParams;
   if (!ehPapel(esperado) || esperado === atual) redirect(homeFor(atual));
-  // como a Segurança: a nutricionista com o tema da conta, o admin no claro; o paciente segue o aparelho
-  const tema = atual === 'nutri' ? (ehTema(user.tema) ? user.tema : 'sistema') : atual === 'admin' ? 'claro' : 'sistema';
+  // como a Segurança: a nutricionista e a recepção com o tema da conta, o admin no claro; o paciente segue o aparelho
+  const tema = atual === 'nutri' || atual === 'recepcao' ? (ehTema(user.tema) ? user.tema : 'sistema') : atual === 'admin' ? 'claro' : 'sistema';
   return (
     <div data-tema={tema} className="min-h-dvh bg-fundo font-sans text-texto">
       <main className="mx-auto max-w-lg space-y-4 p-6">

@@ -13,7 +13,7 @@ import { clientIp } from './ip';
 import { validatePasswordPolicy } from './password-policy';
 import { commonPasswords, hashPassword, verifyPassword } from './password.server';
 import { deliverPasswordLink } from './password-links';
-import { logger } from './logger';
+import { logger, nomeDoErro } from './logger';
 import { MSG_TURNSTILE_FORA, MSG_TURNSTILE_INVALIDO, verifyTurnstile, type ResultadoTurnstile } from './turnstile';
 import { registrarFalhaTurnstile } from './turnstile-log';
 import {
@@ -118,10 +118,23 @@ export function createAuth(
           // suspensa → apaga a sessão e recusa; ainda ativa → uma suspensão que venha depois
           // enxerga esta sessão no próprio DELETE.
           // G7: uma consulta só (usuária → tenant), sem repetir o findUserById do `before`.
-          after: async (s) => {
-            if ((await statusDoTenantDaUsuaria(db, s.userId)) !== 'suspensa') return;
-            await db.delete(authSchema.session).where(eq(authSchema.session.id, s.id));
-            throw new APIError('FORBIDDEN', { code: 'CONTA_SUSPENSA', message: 'Conta temporariamente indisponível' });
+          after: async (s, ctx) => {
+            const u = await statusDoTenantDaUsuaria(db, s.userId);
+            if (u?.status === 'suspensa') {
+              await db.delete(authSchema.session).where(eq(authSchema.session.id, s.id));
+              throw new APIError('FORBIDDEN', { code: 'CONTA_SUSPENSA', message: 'Conta temporariamente indisponível' });
+            }
+            // Plano 26 (RN-516, RE-D43): o "Último acesso" da tela Equipe. A sessão some no logout, na expiração e na
+            // desativação; por isso a data fica na conta. Com o 2FA ativo, a sessão da senha é provisória (o plugin do 2FA
+            // a apaga e pede o código): o acesso conta no verify-totp, não aqui.
+            if (u?.appRole === 'recepcao' && !(ctx?.path === '/sign-in/email' && u.twoFactorEnabled)) {
+              try {
+                await db.update(authSchema.user).set({ ultimoAcessoEm: new Date() }).where(eq(authSchema.user.id, s.userId));
+              } catch (err) {
+                // a data é só informativa: falhar aqui não pode derrubar o login. Só o nome do erro e o id (regra 3)
+                logger.warn({ erro: nomeDoErro(err), userId: s.userId }, 'falha ao gravar o último acesso');
+              }
+            }
           },
         },
       },
@@ -208,15 +221,16 @@ export function createAuth(
  * linha de `tenants`: espera a suspensão em curso (UPDATE sem COMMIT) e devolve o status já
  * confirmado. `null` para quem não tem tenant (admin). Roda no hook `after`, que o Better Auth
  * chama depois da transação do endpoint — a linha da usuária já existia antes do login.
+ * Plano 26 (RN-516): na mesma consulta, o papel e o 2FA (o último acesso da recepção).
  */
-async function statusDoTenantDaUsuaria(db: Db, userId: string): Promise<TenantStatus | null> {
+async function statusDoTenantDaUsuaria(db: Db, userId: string): Promise<{ status: TenantStatus | null; appRole: string; twoFactorEnabled: boolean } | null> {
   const [row] = await db
-    .select({ status: tenants.status })
+    .select({ status: tenants.status, appRole: authSchema.user.appRole, twoFactorEnabled: authSchema.user.twoFactorEnabled })
     .from(authSchema.user)
     .innerJoin(tenants, eq(tenants.id, authSchema.user.tenantId))
     .where(eq(authSchema.user.id, userId))
     .for('share', { of: tenants });
-  return statusDe(row);
+  return row ? { status: statusDe(row), appRole: row.appRole, twoFactorEnabled: row.twoFactorEnabled === true } : null;
 }
 
 export type Auth = ReturnType<typeof createAuth>;

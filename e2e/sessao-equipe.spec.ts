@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Browser, type Page } from '@playwright/test';
+import { Secret, TOTP } from 'otpauth';
 import { contraste } from '@/lib/tema/contraste';
 
 // P12-14 (RNF-06, decisão do dono 07/10/2026): sessão da equipe — aviso 2 min antes do fim por falta de uso, "Continuar
@@ -137,4 +138,38 @@ test('axe sem violações no aviso e foco visível no "Continuar conectada" (≥
     await expect(aviso).toBeHidden();
   }
   await page.context().close();
+});
+
+// Plano 26 (RN-501, RE-D67): a recepção tem os prazos da equipe — o aviso 2 min antes (aqui, com os prazos curtos) e o
+// "Continuar conectada" renovando pelo /api/sessao/ativa, que passa a aceitá-la. Conta da semente (E2E_RECEPCAO, 2FA de
+// teste com o segredo da E2E_DOCS: `Secret.fromUTF8`); copiada: importar o seed roda o seed. IP 10.9.36.11 (RE-D50).
+const RECEPCAO = { email: 'recepcao-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
+
+test('recepção: os prazos da equipe valem, o aviso aparece e "Continuar conectada" renova (RN-501)', async ({ browser, baseURL }) => {
+  const ctx = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.36.11' } });
+  await ctx.addCookies([{ name: 'nd_sessao_teste', value: '1', url: baseURL! }]);
+  const page = await ctx.newPage();
+  await page.goto('/entrar');
+  await page.getByLabel('E-mail').fill(RECEPCAO.email);
+  await page.getByLabel('Senha').fill(RECEPCAO.senha);
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await expect(page).toHaveURL(/\/entrar\/2fa/);
+  await page.getByLabel('Código do app autenticador').fill(new TOTP({ secret: Secret.fromUTF8(RECEPCAO.totp), digits: 6, period: 30 }).generate());
+  await page.getByRole('button', { name: 'Verificar' }).click();
+  await expect(page).toHaveURL(/\/painel$/);
+  // o relógio da tela pergunta pela rota da sessão, que aceita a recepção com os prazos curtos do servidor do E2E
+  const estado = await page.evaluate(async () => {
+    const r = await fetch('/api/sessao/ativa');
+    return { status: r.status, corpo: (await r.json()) as { inatividadeMs: number } };
+  });
+  expect(estado.status).toBe(200);
+  expect(estado.corpo.inatividadeMs, 'suba o servidor do E2E com SESSAO_TESTE_MS=30000 (playwright.config.ts)').toBeLessThanOrEqual(30_000);
+  const aviso = avisoDe(page);
+  await expect(aviso).toBeVisible({ timeout: 25_000 });
+  await aviso.getByRole('button', { name: 'Continuar conectada' }).click();
+  await expect(aviso).toBeHidden();
+  await page.waitForTimeout(17_000); // passa do fim que valia antes do clique (30 s depois do login)
+  await page.reload();
+  await expect(page).toHaveURL(/\/painel$/);
+  await ctx.close();
 });

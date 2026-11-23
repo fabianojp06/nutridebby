@@ -7,6 +7,7 @@ import {
   anthropometry,
   consents,
   examesCatalogo,
+  equipeMembros,
   finCategorias,
   finConfiguracoes,
   iaNutriConsentimentos,
@@ -623,6 +624,51 @@ await withTenant(
   },
   db,
 );
+// Plano 26 (PM-R10, RE-D46, RE-D69): as duas contas da recepção do consultório do E2E — `E2E_RECEPCAO` (sem a permissão do
+// Financeiro) e `E2E_RECEPCAO_FIN` (com ela) —, criadas UMA vez e reaproveitadas: nunca `delete user` (equipe_membros tem o
+// DELETE revogado e a FK NO ACTION para `user`; consents também aponta para a conta). A cada execução: a senha e o 2FA de
+// teste de novo (o mesmo segredo da E2E_DOCS, `Secret.fromUTF8` no spec), a linha de equipe_membros ativa e com a permissão
+// certa — gravada pela sessão `nutri` com ator (o gatilho equipe_membros_regras recusa `worker` e o contexto vazio) — e o
+// aceite do termo de confidencialidade (`sigilo-equipe-1.0`, o texto entra na T7). `E2E_RECEPCAO_FIN` começa com o manual
+// guiado zerado (o tour dela no primeiro acesso, T8); `E2E_RECEPCAO`, com tudo visto. Copiadas nos specs: importar o seed
+// roda o seed.
+export const E2E_RECEPCAO = { email: 'recepcao-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção E2E' };
+export const E2E_RECEPCAO_FIN = { email: 'recepcao-fin-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Financeiro E2E' };
+const TERMO_SIGILO_EQUIPE = 'sigilo-equipe-1.0';
+for (const [cred, financeiro] of [
+  [E2E_RECEPCAO, false],
+  [E2E_RECEPCAO_FIN, true],
+] as const) {
+  const senha = await hashPassword(cred.password);
+  const [ja] = await db.select({ id: user.id }).from(user).where(eq(user.email, cred.email));
+  const id = ja?.id ?? randomUUID();
+  if (ja) {
+    await db.update(user).set({ name: cred.nome, appRole: 'recepcao', tenantId: consultorio.id, twoFactorEnabled: true, tema: 'sistema' }).where(eq(user.id, id));
+    await db.update(account).set({ password: senha }).where(eq(account.userId, id));
+    await db.delete(twoFactor).where(eq(twoFactor.userId, id));
+  } else {
+    await db.insert(user).values({ id, name: cred.nome, email: cred.email, emailVerified: true, appRole: 'recepcao', tenantId: consultorio.id, twoFactorEnabled: true });
+    await db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: senha });
+  }
+  await db.insert(twoFactor).values({
+    id: randomUUID(),
+    userId: id,
+    verified: true,
+    secret: await symmetricEncrypt({ key: chave, data: cred.totp }),
+    backupCodes: await symmetricEncrypt({ key: chave, data: JSON.stringify([]) }),
+  });
+  await withTenant(
+    { tenantId: consultorio.id, role: 'nutri', actorUserId: nutriId },
+    (tx) =>
+      tx
+        .insert(equipeMembros)
+        .values({ tenantId: consultorio.id, userId: id, papel: 'recepcao', financeiro, convidadaPor: nutriId })
+        .onConflictDoUpdate({ target: equipeMembros.userId, set: { financeiro, desativadaEm: null, desativadaPor: null, updatedAt: new Date() } }),
+    db,
+  );
+  await db.insert(consents).values({ userId: id, tenantId: consultorio.id, termoVersao: TERMO_SIGILO_EQUIPE, ip: null }).onConflictDoNothing();
+  await db.update(user).set({ guia: cred === E2E_RECEPCAO_FIN ? {} : TUDO_VISTO }).where(eq(user.id, id));
+}
 
 await stopBoss(); // a publicação do plano enfileira o PDF
 await closeDb();
