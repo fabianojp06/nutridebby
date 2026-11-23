@@ -303,3 +303,102 @@ export async function findConteudoAudienciaViolations(db: Pool | PoolClient): Pr
   });
   return [...leitura, ...escrita];
 }
+
+/**
+ * Plano 26 (RN-505, RE-D15): o que a sessão `recepcao` pode tocar, só com estes comandos (matriz da spec §4.3). Toda outra
+ * tabela com tenant_id tem `recepcao_negada` (app_enable_tenant_rls e o laço da rls_recepcao). Liberar =
+ * `SELECT app_allow_recepcao(...)` + entrada aqui; a condição extra (paciente visível, financeiro, notificação da agenda,
+ * própria linha) é uma política `recepcao_cond_<assunto>` em RECEPCAO_CONDICOES.
+ */
+export const RECEPCAO_LIBERADO: Record<string, { comandos: readonly ComandoPublico[]; motivo: string }> = {
+  equipe_membros: { comandos: ['select'], motivo: 'RN-502, RN-503: a própria linha (permissão do Financeiro e situação da conta), pela condição recepcao_cond_propria_linha' },
+};
+
+/** O texto que o Postgres guarda da negação de app_deny_recepcao/app_allow_recepcao, normalizado como o NEGA_PACIENTE. */
+const NEGA_RECEPCAO = normalizarExpressao("app_current_role() IS DISTINCT FROM 'recepcao'::text");
+
+/**
+ * Plano 26 (RN-505): as condições extras da recepção — política RESTRICTIVE `recepcao_cond_<assunto>`, com o comando declarado
+ * e os trechos (normalizados, sem espaços nem parênteses) que a expressão precisa ter, além da negação `NEGA_RECEPCAO` (a
+ * condição só restringe a recepção). Tabela → política → regra.
+ */
+export const RECEPCAO_CONDICOES: Record<string, Record<string, { comando: 'ALL' | 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE'; exige: string[]; motivo: string }>> = {
+  equipe_membros: {
+    recepcao_cond_propria_linha: { comando: 'SELECT', exige: ['user_id=app_current_user'], motivo: 'RN-503: a recepção lê só a própria linha' },
+  },
+};
+
+const NOME_DA_RECEPCAO = /^recepcao_(negada|sem_(select|insert|update|delete)|cond_[a-z0-9_]+)$/;
+
+/**
+ * Toda tabela com tenant_id (fora de RLS_EXCEPTIONS) nega a recepção (`recepcao_negada`), ou tem exatamente as `recepcao_sem_*`
+ * dos comandos que RECEPCAO_LIBERADO não libera — nome, comando, RESTRICTIVE e a expressão (como a B-5). Toda política
+ * `recepcao_*` do schema public segue um dos três padrões; toda `recepcao_cond_*` é RESTRICTIVE e bate com RECEPCAO_CONDICOES.
+ */
+export async function findRecepcaoViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
+  const { rows } = await db.query<{ t: string; pol: string; cmd: string; permissive: string; qual: string | null; with_check: string | null }>(
+    `select tablename as t, policyname as pol, cmd, permissive, qual, with_check from pg_policies
+      where schemaname = 'public' and policyname like 'recepcao%'`,
+  );
+  const out: RlsViolation[] = [];
+  const nega = (r: { qual: string | null; with_check: string | null }, comExpressao: 'qual' | 'with_check' | 'ambas') =>
+    comExpressao === 'ambas'
+      ? normalizarExpressao(r.qual) === NEGA_RECEPCAO && normalizarExpressao(r.with_check) === NEGA_RECEPCAO
+      : normalizarExpressao(r[comExpressao]) === NEGA_RECEPCAO;
+
+  for (const r of rows) {
+    if (!NOME_DA_RECEPCAO.test(r.pol)) {
+      out.push({ table: r.t, problem: `política ${r.pol} fora dos padrões (recepcao_negada, recepcao_sem_<cmd>, recepcao_cond_<assunto>)` });
+    }
+  }
+
+  const condicoes = rows.filter((r) => r.pol.startsWith('recepcao_cond_'));
+  for (const r of condicoes) {
+    if (r.permissive !== 'RESTRICTIVE') out.push({ table: r.t, problem: `condição ${r.pol} PERMISSIVE (toda condição da recepção é RESTRICTIVE)` });
+    const regra = RECEPCAO_CONDICOES[r.t]?.[r.pol];
+    if (!regra) {
+      out.push({ table: r.t, problem: `condição ${r.pol} sem entrada em RECEPCAO_CONDICOES` });
+      continue;
+    }
+    const expressoes = [r.qual, r.with_check].filter((e): e is string => e !== null).map(normalizarExpressao);
+    const certa =
+      r.cmd === regra.comando &&
+      expressoes.length > 0 &&
+      expressoes.every((e) => [NEGA_RECEPCAO, ...regra.exige].every((trecho) => e.includes(trecho)));
+    if (r.permissive === 'RESTRICTIVE' && !certa) out.push({ table: r.t, problem: `condição ${r.pol} sem o comando ou os trechos de RECEPCAO_CONDICOES` });
+  }
+  for (const [table, pols] of Object.entries(RECEPCAO_CONDICOES)) {
+    for (const pol of Object.keys(pols)) {
+      if (!condicoes.some((r) => r.t === table && r.pol === pol)) out.push({ table, problem: `sem a condição ${pol} (RECEPCAO_CONDICOES)` });
+    }
+  }
+
+  for (const table of await listTenantTables(db)) {
+    if (RLS_EXCEPTIONS[table]) continue;
+    const pols = rows.filter((r) => r.t === table && !r.pol.startsWith('recepcao_cond_'));
+    const liberado = RECEPCAO_LIBERADO[table];
+    if (!liberado) {
+      const negada = pols.length === 1 && pols[0].pol === 'recepcao_negada' && pols[0].cmd === 'ALL' && pols[0].permissive === 'RESTRICTIVE' && nega(pols[0], 'ambas');
+      if (!negada) {
+        out.push({
+          table,
+          problem: pols.some((p) => p.pol !== 'recepcao_negada')
+            ? 'liberada à recepção sem entrada em RECEPCAO_LIBERADO'
+            : 'sem política recepcao_negada (app_enable_tenant_rls/app_deny_recepcao)',
+        });
+      }
+      continue;
+    }
+    const negados = COMANDOS.filter((c) => !liberado.comandos.includes(c));
+    const esperadas = negados.map((c) => `recepcao_sem_${c}`).sort();
+    const certas = pols.filter(
+      (p) =>
+        p.permissive === 'RESTRICTIVE' &&
+        negados.some((c) => p.pol === `recepcao_sem_${c}` && p.cmd === c.toUpperCase() && nega(p, c === 'insert' ? 'with_check' : 'qual')),
+    );
+    if (pols.length !== certas.length || JSON.stringify(certas.map((p) => p.pol).sort()) !== JSON.stringify(esperadas)) {
+      out.push({ table, problem: `políticas da recepção diferentes de RECEPCAO_LIBERADO (esperado ${esperadas.join(', ') || 'nenhuma'})` });
+    }
+  }
+  return out;
+}

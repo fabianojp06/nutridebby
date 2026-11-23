@@ -11,14 +11,19 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * menos as de `PUBLICO_LIBERADO` (src/db/rls-guard.ts), só nos comandos listados. A RLS não restringe colunas:
  * por isso o `publico` só é usado dentro de funções fechadas de src/modules/agenda que devolvem o mínimo (intervalos, ids).
  */
-export type TenantRole = 'nutri' | 'paciente' | 'worker' | 'publico';
-const ROLES: readonly TenantRole[] = ['nutri', 'paciente', 'worker', 'publico'];
+/**
+ * `recepcao` (Plano 26, RN-498, RN-505): a pessoa da recepção do consultório, sempre com o ator (a conta dela), nunca com
+ * paciente nem `semConta`. No banco, toda tabela com tenant_id nega a recepção (RESTRICTIVE `recepcao_negada`), menos as de
+ * `RECEPCAO_LIBERADO` (src/db/rls-guard.ts), só nos comandos listados e com as condições de `RECEPCAO_CONDICOES`.
+ */
+export type TenantRole = 'nutri' | 'paciente' | 'worker' | 'publico' | 'recepcao';
+const ROLES: readonly TenantRole[] = ['nutri', 'paciente', 'worker', 'publico', 'recepcao'];
 
 export type TenantContext = {
   tenantId: string;
   role: TenantRole;
   patientId?: string;
-  /** Quem age (auditoria, RNF-08). Obrigatório para `nutri`; para `paciente`, salvo com `semConta`. Ausente em jobs do worker. */
+  /** Quem age (auditoria, RNF-08). Obrigatório para `nutri` e `recepcao`; para `paciente`, salvo com `semConta`. Ausente em jobs do worker. */
   actorUserId?: string;
   /**
    * N7 (Plano 08): paciente agindo **sem sessão de login** (link assinado da consulta, resposta pelo WhatsApp, leitura do
@@ -69,6 +74,8 @@ function assertContext(ctx: TenantContext): void {
   if ((ctx.role === 'nutri' || (ctx.role === 'paciente' && !ctx.semConta)) && !ctx.actorUserId) {
     throw new TenantContextError('actorUserId obrigatório para sessão de nutricionista ou paciente');
   }
+  // Plano 26 (RN-498, RN-516): a recepção grava e lê auditado com o ator, como a nutricionista
+  if (ctx.role === 'recepcao' && !ctx.actorUserId) throw new TenantContextError('actorUserId obrigatório para sessão da recepção');
   if (ctx.actorUserId !== undefined && !UUID.test(ctx.actorUserId)) throw new TenantContextError('actorUserId inválido');
   if (ctx.ip && isIP(ctx.ip) === 0) throw new TenantContextError('ip inválido');
 }

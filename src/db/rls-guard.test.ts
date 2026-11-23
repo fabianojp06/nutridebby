@@ -17,6 +17,9 @@ import {
   PUBLICO_LIBERADO,
   RLS_EXCEPTIONS,
   STAFF_ONLY,
+  findRecepcaoViolations,
+  RECEPCAO_CONDICOES,
+  RECEPCAO_LIBERADO,
 } from './rls-guard';
 
 // SUS-100: os testes de "a guarda funciona" fazem DDL (drop/create policy, drop trigger) em tabela real; num banco
@@ -299,5 +302,69 @@ describe('teste de restauração (regra 10): a lista do script acompanha RLS_EXC
     const doScript = m![1].split(',').map((t) => t.trim().replace(/^'|'$/g, ''));
     // mudou a lista → o dono reinstala o script no host (regra 10 do CLAUDE.md, P02-11)
     expect(doScript.sort()).toEqual(Object.keys(RLS_EXCEPTIONS).sort());
+  });
+});
+
+describe('recepção (RN-505, Plano 26)', () => {
+  it('toda tabela com tenant_id nega a recepção ou bate com RECEPCAO_LIBERADO e RECEPCAO_CONDICOES; as listas não citam tabela inexistente', async () => {
+    expect(await findRecepcaoViolations(owner.pool)).toEqual([]);
+    expect(await findStaleExceptions(owner.pool, { RECEPCAO_LIBERADO, RECEPCAO_CONDICOES })).toEqual([]);
+  });
+  it('tabela nova nasce negada; perder a negada, liberar sem declarar, condição PERMISSIVE ou nome fora dos padrões quebram (a guarda funciona)', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('create table tmp_recepcao (id int primary key, tenant_id uuid not null)');
+      await client.query(`select app_enable_tenant_rls('tmp_recepcao')`);
+      await client.query('create table tmp_recepcao_sem (id int primary key, tenant_id uuid not null)');
+      await client.query(`select app_enable_tenant_rls('tmp_recepcao_sem')`);
+      await client.query('create table tmp_recepcao_liberada (id int primary key, tenant_id uuid not null)');
+      await client.query(`select app_enable_tenant_rls('tmp_recepcao_liberada')`);
+      await client.query(`select app_allow_recepcao('tmp_recepcao_liberada', 'select')`);
+      let v = await findRecepcaoViolations(client);
+      expect(v.map((x) => x.table)).not.toContain('tmp_recepcao');
+      expect(v).toContainEqual({ table: 'tmp_recepcao_liberada', problem: 'liberada à recepção sem entrada em RECEPCAO_LIBERADO' });
+      await client.query('drop policy recepcao_negada on tmp_recepcao_sem');
+      // uma condição PERMISSIVE somaria (OR) com tenant_isolation e abriria os outros consultórios
+      await client.query(`create policy recepcao_cond_x on anthropometry as permissive for select using (true)`);
+      // fora dos três padrões (recepcao_negada, recepcao_sem_<cmd>, recepcao_cond_<assunto>)
+      await client.query(
+        `create policy recepcao_sem_bloqueados on patients as restrictive for all using (app_current_role() is distinct from 'recepcao' or status <> 'bloqueado')`,
+      );
+      v = await findRecepcaoViolations(client);
+      expect(v).toContainEqual({ table: 'tmp_recepcao_sem', problem: 'sem política recepcao_negada (app_enable_tenant_rls/app_deny_recepcao)' });
+      expect(v).toContainEqual({ table: 'anthropometry', problem: 'condição recepcao_cond_x PERMISSIVE (toda condição da recepção é RESTRICTIVE)' });
+      expect(v).toContainEqual({ table: 'anthropometry', problem: 'condição recepcao_cond_x sem entrada em RECEPCAO_CONDICOES' });
+      expect(v).toContainEqual({ table: 'patients', problem: 'política recepcao_sem_bloqueados fora dos padrões (recepcao_negada, recepcao_sem_<cmd>, recepcao_cond_<assunto>)' });
+      await expect(client.query(`select app_allow_recepcao('tmp_recepcao', 'truncate')`)).rejects.toThrow(/comando inválido/);
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+  it('B-5 da recepção: nome certo com o comando errado, ou sem a negação na expressão, também quebra; a condição declarada exige os trechos', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('drop policy recepcao_negada on exams');
+      await client.query('create policy recepcao_negada on exams as restrictive for all using (true) with check (true)');
+      await client.query('drop policy recepcao_sem_update on equipe_membros');
+      await client.query(`create policy recepcao_sem_update on equipe_membros as restrictive for select using (app_current_role() is distinct from 'recepcao')`);
+      await client.query('drop policy recepcao_cond_propria_linha on equipe_membros');
+      await client.query(
+        `create policy recepcao_cond_propria_linha on equipe_membros as restrictive for select using (app_current_role() is distinct from 'recepcao' or true)`,
+      );
+      const v = await findRecepcaoViolations(client);
+      expect(v).toContainEqual({ table: 'exams', problem: 'sem política recepcao_negada (app_enable_tenant_rls/app_deny_recepcao)' });
+      expect(v.filter((x) => x.table === 'equipe_membros').map((x) => x.problem).sort()).toEqual([
+        'condição recepcao_cond_propria_linha sem o comando ou os trechos de RECEPCAO_CONDICOES',
+        'políticas da recepção diferentes de RECEPCAO_LIBERADO (esperado recepcao_sem_delete, recepcao_sem_insert, recepcao_sem_update)',
+      ]);
+      await client.query('drop policy recepcao_cond_propria_linha on equipe_membros');
+      expect(await findRecepcaoViolations(client)).toContainEqual({ table: 'equipe_membros', problem: 'sem a condição recepcao_cond_propria_linha (RECEPCAO_CONDICOES)' });
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
   });
 });
