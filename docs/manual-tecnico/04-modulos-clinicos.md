@@ -6,6 +6,7 @@ Este capítulo descreve os três blocos de domínio que sustentam o consultório
 - **Pacientes e prontuário** (`src/modules/pacientes/`): cadastro, etiquetas, anamnese, antropometria, gasto energético, exames, atendimentos, evolução e LGPD.
 - **Alimentos e plano alimentar** (`src/modules/alimentos/`, `src/modules/plano-alimentar/`).
 - **Ficha do paciente** (`src/modules/ficha/`, Plano 18): abas Início e Perfil, cabeçalho com a última avaliação e o registro de seções do Início ([§4.2.10](#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)); no PR 2, a nota "Cadastro incompleto" e o "No app do paciente" ([§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)), ao lado do cadastro complementar (`patient_cadastro`, CPF) e da lista nova de `src/modules/pacientes/`.
+- **Exames do consultório** (`src/modules/exames/`, Plano 22, PR 2): catálogo de exames com faixas e modelos de nota, modelos de solicitação, lançar do catálogo, editar com versão, detalhe com classificação e "Ver referência", nota de interpretação e comparativo ([§4.2.12](#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2)).
 
 Fonte de verdade: o código. Cada afirmação cita arquivo e linha (ou função). Decisões citadas como "Plano NN, Dx" vêm de `docs/superpowers/plans/`. Regras "RN-xx", "RNF-xx", "US-xxx" e "CS-xx" vêm da spec (`docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md` e `…-historias.md`). "Regra n do CLAUDE.md" é a regra obrigatória n de `CLAUDE.md` do projeto.
 
@@ -19,7 +20,7 @@ Fonte de verdade: o código. Cada afirmação cita arquivo e linha (ou função)
 | Leitura de dado de saúde é auditada | `auditRead(tx, {entidade, entidadeId, patientId})` na mesma transação; escritas viram `audit_log` pelo gatilho `audit_row_change` | `src/modules/plataforma/audit.ts:28`; regra 8 do CLAUDE.md |
 | Erros por campo | Cada módulo tem uma classe `XxxError` com `erros: Record<campo, mensagem>` e textos em pt-BR da spec | ex.: `PacienteError` (`pacientes/base.ts:18`), `PlanoError` (`plano-alimentar/erros.ts:28`) |
 | Datas "do dia" no fuso do tenant | `hojeNoFuso(fuso, agora)`, `idadeEm(nascimento, data)` | `src/modules/pacientes/datas.ts:16,23`; RN-06 |
-| Arredondamento | `arredondar(v, casas)` por notação exponencial (meio para cima, sem erro de ponto flutuante); `formatarDecimal` com vírgula e sem separador de milhar | `src/lib/numero.ts:15,21`; RNF-12 |
+| Arredondamento | `arredondar(v, casas)` por notação exponencial (meio para cima, sem erro de ponto flutuante); `formatarDecimal` com vírgula e sem separador de milhar | `src/lib/numero.ts:33,39`; RNF-12 |
 | Ordem de travas | paciente → tenant (cota) → registro do arquivo/plano. Toda função que mexe em arquivo de paciente ou em plano respeita essa ordem para evitar deadlock | comentários em `armazenamento.ts:61`, `rascunho.ts:168`, `plano-pdf-job.ts:30` |
 
 Entidades de auditoria das tabelas deste capítulo (gatilho instalado por `app_enable_audit` nas migrations):
@@ -36,8 +37,11 @@ Entidades de auditoria das tabelas deste capítulo (gatilho instalado por `app_e
 | `privacy_requests` | `pedidos_titular` | `drizzle/0033_rls_privacidade.sql` |
 | `data_exports` | `exportacoes` | `drizzle/0035_rls_exportacoes.sql` |
 | `meal_plans`, `meals`, `meal_items` | `plano_alimentar` | `drizzle/0045_rls_planos_alimentares.sql` |
+| `exam_interpretacoes` | `exames_nota` (Plano 22, EP-D61) | `drizzle/0127_rls_exames_catalogo.sql` |
+| `exam_versoes` | `exames_versoes` (Plano 22) | `drizzle/0127_rls_exames_catalogo.sql` |
 
 Tabelas sem `patient_id` (`anamnesis_templates`, `patient_tags`, `foods`, `food_measures`) não têm gatilho.
+Plano 22: `exames_catalogo` e `exames_modelos_solicitacao` também não (bibliotecas do consultório, sem paciente).
 
 ---
 
@@ -383,17 +387,22 @@ Detalhes que mudam o resultado:
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `lerValores(bruto)` | Até 50 linhas; nome ≤ 80, unidade ≤ 20, referência ≤ 80; valor numérico finito < 10¹⁵. Passou do limite → recusa (não corta dado de saúde em silêncio) | `exames.ts:30` |
-| `criarExame(ctx, tenant, patientId, input)` | Valida; confere o paciente (barato) antes de tocar arquivo; com laudo, chama `salvarArquivo(tipo 'exame', ['pdf','jpg','png'])` com `antesDaReserva` = trava do paciente e `registrar` = `INSERT exams` | `exames.ts:56` |
-| `excluirExame(ctx, patientId, id)` | Exame e laudo saem na mesma transação (`apagarArquivo` com `naMesmaTransacao`). Desde o Plano 11 (D20), antes do `DELETE` chama `cancelarTarefas(tx, { tenantId, patientId, examId })`: leitura da IA na fila é cancelada com estorno e a sugestão pronta é esvaziada; a tarefa fica, com `exam_id` nulo (`ON DELETE SET NULL`) | `exames.ts:109` |
-| `listarExames` | Leitura auditada (`exames`) | `exames.ts:127` |
-| `agruparMarcadores(lista)` | Uma série por nome + unidade (sem diferenciar maiúsculas e espaços), pontos em ordem cronológica: mg/dL e mmol/L são séries diferentes | `exames.ts:146` |
+| `lerValores(bruto)` | Até 50 linhas; nome ≤ 80, unidade ≤ 20, referência ≤ 80; valor numérico finito < 10¹⁵. Passou do limite → recusa (não corta dado de saúde em silêncio). Desde o Plano 22 é o envoltório de `lerLinhasComErros` (`:56`), que dá o erro por campo e lê a faixa do laudo ([§4.2.12](#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2)); erro → `null`, como antes, para `ia/conferencia.ts` | `exames.ts:105` |
+| `criarExame(ctx, tenant, patientId, input)` | Valida; confere o paciente (barato) antes de tocar arquivo; com laudo, chama `salvarArquivo(tipo 'exame', ['pdf','jpg','png'])` com `antesDaReserva` = trava do paciente e `registrar` = `INSERT exams`. Desde o Plano 22, os erros das linhas saem por campo (`lerValoresComErros`, `:99`) | `exames.ts:117` |
+| `excluirExame(ctx, patientId, id)` | Exame e laudo saem na mesma transação (`apagarArquivo` com `naMesmaTransacao`). Desde o Plano 11 (D20), antes do `DELETE` chama `cancelarTarefas(tx, { tenantId, patientId, examId })`: leitura da IA na fila é cancelada com estorno e a sugestão pronta é esvaziada; a tarefa fica, com `exam_id` nulo (`ON DELETE SET NULL`). Desde o Plano 22, a nota e as versões do exame saem pela FK em cascata, com um `excluir` por linha no `audit_log` | `exames.ts:169` |
+| `listarExames` | Leitura auditada (`exames`, um `ler` por abertura, `entidade_id` nulo) | `exames.ts:200` |
+| `agruparMarcadores(lista)` | Uma série por nome + unidade (sem diferenciar maiúsculas e espaços), pontos em ordem cronológica: mg/dL e mmol/L são séries diferentes. A chave (`chaveDoMarcador`, `:217`) é a mesma do comparativo do Plano 22 | `exames.ts:223` |
 
 Limite: 20 MB por laudo (`EXAME_MAX_BYTES`, `exames-constantes.ts:2`), mensagem "Envie PDF, JPEG ou PNG de até 20 MB".
 
 Plano 11: o exame com laudo ganha "Ler valores com IA" (quando a IA está ativa e o paciente foi informado); as linhas
 salvas de uma sugestão levam `iaTarefaId` e aparecem com "IA · conferido em {data}". `lerValores` continua montando
 objetos novos, então a digitação manual nunca grava `iaTarefaId`. Detalhe no [cap. 10](10-ia.md).
+
+Plano 22 (PR 2): a aba ganha "Adicionar do catálogo", "Carregar modelo de solicitação", "Remover todos", a faixa do laudo
+por linha (`refMin`/`refMax`), a classificação, "Ver referência", "Abrir", "Editar" e "Comparar". Tudo o que lê ou grava a
+nota e as versões do exame fica **fora** deste arquivo (que `ia/conferencia.ts` importa), em `src/modules/exames/`
+(EP-D62, RN-399): [§4.2.12](#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2).
 
 ### 4.2.6 Atendimentos e notas privadas (US-016)
 
@@ -610,6 +619,17 @@ chamada em `exportacao-job.ts:526`), nos **dois escopos**, por inclusão explíc
 no dia da exportação (no fuso), categoria, descrição, início da consulta ligada, data e motivo do cancelamento; nunca quem
 lançou nem quem cancelou (F-D22: cópia integral do que é do titular, LGPD art. 19, § 3º). O `prontuario.pdf` não muda e
 nenhum arquivo novo entra no ZIP ([§12.9](12-financeiro.md#129-lgpd-us-307-us-309-f-d16-f-d17-f-d22-f-d23)).
+
+Plano 22 (PR 2; RN-376, RN-378, RN-383, RN-399, EP-D19, EP-D41): em `exames[]`, as linhas de `valores` levam
+`refMin`/`refMax` quando informados, e cada exame ganha `versoesAnteriores` (de `exam_versoes`, `staff_only`, por inclusão
+explícita, da mais antiga para a mais nova: `versao`, `titulo`, `data`, `valores` e `alteradoEm`; **sem** a justificativa e
+sem o autor) e `notaDeInterpretacao` (a em vigor, de `exam_interpretacoes`, `null` sem nota ou com a nota apagada; nos
+**dois** escopos — é a interpretação clínica do exame do titular, não nota privada, e a tela avisa: "Não aparece no app;
+entra na cópia dos dados que o paciente pedir."). Só no escopo da equipe, `notasAnteriores` (`versao`, `texto` — nulo =
+"Apagar nota" — e `criadoEm`, sem o autor). São duas consultas a mais, depois da de `exams` (`montarDados`,
+`exportacao-job.ts:475`, `:487`; montagem em `:664-666`; tipo em `:239-260`). A nota não vai ao `prontuario.pdf`. Depois da
+anonimização, a nota e a justificativa saem nulas ([§2.5.12](02-banco-de-dados.md#2512-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)). O `mostradoNoAppEm` da spec (RN-399) é do
+PR 3 (divergência #22 abaixo).
 
 Validade do link: 24 h (`EXPORTACAO_VALIDADE_MS`, `exportacao.ts:14`). O ZIP não vai para o backup de `/data` (Plano 03, decisão do dono).
 
@@ -955,6 +975,182 @@ dentro e fora dos 30 dias, paciente arquivado; CS-261), `no-app-fonte.test.ts` (
 `menu-da-linha.test.ts`, `actions.test.ts`, `valores.test.ts`) e o E2E `e2e/cadastro.spec.ts`
 ([§7](07-testes-qualidade-e-processo.md)).
 
+### 4.2.12 Exames do consultório: catálogo, edição com versão, nota e comparativo (Plano 22, PR 2)
+
+Conferido no branch `plano-22-exames-prescricao` em `829b0a7` (Tarefas 3 a 5b, 23/11/2026), com o PR 1 (#58: banco,
+regras puras e `Dialogo`) ainda fora da `main`. Spec: `docs/superpowers/specs/2026-11-17-nutridebby-22-exames-prescricao-design.md`;
+decisões EP-Dxx na §14.1 da spec e na tabela "Decisões" do plano `docs/superpowers/plans/2026-11-17-nutridebby-22-exames-prescricao.md`.
+O banco está na [§2.5.12](02-banco-de-dados.md#2512-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22).
+
+**Módulo `src/modules/exames/`.** As regras puras (`catalogo-regras.ts`, `classificacao.ts`, `constantes.ts`) vieram no PR 1;
+o PR 2 acrescenta `catalogo.ts`, `modelos-solicitacao.ts`, `edicao.ts`, `detalhe.ts`, `interpretacao.ts` e `comparativo.ts`.
+Regras comuns:
+
+- Só a sessão `nutri`: toda função começa por `exigirNutri(ctx)` (`catalogo.ts:29`), **antes** da transação. As quatro
+  tabelas são `staff_only`, e numa sessão de paciente a leitura voltaria vazia em silêncio (RN-370).
+- Nada depende de `documentos_liberados` (EP-D35): catálogo, faixas, modelos, classificação, nota, edição e comparativo
+  valem para todo consultório.
+- O que lê ou grava a nota e as versões (`detalhe.ts`, `edicao.ts`, `interpretacao.ts`) fica **fora** de
+  `src/modules/pacientes/exames.ts`, que `ia/conferencia.ts` importa (EP-D62, RN-399; guarda na
+  [§10.15](10-ia.md#1015-exames-do-consultório-fora-da-ia-plano-22-rn-399)).
+- Toda leitura de um exame é pelos **dois** ids (exame e paciente): sem linha → `null`, nenhum `auditRead` e 404 na tela
+  (a trilha nunca atribui a leitura ao titular errado).
+- Nomes, valores, faixas, notas e justificativas nunca vão a log, Sentry ou mensagem técnica de erro (RNF-370; guarda em
+  `src/modules/exames/log.test.ts`: força erros em `editarExame`, `salvarNota`, `salvarExameDoCatalogo` e
+  `salvarModeloSolicitacao` e confere o logger e o `beforeSend` de `src/lib/sentry-filtro.ts`).
+- Textos em `MSG_EXAMES` (`constantes.ts:120`); os marcados "Texto novo … Rascunho para a Debby" não estão na §6.2 da spec
+  (divergência #20).
+
+#### Telas e rotas
+
+| Tela | Rota | Lê por | Guia |
+|---|---|---|---|
+| Catálogo de exames | `/painel/exames/catalogo` (h1 "Catálogo de exames"; colunas "Exame · Unidade · Faixas · Ação"; "Novo exame" e o diálogo "Nomes de exames para começar (você escolhe o que usar)") | `listarCatalogo`, `nomesParaComecarFaltando` | `exames-do-consultorio` |
+| Exame do catálogo | `/painel/exames/catalogo/novo` (h1 "Novo exame do catálogo"), `/painel/exames/catalogo/[id]` (h1 = nome) | `abrirExameDoCatalogo` | `exames-do-consultorio` |
+| Modelos de solicitação | `/painel/exames/modelos`, `/novo` (h1 "Novo modelo de solicitação"), `/[id]` | `listarModelosSolicitacao`, `abrirModeloSolicitacao` | `exames-do-consultorio` |
+| Aba Exames (já existia) | `/painel/pacientes/[id]/exames` | `listarExames` e `bibliotecasParaExames` (catálogo e modelos numa transação, lidos uma vez; também com o paciente bloqueado, só para classificar) | `prontuario` (v4) |
+| Detalhe do exame | `/painel/pacientes/[id]/exames/[exameId]` (h2 "{título} — {dd/mm/aaaa}") | `abrirExame` | `prontuario` |
+| Editar exame | `…/[exameId]/editar` (h2 "Editar exame") | `exameParaEditar` | `prontuario` |
+| Versões anteriores | `…/[exameId]/versoes` (h2 "Versões anteriores") | `versoesDoExame` e `notasAnteriores` | `prontuario` |
+| Comparativo | `…/exames/comparativo?ids=…` (h2 "Comparativo de exames") | `comparativo` | `prontuario` |
+
+As telas da ficha usam h2 porque o h1 do prontuário é o nome do paciente (divergência #24). O hub `/painel/exames` tem um
+layout próprio (`src/app/painel/exames/layout.tsx`) com o link "Configurações" e a navegação "Seções de exames"
+("Catálogo · Modelos de solicitação", `aria-current="page"`, `secoes.tsx`). Entrada pelo cartão "Exames" ("Catálogo de
+exames, faixas do consultório e modelos de solicitação."), no fim de `CARTOES` (`src/app/painel/configuracoes/page.tsx:20`);
+`/painel/exames` no fim de `DO_HUB` (`src/app/painel/navegacao.ts:29`, EP-D51), que marca "Configurações" no menu (o
+`/painel/exames-recebidos` não casa: `dentro()` exige a `/`). Nenhum item de menu nem aba nova (EP-D33). As oito rotas estão
+em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts`), com os ids `exameCatalogo`, `modeloSolicitacao`, `exame` e `exameComparar`
+criados pela UI em `e2e/painel.ts`.
+
+#### Catálogo de exames (US-370, RN-370 a RN-375)
+
+| Função | O que faz | Onde |
+|---|---|---|
+| `listarCatalogo`, `abrirExameDoCatalogo` | Ordem `lower(nome)`; id inválido → `null` | `catalogo.ts:38`, `:43` |
+| `catalogoParaLancamentoNaTransacao(tx)`, `catalogoParaDetalheNaTransacao(tx)` | O catálogo na transação de quem chama, uma leitura por tela (RNF-371); o do detalhe também com os modelos de nota | `:51`, `:68` |
+| `salvarExameDoCatalogo(ctx, tenant, id, input)` | Cria (`id` nulo) ou altera, sob a trava `pg_advisory_xact_lock(hashtextextended('exames_catalogo:<tenant>', 0))` (`travarCatalogo`, `:34`), a mesma de `adicionarNomesParaComecar`. Valida por `validarExameDoCatalogo` (`catalogo-regras.ts:150`) e recusa: o 501º exame ("O catálogo chegou ao limite de 500 exames."); o nome ou outro nome que já é nome ou outro nome de outro exame, normalizado por `normalizarNome` ("Já existe um exame com este nome ou com um destes outros nomes: {nome}."); a troca da unidade com faixas gravadas, também ao apagá-la ("Remova as faixas antes de trocar a unidade.", RN-374). `atualizadaEm` = hoje no fuso do consultório só na faixa nova ou mudada. O 23505 do índice do nome vira a mesma mensagem. A mensagem técnica do nome repetido é fixa (`CatalogoError(erros, tecnica)`): o nome fica só no campo da tela, nunca na mensagem nem na pilha | `:112` |
+| `excluirExameDoCatalogo` | `DELETE` simples: exames, modelos e documentos guardam cópia do nome, sem FK, e não mudam (RN-371) | `:179` |
+| `nomesParaComecarFaltando`, `adicionarNomesParaComecar(ctx, nomes)` | RN-372: só os nomes de `NOMES_PARA_COMECAR` e `PAINEIS_PARA_COMECAR` (`constantes.ts`), sem unidade, faixa nem nota; texto que não é da lista é ignorado; nome já presente é pulado, e o outro nome em uso sai do exame novo; passando de 500, nada é gravado. Retorno "1 exame adicionado ao catálogo." / "{n} exames adicionados ao catálogo." | `:194`, `:207` |
+
+O formulário do exame do catálogo (`src/app/painel/exames/catalogo/exame-catalogo-form.tsx`) tem "Nome", "Unidade
+(opcional)", "Outros nomes (opcional)", "Exames que compõem este (opcional)", as "Faixas do consultório" ("Sexo do
+cadastro", "Idade de … até … anos", "A partir de", "Abaixo de", "Categoria", "Fonte", "Acrescentar faixa", "Remover faixa")
+e os "Modelos de nota de interpretação" ("Quando o resultado está abaixo da referência" / "acima"), com a linha fixa
+"Escreva fatores a investigar e encaminhamentos; não afirme doença." e o aviso "Retire dados do paciente antes de salvar.".
+A plataforma não traz faixa pronta: o catálogo nasce vazio ("Seu catálogo ainda está vazio.").
+
+#### Modelos de solicitação (US-376, RN-391)
+
+| Função | O que faz | Onde |
+|---|---|---|
+| `salvarModeloSolicitacao(ctx, id, input)` | Nome em uma linha, 1–80; exames por `validarListaDeExames(…, { max: 40, para: 'modelo' })` (`src/modules/documentos/solicitacao.ts`, PR 1); orientações ≤ 1000 por `textoLivre`. Qualquer outra chave (a indicação clínica) é ignorada; o 23505 do índice vira "Já existe um modelo com este nome." | `modelos-solicitacao.ts:91` |
+| `bibliotecasParaExames(ctx)` | Catálogo e modelos numa transação (aba Exames; editor da solicitação no PR 4) | `:70` |
+| `exameDosModelos(ctx, modeloId)` | Os exames como estão (o painel conta como um, para a solicitação) e as `linhas` para a análise por `expandirParaAnalise` (`catalogo-regras.ts:190`: o painel vira uma linha por componente, com a unidade do exame do catálogo que casar; um nível só, RN-373) | `:131` |
+| `listarModelosSolicitacao`, `abrirModeloSolicitacao`, `excluirModeloSolicitacao` | Ordem `lower(nome)`; excluir não muda solicitação já feita ("Excluir o modelo {nome}? As solicitações já feitas não mudam.") | `:56`, `:83`, `:119` |
+
+#### Lançar do catálogo (US-371, RN-376, RN-377)
+
+`lerLinhasComErros(bruto)` (`src/modules/pacientes/exames.ts:56`) é a leitura das linhas no lançamento e na edição:
+
+- erro por campo (`valores.{i}.nome`, `.valor`, `.unidade`, `.referencia`, `.refMin`, `.refMax`; `valores` para a lista
+  inteira); a linha só é ignorada sem nome, valor, "de" e "até" (uma linha só com faixa vira erro, nunca some);
+- limites por `lerDecimal` (finitos, |x| < 10¹⁵: "Faixa inválida. Use só números, como 70 ou 4,5."; `refMin ≤ refMax`: "O
+  início da faixa deve ser menor ou igual ao fim.");
+- sem referência e com faixa, grava `referencia = referenciaDaFaixa(refMin, refMax)` (`classificacao.ts:155`: "70 a 99",
+  "até 200", "a partir de 30"), para os leitores que só leem `referencia` (parecer, exportação);
+- `iaTarefaId` do formulário sempre ignorado.
+
+`lerValoresComErros` (`:99`) e `lerValores` (`:105`) são os envoltórios; `criarExame` (`:117`) devolve os erros por campo.
+No "Novo exame" (`exame-form.tsx` e `linhas-do-exame.tsx`): "Adicionar do catálogo" (`src/app/painel/exames/escolher-do-catalogo.tsx`:
+"Buscar no catálogo", "Selecionar todos", "Adicionar {n} exames"; o painel entra expandido), "Carregar modelo de
+solicitação", "Remover todos" (com a confirmação "Remover todas as linhas deste exame? Nada muda até você salvar."), a faixa
+por linha ("Faixa do laudo: de {n}" e "até {n}", com a ajuda "Copie a faixa impressa no laudo."), o botão "Usar {a} a {b}"
+quando `sugerirFaixa` (`classificacao.ts:137`) acha um único padrão no texto da referência (só por botão, RN-377), o aviso
+"A faixa numérica não bate com o texto da referência. Confira no laudo." (`faixaDiverge`, `:168`) e a classificação neutra
+já antes de salvar. O catálogo e os modelos chegam ao formulário só com nome, unidade, outros nomes, componentes e faixas.
+
+#### Editar com versão (US-371, RN-378, EP-D21, EP-D41, EP-D44)
+
+| Função | O que faz | Onde |
+|---|---|---|
+| `exameParaEditar(ctx, patientId, exameId)` | O exame pelos dois ids e o catálogo numa transação, com `auditRead` (`exames`) | `edicao.ts:44` |
+| `editarExame(ctx, tenant, patientId, exameId, input)` | Valida antes da transação: título, data (não futura), linhas (`lerLinhasComErros`) e justificativa (5–500 *code points*, como o `char_length` do CHECK, sem NUL). Travas na ordem da conferência da IA e de `excluirExame`: paciente (`carregarPacienteParaEscrita`) → exame `FOR NO KEY UPDATE` pelos dois ids. Concorrência otimista: `lidoEm` (o `updated_at` lido, em `toISOString()`) comparado em TypeScript, porque o banco guarda microssegundos ("O exame mudou desde que você abriu. Recarregue a página."); sem mudança, "Nada foi alterado."; sem justificativa, "Informe a justificativa da alteração (de 5 a 500 caracteres).", salvo quando a edição só acrescenta linhas. **Origem da IA:** o formulário manda só `origem` (o índice da linha gravada); sob a trava, o módulo copia `iaTarefaId` de `e.valores[origem]` e mantém nome, valor e unidade da original (só faixa e referência mudam; a tela diz "Marcador, valor e unidade vieram do laudo e não mudam. Para corrigir, remova a linha e lance outra." e mantém "IA · conferido em {data}"). Na mesma transação: `INSERT` em `exam_versoes` com o estado de antes (`versao` = maior + 1; autor e hora pelo gatilho) e `UPDATE` de `exams` com `updated_at` estritamente depois do lido (`:162`). O laudo não muda (EP-D44) | `:88` |
+| `versoesDoExame(ctx, patientId, exameId)` | O exame e as versões pelos dois ids, da mais nova para a mais antiga; `auditRead` (`exames_versoes`, `entidade_id` = id do exame) só com versão; o nome do autor por `nomesDosAtores` (`src/modules/plataforma/audit.ts:228`), **fora** da transação, como o Histórico de acessos ("Usuário removido" sem conta) | `:176` |
+
+A Server Action `editarExameAction` (`src/app/painel/pacientes/[id]/exames/actions.ts`) volta à aba com
+`?editado={id}#exame-salvo`: "Exame salvo." aparece no próprio exame e recebe o foco. "Versões anteriores" mostra "Versão
+{n} — {data}, por {nome}", "Justificativa: {texto}" ou "Só acrescentou linhas (sem justificativa).", e "Este exame ainda
+não foi editado." sem versão. Com `mostrar_no_app_em` preenchido, a edição avisa "Este exame está no app do paciente. O que
+você salvar aparece lá na hora." e o "Excluir" do detalhe, "Este exame está no app do paciente. Ao excluir, ele some de
+lá." (a marca só passa a ser gravada no PR 3). No Histórico, cada edição deixa "Alterou · Exames" e "Criou · Versões do
+exame".
+
+#### Detalhe, classificação e "Ver referência" (US-372, RN-379 a RN-382, EP-D11 a EP-D17)
+
+- `abrirExame(ctx, patientId, exameId)` (`detalhe.ts:53`): numa transação, o exame pelos dois ids, o sexo, o nascimento e
+  a conta do paciente (de `patients`, nunca a identidade de gênero de `patient_cadastro`, EP-D13), a nota em vigor (a de
+  maior versão), o catálogo (uma leitura) e um `auditRead` (`exames`). A classificação é calculada depois, em memória.
+- `classificarLinha(linha, indice, paciente, data)` (`classificacao.ts:109`), um casamento por linha com o índice montado
+  uma vez (`indiceDoCatalogo`, `:37`): a neutra (`classificarNeutra`, `:24`: abaixo de `refMin`, acima de `refMax`, senão
+  "Dentro da referência" com ao menos um limite; limites do laudo inclusivos; sem limite, nada), a categoria do consultório
+  (só com casamento único pelo nome ou outro nome normalizado, `casarComCatalogo`, `:54`; a mesma unidade por
+  `normUnidade`; sexo e nascimento no cadastro; idade ≥ 1 na data do exame; faixa que contém o valor) e o exame do
+  catálogo que casou. Nada é gravado (EP-D11): mudar a faixa do consultório muda a categoria mostrada nos exames antigos,
+  com a data da faixa (`exames-detalhe.test.ts:126`).
+- Tabela (`TabelaClassificada`, `src/app/painel/pacientes/[id]/exames/tabela-classificada.tsx:59`), na lista e no
+  detalhe: "Marcador · Valor · Referência do laudo · Classificação · Ver referência"; a categoria ao lado da neutra, com
+  "(faixa do consultório)"; antes da tabela e ligados por `aria-describedby`, "Classificação automática pela faixa de
+  referência informada. Não é diagnóstico." e, com categoria, "As faixas do consultório não consideram gestação." (na
+  lista, uma vez para todos os exames); `caption`, `th scope` e a região rolável focável com o contorno para dentro
+  (`src/app/painel/cores.test.ts`).
+- "Ver referência" (`ver-referencia.tsx`, RN-382; nome acessível "Referência de {marcador}"): "Referência do laudo: …",
+  "Faixa do laudo: …" e, com casamento, as "Faixas do consultório" (`textoDaFaixaDoConsultorio`, `classificacao.ts:190`:
+  "{público}, {idade}: {limites} — {categoria}" e "Fonte: {fonte} · atualizada em {dd/mm/aaaa}"); "Sem referência." sem
+  nada. Na lista, no detalhe e nas linhas do lançamento e da edição — não no comparativo (divergência #21).
+- Detalhe (`[exameId]/page.tsx`): "Voltar aos exames", "Editar", "Versões anteriores", "Baixar laudo" (URL assinada) e
+  "Excluir" (`DialogoConfirmar`; `excluirExameDoDetalheAction` volta à aba); exame sem linhas, "Nenhum valor lançado neste
+  exame."; paciente bloqueado, só leitura.
+- RNF-371: com 500 exames no catálogo e 50 exames × 50 linhas, a aba lê o catálogo uma vez e `abrirExame` responde em
+  menos de 800 ms no Testcontainers (`src/modules/exames/exames-detalhe.test.ts:172`, contando as consultas a
+  `exames_catalogo` num `db` instrumentado).
+
+#### Nota de interpretação (US-373, RN-383, EP-D18, EP-D19, EP-D61)
+
+| Função | O que faz | Onde |
+|---|---|---|
+| `salvarNota(ctx, patientId, exameId, texto)` | Texto sem NUL, de 1 a 2000 *code points* ("Escreva a nota antes de salvar.", "A nota tem no máximo 2000 caracteres."). Travas: paciente (`carregarPacienteParaEscrita`, recusa bloqueado e anonimizado) → exame `FOR NO KEY UPDATE` pelos dois ids (sem linha, "Exame não encontrado.", em vez do 23503 cru com um `excluirExame` concorrente) → `INSERT` com `versao` = maior + 1. Nunca `UPDATE` | `interpretacao.ts:75` |
+| `apagarNota(ctx, patientId, exameId)` | As mesmas travas; com nota em vigor, uma versão nova com `texto` nulo **e** `recordAudit({ acao: 'excluir', entidade: 'exames_nota', entidadeId: exameId })` na mesma transação; sem nota em vigor, nada é gravado | `:94` |
+| `notasAnteriores(ctx, patientId, exameId)` | As versões antes da em vigor, da mais nova para a mais antiga (`texto` nulo = um "Apagar nota", "A nota foi apagada nesta versão."), com o autor por `nomesDosAtores`; `auditRead` (`exames_nota`) só quando há | `:117` |
+
+Tela (seção "Nota de interpretação" do detalhe, `nota-form.tsx`): a linha fixa "Escreva fatores a investigar e
+encaminhamentos; não afirme doença.", a ajuda "Não aparece no app; entra na cópia dos dados que o paciente pedir.",
+"Inserir modelo" (os modelos de nota dos exames com neutra "Abaixo"/"Acima" que casam com o catálogo, rótulo "{exame} —
+abaixo|acima", RN-375; sem nenhum, "Nenhum modelo para os exames fora da referência."), "Salvar nota" e "Apagar nota". O
+retorno "Nota salva."/"Nota apagada." é anunciado e leva o foco ao título (`RetornoDaTela`). A nota nunca vai ao app, ao
+PDF, à IA nem ao comparativo; sai só no `dados.json` ([§4.2.9](#429-exportação-zip-us-018-us-046)). No Histórico,
+"Apagar nota" deixa "Criou" **e** "Excluiu" (divergência #23).
+
+#### Comparativo (US-374, RN-384, EP-D20)
+
+- `comparativo(ctx, patientId, ids)` (`comparativo.ts:32`): só ids válidos e únicos; mais de 30 na URL nem vão ao banco
+  (`IDS_MAX_NA_URL`, `:30`); a consulta filtra por `patient_id`, então id de outro paciente é ignorado e não conta para o
+  mínimo; fora de 2 a 6 → `{ erro: 'quantidade' }`, sem `ler`. Ordem por data, criação e id (a mais antiga à esquerda);
+  linhas por `agruparMarcadores` (`pacientes/exames.ts:223`, chave `chaveDoMarcador`, `:217`: nome normalizado + unidade,
+  então mg/dL e mmol/L ficam em linhas separadas e `unidadesSeparadas` liga a nota); célula = valor, unidade e neutra da
+  linha daquele exame; **sem** categoria e **sem** nota. Um `auditRead` (`exames`) por exame mostrado, na mesma transação.
+- Aba Exames, a partir de 2 exames: a caixa "Comparar" (nome acessível "Comparar {título} de {data}") em cada exame e o botão
+  "Comparar {n} exames" com o apoio "Escolha de 2 a 6 exames para comparar." (`comparar-exames.tsx`; fora de 2 a 6 o botão
+  fica com `aria-disabled`, no Tab, e o envio é barrado). A página (`comparativo/page.tsx`, `TabelaComparativa` em
+  `tabela-classificada.tsx:114`): caption "Resultados por data", "Marcador", "—" sem o marcador, "Marcadores com unidades
+  diferentes aparecem em linhas separadas." e "Voltar aos exames"; fora dos limites, só a frase de apoio. `idsDaBusca`
+  (`comparativo.ts:89`) aceita `?ids=a&ids=b` e `?ids=a,b`.
+
+**Testes:** `src/modules/exames/{catalogo,modelos-solicitacao,exames-edicao,exames-detalhe,interpretacao,comparativo,guardas,log}.test.ts`,
+`src/modules/pacientes/exames.test.ts` e `exames-leitores.test.ts`, `src/app/painel/exames/{catalogo,modelos}/actions.test.ts`,
+`src/app/painel/pacientes/[id]/exames/{linhas-do-exame,tabela-classificada}.test.ts` e os E2E `e2e/exames.spec.ts` e
+`e2e/acessibilidade-exames.spec.ts` ([§7.5](07-testes-qualidade-e-processo.md#75-e2e-com-playwright)).
+
 ---
 
 ## 4.3 Alimentos
@@ -1190,6 +1386,7 @@ estão na tabela única de [§6.2.3 Filas](06-worker-seguranca-operacao.md#623-f
 | Ampliar medidas IBGE (E-08) | Editar `seeds/medidas-ibge.csv` e gerar migration nova com `pnpm seed:medidas` |
 | Seção nova no Início da ficha (Plano 18, D14) | Um arquivo em `src/modules/ficha/secoes/` e **uma** linha no fim de `SECOES_DA_FICHA`; rótulos genéricos, sem conteúdo clínico; nunca `auditRead` no arquivo (dado auditado: `leitura: { entidade }`, gravado por `inicio.ts`); `disponivel` monótona no total; imports só da lista fechada de `registro.test.ts`. Passo a passo na [§4.2.10](#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1) |
 | Campo novo no cadastro do paciente (Plano 18) | Dado do titular que não precisa ir ao público nem aos fluxos sem login vai em `patient_cadastro` (nunca em `patients`, que o contexto `publico` e o paciente sem login leem); a regra entra em `validarCadastro` **e** no CHECK (uma fonte: `cadastro-textos.ts`), o rótulo em `MSG_CADASTRO`, e a decisão de exportação, anonimização e IA no mapa de `colunas-decididas.test.ts`. Ler o valor só no Perfil (`cadastroDoPaciente`, com `auditRead`); a lista e o Início, só presença ou o nome social por projeção ([§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)) |
+| Leitura ou escrita nova da nota ou das versões do exame (Plano 22) | Só em `src/modules/exames/` (`detalhe.ts`, `edicao.ts`, `interpretacao.ts`) ou na exportação, nunca em `src/modules/pacientes/exames.ts` nem em arquivo que `src/modules/ia/**` alcance (guarda de grafo e de texto `src/modules/exames/guardas.test.ts`, RN-399, [§10.15](10-ia.md#1015-exames-do-consultório-fora-da-ia-plano-22-rn-399)); `exigirNutri(ctx)` antes da transação (as tabelas são `staff_only`); leitura pelos **dois** ids (exame e paciente) e `auditRead` só quando devolve linha; escrita com `carregarPacienteParaEscrita` → exame `FOR NO KEY UPDATE` → INSERT (nunca UPDATE: só de inclusão) |
 
 ---
 
@@ -1253,3 +1450,32 @@ Plano 18, PR 2 (cadastro complementar, lista, "No app", LGPD e IA; conferido no 
     (`MSG_CADASTRO`, listas fechadas e a contagem de caracteres, sem banco, porque o formulário cliente importa) e
     `src/app/painel/pacientes/textos.ts` (`MSG_LISTA`, pelo mesmo motivo, para o menu da linha). `cadastro.ts` reexporta
     o primeiro.
+
+Plano 22, PR 2 (catálogo, edição com versão, detalhe, nota, comparativo e exportação; conferido no branch
+`plano-22-exames-prescricao` em `829b0a7`, 23/11/2026, antes do merge do PR 1 e da revisão final do PR 2;
+[§4.2.12](#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2)):
+
+20. **Spec do Plano 22, §6.2 (textos de interface).** O código tem textos que a §6.2 não traz, marcados em `MSG_EXAMES`
+    (`src/modules/exames/constantes.ts`) como "Texto novo … Rascunho para a Debby": "1 exame adicionado ao catálogo." /
+    "{n} exames adicionados ao catálogo.", "Marque ao menos um nome.", "Novo exame do catálogo", "Exame não encontrado."
+    (no catálogo), "Modelo não encontrado.", "Este exame ainda não foi editado.", "Só acrescentou linhas (sem
+    justificativa).", "Nenhum valor lançado neste exame.", "Escreva a nota antes de salvar.", "A nota foi apagada nesta
+    versão." e "Marcador, valor e unidade vieram do laudo e não mudam. Para corrigir, remova a linha e lance outra.", além
+    dos rótulos acessíveis e das partes de "{público}, {idade}: {limites}" ("qualquer idade", "a partir de {n} anos"…). A
+    spec deve trazê-los depois do aceite da Debby.
+21. **RN-382: "Ver referência" também no comparativo.** O comparativo não tem a coluna (`TabelaComparativa`,
+    `tabela-classificada.tsx:114`): a célula traz valor, unidade e a neutra, como diz a RN-384 e a Tarefa 5b do plano.
+    Decidir se a RN-382 perde "e no comparativo" ou se o comparativo ganha o botão por célula.
+22. **Pendências do PR 3 (Tarefa 6, "Mostrar no app").** A spec já descreve, e o código ainda não tem: o botão "Mostrar no
+    app do paciente" no detalhe, o `mostradoNoAppEm` em `exames[]` do `dados.json` (RN-399) e os rótulos
+    `exame_no_app_liberado`/`exame_no_app_retirado` (cap. 2, #13). A coluna, a política e os avisos de edição e exclusão
+    já existem. Pendência, não erro.
+23. **EP-D61: "Apagar nota" no Histórico de acessos.** Uma ação deixa duas linhas: "Criou · Nota de interpretação do
+    exame" (o gatilho, pela linha de texto nulo, `entidade_id` = id da linha) e "Excluiu · Nota de interpretação do exame"
+    (`recordAudit` de `apagarNota`, `interpretacao.ts:94`, `entidade_id` = id do exame). O `criar` fica porque é a
+    inclusão que aconteceu; nenhum filtro novo em `visivelNoHistorico`. Registro pedido pelo plano (Tarefa 5a), não erro.
+24. **Spec do Plano 22, §4.1: "Título (h1)" do detalhe, da edição, das versões e do comparativo.** As quatro telas usam
+    h2 (`[exameId]/page.tsx:56`, `editar/page.tsx:35`, `versoes/page.tsx:34`, `comparativo/page.tsx:28`): o h1 do prontuário
+    é o nome do paciente. As telas do hub (`/painel/exames/*`) têm h1.
+25. **RN-384: "empate pela criação".** O código desempata também pelo id (`comparativo.ts:43`) e recusa mais de 30 ids na
+    URL antes do banco (`IDS_MAX_NA_URL`, `:30`), com o mesmo `{ erro: 'quantidade' }`.

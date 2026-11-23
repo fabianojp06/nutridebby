@@ -2,6 +2,12 @@
 
 Este capítulo descreve o banco do NutriDebby como ele está no código (migrations `0000`–`0125`, `drizzle/meta/_journal.json` com 126 entradas, conferidas no branch do Plano 14A em 09/10/2026, a `0110` (migration de dados do prazo de guarda, JUR-01) no mesmo dia as `0111`–`0112` (Plano 14B-1, modelos sugeridos pela IA) no branch `plano-14b-ia-nutri` em 10/10/2026 as `0113`–`0114` (Plano 14B-2, resumo e rascunho pela IA) no branch `plano-14b-2-resumo-rascunho` em 14/10/2026 as `0115`–`0117` (Plano 15, IA Nutri do paciente) no branch `plano-15-ia-nutri-paciente` em 15/10/2026 as `0118`–`0121` (Plano 17, lembretes de rotina, §2.5.11) no branch `plano-17-lembretes-rotina` em 17/11/2026, as `0122`–`0123` (Plano 20, Financeiro do consultório, §2.5.12) na `main` `6c3ee8f` (PR #53) e no branch `plano-20-financeiro` em `7a0e919`, em 17/11/2026, e as `0124`–`0125` (Plano 18, PR 2, `patient_cadastro`, §2.5.4) no branch local `plano-18-pr2` em 17/11/2026, na `main` desde o PR #56 (`07756c4`); as tabelas e funções dos documentos assinados, `0089`–`0093` e `0104`–`0105`, têm o detalhe no [cap. 9](09-documentos-assinados.md#93-banco), as da IA, `0098`–`0100`, `0107`–`0109` (Plano 14A) e `0111`–`0112` (Plano 14B-1, [§10.12.3](10-ia.md#10123-banco-d18-migrations-0111-e-0112)) `0113`–`0114` (Plano 14B-2, [§10.13.10](10-ia.md#101310-banco-migrations-0113-e-0114)) e `0115`–`0117` (Plano 15, [§10.14.9](10-ia.md#10149-banco-migrations-0115-0116-e-0117)), no [cap. 10](10-ia.md#104-banco), e as dos exames enviados, `0101`–`0102`, no [cap. 11](11-exames-enviados.md#113-banco); `0094`–`0097` são do Plano 09: `app_versao_do_schema()` e `admin_actions`; a `0103`, da sessão da equipe; a `0106`, do Plano 16). Ele explica os roles, as migrations, o catálogo de tabelas, o isolamento por RLS, a auditoria, as guardas de CI e o passo a passo para criar uma tabela nova sem abrir brecha.
 
+Plano 22 (exames do consultório, PR 1 e PR 2; conferido no branch `plano-22-exames-prescricao` em `829b0a7`, 23/11/2026,
+antes do merge do PR 1, #58): a `0126` (gerada, `exames_catalogo`) e a `0127` (custom, `rls_exames_catalogo`), com as quatro
+tabelas novas, a coluna `exams.mostrar_no_app_em`, a política `paciente_exame_liberado`, os gatilhos de autoria e a função
+da anonimização ([§2.5.12](#2512-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)); `drizzle/meta/_journal.json` com 128 entradas. Os números não são reservados e mudam
+no rebase (spec do Plano 22, §9; `docs/operacao/sessoes-paralelas.md`, §5).
+
 Convenção de citação: `arquivo:linha` aponta para o código; "Plano NN, Dx" aponta para a tabela de decisões do plano em `docs/superpowers/plans/`; "spec §n" aponta para `docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md`.
 
 ---
@@ -159,6 +165,9 @@ Regras de operação:
 ## 2.5 Catálogo de tabelas
 
 São 69 tabelas em `public`: 53 com `tenant_id` sob RLS, 4 com `tenant_id` fora da RLS (`RLS_EXCEPTIONS`) e 12 sem `tenant_id` (Plano 10A: mais 4 sob RLS e `document_verifications` fora dela; Plano 09: `admin_actions`; Plano 11: `ia_tarefas` e `ia_uso` sob RLS e `ia_gasto_plataforma` sem `tenant_id`; Plano 12: `exam_submissions` e `exam_submission_files` sob RLS, com a proteção no [§11.3](11-exames-enviados.md#113-banco); Plano 14A: `ia_autorizacoes` sob RLS; Plano 14B-1: `ia_geracoes_modelos` sob RLS; Plano 15: `ia_nutri_participacoes`, `ia_nutri_mensagens` e `ia_nutri_consentimentos` sob RLS e `ia_nutri_pausa` sem `tenant_id`; Plano 17: `lembretes_rotina` e `lembretes_rotina_envios` sob RLS; Plano 18 (PR 2): `patient_cadastro` sob RLS, §2.5.4; Plano 20: `fin_configuracoes`, `fin_categorias` e `fin_lancamentos` sob RLS, as três `staff_only`). Contagem conferida nos `pgTable(` de `src/db/schema/*.ts` (17/11/2026, depois do PR 2 do Plano 18 e do Plano 20).
+Plano 22 (PR 1): mais `exames_catalogo`, `exames_modelos_solicitacao`, `exam_interpretacoes` e `exam_versoes`, as quatro
+sob RLS ([§2.5.12](#2512-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)): **73** tabelas, 57 com `tenant_id` sob RLS (`pgTable(` de `src/db/schema/*.ts`, conferido em
+23/11/2026 no branch `plano-22-exames-prescricao`).
 
 Legenda da coluna "Proteção":
 **T** `tenant_isolation` · **P** `patient_isolation` · **S** `staff_only` · **Pub** comandos liberados ao contexto `publico` · **PE** comandos que a sessão de paciente grava · **A** gatilho de auditoria (entidade) · **X** política própria (ver §2.6.5).
@@ -218,8 +227,15 @@ Legenda da coluna "Proteção":
 | `fin_configuracoes` (Plano 20) | T, S (sem `patient_id`, sem gatilho; o módulo grava `recordAudit` de `financeiro_configuracoes`); `REVOKE DELETE, TRUNCATE` | 0123 |
 | `fin_categorias` (Plano 20) | T, S; gatilho `fin_categorias_fixas` (`tipo` e `chave` fixos; "Consultas" nunca apagada) | 0123 |
 | `fin_lancamentos` (Plano 20) | T, P, S, A `financeiro`; `REVOKE DELETE, TRUNCATE`; gatilho `fin_lancamentos_regras` (contexto vazio e `worker` recusados — o `worker` só no ramo da anonimização —, os outros papéis caem na RLS sem ler `patients`; na sessão `nutri`, autoria e cancelamento pelo banco, colunas fixas, paciente `FOR KEY SHARE`, bloqueado só receber/desfazer/reduzir/cancelar, cancelado e anonimizado imutáveis); índice único parcial de uma cobrança ativa por consulta | 0123 |
+| `exames_catalogo` (Plano 22) | T, S (sem `patient_id`, fora da auditoria); nada em `Pub` nem `PE` (RN-370) | 0127 (tabela na 0126) |
+| `exames_modelos_solicitacao` (Plano 22) | T, S (sem `patient_id`, fora da auditoria) | 0127 (tabela na 0126) |
+| `exam_interpretacoes` (Plano 22) | T, P, S, A `exames_nota`; `REVOKE UPDATE, DELETE, TRUNCATE` (só de inclusão, EP-D41); gatilho `exam_interpretacoes_regras` (BEFORE INSERT: contexto vazio e `worker` recusados; autor e hora da sessão `nutri` pelo banco; titular bloqueado ou anonimizado recusado); FK tripla para `exams` `ON DELETE CASCADE` | 0127 (tabela na 0126) |
+| `exam_versoes` (Plano 22) | T, P, S, A `exames_versoes`; `REVOKE UPDATE, DELETE, TRUNCATE`; gatilho `exam_versoes_regras` (a mesma ordem); FK tripla para `exams` `ON DELETE CASCADE` | 0127 (tabela na 0126) |
 
 Toda tabela da matriz tem também `publico_negado` (ou `publico_sem_<cmd>` nos comandos não liberados) e `paciente_sem_<cmd>` nos comandos de escrita não liberados (§2.6.4).
+
+Plano 22 (0127): `exams` ganha a política RESTRICTIVE `paciente_exame_liberado` (`FOR SELECT`): na sessão de paciente, só o
+exame com `mostrar_no_app_em` preenchido ([§2.5.12](#2512-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)).
 
 ### 2.5.2 Convenção das chaves: FK composta pelo tenant
 
@@ -422,6 +438,58 @@ migração de dados, nenhum `DISABLE TRIGGER`. Regras de cada gatilho, da funç�
 journal em `src/db/migrate.test.ts` quebra o CI se uma migration entrar com `when` menor que o da anterior ou com `idx`
 fora de ordem (o migrador do Drizzle a pularia em silêncio em produção).
 
+### 2.5.12 Exames do consultório e filhas do exame (`exames-catalogo.ts`, `exames-filhas.ts`, Plano 22)
+
+| Tabela | Colunas principais | Chaves e restrições | Fonte |
+|---|---|---|---|
+| `exames_catalogo` | `nome`, `unidade`, `sinonimos` (jsonb, os "Outros nomes"), `componentes` (jsonb, "Exames que compõem este": o painel), `faixas` (jsonb `FaixaDoConsultorio[]`: `sexo` `F`/`M`/nulo, `idadeMin`/`idadeMax` em anos completos, `aPartirDe` inclusivo, `abaixoDe` exclusivo, `categoria`, `fonte`, `atualizadaEm`), `modelo_nota_abaixo`, `modelo_nota_acima`, `created_at`, `updated_at` | Sem `patient_id`; FK `tenant_id` → `tenants`; índice único `exames_catalogo_nome_unico` (`tenant_id`, `lower(nome)`); CHECKs de tamanho (nome 1–80, unidade 1–20, modelos de nota ≤ 1000); CHECKs de array com `case … else false` (até 10 outros nomes, 30 componentes e 20 faixas: um objeto no lugar do array dá 23514, nunca o 22023 de `jsonb_array_length`); `exames_catalogo_painel` (painel sem unidade, faixas nem modelos de nota) e `exames_catalogo_faixa_com_unidade` (RN-374). A unicidade dos outros nomes normalizados é do módulo, sob trava (RN-371, [§4.2.12](04-modulos-clinicos.md#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2)) | `drizzle/0126_exames_catalogo.sql:1-22`, `:78` |
+| `exames_modelos_solicitacao` | `nome`, `exames` (jsonb `ExameDaLista[]`: `{ nome, painel? }`, cópia do nome sem FK para o catálogo), `orientacoes` (padrão `''`), `created_at`, `updated_at` | Índice único `exames_modelos_solicitacao_nome_unico` (`tenant_id`, `lower(nome)`); CHECKs nome 1–80, 1 a 40 exames (`case`) e orientações ≤ 1000 | `0126:24-35`, `:79` |
+| `exam_interpretacoes` | `patient_id`, `exam_id`, `versao`, `texto` (nulo = "Apagar nota"), `criado_por` (sem FK, como `audit_log.actor_user_id`), `criado_em` | UNIQUE `exam_interpretacoes_versao_unique` (`tenant_id`, `exam_id`, `versao`); CHECKs `versao >= 1` e texto nulo ou 1–2000; FK tripla `exam_interpretacoes_exame_fk` (`tenant_id`, `patient_id`, `exam_id`) → `exams` `ON DELETE CASCADE` | `0126:37-49`, `:76` |
+| `exam_versoes` | `patient_id`, `exam_id`, `versao`, `titulo`, `data`, `valores` (o estado **de antes** da edição, inteiro, com `iaTarefaId`), `justificativa`, `alterado_por` (sem FK), `alterado_em` | UNIQUE (`tenant_id`, `exam_id`, `versao`); CHECKs `versao >= 1`, justificativa nula ou 5–500, título 1–120 e `valores` sempre array (os dois últimos da revisão da T1, editados à mão na `0126`); FK tripla `exam_versoes_exame_fk` `ON DELETE CASCADE` | `0126:51-69`, `:77` |
+
+Em tabelas que já existiam, a `0126` acrescenta `exams.mostrar_no_app_em` (`timestamptz` nulo, sem default, `:73`; nenhuma
+tela a grava ainda: o "Mostrar no app" é do PR 3) e amplia os CHECKs `signed_documents_tipo_valido` e
+`document_verifications_tipo_valido` com `'solicitacao_exames'` (`:71-72`, `:80-81`; nenhum fluxo cria documento desse tipo
+antes do PR 4). As chaves opcionais `refMin`/`refMax` de `exams.valores` existem só no tipo (`src/db/schema/pacientes.ts`,
+`exams`) e na validação do módulo (RN-376): o jsonb continua sem CHECK.
+
+A `0127` (`drizzle/0127_rls_exames_catalogo.sql`, editada à mão):
+
+- **Bibliotecas** (`:3-9`): `app_enable_tenant_rls` + `app_enable_staff_only` em `exames_catalogo` e
+  `exames_modelos_solicitacao`. Só a equipe; o admin nunca consulta (RN-370).
+- **Filhas do exame** (`:12-35`): `app_enable_tenant_rls`, `app_enable_patient_rls`, `app_enable_staff_only` e
+  `app_enable_audit` (entidades `exames_nota`, EP-D61, e `exames_versoes`), com `REVOKE UPDATE, DELETE, TRUNCATE` de
+  `nutri_app_role` (`:24`, `:35`): só de inclusão (EP-D41).
+- **Gatilhos de autoria** `exam_interpretacoes_regras` (`:46-74`) e `exam_versoes_regras` (`:77-105`), BEFORE INSERT, no
+  molde de `app_fin_lancamentos_regras` (0123). O BEFORE roda antes do `WITH CHECK` da RLS, por isso a ordem: (1) contexto
+  vazio ou `worker` → 42501, mesmo enviando o autor (o `worker` também roda no processo web, e o `staff_only` só barra o
+  paciente); (2) qualquer papel diferente de `nutri` → `RETURN NEW` **sem** ler `patients` — a RLS da própria tabela
+  recusa; lido antes, o paciente viria vazio pela RLS e a recusa mudaria de mensagem (o `violaRlsDe` de
+  `test/isolamento.test.ts`); (3) na `nutri`: usuário da sessão obrigatório, titular bloqueado ou anonimizado → 42501
+  (`status` e `anonimizado_em` lidos `FOR KEY SHARE`, que espera o `FOR UPDATE` de um bloqueio em andamento), e
+  `criado_por`/`alterado_por` = `app_current_user()` e `criado_em`/`alterado_em` = `clock_timestamp()` (o valor enviado é
+  ignorado).
+- **Política** `paciente_exame_liberado` em `exams` (`:109-110`; RN-385, EP-D22): `app_current_role() IS DISTINCT FROM
+  'paciente' OR mostrar_no_app_em IS NOT NULL`. As outras sessões seguem só com as políticas de antes. Nenhum leitor de
+  `exams` rodava na sessão de paciente; a contagem do "No app" da ficha (contexto de paciente sem login, Plano 18, D16)
+  passa a contar só o liberado sem mudar o código (spec do Plano 22, §9.7).
+- **A cascata** (spec do Plano 22, §9.5): as notas e as versões saem só com o exame, pela ação referencial da FK, que roda
+  como dono da tabela (sem a RLS forçada e sem a permissão revogada). A T1 decidiu pelo `src/db/migrate-owner.test.ts:494`
+  (migrator sem superusuário, `FORCE RLS`, como produção): a cascata passa com o `REVOKE DELETE`, e o plano B (gatilho que
+  só aceita `pg_trigger_depth() > 1`) não foi preciso. Cada linha filha apagada grava um `excluir` no `audit_log`.
+- **Anonimização** (`:119-143`): `app_anonimizar_exames_textos(uuid, uuid)`, `SECURITY DEFINER` (§2.6.8), chamada por
+  `anonimizarVencidos` (`src/modules/pacientes/lgpd.ts:594`) depois do `UPDATE` que grava `anonimizado_em`: os exames
+  ficam (prontuário), mas a `justificativa` das versões e o `texto` das notas vão a nulo (texto livre, pode citar nome,
+  telefone ou terceiros; `/code-review` do PR 1). As linhas ficam.
+
+Listas: as quatro em `STAFF_ONLY` (`src/db/rls-guard.ts:121-124`); nenhuma em `PUBLICO_LIBERADO`, `PACIENTE_ESCREVE` ou
+`AUDIT_EXCEPTIONS`. Isolamento (`test/isolamento.test.ts`): as quatro fábricas (`:187-197`; a de `exams`, `:29`, passa a
+gravar o exame **liberado**, como `meal_plans` grava `'publicado'`, para o laço genérico continuar provando a leitura da
+sessão de paciente), `SO_INSERE` (`:203`), `COM_MAE` (`:392-393`; a recusa dos negativos de INSERT vem de `exams`) e o caso
+"Plano 22 (RN-385)" (`:598`: a paciente não vê o exame não liberado nem as filhas). Testes do banco em
+`src/modules/exames/banco.test.ts` (CHECKs, gatilhos por papel, só de inclusão, cascata, política e `audit_log`). As funções
+de cada tabela estão em [§4.2.12](04-modulos-clinicos.md#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2).
+
 ---
 
 ## 2.6 RLS em detalhe
@@ -583,6 +651,7 @@ Todas seguem o mesmo molde:
 | `app_ia_nutri_revogar(text, text, uuid)` | 0117 | `desativarNoApp` e `desativarPelaNutri` (`consentimento.ts`) | Sessão de paciente com conta e `p_patient` nulo (canal `app`) **ou** sessão `nutri` com `p_patient` do tenant (canal `nutricionista`, DP-17); senão `42501` | Com o último evento `aceite`: grava a revogação com o marcador local `app.ia_nutri_revogando`, cancela a fila, guarda a pergunta com risco não aberta até 30 dias (D22) e esvazia o resto até o fim do mês (esqueleto, D32); devolve o id da revogação e o número de canceladas |
 | `app_anonimizar_consentimentos_ia_nutri(uuid)` | 0117 | `anonimizarVencidos` (`src/modules/pacientes/lgpd.ts`) | Só `worker` de um tenant; paciente `bloqueado` ainda não anonimizado, travado (senão `42501`) | Tira IP, user-agent e conta; mantém evento, versão, destino, canal e data (Plano 15) |
 | `admin_metricas_ia_nutri()` | 0117 | `metricasDeIaPorEscopo` (`src/modules/plataforma/metricas.ts`) | Recusa com `55000` dentro de `withTenant` | Por tenant: perguntas do mês e os dois escopos de `ia_uso` (`conversa_paciente` × o resto) no mesmo `SELECT` (DP-11) |
+| `app_anonimizar_exames_textos(uuid, uuid)` | 0127 | `anonimizarVencidos` (`src/modules/pacientes/lgpd.ts:594`), depois do `UPDATE` que grava `anonimizado_em` | Só `worker` do próprio tenant (`p_tenant` igual ao do contexto) e paciente **já** anonimizado, travado `FOR UPDATE` (senão `42501`) | Anula `exam_versoes.justificativa` e `exam_interpretacoes.texto` do titular; as linhas, as versões e os valores ficam (prontuário). Idempotente. Plano 22, [§2.5.12](#2512-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22); testes em `src/modules/pacientes/lgpd.test.ts:1091` e `src/db/migrate-owner.test.ts:543` |
 
 `app_anonimizar_documentos(uuid)` (0091, Plano 10A) segue o molde (`search_path` fixo, `REVOKE`/`GRANT`) mas é
 **`SECURITY INVOKER`**: o gatilho `app_documento_imutavel` já exige o contexto `worker`, e rodar com o papel de quem chama
@@ -621,6 +690,10 @@ isolamento), `app_patients_lembretes_do_paciente` (BEFORE INSERT OR UPDATE em `p
 `app_anonimizar_documentos`: `SECURITY INVOKER`, só `worker`, chamada por `anonimizarVencidos` só quando o paciente tem
 lançamento ([§12.3](12-financeiro.md#123-banco)); testes em `src/modules/financeiro/banco.test.ts` e
 `src/db/migrate-owner.test.ts`. SUS-102 (0126): `app_tenants_por_sessao` (BEFORE INSERT OR UPDATE OR DELETE em `tenants`, gatilho `tenants_por_sessao`, roda depois dos dois de antes): só o `worker` e o contexto vazio (admin, seed) criam e apagam consultório; paciente, público e conta só tocam a linha do próprio consultório (a conta, nenhuma), mesmo num UPDATE sem mudança, e não mudam coluna nenhuma (o paciente só sobe `armazenamento_bytes` do próprio consultório até `COTA_BYTES`, teto replicado na migration, na reserva de cota de `salvarArquivo`/`salvarArquivos`); a `nutri` só toca a própria linha, sem trocar o `id` nem mudar as colunas da admin (`status`, `wa_cota_mensal`, `taxa_faltas_base`, `go_live_em`, `dpa_*`), com `armazenamento_bytes` livre (o `apagarArquivo` dela devolve o espaço); `worker`, admin e contexto vazio livres no UPDATE; testes em `src/db/tenants-gatilho.test.ts`.
+Plano 22 (0127): `app_exam_interpretacoes_regras` e `app_exam_versoes_regras` (BEFORE INSERT; contexto vazio e `worker`
+recusados antes de tudo, os papéis que não são `nutri` caem na RLS sem ler `patients`, e na `nutri` o autor e a hora vêm
+do banco e o titular bloqueado ou anonimizado é recusado; a ordem e o porquê em [§2.5.12](#2512-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22));
+testes em `src/modules/exames/banco.test.ts`.
 
 Funções sem `SECURITY DEFINER` de apoio: `app_unaccent` (wrapper `IMMUTABLE` para índice, Plano 04, D6; `0040`), `app_versao_atende(text, text)` (o `versaoAtende` de `textos-legais.ts` em SQL, usado pelas funções da IA Nutri; Plano 15, `0117`), `app_etiquetas_validas` (CHECK de etiquetas; `0082`), `app_audit_row_change` (gatilho; §2.8) e as `app_paciente_colunas_*` (§2.6.6).
 
@@ -649,6 +722,9 @@ Outros testes de isolamento:
 - `src/db/tenant.test.ts`: contexto inválido, reaproveitamento do pool, `audit_log` sem `UPDATE`/`DELETE`, `withConta`.
 - `src/db/migrate.test.ts:15-29`: o role da aplicação não é superusuário nem `BYPASSRLS` e é membro de `nutri_app_role` (Plano 01, Review Focus 2: o superusuário do Testcontainers mascararia a RLS). Desde o Plano 20, também a guarda do journal (`drizzle/meta/_journal.json` com `idx` sem buraco e `when` estritamente crescente; §2.5.12).
 - Fixtures de teste `rls_fixture_patient_items` e `audit_fixture_registros`, criadas só no `globalSetup` (`test/global-setup.ts:24-48`).
+- Plano 22: as quatro tabelas do catálogo e das filhas do exame em `STAFF_ONLY` (`src/db/rls-guard.ts:121-124`); no
+  isolamento, as fábricas (`test/isolamento.test.ts:187-197`, com a de `exams` liberada, `:29`), `SO_INSERE` (`:203`),
+  `COM_MAE` (`:392-393`) e o caso "Plano 22 (RN-385)" (`:598`) — detalhe em [§2.5.12](#2512-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22).
 
 ---
 
@@ -710,6 +786,8 @@ Entidades instaladas e o rótulo do "Histórico de acessos" (`ENTIDADE_ROTULO`, 
 | — (`lembretes_rotina_envios` fica sem gatilho) | — | Marca técnica do worker (Plano 17), em `AUDIT_EXCEPTIONS`: auditada, cada push viraria uma linha de `audit_log` |
 | `fin_lancamentos` | `financeiro` | Financeiro (Plano 20, RN-319): "Criou" e "Alterou" (inclusive o cancelamento e, com ator nulo, a anonimização); o `ler` das telas de um paciente identificado (RN-318) e o `exportar` do CSV (RN-321), gravados pelo módulo ([§12.8](12-financeiro.md#128-auditoria-e-privacidade)) |
 | — (`fin_configuracoes` fica sem gatilho, sem `patient_id`) | `financeiro_configuracoes` | Sem rótulo: o `alterar` de cada gravação do saldo e do valor da consulta (`recordAudit`, RN-320) fica fora do Histórico do paciente, para o registro das operações |
+| `exam_interpretacoes` | `exames_nota` | Nota de interpretação do exame (Plano 22, EP-D61): o `criar` de cada "Salvar nota" e também do "Apagar nota" (a linha de texto nulo), com `entidade_id` = id da **linha** da nota; "Apagar nota" grava ainda um `excluir` pelo `recordAudit`, com `entidade_id` = id do **exame** ([§4.2.12](04-modulos-clinicos.md#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2)); o `ler` de `notasAnteriores` (id do exame) |
+| `exam_versoes` | `exames_versoes` | Versões do exame (Plano 22): o `criar` de cada edição (junto do `alterar` de `exames` do mesmo `UPDATE`); o `ler` de `versoesDoExame` (id do exame) |
 
 Entidades gravadas só por `recordAudit` (sem tabela de gatilho), do Plano 10A: `perfil_profissional` ("Perfil
 profissional", sem paciente: dados para documentos e habilitação em Fitoterapia) e `tentativa_assinatura` ("Tentativa de
@@ -734,6 +812,7 @@ Não chamam `auditRead`, por decisão:
 | Financeiro: Resumo, lista de lançamentos sem filtro de paciente, lista de "Pagamentos pendentes" (nome, total e data), relatórios, o chip "Paciente: {nome}" e o aviso do bloqueado | Como a agenda; o financeiro de **um** paciente identificado (lista filtrada, edição, detalhe das pendências, seção "Cobrança" e a mensagem do atendimento) grava **um** `ler` por abertura, só com linha | Plano 20, RN-318 |
 | Seções do Início da ficha (`secoesDoInicio`: contador e os 3 últimos com rótulo genérico, data e situação) e o cartão Resumo (`cartaoResumo`: aniversário, "Paciente desde" e a data do plano publicado) | Sem conteúdo clínico (nunca o nome do modelo da anamnese nem o do exame), como a agenda e as listas de documentos; o paciente já foi lido e auditado por `carregarProntuario`, e a última antropometria do cabeçalho grava **um** `ler` (`antropometria`) por execução do layout. Seção que devolve dado auditado declara `leitura: { entidade }` e `inicio.ts` grava um `auditRead` dela, só com itens ([§4.2.10](04-modulos-clinicos.md#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)) | Plano 18, D13, D14, RN-276, RN-277 |
 | Plano 18, PR 2: a nota "Cadastro incompleto" (`presencaDoCadastro`: só expressões `campo is not null`), o nome social na lista e no cabeçalho (projeção `nome_social` em `listarPacientes`/`buscarPaciente`) e o "No app do paciente" (`noAppDoPaciente`: contagens, datas, ids e marcas sim/não, inclusive o diário dos últimos 30 dias) | Presença, nome exibido e números, nunca o valor do cadastro nem conteúdo clínico; `buscarPaciente` já audita a abertura (`patients`). Os **valores** do cadastro só saem na aba Perfil, por `cadastroDoPaciente`, com `auditRead` (entidade `patients`, `entidade_id` = id da linha de `patient_cadastro`, "Cadastro do paciente") | Plano 18, D16, D20, RN-268, RN-269, RN-281 |
+| Plano 22, PR 2: o catálogo de exames e os modelos de solicitação (`listarCatalogo`, `abrirExameDoCatalogo`, `listarModelosSolicitacao`, `bibliotecasParaExames`, `exameDosModelos`); "Versões anteriores" e "Notas anteriores" sem nenhuma linha anterior | As bibliotecas são do consultório, sem `patient_id` e sem dado de paciente; sem versão ou nota anterior, nada de saúde foi devolvido. O detalhe (`abrirExame`), a edição (`exameParaEditar`), o comparativo (um `ler` por exame mostrado), as versões e as notas anteriores chamam; a aba continua com **um** `ler` por abertura (`listarExames`, `entidade_id` nulo) | Plano 22, RN-370, RN-378, RN-383, RN-384 |
 
 Tabelas com `patient_id` sem gatilho estão em `AUDIT_EXCEPTIONS`, cada uma com o motivo (`src/db/audit-guard.ts:4-19`).
 
@@ -765,6 +844,11 @@ Estas tabelas não têm RLS. A proteção é o código: acesso só pelos arquivo
 | `public_rate_limits` | Contadores com HMAC do IP/e-mail e marca anti-repetição do webhook; desde o Plano 10A também a verificação pública, o link do documento e o código do 2FA ao assinar | Só `src/modules/agenda/limite-ip.ts` (o webhook do WhatsApp usa `consumirLimite` dele) | `src/modules/agenda/limite-ip.ts:28`; `src/modules/notificacoes/whatsapp/webhook.ts:133-139` |
 | `system_heartbeat` | Batimento do worker; marcas dos alertas | `src/worker/heartbeat.ts`, `src/app/api/health/route.ts`, `monitoramento.ts`, `src/modules/ia/alertas.ts` (`avisarComMarca`: marcas `alerta_ia_credencial` e `alerta_ia_teto`, Plano 11; roda no worker e também no app, pelo teto em `pedirLeituraExame`, `tarefas.ts:199`, e, desde o Plano 14B-2, em `falhaDoPedidoDoAssistente`, `tarefas.ts:123`) | `drizzle/0001_plataforma.sql:13-16` |
 | Schema `pgboss` | Fila; dono = role da aplicação | pg-boss | `src/db/migrate.ts:80-81` |
+
+Plano 22 (EP-D53): `src/modules/plataforma/audit.ts` também lê `user` em `nomesDosAtores` (`audit.ts:228`: só `name` e
+`app_role` pelos ids, o mesmo `select` de `listAccessHistory`), chamada **fora** de `withTenant` por
+`src/modules/exames/edicao.ts` (`versoesDoExame`) e `src/modules/exames/interpretacao.ts` (`notasAnteriores`) para o nome
+de quem gravou cada versão; id sem conta → "Usuário removido".
 
 Limite conhecido (P06-12): a negação de escrita da sessão de paciente não alcança estas tabelas (spec §4.1, "Escrita do paciente negada por padrão").
 
@@ -857,3 +941,5 @@ flowchart TD
 | 10 | Spec dos lembretes (`docs/superpowers/specs/2026-11-13-nutridebby-lembretes-de-rotina-design.md`) §5.5: a configuração "é parte da conduta" e por isso é auditada | O comentário da `0119` repete isso (`:6`), mas `atenderPedidoExclusao` classifica a configuração como "ajuste do app, não prontuário" para fins de guarda (NORMAS-03) e a apaga na hora. Leitura coerente: auditada como escrita sobre o titular (regra 8), fora do prazo de guarda do prontuário ([§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17)) | `drizzle/0119_rls_lembretes_rotina.sql:6`; `src/modules/pacientes/lgpd.ts:196-205` |
 | 11 | Spec do Plano 18 (`docs/superpowers/specs/2026-11-16-nutridebby-18-ficha-cadastro-design.md`) §9.1: dois gatilhos em `patient_cadastro` (`_colunas_fixas` com `tenant_id` e `patient_id`; `_sem_apagar`) | Três: `patient_cadastro_colunas_fixas` também fixa o `id` (o `entidade_id` da trilha), e `patient_cadastro_titular_ativo` (BEFORE INSERT OR UPDATE) recusa gravar o cadastro de titular já anonimizado, para qualquer papel — uma imagem antiga no deploy ou a tela aberta durante a anonimização traria CPF e endereço de volta (revisão da T5) | `drizzle/0125_rls_patient_cadastro.sql:18-30`, `:49-63` |
 | 12 | Spec do Financeiro (`docs/superpowers/specs/2026-11-16-nutridebby-20-financeiro-design.md`) RN-316 e plano, Tarefa 9: `anonimizarVencidos` chama `app_anonimizar_financeiro` para o paciente vencido | Só quando ele tem lançamento: a função confere o prazo pelo relógio do banco, e o `now` do job pode ser outro (decisão da execução; [§12.13](12-financeiro.md#1213-divergências-conhecidas), #1) | `src/modules/pacientes/lgpd.ts:565` (a conferência em `temLancamentos`, `src/modules/financeiro/titular.ts`) |
+| 12 | Spec do Plano 22 (`docs/superpowers/specs/2026-11-17-nutridebby-22-exames-prescricao-design.md`) §9.5a e RN-399: `exams`, `exam_versoes` e `exam_interpretacoes` "ficam como prontuário" na anonimização; §9.9 não cita função nova | Ficam, mas sem o texto livre: `app_anonimizar_exames_textos` (`SECURITY DEFINER`, só `worker` com o titular já anonimizado) anula a `justificativa` das versões e o `texto` das notas (`/code-review` do PR 1). Versão, valores e autoria continuam | `drizzle/0127_rls_exames_catalogo.sql:119-143`; `src/modules/pacientes/lgpd.ts:594` |
+| 13 | Spec do Plano 22 §9.8: `ENTIDADE_ROTULO` ganha `exame_no_app_liberado` e `exame_no_app_retirado` | **Pendência do PR 3** (T6, "Mostrar no app"): hoje só `exames_versoes` e `exames_nota` (`src/modules/plataforma/audit.ts:85-86`); a coluna `exams.mostrar_no_app_em` e a política já existem, mas nenhuma tela as usa | `src/modules/plataforma/audit.ts:82-86` |
