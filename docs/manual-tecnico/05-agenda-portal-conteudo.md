@@ -669,14 +669,14 @@ flowchart TD
 **"A nutricionista não religa" vale no banco** (autonomia do titular; decisão da revisão do plano), não só na tela:
 
 - Gatilho `lembretes_rotina_regras` (`app_lembretes_rotina_regras`, criada na `0119` e refeita inteira na
-  `drizzle/0126_lembretes_rotina_regras_2.sql`, TRI-17-20 #6/#7): `id`, tenant, paciente, `tipo`, `criado_por` e
+  `drizzle/0127_lembretes_rotina_regras_2.sql`, TRI-17-20 #6/#7): `id`, tenant, paciente, `tipo`, `criado_por` e
   `created_at` fixos para todos; a sessão de paciente sem conta (`app_current_user()` nulo: link de documento, WhatsApp)
   não grava nada, nem o UPDATE sem mudança (`42501`); a sessão de paciente com conta só muda `desligado_pelo_paciente_em`,
   com o relógio do banco (`clock_timestamp()`) ao desligar, e o `updated_at` dela é sempre o `now()` da transação (o valor
   enviado é ignorado); a sessão `nutri` muda a configuração mas **nunca** essa marca (nem para religar, nem para desligar
   em nome do paciente, nem ao criar) e só cria lembrete com `criado_por = app_current_user()` (outro valor, `42501`);
   público e conta não escrevem; worker e contexto vazio mudam a marca.
-- Gatilho `lembretes_rotina_envios_sem_apagar` (BEFORE DELETE em `lembretes_rotina_envios`, `0126`, TRI-17-20 #5): só o
+- Gatilho `lembretes_rotina_envios_sem_apagar` (BEFORE DELETE em `lembretes_rotina_envios`, `0127`, TRI-17-20 #5): só o
   worker, o contexto vazio e a cascata do apagamento do lembrete (`pg_trigger_depth() > 1`) apagam a marca de envio; a
   equipe que a apagasse reabriria o slot e o push sairia de novo. Testes em `src/modules/lembretes/banco.test.ts`.
 - Gatilho `lembretes_rotina_sem_apagar` (`drizzle/0120_lembretes_rotina_sem_apagar.sql`): a equipe não apaga o lembrete

@@ -114,7 +114,7 @@ export const STAFF_ONLY: Record<string, string> = {
   ia_tarefas: 'Plano 11 (spec da IA §3): pedidos e sugestões da IA — só a equipe; o paciente nunca vê, nem os próprios',
   ia_uso: 'Plano 11 (D3): registro técnico de custo da IA — só a equipe (o admin lê pela função admin_metricas_ia)',
   ia_geracoes_modelos: 'Plano 14B (US-123 (d)): pedidos de modelos sugeridos pela IA — registro técnico da equipe; não tem paciente',
-  lembretes_rotina_envios: 'Plano 17 (§5.5): marca técnica do último horário enviado de cada lembrete — escrita só pelo worker (gatilho lembretes_rotina_envios_do_worker, 0119) e apagada só por ele ou pela cascata do lembrete (lembretes_rotina_envios_sem_apagar, 0126); o paciente vê os lembretes, não a marca',
+  lembretes_rotina_envios: 'Plano 17 (§5.5): marca técnica do último horário enviado de cada lembrete — escrita só pelo worker (gatilho lembretes_rotina_envios_do_worker, 0119) e apagada só por ele ou pela cascata do lembrete (lembretes_rotina_envios_sem_apagar, 0127); o paciente vê os lembretes, não a marca',
   fin_configuracoes: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
   fin_categorias: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
   fin_lancamentos: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
