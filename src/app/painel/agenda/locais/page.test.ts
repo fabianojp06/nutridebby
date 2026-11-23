@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { isValidElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LocalNaTela } from '@/modules/agenda/locais';
@@ -18,6 +18,15 @@ vi.mock('./actions', () => ({
   excluirLocalAction: vi.fn(),
 }));
 const { default: LocaisPage } = await import('./page');
+const { FocoNoTitulo, StatusDosLocais } = await import('./foco');
+
+/** Os elementos de um tipo na árvore devolvida pela página (os componentes de cliente não são expandidos por ela). */
+function elementosDe(no: ReactNode, tipo: unknown): ReactElement<Record<string, unknown>>[] {
+  if (Array.isArray(no)) return no.flatMap((n) => elementosDe(n, tipo));
+  if (!isValidElement<{ children?: ReactNode }>(no)) return [];
+  return [...(no.type === tipo ? [no as ReactElement<Record<string, unknown>>] : []), ...elementosDe(no.props.children, tipo)];
+}
+const arvore = async (sp: Record<string, string> = {}) => (await LocaisPage({ searchParams: Promise.resolve(sp) } as never)) as ReactElement;
 
 const local = (extra: Partial<LocalNaTela>): LocalNaTela => ({
   id: '00000000-0000-4000-8000-000000000001', nome: 'Consultório', tipo: 'presencial', endereco: 'Rua A, 10', cidade: 'Recife', mostrarEndereco: false,
@@ -56,7 +65,7 @@ describe('Locais de atendimento (US-400)', () => {
     expect(textoDe(h)).toContain('Principal');
   });
 
-  it('botões repetidos com o nome no aria-label: "Editar {nome}" e "Arquivar {nome}"', async () => {
+  it('botões repetidos com o nome no aria-label: "Editar {nome}" e "Arquivar {nome}" (com mais de um local)', async () => {
     const r = rotulos(await html());
     for (const nome of ['Consultório', 'Clínica Centro', 'Videoconferência']) {
       expect(r).toContain(`Editar ${nome}`);
@@ -122,5 +131,30 @@ describe('Locais de atendimento (US-400)', () => {
     ]);
     expect([...nav.matchAll(/<a [^>]*aria-current="page"[^>]*>([^<]*)<\/a>/g)].map((m) => m[1])).toEqual(['Locais']);
     expect(nav).not.toMatch(/Solicitações|Aniversariantes/);
+  });
+
+  it('foco (RNF-401): o h1 recebe o foco depois das ações — FocoNoTitulo só com ok/erro, com key pelo marcador `r`', async () => {
+    expect(await html()).toMatch(/<h1[^>]*id="titulo-locais"[^>]*tabindex="-1"/i);
+    expect(elementosDe(await arvore(), FocoNoTitulo)).toEqual([]);
+    expect(elementosDe(await arvore({ r: 'abcd1234' }), FocoNoTitulo)).toEqual([]); // marcador sem ação: nada
+    const [foco] = elementosDe(await arvore({ ok: 'arquivado', r: 'abcd1234' }), FocoNoTitulo);
+    expect(foco.key).toBe('arquivado-abcd1234');
+    expect(elementosDe(await arvore({ erro: 'emUso', r: '0f0f0f0f' }), FocoNoTitulo).map((e) => e.key)).toEqual(['emUso-0f0f0f0f']);
+    expect(elementosDe(await arvore({ ok: 'constructor', r: 'abcd1234' }), FocoNoTitulo)).toEqual([]);
+    // a região de status recebe o marcador (fora do formato, vazio) e o texto da lista fechada
+    expect(elementosDe(await arvore({ ok: 'salvo', r: 'abcd1234' }), StatusDosLocais).map((e) => e.props)).toEqual([{ texto: 'Local salvo.', marcador: 'abcd1234' }]);
+    expect(elementosDe(await arvore({ ok: 'salvo', r: '<script>' }), StatusDosLocais).map((e) => e.props)).toEqual([{ texto: 'Local salvo.', marcador: '' }]);
+  });
+
+  it('"Editar" e "Novo local" levam o foco ao formulário: autofocus no "Nome do local"; a lista sozinha, não', async () => {
+    for (const sp of [{ novo: '1' }, { editar: CLINICA.id }] as Record<string, string>[]) expect(await html(sp)).toMatch(/<input[^>]*autofocus=""[^>]*name="nome"|<input[^>]*name="nome"[^>]*autofocus=""/);
+    expect(await html()).not.toContain('autofocus');
+  });
+
+  it('o principal de um consultório com um local só não mostra "Arquivar"; com mais de um, mostra', async () => {
+    dados.locais = [CONSULTORIO];
+    expect(rotulos(await html())).not.toContain('Arquivar Consultório');
+    dados.locais = [CONSULTORIO, CLINICA];
+    expect(rotulos(await html())).toEqual(expect.arrayContaining(['Arquivar Consultório', 'Arquivar Clínica Centro']));
   });
 });

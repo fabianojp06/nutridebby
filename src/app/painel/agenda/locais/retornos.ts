@@ -4,6 +4,12 @@ import { MSG_LOCAIS } from '@/modules/agenda/constantes';
  * Volta das ações da tela de Locais pela URL (`?ok=` e `?erro=`): lista fechada de chaves, para a página nunca mostrar texto
  * vindo da URL (outro valor, inclusive `constructor` e `toString`, não mostra nada).
  */
+/** O h1 da tela: recebe o foco depois das ações (`FocoNoTitulo`). */
+export const ID_DO_TITULO_LOCAIS = 'titulo-locais';
+
+/** Marcador de cada volta (`?r=`, 8 hex, gerado pela action): fora do formato, vazio. */
+export const lerMarcador = (v: unknown): string => (typeof v === 'string' && /^[0-9a-f]{8}$/.test(v) ? v : '');
+
 export const OK_LOCAIS = { salvo: MSG_LOCAIS.salvo, arquivado: MSG_LOCAIS.arquivado, reativado: MSG_LOCAIS.reativado, excluido: MSG_LOCAIS.excluido } as const;
 export const ERRO_LOCAIS = {
   naoEncontrado: MSG_LOCAIS.naoEncontrado,

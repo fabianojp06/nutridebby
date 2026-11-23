@@ -1,5 +1,6 @@
 'use server';
 
+import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import type { TenantContext } from '@/db/tenant';
@@ -10,6 +11,9 @@ import { chaveDoErro, type OK_LOCAIS } from './retornos';
 export type LocalFormState = { erros?: Record<string, string>; valores?: Record<string, string> };
 
 const CAMINHO = '/painel/agenda/locais';
+/** O marcador da volta (`r`): muda a cada ação, para a região de status anunciar de novo e o foco ir ao h1 (RNF-401). */
+const marcador = () => randomUUID().slice(0, 8);
+const comRetorno = (volta: string, chave: 'ok' | 'erro', valor: string) => `${volta}${volta.includes('?') ? '&' : '?'}${chave}=${valor}&r=${marcador()}`;
 const CAMPOS = ['tipo', 'nome', 'endereco', 'cidade', 'mostrarEndereco', 'linkSala', 'agendamentoOnline'] as const;
 
 /** US-400: cria (`id` nulo) ou edita. Em erro, os valores digitados voltam ao formulário; salvo, volta à lista com "Local salvo.". */
@@ -24,7 +28,7 @@ export async function salvarLocalAction(id: string | null, _prev: LocalFormState
     throw e;
   }
   revalidatePath(CAMINHO);
-  redirect(`${CAMINHO}?ok=salvo`);
+  redirect(comRetorno(CAMINHO, 'ok', 'salvo'));
 }
 
 /** Botões da lista: a volta é pela URL, com a mensagem numa região `role="status"` (ou `role="alert"`, no erro). */
@@ -33,11 +37,11 @@ async function executar(acao: (ctx: TenantContext) => Promise<void>, ok: keyof t
   try {
     await acao(ctx);
   } catch (e) {
-    if (e instanceof LocalError) redirect(`${volta}${volta.includes('?') ? '&' : '?'}erro=${chaveDoErro(e.erros.geral)}`);
+    if (e instanceof LocalError) redirect(comRetorno(volta, 'erro', chaveDoErro(e.erros.geral)));
     throw e;
   }
   revalidatePath(CAMINHO);
-  redirect(`${volta}${volta.includes('?') ? '&' : '?'}ok=${ok}`);
+  redirect(comRetorno(volta, 'ok', ok));
 }
 
 export async function definirPrincipalAction(id: string): Promise<void> {

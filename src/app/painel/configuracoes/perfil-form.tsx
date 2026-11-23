@@ -16,9 +16,9 @@ export function PerfilForm({ tenant }: { tenant: TenantRow }) {
   return (
     <form action={action} className="space-y-4">
       <Campo id="nomeExibicao" rotulo="Nome de exibição" required defaultValue={v ? v.nomeExibicao : tenant.nomeExibicao} erro={e.nomeExibicao} />
-      <Campo id="crn" rotulo="CRN" required defaultValue={v ? v.crn : (tenant.crn ?? '')} erro={e.crn} dica="Ex.: CRN-3 12345" />
-      {/* Plano 23 (spec §6.2): o CRN vai no cabeçalho da página de agendamento */}
-      {!tenant.crn && <p className="text-sm text-aviso">Informe o CRN: ele aparece na página de agendamento.</p>}
+      {/* Plano 23 (spec §6.2): sem CRN, a dica (ligada por aria-describedby) avisa que ele vai no cabeçalho da página de agendamento */}
+      <Campo id="crn" rotulo="CRN" required defaultValue={v ? v.crn : (tenant.crn ?? '')} erro={e.crn}
+        dica={tenant.crn ? 'Ex.: CRN-3 12345' : 'Ex.: CRN-3 12345. Informe o CRN: ele aparece na página de agendamento.'} />
       <Campo id="corPrimaria" rotulo="Cor principal" required defaultValue={v ? v.corPrimaria : (tenant.corPrimaria ?? COR_PADRAO)} erro={e.corPrimaria}
         dica="Formato #RRGGBB. O texto sobre a cor é branco, então ela precisa de contraste de pelo menos 4,5:1." />
       <Campo id="enderecoConsultorio" rotulo="Endereço profissional (documentos)" defaultValue={v ? v.enderecoConsultorio : (tenant.enderecoConsultorio ?? '')} erro={e.enderecoConsultorio}

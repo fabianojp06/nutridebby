@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useActionState, useState } from 'react';
 import { Campo } from '@/components/campo';
+import { Botao } from '@/components/ui/botao';
 import type { TipoDeLocal } from '@/db/schema';
 import { MSG_LOCAIS, ROTULO_TIPO_LOCAL } from '@/modules/agenda/constantes';
 import type { LocalNaTela } from '@/modules/agenda/locais';
@@ -39,14 +40,15 @@ export function LocalForm({ acao, local }: { acao: (prev: LocalFormState, fd: Fo
           {e.tipo && <p id="tipo-erro" role="alert" className="text-sm text-erro">{e.tipo}</p>}
         </fieldset>
       )}
-      <Campo id="nome" rotulo="Nome do local" required defaultValue={v ? v.nome : (local?.nome ?? '')} erro={e.nome} dica="Não use nome nem endereço de paciente." />
+      {/* "Editar" e "Novo local" abrem o formulário: o foco vai ao primeiro campo de texto (RNF-401) */}
+      <Campo id="nome" rotulo="Nome do local" required autoFocus defaultValue={v ? v.nome : (local?.nome ?? '')} erro={e.nome} dica="Não use nome nem endereço de paciente." />
       {tipo === 'presencial' ? (
         <>
           <Campo id="endereco" rotulo="Endereço" defaultValue={v ? (v.endereco ?? '') : (local?.endereco ?? '')} erro={e.endereco} />
           <Campo id="cidade" rotulo="Cidade" defaultValue={v ? (v.cidade ?? '') : (local?.cidade ?? '')} erro={e.cidade} />
           <div className="flex min-h-11 items-center gap-2">
             <input id="mostrarEndereco" name="mostrarEndereco" type="checkbox" defaultChecked={marcado('mostrarEndereco')} />
-            <label htmlFor="mostrarEndereco">Mostrar o endereço na página de agendamento</label>
+            <label htmlFor="mostrarEndereco" className="inline-flex min-h-11 items-center">Mostrar o endereço na página de agendamento</label>
           </div>
         </>
       ) : (
@@ -69,13 +71,13 @@ export function LocalForm({ acao, local }: { acao: (prev: LocalFormState, fd: Fo
             aria-invalid={e.agendamentoOnline ? true : undefined}
             aria-describedby={['agendamentoOnline-dica', e.agendamentoOnline ? 'agendamentoOnline-erro' : null].filter(Boolean).join(' ')}
           />
-          <label htmlFor="agendamentoOnline">Aceita agendamento pelo paciente</label>
+          <label htmlFor="agendamentoOnline" className="inline-flex min-h-11 items-center">Aceita agendamento pelo paciente</label>
         </div>
         <p id="agendamentoOnline-dica" className="text-sm text-suave">Vale para o app do paciente e, se a página de agendamento estiver ligada no Perfil, para ela também.</p>
         {e.agendamentoOnline && <p id="agendamentoOnline-erro" role="alert" className="text-sm text-erro">{e.agendamentoOnline}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-4">
-        <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Salvar local</button>
+        <Botao disabled={pendente}>Salvar local</Botao>
         <Link href="/painel/agenda/locais" className="inline-flex min-h-11 items-center text-link underline">Cancelar</Link>
       </div>
     </form>
