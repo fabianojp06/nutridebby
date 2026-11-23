@@ -3,9 +3,9 @@
 import { startTransition, useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
 import { Botao } from '@/components/ui/botao';
 import type { LembreteNovo } from '@/modules/lembretes/config';
-import { MAX_LIVRES, MAX_SUPLEMENTOS, rotuloDaAntecedencia, rotuloDoDiario, rotuloDoIntervalo, rotuloDosDias } from '@/modules/lembretes/constantes';
+import { MAX_LIVRES, MAX_SUPLEMENTOS, MSG_LEMBRETES, rotuloDaAntecedencia, rotuloDoDiario, rotuloDoIntervalo, rotuloDosDias } from '@/modules/lembretes/constantes';
 import { BotaoAcao } from '../botao-acao';
-import { apagarLembreteAction, ligarLembreteAction } from './actions';
+import { apagarLembreteAction, ligarLembreteAction, type AcaoLembreteState } from './actions';
 import { FormLembrete, type LembreteDoFormulario } from './form-lembrete';
 
 type Tipo = LembreteNovo['tipo'];
@@ -37,7 +37,22 @@ function Resumo({ l }: { l: LembreteNaTela }) {
   );
 }
 
-/** Interruptor da equipe: muda só `ligado` (a escolha do paciente fica como está). */
+/**
+ * A action com o alerta: `erro` da action ou a falha de rede/servidor (exceção), que não pode estourar a transição
+ * (TRI-17-20 #60, como `chamar` do interruptor do portal). Exportada para o teste.
+ */
+export async function chamarAcao(acao: () => Promise<AcaoLembreteState>): Promise<AcaoLembreteState> {
+  try {
+    return await acao();
+  } catch {
+    return { erro: MSG_LEMBRETES.falhou };
+  }
+}
+
+/**
+ * Interruptor da equipe: muda só `ligado` (a escolha do paciente fica como está). Se a action falhar, o estado otimista
+ * volta ao salvo quando a transição termina (as props não mudaram) e o alerta diz o que houve.
+ */
 function Interruptor({ patientId, l, anunciar }: { patientId: string; l: LembreteNaTela; anunciar: (texto: string) => void }) {
   const [ligado, setLigado] = useOptimistic(l.ligado);
   const [pendente, iniciar] = useTransition();
@@ -58,7 +73,7 @@ function Interruptor({ patientId, l, anunciar }: { patientId: string; l: Lembret
             !pendente &&
             iniciar(async () => {
               setLigado(!l.ligado);
-              const r = await ligarLembreteAction(patientId, l.id, !l.ligado);
+              const r = await chamarAcao(() => ligarLembreteAction(patientId, l.id, !l.ligado));
               startTransition(() => {
                 setErro(r.erro);
                 if (r.ok) anunciar(r.ok);
@@ -180,7 +195,7 @@ export function ListaDeLembretes({
                         {!l.desligadoPeloPacienteEm && (
                           <BotaoAcao
                             acao={async () => {
-                              const r = await apagarLembreteAction(patientId, l.id);
+                              const r = await chamarAcao(() => apagarLembreteAction(patientId, l.id));
                               if (r.ok) {
                                 startTransition(() => {
                                   anunciar(r.ok!);

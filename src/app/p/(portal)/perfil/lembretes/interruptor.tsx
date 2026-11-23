@@ -1,9 +1,10 @@
 'use client';
 import { startTransition, useOptimistic, useState, useTransition } from 'react';
+import { MSG_LEMBRETES } from '@/modules/lembretes/constantes';
 import type { LembreteDoPaciente } from '@/modules/lembretes/paciente';
 import { desligarLembreteAction, pausarLembretesAction, type LembreteDoPacienteState } from './actions';
 
-const FALHOU = 'Não foi possível salvar. Verifique a conexão e tente de novo.';
+const FALHOU = MSG_LEMBRETES.falhou;
 const PAUSADOS = 'Lembretes pausados. Você não vai receber avisos até retomar.';
 const CARTAO = 'space-y-2 rounded-2xl border border-borda bg-cartao p-4';
 
