@@ -21,6 +21,7 @@ import {
   tenants,
   twoFactor,
   user,
+  exams,
 } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
@@ -518,6 +519,37 @@ for (const p of pacientesDoCadastro) {
     );
   }
 }
+
+// Plano 22 (T6, US-375, PM-E14): um exame liberado no app ("Mostrar no app") da paciente MULTI no "Consultório E2E 2" —
+// consultório sem o recebimento de exames pelo app e sem envio dela, para o app-paciente.spec ver "Resultados liberados" e
+// o item "Exames" do menu só pelo exame liberado (RN-386). Uma linha fora da faixa do laudo ("Fora da referência") e uma
+// referência longa (quebra a linha a 360 px). Idempotente pelo título; a marca é religada a cada execução. O spec copia
+// o título (importar este arquivo roda o seed).
+const E2E_EXAME_LIBERADO = { titulo: 'Exames de rotina da semente' };
+const [consultorio2] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, 'e2e-consultorio-2'));
+await withTenant(
+  { tenantId: consultorio2.id, role: 'worker' },
+  async (tx) => {
+    const [multi] = await tx.select({ id: patients.id }).from(patients).where(and(eq(patients.tenantId, consultorio2.id), eq(patients.email, E2E_MULTI.email)));
+    const [ja] = await tx.select({ id: exams.id }).from(exams).where(and(eq(exams.patientId, multi.id), eq(exams.titulo, E2E_EXAME_LIBERADO.titulo)));
+    if (ja) {
+      await tx.update(exams).set({ mostrarNoAppEm: new Date() }).where(and(eq(exams.id, ja.id), sql`${exams.mostrarNoAppEm} is null`));
+      return;
+    }
+    await tx.insert(exams).values({
+      tenantId: consultorio2.id,
+      patientId: multi.id,
+      data: '2026-10-20',
+      titulo: E2E_EXAME_LIBERADO.titulo,
+      valores: [
+        { nome: 'Glicemia de jejum', valor: 105, unidade: 'mg/dL', referencia: '70 a 99 mg/dL', refMin: 70, refMax: 99 },
+        { nome: 'Ferritina', valor: 80, unidade: 'ng/mL', referencia: 'Mulheres adultas: de 15 a 150 ng/mL, conforme o método do laboratório' },
+      ],
+      mostrarNoAppEm: new Date(),
+    });
+  },
+  db,
+);
 
 await stopBoss(); // a publicação do plano enfileira o PDF
 await closeDb();

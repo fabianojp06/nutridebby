@@ -3,7 +3,8 @@ import { entrarComo } from './helpers';
 import { avaliar, entradasDoPlano, pacienteNoPortal, publicarPlanoDoDia } from './portal';
 
 // Plano 16 (US-191 a US-195). IPs (bloco da execução do Plano 16, 10.9.19.76 a 10.9.19.80; o limite de login é por IP):
-// 10.9.19.76 (nutricionista) e 10.9.19.77 a 10.9.19.80 (pacientes, um por teste).
+// 10.9.19.76 (nutricionista) e 10.9.19.77 a 10.9.19.80 (pacientes, um por teste). Plano 22 (T6, US-375): 10.9.22.30
+// (paciente nova do "Mostrar no app") e 10.9.22.31 (conta MULTI no "Consultório E2E 2", sem o recebimento de exames).
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
 let nutri: Page;
@@ -125,4 +126,82 @@ test('offline (US-193, RN-208): o endereço de uma refeição cai na cópia do p
   await p.page.goto('about:blank');
   await p.page.context().setOffline(false);
   await p.page.context().close();
+});
+
+/** A página não rola para o lado (o conteúdo cabe na largura da janela). */
+const semRolagemLateral = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+
+test('Plano 22 (US-375): "Mostrar no app" no detalhe do exame; a paciente vê "Resultados liberados" a 360 px, com o aviso; "Retirar do app" tira', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const p = await pacienteNoPortal(browser, nutri, '10.9.22.30');
+  const titulo = `Rotina ${Date.now().toString(36)}`;
+  await nutri.setViewportSize({ width: 1280, height: 800 });
+  await nutri.goto(`${p.prontuario}/exames`);
+  await nutri.getByLabel('Título do exame').fill(titulo);
+  await nutri.getByLabel('Marcador 1', { exact: true }).fill('Glicemia de jejum');
+  await nutri.getByLabel('Valor 1', { exact: true }).fill('105');
+  await nutri.getByLabel('Unidade 1', { exact: true }).fill('mg/dL');
+  await nutri.getByLabel('Faixa do laudo: de 1', { exact: true }).fill('70');
+  await nutri.getByLabel('até 1', { exact: true }).fill('99');
+  await nutri.getByRole('button', { name: 'Salvar exame' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Exame salvo.' })).toBeVisible();
+
+  // antes de liberar: a paciente não vê o exame
+  await p.page.setViewportSize({ width: 360, height: 800 });
+  await p.page.goto('/p/exames');
+  await expect(p.page.getByRole('heading', { name: 'Resultados liberados' })).toHaveCount(0);
+
+  await nutri.getByRole('link', { name: new RegExp(`^Abrir ${titulo} de `) }).click();
+  const mostrar = nutri.getByRole('button', { name: 'Mostrar no app do paciente' });
+  await mostrar.click();
+  const dialogo = nutri.getByRole('dialog', { name: 'Mostrar no app do paciente' });
+  await expect(dialogo).toContainText('A nota de interpretação, as categorias do consultório e o laudo não aparecem.');
+  await dialogo.getByRole('button', { name: 'Mostrar no app', exact: true }).click();
+  await expect(dialogo).toBeHidden();
+  await expect(nutri.getByRole('status').filter({ hasText: 'O exame aparece no app do paciente.' })).toBeVisible();
+  await expect(nutri.getByText('No app', { exact: true })).toBeVisible();
+  const retirar = nutri.getByRole('button', { name: 'Retirar do app' });
+  await expect(retirar).toBeFocused(); // o mesmo botão, com o texto trocado: o foco não sai dele
+
+  await p.page.reload();
+  await expect(p.page.getByRole('heading', { level: 2, name: 'Resultados liberados' })).toBeVisible();
+  await expect(p.page.getByText('Não é diagnóstico. Converse com sua nutricionista.')).toBeVisible();
+  const cartao = p.page.getByRole('listitem').filter({ has: p.page.getByRole('heading', { level: 3, name: titulo }) });
+  await expect(cartao).toContainText('Glicemia de jejum');
+  await expect(cartao).toContainText('Resultado: 105 mg/dL');
+  await expect(cartao).toContainText('Referência: 70 a 99');
+  await expect(cartao).toContainText('Fora da referência');
+  expect(await semRolagemLateral(p.page)).toBe(true);
+
+  await retirar.click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'O exame saiu do app do paciente.' })).toBeVisible();
+  await expect(nutri.getByRole('button', { name: 'Mostrar no app do paciente' })).toBeVisible();
+  await p.page.reload();
+  await expect(p.page.getByRole('heading', { name: 'Resultados liberados' })).toHaveCount(0);
+
+  // o Histórico de acessos: "Liberou exame no app" e "Retirou exame do app", além do "Alterou" do gatilho
+  await nutri.goto(`${p.prontuario}/historico`);
+  await expect(nutri.getByRole('cell', { name: 'Liberou exame no app' }).first()).toBeVisible();
+  await expect(nutri.getByRole('cell', { name: 'Retirou exame do app' }).first()).toBeVisible();
+  await p.page.context().close();
+});
+
+test('Plano 22 (RN-386): com o recebimento desligado e sem envio, o exame liberado põe "Exames" no menu; sem "Enviar exame" nem "Meus exames enviados"', async ({ browser }) => {
+  // scripts/e2e-seed.ts: o exame "Exames de rotina da semente", liberado, da MULTI no "Consultório E2E 2"
+  const page = await entrarComo(browser, 'multi-e2e@nutridebby.test', 'Multi2026segura', '10.9.22.31', { viewport: { width: 360, height: 800 } });
+  await expect(page).toHaveURL(/\/p\/escolher/);
+  await page.getByRole('button', { name: 'Consultório E2E 2', exact: true }).click();
+  await expect(page).toHaveURL(/\/p\/inicio$/);
+  const secoes = page.getByRole('navigation', { name: 'Seções' });
+  await expect(secoes.getByRole('link', { name: 'Exames', exact: true })).toBeVisible();
+  await secoes.getByRole('link', { name: 'Exames', exact: true }).click();
+  await expect(page).toHaveURL(/\/p\/exames$/);
+  await expect(page.getByRole('heading', { level: 2, name: 'Resultados liberados' })).toBeVisible();
+  const cartao = page.getByRole('listitem').filter({ has: page.getByRole('heading', { level: 3, name: 'Exames de rotina da semente' }) });
+  await expect(cartao).toContainText('Fora da referência');
+  await expect(cartao).toContainText('Referência: Mulheres adultas: de 15 a 150 ng/mL, conforme o método do laboratório');
+  await expect(page.getByRole('heading', { name: 'Enviar exame' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Meus exames enviados' })).toHaveCount(0);
+  expect(await semRolagemLateral(page)).toBe(true); // a referência longa quebra a linha
+  await page.context().close();
 });

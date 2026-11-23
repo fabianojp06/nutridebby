@@ -4,6 +4,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import type { TenantAgenda } from '@/modules/agenda/consultas';
 import { jaUsavaOAppNaTransacao } from './acesso';
 import { examesVisiveis, temEnvioVisivelNaTransacao } from './exames-enviados';
+import { temExameLiberadoNaTransacao } from './exames-liberados';
 import { miniJornadaNaTransacao } from './jornada';
 import type { MiniJornada } from './jornada-regras';
 import { pacienteDaSessao } from './sessao';
@@ -11,7 +12,8 @@ import { pacienteDaSessao } from './sessao';
 /**
  * P08-13 (D2 do Plano 16: Hoje = duas transações, o mural e esta): o que a faixa e o aviso de Hoje leem além do mural, numa
  * transação com o contexto do paciente — a mini-jornada (com o auditRead dela), se já abria o app antes de hoje e, com o
- * recebimento de exames desligado, se há envio visível (a seção "Exames", RN-192). `hoje` no fuso do tenant.
+ * recebimento de exames desligado, se há envio visível (a seção "Exames", RN-192) ou, sem ele, exame liberado pela
+ * nutricionista (Plano 22, RN-386). `hoje` no fuso do tenant.
  */
 export async function faixaDeHoje(
   ctx: TenantContext,
@@ -26,7 +28,11 @@ export async function faixaDeHoje(
     async (tx) => ({
       mini: await miniJornadaNaTransacao(tx, patientId, tenant, agora),
       jaUsava: await jaUsavaOAppNaTransacao(tx, patientId, hoje),
-      exames: await examesVisiveis(tenant, () => temEnvioVisivelNaTransacao(tx, patientId)),
+      exames: await examesVisiveis(
+        tenant,
+        () => temEnvioVisivelNaTransacao(tx, patientId),
+        () => temExameLiberadoNaTransacao(tx, patientId),
+      ),
     }),
     db,
   );

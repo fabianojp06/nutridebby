@@ -11,10 +11,12 @@ import type { Guia } from './conteudo';
  * C-191, C-192, C-197, RN-193, RN-194, RN-209; os textos já dizem "quando liberada"). Versão 3 (Plano 17, Tarefa 6): os
  * lembretes de rotina em "Perguntas comuns" (com a ressalva "se a sua nutricionista configurou": o guia é o mesmo para
  * todos); o tour não muda. A subida mostra "O manual do app foi atualizado" uma vez a quem já viu a versão 2.
+ * Plano 22: versão 4 (T6, EP-D52) — Exames também mostra os resultados que a nutricionista liberar no app ("Mostrar no app",
+ * US-375); o menu passa a ter "Exames" com eles, mesmo sem o recebimento ligado. O tour não muda.
  */
 export const GUIA_PORTAL: Guia = {
   id: 'portal-novidades',
-  versao: 3,
+  versao: 4,
   padrao: /^\/p\/inicio$/,
   titulo: 'Como usar o app',
   ajuda: {
@@ -27,7 +29,8 @@ export const GUIA_PORTAL: Guia = {
           // RN-203/RN-214: igual para todos e sem a palavra "peso" (quem tem o peso oculto não pode ler aqui que ele existe)
           'Jornada: suas consultas, as medidas e as orientações de cada atendimento, "Todas as medidas" e "Minhas consultas".',
           `Plano: as refeições do dia, o PDF, a lista de compras, os conteúdos e, quando liberada, a ${NOME_IA_NUTRI}.`,
-          'Exames: enviar um exame e acompanhar os que você enviou (quando o consultório recebe exames pelo app).',
+          // Plano 22 (T6): os resultados liberados pela nutricionista ("Mostrar no app")
+          'Exames: enviar um exame (quando o consultório recebe exames pelo app), acompanhar os que você enviou e ver os resultados que a sua nutricionista liberar.',
           'Eu: sua conta, documentos, notificações, privacidade, este manual e o Sair.',
         ],
       },

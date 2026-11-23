@@ -4,9 +4,11 @@ import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { novoMarcador } from '@/app/painel/exames/valores';
 import { requireNutri } from '@/lib/tenant-session';
+import { MSG_EXAMES } from '@/modules/exames/constantes';
+import { mostrarNoApp, retirarDoApp } from '@/modules/exames/edicao';
 import { apagarNota, NotaError, salvarNota } from '@/modules/exames/interpretacao';
 import { MSG_BLOQUEADO, PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
-import { excluirExame } from '@/modules/pacientes/exames';
+import { ExameError, excluirExame } from '@/modules/pacientes/exames';
 
 /**
  * Plano 22 (T5a, US-373, RN-383): as actions do detalhe do exame. Erro devolve `valores` (o texto digitado volta ao campo)
@@ -56,4 +58,41 @@ export async function excluirExameDoDetalheAction(patientId: string, exameId: st
   }
   revalidatePath(`/painel/pacientes/${patientId}`, 'layout');
   redirect(`/painel/pacientes/${patientId}/exames`);
+}
+
+/**
+ * Plano 22 (T6, US-375, RN-385, R22-17): "Mostrar no app do paciente" e "Retirar do app". A tela fica onde está (sem
+ * redirecionar): a ficha é revalidada (o selo "No app" muda) e o resultado volta para a região de status do detalhe.
+ * Paciente bloqueado → a recusa de hoje; o exame sumiu (excluído em outra aba) → "Não foi possível mudar o app do
+ * paciente. Tente de novo."; paciente de outro consultório → 404.
+ */
+export type NoAppState = { ok?: true; pacienteUsaApp?: boolean; erro?: string };
+
+async function mudarNoApp(patientId: string, mudar: () => Promise<NoAppState>): Promise<NoAppState> {
+  let r: NoAppState;
+  try {
+    r = await mudar();
+  } catch (e) {
+    if (e instanceof PacienteBloqueadoError) return { erro: MSG_BLOQUEADO };
+    if (e instanceof ExameError) return { erro: MSG_EXAMES.vazios.erroApp };
+    if (e instanceof PacienteNaoEncontradoError) notFound();
+    throw e;
+  }
+  revalidatePath(`/painel/pacientes/${patientId}`, 'layout');
+  return r;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- a assinatura do useActionState; o estado anterior e o formulário não são usados
+export async function mostrarNoAppAction(patientId: string, exameId: string, _prev: NoAppState, _f: FormData): Promise<NoAppState> {
+  const { ctx } = await requireNutri(detalhe(patientId, exameId));
+  return mudarNoApp(patientId, async () => ({ ok: true, pacienteUsaApp: (await mostrarNoApp(ctx, patientId, exameId)).pacienteUsaApp }));
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- a assinatura do useActionState; o estado anterior e o formulário não são usados
+export async function retirarDoAppAction(patientId: string, exameId: string, _prev: NoAppState, _f: FormData): Promise<NoAppState> {
+  const { ctx } = await requireNutri(detalhe(patientId, exameId));
+  return mudarNoApp(patientId, async () => {
+    await retirarDoApp(ctx, patientId, exameId);
+    return { ok: true };
+  });
 }
