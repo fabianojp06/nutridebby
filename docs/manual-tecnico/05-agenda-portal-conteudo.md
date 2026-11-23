@@ -604,8 +604,9 @@ não é disputado (spec §4, abordagem 2).
 1. Cada lembrete ativo gera os seus avisos do dia (`dias` conferidos pelo dia da semana local). O pedido do diário de uma
    refeição **já registrada hoje** sai aqui, antes da janela, da fusão e do teto (`slots.ts:69`): não derruba a água do
    mesmo minuto. "Já registrada" = um registro do dia local com a refeição do plano escolhida (`refeicao_slot`, 0121, gravada com ou sem
-   resposta), com a cópia da resposta (`refeicao_do_plano`) ou, quando o nome está na lista fechada, com a mesma refeição (`registradasNoDiario`, `envio.ts:113`; conferência de estado do
-   worker, sem `auditRead`).
+   resposta), com a cópia da resposta (`refeicao_do_plano`) ou, só no registro sem nenhuma das duas e quando o nome está na lista fechada, com a mesma refeição (`registradasNoDiario`, `envio.ts:113`; conferência de estado do
+   worker, sem `auditRead`). A comparação é pelo rótulo `nome · HH:MM` (`rotuloDaRefeicao`), não pelo nome: duas refeições de mesmo nome
+   ("Lanche" às 10:00 e às 16:00) não se confundem (TRI-17-20 #14).
 2. Fora da janela 06:00–22:00 (as 22:00 valem) não há aviso; hora que não existe no fuso (horário de verão) também não.
    Slot anterior ao `updated_at` do lembrete não sai (`validoDesde`, `slots.ts:78`): lembrete salvo às 10:03 não envia a
    água das 10:00; ligar, religar e editar renovam o `updated_at`.

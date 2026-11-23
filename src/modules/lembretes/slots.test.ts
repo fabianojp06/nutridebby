@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { partesNoFuso } from '@/modules/agenda/fuso';
 import type { ConfigAgua, ConfigHorarios, ConfigRefeicoes } from './config';
+import { rotuloDaRefeicao } from '@/modules/portal/diario-constantes';
 import { maiorDiaDaSemana, planoDoDia, type LembreteParaSlots, type RefeicaoDoPlano } from './slots';
 
 const SP = 'America/Sao_Paulo';
@@ -122,10 +123,21 @@ describe('planoDoDia', () => {
   });
 
   it('diário registrado não derruba a água do mesmo minuto', () => {
-    const r = plano([refeicoes({ diarioDepoisMin: 60 }), agua({ inicio: '13:00', fim: '13:00' })], [{ nome: 'Almoço', horario: '12:00' }], { refeicoesNoDiario: ['Almoço'] });
+    const r = plano([refeicoes({ diarioDepoisMin: 60 }), agua({ inicio: '13:00', fim: '13:00' })], [{ nome: 'Almoço', horario: '12:00' }], { refeicoesNoDiario: [rotuloDaRefeicao('Almoço', '12:00')] });
     expect(horas(r)).toEqual(['12:00 refeicao', '13:00 agua']);
     expect(r.slots[1].lembreteIds).toEqual(['agua']);
     expect(r.slots[1].refeicao).toBeNull();
+  });
+
+  it('TRI-17-20 #14: refeições de mesmo nome — o diário registrado do "Lanche · 10:00" não derruba o pedido do "Lanche · 16:00"', () => {
+    const refs = [
+      { nome: 'Lanche', horario: '10:00:00' },
+      { nome: 'Lanche', horario: '16:00:00' },
+    ];
+    const r = plano([refeicoes({ diarioDepoisMin: 30 })], refs, { refeicoesNoDiario: [rotuloDaRefeicao('Lanche', '10:00')] });
+    expect(horas(r)).toEqual(['10:00 refeicao', '16:00 refeicao', '16:30 diario']);
+    // pelo nome só não casa mais: o rótulo leva a hora
+    expect(horas(plano([refeicoes({ diarioDepoisMin: 30 })], refs, { refeicoesNoDiario: ['Lanche'] }))).toEqual(['10:00 refeicao', '10:30 diario', '16:00 refeicao', '16:30 diario']);
   });
 
   it('validoDesde: descarta os slots do lembrete antes dele (e só os dele)', () => {
@@ -164,6 +176,6 @@ describe('maiorDiaDaSemana', () => {
 
   it('ignora validoDesde e refeicoesNoDiario (é previsão, não o envio de hoje)', () => {
     const l = [{ ...agua(), validoDesde: new Date('2100-01-01T00:00:00Z') }, refeicoes({ diarioDepoisMin: 30 })];
-    expect(maiorDiaDaSemana({ lembretes: l, refeicoes: [{ nome: 'Almoço', horario: '12:15' }], fuso: SP, refeicoesNoDiario: ['Almoço'] })).toBe(9);
+    expect(maiorDiaDaSemana({ lembretes: l, refeicoes: [{ nome: 'Almoço', horario: '12:15' }], fuso: SP, refeicoesNoDiario: [rotuloDaRefeicao('Almoço', '12:15')] })).toBe(9);
   });
 });
