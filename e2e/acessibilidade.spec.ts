@@ -681,3 +681,19 @@ test('paciente não alcança o painel nem a API da nutricionista (403 ou vai ao 
     expect(await r.json(), `${metodo} ${url}`).toEqual({ erro: 'Acesso negado' });
   }
 });
+
+// Plano 26 (T7, RN-500): a cópia pública do Termo de confidencialidade da equipe, sem login (o convite da recepção, com o
+// termo na página, tem o axe no equipe-primeiro-acesso.spec)
+test('axe sem violações em /termos/sigilo-equipe (sem login), claro e escuro, sem rolagem horizontal no celular', async ({ browser }) => {
+  const anonimo = await (await browser.newContext({ ...devices['Pixel 7'], extraHTTPHeaders: { 'x-forwarded-for': '10.9.36.41' } })).newPage();
+  try {
+    for (const modo of ['light', 'dark'] as const) {
+      await anonimo.emulateMedia({ colorScheme: modo });
+      await semViolacoes(anonimo, '/termos/sigilo-equipe');
+      await expect(anonimo.getByRole('heading', { level: 1, name: 'Termo de confidencialidade da equipe' })).toBeVisible();
+      expect(await anonimo.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), modo).toBe(true);
+    }
+  } finally {
+    await anonimo.context().close();
+  }
+});

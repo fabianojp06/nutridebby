@@ -325,3 +325,19 @@ describe('conteúdo do manual (P08-10)', () => {
     }
   });
 });
+
+describe('Plano 26 (T7): o guia da Equipe', () => {
+  it('a Equipe tem guia próprio (`equipe`, v1), antes do de Configurações, com os dois passos da spec', () => {
+    expect(guiaDaRota('/painel/configuracoes/equipe')?.id).toBe('equipe');
+    expect(guiaDaRota('/painel/configuracoes')?.id).toBe('configuracoes');
+    expect(guiaDaRota('/painel/configuracoes/perfil')?.id).toBe('configuracoes');
+    const ids = GUIAS.map((g) => g.id);
+    expect(ids.indexOf('equipe')).toBeLessThan(ids.indexOf('configuracoes'));
+    const g = GUIAS.find((x) => x.id === 'equipe')!;
+    expect(g.versao).toBe(1);
+    expect(g.passos.map((p) => [p.alvo, p.texto])).toEqual([
+      ['convidar', 'Convide a pessoa da recepção. Ela cuida da agenda e do cadastro e não vê dados de saúde.'],
+      ['permissao-financeiro', 'Marque se ela também cuida do Financeiro.'],
+    ]);
+  });
+});

@@ -5,15 +5,19 @@ import { aceitarConviteAction, type AceiteState } from './actions';
 
 const ERRO_ID = 'erro-convite';
 
-/** `rotuloDpa` e `versao` vêm da página (servidor): o módulo do DPA importa o banco e não entra no bundle do navegador. */
-export function ConviteForm({ token, rotuloDpa, versao }: { token: string; rotuloDpa: string; versao: string }) {
+/**
+ * `rotulo` e `versao` vêm da página (servidor): o módulo do DPA importa o banco e não entra no bundle do navegador.
+ * Plano 26 (RN-500, US-489): `aceite` = a caixa do texto aceito — `dpa` (convite da nutricionista) ou `sigilo` (o Termo de
+ * confidencialidade da equipe, convite da recepção); o tipo do convite decide na página, e a action confere de novo.
+ */
+export function ConviteForm({ token, rotulo, versao, aceite = 'dpa' }: { token: string; rotulo: string; versao: string; aceite?: 'dpa' | 'sigilo' }) {
   const [state, action, pendente] = useActionState<AceiteState, FormData>(aceitarConviteAction.bind(null, token), {});
   const [senha, setSenha] = useState('');
   const [confirmacao, setConfirmacao] = useState('');
   // T6-R2: "As senhas não conferem" afeta os dois campos; senha fraca afeta só a senha.
   const senhaInvalida = state.campo === 'senha' || state.campo === 'confirmacao';
   const confirmacaoInvalida = state.campo === 'confirmacao';
-  const dpaInvalido = state.campo === 'dpa';
+  const aceiteInvalido = state.campo === aceite;
   return (
     <form action={action} className="space-y-3">
       {/* P08-06: a versão que a pessoa leu; a action recusa se a versão em vigor mudou com a página aberta */}
@@ -47,17 +51,17 @@ export function ConviteForm({ token, rotuloDpa, versao }: { token: string; rotul
       />
       <div className="flex items-start gap-2">
         <input
-          id="dpa"
-          name="dpa"
+          id={aceite}
+          name={aceite}
           type="checkbox"
           className="mt-1"
-          aria-invalid={dpaInvalido ? true : undefined}
-          aria-describedby={dpaInvalido ? ERRO_ID : undefined}
+          aria-invalid={aceiteInvalido ? true : undefined}
+          aria-describedby={aceiteInvalido ? ERRO_ID : undefined}
         />
-        <label htmlFor="dpa">{rotuloDpa}</label>
+        <label htmlFor={aceite}>{rotulo}</label>
       </div>
       {state.erro && (
-        <p id={ERRO_ID} role="alert" className="text-red-700">
+        <p id={ERRO_ID} role="alert" className="text-erro">
           {state.erro}
         </p>
       )}

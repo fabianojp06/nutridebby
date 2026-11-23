@@ -89,6 +89,9 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   // Plano 22 (T6, RN-385, EP-D45): "Mostrar no app" (recordAudit do módulo); a ação sai na coluna Ação (rotuloDaAcao)
   exame_no_app_liberado: 'Exames',
   exame_no_app_retirado: 'Exames',
+  // Plano 26 (RN-499, RN-502, RN-503, RN-516): as ações da Equipe (convidar, reenviar, permissão, desativar, reativar), sem
+  // paciente — fora do Histórico do paciente (registro das operações, DPA cl. 12)
+  equipe: 'Equipe',
 };
 
 export type AccessHistoryItem = {

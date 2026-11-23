@@ -203,3 +203,44 @@ describe('o aceite grava só a versão que a pessoa leu (P08-06, /code-review do
     expect(readFileSync(acao, 'utf8').split('leuAVersaoEmVigor(formData,').length - 1).toBe(conferencias);
   });
 });
+
+describe('Termo de confidencialidade da equipe 1.0 (Plano 26, RN-500, PM-R3)', () => {
+  it('versão 1.0, termo `sigilo-equipe-1.0`, sem nada de provisório, com a data no rodapé', async () => {
+    const t = await import('./textos-versionados');
+    expect(t.SIGILO_EQUIPE_VERSAO).toBe('1.0');
+    expect(t.SIGILO_EQUIPE_TERMO).toBe('sigilo-equipe-1.0');
+    expect(t.SIGILO_EQUIPE_TITULO).toBe('Termo de confidencialidade da equipe');
+    const p = t.SIGILO_EQUIPE_TEXTOS['1.0'].paragrafos;
+    for (const x of p) expect(x).not.toMatch(/provis/i);
+    expect(p.at(-1)).toBe(`Versão 1.0, de ${formatarData(t.SIGILO_EQUIPE_VERSAO_DATA)}.`);
+    expect(t.SIGILO_EQUIPE_TEXTO).toEqual({ titulo: t.SIGILO_EQUIPE_TITULO, paragrafos: p.map((x) => [{ texto: x }]) });
+  });
+  it('os oito itens do conteúdo mínimo da PM-R3, um por cláusula numerada', async () => {
+    const p = (await import('./textos-versionados')).SIGILO_EQUIPE_TEXTOS['1.0'].paragrafos;
+    expect(p.slice(0, 8).map((x) => Number(x.split('.')[0]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    const [partes, objeto, uso, proibido, incidente, depois, dados, normas] = p;
+    // (1) partes: a nutricionista controladora e a pessoa da recepção; a plataforma só registra o aceite
+    expect(partes).toContain('nutricionista responsável pelo consultório');
+    expect(partes).toContain('controladora');
+    expect(partes).toContain('recepção');
+    expect(partes).toContain('só registra o seu aceite');
+    // (2) objeto: dados de pacientes, inclusive o fato de alguém ser paciente
+    expect(objeto).toContain('inclusive o simples fato de uma pessoa ser paciente do consultório');
+    // (3) uso só para agenda e cadastro (art. 6º, I e III)
+    expect(uso).toContain('a agenda e o cadastro dos pacientes');
+    expect(uso).toContain('art. 6º, I e III');
+    // (4) proibições; senha e 2FA pessoais; sair do computador compartilhado
+    for (const x of ['copiar', 'fotografar', 'exportar', 'repassar', 'senha', 'verificação em duas etapas', 'computador compartilhado']) expect(proibido).toContain(x);
+    // (5) avisar a nutricionista na hora; o prazo do controlador conta da ciência (Res. ANPD 15/2024, art. 6º)
+    expect(incidente).toContain('avise a nutricionista na hora');
+    expect(incidente).toContain('Res. CD/ANPD 15/2024, art. 6º');
+    // (6) o sigilo continua depois da desativação
+    expect(depois).toContain('continua depois que o seu acesso for desativado');
+    // (7) os dados dela: nome, e-mail, IP, autoria no Histórico, "Último acesso" visível à nutricionista (arts. 6º, VI, e 9º)
+    for (const x of ['nome', 'e-mail', 'IP', 'Histórico de acessos', 'último acesso', 'tela Equipe', 'arts. 6º, VI, e 9º']) expect(dados).toContain(x);
+    // (8) Res. 599, art. 20, I e, a partir de 23/01/2027, arts. 23 e 36 da Res. 856
+    expect(normas).toContain('Res. CFN 599/2018');
+    expect(normas).toContain('art. 20, I');
+    expect(normas).toContain('a partir de 23/01/2027, aos arts. 23 e 36 da Res. CFN 856/2026');
+  });
+});

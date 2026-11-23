@@ -28,6 +28,8 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { stopBoss } from '@/jobs/boss';
 import { hashPassword } from '@/lib/password.server';
+// Plano 26 (T7): o convite da recepção do primeiro acesso, criado pelo módulo da Equipe
+import { convidarRecepcao } from '@/modules/plataforma/equipe';
 import { chaveDoLimite, liberarLimite } from '@/modules/agenda/limite-ip';
 import { idTaco } from '@/modules/alimentos/taco';
 import { GUIAS } from '@/modules/ajuda/conteudo';
@@ -677,6 +679,27 @@ for (const [cred, financeiro, tenantId, ator] of [
   );
   await db.insert(consents).values({ userId: id, tenantId, termoVersao: TERMO_SIGILO_EQUIPE, ip: null }).onConflictDoNothing();
   await db.update(user).set({ guia: cred === E2E_RECEPCAO_FIN ? {} : TUDO_VISTO }).where(eq(user.id, id));
+}
+
+// Plano 26 (T7, RE-D69): o primeiro acesso da recepção (e2e/equipe-primeiro-acesso.spec.ts) num consultório NOVO por
+// execução, com o DPA aceito e uma nutricionista sem senha (só o ator do convite), e o convite criado pelo módulo da Equipe
+// (`convidarRecepcao`, a mesma transação da tela) para um e-mail novo por execução: com um e-mail fixo, a 2ª execução cairia
+// em "Este e-mail já tem uma conta" (equipe_membros.user_id é NO ACTION, com o DELETE revogado), e o consultório principal
+// já tem E2E_RECEPCAO e E2E_RECEPCAO_FIN. O spec acha o convite pelo assunto (o nome do consultório é fixo; o mais novo é o
+// desta execução). Os consultórios das execuções anteriores ficam no banco, com as contas deles.
+export const E2E_EQUIPE_NOVA = { consultorio: 'Consultório Equipe Nova E2E', nome: 'Recepção Nova E2E' };
+{
+  const [t] = await db
+    .insert(tenants)
+    .values({ slug: `e2e-equipe-nova-${sufixo}`, nomeExibicao: E2E_EQUIPE_NOVA.consultorio, dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date() })
+    .returning({ id: tenants.id });
+  const ator = randomUUID();
+  await db.insert(user).values({ id: ator, name: 'Nutri Equipe Nova E2E', email: `e2e-equipe-nova-nutri-${sufixo}@nutridebby.test`, emailVerified: true, appRole: 'nutri', tenantId: t.id });
+  await convidarRecepcao(
+    { tenantId: t.id, role: 'nutri', actorUserId: ator, ip: null },
+    { nome: E2E_EQUIPE_NOVA.nome, email: `recepcao-nova-${sufixo}@nutridebby.test`, financeiro: false },
+    { db },
+  );
 }
 
 await stopBoss(); // a publicação do plano enfileira o PDF

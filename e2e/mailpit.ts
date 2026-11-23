@@ -44,3 +44,20 @@ export function primeiroLink(texto: string, trecho: string): string {
   if (!m) throw new Error(`Nenhum link com "${trecho}" no e-mail`);
   return m[0];
 }
+
+/**
+ * Plano 26 (T7, RE-D69): o destinatário do e-mail mais recente com este assunto (o Mailpit lista do mais novo para o mais
+ * antigo) — para o convite que a semente manda a um e-mail novo por execução, que o spec não conhece.
+ */
+export async function destinatarioDoUltimo(assunto: string, timeoutMs = 30_000): Promise<string> {
+  const fim = Date.now() + timeoutMs;
+  while (Date.now() < fim) {
+    const r = await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`subject:"${assunto}"`)}&limit=5`);
+    if (!r.ok) throw new Error(`Mailpit respondeu ${r.status} na busca`);
+    const { messages } = (await r.json()) as { messages: (Resumo & { To: { Address: string }[] })[] };
+    const m = messages.find((x) => x.Subject === assunto);
+    if (m?.To[0]?.Address) return m.To[0].Address;
+    await new Promise((res) => setTimeout(res, 500));
+  }
+  throw new Error(`Nenhum e-mail com o assunto "${assunto}" em ${timeoutMs} ms`);
+}

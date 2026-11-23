@@ -356,6 +356,39 @@ export const GUIAS: readonly Guia[] = [
       { titulo: 'Modelos sugeridos pela IA', texto: 'Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só podem ser usados com pacientes depois de "Aprovar modelo".' },
     ],
   },
+  // Plano 26 (US-488, §6.2): a Equipe, antes do guia de Configurações (o padrão `configuracoes(/.*)?` engoliria a rota)
+  {
+    id: 'equipe',
+    versao: 1,
+    padrao: /^\/painel\/configuracoes\/equipe$/,
+    titulo: 'Equipe',
+    ajuda: {
+      resumo: 'Convide a pessoa da recepção, dê ou tire a permissão do Financeiro e desative ou reative o acesso dela.',
+      secoes: [
+        {
+          titulo: 'O que a recepção vê',
+          itens: [
+            'A recepção cuida da agenda e do cadastro dos pacientes. Ela não vê anamnese, medidas, exames, planos, documentos, notas do atendimento, a observação do cadastro nem nada da IA.',
+            'Tudo o que ela cadastra ou altera, e cada cadastro que ela abre, fica no Histórico de acessos do paciente, com o nome dela.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'O consultório pode ter até 3 pessoas ativas na recepção. Quem foi desativado não conta.',
+            'No primeiro acesso, a pessoa cria a senha, aceita o termo de confidencialidade e configura a verificação em duas etapas, que é obrigatória para a recepção.',
+            'O convite vale por 72 horas. Se vencer antes de a pessoa criar a senha, reenvie o convite.',
+            'A permissão do Financeiro vale a partir da próxima tela que a pessoa abrir. As configurações do Financeiro continuam só suas.',
+            'Desativar encerra as sessões da pessoa na hora. O que ela fez continua no Histórico de acessos dos pacientes; reativar devolve o acesso com a mesma senha.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'convidar', titulo: 'Convidar', texto: 'Convide a pessoa da recepção. Ela cuida da agenda e do cadastro e não vê dados de saúde.' },
+      { alvo: 'permissao-financeiro', titulo: 'Financeiro', texto: 'Marque se ela também cuida do Financeiro.' },
+    ],
+  },
   {
     id: 'configuracoes',
     versao: 9, // Plano 22: o cartão "Exames" (+1 sobre a main); 8 = Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
+import { EQUIPE_LIGADA, MSG_EQUIPE } from '@/modules/plataforma/equipe-textos';
 import { ehTema } from '@/modules/plataforma/preferencias-tipos';
 import { ExamesSecao } from './exames-secao';
 import { IaSecao } from './ia-secao';
@@ -18,6 +19,8 @@ const CARTOES = [
   { href: '/conta/seguranca', titulo: 'Segurança', texto: 'Senha e verificação em duas etapas.' },
   // Plano 22 (T3, EP-D33): no fim
   { href: '/painel/exames/catalogo', titulo: 'Exames', texto: 'Catálogo de exames, faixas do consultório e modelos de solicitação.' },
+  // Plano 26 (§7.2, RE-D52): a Equipe, no fim, só com a constante ligada (T11b)
+  ...(EQUIPE_LIGADA ? [{ href: '/painel/configuracoes/equipe', titulo: MSG_EQUIPE.cartao.titulo, texto: MSG_EQUIPE.cartao.texto }] : []),
 ];
 
 /** D20: hub de Configurações. */
