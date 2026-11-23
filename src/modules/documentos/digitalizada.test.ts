@@ -10,6 +10,7 @@ import { confirmarCodigo2fa } from '@/lib/confirmar-2fa';
 import { logger } from '@/lib/logger';
 import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
 import { getBoss, stopBoss } from '@/jobs/boss';
+import { FILA_DA_DIGITALIZADA } from '@/jobs/queues';
 import { receberDigitalizada } from './digitalizada';
 import { expirarPdfsDeDocumentoPendentes } from './documento-pdf-job';
 import { RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
@@ -126,8 +127,11 @@ describe('digitalizada (RN-157, D4)', () => {
     const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select status, digitalizacao, digitalizacao_status from signed_documents where id = ${x.id}`), app.db)).rows as { status: string; digitalizacao: string[]; digitalizacao_status: string }[];
     expect(d).toMatchObject({ status: 'aguardando_assinatura', digitalizacao_status: 'pendente' });
     expect(d.digitalizacao).toHaveLength(2);
-    const jobs = await (await getBoss()).findJobs<{ documentoId: string }>('documento-digitalizado');
+    // Plano 22 (EP-D34): só na fila nova, que o worker antigo não registra
+    const jobs = await (await getBoss()).findJobs<{ documentoId: string }>(FILA_DA_DIGITALIZADA);
     expect(jobs.some((j) => j.data.documentoId === x.id)).toBe(true);
+    const antigos = await (await getBoss()).findJobs<{ documentoId: string }>('documento-digitalizado');
+    expect(antigos.some((j) => j.data.documentoId === x.id)).toBe(false);
   });
 
   it('D24: dois envios ao mesmo tempo → um passa e o outro recebe 409; as fotos não se somam', async () => {

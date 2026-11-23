@@ -7,6 +7,7 @@ import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { tenants, type TenantRow } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
+import { FILA_DO_PDF_DO_DOCUMENTO } from '@/jobs/queues';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 import { MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { DIGITALIZACAO_MAX_MS, podeVoltarAEditar } from './constantes';
@@ -82,8 +83,11 @@ describe('ciclo do documento (US-142, US-143)', () => {
     const d = await lerDocumento(T.ctx, p.id, id, app.db);
     expect(d).toMatchObject({ status: 'preparando', pdfStatus: 'pendente', conteudo: { copia: { paciente: { nome: 'Ana Souza' }, profissional: { nomeCompleto: 'Débora Silva Santos', telefone: '(11) 91234-5678' } } } });
     expect(d!.codigo).toMatch(/^[0-9A-HJKMNP-TV-Z]{12}$/);
-    const jobs = await (await getBoss()).findJobs<{ documentoId: string }>('documento-pdf');
+    // Plano 22 (EP-D34): só na fila nova, que o worker antigo não registra
+    const jobs = await (await getBoss()).findJobs<{ documentoId: string }>(FILA_DO_PDF_DO_DOCUMENTO);
     expect(jobs.some((j) => j.data.documentoId === id)).toBe(true);
+    const antigos = await (await getBoss()).findJobs<{ documentoId: string }>('documento-pdf');
+    expect(antigos.some((j) => j.data.documentoId === id)).toBe(false);
     // depois de preparar, salvar o rascunho é recusado (RN-140)
     await expect(salvarRascunhoReceita(T.ctx, tenant, p.id, id, { conteudo: { itens: [vitD] }, justificativa: 'x' }, { db: app.db })).rejects.toThrow(TransicaoInvalidaError);
   });

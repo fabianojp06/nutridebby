@@ -51,6 +51,14 @@ export const QUEUES = {
   'documento-pdf': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
   // Plano 10A (RN-157, D4): PDF montado com as fotos da digitalizada. Payload { tenantId, documentoId, userId }
   'documento-digitalizado': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 180, deleteAfterSeconds: 86_400 },
+  /**
+   * Plano 22 (EP-D34, R-375): as mesmas gerações, em filas que só o worker novo registra. O worker antigo, de pé até o
+   * novo subir (e na volta atrás), desenharia uma solicitação de exames como receita (e o título da digitalizada sairia
+   * `undefined`). O app novo enfileira só aqui; o worker novo consome as quatro (`FILAS_DO_PDF_DO_DOCUMENTO`,
+   * `FILAS_DA_DIGITALIZADA`).
+   */
+  'documento-pdf-2': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 120, deleteAfterSeconds: 86_400 },
+  'documento-digitalizado-2': { retryLimit: 2, retryDelay: 30, retryBackoff: true, expireInSeconds: 180, deleteAfterSeconds: 86_400 },
   // Plano 10A: PDF pendente há mais de 1 h → falhou; digitalização "recebendo"/"pendente" há mais de 1 h → falhou; PDF base e
   // fotos da digitalizada sem referência → apagados (de 15 em 15 min)
   'expirar-documento-pdf': { retryLimit: 1, retryDelay: 60, expireInSeconds: 300 },
@@ -95,6 +103,15 @@ export const QUEUES = {
 } satisfies Record<string, QueueConfig>;
 
 export type QueueName = keyof typeof QUEUES;
+
+/** Plano 22 (EP-D34): onde o preparo e "Gerar o PDF de novo" enfileiram o PDF preparado do documento. */
+export const FILA_DO_PDF_DO_DOCUMENTO = 'documento-pdf-2' satisfies QueueName;
+/** EP-D34: o worker novo consome as duas com o mesmo handler (`documento-pdf`: jobs do app antigo na janela do deploy). */
+export const FILAS_DO_PDF_DO_DOCUMENTO = ['documento-pdf', FILA_DO_PDF_DO_DOCUMENTO] as const satisfies readonly QueueName[];
+/** EP-D34: onde o envio das fotos da digitalizada enfileira a montagem do PDF assinado. */
+export const FILA_DA_DIGITALIZADA = 'documento-digitalizado-2' satisfies QueueName;
+/** EP-D34: o worker novo consome as duas com o mesmo handler (`documento-digitalizado`: jobs do app antigo). */
+export const FILAS_DA_DIGITALIZADA = ['documento-digitalizado', FILA_DA_DIGITALIZADA] as const satisfies readonly QueueName[];
 
 export async function ensureQueues(boss: PgBoss): Promise<void> {
   for (const [name, options] of Object.entries(QUEUES)) {

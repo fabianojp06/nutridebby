@@ -235,3 +235,59 @@ describe('PDF do parecer (US-141, RN-148, D5)', () => {
     expect(textoDoPdf(await readFile(path.join(dataDir, d.base_pdf_path)))).toContain('Parecer nutricional');
   });
 });
+
+const dadosFixos = { codigo: 'ABCDEFGHJKMN', urlVerificacao: 'https://x/v/ABCDEFGHJKMN', data: '01/10/2026', cor: '#0f766e', logo: null, nomeConsultorio: 'Consultório Debby' };
+const solicitacao = {
+  versao: 1, tipo: 'solicitacao_exames', exames: [{ nome: 'Glicose' }, { nome: 'Hemograma completo', painel: true }, { nome: 'Vitamina D (25-OH)' }],
+  indicacaoClinica: 'Acompanhar a resposta à dieta.', orientacoes: 'Jejum de 8 horas.', orientacoesFormato: 'marcacao', copia: conteudo.copia,
+};
+
+describe('PDF da solicitação de exames (Plano 22, RN-389, EP-D2) e os de hoje intactos (T7)', () => {
+  it('título fixo, os exames (o painel com o nome dele), a indicação, as orientações, o carimbo, o código e o QR; sem campo de laboratório', async () => {
+    const pdf = await renderizarDocumento({ conteudo: solicitacao as never, ...dadosFixos });
+    const t = textoDoPdf(pdf);
+    for (const trecho of ['Solicitação de exames laboratoriais', 'Paciente: Ana Souza', 'Data de emissão: 01/10/2026', 'Exames solicitados', '1. Glicose', '2. Hemograma completo',
+      '3. Vitamina D (25-OH)', 'Indicação clínica', 'Acompanhar a resposta à dieta.', 'Orientações', 'Jejum de 8 horas.', 'Débora Silva Santos', 'Assinatura digital',
+      'Código de verificação: ABCD-EFGH-JKMN'])
+      expect(t, trecho).toContain(trecho);
+    expect(t).not.toMatch(/Laborat[óo]rio/);
+    expect(t).not.toContain('Receita');
+    expect(t).not.toContain('Orientações gerais'); // o texto da receita não cai aqui
+    expect(pdf.toString('latin1')).toMatch(/\/Subtype\s*\/Image/); // o QR (imagem) no rodapé
+  });
+
+  it('indicação clínica só quando preenchida; orientações vazias também somem', async () => {
+    const t = textoDoPdf(await renderizarDocumento({ conteudo: { ...solicitacao, indicacaoClinica: null, orientacoes: '' } as never, ...dadosFixos }));
+    expect(t).toContain('Glicose');
+    expect(t).not.toContain('Indicação clínica');
+    expect(t).not.toContain('Orientações');
+  });
+
+  it('o job gera o PDF da solicitação em preparo e leva a "Aguardando assinatura"', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const id = randomUUID();
+    await withTenant(T.ctx, (tx) => tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, tipo, status, codigo, conteudo, declaracao_em, pdf_status, pdf_pedido_em)
+      values (${id}, ${T.tenantId}, ${p.id}, 'solicitacao_exames', 'preparando', ${codigoAleatorio()}, ${JSON.stringify(solicitacao)}::jsonb, now(), 'pendente', now())`), app.db);
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'docpdf-'));
+    expect(await gerarPdfDoDocumento({ tenantId: T.tenantId, documentoId: id }, { db: app.db, dataDir, appUrl: 'https://x', ultimaTentativa: false })).toBe('pronto');
+    const [d] = (await withTenant(T.ctx, (tx) => tx.execute(sql`select status, base_pdf_path from signed_documents where id = ${id}`), app.db)).rows as { status: string; base_pdf_path: string }[];
+    expect(d.status).toBe('aguardando_assinatura');
+    expect(textoDoPdf(await readFile(path.join(dataDir, d.base_pdf_path)))).toContain('Solicitação de exames laboratoriais');
+  });
+
+  it('a receita e o parecer saem iguais aos de antes da T7 (texto do PDF)', async () => {
+    expect(textoDoPdf(await renderizarDocumento({ conteudo: conteudo as never, ...dadosFixos }))).toMatchInlineSnapshot(`
+      "Consultório DebbyReceitaPaciente: Ana SouzaData de emissão: 01/10/20261. Vitamina D3 2000 UISuplemento alimentar (Nutriente) · CápsulaVia: OralPosologia: 1 cápsula ao diaOrientações gerais: Tomar com água.Débora Silva Santos · Nutricionista · CRN-3 12345 · debby@consultorio.com · (11) 91234-5678Assinatura digitalCódigo de verificação: ABCD-EFGH-JKMN · Verifique em https://x/v/ABCDEFGHJKMN
+
+
+      "
+    `);
+    expect(textoDoPdf(await renderizarDocumento({ conteudo: parecer as never, ...dadosFixos }))).toMatchInlineSnapshot(`
+      "Consultório DebbyParecer nutricionalPaciente: Ana SouzaData de emissão: 01/10/2026Exames consideradosHemograma  01/09/2026Marcador · Valor · Unidade · ReferênciaHemoglobina · 13,5 · g/dL · 12 a 16Perfil lipídico  20/08/2026(laudo no prontuário, sem valores lançados)Avaliação nutricionalMarcadores compatíveis com baixa reserva de ferro.EncaminhamentosSugiro avaliação médica.Este parecer trata do estado nutricional e não constitui diagnóstico de doença nem substitui avaliação médica.Débora Silva Santos · Nutricionista · CRN-3 12345 · debby@consultorio.com · (11) 91234-5678Assinatura digitalCódigo de verificação: ABCD-EFGH-JKMN · Verifique em https://x/v/ABCDEFGHJKMN
+
+
+      "
+    `);
+  });
+});

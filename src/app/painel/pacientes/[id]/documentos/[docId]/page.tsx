@@ -14,7 +14,9 @@ import { dataHora, lerDocumento } from '@/modules/documentos/documentos';
 import { situacaoDaEntrega } from '@/modules/documentos/entrega';
 import { linhaDoValor, MSG_PARECER, rotuloDoExame } from '@/modules/documentos/parecer';
 import { situacaoDosExames } from '@/modules/documentos/parecer-exames';
-import { descreverItem } from '@/modules/documentos/prescricao';
+import type { ConteudoParecer } from '@/modules/documentos/parecer';
+import { descreverItem, type ConteudoReceita } from '@/modules/documentos/prescricao';
+import { assertNever, type ConteudoAnonimizado } from '@/modules/documentos/tipos-de-documento';
 import { listarExames } from '@/modules/pacientes/exames';
 import { carregarProntuario } from '../../prontuario';
 import { apagarRascunhoAction, pedirNovoPdfAction, retificarAction, voltarAEditarAction } from '../actions';
@@ -41,9 +43,26 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
   const habilitada = !!tenant.fitoterapiaRegistro;
   // RN-140 (c): o emitido anonimizado tem conteudo '{}' e nenhum PDF — a página mostra só a situação (correção do /code-review high do PR #18)
   const anonimizado = !!d.anonimizadoEm;
-  // Plano 13: o conteúdo é da receita ou do parecer; o anonimizado tem conteudo '{}' (sem tipo)
-  const receita = d.conteudo.tipo === 'receita' ? d.conteudo : null;
-  const parecer = d.conteudo.tipo === 'parecer' ? d.conteudo : null;
+  // Plano 13: o conteúdo é da receita ou do parecer; o anonimizado tem conteudo '{}' (sem tipo). Plano 22 (DEP-E7): por
+  // `switch`; a solicitação responde 404 até a T8, que põe o formulário e a visão dela no mesmo PR (nenhum caminho do app
+  // cria uma solicitação antes disso)
+  let receita: ConteudoReceita | null = null;
+  let parecer: ConteudoParecer | null = null;
+  const conteudo: typeof d.conteudo | ConteudoAnonimizado = d.conteudo;
+  switch (conteudo.tipo) {
+    case 'receita':
+      receita = conteudo;
+      break;
+    case 'parecer':
+      parecer = conteudo;
+      break;
+    case 'solicitacao_exames':
+      return notFound();
+    case undefined: // anonimizado
+      break;
+    default:
+      assertNever(conteudo);
+  }
   // US-141: a seleção do editor pela lista do prontuário (listarExames grava "Visualizou · Exames", regra 8)
   const examesParaEscolher = parecer && d.status === 'rascunho' && !bloqueado
     ? (await listarExames(ctx, paciente.id)).map((x) => ({ id: x.id, rotulo: rotuloDoExame(x), semValores: x.valores.length === 0, linhas: x.valores.map(linhaDoValor) }))

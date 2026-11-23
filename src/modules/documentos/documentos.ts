@@ -4,6 +4,7 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { patients, signedDocumentNotes, signedDocumentReceipts, signedDocuments, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
+import { FILA_DO_PDF_DO_DOCUMENTO } from '@/jobs/queues';
 import { partesNoFuso } from '@/modules/agenda/fuso';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { semInvalidosNoBanco } from '@/lib/texto-seguro';
@@ -17,8 +18,10 @@ import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } f
 import { validarParecerParaPreparar, validarRascunhoParecer, type ConteudoDocumento, type ConteudoParecer } from './parecer';
 import { copiarExames } from './parecer-exames';
 import { copiaDoPerfil, type CopiaDoDocumento } from './perfil-profissional';
-import { validarParaPreparar, validarRascunho, type ConteudoReceita } from './prescricao';
+import { validarParaPreparar, validarRascunho } from './prescricao';
 import { lerMotivoRetificacao } from './retificacao';
+import { validarSolicitacaoParaPreparar } from './solicitacao';
+import { assertNever, conteudoVazio } from './tipos-de-documento';
 
 export type Recibo = { evento: EventoRecibo; via: ViaRecibo; em: Date };
 export type ItemLista = {
@@ -34,9 +37,6 @@ export type DocumentoLido = ItemLista & {
   retificaId: string | null; motivoRetificacao: string | null; substituidoEm: Date | null;
   versoes: { anterior: (VersaoVizinha & { codigo: string | null }) | null; seguinte: (VersaoVizinha & { status: StatusDocumento }) | null };
 };
-
-const CONTEUDO_VAZIO: ConteudoReceita = { versao: 1, tipo: 'receita', itens: [], orientacoes: '' };
-const PARECER_VAZIO: ConteudoParecer = { versao: 1, tipo: 'parecer', exames: [], avaliacao: '', conduta: '', encaminhamentos: '' };
 
 /** Trava o documento do paciente (FOR UPDATE) num dos estados pedidos; outro estado → TransicaoInvalidaError. */
 async function travarDocumento(tx: Tx, patientId: string, docId: string, estados: readonly StatusDocumento[]) {
@@ -58,9 +58,9 @@ async function criarDocumento(ctx: TenantContext, patientId: string, conteudo: C
 }
 
 /** US-142: "Nova receita". */
-export const criarReceita = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, CONTEUDO_VAZIO, deps.db ?? getDb());
+export const criarReceita = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, conteudoVazio('receita'), deps.db ?? getDb());
 /** US-141: "Novo parecer nutricional". */
-export const criarParecer = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, PARECER_VAZIO, deps.db ?? getDb());
+export const criarParecer = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, conteudoVazio('parecer'), deps.db ?? getDb());
 
 /** "Rascunho salvo." — valida os itens (habilitação no servidor, RN-150) e grava conteúdo e justificativa. */
 export async function salvarRascunhoReceita(
@@ -74,6 +74,7 @@ export async function salvarRascunhoReceita(
   await withTenant(ctx, async (tx) => {
     await carregarPacienteParaEscrita(tx, patientId);
     const d = await travarDocumento(tx, patientId, docId, ['rascunho']);
+    // EP-D57 (Plano 22): a guarda do editor fica — recusa qualquer outro tipo (parecer, solicitação), não cai em nenhum
     if (d.tipo !== 'receita') throw new TransicaoInvalidaError(); // o editor da receita não grava num parecer
     await tx.update(signedDocuments).set({ conteudo, updatedAt: new Date() }).where(eq(signedDocuments.id, docId));
     await tx
@@ -95,7 +96,7 @@ export async function salvarRascunhoParecer(
   await withTenant(ctx, async (tx) => {
     await carregarPacienteParaEscrita(tx, patientId);
     const d = await travarDocumento(tx, patientId, docId, ['rascunho']);
-    if (d.tipo !== 'parecer') throw new TransicaoInvalidaError();
+    if (d.tipo !== 'parecer') throw new TransicaoInvalidaError(); // EP-D57: idem, o editor do parecer só grava num parecer
     const exames = await copiarExames(tx, patientId, r.exameIds);
     const conteudo: ConteudoParecer = { versao: 1, tipo: 'parecer', exames, avaliacao: r.avaliacao, conduta: r.conduta, encaminhamentos: r.encaminhamentos };
     await tx.update(signedDocuments).set({ conteudo, updatedAt: new Date() }).where(eq(signedDocuments.id, docId));
@@ -139,17 +140,25 @@ export async function prepararParaAssinatura(
       retificacao = { versao: d.versao, substitui: anterior!.codigo! };
     }
     const tipo = d.tipo as TipoDocumento;
-    let conteudo: ConteudoDocumento;
-    if (tipo === 'parecer') {
-      const c = d.conteudo as ConteudoParecer;
-      validarParecerParaPreparar(c);
-      // RN-148: a cópia "por último, ao preparar" — o que a IA acrescentou depois do último salvar entra; excluído → erro
-      conteudo = { ...c, exames: await copiarExames(tx, patientId, c.exames.map((e) => e.id)) };
-    } else {
-      const c = d.conteudo as ConteudoReceita;
-      validarParaPreparar(c, nota?.j ?? null, { habilitada: !!tenant.fitoterapiaRegistro });
-      conteudo = c;
+    // Plano 22 (DEP-E7): o conteúdo gravado é o do tipo da coluna (o editor de cada tipo só grava o seu, :75 e :96)
+    let conteudo: ConteudoDocumento = d.conteudo as ConteudoDocumento;
+    switch (conteudo.tipo) {
+      case 'parecer':
+        validarParecerParaPreparar(conteudo);
+        // RN-148: a cópia "por último, ao preparar" — o que a IA acrescentou depois do último salvar entra; excluído → erro
+        conteudo = { ...conteudo, exames: await copiarExames(tx, patientId, conteudo.exames.map((e) => e.id)) };
+        break;
+      case 'receita':
+        validarParaPreparar(conteudo, nota?.j ?? null, { habilitada: !!tenant.fitoterapiaRegistro });
+        break;
+      case 'solicitacao_exames':
+        // RN-389: ao menos um exame; sem justificativa de uso (é da receita)
+        validarSolicitacaoParaPreparar(conteudo);
+        break;
+      default:
+        assertNever(conteudo);
     }
+    if (conteudo.tipo !== tipo) throw new TransicaoInvalidaError(); // conteúdo de um tipo na linha de outro: nunca prepara
     await tx
       .update(signedDocuments)
       .set({
@@ -162,7 +171,7 @@ export async function prepararParaAssinatura(
         updatedAt: agora,
       })
       .where(eq(signedDocuments.id, docId));
-    await boss.send('documento-pdf', { tenantId: ctx.tenantId, documentoId: docId }, { db: fromDrizzle(tx, sql) });
+    await boss.send(FILA_DO_PDF_DO_DOCUMENTO, { tenantId: ctx.tenantId, documentoId: docId }, { db: fromDrizzle(tx, sql) });
   }, deps.db ?? getDb());
 }
 
@@ -224,7 +233,7 @@ export async function pedirNovoPdfDocumento(ctx: TenantContext, patientId: strin
     const d = await travarDocumento(tx, patientId, docId, ['preparando']);
     if (d.pdfStatus !== 'falhou' && d.pdfStatus !== 'sem_cota') throw new TransicaoInvalidaError();
     await tx.update(signedDocuments).set({ pdfStatus: 'pendente', pdfPedidoEm: agora, updatedAt: agora }).where(eq(signedDocuments.id, docId));
-    await boss.send('documento-pdf', { tenantId: ctx.tenantId, documentoId: docId }, { db: fromDrizzle(tx, sql) });
+    await boss.send(FILA_DO_PDF_DO_DOCUMENTO, { tenantId: ctx.tenantId, documentoId: docId }, { db: fromDrizzle(tx, sql) });
   }, deps.db ?? getDb());
 }
 

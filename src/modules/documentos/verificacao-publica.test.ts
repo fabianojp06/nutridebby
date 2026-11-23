@@ -12,7 +12,7 @@ afterAll(() => app.pool.end());
 let n = 0;
 const ip = () => `2001:db8:${++n}::1`;
 
-async function verificacao(situacao = 'valido', assinatura = 'digitalizada', tipo: 'receita' | 'parecer' = 'receita') {
+async function verificacao(situacao = 'valido', assinatura = 'digitalizada', tipo: 'receita' | 'parecer' | 'solicitacao_exames' = 'receita') {
   const T = await novoTenant(app.db);
   // 0092: a verificação aponta para um documento do mesmo tenant e com o mesmo código
   const d = await documentoNoBanco(app.db, T.ctx, (await novoPaciente(app.db, T.ctx)).id, { status: 'assinado', tipo });
@@ -42,6 +42,14 @@ describe('verificação pública (US-147, RN-156, D8)', () => {
     await app.db.update(tenants).set({ status: 'suspensa' }).where(eq(tenants.id, T.tenantId));
     expect(await consultarVerificacao(codigo, { db: app.db, ipDoLimite: ip() })).toMatchObject({ tipo: 'ok', v: { assinanteNome: null, assinatura: 'Digitalizado' } });
   });
+  it('Plano 22 (RN-389, D8): a solicitação aparece só com o rótulo, o código, a data e a situação — as chaves de hoje, nada do pedido', async () => {
+    const { codigo } = await verificacao('valido', 'digitalizada', 'solicitacao_exames');
+    const r = await consultarVerificacao(codigo, { db: app.db, ipDoLimite: ip() });
+    expect(r).toMatchObject({ tipo: 'ok', v: { codigo, tipo: 'Solicitação de exames laboratoriais', situacao: 'valido', assinadoEm: new Date('2026-10-05T15:30:00Z') } });
+    expect(Object.keys((r as { v: object }).v).sort()).toEqual(['assinadoEm', 'assinanteNome', 'assinatura', 'codigo', 'emissorCrn', 'emissorNome', 'sha256', 'situacao', 'situacaoEm', 'tipo'].sort());
+    expect(JSON.stringify(r)).not.toContain('Glicose'); // o exame do conteúdo (CONTEUDO_SOLICITACAO_TESTE) nunca sai
+  });
+
   it('Plano 13 (US-147 v0.5): o parecer aparece como "Tipo: Parecer nutricional" e nada mais do parecer', async () => {
     const { codigo } = await verificacao('valido', 'digitalizada', 'parecer');
     const r = await consultarVerificacao(codigo, { db: app.db, ipDoLimite: ip() });

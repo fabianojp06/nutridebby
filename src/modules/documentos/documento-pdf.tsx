@@ -2,11 +2,13 @@ import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from '@
 import QRCode from 'qrcode';
 import { paraWinAnsi as w } from '@/modules/pacientes/prontuario-pdf';
 import { formatarCodigo } from './codigo';
-import { AREA_ASSINATURA as A, linhaDaVersao, RESSALVA_PARECER, TIPO_DOCUMENTO_ROTULO } from './constantes';
+import { AREA_ASSINATURA as A, linhaDaVersao, RESSALVA_PARECER } from './constantes';
 import { CABECALHO_VALORES, linhaDoValor, MSG_PARECER, rotuloDoExame, type ConteudoDocumento, type ConteudoParecer } from './parecer';
 import { descreverItem, type ConteudoReceita } from './prescricao';
+import type { ConteudoSolicitacao } from './solicitacao';
+import { assertNever, rotuloDoTipo } from './tipos-de-documento';
 
-/** Só o worker importa este arquivo (guarda de grafo em exportacao.test.ts). Plano 13: a receita e o parecer. */
+/** Só o worker importa este arquivo (guarda de grafo em exportacao.test.ts). Plano 13: a receita e o parecer. Plano 22: a solicitação. */
 export type DadosPdfDocumento = { conteudo: ConteudoDocumento; codigo: string; urlVerificacao: string; data: string; cor: string; logo: Buffer | null; nomeConsultorio: string };
 
 const ALTURA_RODAPE = 150; // o quadro (y1 62 → y2 132) + a faixa do código; o conteúdo nunca passa por baixo
@@ -87,10 +89,50 @@ function CorpoParecer({ c }: { c: ConteudoParecer }) {
   );
 }
 
+/**
+ * Plano 22 (RN-389, EP-D2, US-377): título fixo (o do tipo, no `Documento`), os exames — um painel com o nome dele —, a
+ * indicação clínica só se preenchida e as orientações; nenhum campo de laboratório. Texto puro nesta tarefa (T7); a
+ * marcação (`lerMarcacao`) entra com o editor.
+ */
+function CorpoSolicitacao({ c }: { c: ConteudoSolicitacao }) {
+  return (
+    <>
+      <Text style={s.secao} minPresenceAhead={14}>Exames solicitados</Text>
+      {c.exames.map((e, i) => <Text key={i} wrap={false}>{w(`${i + 1}. ${e.nome}`)}</Text>)}
+      {c.indicacaoClinica ? (
+        <>
+          <Text style={s.secao} minPresenceAhead={14}>Indicação clínica</Text>
+          <Text>{w(c.indicacaoClinica)}</Text>
+        </>
+      ) : null}
+      {c.orientacoes ? (
+        <>
+          <Text style={s.secao} minPresenceAhead={14}>Orientações</Text>
+          <Text>{w(c.orientacoes)}</Text>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+/** DEP-E7: o corpo por `switch` (nunca "o que não é parecer é receita"). */
+function Corpo({ c }: { c: ConteudoDocumento }) {
+  switch (c.tipo) {
+    case 'receita':
+      return <CorpoReceita c={c} />;
+    case 'parecer':
+      return <CorpoParecer c={c} />;
+    case 'solicitacao_exames':
+      return <CorpoSolicitacao c={c} />;
+    default:
+      return assertNever(c);
+  }
+}
+
 function Documento({ d, qr }: { d: DadosPdfDocumento; qr: Buffer }) {
   const c = d.conteudo;
   const p = c.copia!.profissional;
-  const titulo = TIPO_DOCUMENTO_ROTULO[c.tipo];
+  const titulo = rotuloDoTipo(c.tipo);
   const retificacao = c.copia!.retificacao;
   const carimbo = [p.nomeCompleto, 'Nutricionista', p.crn, p.email, p.telefone].join(' · ');
   return (
@@ -106,7 +148,7 @@ function Documento({ d, qr }: { d: DadosPdfDocumento; qr: Buffer }) {
         {retificacao ? <Text>{w(linhaDaVersao(retificacao.versao, formatarCodigo(retificacao.substitui)))}</Text> : null}
         <Text>{w(`Paciente: ${c.copia!.paciente.nome}`)}</Text>
         <Text>{`Data de emissão: ${d.data}`}</Text>
-        {c.tipo === 'parecer' ? <CorpoParecer c={c} /> : <CorpoReceita c={c} />}
+        <Corpo c={c} />
         <View style={s.carimbo} wrap={false}>
           <Text>{w(carimbo)}</Text>
           {p.endereco ? <Text>{w(p.endereco)}</Text> : null}

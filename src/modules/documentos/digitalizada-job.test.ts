@@ -13,6 +13,7 @@ import { receberDigitalizada } from './digitalizada';
 import { montarPdfDigitalizado, renderizarDigitalizada } from './digitalizada-job';
 import { TransicaoInvalidaError } from './erros';
 import { registrarAssinatura } from './registrar-assinatura';
+import { TIPOS_DE_DOCUMENTO, rotuloDoTipo } from './tipos-de-documento';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -135,5 +136,29 @@ describe('PDF da digitalizada no worker (RN-157)', () => {
     const pdf = await readFile(path.join(x.dataDir, d.pdf_path));
     expect(pdf.toString('latin1')).not.toContain('Receita');
     expect(pdf.toString('latin1')).toContain('Parecer nutricional');
+  });
+
+  it('Plano 22 (DEP-E7, EP-D34): a solicitação é assinada pela digitalizada com o título dela (nunca "Receita" por exclusão)', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db, { tipo: 'solicitacao_exames' });
+    const foto = await sharp({ create: { width: 80, height: 110, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
+    await receberDigitalizada(x.acesso, x.id, [foto], '123456', { db: app.db, dataDir: x.dataDir, headers: new Headers(), confirmar2fa: async () => 'ok' });
+    let titulo: string | undefined;
+    expect(await montarPdfDigitalizado({ tenantId: x.T.tenantId, documentoId: x.id, userId: x.T.nutriId }, {
+      db: app.db, dataDir: x.dataDir, appUrl: 'https://x', ultimaTentativa: false,
+      renderizar: async (d) => ((titulo = d.titulo), renderizarDigitalizada(d)),
+    })).toBe('pronto');
+    expect(titulo).toBe('Solicitação de exames laboratoriais');
+    const [d] = (await withTenant(x.T.ctx, (tx) => tx.execute(sql`select status, tipo from signed_documents where id = ${x.id}`), app.db)).rows;
+    expect(d).toEqual({ status: 'assinado', tipo: 'solicitacao_exames' });
+  });
+
+  it('nenhum tipo sai com "undefined" no título do PDF da digitalizada', async () => {
+    const pagina = { dados: await sharp({ create: { width: 20, height: 28, channels: 3, background: '#ffffff' } }).jpeg().toBuffer(), formato: 'jpg' as const };
+    for (const t of TIPOS_DE_DOCUMENTO) {
+      const titulo = rotuloDoTipo(t);
+      expect(titulo, t).toBeTruthy();
+      const pdf = await renderizarDigitalizada({ paginas: [pagina], codigo: 'ABCDEFGHJKMN', urlVerificacao: 'https://x/v/ABCDEFGHJKMN', titulo });
+      expect(pdf.toString('latin1'), t).not.toContain('undefined');
+    }
   });
 });

@@ -54,6 +54,7 @@ export const MSG_FICHA = {
     exame: 'Exame',
     atendimento: 'Atendimento',
     planoAlimentar: 'Plano alimentar',
+    // Plano 22 (grep da T7): o rótulo do item "Receita" do Adicionar, não um ramo que cai em "receita" por exclusão
     receita: TIPO_DOCUMENTO_ROTULO.receita,
     parecer: TIPO_DOCUMENTO_ROTULO.parecer,
   },

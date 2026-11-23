@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { DECLARACAO_PARECER, DECLARACAO_POR_TIPO, DECLARACAO_RECEITA, linhaDaVersao, MSG_RETIFICACAO, RESSALVA_PARECER, rotuloDaVersao, TIPO_DOCUMENTO_COM_ARTIGO, TIPO_DOCUMENTO_ROTULO } from './constantes';
+import { DECLARACAO_PARECER, DECLARACAO_POR_TIPO, DECLARACAO_RECEITA, DECLARACAO_SOLICITACAO, linhaDaVersao, MSG_RETIFICACAO, RESSALVA_PARECER, rotuloDaVersao, TIPO_DOCUMENTO_COM_ARTIGO, TIPO_DOCUMENTO_ROTULO } from './constantes';
 import { DocumentoError } from './erros';
 import { linhaDoValor, mesmoExame, MSG_PARECER, rotuloDoExame, validarParecerParaPreparar, validarRascunhoParecer, type ConteudoParecer, type ExameCopiado } from './parecer';
 
@@ -19,11 +19,12 @@ const parecer = (o: Partial<ConteudoParecer> = {}): ConteudoParecer => ({ versao
 
 describe('textos do parecer e da retificação (spec v0.5, D5, US-148, Q13-5)', () => {
   it('rótulos, declaração e ressalva (D5, rascunho até a Debby e o CRN-3)', () => {
-    expect(TIPO_DOCUMENTO_ROTULO).toEqual({ receita: 'Receita', parecer: 'Parecer nutricional' });
-    expect(TIPO_DOCUMENTO_COM_ARTIGO).toEqual({ receita: 'da receita', parecer: 'do parecer nutricional' });
+    // Plano 22 (RN-397): + a solicitação de exames laboratoriais
+    expect(TIPO_DOCUMENTO_ROTULO).toEqual({ receita: 'Receita', parecer: 'Parecer nutricional', solicitacao_exames: 'Solicitação de exames laboratoriais' });
+    expect(TIPO_DOCUMENTO_COM_ARTIGO).toEqual({ receita: 'da receita', parecer: 'do parecer nutricional', solicitacao_exames: 'da solicitação de exames laboratoriais' });
     expect(DECLARACAO_PARECER).toBe('Declaro que este parecer não afirma diagnóstico de doença nem prescreve medicamento.');
     expect(RESSALVA_PARECER).toBe('Este parecer trata do estado nutricional e não constitui diagnóstico de doença nem substitui avaliação médica.');
-    expect(DECLARACAO_POR_TIPO).toEqual({ receita: DECLARACAO_RECEITA, parecer: DECLARACAO_PARECER });
+    expect(DECLARACAO_POR_TIPO).toEqual({ receita: DECLARACAO_RECEITA, parecer: DECLARACAO_PARECER, solicitacao_exames: DECLARACAO_SOLICITACAO });
     expect(rotuloDaVersao(2)).toBe('Versão 2');
     expect(linhaDaVersao(2, 'ABCD-EFGH-JKMN')).toBe('Versão 2 — substitui o documento ABCD-EFGH-JKMN');
     expect(MSG_RETIFICACAO.motivo).toBe('Escreva o motivo da retificação (até 500 caracteres).');

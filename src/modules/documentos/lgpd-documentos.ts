@@ -10,6 +10,8 @@ import { RESET_PREPARO } from './documentos';
 import { EMITIDOS, ROTULO_ASSINATURA, ROTULO_STATUS, TIPO_DOCUMENTO_ROTULO, type StatusDocumento, type TipoAssinatura, type TipoDocumento } from './constantes';
 import type { ConteudoParecer } from './parecer';
 import { descreverItem, type ConteudoReceita } from './prescricao';
+import type { ConteudoSolicitacao } from './solicitacao';
+import { assertNever } from './tipos-de-documento';
 
 type BaseExportada = {
   tipo: string;
@@ -36,7 +38,9 @@ type ParecerExportado = {
   conduta: string;
   encaminhamentos: string;
 };
-export type DocumentoExportado = BaseExportada & (ReceitaExportada | ParecerExportado);
+/** Plano 22 (R22-13): a solicitação de exames — os exames (com a marca do painel), a indicação e as orientações. */
+type SolicitacaoExportada = { exames: { nome: string; painel: boolean }[]; indicacaoClinica: string | null; orientacoes: string };
+export type DocumentoExportado = BaseExportada & (ReceitaExportada | ParecerExportado | SolicitacaoExportada);
 
 const emitido = (s: string) => EMITIDOS.includes(s as StatusDocumento);
 
@@ -90,23 +94,40 @@ export async function documentosParaExportacao(
       pdf: null,
       ...(escopo === 'equipe' ? { motivoDaRetificacao: nota?.m ?? null } : {}),
     };
-    if (tipo === 'parecer') {
-      const c = d.conteudo as Partial<ConteudoParecer>; // anonimizado: '{}'
-      return {
-        ...base,
-        exames: (c.exames ?? []).map((e) => ({
-          titulo: e.titulo,
-          data: e.data,
-          enviadoPeloPaciente: !!e.enviadoPeloPaciente,
-          valores: e.valores.map((v) => ({ nome: v.nome, valor: v.valor, unidade: v.unidade, referencia: v.referencia, lidoComIa: !!v.iaTarefaId })),
-        })),
-        avaliacao: c.avaliacao ?? '',
-        conduta: c.conduta ?? '',
-        encaminhamentos: c.encaminhamentos ?? '',
-      };
+    // DEP-E7 (Plano 22): por `switch` no tipo da coluna (o conteúdo do anonimizado é '{}', sem tipo)
+    switch (tipo) {
+      case 'parecer': {
+        const c = d.conteudo as Partial<ConteudoParecer>; // anonimizado: '{}'
+        return {
+          ...base,
+          exames: (c.exames ?? []).map((e) => ({
+            titulo: e.titulo,
+            data: e.data,
+            enviadoPeloPaciente: !!e.enviadoPeloPaciente,
+            valores: e.valores.map((v) => ({ nome: v.nome, valor: v.valor, unidade: v.unidade, referencia: v.referencia, lidoComIa: !!v.iaTarefaId })),
+          })),
+          avaliacao: c.avaliacao ?? '',
+          conduta: c.conduta ?? '',
+          encaminhamentos: c.encaminhamentos ?? '',
+        };
+      }
+      case 'receita': {
+        const c = d.conteudo as Partial<ConteudoReceita>;
+        return { ...base, itens: (c.itens ?? []).map((item) => descreverItem(item)), orientacoes: c.orientacoes ?? '', justificativaDeUso: nota?.j ?? null };
+      }
+      case 'solicitacao_exames': {
+        // R22-13: sem justificativa de uso (é da receita); o titular só recebe os emitidos (filtro acima, como a receita)
+        const c = d.conteudo as Partial<ConteudoSolicitacao>; // anonimizado: '{}'
+        return {
+          ...base,
+          exames: (c.exames ?? []).map((e) => ({ nome: e.nome, painel: e.painel === true })),
+          indicacaoClinica: c.indicacaoClinica ?? null,
+          orientacoes: c.orientacoes ?? '',
+        };
+      }
+      default:
+        return assertNever(tipo);
     }
-    const c = d.conteudo as Partial<ConteudoReceita>;
-    return { ...base, itens: (c.itens ?? []).map((item) => descreverItem(item)), orientacoes: c.orientacoes ?? '', justificativaDeUso: nota?.j ?? null };
   });
   return { documentos, anexos };
 }

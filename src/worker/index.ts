@@ -7,6 +7,7 @@ import type { EmailJobData } from '@/email/types';
 import { getWorkerEnv, type WorkerEnv } from '@/env';
 import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
+import { FILAS_DA_DIGITALIZADA, FILAS_DO_PDF_DO_DOCUMENTO } from '@/jobs/queues';
 import { encryptionKey, openSecret } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
 import { encerrarSentry, iniciarSentry } from '@/lib/sentry';
@@ -227,13 +228,18 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
     await expirarPdfsPendentes(getDb(), new Date());
   });
   // Plano 10A (US-143): PDF preparado da receita; a cada 15 min, pendente esquecido (PDF ou digitalização) → falhou e PDF base/fotos órfãos apagados
-  await work('documento-pdf', { includeMetadata: true }, async ([job]: JobWithMetadata<{ tenantId: string; documentoId: string }>[]) => {
+  // Plano 22 (EP-D34): o app novo enfileira em `documento-pdf-2`, que só este worker registra; `documento-pdf` continua
+  // consumida (jobs do app antigo na janela do deploy), com o mesmo handler
+  const pdfDoDocumento = async ([job]: JobWithMetadata<{ tenantId: string; documentoId: string }>[]) => {
     await gerarPdfDoDocumento(job.data, { db: getDb(), dataDir: env.DATA_DIR, appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit });
-  });
-  // RN-157 (D4): o PDF novo com as fotos da digitalizada, assinado como "digitalizada" (foto ilegível ou cota: falha já)
-  await work('documento-digitalizado', { includeMetadata: true }, async ([job]: JobWithMetadata<{ tenantId: string; documentoId: string; userId: string }>[]) => {
+  };
+  for (const fila of FILAS_DO_PDF_DO_DOCUMENTO) await work(fila, { includeMetadata: true }, pdfDoDocumento);
+  // RN-157 (D4): o PDF novo com as fotos da digitalizada, assinado como "digitalizada" (foto ilegível ou cota: falha já).
+  // Plano 22 (EP-D34): `documento-digitalizado-2` (app novo) e `documento-digitalizado` (app antigo), o mesmo handler
+  const pdfDaDigitalizada = async ([job]: JobWithMetadata<{ tenantId: string; documentoId: string; userId: string }>[]) => {
     await montarPdfDigitalizado(job.data, { db: getDb(), dataDir: env.DATA_DIR, appUrl: env.APP_URL, ultimaTentativa: job.retryCount >= job.retryLimit });
-  });
+  };
+  for (const fila of FILAS_DA_DIGITALIZADA) await work(fila, { includeMetadata: true }, pdfDaDigitalizada);
   await boss.schedule('expirar-documento-pdf', '*/15 * * * *', {}, { tz: 'America/Sao_Paulo' });
   await work('expirar-documento-pdf', async () => {
     await expirarPdfsDeDocumentoPendentes(getDb(), new Date());
