@@ -7,7 +7,7 @@ import { tenants } from './platform';
  * Plano 17 (spec §5.3, §5.5): lembretes de rotina por push, configurados pela equipe por paciente. `config` é validada por
  * tipo no módulo (`src/modules/lembretes/config.ts`); `texto` só no suplemento (nome) e no livre — nunca vai ao push nem ao
  * log, e o worker nem o lê. `ligado` é da equipe; `desligado_pelo_paciente_em` é do paciente (autonomia do titular: a equipe
- * não religa). Gatilho lembretes_rotina_regras (0119, refeito na 0127): colunas fixas para todos, a sessão de paciente com conta só
+ * não religa). Gatilho lembretes_rotina_regras (0119, refeito na 0129): colunas fixas para todos, a sessão de paciente com conta só
  * muda a própria marca (relógio do banco; `updated_at` pelo `now()`), a sem conta nada, e a sessão `nutri` não a muda e só
  * cria com `criado_por` = a própria usuária. Auditada como `lembretes` ("Lembretes no app").
  */
