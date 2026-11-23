@@ -1,4 +1,18 @@
 import { defineConfig, devices } from '@playwright/test';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { parseEnv } from 'node:util';
+
+// SUS-101: fora do CI, só as chaves de que o config e os helpers do E2E precisam vêm do .env.local do worktree (a porta
+// da APP_URL, o banco do e2e/whatsapp.ts, o segredo do webhook, o Mailpit). O resto fica com o carregador do próprio
+// Next no `next start`: copiar o arquivo inteiro levaria o NODE_ENV=development do .env.local ao build de produção
+// (o CI roda com NODE_ENV=production). Variável já exportada no shell vence, como no `tsx --env-file-if-exists`.
+const ENV_LOCAL = fileURLToPath(new URL('./.env.local', import.meta.url));
+const DO_ENV_LOCAL = ['APP_URL', 'DATABASE_URL', 'EVOLUTION_WEBHOOK_SECRET', 'MAILPIT_URL'] as const;
+if (!process.env.CI && existsSync(ENV_LOCAL)) {
+  const arquivo = parseEnv(readFileSync(ENV_LOCAL, 'utf8'));
+  for (const nome of DO_ENV_LOCAL) if (process.env[nome] === undefined && arquivo[nome] !== undefined) process.env[nome] = arquivo[nome];
+}
 
 // PF-N16: 3000 é o painel do Easypanel na VPS; 3100 em dev/E2E local, 3000 em CI/containers.
 const baseURL = process.env.APP_URL ?? (process.env.CI ? 'http://localhost:3000' : 'http://localhost:3100');
