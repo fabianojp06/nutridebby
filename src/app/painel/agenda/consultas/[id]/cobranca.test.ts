@@ -64,4 +64,13 @@ describe('seção "Cobrança": o aviso do paciente bloqueado ou anonimizado (TRI
     expect(h).not.toContain(M.bloqueado);
     expect(h).not.toContain(M.pacienteAnonimizado);
   });
+
+  it('PR #66: consulta sem cobrança (a aberta foi cancelada na anonimização) — o aviso do anonimizado, não o do bloqueado', () => {
+    const semCobranca = (motivo: 'bloqueado' | 'anonimizado') =>
+      renderToStaticMarkup(createElement(SecaoCobranca, { consultaId: 'c', cobranca: null, motivo, valorSugerido: null, hoje: '2026-11-23' }));
+    expect(semCobranca('anonimizado')).toContain(M.pacienteAnonimizado);
+    expect(semCobranca('anonimizado')).not.toContain(M.consulta.bloqueado);
+    expect(semCobranca('bloqueado')).toContain(M.consulta.bloqueado);
+    expect(semCobranca('bloqueado')).not.toContain(M.pacienteAnonimizado);
+  });
 });

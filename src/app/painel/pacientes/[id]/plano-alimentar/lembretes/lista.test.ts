@@ -1,5 +1,6 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { notFound, redirect } from 'next/navigation';
 import { describe, expect, it, vi } from 'vitest';
 import { MSG_LEMBRETES } from '@/modules/lembretes/constantes';
 
@@ -15,6 +16,18 @@ describe('lista de lembretes do painel: a action que lança (TRI-17-20 #60)', ()
     expect(await chamarAcao(() => Promise.reject(new TypeError('Failed to fetch')))).toEqual({ erro: MSG_LEMBRETES.falhou });
     expect(await chamarAcao(async () => ({ ok: 'Lembrete ligado.' }))).toEqual({ ok: 'Lembrete ligado.' });
     expect(await chamarAcao(async () => ({ erro: 'Lembrete não encontrado. Recarregue a página.' }))).toEqual({ erro: 'Lembrete não encontrado. Recarregue a página.' });
+  });
+
+  it('PR #66: o redirect (sessão vencida, DPA pendente) e o notFound() da action não viram a mensagem de falha', async () => {
+    for (const lanca of [() => redirect('/entrar'), () => notFound()]) {
+      let erro: unknown;
+      try {
+        lanca();
+      } catch (e) {
+        erro = e;
+      }
+      await expect(chamarAcao(() => Promise.reject(erro))).rejects.toBe(erro);
+    }
   });
 
   it('o interruptor monta com o estado salvo e sem alerta', () => {

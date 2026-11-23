@@ -1,4 +1,5 @@
 'use client';
+import { unstable_rethrow } from 'next/navigation';
 import { startTransition, useOptimistic, useState, useTransition } from 'react';
 import { MSG_LEMBRETES } from '@/modules/lembretes/constantes';
 import type { LembreteDoPaciente } from '@/modules/lembretes/paciente';
@@ -9,10 +10,11 @@ const PAUSADOS = 'Lembretes pausados. Você não vai receber avisos até retomar
 const CARTAO = 'space-y-2 rounded-2xl border border-borda bg-cartao p-4';
 
 /** A ação com o alerta: `erro` da ação (lembrete que não é mais do paciente) ou a falha de rede/servidor (exceção). */
-async function chamar(acao: () => Promise<LembreteDoPacienteState>): Promise<LembreteDoPacienteState> {
+export async function chamar(acao: () => Promise<LembreteDoPacienteState>): Promise<LembreteDoPacienteState> {
   try {
     return await acao();
-  } catch {
+  } catch (e) {
+    unstable_rethrow(e); // redirect (sessão vencida) e notFound() da action seguem o caminho do Next (PR #66)
     return { erro: FALHOU };
   }
 }

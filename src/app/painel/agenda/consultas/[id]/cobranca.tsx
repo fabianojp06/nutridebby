@@ -21,7 +21,7 @@ const CONFIGURACOES = '/painel/financeiro/configuracoes';
 type Props = {
   consultaId: string;
   cobranca: LancamentoNaTela | null;
-  motivo: 'nao_configurado' | 'bloqueado' | 'nao_realizada' | null;
+  motivo: 'nao_configurado' | 'bloqueado' | 'anonimizado' | 'nao_realizada' | null;
   valorSugerido: number | null;
   /** Hoje no fuso do consultório (a data sugerida do recebimento). */
   hoje: string;
@@ -89,6 +89,7 @@ function SemCobranca({ consultaId, motivo, valorSugerido }: { consultaId: string
         </p>
       )}
       {motivo === 'bloqueado' && <p>{M.consulta.bloqueado}</p>}
+      {motivo === 'anonimizado' && <p>{M.pacienteAnonimizado}</p>}
     </>
   );
 }

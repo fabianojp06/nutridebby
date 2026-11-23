@@ -1,5 +1,6 @@
 'use client';
 
+import { unstable_rethrow } from 'next/navigation';
 import { startTransition, useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
 import { Botao } from '@/components/ui/botao';
 import type { LembreteNovo } from '@/modules/lembretes/config';
@@ -44,7 +45,8 @@ function Resumo({ l }: { l: LembreteNaTela }) {
 export async function chamarAcao(acao: () => Promise<AcaoLembreteState>): Promise<AcaoLembreteState> {
   try {
     return await acao();
-  } catch {
+  } catch (e) {
+    unstable_rethrow(e); // redirect (sessão vencida, DPA pendente) e notFound() da action seguem o caminho do Next (PR #66)
     return { erro: MSG_LEMBRETES.falhou };
   }
 }

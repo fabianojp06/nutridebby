@@ -241,6 +241,9 @@ describe('cobrancaDaConsulta e registrarCobrancaManual (US-303, RN-314, RN-318)'
     await bloquear(C);
     expect(await errosDe(registrarCobrancaManual(C.ctx, C.tenant, C.c, '250', deps))).toEqual({ geral: MSG_FINANCEIRO.consulta.bloqueado });
     expect(await cobrancaDaConsulta(C.ctx, C.tenant, C.c, deps)).toMatchObject({ podeRegistrar: false, motivo: 'bloqueado' });
+    // PR #66 (TRI-17-20 #130): anonimizado (a cobrança em aberto foi cancelada na anonimização) tem o aviso próprio
+    await owner.pool.query('update patients set anonimizado_em = now() where id = $1', [C.p]);
+    expect(await cobrancaDaConsulta(C.ctx, C.tenant, C.c, deps)).toMatchObject({ podeRegistrar: false, motivo: 'anonimizado' });
 
     const S = await cenario({ configurar: false });
     await withTenant(S.ctx, (tx) => tx.execute(sql`update appointments set status = 'realizada' where id = ${S.c}`), app.db);

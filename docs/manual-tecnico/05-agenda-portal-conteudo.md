@@ -706,7 +706,7 @@ Resumo, "Histórico" encurtado — e uma 14ª não cabe, R-266; [§4.2.10](04-mo
   desligou responde "Lembrete ligado pela equipe. O paciente desligou este lembrete no app; ele só volta a receber quando
   religar em Eu › Lembretes.", com `ligarLembrete` devolvendo a marca lida na própria transação — TRI-17-20 #38, texto
   provisório; a action que lança, por rede ou erro 500, vira o alerta "Não foi possível salvar. Verifique a conexão e tente
-  de novo." (`MSG_LEMBRETES.falhou`, por `chamarAcao`, também no "Apagar"), e o interruptor volta ao estado salvo —
+  de novo." (`MSG_LEMBRETES.falhou`, por `chamarAcao`, também no "Apagar"; o redirect e o `notFound()` da action seguem o caminho do Next por `unstable_rethrow`, como no interruptor do portal), e o interruptor volta ao estado salvo —
   TRI-17-20 #60), "Editar" e "Apagar"
   (confirmação "Apagar este lembrete? O paciente deixa de recebê-lo."); "Desligado pelo paciente em {data}" e, no de
   refeições, os avisos "{refeição} sem horário — não gera lembrete", "{refeição} fora do horário dos lembretes (6h às 22h)" e
