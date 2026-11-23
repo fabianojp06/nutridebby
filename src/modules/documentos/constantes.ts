@@ -63,7 +63,7 @@ export const DECLARACAO_PARECER = 'Declaro que este parecer não afirma diagnós
 /** D5 da spec (RASCUNHO, como a declaração): a ressalva fixa impressa no PDF do parecer (§3.1). */
 export const RESSALVA_PARECER = 'Este parecer trata do estado nutricional e não constitui diagnóstico de doença nem substitui avaliação médica.';
 /**
- * Plano 22 (RN-389, §6.2; RASCUNHO para a Debby e o CRN-3, §14.3): a declaração ao preparar a solicitação de exames.
+ * Plano 22 (RN-389, §6.2; RASCUNHO para a Debby e o CRN-4, §14.3): a declaração ao preparar a solicitação de exames.
  * Aqui, sem imports, para os componentes 'use client'; `solicitacao.ts` reexporta (R22-14). Em `DECLARACAO_POR_TIPO`
  * desde a T7, com o tipo `solicitacao_exames` (EP-D49).
  */
@@ -77,7 +77,7 @@ export const DECLARACAO_POR_TIPO: Record<TipoDocumento, string> = {
 export const MSG_DECLARACAO = 'Confirme a declaração para continuar.';
 
 /**
- * Plano 22 (RN-392, EP-D56; RASCUNHO para a Debby e o CRN-3, como a declaração): a frase que a declaração da receita ganha,
+ * Plano 22 (RN-392, EP-D56; RASCUNHO para a Debby e o CRN-4, como a declaração): a frase que a declaração da receita ganha,
  * antes do ponto final, quando a receita tem a fórmula magistral fitoterápica (Res. CFN 680/2021, art. 9º, II).
  */
 export const FRASE_FORMULA_FITOTERAPICA =

@@ -135,7 +135,7 @@ describe('visão da solicitação (somente leitura)', () => {
   it('cartões "Exames solicitados", "Indicação clínica" e "Orientações"; os dois últimos só quando preenchidos; orientações pela marcação', () => {
     const com = renderToStaticMarkup(createElement(SolicitacaoVisao, { conteudo: { ...CONTEUDO, indicacaoClinica: 'Acompanhar a dieta.', orientacoes: 'Jejum de 8 h. <b>x</b> & **y**' } }));
     expect(com).toContain('Exames solicitados');
-    expect(com).toContain('<li>Hemograma completo</li>');
+    expect(com).toContain('<li class="wrap-break-word">Hemograma completo</li>');
     expect(com).toContain('Indicação clínica');
     expect(com).toContain('Acompanhar a dieta.');
     expect(com).toContain('Orientações');

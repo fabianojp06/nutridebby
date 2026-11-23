@@ -259,7 +259,8 @@ export function SolicitacaoForm({
             {exames.map((x, i) => (
               <li key={`${i}-${x.nome}`} className="py-1">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span>
+                  {/* T12 (Minor da T8): nome longo sem espaço quebra a 360 px */}
+                  <span className="min-w-0 wrap-break-word">
                     {x.nome}
                     {x.painel && <span className="text-suave"> · {MSG_EXAMES.catalogo.painel(componentes.get(x.nome) ?? 0)}</span>}
                   </span>

@@ -7,6 +7,7 @@ import { expandirParaAnalise } from '@/modules/exames/catalogo-regras';
 import { indiceDoCatalogo } from '@/modules/exames/classificacao';
 import { idValido } from '@/modules/pacientes/base';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
+import { auditRead } from '@/modules/plataforma/audit';
 import { lerDocumentoNaTransacao } from './documentos';
 import { MSG_SOLICITACAO } from './solicitacao';
 
@@ -35,8 +36,11 @@ export async function examesParaLancar(ctx: TenantContext, patientId: string, do
         .from(signedDocuments)
         .where(and(eq(signedDocuments.id, docId), eq(signedDocuments.patientId, patientId)));
       if (!d || d.tipo !== 'solicitacao_exames' || d.status !== 'assinado' || d.anonimizadoEm) return null;
-      const lido = await lerDocumentoNaTransacao(tx, docId, { auditar: true, patientId });
+      // T12 (Minor da T8): lido sem auditar e conferido o tipo do conteúdo; só então o `ler` (o de `lerDocumento`, mesma
+      // entidade): a trilha nunca registra a leitura de um conteúdo que não foi devolvido
+      const lido = await lerDocumentoNaTransacao(tx, docId, { auditar: false, patientId });
       if (!lido || lido.conteudo.tipo !== 'solicitacao_exames') return null;
+      await auditRead(tx, { entidade: 'documentos', entidadeId: docId, patientId });
       const [t] = await tx.select({ fuso: tenants.fuso }).from(tenants).where(eq(tenants.id, ctx.tenantId));
       const indice = indiceDoCatalogo(await catalogoParaLancamentoNaTransacao(tx));
       return {

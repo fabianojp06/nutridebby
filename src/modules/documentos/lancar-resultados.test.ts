@@ -91,6 +91,17 @@ describe('examesParaLancar (RN-390)', () => {
     expect(await leituras(T.ctx, deOutro)).toEqual([{ acao: 'ler' }]);
   });
 
+  it('T12 (Minor da T8): a coluna diz solicitação, mas o conteúdo é de outro tipo → null e nenhum `ler` (a conferência vem antes da leitura auditada)', async () => {
+    const { T, p } = await cenario();
+    const id = await solicitacao(T.ctx, p.id, 'assinado', { conteudo: { versao: 1, tipo: 'receita', itens: [], orientacoes: '' } });
+    expect(await examesParaLancar(T.ctx, p.id, id, deps)).toBeNull();
+    expect(await leituras(T.ctx, id)).toEqual([]);
+    // controle positivo: a solicitação de verdade grava o `ler`
+    const certo = await solicitacao(T.ctx, p.id, 'assinado');
+    expect(await examesParaLancar(T.ctx, p.id, certo, deps)).not.toBeNull();
+    expect(await leituras(T.ctx, certo)).toEqual([{ acao: 'ler' }]);
+  });
+
   it('só a sessão nutri (o catálogo é staff_only): outro papel lança antes da transação', async () => {
     const { T, p } = await cenario();
     const id = await solicitacao(T.ctx, p.id, 'assinado');

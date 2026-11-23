@@ -65,7 +65,7 @@ export const MSG_PRESCRICAO = {
 
 /**
  * Plano 22 (RN-392, EP-D26, EP-D27; Res. CFN 680/2021, art. 9º, II): termos que a nomenclatura botânica do fitoterápico e
- * de cada composto da fórmula fitoterápica não pode ter. **Rascunho para a Debby** (e o CRN-3). Conferência de apoio, não
+ * de cada composto da fórmula fitoterápica não pode ter. **Rascunho para a Debby** (e o CRN-4). Conferência de apoio, não
  * garantia: a responsabilidade pela composição é da nutricionista. O "Derivado ou extração" e a padronização ficam de fora
  * (citam o marcador legitimamente, art. 12, I, "d"; ajuste do /code-review do PR 1). "L-" no começo de palavra é
  * conferido à parte (`temTermoNaoVegetal`).

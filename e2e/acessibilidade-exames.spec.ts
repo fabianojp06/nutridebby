@@ -1,14 +1,16 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type Request } from '@playwright/test';
+import { emitirReceita, entrarComoDocs } from './documentos';
 import { entrarComo } from './helpers';
 import { bibliotecasDeExames, contrasteIncerto, escolherTema } from './painel';
 import { criarPacientePeloFormulario } from './pacientes-form';
+import { pacienteNoPortal } from './portal';
 
 // Plano 22 (T3, EP-D54, R22-22): o axe dos estados de /painel/exames que não são rota (diálogos abertos, formulário com
 // erro), nos modos claro e escuro, a 1280 e a 360 px; e o contrato do `Dialogo` (src/components/dialogo.tsx) no navegador
 // de verdade: Esc fecha e o foco volta a quem abriu; `ocupado` segura o Esc (também o segundo, que o Chromium não deixa
 // cancelar) sem chamar `aoFechar`; e o diálogo desmontado aberto (a action voltou à lista) devolve o foco ao botão que o
-// abriu. IPs: 10.9.22.10 (nutri). O catálogo volta como estava (o nome adicionado é excluído no fim).
+// abriu. IPs: 10.9.22.10 (nutri); T12: 10.9.22.11 e .12 (o "Compartilhar" do portal). O catálogo volta como estava (o nome adicionado é excluído no fim).
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 test.describe.configure({ mode: 'serial', timeout: 180_000 });
@@ -479,3 +481,178 @@ for (const [modo, tema] of [
     });
   }
 }
+
+// Plano 22 (T12, EP-D54, US-379): o axe dos diálogos da receita, que não são rota — "Carregar modelo" (com a confirmação
+// "Substituir os itens" por cima), "Salvar item", "Salvar como modelo" e "Adicionar item salvo" —, nos modos claro e escuro,
+// a 1280 e a 360 px. O modelo "Rotina E2E" e os itens salvos "Magnésio E2E" e "Fórmula calmante E2E" vêm da semente; a
+// receita é um rascunho com um item, numa paciente nova. Cada diálogo fecha no Esc sem gravar nada.
+let receitaDosDialogos: string;
+
+test('receita (T12): rascunho com um item para os diálogos da receita', async () => {
+  await nutri.setViewportSize({ width: 1280, height: 800 });
+  const sufixo = `rc${Date.now().toString(36)}`;
+  const prontuario = await criarPacientePeloFormulario(nutri, { nome: `Paciente Receita Dialogos ${sufixo}`, email: `receita-dialogos-${sufixo}@nutridebby.test` });
+  await nutri.goto(`${prontuario}/documentos`);
+  await nutri.getByRole('button', { name: 'Nova receita' }).click();
+  await expect(nutri).toHaveURL(/\/documentos\/[0-9a-f-]{36}$/);
+  receitaDosDialogos = nutri.url();
+  await nutri.waitForLoadState('networkidle');
+  await nutri.getByRole('button', { name: 'Adicionar item', exact: true }).click();
+  await nutri.getByLabel('Componente 1').fill('Vitamina D3');
+  await nutri.getByLabel('Quantidade').fill('2000');
+  await nutri.getByLabel('Unidade').selectOption('UI');
+  await nutri.getByLabel('Forma de apresentação').fill('Cápsula');
+  await nutri.getByLabel('Posologia').fill('1 cápsula ao dia');
+  await nutri.getByRole('button', { name: 'Salvar rascunho' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Rascunho salvo.' })).toBeVisible();
+});
+
+for (const [modo, tema] of [
+  ['claro', 'Claro'],
+  ['escuro', 'Escuro'],
+] as const) {
+  for (const largura of [1280, 360]) {
+    test(`axe sem violações nos diálogos da receita (Carregar modelo, Salvar item, Salvar como modelo, Adicionar item salvo) — modo ${modo}, ${largura} px`, async () => {
+      await nutri.setViewportSize({ width: 1280, height: 800 });
+      await escolherTema(nutri, tema);
+      await nutri.setViewportSize({ width: largura, height: 800 });
+      const falhas: string[] = [];
+      await nutri.goto(receitaDosDialogos);
+      await nutri.waitForLoadState('networkidle'); // os botões são de componentes do cliente
+
+      const carregar = nutri.getByRole('button', { name: 'Carregar modelo', exact: true });
+      await carregar.click();
+      const dialogo = nutri.getByRole('dialog', { name: 'Carregar modelo' });
+      await expect(dialogo).toContainText('Rotina E2E · 5 itens');
+      for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`carregar modelo — ${v}`);
+      await dialogo.getByRole('button', { name: 'Substituir os itens: Rotina E2E', exact: true }).click();
+      const confirmar = nutri.getByRole('alertdialog', { name: 'Substituir os itens' });
+      await expect(confirmar).toBeVisible(); // o texto com o número de itens: e2e/solicitacao-exames.spec.ts (CS-372)
+      for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`confirmar substituir — ${v}`);
+      await nutri.keyboard.press('Escape');
+      await expect(confirmar).toBeHidden();
+      await nutri.keyboard.press('Escape');
+      await expect(dialogo).toBeHidden();
+      await expect(carregar).toBeFocused();
+
+      const salvarItem = nutri.getByRole('button', { name: 'Salvar item 1', exact: true });
+      await salvarItem.click();
+      const nomeDoItem = nutri.getByRole('dialog', { name: 'Salvar item' });
+      await expect(nomeDoItem).toContainText('Retire dados do paciente antes de salvar.');
+      for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`salvar item — ${v}`);
+      await nutri.keyboard.press('Escape');
+      await expect(nomeDoItem).toBeHidden();
+      await expect(salvarItem).toBeFocused();
+
+      const salvarModelo = nutri.getByRole('button', { name: 'Salvar como modelo', exact: true });
+      await salvarModelo.click();
+      const nomeDoModelo = nutri.getByRole('dialog', { name: 'Salvar como modelo' });
+      await expect(nomeDoModelo).toContainText('Retire dados do paciente antes de salvar. A justificativa de uso não vai para o modelo.');
+      for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`salvar como modelo — ${v}`);
+      await nutri.keyboard.press('Escape');
+      await expect(nomeDoModelo).toBeHidden();
+      await expect(salvarModelo).toBeFocused();
+
+      const adicionar = nutri.getByRole('button', { name: 'Adicionar item salvo', exact: true });
+      await adicionar.click();
+      const itensSalvos = nutri.getByRole('dialog', { name: 'Adicionar item salvo' });
+      await expect(itensSalvos.getByRole('heading', { name: 'Suplementos' })).toBeVisible();
+      await expect(itensSalvos.getByRole('heading', { name: 'Fitoterápicos' })).toBeVisible();
+      await expect(itensSalvos.getByRole('button', { name: 'Adicionar Fórmula calmante E2E', exact: true })).toBeVisible();
+      for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`adicionar item salvo — ${v}`);
+      await nutri.keyboard.press('Escape');
+      await expect(itensSalvos).toBeHidden();
+      await expect(adicionar).toBeFocused();
+
+      // nada mudou: o rascunho continua com o item dele
+      await expect(nutri.getByRole('group', { name: /^Item \d+: / })).toHaveCount(1);
+      expect(falhas).toEqual([]);
+    });
+  }
+}
+
+// Plano 22 (T12, Minor da T8): o axe do editor da solicitação de exames nos modos claro e escuro, a 1280 e a 360 px, com
+// exames do modelo "Check-up E2E" da semente, um nome longo sem espaço fora do catálogo (a quebra de palavra) e a
+// confirmação "Substituir" aberta. A página da solicitação assinada passa pelo axe no e2e/solicitacao-exames.spec.ts.
+let solicitacaoDoAxe: string;
+
+test('solicitação (T12): rascunho com exames do modelo e um nome longo, para o axe do editor', async () => {
+  await nutri.setViewportSize({ width: 1280, height: 800 });
+  const sufixo = `sl${Date.now().toString(36)}`;
+  const prontuario = await criarPacientePeloFormulario(nutri, { nome: `Paciente Solicitacao Axe ${sufixo}`, email: `solicitacao-axe-${sufixo}@nutridebby.test` });
+  await nutri.goto(`${prontuario}/documentos`);
+  await nutri.getByRole('button', { name: 'Nova solicitação de exames' }).click();
+  await expect(nutri).toHaveURL(/\/documentos\/[0-9a-f-]{36}$/);
+  solicitacaoDoAxe = nutri.url();
+  await nutri.waitForLoadState('networkidle');
+  await nutri.getByRole('button', { name: 'Carregar modelo', exact: true }).click();
+  await nutri.getByRole('dialog', { name: 'Carregar modelo' }).getByRole('button', { name: 'Acrescentar Check-up E2E' }).click();
+  await nutri.getByLabel('Adicionar exame fora do catálogo').fill('Pesquisadeanticorposantitransglutaminaseiga');
+  await nutri.keyboard.press('Enter');
+  await nutri.getByRole('button', { name: 'Salvar rascunho' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Rascunho salvo.' })).toBeVisible();
+});
+
+for (const [modo, tema] of [
+  ['claro', 'Claro'],
+  ['escuro', 'Escuro'],
+] as const) {
+  for (const largura of [1280, 360]) {
+    test(`axe sem violações no editor da solicitação e na confirmação "Substituir" — modo ${modo}, ${largura} px`, async () => {
+      await nutri.setViewportSize({ width: 1280, height: 800 });
+      await escolherTema(nutri, tema);
+      await nutri.setViewportSize({ width: largura, height: 800 });
+      const falhas: string[] = [];
+      await nutri.goto(solicitacaoDoAxe);
+      await nutri.waitForLoadState('networkidle');
+      await expect(nutri.getByRole('button', { name: 'Remover Pesquisadeanticorposantitransglutaminaseiga' })).toBeVisible();
+      for (const v of await violacoes(nutri)) falhas.push(`editor da solicitação — ${v}`);
+      expect(await nutri.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `sem rolagem lateral: ${modo}, ${largura} px`).toBe(true);
+
+      const carregar = nutri.getByRole('button', { name: 'Carregar modelo', exact: true });
+      await carregar.click();
+      const dialogo = nutri.getByRole('dialog', { name: 'Carregar modelo' });
+      for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`carregar modelo (solicitação) — ${v}`);
+      await dialogo.getByRole('button', { name: 'Substituir por Check-up E2E' }).click();
+      const confirmar = nutri.getByRole('alertdialog', { name: 'Substituir' });
+      await expect(confirmar).toBeVisible();
+      for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`confirmar substituir (solicitação) — ${v}`);
+      await nutri.keyboard.press('Escape');
+      await expect(confirmar).toBeHidden();
+      await nutri.keyboard.press('Escape');
+      await expect(dialogo).toBeHidden();
+      expect(falhas).toEqual([]);
+    });
+  }
+}
+
+// Plano 22 (T12, EP-D54, US-380): o "Compartilhar" pronto no portal (depois de "Preparar para compartilhar"), estado que
+// não é rota: aparelho claro e escuro, a 1280 e a 360 px. A receita é assinada pela E2E_DOCS (o 2FA); o portal segue o
+// aparelho (data-tema="sistema"). IPs: nutricionista 10.9.22.11, paciente 10.9.22.12.
+test('axe sem violações no "Compartilhar" pronto do portal, aparelho claro e escuro, 1280 e 360 px', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const docs = await entrarComoDocs(browser, '10.9.22.11');
+  const p = await pacienteNoPortal(browser, docs, '10.9.22.12');
+  try {
+    await emitirReceita(docs, p.prontuario);
+    const page = p.page;
+    const falhas: string[] = [];
+    for (const colorScheme of ['light', 'dark'] as const) {
+      for (const largura of [1280, 360]) {
+        await page.emulateMedia({ colorScheme });
+        await page.setViewportSize({ width: largura, height: 800 });
+        await page.goto('/p/documentos');
+        await page.waitForLoadState('networkidle');
+        await page.getByRole('button', { name: /^Preparar para compartilhar a receita de \d{2}\/\d{2}\/\d{4}$/ }).click();
+        await expect(page.getByRole('button', { name: /^Compartilhar a receita de \d{2}\/\d{2}\/\d{4}$/ })).toBeFocused();
+        await expect(page.getByRole('status').filter({ hasText: 'PDF pronto. Toque em Compartilhar.' })).toBeVisible();
+        for (const v of await violacoes(page)) falhas.push(`compartilhar pronto (${colorScheme}, ${largura} px) — ${v}`);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${colorScheme}, ${largura} px`).toBe(true);
+      }
+    }
+    expect(falhas).toEqual([]);
+  } finally {
+    await p.page.context().close();
+    await docs.context().close();
+  }
+});

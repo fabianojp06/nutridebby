@@ -368,6 +368,11 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Faixa do consultório | Faixa que a nutricionista define no catálogo, sempre com a fonte (sexo do cadastro, idade em anos completos, "A partir de" inclusivo, "Abaixo de" exclusivo, categoria de uma lista fechada sem nome de doença); mostra a categoria "(faixa do consultório)" ao lado do resultado, só no painel, calculada na leitura (Plano 22, RN-374, RN-380, RN-381, EP-D11) | `src/modules/exames/classificacao.ts` |
 | Classificação neutra | "Abaixo da referência", "Dentro da referência" ou "Acima da referência", pela faixa do laudo, calculada na leitura e nunca gravada (`classificarNeutra`), sempre com o aviso "Classificação automática pela faixa de referência informada. Não é diagnóstico." (Plano 22, RN-379, RN-381) | `src/modules/exames/classificacao.ts:24` |
 | Nota de interpretação | Texto da nutricionista sobre um exame (`exam_interpretacoes`, só de inclusão: cada "Salvar nota" é uma versão nova, "Apagar nota" grava texto nulo); não vai ao app, ao PDF, à IA nem ao comparativo; sai no `dados.json` nos dois escopos (Plano 22, RN-383, EP-D19, EP-D61) | [§4.2.12](04-modulos-clinicos.md#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2) |
+| Solicitação de exames | Tipo de documento assinado `solicitacao_exames` (Plano 22, PR 4): título fixo "Solicitação de exames laboratoriais", 1 a 40 exames (cópia do nome; um painel sai como um item), indicação clínica e orientações opcionais, **sem** laboratório; mesma base da receita (preparo, digitalizada, verificação, portal sem o conteúdo na tela). "Lançar resultados" abre o "Novo exame" com uma linha por exame | [§9.12.3](09-documentos-assinados.md#9123-solicitação-de-exames-laboratoriais-t8-us-376-us-377-rn-388-a-rn-391-ep-d1-a-ep-d7) |
+| Fórmula magistral fitoterápica | Item `formula_fitoterapica` da receita (Plano 22): 2 a 10 compostos vegetais com nomenclatura botânica conferida (binômio, sem termo não vegetal), forma farmacêutica, via e posologia; exige a habilitação em Fitoterapia (salvar, preparar e assinar) e muda a declaração do preparo | [§9.12.4](09-documentos-assinados.md#9124-fórmula-magistral-fitoterápica-e-marcação-mínima-t9-us-378-rn-392-rn-395-ep-d26-a-ep-d28-ep-d31) |
+| Item salvo | Um item da receita guardado com nome na biblioteca do consultório (`prescricao_itens_salvos`, só a equipe), validado pelo mesmo Zod; "Adicionar item salvo" **copia** para a receita (sem FK) | [§9.12.5](09-documentos-assinados.md#9125-itens-salvos-e-modelos-de-prescrição-t10a-t10b-us-379-rn-393-rn-394-ep-d29-ep-d30) |
+| Modelo de prescrição | Itens (1 a 20) e orientações guardados com nome (`prescricao_modelos`), sem justificativa de uso nem dado do paciente; "Carregar modelo" grava a receita pelo caminho do "Salvar rascunho" (tudo ou nada) | [§9.12.5](09-documentos-assinados.md#9125-itens-salvos-e-modelos-de-prescrição-t10a-t10b-us-379-rn-393-rn-394-ep-d29-ep-d30) |
+| Marcação mínima | O formato das orientações novas (`orientacoesFormato: 'marcacao'`): parágrafo, lista com "- " e `**negrito**`, lido por `lerMarcacao` em blocos e desenhado como componentes — nunca HTML | [§9.12.4](09-documentos-assinados.md#9124-fórmula-magistral-fitoterápica-e-marcação-mínima-t9-us-378-rn-392-rn-395-ep-d26-a-ep-d28-ep-d31) |
 
 ### Isolamento e banco
 
@@ -440,6 +445,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | NORMAS-DECISAO-n, NORMAS-0n | Decisões e achados da lente de normas (CFN, LGPD) na revisão de um plano; no Plano 17: NORMAS-DECISAO-1 (nome da refeição no push só da lista fechada), NORMAS-DECISAO-2 (suplemento sem vínculo com a receita) e NORMAS-03 (configuração dos lembretes = ajuste do app) | Plano 17, "Revisão do plano (16/11/2026)" |
 | US-30x, RN-3xx, RNF-30x, CS-30x, R-3xx, F-Dn, F-Pn | Histórias, regras, requisitos, critérios, riscos, decisões (F-D1 a F-D30) e pendências externas (F-P1 a F-P5) da spec do Financeiro (faixa 300; o prefixo "F-" evita colisão com o Dx dos planos) | `2026-11-16-nutridebby-20-financeiro-design.md`; [cap. 12](12-financeiro.md) |
 | Regra n | Regra obrigatória n do `CLAUDE.md` do projeto (1 a 10) | [§7.9](07-testes-qualidade-e-processo.md#79-as-10-regras-do-claudemd-com-o-porquê) |
+| EP-Dn, US-37x/38x, RN-37x a 39x, R-37x/38x, PM-En | Decisões (EP-D1 a EP-D44 da spec, EP-D45 a EP-D64 do plano), histórias, regras, riscos e pontos menores do Plano 22 (exames e prescrição; bloco 370) | Spec e plano do Plano 22 |
 
 ---
 
@@ -773,6 +779,29 @@ Os números abaixo foram renumerados no rebase sobre o Plano 20 (que ocupou 142�
 | 159 | Spec do Plano 22, §4.1 | "Título (h1)" do detalhe, da edição, das versões e do comparativo | h2: o h1 do prontuário é o nome do paciente | Doc | 4 #24 |
 | 160 | RN-384 | Empate pela criação | Também pelo id; mais de 30 ids na URL nem vão ao banco | Doc | 4 #25 |
 
+### Exames no app e documentos (Plano 22, PR 3 e PR 4)
+
+Conferido no branch `plano-22-exames-prescricao` na T12 (Tarefas 6 a 12, antes do merge dos PRs 3 e 4; 23/11/2026),
+contra a spec v0.3 e o plano do Plano 22 (decisões EP-D45 a EP-D64, que o plano registra como desvios da spec); detalhe
+nas divergências 26–30 do [cap. 4](04-modulos-clinicos.md#divergências-encontradas) e 11–13 do
+[cap. 9](09-documentos-assinados.md#divergências-encontradas). Números do branch (renumerar no rebase, como os do PR 2).
+
+| # | Fonte | Diz | Código | Tipo | Cap. |
+|---|---|---|---|---|---|
+| 149 | Spec §6.2 (PR 3) | Sem texto para a contagem dos exames liberados em `[id]/app` | "{n} exame(s) liberado(s)" (`MSG_NO_APP.examesLiberados`, rascunho para a Debby) | Doc | 4 #26 |
+| 150 | Plano, T6 | Confirmação do excluir pelo `DialogoConfirmar` | Só o exame liberado ganhou o diálogo; os outros seguem com o `ConfirmarBotao` (E2E da conferência) | Doc | 4 #27 |
+| 151 | RN-386 | A seção do portal "quando `temExameLiberado`" | A página chama `examesLiberadosDoPaciente` direto (o `auditRead` só com itens) | Doc | 4 #29 |
+| 152 | Spec §9.8 (EP-D45) | "Liberou/Retirou exame no app" em `ENTIDADE_ROTULO` | Na coluna Ação (`rotuloDaAcao`), entidade "Exames" | Doc | 4 §4.2.13 |
+| 153 | Spec §4.2 (EP-D46, EP-D62) | `idadeNaData`; funções da nota e das versões em `pacientes/exames.ts` | `idadeEm` (`datas.ts`); `exames/edicao.ts` e `exames/detalhe.ts` (fora do alcance da IA, RN-399) | Doc | 4 |
+| 154 | Spec §9 (EP-D60, EP-D63) | Filhas "ao lado de `exams`"; migrations `exames`/`rls_exames` | `src/db/schema/exames-filhas.ts`; `exames_catalogo`/`rls_exames_catalogo` | Doc | 2 |
+| 155 | Spec (EP-D48, EP-D49) | Fórmula e tipo novo no PR de fundação | O CHECK de tipo no PR 1; `formula_fitoterapica` em `TIPOS_ITEM`, rótulos e telas só no PR 4 (o worker antigo não desenha) | Doc | 9 §9.12.1 |
+| 156 | Spec (EP-D50) | "Lançar resultados" como ação própria | Link para `/exames?solicitacao=<id>#novo-exame`, com a criação na rota POST de sempre; desde a T12, o `auditRead` depois da conferência do tipo | Doc | 9 #13 |
+| 157 | Spec (EP-D52) | Um bump por guia | +1 sobre a `main` por PR que muda a tela (`documentos` v3, `configuracoes` v10, `portal-novidades` v5 no branch) | Doc | 5 §5.8.1 |
+| 158 | Spec §6.2 e RN-391/RN-394 | "Substituir os {n} exames/itens…" | Com 1, "os 1 itens" (texto exato; plural no backlog do plano) | Comp. | 9 #12 |
+| 159 | Plano (EP-D55) | O Plano 22 na Sessão B (`../nutridebby-b`, porta 3102, `nutri_dev_b`) | Executado no worktree `../nutridebby-22` (porta 3104, banco `nutri_dev_d2`, "Sessão D"; notas da sessão em `../.sessoes/sessao-d-notas-plano22.md`) | Doc | — |
+| 160 | Runbook R-375 | "Desligar `documentos_liberados` antes" da volta atrás | Fecha painel, portal, link e PDFs, mas não a verificação pública nem os jobs já na fila | Doc | 9 #11 |
+| 161 | Spec, RN-392, US-378 | O cenário cita o "Derivado ou extração" na conferência dos termos | Só a nomenclatura é conferida (spec corrigida na T12) | Doc | 9 §9.12.4 |
+
 ### CI no runner próprio (12/10/2026)
 
 Conferido no branch `runner-proprio` em `bbd7728` (antes do merge; mergeado no PR #33 em 13/10/2026); detalhe na
@@ -785,3 +814,4 @@ Conferido no branch `runner-proprio` em `bbd7728` (antes do merge; mergeado no P
 **Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68, #74 e #153. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.
 Plano 22, PR 2: #145 (Comp.).
+Plano 22, PR 4: #158 (Comp.).

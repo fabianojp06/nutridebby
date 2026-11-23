@@ -23,6 +23,8 @@ import {
   twoFactor,
   user,
   exams,
+  prescricaoItensSalvos,
+  prescricaoModelos,
 } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
@@ -41,6 +43,8 @@ import { criarRascunho, salvarRascunho } from '@/modules/plano-alimentar/rascunh
 import { cpfValido } from '@/modules/pacientes/cpf';
 import { TERMO_PACIENTE } from '@/modules/pacientes/termo-paciente';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
+import { TERMO_FITOTERAPIA } from '@/modules/documentos/perfil-profissional';
+import { validarItem, validarItensDoModelo } from '@/modules/documentos/prescricao';
 
 export const E2E_ADMIN = { email: 'admin-e2e@nutridebby.test', password: 'Nutri2026segura' };
 export const E2E_NUTRI = { email: 'nutri-e2e@nutridebby.test', password: 'Nutri2026segura' };
@@ -92,7 +96,18 @@ const db = getDb();
 // Consultório das nutricionistas do E2E, já com o DPA aceito (US-002) e a página pública /n/e2e-consultorio ligada (Plano 05)
 const AGENDA_PUBLICA = { linkOnlinePadrao: 'https://meet.example.test/e2e', enderecoConsultorio: 'Rua E2E, 100', agendamentoPublicoAtivo: true };
 // Plano 10A: documentos assinados liberados pelo admin (D20) e o perfil profissional completo (carimbo da receita)
-const DOCUMENTOS = { documentosLiberados: true, crn: 'CRN-3 12345', nomeProfissional: 'Nutri E2E da Silva', contatoEmail: 'contato-e2e@nutridebby.test', contatoTelefoneE164: '+5511912345678' };
+const DOCUMENTOS = {
+  documentosLiberados: true,
+  crn: 'CRN-3 12345',
+  nomeProfissional: 'Nutri E2E da Silva',
+  contatoEmail: 'contato-e2e@nutridebby.test',
+  contatoTelefoneE164: '+5511912345678',
+  // Plano 22 (T12, CS-372): a habilitação em Fitoterapia autodeclarada (D6 do 10A), para o modelo de prescrição da semente
+  // com o fitoterápico e a fórmula magistral fitoterápica passar pelas conferências de novo ao carregar (RN-392, RN-394)
+  fitoterapiaRegistro: 'CRN-3 12345 (Fitoterapia)',
+  fitoterapiaDeclaradaEm: new Date('2026-11-01T12:00:00Z'),
+  fitoterapiaTermoVersao: TERMO_FITOTERAPIA.versao,
+};
 // Plano 11: a IA liberada pela admin e ativada com o aditivo no consultório do E2E (o CI roda com IA_PROVEDOR=sandbox).
 // Plano 14A: o aditivo atual (IA_ADITIVO_VERSAO, 1.2 desde o Plano 15) e o perfil de DOCUMENTOS, que o texto da autorização cita.
 // Plano 15 (T13): a IA Nutri do paciente ativada pela nutricionista (★ DO-1 = não: a linha de ia_nutri_pausa nasce não
@@ -284,6 +299,59 @@ await withTenant({ tenantId: consultorio.id, role: 'worker' }, (tx) =>
     .values({ tenantId: consultorio.id, nome: 'Check-up E2E', exames: [{ nome: 'Hemograma completo', painel: true }, { nome: 'Ferritina' }], orientacoes: 'Jejum de 8 horas.' })
     .onConflictDoNothing(),
 db);
+// Plano 22 (T12, CS-372, US-379): o modelo de prescrição de 5 itens que o e2e/solicitacao-exames.spec.ts carrega em 1 clique
+// ("Carregar modelo" → "Acrescentar aos itens") — os cinco tipos de item, com o fitoterápico e a fórmula magistral
+// fitoterápica (exigem a habilitação de DOCUMENTOS) — e dois itens salvos ("Adicionar item salvo", o axe dos diálogos da
+// receita). Passam pelo mesmo Zod da receita (`validarItensDoModelo`, `validarItem`): a semente nunca grava um item que a
+// tela recusaria. Repetível: ON CONFLICT DO NOTHING pelo nome (único sem diferença de maiúsculas no consultório).
+const E2E_MODELO_PRESCRICAO = validarItensDoModelo(
+  {
+    itens: [
+      { tipo: 'suplemento', categoria: 'nutriente', composicao: [{ nome: 'Vitamina D3', quantidade: '2000', unidade: 'UI' }], forma: 'Cápsula', via: 'oral', posologia: '1 cápsula ao dia, no almoço' },
+      { tipo: 'suplemento', categoria: 'probiotico', composicao: [{ nome: 'Lactobacillus acidophilus', quantidade: '1.000.000.000', unidade: 'UFC' }], forma: 'Sachê', via: 'oral', posologia: '1 sachê ao dia, em jejum', duracao: '30 dias' },
+      { tipo: 'planta_cha', nomenclatura: 'Matricaria chamomilla L.', parte: 'Flores', modoPreparo: 'infusao', formaUso: '1 colher de sopa em 200 mL de água fervente, por 5 minutos', posologia: '1 xícara à noite', nomePopular: 'Camomila' },
+      { tipo: 'fitoterapico', nomenclatura: 'Curcuma longa L.', parte: 'Rizoma', extracao: 'Extrato seco', formaFarmaceutica: 'Cápsula', dose: '500 mg', via: 'oral', posologia: '1 cápsula 2 vezes ao dia', padronizacao: '95% de curcuminoides' },
+      {
+        tipo: 'formula_fitoterapica',
+        compostos: [
+          { nomenclatura: 'Passiflora incarnata L.', parte: 'Partes aéreas', extracao: 'Extrato seco', quantidade: '200', unidade: 'mg' },
+          { nomenclatura: 'Valeriana officinalis L.', parte: 'Raiz', extracao: 'Extrato seco', quantidade: '100', unidade: 'mg' },
+        ],
+        formaFarmaceutica: 'Cápsula',
+        via: 'oral',
+        posologia: '1 cápsula à noite',
+      },
+    ],
+    orientacoes: 'Tome os suplementos **junto das refeições**.',
+  },
+  { habilitada: true },
+);
+const E2E_ITENS_SALVOS = [
+  { nome: 'Magnésio E2E', item: validarItem({ tipo: 'suplemento', categoria: 'nutriente', composicao: [{ nome: 'Magnésio', quantidade: '300', unidade: 'mg' }], forma: 'Cápsula', via: 'oral', posologia: '1 cápsula ao dia' }, { habilitada: true }) },
+  {
+    nome: 'Fórmula calmante E2E',
+    item: validarItem(
+      {
+        tipo: 'formula_fitoterapica',
+        compostos: [
+          { nomenclatura: 'Melissa officinalis L.', parte: 'Folhas', extracao: 'Extrato seco', quantidade: '150', unidade: 'mg' },
+          { nomenclatura: 'Passiflora incarnata L.', parte: 'Partes aéreas', extracao: 'Extrato seco', quantidade: '150', unidade: 'mg' },
+        ],
+        formaFarmaceutica: 'Cápsula',
+        via: 'oral',
+        posologia: '1 cápsula à noite',
+      },
+      { habilitada: true },
+    ),
+  },
+];
+await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
+  await tx.insert(prescricaoModelos).values({ tenantId: consultorio.id, nome: 'Rotina E2E', itens: E2E_MODELO_PRESCRICAO.itens, orientacoes: E2E_MODELO_PRESCRICAO.orientacoes }).onConflictDoNothing();
+  await tx
+    .insert(prescricaoItensSalvos)
+    .values(E2E_ITENS_SALVOS.map(({ nome, item }) => ({ tenantId: consultorio.id, nome, tipo: item.tipo, item })))
+    .onConflictDoNothing();
+}, db);
 
 // Plano 20: os dois consultórios do primeiro acesso desta execução (sem linha em fin_configuracoes) e as contas que apontam
 // para eles, recriadas como a E2E_NUTRI

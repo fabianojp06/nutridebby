@@ -87,9 +87,10 @@ export const GUIAS: readonly Guia[] = [
     id: 'documentos',
     versao: 3, // Plano 13: o parecer nutricional e a retificação; Plano 22 (T8, EP-D52): a solicitação de exames (+1 sobre a main)
     padrao: new RegExp(`^/painel/pacientes/${ID}/documentos(/.*)?$`),
-    titulo: 'Documentos: receita e parecer',
+    // Plano 22 (T12, Minor da T8): o título e o resumo citam a solicitação de exames (rascunho para a Debby e o revisor-interface)
+    titulo: 'Documentos: receita, parecer e solicitação de exames',
     ajuda: {
-      resumo: 'Receitas de suplementos e fitoterápicos e pareceres nutricionais sobre os exames, assinados por você à mão (digitalizada) e entregues ao paciente com código de verificação.',
+      resumo: 'Receitas de suplementos e fitoterápicos, pareceres nutricionais sobre os exames e solicitações de exames laboratoriais, assinados por você à mão (digitalizada) e entregues ao paciente com código de verificação.',
       secoes: [
         {
           titulo: 'Passo a passo',
@@ -109,7 +110,8 @@ export const GUIAS: readonly Guia[] = [
             'Depois de assinado, o documento não muda. Errou, ou o exame mudou? Use "Retificar": a versão nova, com o motivo (fica só no prontuário), substitui a anterior quando for assinada. "Cancelar documento" é para o documento que não deve mais valer.',
             'O parecer guarda uma cópia dos valores dos exames. Se o exame mudar depois de preparar, a tela avisa e o parecer continua com a cópia.',
             'O parecer não afirma diagnóstico de doença nem prescreve medicamento: para isso, encaminhe ao médico.',
-            'Qualquer pessoa com o código de verificação (o paciente, uma farmácia) confere a autenticidade sem ver o conteúdo.',
+            // Plano 22 (T12, Minor da T8): o laboratório também confere a solicitação pelo código
+            'Qualquer pessoa com o código de verificação (o paciente, uma farmácia, um laboratório) confere a autenticidade sem ver o conteúdo.',
             // Plano 22 (T9, §6.2, US-378): os dois tipos e o "desabilitado" (rascunho para a Debby e o revisor-interface)
             'Sem a habilitação em Fitoterapia registrada em Configurações, "Fitoterápico (forma farmacêutica ou fórmula magistral)" e "Fórmula magistral com vários compostos vegetais" aparecem desabilitados no tipo do item. Use a fórmula para 2 a 10 derivados vegetais em quantidades próprias; o fitoterápico, para o produto de uma planta só.',
             'A fórmula magistral fitoterápica só aceita derivados vegetais: a nomenclatura botânica de cada composto é conferida (Gênero espécie, sem vitaminas, minerais, aminoácidos ou substâncias isoladas). É uma conferência de apoio: a responsabilidade pela composição continua sua.',
@@ -129,14 +131,14 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'novo-parecer', titulo: 'Novo parecer nutricional', texto: 'O parecer lê os exames lançados na aba Exames: você escolhe os exames e escreve a avaliação, a conduta e os encaminhamentos.' },
       { alvo: 'editor-receita', titulo: 'Itens e justificativa', texto: 'Cada tipo de item pede os campos da resolução do CFN. A justificativa de uso fica só no prontuário.' },
       { alvo: 'editor-parecer', titulo: 'Exames e avaliação', texto: 'Os valores dos exames escolhidos são copiados a cada vez que você salva e congelados ao preparar.' },
+      // Plano 22 (T8, US-377; T12, Minor da T8: antes do "Preparar"): rascunho para a Debby e o revisor-interface
+      { alvo: 'nova-solicitacao', titulo: 'Nova solicitação de exames', texto: 'Peça exames laboratoriais num documento assinado e verificável, sem indicar laboratório: o paciente leva o pedido ao laboratório que escolher.' },
+      { alvo: 'editor-solicitacao', titulo: 'Exames da solicitação', texto: 'Escolha os exames do catálogo, de um modelo ou digite outros. A indicação clínica descreve a finalidade nutricional, sem afirmar doença. Assinada, use "Lançar resultados" para lançar os valores.' },
       { alvo: 'preparar-documento', titulo: 'Preparar para assinatura', texto: 'A declaração confirma a sua responsabilidade. O PDF sai com a sua marca, o código de verificação e o QR code.' },
       { alvo: 'assinar-documento', titulo: 'Assinar e enviar', texto: 'Baixe o PDF, imprima, assine à mão e envie as fotos das páginas com o código da verificação em duas etapas. O sistema monta um PDF novo com o código e o QR.' },
       { alvo: 'entrega-documento', titulo: 'Entrega', texto: 'O paciente recebe pelo app ou por um link por e-mail. Aqui você vê se ele abriu e confirmou o recebimento, ou marca a entrega pessoal.' },
       { alvo: 'retificar-documento', titulo: 'Retificar', texto: 'Para corrigir um documento assinado, abra uma versão nova e escreva o motivo. A anterior continua valendo até a nova ser assinada.' },
       { alvo: 'cancelar-documento', titulo: 'Cancelar', texto: 'Documento que não deve mais valer? Cancele com o motivo (fica só no prontuário). A verificação pública passa a mostrar "cancelado".' },
-      // Plano 22 (T8, US-377): rascunho para a Debby e o revisor-interface
-      { alvo: 'nova-solicitacao', titulo: 'Nova solicitação de exames', texto: 'Peça exames laboratoriais num documento assinado e verificável, sem indicar laboratório: o paciente leva o pedido ao laboratório que escolher.' },
-      { alvo: 'editor-solicitacao', titulo: 'Exames da solicitação', texto: 'Escolha os exames do catálogo, de um modelo ou digite outros. A indicação clínica descreve a finalidade nutricional, sem afirmar doença. Assinada, use "Lançar resultados" para lançar os valores.' },
     ],
   },
   {
@@ -376,7 +378,8 @@ export const GUIAS: readonly Guia[] = [
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
-      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança, exames do consultório, prescrição e o tema do painel.',
+      // Plano 22 (T12, Minor da T10b): o cartão "Prescrição" só aparece com os documentos liberados
+      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança, exames do consultório, prescrição (com os documentos liberados) e o tema do painel.',
       secoes: [
         { titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] },
         {
