@@ -1,4 +1,4 @@
-import type { TenantContext } from '@/db/tenant';
+import { sessaoDePacienteComConta, type TenantContext } from '@/db/tenant';
 
 /**
  * RN-440 (Global Constraints do Plano 25): as funções do painel conferem a sessão `nutri` **antes** de abrir a transação —
@@ -7,4 +7,9 @@ import type { TenantContext } from '@/db/tenant';
  */
 export function exigirNutri(ctx: TenantContext): void {
   if (ctx.role !== 'nutri') throw new Error('mensagens: só a sessão nutri');
+}
+
+/** RN-440: as funções do portal exigem a sessão de paciente com conta (login no app), antes de abrir a transação. */
+export function exigirPacienteComConta(ctx: TenantContext): void {
+  if (!sessaoDePacienteComConta(ctx)) throw new Error('mensagens: só a sessão de paciente com conta');
 }
