@@ -65,10 +65,11 @@ no limite, mas também não rodam suíte pesada ao mesmo tempo que as outras.
   tiver caminho absoluto, as sessões dividem a pasta (o script avisa).
 - **Vitest** já isola: cada `pnpm test` sobe o próprio Postgres pelo Testcontainers (`test/postgres-teste.ts`) e não
   usa o banco da sessão. Três suítes ao mesmo tempo pesam na CPU; escalone.
-- **E2E:** fora do CI, o `playwright.config.ts` carrega o `.env.local` do worktree (`process.loadEnvFile`, SUS-101):
-  a `APP_URL` dá a porta do `next start` e o `baseURL`, e a `DATABASE_URL` vale para os workers do Playwright e para os
-  helpers que abrem o banco (`e2e/whatsapp.ts`), como no `pnpm worker` e no `pnpm e2e:seed`. Variável exportada no
-  shell continua vencendo (o `loadEnvFile` não sobrescreve). Antes do SUS-101 o `pnpm test:e2e` não lia o `.env.local`:
+- **E2E:** fora do CI, o `playwright.config.ts` lê do `.env.local` do worktree só `APP_URL`, `DATABASE_URL`,
+  `EVOLUTION_WEBHOOK_SECRET` e `MAILPIT_URL` (SUS-101): a `APP_URL` dá a porta do `next start` e o `baseURL`, e as
+  outras valem para os workers do Playwright e para os helpers (`e2e/whatsapp.ts`, `e2e/mailpit.ts`), como no
+  `pnpm worker` e no `pnpm e2e:seed`. O resto (inclusive o `NODE_ENV=development`) não é copiado: o `next start` segue
+  com o carregador do Next e roda como produção, como no CI. Variável exportada no shell continua vencendo. Antes do SUS-101 o `pnpm test:e2e` não lia o `.env.local`:
   sem `APP_URL` caía na 3100 e o `e2e/whatsapp.ts` caía no banco `nutri` do principal. No CI, só as variáveis do job.
   Ordem na sessão: `pnpm e2e:seed`, `pnpm build`, `pnpm test:e2e`. Cuidados:
   - o Playwright sempre sobe o próprio worker (`reuseExistingServer: false`): pare o `pnpm worker` da sessão antes,
