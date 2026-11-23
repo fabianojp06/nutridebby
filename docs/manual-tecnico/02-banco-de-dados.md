@@ -160,6 +160,11 @@ Regras de operação:
 
 São 69 tabelas em `public`: 53 com `tenant_id` sob RLS, 4 com `tenant_id` fora da RLS (`RLS_EXCEPTIONS`) e 12 sem `tenant_id` (Plano 10A: mais 4 sob RLS e `document_verifications` fora dela; Plano 09: `admin_actions`; Plano 11: `ia_tarefas` e `ia_uso` sob RLS e `ia_gasto_plataforma` sem `tenant_id`; Plano 12: `exam_submissions` e `exam_submission_files` sob RLS, com a proteção no [§11.3](11-exames-enviados.md#113-banco); Plano 14A: `ia_autorizacoes` sob RLS; Plano 14B-1: `ia_geracoes_modelos` sob RLS; Plano 15: `ia_nutri_participacoes`, `ia_nutri_mensagens` e `ia_nutri_consentimentos` sob RLS e `ia_nutri_pausa` sem `tenant_id`; Plano 17: `lembretes_rotina` e `lembretes_rotina_envios` sob RLS; Plano 18 (PR 2): `patient_cadastro` sob RLS, §2.5.4; Plano 20: `fin_configuracoes`, `fin_categorias` e `fin_lancamentos` sob RLS, as três `staff_only`). Contagem conferida nos `pgTable(` de `src/db/schema/*.ts` (17/11/2026, depois do PR 2 do Plano 18 e do Plano 20).
 
+Plano 25 (PR 1, fundação das mensagens; conferido no branch `plano-25-chat-recados` em `fdeefa0`, 23/11/2026): mais sete
+tabelas com `tenant_id` sob RLS — `chat_conversas`, `chat_mensagens`, `chat_leituras`, `chat_configuracoes`,
+`chat_avisos_nutri`, `chat_horarios` e `recados` ([§2.5.13](#2513-mensagens-e-recados-mensagensts-plano-25)) —, o que dá
+**76 tabelas**, 60 com `tenant_id` sob RLS (contagem dos `pgTable(` em `fdeefa0`).
+
 Legenda da coluna "Proteção":
 **T** `tenant_isolation` · **P** `patient_isolation` · **S** `staff_only` · **Pub** comandos liberados ao contexto `publico` · **PE** comandos que a sessão de paciente grava · **A** gatilho de auditoria (entidade) · **X** política própria (ver §2.6.5).
 
@@ -218,6 +223,13 @@ Legenda da coluna "Proteção":
 | `fin_configuracoes` (Plano 20) | T, S (sem `patient_id`, sem gatilho; o módulo grava `recordAudit` de `financeiro_configuracoes`); `REVOKE DELETE, TRUNCATE` | 0123 |
 | `fin_categorias` (Plano 20) | T, S; gatilho `fin_categorias_fixas` (`tipo` e `chave` fixos; "Consultas" nunca apagada) | 0123 |
 | `fin_lancamentos` (Plano 20) | T, P, S, A `financeiro`; `REVOKE DELETE, TRUNCATE`; gatilho `fin_lancamentos_regras` (contexto vazio e `worker` recusados — o `worker` só no ramo da anonimização —, os outros papéis caem na RLS sem ler `patients`; na sessão `nutri`, autoria e cancelamento pelo banco, colunas fixas, paciente `FOR KEY SHARE`, bloqueado só receber/desfazer/reduzir/cancelar, cancelado e anonimizado imutáveis); índice único parcial de uma cobrança ativa por consulta | 0123 |
+| `chat_conversas` (Plano 25) | T, P, A `chat_conversa` (fora da tela), X `paciente_com_conta` (RESTRICTIVE, `FOR ALL`: nega a sessão de paciente sem login); `REVOKE DELETE, TRUNCATE`; gatilho `chat_conversas_regras` (só a `nutri` cria, libera e pausa, em nome da usuária, com titular ativo e o carimbo de `tenants`; liberação imutável) | `0128_rls_mensagens` (tabela na `0127_mensagens`; números provisórios; renumeradas no §5) |
+| `chat_mensagens` (Plano 25) | T, P, PE `insert`, A `chat`, X `paciente_chat_envio` (RESTRICTIVE `FOR INSERT`) e `paciente_com_conta`; `REVOKE UPDATE, DELETE, TRUNCATE` com `GRANT UPDATE (anexo_status, anexo_path, anexo_original_path, updated_at)`; gatilho `chat_mensagens_regras` (relógio, autor, carimbo, conversa liberada, caminhos e transições do anexo) | `0128_rls_mensagens` (tabela na `0127_mensagens`; números provisórios; renumeradas no §5) |
+| `chat_leituras` (Plano 25) | T, P, PE `insert`/`update` (sem auditoria, `AUDIT_EXCEPTIONS`), X `paciente_leitura_propria_insert`/`_update` (só o lado `paciente`) e `paciente_com_conta`; `REVOKE DELETE, TRUNCATE`; gatilho `chat_leituras_regras` (cada lado só o próprio marcador; só avança, até o relógio do banco) | `0128_rls_mensagens` (tabela na `0127_mensagens`; números provisórios; renumeradas no §5) |
+| `chat_configuracoes` (Plano 25) | T, X `paciente_com_conta` (sem `patient_id`: a sessão de paciente com conta lê `horario_ativo`; escrita só da equipe, `paciente_sem_*`) | `0128_rls_mensagens` (tabela na `0127_mensagens`; números provisórios; renumeradas no §5) |
+| `chat_horarios` (Plano 25) | T, X `paciente_com_conta` (como `chat_configuracoes`); `EXCLUDE chat_horarios_sem_sobreposicao` | `0128_rls_mensagens` (tabela na `0127_mensagens`; números provisórios; renumeradas no §5) |
+| `chat_avisos_nutri` (Plano 25, CH-D70) | T, S (sem `patient_id`, sem gatilho); `REVOKE DELETE, TRUNCATE`; a sessão de paciente só chega à linha por `app_chat_aviso_nutri_devido` | `0128_rls_mensagens` (tabela na `0127_mensagens`; números provisórios; renumeradas no §5) |
+| `recados` (Plano 25) | T, S (sem `patient_id`, sem gatilho: cada cópia em `chat_mensagens` é auditada); `REVOKE UPDATE, DELETE, TRUNCATE`; gatilho `recados_regras` (só a `nutri`, com carimbo, autoria e relógio) | `0128_rls_mensagens` (tabela na `0127_mensagens`; números provisórios; renumeradas no §5) |
 
 Toda tabela da matriz tem também `publico_negado` (ou `publico_sem_<cmd>` nos comandos não liberados) e `paciente_sem_<cmd>` nos comandos de escrita não liberados (§2.6.4).
 
@@ -420,6 +432,48 @@ migração de dados, nenhum `DISABLE TRIGGER`. Regras de cada gatilho, da funç�
 journal em `src/db/migrate.test.ts` quebra o CI se uma migration entrar com `when` menor que o da anterior ou com `idx`
 fora de ordem (o migrador do Drizzle a pularia em silêncio em produção).
 
+### 2.5.13 Mensagens e recados (`mensagens.ts`, Plano 25)
+
+As sete tabelas vieram no PR 1 (fundação, sem nada visível), nas migrations `0127_mensagens` (gerada) e
+`0128_rls_mensagens` (custom) — números provisórios; renumeradas no §5 de `docs/operacao/sessoes-paralelas.md` no rebase; o PR 2 não tem migration. Uso
+pelo módulo em [§5.11](05-agenda-portal-conteudo.md#511-mensagens-e-recados-plano-25-pr-2); listas de valores em
+`src/db/schema/mensagens.ts:7-13` (`AUTORES_CHAT`, `STATUS_ANEXO`, `TIPOS_ANEXO`, `FORMAS_TCLE`, `LADOS_LEITURA`,
+`RISCOS_CHAT`, `TIPOS_FILTRO_RECADO`).
+
+| Tabela | Colunas principais | Chaves e restrições | Fonte |
+|---|---|---|---|
+| `chat_conversas` | `patient_id`, `liberada_em`, `liberada_por`, `tcle_forma` (`termo_assinado`/`aceite_escrito`), `liberada_nome`, `liberada_crn` (CH-D74), `pausada_em`, `pausada_por`, `pausada_nome`, `pausada_crn`, `created_at`, `updated_at` | Uma por paciente (`chat_conversas_paciente_unique`, `tenant_id`,`patient_id`), alvo das FKs das mensagens e do marcador; FK → `patients` `NO ACTION`; `liberada_por`/`pausada_por` sem FK (como `audit_log.actor_user_id`); CHECK `chat_conversas_liberacao` (os cinco campos da liberação juntos), `chat_conversas_tcle_forma_valida`, `chat_conversas_pausa` (os quatro da pausa juntos) e `chat_conversas_pausa_so_liberada` | `0127` |
+| `chat_mensagens` | `patient_id`, `autor` (`nutri`/`paciente`), `autor_user_id` (sem FK), `autor_nome`, `autor_crn` (carimbo), `texto`, `recado_id`, `duvida_em`, `risco`, `anexo_status` (`sem_anexo` → `processando` → `pronto`/`falhou` → `removido`, CH-D41), `anexo_path`, `anexo_original_path`, `anexo_tipo`, `anexo_nome`, `anexo_bytes`, `criada_em` (`default clock_timestamp()`), `updated_at` | FK (`tenant_id`,`patient_id`) → `chat_conversas` e (`tenant_id`,`recado_id`) → `recados`, `NO ACTION`; `anexo_path`/`anexo_original_path` com FK `NO ACTION` para `stored_files (caminho)`, `UNIQUE` e o prefixo do tenant e do tipo (`<tenant>/chat_anexo/…`, `<tenant>/chat_anexo_original/…`); CHECKs de texto (1 a 2.000 por `char_length(btrim)`), conteúdo (texto ou anexo), carimbo (obrigatório na `nutri`, nulo no paciente), PDF só da nutricionista, recado só texto da `nutri`, dúvida só da `nutri`, risco só do paciente, nome do anexo só da `nutri` (1 a 120), `pronto` com caminho, `processando` com original (salvo PDF), `sem_anexo` e `removido` sem caminho (CH-D60); índices `chat_mensagens_conversa_idx` (`tenant_id`,`patient_id`,`criada_em`,`id`), `_do_paciente_idx` (parcial, `autor = 'paciente'`), `_recado_idx` e `_processando_idx` (parciais) | `0127` |
+| `chat_leituras` | PK (`tenant_id`,`patient_id`,`lado`), `lado` (`consultorio`/`paciente`), `lida_ate`, `updated_at` | FK → `chat_conversas` `NO ACTION`; CHECK `chat_leituras_lado_valido` | `0127` |
+| `chat_configuracoes` | `tenant_id` (PK), `horario_ativo` (padrão `false`), `updated_at` | Uma linha por consultório | `0127` |
+| `chat_avisos_nutri` | `tenant_id` (PK), `aviso_email` (padrão `true`), `aviso_nutri_em` (marca do último e-mail à nutricionista), `updated_at` | Uma linha por consultório; nasce na configuração ou em `app_chat_aviso_nutri_devido` (CH-D70: fora de `chat_configuracoes`, que o paciente lê — pela data da marca ele saberia que outro paciente escreveu) | `0127` |
+| `chat_horarios` | `dia_semana` (0 = domingo … 6), `inicio_min`, `fim_min` (minutos do dia no fuso do consultório) | CHECK `chat_horarios_dia_valido` e `chat_horarios_faixa_valida` (0 a 1440, múltiplos de 15, início antes do fim); `EXCLUDE USING gist (tenant_id WITH =, dia_semana WITH =, int4range(inicio_min, fim_min) WITH &&)` na custom (o Drizzle não o escreve); até 3 por dia no módulo | `0127`, `0128` |
+| `recados` | `texto`, `filtro` (jsonb com `tipo`), `filtro_rotulo`, `destinatarios`, `autor_nome`, `autor_crn`, `criado_por` (sem FK), `criado_em` (`default clock_timestamp()`) | `UNIQUE (tenant_id, id)`, alvo da FK das cópias; CHECK de texto (1 a 1.000), `recados_filtro_valido` (`coalesce(filtro ->> 'tipo', '')` em `todos`/`etiquetas`/`local`), rótulo (1 a 300) e destinatários positivos; índice `recados_tenant_criado_idx`. Sem tela no PR 2 (T10) | `0127` |
+
+A `0127` também amplia três CHECKs (expansão, nunca contração, spec §9.9): `notifications_tipo_valido` (+ `chat_mensagem`,
+`recado`), `stored_files_tipo_valido` (+ `chat_anexo`, `chat_anexo_original`) e `ia_nutri_mensagens_resolucao`
+(+ `respondida`, usada no PR 3).
+
+A `0128` traz, nesta ordem: `app_enable_tenant_rls` nas sete; `app_enable_patient_rls` em `chat_conversas`,
+`chat_mensagens` e `chat_leituras`; `app_enable_staff_only` em `chat_avisos_nutri` e `recados`; `app_enable_audit` de
+`chat_conversas` (entidade `chat_conversa`) e `chat_mensagens` (`chat`); `app_allow_paciente_escrita` de `chat_mensagens`
+(`insert`) e `chat_leituras` (`insert`, `update`) com as políticas RESTRICTIVE `paciente_chat_envio` (`:50`: autor
+`paciente` em nome da própria conta, sem recado, dúvida, anexo convertido nem nome de anexo, `anexo_status` `sem_anexo` ou
+`processando`, o original — se houver — um `chat_anexo_original` do mesmo paciente, conversa liberada e não pausada e
+titular ativo e não anonimizado, tudo por `EXISTS` sob a RLS da própria sessão) e `paciente_leitura_propria_insert`/`_update`
+(`:72`, `:75`); a RESTRICTIVE `paciente_com_conta` (`FOR ALL`, `app_current_role() IS DISTINCT FROM 'paciente' OR
+app_current_user() IS NOT NULL`) nas cinco `chat_*` com paciente ou lidas por ele (`:81-99`; molde
+`patient_cadastro_paciente_com_conta`, CH-D47); a `paciente_arquivo_insert` de `stored_files` refeita com
+`chat_anexo_original` (`:103-106`); os `REVOKE`/`GRANT` (`:109-122`); o `EXCLUDE` (`:125`); os quatro gatilhos BEFORE
+(`app_chat_conversas_regras`, `:152`; `app_chat_mensagens_regras`, `:263`; `app_chat_leituras_regras`, `:398`;
+`app_recados_regras`, `:438`) e as três funções `SECURITY DEFINER` (§2.6.8). Os gatilhos devolvem `NEW`, antes de ler
+qualquer tabela, onde a RLS já recusa (outro tenant, outro paciente, `publico`, `conta` e a sessão de paciente onde a
+política a nega), para os testes negativos do isolamento verem a recusa da política da própria tabela; o contexto vazio
+(migration, semente sem `withTenant`) passa, e papel fora da lista fechada (`nutri`, `paciente`, `worker`, `publico`,
+`conta`) recebe o `42501` do gatilho — falha fechada, que hoje inclui a `recepcao` do Plano 26 enquanto ele não estiver
+na `main` (CH-D57, CH-D71). Testes do banco em
+`src/modules/mensagens/banco.test.ts`; as funções, em `src/db/migrate-owner.test.ts` (§2.6.8).
+
 ---
 
 ## 2.6 RLS em detalhe
@@ -581,6 +635,9 @@ Todas seguem o mesmo molde:
 | `app_ia_nutri_revogar(text, text, uuid)` | 0117 | `desativarNoApp` e `desativarPelaNutri` (`consentimento.ts`) | Sessão de paciente com conta e `p_patient` nulo (canal `app`) **ou** sessão `nutri` com `p_patient` do tenant (canal `nutricionista`, DP-17); senão `42501` | Com o último evento `aceite`: grava a revogação com o marcador local `app.ia_nutri_revogando`, cancela a fila, guarda a pergunta com risco não aberta até 30 dias (D22) e esvazia o resto até o fim do mês (esqueleto, D32); devolve o id da revogação e o número de canceladas |
 | `app_anonimizar_consentimentos_ia_nutri(uuid)` | 0117 | `anonimizarVencidos` (`src/modules/pacientes/lgpd.ts`) | Só `worker` de um tenant; paciente `bloqueado` ainda não anonimizado, travado (senão `42501`) | Tira IP, user-agent e conta; mantém evento, versão, destino, canal e data (Plano 15) |
 | `admin_metricas_ia_nutri()` | 0117 | `metricasDeIaPorEscopo` (`src/modules/plataforma/metricas.ts`) | Recusa com `55000` dentro de `withTenant` | Por tenant: perguntas do mês e os dois escopos de `ia_uso` (`conversa_paciente` × o resto) no mesmo `SELECT` (DP-11) |
+| `app_chat_soltar_anexo(uuid, text)` (Plano 25) | `0128_rls_mensagens` (provisório) | `apagarConversaDoTitular` (`src/modules/mensagens/lgpd.ts`, no `naMesmaTransacao` do `apagarArquivo`); no PR 3, também o job e a varredura dos anexos | Só `worker` de um tenant; o caminho tem de ser o ponteiro atual da mensagem (travada `FOR UPDATE`); senão `42501` | Solta **um** ponteiro: o original só fora de `processando`; o convertido só depois do original (CH-D59) e só com o titular na anonimização (bloqueado com `anonimizar_apos` antes de hoje no fuso do consultório, ou já anonimizado) — a mensagem vai a `removido`. Liga o marcador local `app.chat_soltando` só durante o `UPDATE` e o zera antes de cada `RETURN` e no erro |
+| `app_chat_aviso_nutri_devido(boolean)` (Plano 25, CH-D70) | `0128_rls_mensagens` (provisório) | `gravarDoPaciente` (`src/modules/mensagens/envio.ts`), antes do INSERT de todo envio gravado (CH-D72) | Só sessão de paciente com conta (tenant, usuário, papel `paciente` e paciente conferidos **antes** da troca de papel); senão `42501` | Troca o papel para `worker`, cria a linha de `chat_avisos_nutri` se faltar (aviso ligado), trava-a `FOR UPDATE` e devolve `true` só com o aviso ligado, `p_no_horario` verdadeiro (nulo = fora) e sem e-mail nas últimas 2 h — aí grava `aviso_nutri_em`; restaura papel e paciente antes de retornar e no erro. Devolve só o booleano |
+| `app_chat_apagar_do_titular(uuid)` (Plano 25) | `0128_rls_mensagens` (provisório) | `apagarConversaDoTitular` (anonimização e rede de limpeza) | Só `worker` de um tenant; titular travado `FOR UPDATE` e na anonimização (bloqueado com `anonimizar_apos` antes de hoje no fuso do consultório — nunca `current_date` — ou já anonimizado); senão `42501` | Trava a conversa e as mensagens do titular, recusa se alguma ainda aponta arquivo ou está em `processando` (falha fechada) e apaga marcadores, mensagens (as cópias de recado inclusive) e a conversa, nessa ordem; as exclusões passam pelo gatilho de auditoria |
 
 `app_anonimizar_documentos(uuid)` (0091, Plano 10A) segue o molde (`search_path` fixo, `REVOKE`/`GRANT`) mas é
 **`SECURITY INVOKER`**: o gatilho `app_documento_imutavel` já exige o contexto `worker`, e rodar com o papel de quem chama
@@ -618,6 +675,13 @@ isolamento), `app_patients_lembretes_do_paciente` (BEFORE INSERT OR UPDATE em `p
 lançamento ([§12.3](12-financeiro.md#123-banco)); testes em `src/modules/financeiro/banco.test.ts` e
 `src/db/migrate-owner.test.ts`. SUS-102 (0126): `app_tenants_por_sessao` (BEFORE INSERT OR UPDATE OR DELETE em `tenants`, gatilho `tenants_por_sessao`, roda depois dos dois de antes): só o `worker` e o contexto vazio (admin, seed) criam e apagam consultório; paciente, público e conta só tocam a linha do próprio consultório (a conta, nenhuma), mesmo num UPDATE sem mudança, e não mudam coluna nenhuma (o paciente só sobe `armazenamento_bytes` do próprio consultório até `COTA_BYTES`, teto replicado na migration, na reserva de cota de `salvarArquivo`/`salvarArquivos`); a `nutri` só toca a própria linha, sem trocar o `id` nem mudar as colunas da admin (`status`, `wa_cota_mensal`, `taxa_faltas_base`, `go_live_em`, `dpa_*`), com `armazenamento_bytes` livre (o `apagarArquivo` dela devolve o espaço); `worker`, admin e contexto vazio livres no UPDATE; testes em `src/db/tenants-gatilho.test.ts`.
 
+Plano 25 (`0128_rls_mensagens`, números provisórios; renumeradas no §5): os gatilhos BEFORE `app_chat_conversas_regras`, `app_chat_mensagens_regras`,
+`app_chat_leituras_regras` e `app_recados_regras` (`SECURITY INVOKER`, `search_path` fixo, `42501`; regras na
+[§2.5.13](#2513-mensagens-e-recados-mensagensts-plano-25) e na regra 2 do `CLAUDE.md`) e as três funções da tabela acima,
+no molde da `0083`/`0117` (troca de papel com `set_config(…, true)` e contexto restaurado). As três são provadas no
+cluster com dono sem superusuário e `NOBYPASSRLS`, como em produção: `describe('Plano 25: peças SECURITY DEFINER com dono
+NOBYPASSRLS')` em `src/db/migrate-owner.test.ts:593` (CH-D51), inclusive o "hoje" no fuso do consultório.
+
 Funções sem `SECURITY DEFINER` de apoio: `app_unaccent` (wrapper `IMMUTABLE` para índice, Plano 04, D6; `0040`), `app_versao_atende(text, text)` (o `versaoAtende` de `textos-legais.ts` em SQL, usado pelas funções da IA Nutri; Plano 15, `0117`), `app_etiquetas_validas` (CHECK de etiquetas; `0082`), `app_audit_row_change` (gatilho; §2.8) e as `app_paciente_colunas_*` (§2.6.6).
 
 ---
@@ -637,6 +701,13 @@ As listas de `src/db/rls-guard.ts` e `src/db/audit-guard.ts` são a fonte da ver
 | `ESCRITA_POR_AUDIENCIA` (`:267`) | `content_views` → `paciente_conteudo_visto`; `content_favorites` → `paciente_conteudo_favorito` | idem, `FOR INSERT` | idem |
 | `AUDIT_EXCEPTIONS` (`audit-guard.ts:4`) | `audit_log`, `invites`, `consents`, `notifications`, `push_subscriptions`, `access_events`, `stored_files`, `content_views`, `content_favorites`, `document_access_codes` (Plano 10A), `ia_autorizacoes` (Plano 14A: consentimento, não dado de saúde; a linha é a prova, como `consents`), `ia_nutri_consentimentos` (Plano 15, pelo mesmo motivo), `lembretes_rotina_envios` (Plano 17: registro técnico do último horário enviado, sem dado clínico; a configuração, em `lembretes_rotina`, é auditada) | `findAuditViolations` (`:23`): toda tabela com `patient_id` (ou `patients`) tem o gatilho `audit_row_change` | `src/db/audit-guard.test.ts:10-50` |
 
+Plano 25 (só acréscimos no fim de cada lista): `STAFF_ONLY` ganha `recados` e `chat_avisos_nutri`
+(`src/db/rls-guard.ts:121-122`); `PACIENTE_ESCREVE`, `chat_mensagens` (`insert`) e `chat_leituras` (`insert`, `update`)
+(`:211-212`); `AUDIT_EXCEPTIONS`, `chat_leituras` (`src/db/audit-guard.ts:20`: marcador técnico, como `access_events`).
+Nenhuma tabela nova em `PUBLICO_LIBERADO` nem em `SEM_CONTA_PERMITIDOS`; a negação da sessão de paciente sem login é a
+política `paciente_com_conta` de cada `chat_*`, que nenhuma lista confere (a prova está em
+`src/modules/mensagens/banco.test.ts`).
+
 A guarda de `STAFF_ONLY` confere só o sentido lista → banco. Uma `staff_only` criada sem entrada na lista não quebra o CI; a regra 2 do CLAUDE.md manda fazer as duas coisas. Pior: **nenhuma guarda detecta a tabela que deveria ser `staff_only` quando se esquecem o SQL e a lista**. `findStaffOnlyViolations` (`rls-guard.ts:123`) e a matriz de `test/isolamento.test.ts` só percorrem as tabelas já listadas em `STAFF_ONLY`; a tabela esquecida fica só com `patient_isolation`, e o paciente continua lendo as próprias linhas. Quem decide que a tabela é interna da equipe é a revisão, não o CI.
 
 Outros testes de isolamento:
@@ -645,6 +716,10 @@ Outros testes de isolamento:
 - `src/db/tenant.test.ts`: contexto inválido, reaproveitamento do pool, `audit_log` sem `UPDATE`/`DELETE`, `withConta`.
 - `src/db/migrate.test.ts:15-29`: o role da aplicação não é superusuário nem `BYPASSRLS` e é membro de `nutri_app_role` (Plano 01, Review Focus 2: o superusuário do Testcontainers mascararia a RLS). Desde o Plano 20, também a guarda do journal (`drizzle/meta/_journal.json` com `idx` sem buraco e `when` estritamente crescente; §2.5.12).
 - Fixtures de teste `rls_fixture_patient_items` e `audit_fixture_registros`, criadas só no `globalSetup` (`test/global-setup.ts:24-48`).
+- Plano 25 em `test/isolamento.test.ts`: fábricas das sete tabelas (`:190-210`), nenhuma em `COM_MAE`; o `beforeAll`
+  grava o carimbo profissional nos tenants A e B (`:332`) e passou a aceitar fábrica da sessão de paciente, com o próprio
+  paciente e um ator (`:350`; CH-D58: `chat_leituras` em `PAPEL_DA_FABRICA`, `:213`). Detalhe em
+  [§7.4.2](07-testes-qualidade-e-processo.md#742-a-matriz-de-isolamento-testisolamentotestts).
 
 ---
 
@@ -706,6 +781,9 @@ Entidades instaladas e o rótulo do "Histórico de acessos" (`ENTIDADE_ROTULO`, 
 | — (`lembretes_rotina_envios` fica sem gatilho) | — | Marca técnica do worker (Plano 17), em `AUDIT_EXCEPTIONS`: auditada, cada push viraria uma linha de `audit_log` |
 | `fin_lancamentos` | `financeiro` | Financeiro (Plano 20, RN-319): "Criou" e "Alterou" (inclusive o cancelamento e, com ator nulo, a anonimização); o `ler` das telas de um paciente identificado (RN-318) e o `exportar` do CSV (RN-321), gravados pelo módulo ([§12.8](12-financeiro.md#128-auditoria-e-privacidade)) |
 | — (`fin_configuracoes` fica sem gatilho, sem `patient_id`) | `financeiro_configuracoes` | Sem rótulo: o `alterar` de cada gravação do saldo e do valor da consulta (`recordAudit`, RN-320) fica fora do Histórico do paciente, para o registro das operações |
+| `chat_mensagens` (Plano 25) | `chat` | Mensagens (conversa com o paciente): as escritas das mensagens e, por `auditRead`, a abertura da conversa no painel e no app (`entidadeId` nulo, o `patient_id` da linha lida) |
+| `chat_conversas` (Plano 25) | `chat_conversa` | "Mensagens — conversa", **fora** da tela (`visivelNoHistorico`): o gatilho não distingue liberar, pausar e retomar de uma conversa nascida de recado. Os atos vêm do `recordAudit` do módulo nas entidades `chat_liberacao`, `chat_pausa` e `chat_retomada` (rótulo "Mensagens (conversa com o paciente)"; ação "Liberou…", "Pausou…" e "Retomou a conversa por mensagens", `rotuloDaAcao`, `src/modules/plataforma/audit.ts:137-140`; CH-D39) |
+| — (`chat_leituras` fica sem gatilho) | — | Marcador técnico de leitura (Plano 25), em `AUDIT_EXCEPTIONS`; `recados`, `chat_configuracoes`, `chat_avisos_nutri` e `chat_horarios` não têm `patient_id` (cada cópia do recado em `chat_mensagens` é auditada) |
 
 Entidades gravadas só por `recordAudit` (sem tabela de gatilho), do Plano 10A: `perfil_profissional` ("Perfil
 profissional", sem paciente: dados para documentos e habilitação em Fitoterapia) e `tentativa_assinatura` ("Tentativa de
@@ -730,6 +808,7 @@ Não chamam `auditRead`, por decisão:
 | Financeiro: Resumo, lista de lançamentos sem filtro de paciente, lista de "Pagamentos pendentes" (nome, total e data), relatórios, o chip "Paciente: {nome}" e o aviso do bloqueado | Como a agenda; o financeiro de **um** paciente identificado (lista filtrada, edição, detalhe das pendências, seção "Cobrança" e a mensagem do atendimento) grava **um** `ler` por abertura, só com linha | Plano 20, RN-318 |
 | Seções do Início da ficha (`secoesDoInicio`: contador e os 3 últimos com rótulo genérico, data e situação) e o cartão Resumo (`cartaoResumo`: aniversário, "Paciente desde" e a data do plano publicado) | Sem conteúdo clínico (nunca o nome do modelo da anamnese nem o do exame), como a agenda e as listas de documentos; o paciente já foi lido e auditado por `carregarProntuario`, e a última antropometria do cabeçalho grava **um** `ler` (`antropometria`) por execução do layout. Seção que devolve dado auditado declara `leitura: { entidade }` e `inicio.ts` grava um `auditRead` dela, só com itens ([§4.2.10](04-modulos-clinicos.md#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)) | Plano 18, D13, D14, RN-276, RN-277 |
 | Plano 18, PR 2: a nota "Cadastro incompleto" (`presencaDoCadastro`: só expressões `campo is not null`), o nome social na lista e no cabeçalho (projeção `nome_social` em `listarPacientes`/`buscarPaciente`) e o "No app do paciente" (`noAppDoPaciente`: contagens, datas, ids e marcas sim/não, inclusive o diário dos últimos 30 dias) | Presença, nome exibido e números, nunca o valor do cadastro nem conteúdo clínico; `buscarPaciente` já audita a abertura (`patients`). Os **valores** do cadastro só saem na aba Perfil, por `cadastroDoPaciente`, com `auditRead` (entidade `patients`, `entidade_id` = id da linha de `patient_cadastro`, "Cadastro do paciente") | Plano 18, D16, D20, RN-268, RN-269, RN-281 |
+| Plano 25: a caixa de Mensagens, o contador do menu e das abas, a "Nova conversa", a situação (`GET /api/painel/mensagens/situacao` e `GET /api/p/mensagens/situacao`: só `{ novas, ultimaLida }`), o link "Mensagens" da faixa do portal e a seção "Mensagens" do Início da ficha | Nome, data, tipo, contagem e selo, nunca o texto (teste das chaves); abrir a conversa é que lê e grava **um** `auditRead` (`chat`) por render ([§5.11.4](05-agenda-portal-conteudo.md#5114-leitura-lida-e-cursores-rn-446-rn-448-rn-452-rn-453-ch-d40-ch-d72)) | Plano 25, RN-453, RN-468 |
 
 Tabelas com `patient_id` sem gatilho estão em `AUDIT_EXCEPTIONS`, cada uma com o motivo (`src/db/audit-guard.ts:4-19`).
 
@@ -853,3 +932,4 @@ flowchart TD
 | 10 | Spec dos lembretes (`docs/superpowers/specs/2026-11-13-nutridebby-lembretes-de-rotina-design.md`) §5.5: a configuração "é parte da conduta" e por isso é auditada | O comentário da `0119` repete isso (`:6`), mas `atenderPedidoExclusao` classifica a configuração como "ajuste do app, não prontuário" para fins de guarda (NORMAS-03) e a apaga na hora. Leitura coerente: auditada como escrita sobre o titular (regra 8), fora do prazo de guarda do prontuário ([§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17)) | `drizzle/0119_rls_lembretes_rotina.sql:6`; `src/modules/pacientes/lgpd.ts:196-205` |
 | 11 | Spec do Plano 18 (`docs/superpowers/specs/2026-11-16-nutridebby-18-ficha-cadastro-design.md`) §9.1: dois gatilhos em `patient_cadastro` (`_colunas_fixas` com `tenant_id` e `patient_id`; `_sem_apagar`) | Três: `patient_cadastro_colunas_fixas` também fixa o `id` (o `entidade_id` da trilha), e `patient_cadastro_titular_ativo` (BEFORE INSERT OR UPDATE) recusa gravar o cadastro de titular já anonimizado, para qualquer papel — uma imagem antiga no deploy ou a tela aberta durante a anonimização traria CPF e endereço de volta (revisão da T5) | `drizzle/0125_rls_patient_cadastro.sql:18-30`, `:49-63` |
 | 12 | Spec do Financeiro (`docs/superpowers/specs/2026-11-16-nutridebby-20-financeiro-design.md`) RN-316 e plano, Tarefa 9: `anonimizarVencidos` chama `app_anonimizar_financeiro` para o paciente vencido | Só quando ele tem lançamento: a função confere o prazo pelo relógio do banco, e o `now` do job pode ser outro (decisão da execução; [§12.13](12-financeiro.md#1213-divergências-conhecidas), #1) | `src/modules/pacientes/lgpd.ts:565` (a conferência em `temLancamentos`, `src/modules/financeiro/titular.ts`) |
+| 13 | Spec do Plano 25 (`docs/superpowers/specs/2026-11-17-nutridebby-25-chat-recados-design.md` v0.4) RN-458 e RN-472: `aviso_email` e `aviso_nutri_em` em `chat_configuracoes` | Em `chat_avisos_nutri`, `staff_only` (CH-D70, já na §9.4 da spec); `chat_configuracoes` só tem `horario_ativo`. O plano ainda fala em "seis tabelas"; são sete | `src/db/schema/mensagens.ts` (`chatAvisosNutri`); `0128_rls_mensagens.sql` (provisório) |
