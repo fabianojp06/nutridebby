@@ -214,7 +214,15 @@ test('impressão em PDF A4 com várias páginas: nenhuma linha some, e o rodapé
   }
   await nutri.goto(`/painel/agenda/imprimir?visao=dia&data=${QUINTA}`);
   await expect(nutri.getByRole('row', { name: new RegExp(`^12:15`) })).toBeVisible();
-  const paginas = await paginasDoPdf(await nutri.pdf({ format: 'A4' }));
+  // o teste anterior volta a mídia a "screen": o PDF tem de sair com o CSS de impressão (print:hidden, rolagem visível)
+  await nutri.emulateMedia({ media: 'print' });
+  let pdf: Buffer;
+  try {
+    pdf = await nutri.pdf({ format: 'A4' });
+  } finally {
+    await nutri.emulateMedia({ media: 'screen' });
+  }
+  const paginas = await paginasDoPdf(pdf);
   expect(paginas.length, 'o dia ocupa mais de uma página').toBeGreaterThan(1);
   const tudo = paginas.join(' ');
   // a última linha de cada página (e todas as outras) está no PDF: nenhuma ficou sob o rodapé
