@@ -118,6 +118,7 @@ export const STAFF_ONLY: Record<string, string> = {
   fin_configuracoes: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
   fin_categorias: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
   fin_lancamentos: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
+  recados: 'Plano 25 (RN-462): o recado do consultório e o filtro (etiquetas) — só a equipe; o paciente lê a cópia na própria conversa',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
@@ -206,6 +207,8 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   ia_nutri_mensagens: { comandos: ['update'], motivo: 'Plano 15 (US-172, US-174): o paciente avalia a resposta e encaminha a própria pergunta — só essas colunas, de nulo para valor (gatilho ia_nutri_mensagens_regras, 0116); INSERT só por app_ia_nutri_perguntar (0117)' },
   ia_nutri_consentimentos: { comandos: ['insert'], motivo: 'Plano 15 (RN-171, US-171): o paciente dá o próprio consentimento da IA Nutri no app (paciente_consentimento_proprio, 0116); a revogação só por app_ia_nutri_revogar; UPDATE, DELETE e TRUNCATE revogados' },
   lembretes_rotina: { comandos: ['update'], motivo: 'Plano 17 (§5.3): o paciente desliga e religa o próprio lembrete — só desligado_pelo_paciente_em, com o relógio do banco (gatilho lembretes_rotina_regras, 0119); não cria, não edita a configuração nem apaga' },
+  chat_mensagens: { comandos: ['insert'], motivo: 'Plano 25 (US-443, RN-443): o paciente envia na própria conversa liberada e não pausada — política paciente_chat_envio e gatilho chat_mensagens_regras; UPDATE, DELETE e TRUNCATE revogados' },
+  chat_leituras: { comandos: ['insert', 'update'], motivo: 'Plano 25 (RN-448): o paciente avança o próprio marcador de leitura — políticas paciente_leitura_propria_insert/_update' },
 };
 
 /** B-5 (P06-12): o texto que o Postgres guarda da negação de app_deny_paciente_escrita, sem espaços e parênteses. */

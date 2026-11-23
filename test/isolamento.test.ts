@@ -10,6 +10,8 @@ import { withConta, withTenant, type TenantRole } from '@/db/tenant';
 let seqConsulta = 0;
 /** Cada chamada ganha um horário próprio de 1 h (EXCLUDE appointments_sem_sobreposicao). */
 const horaIso = () => sql`'2030-01-01T00:00:00Z'::timestamptz + ${++seqConsulta} * interval '2 hours'`;
+/** Plano 25 (RN-475, CH-D67): carimbo profissional gravado nos tenants A e B no beforeAll; as fábricas do chat e dos recados o repetem. */
+const CARIMBO = { nome: 'Iso Nutricionista', crn: 'CRN-3 99999' };
 
 /**
  * RNF-07: "tenta ler, alterar e excluir dados de outro tenant e de outro paciente do mesmo tenant
@@ -182,11 +184,33 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
         select ${t}, 'entrada', c.id, 100, '2026-11-10', ${p}, coalesce(app_current_user(), gen_random_uuid()) from c`,
   // Plano 18: cpf nulo (com CPF fixo, a fábrica de P1 e P2 cairia em patient_cadastro_cpf_unico)
   patient_cadastro: (t, p) => sql`insert into patient_cadastro (tenant_id, patient_id, estado_civil) values (${t}, ${p}, 'casado')`,
+  // Plano 25 (spec §9.8 v0.3, CH-D38): nenhuma em COM_MAE. A conversa nasce liberada e, pela ordem de listTenantTables (nome),
+  // é semeada antes de chat_leituras e chat_mensagens, que não criam a mãe
+  chat_conversas: (t, p) =>
+    sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma)
+        values (${t}, ${p}, now(), coalesce(app_current_user(), gen_random_uuid()), 'aceite_escrito')`,
+  // CH-D67: com o carimbo igual ao do tenant (o gatilho da T1b passa a sobrescrever)
+  chat_mensagens: (t, p) =>
+    sql`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, autor_nome, autor_crn, texto)
+        values (${t}, ${p}, 'nutri', coalesce(app_current_user(), gen_random_uuid()), ${CARIMBO.nome}, ${CARIMBO.crn}, 'Iso')`,
+  // CH-D58: sempre o lado do paciente, semeado pela sessão de paciente com conta (PAPEL_DA_FABRICA); uma vez por (tenant,
+  // paciente), sem ON CONFLICT
+  chat_leituras: (t, p) => sql`insert into chat_leituras (tenant_id, patient_id, lado, lida_ate) values (${t}, ${p}, 'paciente', now())`,
+  // uma linha por consultório (a fábrica roda duas vezes por tenant); a WITH CHECK do INSERT roda antes do conflito
+  chat_configuracoes: (t) => sql`insert into chat_configuracoes (tenant_id) values (${t}) on conflict do nothing`,
+  // a faixa muda a cada chamada (o EXCLUDE chat_horarios_sem_sobreposicao recusa a repetição)
+  chat_horarios: (t) =>
+    sql`insert into chat_horarios (tenant_id, dia_semana, inicio_min, fim_min)
+        select ${t}, 0, 15 * n, 15 * n + 15 from (select count(*)::int as n from chat_horarios where tenant_id = ${t}) c`,
+  recados: (t) =>
+    sql`insert into recados (tenant_id, texto, filtro, destinatarios, autor_nome, autor_crn, criado_por)
+        values (${t}, 'Iso', '{"tipo":"todos"}', 1, ${CARIMBO.nome}, ${CARIMBO.crn}, coalesce(app_current_user(), gen_random_uuid()))`,
 };
 /** Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). */
-const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker' };
+const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker', chat_leituras: 'paciente' };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
-const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes', 'ia_nutri_consentimentos']);
+// Plano 25: recados (UPDATE, DELETE e TRUNCATE revogados) e chat_mensagens (UPDATE só das colunas do anexo, GRANT de colunas)
+const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes', 'ia_nutri_consentimentos', 'recados', 'chat_mensagens']);
 /**
  * D9 (Plano 11): UPDATE permitido, DELETE negado à equipe — ia_tarefas pelo gatilho ia_tarefas_sem_apagar (só o worker
  * apaga, na anonimização) e ia_uso por REVOKE. O teste de DELETE do tenant B pula o DELETE e confere que nada sumiu.
@@ -198,14 +222,16 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autoriza
  * recusa o DELETE fora do worker (e, no worker, sem o titular anonimizado).
  */
 // Plano 20: fin_lancamentos (cancela-se, nunca se apaga) e fin_configuracoes (a linha do consultório) — DELETE revogado (0123)
-const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro']);
+// Plano 25: chat_conversas e chat_leituras — DELETE revogado (0127; só app_chat_apagar_do_titular apaga)
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro', 'chat_conversas', 'chat_leituras']);
 /**
  * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
  * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
  */
 // Plano 14B: ia_geracoes_modelos também tem DELETE/TRUNCATE revogados (0112).
 // Plano 20: fin_lancamentos e fin_configuracoes também (0123).
-const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancamentos', 'fin_configuracoes']);
+// Plano 25: chat_conversas e chat_leituras também (0127).
+const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancamentos', 'fin_configuracoes', 'chat_conversas', 'chat_leituras']);
 /**
  * D19 (Plano 10A): os gatilhos de imutabilidade (0091, T2) — app_documento_imutavel, o das notas e app_codigo_acesso_regras
  * (colunas do código do link, R1 do pre-flight) — recusam mudar tenant_id/patient_id com 42501 ANTES do WITH CHECK da RLS
@@ -232,6 +258,9 @@ const IMUTAVEIS = new Set([
   // Plano 20: fin_lancamentos_regras recusa mudar tenant_id/patient_id com 42501 antes da RLS
   'fin_lancamentos',
   'patient_cadastro',
+  // Plano 25: chat_conversas_regras e chat_leituras_regras (T1b) recusam mudar tenant_id/patient_id (chaves fixas) com 42501
+  'chat_conversas',
+  'chat_leituras',
 ]);
 /**
  * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
@@ -249,7 +278,8 @@ const SO_APAGA: Record<string, SQL> = {
                 and not exists (select 1 from ia_nutri_mensagens x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
                 and not exists (select 1 from ia_nutri_consentimentos x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
                 and not exists (select 1 from fin_lancamentos f where f.tenant_id = patients.tenant_id and f.patient_id = patients.id)
-                and not exists (select 1 from patient_cadastro c where c.tenant_id = patients.tenant_id and c.patient_id = patients.id)`,
+                and not exists (select 1 from patient_cadastro c where c.tenant_id = patients.tenant_id and c.patient_id = patients.id)
+                and not exists (select 1 from chat_conversas x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)`,
   // Plano 20: a categoria com lançamento não se apaga (FK NO ACTION de fin_lancamentos, que está em SEM_DELETE) e "Consultas"
   // (chave preenchida) nunca (gatilho fin_categorias_fixas)
   fin_categorias: sql`chave is null and not exists (select 1 from fin_lancamentos f where f.tenant_id = fin_categorias.tenant_id and f.categoria_id = fin_categorias.id)`,
@@ -294,6 +324,8 @@ beforeAll(async () => {
     .returning({ id: tenants.id });
   A = a.id;
   B = b.id;
+  // Plano 25 (RN-475, CH-D67): o carimbo profissional que os gatilhos do chat e dos recados exigem
+  await owner.pool.query('update tenants set nome_profissional = $1, crn = $2 where id = any($3)', [CARIMBO.nome, CARIMBO.crn, [A, B]]);
   PAC = { [A]: [randomUUID(), randomUUID()], [B]: [randomUUID(), randomUUID()] };
   [P1, P2] = PAC[A];
   tabelas = naOrdemDeCriacao((await listTenantTables(owner.pool)).filter((t) => !RLS_EXCEPTIONS[t]));
@@ -310,8 +342,10 @@ beforeAll(async () => {
     if (!FABRICAS[t]) continue;
     for (const tenantId of [A, B]) {
       const role = PAPEL_DA_FABRICA[t] ?? 'nutri';
-      const ator = role === 'nutri' ? { actorUserId: randomUUID() } : {};
-      for (const p of PAC[tenantId]) await withTenant({ tenantId, role, ...ator }, (tx) => tx.execute(FABRICAS[t](tenantId, p)), app.db);
+      // Plano 25 (CH-D58): fábrica de paciente, com o próprio paciente e um ator (sessão com conta)
+      const sessao = (p: string) =>
+        role === 'paciente' ? { patientId: p, actorUserId: randomUUID() } : role === 'nutri' ? { actorUserId: randomUUID() } : {};
+      for (const p of PAC[tenantId]) await withTenant({ tenantId, role, ...sessao(p) }, (tx) => tx.execute(FABRICAS[t](tenantId, p)), app.db);
     }
   }
   // Plano 12 (revisão do plano): o envio nasce "processando"; o worker o leva a "recebido", a transição legal, para a sessão de
@@ -331,7 +365,9 @@ afterAll(async () => {
 /** Coluna do titular por tabela: em `patients` é o próprio `id` (app_enable_patient_rls('patients', 'id')). */
 const COLUNA_TITULAR: Record<string, string> = { patients: 'id' };
 /** O paciente nunca é apagado (arquiva, bloqueia, anonimiza), e as filhas `staff_only`, invisíveis para P2, seguram a FK. */
-const SEM_DELETE_DO_PACIENTE = new Set(['patients']);
+// Plano 25 (CH-D58): chat_conversas e chat_leituras têm o DELETE revogado — o DELETE da P2 (sem savepoint) daria 42501 de
+// permissão antes da RLS; a prova está em src/modules/mensagens/banco.test.ts
+const SEM_DELETE_DO_PACIENTE = new Set(['patients', 'chat_conversas', 'chat_leituras']);
 
 const colunaTitular = async (t: string): Promise<string | null> => {
   if (COLUNA_TITULAR[t]) return COLUNA_TITULAR[t];
@@ -394,6 +430,8 @@ const UPDATE_DO_PACIENTE: Record<string, SQL> = {
   exam_submissions: sql`status = 'cancelado'`,
   ia_nutri_mensagens: sql`encaminhada_em = now()`,
   lembretes_rotina: sql`desligado_pelo_paciente_em = now()`,
+  // Plano 25: chat_leituras — a P2 avança o próprio marcador (paciente_leitura_propria_update; gatilho chat_leituras_regras, T1b)
+  chat_leituras: sql`lida_ate = lida_ate`,
 };
 
 const contarPaciente = async (t: string, col: string, tenantId: string, patientId: string) =>

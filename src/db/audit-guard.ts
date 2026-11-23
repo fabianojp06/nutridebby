@@ -17,6 +17,7 @@ export const AUDIT_EXCEPTIONS: Record<string, string> = {
     'Plano 14A (RN-107, §11): consentimento do titular para a transferência à IA (LGPD art. 33, VIII), não é dado de saúde; prova só de inclusão (UPDATE e DELETE revogados) com quem registrou, quando, canal, IP e user-agent na própria linha, como consents; a abertura do termo em papel chama auditRead (entidade ia_autorizacao)',
   ia_nutri_consentimentos: 'Plano 15 (RN-171, D26): prova só de inclusão do consentimento da IA Nutri (evento, versão, destino, data, conta, IP e user-agent na própria linha), como ia_autorizacoes e consents; não é dado de saúde',
   lembretes_rotina_envios: 'registro técnico de envio (último horário enviado); nenhum dado clínico — a configuração fica em lembretes_rotina, que é auditada',
+  chat_leituras: 'Plano 25 (RN-448): marcador técnico de até onde cada lado leu, como access_events; não é prontuário — a leitura do conteúdo é auditada por auditRead',
 };
 
 /** Tabelas de dado de saúde (com patient_id, ou a própria `patients`) sem o gatilho audit_row_change. */
