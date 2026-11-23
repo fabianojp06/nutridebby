@@ -15,12 +15,16 @@ const SEP = ';';
 const C = MSG_FINANCEIRO.csv.colunas;
 const L = MSG_FINANCEIRO.relatorios.linhas;
 
-/** Começo que uma planilha lê como fórmula (OWASP "CSV injection"). */
-const FORMULA = /^[=+\-@\t\r]/;
+/**
+ * Começo que uma planilha lê como fórmula (OWASP "CSV injection"), também depois de espaços na frente — a planilha os
+ * ignora (TRI-17-20 #107). `\s` do JS já cobre os espaços Unicode e o BOM; os de largura zero (U+200B–U+200D, U+2060)
+ * vão à parte. O `\t`/`\r` sozinhos no início continuam neutralizados (o `*` volta atrás para casá-los).
+ */
+const FORMULA = /^[\s\u200B-\u200D\u2060]*[=+\-@\t\r]/;
 /** O que obriga a célula a ir entre aspas. */
 const ESPECIAL = /[;"\r\n]/;
 
-/** Célula de texto livre (descrição, categoria, paciente): neutraliza fórmula com `'` e põe entre aspas se precisar. */
+/** Célula de texto livre (descrição, categoria, paciente): neutraliza fórmula com `'` antes do texto original (espaços inclusive) e põe entre aspas se precisar. */
 export function celulaTexto(v: string | null): string {
   if (v === null) return '';
   const t = FORMULA.test(v) ? `'${v}` : v;

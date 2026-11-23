@@ -13,4 +13,6 @@ export * from './ia-nutri';
 export * from './exames-enviados';
 export * from './lembretes';
 export * from './financeiro';
+export * from './exames-catalogo';
+export * from './exames-filhas';
 export * from './mensagens';

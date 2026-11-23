@@ -594,6 +594,9 @@ export async function anonimizarVencidos(
             // já anonimizado; o patient_cadastro_titular_ativo recusa gravar de novo). O gatilho de auditoria registra o
             // "excluir" de ator nulo. Manter esta ordem no rebase (os Planos 17 e 20 mexem neste trecho).
             if (r.length) await tx.delete(patientCadastro).where(eq(patientCadastro.patientId, id));
+            // Plano 22 (§13.3, /code-review do PR 1): os exames ficam (prontuário), sem o texto livre das versões anteriores
+            // (justificativa) e das notas de interpretação — pela função do worker (0128), com o titular já anonimizado
+            if (r.length) await tx.execute(sql`select app_anonimizar_exames_textos(${t.id}, ${id})`);
             // rodada 1 (T13): inscrições de push gravadas depois do pedido de exclusão também saem (D14: só as do vínculo)
             if (r.length) await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.patientId, id));
             // Plano 17 (§5.5): os lembretes de rotina gravados depois do bloqueio também saem (as marcas em cascata) — mesma

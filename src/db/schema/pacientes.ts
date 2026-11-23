@@ -140,6 +140,8 @@ export const consultations = pgTable(
     appointmentId: uuid('appointment_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Plano 23 (RN-430): previsão de retorno; não vai ao portal nem à IA. */
+    retornoPrevistoEm: date('retorno_previsto_em', { mode: 'string' }),
   },
   (t) => [
     unique('consultations_tenant_paciente_id_unique').on(t.tenantId, t.patientId, t.id),
@@ -147,6 +149,7 @@ export const consultations = pgTable(
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'consultations_paciente_fk' }),
     check('consultations_orientacoes_tamanho', sql`char_length(${t.orientacoesPaciente}) <= 5000`),
     index('consultations_paciente_data_idx').on(t.tenantId, t.patientId, t.data),
+    check('consultations_retorno_previsto_faixa', sql`${t.retornoPrevistoEm} is null or ${t.retornoPrevistoEm} between ${t.data} and ${t.data} + 730`),
   ],
 );
 
@@ -310,11 +313,15 @@ export const exams = pgTable(
     titulo: text('titulo').notNull(),
     arquivoPath: text('arquivo_path').references(() => storedFiles.caminho, { onDelete: 'set null' }),
     valores: jsonb('valores')
-      .$type<{ nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string }[]>()
+      // Plano 22 (RN-376, C-378): refMin/refMax opcionais (faixa numérica do laudo)
+      .$type<{ nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string; refMin?: number; refMax?: number }[]>()
       .notNull()
       .default([]),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    // Plano 22 (RN-385, EP-D22): "Mostrar no app" — o paciente só lê o exame com a marca (política paciente_exame_liberado);
+    // quem ligou e quem retirou ficam no audit_log. Anulável, sem default; não mexe em updated_at
+    mostrarNoAppEm: timestamp('mostrar_no_app_em', { withTimezone: true }),
   },
   (t) => [
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'exams_paciente_fk' }),

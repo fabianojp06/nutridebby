@@ -55,6 +55,8 @@ export const MSG_LEMBRETES = {
   textoLongoSuplemento: 'Use até 60 caracteres.',
   textoLongoLivre: 'Use até 120 caracteres.',
   formulario: 'Formulário inválido.',
+  /** A action lançou (rede, erro 500): o interruptor e o "Apagar" do painel e o interruptor do portal (TRI-17-20 #60). */
+  falhou: 'Não foi possível salvar. Verifique a conexão e tente de novo.',
 } as const;
 
 const ROTULO_INTERVALO: Record<ConfigAgua['intervaloMin'], string> = { 60: '1 h', 90: '1h30', 120: '2 h', 180: '3 h', 240: '4 h' };

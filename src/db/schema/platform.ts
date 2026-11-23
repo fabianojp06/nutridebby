@@ -58,6 +58,8 @@ export const tenants = pgTable(
     iaNutriAvisoMes: text('ia_nutri_aviso_mes'),
     /** D10 = (a): último e-mail de sinal de risco à nutricionista (no máximo 1 a cada 15 min). */
     iaNutriRiscoAvisoEm: timestamp('ia_nutri_risco_aviso_em', { withTimezone: true }),
+    /** Plano 23 (RN-420): pedidos do paciente e da página pública nascem `solicitada`. Só a sessão `nutri` muda (tenants_agenda_da_equipe). */
+    agendaConfirmarPedidos: boolean('agenda_confirmar_pedidos').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

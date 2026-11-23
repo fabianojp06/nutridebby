@@ -337,6 +337,7 @@ export function selecionarNaTela(tx: Tx) {
       categoriaNome: finCategorias.nome,
       pacienteNome: nomeDeExibicao,
       pacienteStatus: patients.status,
+      pacienteAnonimizadoEm: patients.anonimizadoEm,
       consultaInicio: appointments.inicio,
     })
     .from(finLancamentos)
@@ -346,6 +347,12 @@ export function selecionarNaTela(tx: Tx) {
     .leftJoin(appointments, and(eq(appointments.tenantId, finLancamentos.tenantId), eq(appointments.id, finLancamentos.appointmentId)));
 }
 type LinhaSelecionada = Awaited<ReturnType<typeof selecionarNaTela>>[number];
+
+/** TRI-17-20 #130: o anonimizado continua `bloqueado` no banco; na tela, `bloqueado` só o que ainda não foi anonimizado. */
+export function situacaoDoPaciente(id: string, nome: string | null, status: string | null, anonimizadoEm: Date | null): PacienteDoFinanceiro {
+  const anonimizado = !!anonimizadoEm;
+  return { id, nome: nome ?? '', bloqueado: status === 'bloqueado' && !anonimizado, anonimizado };
+}
 
 export function naTela(r: LinhaSelecionada, hoje: string): LancamentoNaTela {
   const { l } = r;
@@ -358,7 +365,7 @@ export function naTela(r: LinhaSelecionada, hoje: string): LancamentoNaTela {
     pagoEm: l.pagoEm,
     forma: l.formaPagamento,
     descricao: l.descricao,
-    paciente: l.patientId ? { id: l.patientId, nome: r.pacienteNome ?? '', bloqueado: r.pacienteStatus === 'bloqueado' } : null,
+    paciente: l.patientId ? situacaoDoPaciente(l.patientId, r.pacienteNome, r.pacienteStatus, r.pacienteAnonimizadoEm) : null,
     consulta: l.appointmentId && r.consultaInicio ? { id: l.appointmentId, inicio: r.consultaInicio } : null,
     situacao: situacaoDoLancamento(l, hoje),
     canceladoEm: l.canceladoEm,
@@ -509,7 +516,5 @@ export async function pacienteNaTransacao(tx: Tx, id: string): Promise<PacienteD
     .from(patients)
     .leftJoin(patientCadastro, cadastroDoPaciente)
     .where(eq(patients.id, id));
-  if (!p) return null;
-  const anonimizado = !!p.anonimizadoEm;
-  return { id, nome: p.nome ?? '', bloqueado: p.status === 'bloqueado' && !anonimizado, anonimizado };
+  return p ? situacaoDoPaciente(id, p.nome, p.status, p.anonimizadoEm) : null;
 }

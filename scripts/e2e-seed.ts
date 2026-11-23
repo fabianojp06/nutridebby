@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { symmetricEncrypt } from 'better-auth/crypto';
-import { and, eq, inArray, isNotNull, like, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, like, notInArray, sql } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import {
   account,
@@ -12,6 +12,7 @@ import {
   iaNutriMensagens,
   iaNutriParticipacoes,
   lembretesRotina,
+  locaisAtendimento,
   mealPlans,
   patientCadastro,
   patients,
@@ -96,12 +97,14 @@ const DOCUMENTOS = { documentosLiberados: true, crn: 'CRN-3 12345', nomeProfissi
 const IA = { iaLiberada: true, iaAtivadaEm: new Date(), iaAditivoVersao: IA_ADITIVO_VERSAO, iaCotaMensalUsd: 15, iaNutriAtivadaEm: new Date() };
 // Plano 12 (D18 = a): o recebimento de exames pelo app ligado no consultório do E2E (o axe passa por /p/exames com o formulário)
 const EXAMES_APP = { examesPacienteAtivadoEm: new Date(), examesAvisoEm: null };
+// Plano 23 (RN-420): a confirmação dos pedidos começa desligada a cada execução (a spec das solicitações liga e desliga)
+const PEDIDOS = { agendaConfirmarPedidos: false };
 const [consultorio] = await db
   .insert(tenants)
-  .values({ slug: 'e2e-consultorio', nomeExibicao: 'Consultório E2E', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), ...AGENDA_PUBLICA, ...DOCUMENTOS, ...IA, ...EXAMES_APP })
+  .values({ slug: 'e2e-consultorio', nomeExibicao: 'Consultório E2E', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), ...AGENDA_PUBLICA, ...DOCUMENTOS, ...IA, ...EXAMES_APP, ...PEDIDOS })
   .onConflictDoUpdate({
     target: tenants.slug,
-    set: { status: 'ativa', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), corPrimaria: null, logoPath: null, armazenamentoBytes: 0, ...AGENDA_PUBLICA, ...DOCUMENTOS, ...IA, ...EXAMES_APP },
+    set: { status: 'ativa', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), corPrimaria: null, logoPath: null, armazenamentoBytes: 0, ...AGENDA_PUBLICA, ...DOCUMENTOS, ...IA, ...EXAMES_APP, ...PEDIDOS },
   })
   .returning({ id: tenants.id });
 
@@ -133,6 +136,35 @@ await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
   // reaproveitado, os registros das execuções anteriores empurravam o recém-comentado ("Visto") para fora da lista
   // (portal.spec, US-043). Os antigos entram como vistos; o limite do feed não muda.
   await tx.execute(sql`update diary_entries set visto_pela_nutri_em = now() where visto_pela_nutri_em is null`);
+}, db);
+// Plano 23 (AG-D59): os três locais do consultório do E2E, achados pelo nome e reaproveitados — nunca apagados: as consultas com
+// lançamento (Plano 20) ficam no banco e prendem o local pela FK NO ACTION. A cada execução voltam ao estado de partida (ativos,
+// o "Consultório E2E" como principal, todos aceitando agendamento pelo paciente) e os locais que as specs criaram são
+// arquivados. A agenda começa vazia (acima), sem consulta da semente: as specs do Plano 23 marcam nos próprios horários.
+const LOCAIS_E2E = [
+  { nome: 'Consultório E2E', tipo: 'presencial', endereco: AGENDA_PUBLICA.enderecoConsultorio, cidade: 'São Paulo', mostrarEndereco: true, linkSala: null, principal: true },
+  { nome: 'Clínica Centro E2E', tipo: 'presencial', endereco: 'Avenida Central E2E, 500', cidade: 'Campinas', mostrarEndereco: true, linkSala: null, principal: false },
+  { nome: 'Videoconferência E2E', tipo: 'online', endereco: null, cidade: null, mostrarEndereco: false, linkSala: AGENDA_PUBLICA.linkOnlinePadrao, principal: false },
+];
+await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
+  const agora = new Date();
+  const nomes = LOCAIS_E2E.map((l) => l.nome);
+  await tx
+    .update(locaisAtendimento)
+    .set({ principal: false, agendamentoOnline: false, arquivadoEm: agora, updatedAt: agora })
+    .where(and(isNull(locaisAtendimento.arquivadoEm), notInArray(locaisAtendimento.nome, nomes)));
+  await tx.update(locaisAtendimento).set({ principal: false, updatedAt: agora }).where(eq(locaisAtendimento.principal, true));
+  for (const { tipo, ...l } of LOCAIS_E2E) {
+    const [existente] = await tx
+      .select({ id: locaisAtendimento.id })
+      .from(locaisAtendimento)
+      .where(eq(locaisAtendimento.nome, l.nome))
+      .orderBy(sql`${locaisAtendimento.arquivadoEm} is null desc`, locaisAtendimento.createdAt)
+      .limit(1);
+    const estado = { ...l, agendamentoOnline: true, arquivadoEm: null, updatedAt: agora };
+    if (existente) await tx.update(locaisAtendimento).set(estado).where(eq(locaisAtendimento.id, existente.id));
+    else await tx.insert(locaisAtendimento).values({ tenantId: consultorio.id, tipo, ...estado });
+  }
 }, db);
 // RN-16: o visitante da página pública no E2E (agenda.spec, 10.9.8.50) começa cada execução com o limite por IP zerado
 await liberarLimite(db, chaveDoLimite('ip', '10.9.8.50'));

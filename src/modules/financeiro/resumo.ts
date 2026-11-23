@@ -8,7 +8,7 @@ import { auditRead } from '@/modules/plataforma/audit';
 import { configuracaoNaTransacao, type Configuracao } from './configuracoes';
 import { centavos } from './dinheiro';
 import { exigirNutri } from './erros';
-import { naTela, selecionarNaTela } from './lancamentos';
+import { naTela, selecionarNaTela, situacaoDoPaciente } from './lancamentos';
 import { intervaloDoMes, mesDe, mesesDoAno, ultimos12Meses } from './meses';
 import { cadastroDoPaciente, nomeDeExibicao } from './nome';
 import type { FluxoDoAno, LancamentoNaTela, LinhaFluxo } from './tipos';
@@ -33,7 +33,7 @@ export type ResumoDoMes = {
 };
 export type EntradasESaidasDoMes = { mes: string; entradas: number; saidas: number; resultado: number };
 export type PagamentoPendente = { paciente: { id: string; nome: string }; total: number; quantidade: number; maisAntiga: string; emAtraso: boolean };
-export type PendenciasDoPaciente = { paciente: { id: string; nome: string; bloqueado: boolean }; linhas: LancamentoNaTela[] };
+export type PendenciasDoPaciente = { paciente: NonNullable<LancamentoNaTela['paciente']>; linhas: LancamentoNaTela[] };
 
 /** "Últimos lançamentos" do Resumo. */
 export const ULTIMOS = 10;
@@ -276,7 +276,7 @@ export async function pendenciasDoPaciente(ctx: TenantContext, tenant: Tenant, p
     ctx,
     async (tx) => {
       const [p] = await tx
-        .select({ id: patients.id, nome: nomeDeExibicao, status: patients.status })
+        .select({ id: patients.id, nome: nomeDeExibicao, status: patients.status, anonimizadoEm: patients.anonimizadoEm })
         .from(patients)
         .leftJoin(patientCadastro, cadastroDoPaciente)
         .where(eq(patients.id, patientId));
@@ -285,7 +285,7 @@ export async function pendenciasDoPaciente(ctx: TenantContext, tenant: Tenant, p
         .where(and(eq(L.tenantId, ctx.tenantId), eq(L.patientId, patientId), pendenteDoPaciente))
         .orderBy(asc(L.vencimento), asc(L.createdAt), asc(L.id));
       if (linhas.length) await auditRead(tx, { entidade: 'financeiro', entidadeId: null, patientId });
-      return { paciente: { id: p.id, nome: p.nome ?? '', bloqueado: p.status === 'bloqueado' }, linhas: linhas.map((r) => naTela(r, hoje)) };
+      return { paciente: situacaoDoPaciente(p.id, p.nome, p.status, p.anonimizadoEm), linhas: linhas.map((r) => naTela(r, hoje)) };
     },
     deps.db ?? getDb(),
   );

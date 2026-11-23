@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
-import { PainelDeNotificacoes } from './notificacoes';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { estadoDoAparelho, PainelDeNotificacoes } from './notificacoes';
 
 const painel = (estado: Parameters<typeof PainelDeNotificacoes>[0]['estado'], recusa: Parameters<typeof PainelDeNotificacoes>[0]['recusa'] = null) =>
   renderToStaticMarkup(createElement(PainelDeNotificacoes, { estado, recusa, aoAtivar: () => {} }));
@@ -28,5 +28,36 @@ describe('"Ativar notificações" (US-040, RNF-191): a região do resultado est�
     const recusada = painel('falhou', { mensagem: 'Sessão expirada. Entre de novo.', entrar: '/entrar', escolher: null });
     expect(recusada).toMatch(/<p role="alert">Sessão expirada\. Entre de novo\. <a href="\/entrar"[^>]*>Entrar<\/a><\/p>/);
     expect(recusada).not.toContain('Tente de novo');
+  });
+});
+
+describe('estadoDoAparelho: a detecção de "negado" ao abrir a tela (TRI-17-20 #47)', () => {
+  const aparelho = (permission: NotificationPermission, inscricao: object | null = null) => {
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Linux; Android 14)',
+      platform: 'Linux armv8l',
+      maxTouchPoints: 5,
+      serviceWorker: { getRegistration: async () => ({ pushManager: { getSubscription: async () => (inscricao ? { toJSON: () => inscricao, unsubscribe: async () => true } : null) } }) },
+    });
+    vi.stubGlobal('window', { PushManager: class {}, matchMedia: () => ({ matches: false }) });
+    vi.stubGlobal('Notification', { permission });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })));
+  };
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('denied → "negado"; default → "pode"; granted sem inscrição → "pode"; granted com a inscrição desta conta → "ativo"', async () => {
+    aparelho('denied');
+    expect(await estadoDoAparelho('chave', 'dono-negado')).toBe('negado');
+    aparelho('default');
+    expect(await estadoDoAparelho('chave', 'dono-default')).toBe('pode');
+    aparelho('granted');
+    expect(await estadoDoAparelho('chave', 'dono-sem-inscricao')).toBe('pode');
+    aparelho('granted', { endpoint: 'https://push.example.test/x' });
+    expect(await estadoDoAparelho('chave', 'dono-com-inscricao')).toBe('ativo');
+  });
+
+  it('sem a chave da plataforma, "indisponivel" mesmo com as notificações bloqueadas', async () => {
+    aparelho('denied');
+    expect(await estadoDoAparelho(null, 'dono-sem-chave')).toBe('indisponivel');
   });
 });

@@ -325,7 +325,7 @@ describe('listarLancamentos e abrirLancamento (RN-305, RN-306, RN-318)', () => {
     const linha = r.linhas.find((l) => l.id === previsto)!;
     expect(linha).toMatchObject({
       tipo: 'entrada', categoria: { id: C.consultas, nome: 'Consultas' }, valorCentavos: 25000, vencimento: '2026-11-25', pagoEm: null, forma: null,
-      descricao: 'Retorno', paciente: { id: C.p, nome: 'Ana Souza', bloqueado: false }, consulta: null, canceladoEm: null, motivoCancelamento: null, anonimizado: false,
+      descricao: 'Retorno', paciente: { id: C.p, nome: 'Ana Souza', bloqueado: false, anonimizado: false }, consulta: null, canceladoEm: null, motivoCancelamento: null, anonimizado: false,
     });
     expect(r.linhas.find((l) => l.id === cancelado)).toMatchObject({ situacao: 'cancelado', motivoCancelamento: 'Erro' });
     expect(await leituras(C.tenantId)).toEqual([]); // sem filtro de paciente: sem auditRead
@@ -415,9 +415,21 @@ describe('listarLancamentos e abrirLancamento (RN-305, RN-306, RN-318)', () => {
     const sem = (await saida(C)).id;
     expect(await abrirLancamento(C.ctx, C.tenant, sem, deps)).toMatchObject({ id: sem, paciente: null, situacao: 'em_atraso' });
     expect(await leituras(C.tenantId)).toEqual([]);
-    expect(await abrirLancamento(C.ctx, C.tenant, com, deps)).toMatchObject({ id: com, paciente: { id: C.p, nome: 'Ana Souza', bloqueado: false } });
+    expect(await abrirLancamento(C.ctx, C.tenant, com, deps)).toMatchObject({ id: com, paciente: { id: C.p, nome: 'Ana Souza', bloqueado: false, anonimizado: false } });
     expect(await leituras(C.tenantId)).toEqual([{ acao: 'ler', entidade: 'financeiro', entidade_id: com, patient_id: C.p, actor_user_id: C.nutriId }]);
     expect(await abrirLancamento(C.ctx, C.tenant, 'nao-e-uuid', deps)).toBeNull();
+  });
+
+  it('paciente bloqueado e paciente anonimizado: o anonimizado não conta como bloqueado (TRI-17-20 #130)', async () => {
+    const C = await cenario();
+    const doBloqueado = (await entrada(C)).id;
+    const davi = (await novoPaciente(app.db, C.ctx, { nome: 'Davi Reis' })).id;
+    const doAnonimizado = (await entrada(C, { pacienteId: davi })).id;
+    await bloquear(C);
+    await anonimizar(C, davi);
+    await owner.pool.query('update patients set anonimizado_em = now() where id = $1', [davi]);
+    expect((await abrirLancamento(C.ctx, C.tenant, doBloqueado, deps))?.paciente).toMatchObject({ bloqueado: true, anonimizado: false });
+    expect(await abrirLancamento(C.ctx, C.tenant, doAnonimizado, deps)).toMatchObject({ anonimizado: true, paciente: { id: davi, bloqueado: false, anonimizado: true } });
   });
 
   it('só a sessão nutri: a de paciente recebe o erro do assert (não uma lista vazia)', async () => {

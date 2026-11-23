@@ -21,7 +21,7 @@ const CONFIGURACOES = '/painel/financeiro/configuracoes';
 type Props = {
   consultaId: string;
   cobranca: LancamentoNaTela | null;
-  motivo: 'nao_configurado' | 'bloqueado' | 'nao_realizada' | null;
+  motivo: 'nao_configurado' | 'bloqueado' | 'anonimizado' | 'nao_realizada' | null;
   valorSugerido: number | null;
   /** Hoje no fuso do consultório (a data sugerida do recebimento). */
   hoje: string;
@@ -59,6 +59,7 @@ function ComCobranca({ consultaId, l, hoje }: { consultaId: string; l: Lancament
         </Link>
       </p>
       {l.paciente?.bloqueado && <p>{M.bloqueado}</p>}
+      {l.paciente?.anonimizado && <p>{M.pacienteAnonimizado}</p>}
       {aberta && (
         <>
           <FormValor acao={salvarValorCobrancaAction.bind(null, consultaId)} botao={M.consulta.salvarValor} inicial={valorParaCampo(l.valorCentavos)} lancamentoId={l.id} />
@@ -88,6 +89,7 @@ function SemCobranca({ consultaId, motivo, valorSugerido }: { consultaId: string
         </p>
       )}
       {motivo === 'bloqueado' && <p>{M.consulta.bloqueado}</p>}
+      {motivo === 'anonimizado' && <p>{M.pacienteAnonimizado}</p>}
     </>
   );
 }

@@ -27,7 +27,8 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   audit_log: (t, p) => sql`insert into audit_log (tenant_id, acao, entidade, patient_id) values (${t}, 'ler', 'isolamento', ${p})`,
   // 0080: o paciente só vê as do titular — a fábrica grava escopo titular para P2 ver as próprias linhas
   data_exports: (t, p) => sql`insert into data_exports (tenant_id, patient_id, escopo) values (${t}, ${p}, 'titular')`,
-  exams: (t, p) => sql`insert into exams (tenant_id, patient_id, data, titulo) values (${t}, ${p}, '2026-01-01', 'Iso')`,
+  // Plano 22 (§9.8): liberado, como meal_plans grava 'publicado' por causa da paciente_sem_rascunho — mantém a prova de leitura da sessão de paciente
+  exams: (t, p) => sql`insert into exams (tenant_id, patient_id, data, titulo, mostrar_no_app_em) values (${t}, ${p}, '2026-01-01', 'Iso', now())`,
   privacy_requests: (t, p) => sql`insert into privacy_requests (tenant_id, patient_id, tipo, prazo) values (${t}, ${p}, 'exclusao', '2026-01-16')`,
   stored_files: (t, p) =>
     sql`insert into stored_files (tenant_id, patient_id, tipo, caminho, bytes, mime) values (${t}, ${p}, 'exame', ${`${t}/exame/${randomUUID()}.png`}, 1, 'image/png')`,
@@ -184,6 +185,25 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
         select ${t}, 'entrada', c.id, 100, '2026-11-10', ${p}, coalesce(app_current_user(), gen_random_uuid()) from c`,
   // Plano 18: cpf nulo (com CPF fixo, a fábrica de P1 e P2 cairia em patient_cadastro_cpf_unico)
   patient_cadastro: (t, p) => sql`insert into patient_cadastro (tenant_id, patient_id, estado_civil) values (${t}, ${p}, 'casado')`,
+  // Plano 22 (spec §9.8): bibliotecas do consultório — nome único por consultório (sem diferença de maiúsculas): um por chamada
+  exames_catalogo: (t) => sql`insert into exames_catalogo (tenant_id, nome) values (${t}, 'Iso ' || gen_random_uuid()::text)`,
+  exames_modelos_solicitacao: (t) =>
+    sql`insert into exames_modelos_solicitacao (tenant_id, nome, exames) values (${t}, 'Iso ' || gen_random_uuid()::text, '[{"nome":"Iso"}]')`,
+  // a nota e a versão criam o exame-mãe (sem a marca do app) no mesmo comando (COM_MAE); o gatilho grava o autor da sessão
+  exam_interpretacoes: (t, p) =>
+    sql`with e as (insert into exams (tenant_id, patient_id, data, titulo) values (${t}, ${p}, '2026-01-01', 'Iso') returning id)
+        insert into exam_interpretacoes (tenant_id, patient_id, exam_id, versao, texto, criado_por) select ${t}, ${p}, e.id, 1, 'Iso', coalesce(app_current_user(), gen_random_uuid()) from e`,
+  exam_versoes: (t, p) =>
+    sql`with e as (insert into exams (tenant_id, patient_id, data, titulo) values (${t}, ${p}, '2026-01-01', 'Iso') returning id)
+        insert into exam_versoes (tenant_id, patient_id, exam_id, versao, titulo, data, valores, alterado_por)
+        select ${t}, ${p}, e.id, 1, 'Iso', '2026-01-01', '[]', coalesce(app_current_user(), gen_random_uuid()) from e`,
+  // Plano 23: a fábrica roda duas vezes por tenant — nome pelo paciente e principal = false (índices únicos de nome e de
+  // principal); as filhas (consultas, regras, pedidos) deixam local_id nulo (FK anulável, regra 9)
+  locais_atendimento: (t, p) => sql`insert into locais_atendimento (tenant_id, nome, tipo, principal) values (${t}, ${`Local ${p}`}, 'presencial', false)`,
+  // Plano 23 (RN-433), molde de ia_autorizacoes: `retirou`: o gatilho nunca procura o titular, que B e P2 não enxergam;
+  // `coalesce`: nos contextos sem usuário (publico, conta) o gatilho deixa passar e a RLS recusa
+  aniversario_autorizacoes: (t, p) =>
+    sql`insert into aniversario_autorizacoes (tenant_id, patient_id, evento, origem, forma, registrado_por) values (${t}, ${p}, 'retirou', 'nutri', 'escrito', coalesce(app_current_user(), gen_random_uuid()))`,
   // Plano 25 (spec §9.8 v0.3, CH-D38): nenhuma em COM_MAE. A conversa nasce liberada e, pela ordem de listTenantTables (nome),
   // é semeada antes de chat_leituras e chat_mensagens, que não criam a mãe. CH-D74: com o nome e o CRN da liberação (o
   // gatilho sobrescreve na sessão `nutri`; sem papel, o CHECK exige)
@@ -212,8 +232,9 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
 /** Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). */
 const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker', chat_leituras: 'paciente' };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
+// Plano 22 (EP-D41): exam_interpretacoes e exam_versoes — UPDATE, DELETE e TRUNCATE revogados (rls_exames_catalogo)
 // Plano 25: recados (UPDATE, DELETE e TRUNCATE revogados) e chat_mensagens (UPDATE só das colunas do anexo, GRANT de colunas)
-const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes', 'ia_nutri_consentimentos', 'recados', 'chat_mensagens']);
+const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes', 'ia_nutri_consentimentos', 'exam_interpretacoes', 'exam_versoes', 'aniversario_autorizacoes', 'recados', 'chat_mensagens']);
 /**
  * D9 (Plano 11): UPDATE permitido, DELETE negado à equipe — ia_tarefas pelo gatilho ia_tarefas_sem_apagar (só o worker
  * apaga, na anonimização) e ia_uso por REVOKE. O teste de DELETE do tenant B pula o DELETE e confere que nada sumiu.
@@ -225,16 +246,18 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autoriza
  * recusa o DELETE fora do worker (e, no worker, sem o titular anonimizado).
  */
 // Plano 20: fin_lancamentos (cancela-se, nunca se apaga) e fin_configuracoes (a linha do consultório) — DELETE revogado (0123)
-// Plano 25: chat_conversas e chat_leituras — DELETE revogado (0128; só app_chat_apagar_do_titular apaga); chat_avisos_nutri
+// Plano 17 (TRI-17-20 #5): lembretes_rotina_envios — gatilho lembretes_rotina_envios_sem_apagar: a marca só sai pelo worker
+// ou pela cascata do lembrete (apagado depois, em ULTIMAS)
+// Plano 25: chat_conversas e chat_leituras — DELETE revogado (0133; só app_chat_apagar_do_titular apaga); chat_avisos_nutri
 // (CH-D70) — DELETE revogado (a linha do consultório)
-const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro', 'chat_conversas', 'chat_leituras', 'chat_avisos_nutri']);
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro', 'lembretes_rotina_envios', 'chat_conversas', 'chat_leituras', 'chat_avisos_nutri']);
 /**
  * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
  * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
  */
 // Plano 14B: ia_geracoes_modelos também tem DELETE/TRUNCATE revogados (0112).
 // Plano 20: fin_lancamentos e fin_configuracoes também (0123).
-// Plano 25: chat_conversas, chat_leituras e chat_avisos_nutri também (0128).
+// Plano 25: chat_conversas, chat_leituras e chat_avisos_nutri também (0133).
 const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancamentos', 'fin_configuracoes', 'chat_conversas', 'chat_leituras', 'chat_avisos_nutri']);
 /**
  * D19 (Plano 10A): os gatilhos de imutabilidade (0091, T2) — app_documento_imutavel, o das notas e app_codigo_acesso_regras
@@ -283,6 +306,7 @@ const SO_APAGA: Record<string, SQL> = {
                 and not exists (select 1 from ia_nutri_consentimentos x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
                 and not exists (select 1 from fin_lancamentos f where f.tenant_id = patients.tenant_id and f.patient_id = patients.id)
                 and not exists (select 1 from patient_cadastro c where c.tenant_id = patients.tenant_id and c.patient_id = patients.id)
+                and not exists (select 1 from aniversario_autorizacoes a where a.tenant_id = patients.tenant_id and a.patient_id = patients.id)
                 and not exists (select 1 from chat_conversas x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)`,
   // Plano 20: a categoria com lançamento não se apaga (FK NO ACTION de fin_lancamentos, que está em SEM_DELETE) e "Consultas"
   // (chave preenchida) nunca (gatilho fin_categorias_fixas)
@@ -292,9 +316,10 @@ const SO_APAGA: Record<string, SQL> = {
  * Apagadas por último no teste de DELETE (as filhas têm FK NO ACTION/RESTRICT para elas: os itens de plano, Tarefa 6, referenciam `foods`;
  * as filhas de conteúdo, Plano 07, apontam para `contents`/`recipes` com cascata: apagar a mãe antes zeraria as linhas de B que o teste ainda conta;
  * Plano 10A: notas, recibos e códigos apontam para `signed_documents`, que aponta para `stored_files` e `patients`;
- * Plano 17: `lembretes_rotina_envios` aponta para `lembretes_rotina` com cascata — apagar o lembrete antes zeraria as marcas de B).
+ * Plano 17: `lembretes_rotina_envios` aponta para `lembretes_rotina` com cascata — apagar o lembrete antes zeraria as marcas de B;
+ * Plano 23: `appointments`, `availability_rules` e `public_booking_requests` apontam para `locais_atendimento` com FK NO ACTION).
  */
-const ULTIMAS = ['meals', 'meal_plans', 'recipes', 'contents', 'anamnesis_templates', 'foods', 'appointments', 'signed_documents', 'stored_files', 'lembretes_rotina', 'patients'];
+const ULTIMAS = ['meals', 'meal_plans', 'recipes', 'contents', 'anamnesis_templates', 'foods', 'appointments', 'locais_atendimento', 'signed_documents', 'stored_files', 'lembretes_rotina', 'patients'];
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -414,6 +439,9 @@ const COM_MAE = new Set([
   // Plano 20: escolha registrada na spec §9.5 — a recusa dos negativos de INSERT vem da política de fin_categorias; a prova
   // da política da própria fin_lancamentos está em src/modules/financeiro/banco.test.ts
   'fin_lancamentos',
+  // Plano 22: a recusa dos negativos de INSERT vem de exams; prova própria em src/modules/exames/banco.test.ts
+  'exam_interpretacoes',
+  'exam_versoes',
 ]);
 /** violaRls, e a recusa veio da política da própria tabela `t` (não da mãe criada no CTE da fábrica). */
 const violaRlsDe = (t: string) => (e: unknown) => {
@@ -618,5 +646,44 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       expect(await contarPaciente(t, col, A, P1), t).toBe(antesP1); // owner confirma: as linhas de P1 seguem intactas
       if (apaga && (PACIENTE_ESCREVE[t]?.comandos ?? []).includes('delete')) expect(await contarPaciente(t, col, A, P2), t).toBe(0);
     }
+  });
+
+  it('Plano 22 (RN-385): a paciente P2 não vê o exame não liberado, vê o liberado e não vê exam_interpretacoes nem exam_versoes', async () => {
+    const nutri = { tenantId: A, role: 'nutri' as const, actorUserId: randomUUID() };
+    // um exame liberado e um não liberado de P2, com nota e versão (semeados como nutri)
+    const [liberado, naoLiberado] = await withTenant(
+      nutri,
+      async (tx) => {
+        const ins = async (marca: SQL) =>
+          (await tx.execute(sql`insert into exams (tenant_id, patient_id, data, titulo, mostrar_no_app_em) values (${A}, ${P2}, '2026-11-01', 'Iso 22', ${marca}) returning id`)).rows[0].id as string;
+        const ids = [await ins(sql`now()`), await ins(sql`null`)];
+        for (const e of ids) {
+          await tx.execute(sql`insert into exam_interpretacoes (tenant_id, patient_id, exam_id, versao, texto, criado_por) values (${A}, ${P2}, ${e}, 1, 'Iso', ${nutri.actorUserId})`);
+          await tx.execute(sql`insert into exam_versoes (tenant_id, patient_id, exam_id, versao, titulo, data, valores, alterado_por) values (${A}, ${P2}, ${e}, 1, 'Iso', '2026-11-01', '[]', ${nutri.actorUserId})`);
+        }
+        return ids;
+      },
+      app.db,
+    );
+    // controle positivo: a nutri vê os dois e as filhas deles
+    const daNutri = await withTenant(nutri, (tx) => tx.execute(sql`select id from exams where id in (${liberado}, ${naoLiberado})`), app.db);
+    expect(daNutri.rows).toHaveLength(2);
+    const filhasDaNutri = await withTenant(
+      nutri,
+      (tx) => tx.execute(sql`select (select count(*) from exam_interpretacoes where exam_id in (${liberado}, ${naoLiberado}))::int as n, (select count(*) from exam_versoes where exam_id in (${liberado}, ${naoLiberado}))::int as v`),
+      app.db,
+    );
+    expect(filhasDaNutri.rows[0]).toEqual({ n: 2, v: 2 });
+
+    await withTenant(
+      { tenantId: A, role: 'paciente', patientId: P2, actorUserId: randomUUID() },
+      async (tx) => {
+        const vistos = (await tx.execute(sql`select id from exams where id in (${liberado}, ${naoLiberado})`)).rows.map((r) => r.id);
+        expect(vistos).toEqual([liberado]);
+        expect((await tx.execute(sql`select 1 from exam_interpretacoes`)).rows).toEqual([]);
+        expect((await tx.execute(sql`select 1 from exam_versoes`)).rows).toEqual([]);
+      },
+      app.db,
+    );
   });
 });

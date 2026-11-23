@@ -11,7 +11,7 @@ import { assinarJwtWebhook, chaveDoWebhook } from '@/modules/notificacoes/whatsa
 import { buscarTenantPorSlug } from '@/modules/plataforma/tenant-status';
 
 // CI: as variáveis do job, obrigatórias (no runner próprio, cair no padrão de dev apontaria para o banco de dev da VPS);
-// local: os padrões do .env.example (o Playwright não lê o .env.local)
+// local: o .env.local do worktree, carregado pelo playwright.config.ts (SUS-101); sem ele, os padrões do .env.example
 function doAmbiente(nome: string, padraoDev: string): string {
   const valor = process.env[nome];
   if (valor) return valor;

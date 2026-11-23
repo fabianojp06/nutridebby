@@ -204,16 +204,19 @@ async function lembreteParaEscrita(tx: Tx, patientId: string, id: string): Promi
 }
 
 /**
- * Interruptor da equipe: muda só `ligado` (a escolha do paciente fica como está). Não confere o teto: `salvarLembrete`
- * já conta os desligados. `updatedAt` novo: o worker não manda, ao religar, um slot de antes do religamento.
+ * Interruptor da equipe: muda só `ligado` (a escolha do paciente fica como está; o gatilho da 0119 recusa a marca vinda da
+ * equipe). Não confere o teto: `salvarLembrete` já conta os desligados. `updatedAt` novo: o worker não manda, ao religar,
+ * um slot de antes do religamento. Devolve se o paciente desligou o lembrete no app (lido na mesma transação, com a linha
+ * travada): ligado pela equipe, ele só volta a receber quando o paciente religar (TRI-17-20 #38).
  */
-export async function ligarLembrete(ctx: TenantContext, patientId: string, id: string, ligado: boolean, deps: { db?: Db } = {}): Promise<void> {
-  await withTenant(
+export async function ligarLembrete(ctx: TenantContext, patientId: string, id: string, ligado: boolean, deps: { db?: Db } = {}): Promise<{ desligadoPeloPaciente: boolean }> {
+  return withTenant(
     ctx,
     async (tx) => {
       await carregarPacienteParaEscrita(tx, patientId);
-      await lembreteParaEscrita(tx, patientId, id);
+      const r = await lembreteParaEscrita(tx, patientId, id);
       await tx.update(lembretesRotina).set({ ligado, updatedAt: new Date() }).where(and(eq(lembretesRotina.id, id), eq(lembretesRotina.patientId, patientId)));
+      return { desligadoPeloPaciente: r.desligadoPeloPacienteEm !== null };
     },
     deps.db ?? getDb(),
   );
