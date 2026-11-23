@@ -18,6 +18,7 @@ import { caminhoAte, grafoDeImports, raizesDoNext } from '../../../test/grafo-de
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { textoDoPdf } from '../../../test/pdf';
+import { varreduraSo } from '../../../test/varredura';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
 import * as schema from '@/db/schema';
@@ -53,6 +54,12 @@ import {
 import { paraWinAnsi, renderizarProntuario } from './prontuario-pdf';
 import { anexosDoPaciente } from './lgpd';
 import { semDetalhe } from '@/worker/sem-detalhe';
+
+// SUS-105: a varredura diária passa só pelo tenant do próprio teste (varreduraSo; implementação real por baixo)
+vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/tenant-status')>();
+  return { ...real, listarTenantsParaVarredura: vi.fn(real.listarTenantsParaVarredura) };
+});
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dono = makeDb(inject('ownerDatabaseUrl'));
@@ -580,10 +587,11 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
       (await novoPaciente(app.db, T.ctx)).id,
       deps,
     );
+    varreduraSo(T);
     const r = await expirarExportacoesVencidas(app.db, new Date('2026-10-02T15:00:01Z'), {
       dataDir,
     });
-    expect(r.expiradas).toBeGreaterThanOrEqual(1);
+    expect(r.expiradas).toBe(1);
     expect(await estadoDaExportacao(T.ctx, p.id, id, app.db, now)).toEqual({ estado: 'expirada' });
     expect(
       await withTenant(

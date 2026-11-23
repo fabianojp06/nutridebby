@@ -144,19 +144,28 @@ describe('avisarAdmins (F5)', () => {
     (await (await getBoss()).findJobs<EmailJobData>('email'))
       .map((j) => JSON.parse(openSecret(j.data.selado, EMAIL_FINALIDADE)) as EmailMessage)
       .filter((m) => m.tipo === 'alerta_backup' && m.detalhe === detalhe);
-  const novoAdmin = async () => {
+  const novoUsuario = async (appRole: 'admin' | 'nutri' = 'admin') => {
     const id = randomUUID();
-    await app.db.insert(user).values({ id, name: 'Adm', email: `adm-${id.slice(0, 8)}@teste.dev`, appRole: 'admin' });
+    const email = `${appRole}-${id.slice(0, 8)}@teste.dev`;
+    await app.db.insert(user).values({ id, name: appRole, email, appRole });
+    return email;
   };
+  const novoAdmin = () => novoUsuario('admin');
 
   it('enfileira um e-mail por admin e devolve quantos', async () => {
-    await novoAdmin();
-    await novoAdmin();
+    // SUS-96: os outros arquivos criam (e o admin-bootstrap.test apaga) admins no mesmo banco enquanto este roda, então
+    // o total de admins lido fora da transação do avisarAdmins pode ser outro ("expected 22 to be 23"). A prova fica
+    // nos usuários deste teste: os admins recebem, a nutricionista não, cada destinatário recebe um só e `n` é o que
+    // foi para a fila.
+    const meus = [await novoAdmin(), await novoAdmin()];
+    const nutri = await novoUsuario('nutri');
     const detalhe = marcador();
     const n = await avisarAdmins(app.db, (para) => ({ tipo: 'alerta_backup', para, detalhe, painelUrl: 'http://x/admin' }));
-    expect(n).toBe((await emailsDosAdmins(app.db)).length);
-    expect(n).toBeGreaterThanOrEqual(2);
-    expect(await alertasCom(detalhe)).toHaveLength(n);
+    const destinatarios = (await alertasCom(detalhe)).map((m) => m.para);
+    expect(destinatarios).toHaveLength(n);
+    expect(new Set(destinatarios).size).toBe(n);
+    expect(destinatarios).toEqual(expect.arrayContaining(meus));
+    expect(destinatarios).not.toContain(nutri);
   });
 
   it('falha no meio: nenhum e-mail fica na fila (a nova tentativa do job não duplica)', async () => {
