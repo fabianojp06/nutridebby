@@ -191,7 +191,8 @@ describe('/painel/mensagens/[patientId] — a conversa (US-441)', () => {
     const semConfirmar = await liberarAction(bia.p, null, form({ forma: 'aceite_escrito' }));
     expect(semConfirmar).toMatchObject({ erro: M.liberacao.erro, forma: 'aceite_escrito', confirmou: false });
     expect(await conversa(bia.p)).toContain(M.estados.naoLiberada('Bia Lima'));
-    expect(await erro(liberarAction(bia.p, null, form({ forma: 'termo_assinado', confirmacao: 'sim' })))).toBe(`redirect /painel/mensagens/${bia.p}?ok=liberada`);
+    // rodada da T6c (minor 2 da T6b): `r` muda a cada ato, para a região reanunciar e refocar o mesmo texto
+    expect(await erro(liberarAction(bia.p, null, form({ forma: 'termo_assinado', confirmacao: 'sim' })))).toMatch(new RegExp(`^redirect /painel/mensagens/${bia.p}\\?ok=liberada&r=[0-9a-f]{8}$`));
     expect(cache.revalidatePath).toHaveBeenCalledWith('/painel', 'layout');
     expect(await conversa(bia.p)).toContain(M.estados.liberadaEm(hoje(), 'termo assinado'));
   });
@@ -219,14 +220,14 @@ describe('/painel/mensagens/[patientId] — a conversa (US-441)', () => {
   it('pausada: o selo, "Retomar conversa" e sem campo; pausar → ?ok=pausada; retomar → ?ok=retomada', async () => {
     const T = await consultorio();
     const ana = await pacienteDoChat(db, T, { nome: 'Ana Souza' });
-    expect(await erro(pausarAction(ana.p))).toBe(`redirect /painel/mensagens/${ana.p}?ok=pausada`);
+    expect(await erro(pausarAction(ana.p))).toMatch(new RegExp(`^redirect /painel/mensagens/${ana.p}\\?ok=pausada&r=[0-9a-f]{8}$`));
     expect(cache.revalidatePath).toHaveBeenCalledWith('/painel', 'layout');
     const h = await conversa(ana.p);
     expect(h).toContain(M.estados.seloPausada);
     expect(h).toContain(`>${M.pausa.retomar}</button>`);
     expect(h).not.toContain(`>${M.pausa.botao}</button>`);
     expect(h).not.toContain('<textarea');
-    expect(await erro(retomarAction(ana.p))).toBe(`redirect /painel/mensagens/${ana.p}?ok=retomada`);
+    expect(await erro(retomarAction(ana.p))).toMatch(new RegExp(`^redirect /painel/mensagens/${ana.p}\\?ok=retomada&r=[0-9a-f]{8}$`));
     const r = await conversa(ana.p);
     expect(r).toContain('<textarea');
     expect(r).not.toContain(M.estados.seloPausada);
@@ -303,8 +304,16 @@ describe('/painel/mensagens/[patientId] — a conversa (US-441)', () => {
     expect(await enviarAction(deOutro.p, null, form({ texto: 'Oi', js: '1' }))).toMatchObject({ erro: M.erros.falha, texto: 'Oi', enviada: false });
     // CH-D75: o erro genérico de cada ato
     expect(await liberarAction(deOutro.p, null, form({ forma: 'aceite_escrito', confirmacao: 'sim' }))).toMatchObject({ erro: M.liberacao.falha });
-    expect(await pausarAction(deOutro.p)).toMatchObject({ erro: M.pausa.falha, semCarimbo: false });
-    expect(await erro(retomarAction(deOutro.p))).toBe(`redirect /painel/mensagens/${deOutro.p}?erro=retomar`);
+    // rodada da T6c (minor 5 da T6b): o erro genérico não marca os campos como inválidos
+    const generico = html(
+      createElement(FormularioDeLiberacao, { patientId: deOutro.p, nome: 'x', aoCancelar: () => undefined, estadoInicial: { marca: 'g', erro: M.liberacao.falha, forma: 'aceite_escrito', confirmou: true, semCarimbo: false } }),
+    );
+    expect(generico).toContain(M.liberacao.falha);
+    expect(generico).not.toContain('aria-invalid');
+    const pausa = await pausarAction(deOutro.p);
+    expect(pausa).toMatchObject({ erro: M.pausa.falha, semCarimbo: false });
+    expect(typeof (pausa as { marca?: unknown }).marca).toBe('string'); // minor 3 da T6b: o erro repetido é reanunciado
+    expect(await erro(retomarAction(deOutro.p))).toMatch(new RegExp(`^redirect /painel/mensagens/${deOutro.p}\\?erro=retomar&r=[0-9a-f]{8}$`));
   });
 
   it('"Ver mensagens anteriores" com ?antes= (o id da primeira mostrada), sem prefetch; a página anterior mostra as mais antigas', async () => {
@@ -323,6 +332,8 @@ describe('/painel/mensagens/[patientId] — a conversa (US-441)', () => {
     const T = await consultorio();
     const ana = await pacienteDoChat(db, T);
     expect(regiao(await conversa(ana.p, { erro: 'retomar' }))?.[1]).toBe(M.pausa.falhaRetomar);
+    expect(readFileSync('src/app/painel/mensagens/[patientId]/pausar-dialogo.tsx', 'utf8')).toMatch(/<p key=\{estado\.marca\} role="alert"/);
+    expect(readFileSync('src/app/painel/mensagens/[patientId]/situacao.tsx', 'utf8')).toMatch(/\[focarAviso, aviso, marcador\]/);
     expect(regiao(await conversa(ana.p, { erro: 'outra' }))?.[1]).toBe('');
   });
 
@@ -387,19 +398,20 @@ type No = { type?: unknown; key?: string | null; props?: { children?: unknown } 
 /** O caminho (tipo e chave de cada elemento) da raiz até o primeiro elemento do tipo `alvo`; null se não achar. */
 function caminhoAte(raiz: unknown, alvo: unknown): string[] | null {
   const nome = (t: unknown) => (typeof t === 'string' ? t : typeof t === 'function' ? t.name : typeof t === 'symbol' ? String(t) : 'objeto');
-  const andar = (n: unknown, caminho: string[]): string[] | null => {
+  // rodada da T6c (minor 6 da T6b): o índice do irmão entra em cada passo — o React reconcilia pela posição sem `key`
+  const andar = (n: unknown, caminho: string[], indice: number): string[] | null => {
     if (Array.isArray(n)) {
-      for (const x of n) {
-        const r = andar(x, caminho);
+      for (const [i, x] of n.entries()) {
+        const r = andar(x, caminho, i);
         if (r) return r;
       }
       return null;
     }
     if (!n || typeof n !== 'object') return null;
     const no = n as No;
-    const aqui = [...caminho, `${nome(no.type)}#${no.key ?? ''}`];
+    const aqui = [...caminho, `${indice}:${nome(no.type)}#${no.key ?? ''}`];
     if (no.type === alvo) return aqui;
-    return andar(no.props?.children, aqui);
+    return andar(no.props?.children, aqui, 0);
   };
-  return andar(raiz, []);
+  return andar(raiz, [], 0);
 }

@@ -1,6 +1,6 @@
 'use server';
 
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { FORMAS_TCLE, type FormaTcle } from '@/db/schema';
@@ -12,6 +12,8 @@ import { enviarComoNutri } from '@/modules/mensagens/envio';
 
 const M = MSG_MENSAGENS;
 const caminho = (patientId: string) => `/painel/mensagens/${patientId}`;
+/** O retorno de um ato com o marcador `r` (novo a cada ato): a região viva refoca e reanuncia o mesmo texto (rodada da T6c). */
+const comRetorno = (patientId: string, q: string) => `${caminho(patientId)}?${q}&r=${randomBytes(4).toString('hex')}`;
 
 /**
  * O estado do campo (useActionState): o texto volta sempre (o que foi escrito nunca se perde no erro; no sucesso, vazio) e
@@ -21,7 +23,7 @@ export type EstadoDoEnvio = { marca: string; erro: string | null; texto: string;
 /** O estado do diálogo de liberação: a forma e a confirmação voltam marcadas; `semCarimbo` mostra o link ao Perfil. */
 export type EstadoDaLiberacao = { marca: string; erro: string | null; forma: string; confirmou: boolean; semCarimbo: boolean };
 /** O estado do diálogo de pausa (só o erro do carimbo, com o link ao Perfil, ou o genérico). */
-export type EstadoDaPausa = { erro: string | null; semCarimbo: boolean };
+export type EstadoDaPausa = { marca: string; erro: string | null; semCarimbo: boolean };
 
 /** RN-470: o erro inesperado vai ao log só com o nome, o SQLSTATE e o id (nunca texto); a tela mostra o texto genérico. */
 function registrarFalha(acao: string, err: unknown, patientId: string) {
@@ -70,7 +72,7 @@ export async function liberarAction(patientId: string, _anterior: EstadoDaLibera
   }
   if (r === 'sem_carimbo') return estado(M.liberacao.semCarimbo, true);
   revalidatePath('/painel', 'layout');
-  redirect(r === 'ok' ? `${caminho(patientId)}?ok=liberada` : caminho(patientId));
+  redirect(r === 'ok' ? comRetorno(patientId, 'ok=liberada') : caminho(patientId));
 }
 
 /**
@@ -84,11 +86,11 @@ export async function pausarAction(patientId: string): Promise<EstadoDaPausa> {
     r = await pausarConversa(ctx, patientId);
   } catch (err) {
     registrarFalha('pausar', err, patientId);
-    return { erro: M.pausa.falha, semCarimbo: false };
+    return { marca: randomUUID(), erro: M.pausa.falha, semCarimbo: false };
   }
-  if (r === 'sem_carimbo') return { erro: M.pausa.semCarimbo, semCarimbo: true };
+  if (r === 'sem_carimbo') return { marca: randomUUID(), erro: M.pausa.semCarimbo, semCarimbo: true };
   revalidatePath('/painel', 'layout');
-  redirect(r === 'ok' ? `${caminho(patientId)}?ok=pausada` : caminho(patientId));
+  redirect(r === 'ok' ? comRetorno(patientId, 'ok=pausada') : caminho(patientId));
 }
 
 /**
@@ -105,5 +107,5 @@ export async function retomarAction(patientId: string): Promise<void> {
     r = 'falha';
   }
   revalidatePath('/painel', 'layout');
-  redirect(r === 'ok' ? `${caminho(patientId)}?ok=retomada` : r === 'falha' ? `${caminho(patientId)}?erro=retomar` : caminho(patientId));
+  redirect(r === 'ok' ? comRetorno(patientId, 'ok=retomada') : r === 'falha' ? comRetorno(patientId, 'erro=retomar') : caminho(patientId));
 }

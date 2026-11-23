@@ -290,7 +290,8 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota('/painel/configuracoes')?.id).toBe('configuracoes');
     expect(guiaDaRota('/painel/configuracoes/perfil')?.id).toBe('configuracoes');
     expect(GUIAS.findIndex((x) => x.id === 'configuracoes-mensagens')).toBeLessThan(GUIAS.findIndex((x) => x.id === 'configuracoes'));
-    expect(g.passos.map((p) => p.alvo)).toEqual(['mensagens-horario', 'mensagens-faixas', 'mensagens-24h', 'mensagens-aviso-email']);
+    // rodada da T6c: na ordem da tela (horário, aviso por e-mail, faixas); o "24:00" junto do passo das faixas
+    expect(g.passos.map((p) => p.alvo)).toEqual(['mensagens-horario', 'mensagens-aviso-email', 'mensagens-faixas']);
     const textos = [g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)].join(' ');
     expect(textos).toContain('24:00');
     expect(textos).toContain('2 horas');

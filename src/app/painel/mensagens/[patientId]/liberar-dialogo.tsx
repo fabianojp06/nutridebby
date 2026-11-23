@@ -12,7 +12,8 @@ const CAMPO = 'min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text
 /** Os campos (a forma e a confirmação), remontados a cada resposta com o que foi enviado; o `<form>` e os botões não. */
 function CamposDaLiberacao({ estado }: { estado: EstadoDaLiberacao | null }) {
   const idErro = estado?.erro ? 'erro-liberacao' : undefined;
-  const invalido = estado?.erro && !estado.semCarimbo ? true : undefined;
+  // só o erro de campo marca os campos (o genérico e o do carimbo não são culpa deles)
+  const invalido = estado?.erro === L.erro ? true : undefined;
   return (
     <>
       <div className="space-y-1">

@@ -243,6 +243,8 @@ export const MSG_MENSAGENS = {
     ajudaAviso: 'No máximo um e-mail a cada 2 horas, sem nome de paciente nem o texto. Fora do horário de mensagens, não avisamos.',
     salvar: 'Salvar',
     salva: 'Configuração salva.',
+    /** CH-D76 (molde da CH-D75): o erro inesperado ao salvar (o que foi escolhido volta para a tela). */
+    falha: 'Não foi possível salvar. Tente de novo.',
     fimAntesDoInicio: 'O fim tem de ser depois do início.',
     sobreposicao: 'As faixas do mesmo dia não podem se sobrepor.',
     faixasDemais: 'No máximo 3 faixas por dia.',

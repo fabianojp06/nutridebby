@@ -29,6 +29,7 @@ vi.mock('next/navigation', () => ({
 const { default: Configuracao } = await import('./page');
 const { salvarHorarioAction } = await import('./actions');
 const { FormularioDoHorario } = await import('./horario-form');
+const { estadoDeFalha, configDoFormulario } = await import('./formulario');
 
 const db = getDb();
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -114,7 +115,9 @@ describe('/painel/configuracoes/mensagens (US-446)', () => {
       ],
     });
     const h = await tela({ ok: 'salva', r: 'abcdef01' });
-    expect(h).toMatch(new RegExp(`<p(?=[^>]*role="status")[^>]*>${C.salva}</p>`));
+    // rodada da T6c (I3): a região fica sempre montada (sem key), focável, e recebe o foco quando `r` muda
+    expect(h).toMatch(new RegExp(`<p(?=[^>]*role="status")(?=[^>]*tabindex="-1")[^>]*>${C.salva}</p>`, 'i'));
+    expect(readFileSync('src/app/painel/configuracoes/mensagens/page.tsx', 'utf8')).not.toMatch(/<p key=/);
     expect(h).toMatch(/<input(?=[^>]*name="horario")(?=[^>]*checked="")[^>]*>/);
     expect(h).toMatch(/<input(?=[^>]*name="aviso")(?![^>]*checked)[^>]*>/);
     expect(fieldset(h, 'Segunda').match(/<select/g)).toHaveLength(4);
@@ -155,5 +158,38 @@ describe('/painel/configuracoes/mensagens (US-446)', () => {
     expect(linhas.at(-1)).toMatch(/MSG_MENSAGENS\.configuracao\.hubDescricao/);
     expect(readFileSync('src/app/painel/configuracoes/mensagens/page.tsx', 'utf8')).toMatch(/requireNutri\(/);
     expect(readFileSync('src/app/painel/configuracoes/mensagens/actions.ts', 'utf8')).toMatch(/requireNutri\(/);
+  });
+
+  it('rodada da T6c (I4): falha ao salvar no servidor → "Não foi possível salvar. Tente de novo." com a configuração enviada de volta (nada se perde)', async () => {
+    const T = await consultorio();
+    // um erro inesperado do módulo (aqui, a sessão que não é `nutri`): log só de nome e SQLSTATE, a tela com o texto da CH-D76
+    sessao.atual = { ...(sessao.atual as object), ctx: { ...T.ctx, role: 'worker' } };
+    const estado = await salvarHorarioAction(null, form([['horario', 'sim'], ['inicio-4', '540'], ['fim-4', '600']]));
+    expect(estado).toMatchObject({ erro: null, erroGeral: C.falha, config: { horarioAtivo: true, avisoEmail: false, faixas: [{ diaSemana: 4, inicioMin: 540, fimMin: 600 }] } });
+    expect(C.falha).toBe('Não foi possível salvar. Tente de novo.');
+    const h = html(createElement(FormularioDoHorario, { inicial: { horarioAtivo: false, avisoEmail: true, faixas: [] }, estadoInicial: estado }));
+    expect(h).toMatch(new RegExp(`<p(?=[^>]*role="alert")[^>]*>${C.falha}</p>`));
+    expect(fieldset(h, 'Quinta').match(/<select/g)).toHaveLength(2);
+  });
+
+  it('rodada da T6c (I4): rede caída no cliente → o mesmo texto e a configuração tirada do formulário enviado', () => {
+    const dados = form([['aviso', 'sim'], ['inicio-0', '60'], ['fim-0', '120']]);
+    expect(configDoFormulario(dados)).toEqual({ horarioAtivo: false, avisoEmail: true, faixas: [{ diaSemana: 0, inicioMin: 60, fimMin: 120 }] });
+    const e = estadoDeFalha(dados, { horarioAtivo: true, avisoEmail: true, faixas: [] });
+    expect(e).toMatchObject({ erro: null, erroGeral: C.falha, config: { avisoEmail: true, faixas: [{ diaSemana: 0, inicioMin: 60, fimMin: 120 }] } });
+    // formulário adulterado no cliente: volta a configuração que estava na tela
+    expect(estadoDeFalha(form([['inicio-0', 'x'], ['fim-0', '1']]), { horarioAtivo: true, avisoEmail: false, faixas: [] }).config).toEqual({ horarioAtivo: true, avisoEmail: false, faixas: [] });
+    const f = readFileSync('src/app/painel/configuracoes/mensagens/horario-form.tsx', 'utf8');
+    expect(f).toMatch(/seguraFalhaDeRede\(/);
+  });
+
+  it('rodada da T6c (I1, I2): o foco vai à faixa com erro (rolada ao centro); ao acrescentar, ao "Das" da nova; ao remover, à vizinha ou ao "Acrescentar faixa"', () => {
+    const f = readFileSync('src/app/painel/configuracoes/mensagens/horario-form.tsx', 'utf8');
+    expect(f).toMatch(/scrollIntoView\(\{ block: 'center' \}\)/);
+    expect(f).toMatch(/`faixa-\$\{erro\.dia\}-\$\{erro\.k\}-das`/);
+    expect(f).toMatch(/id=\{`acrescentar-\$\{dia\}`\}/);
+    expect(f).toMatch(/focarDepois\.current = /);
+    // "24:00" no guia: o alvo só na primeira faixa da tela
+    expect(f).toMatch(/data-guia=\{primeira \? 'mensagens-24h' : undefined\}/);
   });
 });

@@ -54,6 +54,8 @@ export default async function Conversa({ params, searchParams }: PageProps<'/pai
       : typeof sp.erro === 'string' && Object.hasOwn(ERROS, sp.erro)
         ? ERROS[sp.erro]
         : '';
+  // o marcador do ato (`r`, gerado pela action): a região refoca e reanuncia o mesmo texto; fora do formato, vazio
+  const marcador = aviso && typeof sp.r === 'string' && /^[0-9a-f]{8}$/.test(sp.r) ? sp.r : '';
   const ativo = estado.titular === 'ativo';
   const liberada = estado.liberadaEm !== null;
   const podeEnviar = ativo && liberada && !estado.pausada && estado.carimbo;
@@ -113,7 +115,7 @@ export default async function Conversa({ params, searchParams }: PageProps<'/pai
           <ListaDeMensagens mensagens={mensagens} fuso={tenant.fuso} primeiroNome={primeiroNome} />
         </div>
         <div id="rodape-da-conversa" className="sticky bottom-0 space-y-3 border-t border-borda bg-fundo pt-3 pb-2">
-          <SituacaoDaConversa patientId={patientId} depois={ultima} primeiroNome={primeiroNome} aviso={aviso} focarAviso={aviso !== ''} consultar={antes === undefined && ativo} />
+          <SituacaoDaConversa patientId={patientId} depois={ultima} primeiroNome={primeiroNome} aviso={aviso} marcador={marcador} focarAviso={aviso !== ''} consultar={antes === undefined && ativo} />
           {podeEnviar && <CampoDaConversa patientId={patientId} />}
           {ativo && liberada && !estado.pausada && !estado.carimbo && (
             <p>

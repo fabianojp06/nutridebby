@@ -279,6 +279,19 @@ test('rodada T6b (C1): o rascunho fica no campo quando chega mensagem nova e a t
   await expect(campo).toBeFocused();
 });
 
+test('rodada T6c (minor 4 da T6b): a 400 px, a última mensagem fica acima do rodapé sticky ao abrir a conversa', async () => {
+  await nutri.setViewportSize({ width: 400, height: 800 });
+  try {
+    await abrirConversa(nutri, CHAT_PACIENTE.nome);
+    await nutri.waitForLoadState('networkidle');
+    const ultima = (await listaDeMensagens(nutri).locator('li[data-mensagem]').last().boundingBox())!;
+    const rodape = (await nutri.locator('#rodape-da-conversa').boundingBox())!;
+    expect(ultima.y + ultima.height, 'a última mensagem não fica sob o rodapé').toBeLessThanOrEqual(rodape.y + 1);
+  } finally {
+    await nutri.setViewportSize({ width: 1280, height: 900 });
+  }
+});
+
 test('rodada T6b (I4): rede caída no envio — "Não foi possível enviar. Tente de novo." junto ao campo e o rascunho continua', async () => {
   await abrirConversa(nutri, CHAT_PACIENTE_2.nome);
   await nutri.waitForLoadState('networkidle');
@@ -332,7 +345,11 @@ test('T6c: "Atendimento por mensagens" pelo hub — erro de sobreposição junto
   await nutri.waitForLoadState('networkidle'); // "Acrescentar faixa" é do cliente
   await nutri.getByLabel('Mostrar horário de atendimento aos pacientes').check();
   const segunda = nutri.getByRole('group', { name: 'Segunda' });
+  // o próprio estado: tira as faixas da segunda que outra execução deixou
+  while ((await segunda.getByRole('button', { name: /^Remover faixa 1 de Segunda$/ }).count()) > 0) await segunda.getByRole('button', { name: 'Remover faixa 1 de Segunda' }).click();
+  await expect(segunda.getByRole('button', { name: 'Acrescentar faixa' })).toBeFocused(); // rodada da T6c (I2): sem faixa, o foco no botão
   await segunda.getByRole('button', { name: 'Acrescentar faixa' }).click();
+  await expect(segunda.getByLabel('Segunda, faixa 1, das')).toBeFocused(); // I2: o "Das" da faixa nova
   await segunda.getByLabel('Segunda, faixa 1, das').selectOption({ label: '09:00' });
   await segunda.getByLabel('Segunda, faixa 1, às').selectOption({ label: '18:00' });
   await segunda.getByRole('button', { name: 'Acrescentar faixa' }).click();
@@ -340,19 +357,41 @@ test('T6c: "Atendimento por mensagens" pelo hub — erro de sobreposição junto
   await segunda.getByLabel('Segunda, faixa 2, às').selectOption({ label: '24:00' });
   await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
   await expect(segunda.getByRole('alert')).toHaveText('As faixas do mesmo dia não podem se sobrepor.');
+  // rodada da T6c (I1): o foco vai à faixa com erro, rolada para a tela
+  await expect(segunda.getByLabel('Segunda, faixa 2, das')).toBeFocused();
+  await expect(segunda.getByLabel('Segunda, faixa 2, das')).toBeInViewport();
   await expect(segunda.getByLabel('Segunda, faixa 2, das')).toHaveAttribute('aria-invalid', 'true');
   // o que foi escolhido continua na tela; remove a faixa que sobrepõe e salva
   await expect(segunda.getByLabel('Segunda, faixa 1, das')).toHaveValue('540');
   await segunda.getByRole('button', { name: 'Remover faixa 2 de Segunda' }).click();
+  await expect(segunda.getByLabel('Segunda, faixa 1, das')).toBeFocused(); // I2: a vizinha
   await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
   await expect(nutri).toHaveURL(/\?ok=salva&r=[0-9a-f]{8}$/);
   await expect(nutri.locator('main p[role="status"]')).toHaveText('Configuração salva.');
+  await expect(nutri.locator('main p[role="status"]')).toBeFocused(); // I3: a região sempre montada recebe o foco
   await expect(nutri.getByLabel('Segunda, faixa 1, às')).toHaveValue('1080');
   // a paciente vê o resumo no app (/p/mensagens, T7)
   const paciente = await entrarComo(browser, CHAT_PACIENTE.email, CHAT_PACIENTE.senha, '10.9.25.16');
   await paciente.goto('/p/mensagens');
   await expect(paciente.getByText(/^Horário de atendimento por mensagens: .*9h às 18h\.$/)).toBeVisible();
   await paciente.context().close();
+});
+
+test('rodada T6c (I4): rede caída ao salvar — "Não foi possível salvar. Tente de novo." e as faixas escolhidas continuam na tela', async () => {
+  await nutri.goto('/painel/configuracoes/mensagens');
+  await nutri.waitForLoadState('networkidle');
+  const sabado = nutri.getByRole('group', { name: 'Sábado' });
+  await sabado.getByRole('button', { name: 'Acrescentar faixa' }).click();
+  const n = await sabado.locator('select[name="inicio-6"]').count();
+  await sabado.getByLabel(`Sábado, faixa ${n}, das`).selectOption({ label: '07:15' });
+  await nutri.context().setOffline(true);
+  try {
+    await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await expect(nutri.getByRole('alert').filter({ hasText: 'Não foi possível salvar. Tente de novo.' })).toBeVisible();
+    await expect(sabado.getByLabel(`Sábado, faixa ${n}, das`)).toHaveValue('435');
+  } finally {
+    await nutri.context().setOffline(false);
+  }
 });
 
 test('T6c: axe de "Atendimento por mensagens" com faixas e o erro na tela, nos três modos', async () => {
@@ -362,11 +401,14 @@ test('T6c: axe de "Atendimento por mensagens" com faixas e o erro na tela, nos t
     await nutri.emulateMedia({ colorScheme: aparelho });
     await nutri.goto('/painel/configuracoes/mensagens');
     await nutri.waitForLoadState('networkidle');
-    const segunda = nutri.getByRole('group', { name: 'Segunda' });
-    await segunda.getByRole('button', { name: 'Acrescentar faixa' }).click();
-    await segunda.getByLabel('Segunda, faixa 2, das').selectOption({ label: '10:00' });
+    // rodada da T6c (minor 3): o Domingo, que nenhum outro teste usa — uma faixa com o fim antes do início, sem salvar nada
+    const domingo = nutri.getByRole('group', { name: 'Domingo' });
+    await domingo.getByRole('button', { name: 'Acrescentar faixa' }).click();
+    const n = await domingo.locator('select[name="inicio-0"]').count();
+    await domingo.getByLabel(`Domingo, faixa ${n}, das`).selectOption({ label: '10:00' });
+    await domingo.getByLabel(`Domingo, faixa ${n}, às`).selectOption({ label: '09:00' });
     await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
-    await expect(segunda.getByRole('alert')).toBeVisible();
+    await expect(domingo.getByRole('alert')).toBeVisible();
     for (const v of await violacoes(nutri)) falhas.push(`${tema} /painel/configuracoes/mensagens — ${v}`);
   }
   await nutri.emulateMedia({ colorScheme: 'light' });

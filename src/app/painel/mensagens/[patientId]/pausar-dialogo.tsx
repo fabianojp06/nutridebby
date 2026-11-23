@@ -18,7 +18,7 @@ function FormularioDePausa({ patientId, fechar, aoOcupar }: { patientId: string;
   return (
     <form action={acao} className="space-y-4">
       {estado?.erro && (
-        <p role="alert" className="text-erro">
+        <p key={estado.marca} role="alert" className="text-erro">
           {estado.semCarimbo ? <ComLinkDoPerfil texto={estado.erro} id="link-perfil-pausa" /> : estado.erro}
         </p>
       )}

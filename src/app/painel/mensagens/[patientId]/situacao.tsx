@@ -18,13 +18,15 @@ export const urlDaSituacao = (patientId: string, depois: string | null): string 
 /** US-441: o texto da região viva quando chegam mensagens do paciente com a tela aberta. */
 export const avisoDeNovas = (novas: number, primeiroNome: string): string => (novas > 0 ? C.novaMensagemDe(primeiroNome) : '');
 
+export type AvisoNaTela = { aviso: string; marcador: string };
 /**
  * O texto da região viva: "Nova mensagem de {nome}." com novas; senão, o retorno `?ok=`/`?erro=` — menos o que já ficou
- * para trás num "Mostrar novas mensagens" (`avisoVisto`). Um ato novo (pausar depois de liberar) é outro texto e é anunciado.
+ * para trás num "Mostrar novas mensagens" (`visto`: o texto e o marcador `r` do ato). Um ato novo — outro texto, ou o mesmo
+ * texto com outro marcador (pausar de novo) — é anunciado (rodada da T6c).
  */
-export function textoDaRegiao(o: { novas: number; primeiroNome: string; aviso: string; avisoVisto: string | null }): string {
+export function textoDaRegiao(o: { novas: number; primeiroNome: string; aviso: string; marcador: string; visto: AvisoNaTela | null }): string {
   if (o.novas > 0) return avisoDeNovas(o.novas, o.primeiroNome);
-  return o.aviso === o.avisoVisto ? '' : o.aviso;
+  return o.visto && o.visto.aviso === o.aviso && o.visto.marcador === o.marcador ? '' : o.aviso;
 }
 
 /**
@@ -39,6 +41,7 @@ export function SituacaoDaConversa({
   depois,
   primeiroNome,
   aviso,
+  marcador = '',
   focarAviso,
   consultar,
 }: {
@@ -46,6 +49,8 @@ export function SituacaoDaConversa({
   depois: string | null;
   primeiroNome: string;
   aviso: string;
+  /** O `r` do ato: o mesmo texto com outro marcador é outro ato (refoca e reanuncia). */
+  marcador?: string;
   focarAviso: boolean;
   consultar: boolean;
 }) {
@@ -53,8 +58,8 @@ export function SituacaoDaConversa({
   const regiao = useRef<HTMLParagraphElement>(null);
   const { setConsultada } = useContext(ContextoDaLeitura);
   const [consulta, setConsulta] = useState<{ de: string | null; n: number } | null>(null);
-  /** O `?ok=` que estava na tela no toque em "Mostrar novas mensagens": não volta a ser anunciado. */
-  const [avisoVisto, setAvisoVisto] = useState<string | null>(null);
+  /** O `?ok=` (texto e marcador) que estava na tela no toque em "Mostrar novas mensagens": não volta a ser anunciado. */
+  const [visto, setVisto] = useState<AvisoNaTela | null>(null);
   /** O id da última mensagem que estava na tela no toque: depois do refresh, o foco vai à seguinte. */
   const focarDepoisDe = useRef<string | null | undefined>(undefined);
   const novas = novasNaTela(consulta, depois);
@@ -63,7 +68,7 @@ export function SituacaoDaConversa({
   useEffect(() => {
     if (focarAviso) regiao.current?.focus({ preventScroll: true });
     else document.getElementById('rodape-da-conversa')?.scrollIntoView({ block: 'end' });
-  }, [focarAviso, aviso]);
+  }, [focarAviso, aviso, marcador]);
 
   useEffect(() => {
     if (!consultar) return undefined;
@@ -87,11 +92,11 @@ export function SituacaoDaConversa({
   const mostrarNovas = () => {
     focarDepoisDe.current = depois;
     setConsulta(null);
-    setAvisoVisto(aviso);
+    setVisto({ aviso, marcador });
     router.refresh();
   };
 
-  const texto = textoDaRegiao({ novas, primeiroNome, aviso, avisoVisto });
+  const texto = textoDaRegiao({ novas, primeiroNome, aviso, marcador, visto });
   return (
     <div className="space-y-2">
       <p ref={regiao} role="status" tabIndex={-1} className="text-sm focus-visible:outline-offset-2">

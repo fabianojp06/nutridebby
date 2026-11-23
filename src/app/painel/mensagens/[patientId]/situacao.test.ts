@@ -179,14 +179,17 @@ describe('rodada da T6b (revisão de interface)', () => {
     expect(novasNaTela(null, 'x')).toBe(0);
   });
 
-  it('I1: o retorno ?ok= de cada ato é anunciado (liberar → pausar → retomar); depois de "Mostrar novas", o ?ok= já visto não volta', () => {
-    expect(textoDaRegiao({ novas: 0, primeiroNome: 'Ana', aviso: MSG_MENSAGENS.pausa.sucesso, avisoVisto: null })).toBe(MSG_MENSAGENS.pausa.sucesso);
-    expect(textoDaRegiao({ novas: 1, primeiroNome: 'Ana', aviso: MSG_MENSAGENS.pausa.sucesso, avisoVisto: null })).toBe('Nova mensagem de Ana.');
-    expect(textoDaRegiao({ novas: 0, primeiroNome: 'Ana', aviso: MSG_MENSAGENS.pausa.sucesso, avisoVisto: MSG_MENSAGENS.pausa.sucesso })).toBe('');
-    expect(textoDaRegiao({ novas: 0, primeiroNome: 'Ana', aviso: MSG_MENSAGENS.pausa.retomada, avisoVisto: MSG_MENSAGENS.pausa.sucesso })).toBe(MSG_MENSAGENS.pausa.retomada);
+  it('I1: o retorno ?ok= de cada ato é anunciado (liberar → pausar → retomar); depois de "Mostrar novas", o ?ok= já visto (o mesmo marcador) não volta; o mesmo texto com outro marcador volta', () => {
+    const pausada = MSG_MENSAGENS.pausa.sucesso;
+    expect(textoDaRegiao({ novas: 0, primeiroNome: 'Ana', aviso: pausada, marcador: 'a1', visto: null })).toBe(pausada);
+    expect(textoDaRegiao({ novas: 1, primeiroNome: 'Ana', aviso: pausada, marcador: 'a1', visto: null })).toBe('Nova mensagem de Ana.');
+    expect(textoDaRegiao({ novas: 0, primeiroNome: 'Ana', aviso: pausada, marcador: 'a1', visto: { aviso: pausada, marcador: 'a1' } })).toBe('');
+    expect(textoDaRegiao({ novas: 0, primeiroNome: 'Ana', aviso: MSG_MENSAGENS.pausa.retomada, marcador: 'b2', visto: { aviso: pausada, marcador: 'a1' } })).toBe(MSG_MENSAGENS.pausa.retomada);
+    // rodada da T6c (minor 1 da T6b): pausar de novo (o mesmo texto, outro ato) volta a ser anunciado
+    expect(textoDaRegiao({ novas: 0, primeiroNome: 'Ana', aviso: pausada, marcador: 'c3', visto: { aviso: pausada, marcador: 'a1' } })).toBe(pausada);
     const fonte = readFileSync('src/app/painel/mensagens/[patientId]/situacao.tsx', 'utf8');
     expect(fonte).toMatch(/focus\(\{ preventScroll: true \}\)/);
-    expect(fonte).toMatch(/\[focarAviso, aviso\]/);
+    expect(fonte).toMatch(/\[focarAviso, aviso, marcador\]/);
     expect(fonte).not.toMatch(/setJaMostrou|jaMostrou/);
   });
 

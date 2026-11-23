@@ -414,16 +414,17 @@ export const GUIAS: readonly Guia[] = [
       ],
     },
     passos: [
+      // rodada da T6c: na ordem da tela; o "24:00" junto das faixas (o alvo próprio não existe sem faixa)
       { alvo: 'mensagens-horario', titulo: 'Mostrar o horário', texto: 'Ligue para o app mostrar ao paciente o seu horário de atendimento por mensagens. Desligado, as faixas ficam guardadas.' },
-      { alvo: 'mensagens-faixas', titulo: 'Faixas por dia', texto: 'Em cada dia, toque em "Acrescentar faixa" e escolha "Das" e "Às", de 15 em 15 minutos. Até 3 faixas por dia, sem sobrepor.' },
-      { alvo: 'mensagens-24h', titulo: 'Até a meia-noite', texto: 'O último horário de "Às" é 24:00: a faixa vai até o fim do dia.' },
       { alvo: 'mensagens-aviso-email', titulo: 'Aviso por e-mail', texto: 'Com o aviso ligado, você recebe um e-mail quando chega mensagem de paciente, no máximo a cada 2 horas e sem o texto.' },
+      { alvo: 'mensagens-faixas', titulo: 'Faixas por dia', texto: 'Em cada dia, toque em "Acrescentar faixa" e escolha "Das" e "Às", de 15 em 15 minutos. Até 3 faixas por dia, sem sobrepor. Para atender até a meia-noite, escolha 24:00 em "Às".' },
     ],
   },
   {
     id: 'configuracoes',
-    // 9 = Plano 25: o cartão "Atendimento por mensagens" e a fila "Dúvidas da IA Nutri" (sobe +1 sobre a da main no rebase)
-    versao: 9, // Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
+    // 9 = Plano 25: o cartão "Atendimento por mensagens" e a fila "Dúvidas da IA Nutri" (sobe +1 sobre a da main no rebase);
+    // 8 = Plano 15: o aditivo 1.2 e a IA Nutri; 7 = o aditivo 1.1 (Plano 14B-2); 6 = os modelos sugeridos pela IA (Plano 14B-1)
+    versao: 9,
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
