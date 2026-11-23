@@ -750,6 +750,18 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
     expect(retomada.pausada_em).toBeNull();
   });
 
+  it('anexo no INSERT da nutricionista: só sem anexo, em processamento ou PDF pronto (code review do PR 1)', async () => {
+    const C = await cenario();
+    const original = await arquivo(C, C.p1, 'chat_anexo_original');
+    const pdf = await arquivo(C, C.p1, 'chat_anexo');
+    const msg = 'a mensagem nasce sem anexo, em processamento ou com o PDF pronto';
+    await expect(em(C.ctx, daNutri(C, { texto: 'x', anexoStatus: 'removido', anexoTipo: 'imagem' }))).rejects.toSatisfy(doGatilho(msg));
+    await expect(em(C.ctx, daNutri(C, { texto: 'x', anexoStatus: 'falhou', anexoTipo: 'imagem' }))).rejects.toSatisfy(doGatilho(msg));
+    await expect(em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'pronto', anexoTipo: 'imagem', anexoPath: pdf }))).rejects.toSatisfy(doGatilho(msg));
+    expect(await em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'processando', anexoTipo: 'imagem', anexoOriginalPath: original }))).toHaveLength(1);
+    expect(await em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'pronto', anexoTipo: 'pdf', anexoPath: pdf }))).toHaveLength(1);
+  });
+
   it('anexo: o worker conclui processando → pronto | falhou com o chat_anexo do mesmo paciente; o resto das transições → 42501', async () => {
     const C = await cenario();
     const W = worker(C.tenantId);
@@ -774,10 +786,13 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
     // o marcador local só vale no worker (é o contexto de app_chat_soltar_anexo, T1c)
     await expect(atualizar(C.ctx, m.id, sql`anexo_original_path = null`, true)).rejects.toSatisfy(doGatilho('o original só sai por app_chat_soltar_anexo'));
     expect(await atualizar(W, m.id, sql`anexo_original_path = null`, true)).toHaveLength(1);
-    // M3 da revisão: com o marcador, o anexo convertido só sai com o titular bloqueado ou anonimizado
-    await expect(atualizar(W, m.id, sql`anexo_path = null`, true)).rejects.toSatisfy(doGatilho('titular bloqueado ou anonimizado'));
-    await expect(atualizar(W, m.id, sql`anexo_status = 'removido', anexo_path = null`, true)).rejects.toSatisfy(doGatilho('titular bloqueado ou anonimizado'));
+    // M3 da revisão: com o marcador, o anexo convertido só sai com o titular na anonimização
+    await expect(atualizar(W, m.id, sql`anexo_path = null`, true)).rejects.toSatisfy(doGatilho('titular na anonimização'));
+    await expect(atualizar(W, m.id, sql`anexo_status = 'removido', anexo_path = null`, true)).rejects.toSatisfy(doGatilho('titular na anonimização'));
+    // code review do PR 1 (RN-466): bloqueado ainda no prazo de guarda não basta
     await owner.pool.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01' where id = $1`, [C.p1]);
+    await expect(atualizar(W, m.id, sql`anexo_status = 'removido', anexo_path = null`, true)).rejects.toSatisfy(doGatilho('titular na anonimização'));
+    await owner.pool.query(`update patients set anonimizar_apos = '2000-01-01' where id = $1`, [C.p1]);
     expect(await atualizar(W, m.id, sql`anexo_status = 'removido', anexo_path = null`, true)).toHaveLength(1);
     await expect(atualizar(W, m.id, sql`anexo_status = 'pronto'`, true)).rejects.toSatisfy(doGatilho('transição do anexo inválida')); // removido é final
     expect(await ler(m.id)).toMatchObject({ anexo_status: 'removido', anexo_path: null, anexo_original_path: null });

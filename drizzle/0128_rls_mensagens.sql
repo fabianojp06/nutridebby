@@ -223,7 +223,7 @@ CREATE TRIGGER chat_conversas_regras BEFORE INSERT OR UPDATE ON chat_conversas F
 -- de um stored_files do mesmo tenant e paciente, do tipo certo. UPDATE: colunas fixas, menos as quatro do GRANT; o anexo só
 -- muda pelo worker — processando → pronto | falhou, com o anexo_path entrando só em processando → pronto (mesma amarra);
 -- pronto | falhou → removido e os caminhos a nulo só com o marcador local app.chat_soltando (app_chat_soltar_anexo, T1c) —
--- o anexo convertido (e o `removido`) também só com o titular bloqueado ou anonimizado; o original nunca entra num UPDATE e
+-- o anexo convertido (e o `removido`) também só com o titular anonimizado ou bloqueado com o prazo vencido; o original nunca entra num UPDATE e
 -- nenhum caminho troca por outro. A cópia de recado repete o texto do recado.
 CREATE OR REPLACE FUNCTION app_chat_mensagens_regras() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER
@@ -277,6 +277,13 @@ BEGIN
     ELSIF NOT EXISTS (SELECT 1 FROM public.recados r WHERE r.tenant_id = NEW.tenant_id AND r.id = NEW.recado_id AND r.texto = NEW.texto) THEN
       RAISE EXCEPTION 'a cópia do recado repete o texto do recado' USING ERRCODE = '42501';
     END IF;
+    -- code review do PR 1: a máquina de estados do anexo também vale no INSERT — a nutricionista só cria a mensagem sem
+    -- anexo, em processamento (a imagem da T8a; o CHECK processando_com_original admite o PDF sem caminho) ou com o PDF
+    -- dela já pronto (RN-454); `falhou` e `removido` só pelo worker, e imagem só fica `pronto` pela conversão
+    IF NOT (NEW.anexo_status IN ('sem_anexo', 'processando')
+            OR (NEW.anexo_status = 'pronto' AND NEW.anexo_tipo = 'pdf')) THEN
+      RAISE EXCEPTION 'a mensagem nasce sem anexo, em processamento ou com o PDF pronto' USING ERRCODE = '42501';
+    END IF;
     IF NEW.anexo_path IS NOT NULL AND NOT EXISTS (
          SELECT 1 FROM public.stored_files f WHERE f.tenant_id = NEW.tenant_id AND f.patient_id = NEW.patient_id
             AND f.tipo = 'chat_anexo' AND f.caminho = NEW.anexo_path) THEN
@@ -295,11 +302,15 @@ BEGIN
   IF (to_jsonb(NEW) - livres) IS DISTINCT FROM (to_jsonb(OLD) - livres) THEN
     RAISE EXCEPTION 'coluna fixa da mensagem' USING ERRCODE = '42501';
   END IF;
-  -- revisão, M3 (molde 0123): o anexo convertido só sai (a nulo ou `removido`) com o titular bloqueado ou anonimizado — o
+  -- revisão, M3 (molde 0123): o anexo convertido só sai (a nulo ou `removido`) com o titular na anonimização (RN-466) — o
   -- marcador não basta, porque qualquer sessão o liga; o original continua saindo só com o marcador (fim da conversão)
+  -- code review do PR 1: a mesma condição de app_chat_soltar_anexo (RN-466) — `bloqueado` dura todo o prazo de guarda, então
+  -- só com anonimizar_apos já vencido no fuso do consultório, ou com o titular anonimizado
   titular_saindo := (NEW.anexo_path IS DISTINCT FROM OLD.anexo_path OR NEW.anexo_status IS DISTINCT FROM OLD.anexo_status)
-    AND EXISTS (SELECT 1 FROM public.patients p WHERE p.tenant_id = NEW.tenant_id AND p.id = NEW.patient_id
-                  AND (p.status = 'bloqueado' OR p.anonimizado_em IS NOT NULL));
+    AND EXISTS (SELECT 1 FROM public.patients p JOIN public.tenants t ON t.id = p.tenant_id
+                  WHERE p.tenant_id = NEW.tenant_id AND p.id = NEW.patient_id
+                    AND (p.anonimizado_em IS NOT NULL
+                         OR (p.status = 'bloqueado' AND p.anonimizar_apos < (now() AT TIME ZONE t.fuso)::date)));
   IF NEW.anexo_status IS DISTINCT FROM OLD.anexo_status THEN
     IF OLD.anexo_status = 'processando' AND NEW.anexo_status IN ('pronto', 'falhou') THEN
       IF r <> 'worker' THEN
@@ -310,7 +321,7 @@ BEGIN
         RAISE EXCEPTION 'o anexo só é removido por app_chat_soltar_anexo' USING ERRCODE = '42501';
       END IF;
       IF NOT titular_saindo THEN
-        RAISE EXCEPTION 'o anexo só sai com o titular bloqueado ou anonimizado' USING ERRCODE = '42501';
+        RAISE EXCEPTION 'o anexo só sai com o titular na anonimização' USING ERRCODE = '42501';
       END IF;
     ELSE
       RAISE EXCEPTION 'transição do anexo inválida' USING ERRCODE = '42501';
@@ -330,7 +341,7 @@ BEGIN
     ELSIF r <> 'worker' OR NOT soltando THEN
       RAISE EXCEPTION 'o caminho do anexo só sai por app_chat_soltar_anexo' USING ERRCODE = '42501';
     ELSIF NOT titular_saindo THEN
-      RAISE EXCEPTION 'o anexo só sai com o titular bloqueado ou anonimizado' USING ERRCODE = '42501';
+      RAISE EXCEPTION 'o anexo só sai com o titular na anonimização' USING ERRCODE = '42501';
     END IF;
   END IF;
   IF NEW.anexo_original_path IS DISTINCT FROM OLD.anexo_original_path THEN
