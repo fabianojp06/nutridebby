@@ -71,7 +71,8 @@ test('T6a: menu "Mensagens" → caixa (risco no topo, sem o texto) → "Nova con
   const conversa = nutri.getByRole('listitem').filter({ hasText: CHAT_PACIENTE.nome }).first();
   await expect(conversa).toContainText('Sinal de risco');
   await expect(conversa).toContainText(/\d+ não lidas?/);
-  await expect(conversa).toContainText('Mensagem do paciente');
+  // a última da conversa da semente é a cópia do recado (CH-D68): o tipo "Recado"
+  await expect(conversa).toContainText('Recado');
   await expect(nutri.locator('main')).not.toContainText('A partir de hoje você pode falar comigo por aqui');
   await filtro.getByRole('link', { name: 'Não lidas', exact: true }).click();
   await expect(nutri).toHaveURL(/\/painel\/mensagens\?filtro=nao-lidas$/);

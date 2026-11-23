@@ -401,6 +401,26 @@ test('D17: o botão de tema alterna, persiste depois de recarregar e em outro ap
   await outro.context().close();
 });
 
+test('Plano 25 (revisão da T6a, I2): o pior caso do menu — 9 itens, com "Exames recebidos" e "Mensagens" — quebra linha sem cobrir o conteúdo, a 1280 e a 360 px', async () => {
+  // o consultório principal da semente liga os exames e tem dúvidas da IA Nutri abertas: "Mensagens (n)" com número
+  const menu = nutri.getByRole('navigation', { name: 'Menu do painel' });
+  for (const width of [1280, 360]) {
+    await nutri.setViewportSize({ width, height: 800 });
+    await nutri.goto('/painel/mensagens');
+    await expect(menu.getByRole('link')).toHaveCount(9);
+    await expect(menu.getByRole('link', { name: 'Exames recebidos', exact: false })).toBeVisible();
+    await expect(menu.getByRole('link', { name: /^Mensagens, \d+ não lidas?$/ })).toBeVisible();
+    const caixa = async (sel: string) => (await nutri.locator(sel).first().boundingBox())!;
+    const cabecalho = await caixa('header');
+    const nav = await caixa('nav[aria-label="Menu do painel"]');
+    const conteudo = await caixa('main');
+    expect(cabecalho.y + cabecalho.height, `${width}px: o cabeçalho acima do <main>`).toBeLessThanOrEqual(conteudo.y + 0.5);
+    expect(nav.y + nav.height, `${width}px: o menu não sobrepõe o <main>`).toBeLessThanOrEqual(conteudo.y + 0.5);
+    expect(await nutri.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${width}px: sem rolagem lateral`).toBe(true);
+  }
+  await nutri.setViewportSize({ width: 1280, height: 720 });
+});
+
 test('teclado: Tab chega aos itens do menu na ordem da tela, e o item atual é anunciado', async () => {
   await nutri.goto('/painel/agenda');
   const menu = nutri.getByRole('navigation', { name: 'Menu do painel' });

@@ -17,7 +17,7 @@ const NENHUM: ItemComContador = { mostrar: false, pendentes: 0 };
  */
 export function MenuPainel({ exames = NENHUM, mensagens = NENHUM }: { exames?: ItemComContador; mensagens?: ItemComContador }) {
   const atual = itemAtual(usePathname());
-  const naoLidas = useContadorDeMensagens(mensagens.pendentes, mensagens.mostrar);
+  const naoLidas = useContadorDeMensagens(mensagens);
   const contador: Record<string, number> = { [ITEM_EXAMES.href]: exames.pendentes, [ITEM_MENSAGENS.href]: naoLidas };
   return (
     <nav aria-label="Menu do painel" data-guia="menu">

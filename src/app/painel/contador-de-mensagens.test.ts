@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CABECALHO_CONSULTA } from '@/lib/consulta-automatica';
 import { CONTADOR_INTERVALO_MS } from '@/modules/mensagens/constantes';
-import { acompanharContador, URL_DO_CONTADOR } from './contador-de-mensagens';
+import { acompanharContador, numeroDoMenu, URL_DO_CONTADOR } from './contador-de-mensagens';
 
 // Plano 25 (RN-459, CH-D43): o contador do menu "Mensagens" consulta `GET /api/painel/mensagens/contador` a cada 60 s com a
 // aba visível e com rede; nenhuma consulta com a aba escondida ou sem rede; volta ao ficar visível ou ao reconectar. Um
@@ -164,10 +164,39 @@ describe('contador do menu "Mensagens" (RN-459)', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('revisão da T6a (I1): o layout refaz com o MESMO número depois de uma consulta diferente — o menu volta ao número do servidor', () => {
+    const layout1 = { mostrar: true, pendentes: 3 };
+    expect(numeroDoMenu(layout1, null)).toBe(3);
+    const consulta = { de: layout1, n: 4 }; // a consulta de 60 s viu uma mensagem nova
+    expect(numeroDoMenu(layout1, consulta)).toBe(4);
+    const layout2 = { mostrar: true, pendentes: 3 }; // a nutricionista leu: o layout refez (objeto novo, mesmo valor)
+    expect(numeroDoMenu(layout2, consulta)).toBe(3);
+    expect(numeroDoMenu(layout2, { de: layout2, n: 0 })).toBe(0);
+  });
+
+  it('troca de rota (imediata): a primeira consulta sai na hora e depois segue o ritmo de 60 s', async () => {
+    const A = ambiente();
+    const buscar = respostaCom(1);
+    acompanharContador(vi.fn(), { ...A.opcoes, buscar, imediata: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buscar).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(buscar).toHaveBeenCalledTimes(2);
+    // imediata com a aba escondida: nada até ficar visível
+    const B = ambiente();
+    B.estado.oculta = true;
+    const outra = respostaCom(1);
+    acompanharContador(vi.fn(), { ...B.opcoes, buscar: outra, imediata: true });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(outra).not.toHaveBeenCalled();
+  });
+
   it('o componente é cliente, usa o acompanhamento num efeito com limpeza e não tem região viva (só troca o texto do item)', () => {
     const s = readFileSync('src/app/painel/contador-de-mensagens.tsx', 'utf8');
     expect(s).toMatch(/^'use client';/);
-    expect(s).toMatch(/useEffect\(\(\) => \(ativo \? acompanharContador\([\s\S]*?: undefined\)/);
+    expect(s).toMatch(/useEffect\(\(\) => \{[\s\S]*?return acompanharContador\(/);
+    expect(s).toMatch(/\[ativo, doLayout, caminho\]/);
     expect(s).not.toMatch(/aria-live|role="status"/);
     expect(readFileSync('src/app/painel/menu-painel.tsx', 'utf8')).toMatch(/useContadorDeMensagens\(/);
   });

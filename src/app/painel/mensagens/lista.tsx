@@ -39,7 +39,7 @@ export function comParametros(base: string, p: { filtro?: string; busca?: string
  */
 export function ListaDaCaixa({ itens, agora, fuso }: { itens: ItemDaCaixa[]; agora: Date; fuso: string }) {
   return (
-    <ul data-guia="mensagens-caixa" className="divide-y divide-linha rounded-3xl border border-borda bg-cartao">
+    <ul data-guia="mensagens-caixa" className="divide-y divide-linha overflow-hidden rounded-3xl border border-borda bg-cartao">
       {itens.map((i) => {
         const detalhe = [i.tipo ? TIPO[i.tipo] : null, i.quando ? rotuloDoQuando(i.quando, agora, fuso) : null].filter(Boolean).join(' · ');
         return (

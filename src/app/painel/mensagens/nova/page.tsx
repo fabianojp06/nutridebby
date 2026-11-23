@@ -39,7 +39,7 @@ export default async function NovaConversa({ searchParams }: PageProps<'/painel/
       {lista.itens.length === 0 ? (
         <p>{N.nenhum}</p>
       ) : (
-        <ul className="divide-y divide-linha rounded-3xl border border-borda bg-cartao">
+        <ul className="divide-y divide-linha overflow-hidden rounded-3xl border border-borda bg-cartao">
           {lista.itens.map((p) => (
             <li key={p.id}>
               <Link
