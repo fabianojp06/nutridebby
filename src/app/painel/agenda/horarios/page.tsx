@@ -1,9 +1,9 @@
-import Link from 'next/link';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { requireNutri } from '@/lib/tenant-session';
 import { DIAS_SEMANA, ROTULO_MODALIDADE_REGRA } from '@/modules/agenda/constantes';
 import { listarBloqueios, listarRegras } from '@/modules/agenda/disponibilidade';
 import { formatarQuando } from '@/modules/agenda/fuso';
+import { AbasDaAgenda } from '../abas';
 import { excluirBloqueioAction, excluirRegraAction } from './actions';
 import { BloqueioForm } from './bloqueio-form';
 import { RegraForm } from './regra-form';
@@ -17,8 +17,8 @@ export default async function HorariosPage() {
   return (
     <>
       <main className="mx-auto w-full max-w-[1360px] space-y-8 p-4 md:p-6">
-        <p className="text-sm"><Link href="/painel/agenda" className="text-link underline">Agenda</Link></p>
         <h1 className="font-titulo text-2xl font-semibold">Horários de atendimento</h1>
+        <AbasDaAgenda atual="horarios" />
         <section data-guia="regras-horario" aria-labelledby="regras" className="space-y-3">
           <h2 id="regras" className="text-lg font-semibold">Horários da semana</h2>
           {regras.length === 0 ? (

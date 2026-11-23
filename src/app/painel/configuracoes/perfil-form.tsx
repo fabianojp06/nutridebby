@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useActionState } from 'react';
 import { Campo } from '@/components/campo';
 import type { TenantRow } from '@/db/schema';
@@ -10,16 +11,22 @@ export function PerfilForm({ tenant }: { tenant: TenantRow }) {
   const [state, action, pendente] = useActionState<PerfilState, FormData>(salvarPerfilAction, {});
   const e = state.erros ?? {};
   // T10-R2/PF-N9: em erro, `state.valores` manda inteiro — inclusive campo opcional limpo de
-  // propósito (endereço, link) — nunca cai de volta no valor salvo por causa de string vazia.
+  // propósito (endereço) — nunca cai de volta no valor salvo por causa de string vazia.
   const v = state.valores;
   return (
     <form action={action} className="space-y-4">
       <Campo id="nomeExibicao" rotulo="Nome de exibição" required defaultValue={v ? v.nomeExibicao : tenant.nomeExibicao} erro={e.nomeExibicao} />
       <Campo id="crn" rotulo="CRN" required defaultValue={v ? v.crn : (tenant.crn ?? '')} erro={e.crn} dica="Ex.: CRN-3 12345" />
+      {/* Plano 23 (spec §6.2): o CRN vai no cabeçalho da página de agendamento */}
+      {!tenant.crn && <p className="text-sm text-aviso">Informe o CRN: ele aparece na página de agendamento.</p>}
       <Campo id="corPrimaria" rotulo="Cor principal" required defaultValue={v ? v.corPrimaria : (tenant.corPrimaria ?? COR_PADRAO)} erro={e.corPrimaria}
         dica="Formato #RRGGBB. O texto sobre a cor é branco, então ela precisa de contraste de pelo menos 4,5:1." />
-      <Campo id="enderecoConsultorio" rotulo="Endereço do consultório" defaultValue={v ? v.enderecoConsultorio : (tenant.enderecoConsultorio ?? '')} erro={e.enderecoConsultorio} />
-      <Campo id="linkOnlinePadrao" rotulo="Link padrão da consulta online" type="url" defaultValue={v ? v.linkOnlinePadrao : (tenant.linkOnlinePadrao ?? '')} erro={e.linkOnlinePadrao} />
+      <Campo id="enderecoConsultorio" rotulo="Endereço profissional (documentos)" defaultValue={v ? v.enderecoConsultorio : (tenant.enderecoConsultorio ?? '')} erro={e.enderecoConsultorio}
+        dica="Vai no cabeçalho dos documentos assinados. O endereço de cada local fica em Locais de atendimento." />
+      {/* Plano 23 (AG-D7): o link padrão saiu do Perfil; a sala de cada local de videoconferência fica em Locais */}
+      <p className="text-sm">
+        <Link href="/painel/agenda/locais" className="text-link underline">O link da videoconferência agora fica em Locais de atendimento.</Link>
+      </p>
       <Campo id="antecedenciaMinH" rotulo="Antecedência mínima para agendar (horas)" inputMode="numeric" defaultValue={v ? v.antecedenciaMinH : String(tenant.antecedenciaMinH)} erro={e.antecedenciaMinH} />
       <Campo id="cancelamentoMinH" rotulo="Cancelar ou remarcar até (horas antes)" inputMode="numeric" defaultValue={v ? v.cancelamentoMinH : String(tenant.cancelamentoMinH)} erro={e.cancelamentoMinH} />
       <div className="space-y-1">

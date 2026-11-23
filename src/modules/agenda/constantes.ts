@@ -1,3 +1,4 @@
+import type { TipoDeLocal } from '@/db/schema';
 import { MSG_TERMO_NAO_ACEITO } from '@/modules/pacientes/termo-paciente';
 import type { Modalidade, ModalidadeRegra } from './horarios';
 
@@ -83,4 +84,34 @@ export const MSG_PUBLICO = {
   enviado: (email: string) => `Enviamos um código de 6 dígitos para ${email}. Ele vale por 10 minutos.`,
   agendada: (quando: string) => `Consulta marcada para ${quando}. Enviamos a confirmação para o seu e-mail.`,
   titulo: (nome: string) => `Agendar consulta com ${nome}`,
+} as const;
+
+/** Plano 23 (US-400, spec §6.2): rótulos do campo "Tipo" do local. */
+export const ROTULO_TIPO_LOCAL: Record<TipoDeLocal, string> = { presencial: 'Presencial', online: 'Videoconferência' };
+
+/** Plano 23 (US-400, spec §6.2): textos dos locais de atendimento. Os sem texto na spec estão marcados (vão à tabela na T12). */
+export const MSG_LOCAIS = {
+  salvo: 'Local salvo.',
+  arquivado: 'Local arquivado.',
+  reativado: 'Local reativado.',
+  /** Fora da §6.2 (a spec não tem texto para a exclusão). */
+  excluido: 'Local excluído.',
+  nomeRepetido: 'Já existe um local com este nome.',
+  nomeTamanho: 'O nome tem de 2 a 60 caracteres.',
+  emUso: 'Este local tem consultas ou horários. Arquive em vez de excluir.',
+  principalNaoArquiva: 'Defina outro local como principal antes de arquivar este.',
+  agendamentoSemSala: 'Para aceitar agendamento pelo paciente, informe a sala fixa.',
+  link: 'Informe um link que comece com https://.',
+  /** Fora da §6.2: limites dos CHECKs de locais_atendimento e do tipo (RN-401). */
+  linkLongo: 'Use no máximo 500 caracteres.',
+  enderecoLongo: 'Use no máximo 300 caracteres.',
+  cidadeLonga: 'Use no máximo 80 caracteres.',
+  tipo: 'Escolha o tipo do local.',
+  tipoFixo: 'Este local já tem consultas ou horários: o tipo não muda.',
+  naoEncontrado: 'Local não encontrado.',
+  vazio: 'Cadastre um local de atendimento para marcar consultas e definir horários.',
+  linkDivergente: 'O link do Perfil mudou depois da atualização: confira a sala deste local.',
+  /** RN-404, sem o número da resolução até o DOU ser conferido (PM-A2, AG-P3). */
+  telenutricao: 'Antes do primeiro atendimento online, faça o cadastro no e-Nutricionista e colha o TCLE de telenutrição, guardando o comprovante. Não grave as consultas.',
+  salaDeEspera: 'Use sala de espera ou senha e admita um paciente por vez.',
 } as const;

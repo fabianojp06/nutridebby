@@ -103,4 +103,5 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/relatorios/financeiro': () => '/painel/relatorios/financeiro',
   '/painel/relatorios/ranking': () => '/painel/relatorios/ranking',
   '/painel/relatorios/imprimir': () => '/painel/relatorios/imprimir?secao=agenda',
+  '/painel/agenda/locais': () => '/painel/agenda/locais', // Plano 23 (US-400)
 };

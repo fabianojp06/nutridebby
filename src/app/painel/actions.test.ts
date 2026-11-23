@@ -57,18 +57,17 @@ const CAMPOS_VALIDOS = {
 };
 
 describe('salvarPerfilAction (T10-R2, PF-N9)', () => {
-  it('em erro de validação, endereço e link intencionalmente limpos continuam vazios (não voltam o valor salvo no banco)', async () => {
+  it('em erro de validação, o endereço intencionalmente limpo continua vazio (não volta o valor salvo no banco)', async () => {
     await nutriLogado();
-    const fd = form({ ...CAMPOS_VALIDOS, crn: 'ruim', enderecoConsultorio: '', linkOnlinePadrao: '' }); // crn inválido força o erro
+    const fd = form({ ...CAMPOS_VALIDOS, crn: 'ruim', enderecoConsultorio: '' }); // crn inválido força o erro
     const state = await salvarPerfilAction({}, fd);
     expect(state.erros?.crn).toBe('CRN inválido. Ex.: CRN-3 12345');
     expect(state.valores?.enderecoConsultorio).toBe('');
-    expect(state.valores?.linkOnlinePadrao).toBe('');
   });
 
   it('em erro, o checkbox desmarcado volta como \'\' em state.valores (não o valor salvo no banco)', async () => {
     await nutriLogado(); // tenant nasce com agendamentoPublicoAtivo = true
-    const fd = form({ ...CAMPOS_VALIDOS, crn: 'ruim', enderecoConsultorio: 'Rua Nova, 2', linkOnlinePadrao: '' });
+    const fd = form({ ...CAMPOS_VALIDOS, crn: 'ruim', enderecoConsultorio: 'Rua Nova, 2' });
     // agendamentoPublicoAtivo não é setado no FormData — equivale ao checkbox desmarcado no submit
     const state = await salvarPerfilAction({}, fd);
     expect(state.erros?.crn).toBeDefined();
@@ -77,7 +76,7 @@ describe('salvarPerfilAction (T10-R2, PF-N9)', () => {
 
   it('em erro, o checkbox marcado volta como \'on\' em state.valores', async () => {
     await nutriLogado();
-    const fd = form({ ...CAMPOS_VALIDOS, crn: 'ruim', enderecoConsultorio: '', linkOnlinePadrao: '' });
+    const fd = form({ ...CAMPOS_VALIDOS, crn: 'ruim', enderecoConsultorio: '' });
     fd.set('agendamentoPublicoAtivo', 'on');
     const state = await salvarPerfilAction({}, fd);
     expect(state.erros?.crn).toBeDefined();
@@ -90,10 +89,24 @@ describe('salvarPerfilAction (T10-R2, PF-N9)', () => {
     const n = await criarEEntrar(db, auth, { appRole: 'nutri', tenantId: t.id });
     await registrarAceiteDpa(db, { userId: n.id, tenantId: t.id, ip: null });
     req.headers = new Headers({ cookie: n.cookie });
-    const fd = form({ ...CAMPOS_VALIDOS, crn: 'CRN-3 12345', enderecoConsultorio: '', linkOnlinePadrao: '' });
+    const fd = form({ ...CAMPOS_VALIDOS, crn: 'CRN-3 12345', enderecoConsultorio: '' });
     fd.set('agendamentoPublicoAtivo', 'on');
     expect(await salvarPerfilAction({}, fd)).toEqual({ ok: true });
     expect((await db.select({ ativo: tenants.agendamentoPublicoAtivo }).from(tenants).where(eq(tenants.id, t.id)))[0].ativo).toBe(true);
+  });
+});
+
+describe('salvarPerfilAction sem o link padrão (Plano 23, AG-D7)', () => {
+  it('salvar o Perfil não lê nem grava link_online_padrao: o valor antigo continua no banco', async () => {
+    const t = await nutriLogado(); // link antigo: https://antigo.exemplo.com
+    const fd = form({ ...CAMPOS_VALIDOS, crn: 'CRN-3 12345', enderecoConsultorio: 'Rua Nova, 3', linkOnlinePadrao: 'https://novo.exemplo.com' });
+    expect(await salvarPerfilAction({}, fd)).toEqual({ ok: true });
+    const [r] = await db.select({ link: tenants.linkOnlinePadrao, endereco: tenants.enderecoConsultorio }).from(tenants).where(eq(tenants.id, t.id));
+    expect(r).toEqual({ link: 'https://antigo.exemplo.com', endereco: 'Rua Nova, 3' });
+    // em erro, o campo não volta em `valores` (a tela não tem mais o campo)
+    const erro = await salvarPerfilAction({}, form({ ...CAMPOS_VALIDOS, crn: 'ruim', linkOnlinePadrao: 'http://x' }));
+    expect(erro.erros).toEqual({ crn: 'CRN inválido. Ex.: CRN-3 12345' });
+    expect(erro.valores).not.toHaveProperty('linkOnlinePadrao');
   });
 });
 

@@ -1,6 +1,10 @@
 import { MSG_AGENDA } from '@/modules/agenda/constantes';
-import type { AvisoAgenda, Consulta, StatusConsulta } from '@/modules/agenda/consultas';
+import type { AvisoAgenda, Consulta } from '@/modules/agenda/consultas';
 import { segundaDaSemana, somarDias } from '@/modules/agenda/fuso';
+import { ROTULO_STATUS } from '@/modules/agenda/status';
+
+/** AG-D57: o rótulo mora em src/modules/agenda/status.ts; o painel reexporta o mesmo mapa. */
+export { ROTULO_STATUS };
 
 export type Visao = 'dia' | 'semana' | 'lista';
 export const lerVisao = (v: unknown): Visao => (v === 'dia' || v === 'lista' ? v : 'semana');
@@ -12,8 +16,6 @@ export function periodoDaVisao(visao: Visao, data: string): { dias: string[]; an
   const n = visao === 'semana' ? 7 : 30;
   return { dias: Array.from({ length: n }, (_, i) => somarDias(inicio, i)), anterior: somarDias(inicio, -n), proximo: somarDias(inicio, n) };
 }
-
-export const ROTULO_STATUS: Record<StatusConsulta, string> = { agendada: 'Agendada', confirmada: 'Confirmada', cancelada: 'Cancelada', realizada: 'Realizada', faltou: 'Faltou' };
 
 export const AVISO_ROTULO: Record<AvisoAgenda, string> = { fora_do_horario: MSG_AGENDA.foraDoHorario, dentro_de_bloqueio: MSG_AGENDA.dentroDeBloqueio };
 export const lerAvisos = (v: unknown): AvisoAgenda[] =>

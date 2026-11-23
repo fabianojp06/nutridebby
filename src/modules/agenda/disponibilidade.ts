@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, lt, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { availabilityBlocks, availabilityRules } from '@/db/schema';
+import { availabilityBlocks, availabilityRules, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { normalizarTexto } from '@/lib/text';
 import { idValido } from '@/modules/pacientes/base';
@@ -8,6 +8,7 @@ import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { DURACAO_MAX, DURACAO_MIN, MAX_REGRAS, MSG_AGENDA } from './constantes';
 import { dataDaAgendaValida, inicioDoDia, paraInstante, somarDias } from './fuso';
 import { HORA_HHMM, minutosDe, textoAparado, type Intervalo, type ModalidadeRegra, type Regra } from './horarios';
+import { garantirLocaisIniciais } from './locais';
 
 export type RegraSalva = Regra & { id: string };
 export type BloqueioSalvo = Intervalo & { id: string; motivo: string };
@@ -57,8 +58,17 @@ export function juntarPares(regras: RegraSalva[]): RegraSalva[] {
   return regras.filter((r) => !metadeOnline.has(r.id)).map((r) => (ambas.has(r.id) ? { ...r, modalidade: 'ambas' as const } : r));
 }
 
+/** Tela "Horários de atendimento". Plano 23 (AG-D45, RN-410a): antes de ler, garante os locais e dá local às regras sem local. */
 export function listarRegras(ctx: TenantContext, db: Db = getDb()): Promise<RegraSalva[]> {
-  return withTenant(ctx, async (tx) => juntarPares(await lerRegras(tx)), db);
+  return withTenant(
+    ctx,
+    async (tx) => {
+      const [t] = await tx.select({ id: tenants.id, enderecoConsultorio: tenants.enderecoConsultorio }).from(tenants).where(eq(tenants.id, ctx.tenantId));
+      if (t && ctx.role === 'nutri') await garantirLocaisIniciais(tx, t); // só a equipe grava locais (RN-400)
+      return juntarPares(await lerRegras(tx));
+    },
+    db,
+  );
 }
 
 export function listarBloqueios(ctx: TenantContext, de: Date, ate: Date, db: Db = getDb()): Promise<BloqueioSalvo[]> {

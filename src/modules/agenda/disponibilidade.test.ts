@@ -1,4 +1,3 @@
-import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
@@ -122,14 +121,14 @@ describe('horários de atendimento (US-030)', () => {
     );
     const lista = await listarRegras(T.ctx, app.db);
     expect(lista).toEqual([{ id: par.presencial, diaSemana: 2, inicio: '08:00', fim: '12:00', duracaoMin: 60, modalidade: 'ambas' }]);
-    // "ambas" criada pela tela antiga depois do backfill: sem local, aparece ao lado do par
+    // "ambas" criada pela tela antiga depois do backfill: sem local; ao listar, garantirLocaisIniciais (T2) a desdobra no
+    // par (RN-410a) e ela aparece ao lado do outro par, com o id da metade presencial (a própria regra)
     const nova = await criarRegra(T.ctx, { ...TERCA, diaSemana: '3', modalidade: 'ambas' }, deps);
     expect((await listarRegras(T.ctx, app.db)).map((r) => [r.id, r.modalidade])).toEqual([
       [par.presencial, 'ambas'],
       [nova, 'ambas'],
     ]);
-    expect(await withTenant(T.ctx, (tx) => tx.select({ localId: availabilityRules.localId }).from(availabilityRules).where(eq(availabilityRules.id, nova)), app.db)).toEqual([{ localId: null }]);
-    // o limite conta o par como uma: par + "ambas" nova + MAX_REGRAS − 3 faixas = MAX_REGRAS linhas no banco, MAX_REGRAS − 1 regras na tela
+    // o limite conta cada par como uma: 2 pares + MAX_REGRAS − 3 faixas = MAX_REGRAS + 1 linhas no banco, MAX_REGRAS − 1 regras na tela
     const faixa = (i: number) => ({ diaSemana: '1', inicio: hhmm(i * 15), fim: hhmm(i * 15 + 15), duracaoMin: '15', modalidade: 'online' });
     for (let i = 0; i < MAX_REGRAS - 3; i++) await criarRegra(T.ctx, faixa(i), deps);
     expect(await listarRegras(T.ctx, app.db)).toHaveLength(MAX_REGRAS - 1);
@@ -141,7 +140,7 @@ describe('horários de atendimento (US-030)', () => {
     const ids = (await withTenant(T.ctx, (tx) => tx.select({ id: availabilityRules.id }).from(availabilityRules), app.db)).map((r) => r.id);
     expect(ids).not.toContain(par.presencial);
     expect(ids).not.toContain(par.online);
-    expect(ids).toHaveLength(MAX_REGRAS - 1);
+    expect(ids).toHaveLength(MAX_REGRAS); // o par da "ambas" nova (2) + as faixas (MAX_REGRAS − 3) + a de sexta
     await expect(criarRegra(T.ctx, { ...TERCA, diaSemana: '6' }, deps)).resolves.toBeTypeOf('string');
   });
 
@@ -164,6 +163,31 @@ describe('horários de atendimento (US-030)', () => {
     ]);
     await excluirRegra(T.ctx, par.online, app.db);
     expect((await listarRegras(T.ctx, app.db)).map((r) => [r.id, r.modalidade])).toEqual([[par.solta, 'presencial']]);
+  });
+
+  it('Plano 23 (RN-410a, AG-D45): ao listar os horários, a regra "ambas" sem local vira o par (presencial principal + online ativo); consultório sem local ganha o "Consultório"', async () => {
+    const T = await novoTenant(app.db);
+    const locais = await withTenant(
+      T.ctx,
+      async (tx) => {
+        const [c] = await tx.insert(locaisAtendimento).values({ tenantId: T.tenantId, nome: 'Consultório', tipo: 'presencial', agendamentoOnline: true, principal: true }).returning({ id: locaisAtendimento.id });
+        const [v] = await tx.insert(locaisAtendimento).values({ tenantId: T.tenantId, nome: 'Videoconferência', tipo: 'online' }).returning({ id: locaisAtendimento.id });
+        await tx.insert(availabilityRules).values({ tenantId: T.tenantId, diaSemana: 2, inicio: '08:00', fim: '12:00', duracaoMin: 60, modalidade: 'ambas' });
+        return { c: c.id, v: v.id };
+      },
+      app.db,
+    );
+    const lista = await listarRegras(T.ctx, app.db);
+    expect(lista.map((r) => [r.diaSemana, r.modalidade])).toEqual([[2, 'ambas']]);
+    const gravadas = await withTenant(T.ctx, (tx) => tx.select().from(availabilityRules).orderBy(availabilityRules.modalidade), app.db);
+    expect(gravadas.map((r) => [r.modalidade, r.localId])).toEqual([
+      ['online', locais.v],
+      ['presencial', locais.c],
+    ]);
+    // consultório sem nenhum local: listar os horários cria o "Consultório" principal
+    const U = await novoTenant(app.db);
+    await listarRegras(U.ctx, app.db);
+    expect((await withTenant(U.ctx, (tx) => tx.select().from(locaisAtendimento), app.db)).map((l) => [l.nome, l.principal])).toEqual([['Consultório', true]]);
   });
 
   it('validarRegra devolve a regra tipada: dia e duração vêm como texto do formulário, horas aparadas', () => {

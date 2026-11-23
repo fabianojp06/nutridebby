@@ -231,7 +231,7 @@ export const GUIAS: readonly Guia[] = [
   {
     id: 'agenda',
     versao: 2, // Plano 20: Realizada gera a cobrança (sobe +1 sobre a da main no rebase)
-    padrao: /^\/painel\/agenda(\/(nova|pendencias|consultas\/.+))?$/,
+    padrao: /^\/painel\/agenda(\/(nova|pendencias|locais|consultas\/.+))?$/,
     titulo: 'Agenda',
     ajuda: {
       resumo: 'As consultas do dia e da semana, marcadas por você, pelo paciente no app ou pela sua página pública.',

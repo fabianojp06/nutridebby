@@ -1,0 +1,126 @@
+import type { ReactElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LocalNaTela } from '@/modules/agenda/locais';
+
+const dados = vi.hoisted(() => ({ locais: [] as unknown[], avisoLinkDivergente: false }));
+vi.mock('server-only', () => ({}));
+vi.mock('@/lib/tenant-session', () => ({ requireNutri: async () => ({ ctx: {}, tenant: { fuso: 'America/Sao_Paulo' } }) }));
+vi.mock('@/modules/agenda/locais', async (original) => ({
+  ...(await original<typeof import('@/modules/agenda/locais')>()),
+  listarLocais: async () => ({ locais: dados.locais, avisoLinkDivergente: dados.avisoLinkDivergente }),
+}));
+vi.mock('./actions', () => ({
+  salvarLocalAction: vi.fn(),
+  definirPrincipalAction: vi.fn(),
+  arquivarLocalAction: vi.fn(),
+  reativarLocalAction: vi.fn(),
+  excluirLocalAction: vi.fn(),
+}));
+const { default: LocaisPage } = await import('./page');
+
+const local = (extra: Partial<LocalNaTela>): LocalNaTela => ({
+  id: '00000000-0000-4000-8000-000000000001', nome: 'Consultório', tipo: 'presencial', endereco: 'Rua A, 10', cidade: 'Recife', mostrarEndereco: false,
+  linkSala: null, agendamentoOnline: true, principal: false, arquivadoEm: null, emUso: false, ...extra,
+});
+const CONSULTORIO = local({ principal: true, emUso: true });
+const CLINICA = local({ id: '00000000-0000-4000-8000-000000000002', nome: 'Clínica Centro', emUso: false });
+const VIDEO = local({ id: '00000000-0000-4000-8000-000000000003', nome: 'Videoconferência', tipo: 'online', endereco: null, cidade: null, linkSala: null, agendamentoOnline: false, emUso: true });
+
+async function html(sp: Record<string, string> = {}) {
+  const el = (await LocaisPage({ searchParams: Promise.resolve(sp) } as never)) as ReactElement;
+  return renderToStaticMarkup(el);
+}
+const TELENUTRICAO = 'Antes do primeiro atendimento online, faça o cadastro no e-Nutricionista e colha o TCLE de telenutrição, guardando o comprovante. Não grave as consultas.';
+const SALA_DE_ESPERA = 'Use sala de espera ou senha e admita um paciente por vez.';
+const textoDe = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/\s+/g, ' ');
+const rotulos = (h: string) => [...h.matchAll(/aria-label="([^"]*)"/g)].map((m) => m[1]);
+
+beforeEach(() => {
+  dados.locais = [CONSULTORIO, CLINICA, VIDEO];
+  dados.avisoLinkDivergente = false;
+});
+
+describe('Locais de atendimento (US-400)', () => {
+  it('local em uso mostra "Em uso: arquive" no lugar de "Excluir"; o principal tem o selo e não se exclui', async () => {
+    const h = await html();
+    expect(h).toContain('<h1');
+    expect(textoDe(h)).toContain('Locais de atendimento');
+    expect(textoDe(h)).toContain('Em uso: arquive');
+    const r = rotulos(h);
+    expect(r).toContain('Excluir Clínica Centro');
+    expect(r).not.toContain('Excluir Videoconferência');
+    expect(r).not.toContain('Excluir Consultório');
+    expect(r).toContain('Definir Clínica Centro como principal');
+    expect(r).not.toContain('Definir Consultório como principal');
+    expect(textoDe(h)).toContain('Principal');
+  });
+
+  it('botões repetidos com o nome no aria-label: "Editar {nome}" e "Arquivar {nome}"', async () => {
+    const r = rotulos(await html());
+    for (const nome of ['Consultório', 'Clínica Centro', 'Videoconferência']) {
+      expect(r).toContain(`Editar ${nome}`);
+      expect(r).toContain(`Arquivar ${nome}`);
+    }
+  });
+
+  it('vazio: o texto da §6.2 com o link para cadastrar', async () => {
+    dados.locais = [];
+    const h = await html();
+    expect(textoDe(h)).toContain('Cadastre um local de atendimento para marcar consultas e definir horários.');
+    expect(h).toMatch(/<a[^>]*href="\/painel\/agenda\/locais\?novo=1"[^>]*>Novo local<\/a>/);
+  });
+
+  it('aviso de telenutrição só no formulário do local de videoconferência; com sala fixa, também o da sala de espera', async () => {
+    expect(textoDe(await html({ novo: '1' }))).not.toContain(TELENUTRICAO);
+    expect(textoDe(await html({ editar: CLINICA.id }))).not.toContain(TELENUTRICAO);
+    const semSala = textoDe(await html({ editar: VIDEO.id }));
+    expect(semSala).toContain(TELENUTRICAO);
+    expect(semSala).not.toContain(SALA_DE_ESPERA);
+    dados.locais = [CONSULTORIO, { ...VIDEO, linkSala: 'https://sala.exemplo.test/x' }];
+    const comSala = textoDe(await html({ editar: VIDEO.id }));
+    expect(comSala).toContain(TELENUTRICAO);
+    expect(comSala).toContain(SALA_DE_ESPERA);
+    // a lista não repete o aviso fora do formulário
+    expect(textoDe(await html())).not.toContain(TELENUTRICAO);
+  });
+
+  it('formulário: no presencial, "Mostrar o endereço" vem desmarcado e o nome leva a ajuda; em uso, o tipo vira texto', async () => {
+    const novo = await html({ novo: '1' });
+    expect(textoDe(novo)).toContain('Não use nome nem endereço de paciente.');
+    expect(novo).toMatch(/<input[^>]*name="mostrarEndereco"(?![^>]*checked)[^>]*>/);
+    expect(novo).toMatch(/<input[^>]*type="radio"[^>]*name="tipo"/);
+    const emUso = await html({ editar: CONSULTORIO.id });
+    expect(emUso).not.toMatch(/name="tipo"/);
+    expect(textoDe(emUso)).toContain('Tipo: Presencial');
+  });
+
+  it('mensagens da volta das ações em role="status" ou role="alert"; valor fora da lista fechada não mostra nada', async () => {
+    expect(await html({ ok: 'salvo' })).toMatch(/<p[^>]*role="status"[^>]*>Local salvo\.<\/p>/);
+    expect(await html({ ok: 'arquivado' })).toContain('Local arquivado.');
+    expect(await html({ erro: 'principalNaoArquiva' })).toMatch(/role="alert"[^>]*>Defina outro local como principal antes de arquivar este\.</);
+    const estranho = await html({ ok: 'constructor', erro: 'toString' });
+    expect(estranho).not.toContain('role="alert"');
+    expect(estranho).toMatch(/<p[^>]*role="status"[^>]*><\/p>/);
+  });
+
+  it('aviso do link do Perfil (P23-I1) na linha do local "Videoconferência"', async () => {
+    expect(textoDe(await html())).not.toContain('O link do Perfil mudou depois da atualização: confira a sala deste local.');
+    dados.avisoLinkDivergente = true;
+    expect(textoDe(await html())).toContain('O link do Perfil mudou depois da atualização: confira a sala deste local.');
+  });
+
+  it('abas do PR 2: Agenda · Pendências · Horários · Locais, sem link para página que ainda não existe (AG-D72)', async () => {
+    const h = await html();
+    const nav = h.match(/<nav[^>]*aria-label="Seções da agenda"[^>]*>([\s\S]*?)<\/nav>/)![1];
+    const links = [...nav.matchAll(/<a [^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/g)].map((m) => [m[1], m[2]]);
+    expect(links).toEqual([
+      ['/painel/agenda', 'Agenda'],
+      ['/painel/agenda/pendencias', 'Pendências'],
+      ['/painel/agenda/horarios', 'Horários'],
+      ['/painel/agenda/locais', 'Locais'],
+    ]);
+    expect([...nav.matchAll(/<a [^>]*aria-current="page"[^>]*>([^<]*)<\/a>/g)].map((m) => m[1])).toEqual(['Locais']);
+    expect(nav).not.toMatch(/Solicitações|Aniversariantes/);
+  });
+});

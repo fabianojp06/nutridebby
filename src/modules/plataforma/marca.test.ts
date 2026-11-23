@@ -4,7 +4,7 @@ import { inject } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { tenants } from '@/db/schema';
-import { atualizarPerfil, contrasteComBranco, COR_PADRAO, FUSOS_BRASIL, getTenantBrand, PerfilError } from './marca';
+import { atualizarPerfil, contrasteComBranco, COR_PADRAO, FUSOS_BRASIL, getTenantBrand, PerfilError, perfilSchema } from './marca';
 
 vi.mock('server-only', () => ({})); // M16: marca.ts é só do servidor
 const app = makeDb(inject('appDatabaseUrl'));
@@ -12,7 +12,7 @@ afterAll(() => app.pool.end());
 
 const valido = {
   nomeExibicao: 'Debby Silva', crn: 'CRN-3 12345', corPrimaria: '#2E7D32', enderecoConsultorio: 'Rua A, 10',
-  linkOnlinePadrao: 'https://meet.exemplo.com/debby', antecedenciaMinH: '12', cancelamentoMinH: '24',
+  antecedenciaMinH: '12', cancelamentoMinH: '24',
   agendamentoPublicoAtivo: true, mostrarPercGorduraPaciente: false, fuso: 'America/Sao_Paulo',
 };
 /** Erros por campo, ou `undefined` quando a gravação dá certo. */
@@ -36,14 +36,23 @@ describe('contrasteComBranco (WCAG, US-005)', () => {
 });
 
 describe('atualizarPerfil (US-005)', () => {
-  it('grava os campos; endereço e link vazios viram nulo', async () => {
+  it('grava os campos; endereço vazio vira nulo', async () => {
     const t = await novoTenant();
     await atualizarPerfil(t.id, valido, app.db);
     const [r] = await app.db.select().from(tenants).where(eq(tenants.id, t.id));
     expect(r).toMatchObject({ nomeExibicao: 'Debby Silva', crn: 'CRN-3 12345', corPrimaria: '#2E7D32', antecedenciaMinH: 12, cancelamentoMinH: 24, agendamentoPublicoAtivo: true });
-    await atualizarPerfil(t.id, { ...valido, enderecoConsultorio: ' ', linkOnlinePadrao: '', agendamentoPublicoAtivo: false }, app.db);
+    await atualizarPerfil(t.id, { ...valido, enderecoConsultorio: ' ', agendamentoPublicoAtivo: false }, app.db);
     const [r2] = await app.db.select().from(tenants).where(eq(tenants.id, t.id));
-    expect(r2).toMatchObject({ enderecoConsultorio: null, linkOnlinePadrao: null, agendamentoPublicoAtivo: false });
+    expect(r2).toMatchObject({ enderecoConsultorio: null, agendamentoPublicoAtivo: false });
+  });
+
+  it('Plano 23 (AG-D7): o link padrão saiu do Perfil — não é validado nem gravado; o valor antigo continua no banco', async () => {
+    expect(Object.keys(perfilSchema.shape)).not.toContain('linkOnlinePadrao');
+    const t = await novoTenant();
+    await app.db.update(tenants).set({ linkOnlinePadrao: 'https://meet.exemplo.com/antigo' }).where(eq(tenants.id, t.id));
+    for (const linkOnlinePadrao of ['', 'http://nao-e-https', 'https://meet.exemplo.com/novo']) expect(await erros(t.id, { linkOnlinePadrao })).toBeUndefined();
+    const [r] = await app.db.select().from(tenants).where(eq(tenants.id, t.id));
+    expect(r.linkOnlinePadrao).toBe('https://meet.exemplo.com/antigo');
   });
 
   it('grava e lê de volta "Mostrar % de gordura ao paciente"', async () => {
@@ -59,11 +68,6 @@ describe('atualizarPerfil (US-005)', () => {
     expect(await erros(t.id, { corPrimaria: 'verde' })).toEqual({ corPrimaria: 'Use o formato #RRGGBB' });
     for (const h of ['73', '-1', '1.5', '']) expect(await erros(t.id, { antecedenciaMinH: h })).toEqual({ antecedenciaMinH: 'Informe um número inteiro de 0 a 72' });
     expect(await erros(t.id, { cancelamentoMinH: '0' })).toBeUndefined();
-    expect(await erros(t.id, { linkOnlinePadrao: 'http://meet.exemplo.com' })).toEqual({ linkOnlinePadrao: 'Informe um link que comece com https://' });
-    // M16: link com tamanho máximo (500)
-    const longo = `https://meet.exemplo.com/${'a'.repeat(500 - 'https://meet.exemplo.com/'.length)}`;
-    expect(await erros(t.id, { linkOnlinePadrao: longo })).toBeUndefined();
-    expect(await erros(t.id, { linkOnlinePadrao: `${longo}a` })).toEqual({ linkOnlinePadrao: 'Use no máximo 500 caracteres' });
     expect(await erros(t.id, { fuso: 'Marte/Base' })).toEqual({ fuso: 'Fuso horário inválido' });
     // revisão final: só os fusos do Brasil da tela (sem horário de verão; rótulos e cota partem disso) — IANA válido de fora, não
     for (const f of ['America/New_York', 'Europe/Lisbon', 'UTC']) expect(await erros(t.id, { fuso: f })).toEqual({ fuso: 'Fuso horário inválido' });

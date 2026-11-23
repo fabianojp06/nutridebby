@@ -5,7 +5,7 @@ import { makeDb } from '../../../test/db';
 import { documentoNoBanco } from '../../../test/documentos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import type { Db } from '@/db/client';
-import { accessEvents, auditLog, diaryEntries, privacyRequests, tenants } from '@/db/schema';
+import { accessEvents, auditLog, diaryEntries, locaisAtendimento, privacyRequests, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { situacaoDoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
 import { situacaoDaCota } from '@/modules/notificacoes/whatsapp/cota';
@@ -180,6 +180,17 @@ describe('Início em bento (D22)', () => {
     const c2 = contandoTransacoes(app.db);
     expect((await lerInicio(T.ctx, liberado, agora, { whatsappLigado: false }, c2.db)).documentosAguardando).toBe(1);
     expect(c2.n()).toBe(1);
+  });
+  it('Plano 23 (AG-D45): consultório sem local — abrir o Início cria o "Consultório" principal uma vez', async () => {
+    const T = await novoTenant(app.db);
+    await app.db.update(tenants).set({ enderecoConsultorio: 'Rua do Início, 7' }).where(eq(tenants.id, T.tenantId));
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+    await Promise.all([lerInicio(T.ctx, tenant, agora, { whatsappLigado: false }, app.db), lerInicio(T.ctx, tenant, agora, { whatsappLigado: false }, app.db)]);
+    await lerInicio(T.ctx, tenant, agora, { whatsappLigado: false }, app.db);
+    const locais = await withTenant(T.ctx, (tx) => tx.select().from(locaisAtendimento), app.db);
+    expect(locais.map((l) => ({ nome: l.nome, tipo: l.tipo, endereco: l.endereco, principal: l.principal, agendamentoOnline: l.agendamentoOnline }))).toEqual([
+      { nome: 'Consultório', tipo: 'presencial', endereco: 'Rua do Início, 7', principal: true, agendamentoOnline: true },
+    ]);
   });
   it('achado 4: sem próxima consulta, o cartão diz "pela frente" quando já houve consulta hoje', () => {
     expect(textoSemProxima({ total: 0, confirmadas: 0, pedidosRemarcacao: 0 })).toBe('Nenhuma consulta hoje.');

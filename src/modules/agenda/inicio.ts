@@ -12,6 +12,7 @@ import { metricasDeSucessoNaTransacao, type MetricasSucesso } from '@/modules/pl
 import { contarDiariosNaoVistosNaTransacao } from '@/modules/portal/diario-nutri';
 import { listarAgendaNaTransacao, STATUS_ATIVOS, type Consulta } from './consultas';
 import { inicioDoDia } from './fuso';
+import { garantirLocaisIniciais } from './locais';
 import { contarPendenciasDePresencaNaTransacao, indicadoresDaAgendaNaTransacao, novidadesDaAgendaNaTransacao, type Indicadores, type Novidades } from './presenca';
 
 export type ResumoDoDia = {
@@ -101,7 +102,7 @@ export type Inicio = {
  */
 export async function lerInicio(
   ctx: TenantContext,
-  tenant: Pick<TenantRow, 'fuso' | 'goLiveEm' | 'taxaFaltasBase' | 'waCotaMensal' | 'documentosLiberados'>,
+  tenant: Pick<TenantRow, 'id' | 'enderecoConsultorio' | 'fuso' | 'goLiveEm' | 'taxaFaltasBase' | 'waCotaMensal' | 'documentosLiberados'>,
   agora: Date,
   o: { whatsappLigado: boolean },
   db: Db = getDb(),
@@ -110,6 +111,7 @@ export async function lerInicio(
   return withTenant(
     ctx,
     async (tx) => {
+      await garantirLocaisIniciais(tx, tenant); // Plano 23 (AG-D45): o consultório criado depois da migration ganha o "Consultório"
       const whatsapp = await situacaoDoWhatsappNaTransacao(tx, o.whatsappLigado);
       return {
         whatsapp,
