@@ -576,3 +576,12 @@ Plano 23, re-revisão escopada das correções do /code-review do PR 2 (24/11/20
 - Defesa no servidor mais larga que o gatilho que ela espelha (gatilho só age na troca de local; o código grava a sala
   sempre): sobrescreve, sem a nutricionista ver, um link antigo ≠ sala atual. Cruzar o "quando" do gatilho com o do código.
 - Fallback "resolver pelo único candidato" (local do pedido sem local): conferir que o teste cobre o caso ambíguo (>1).
+Plano 23, T6 (solicitada, vencimento, 23/11/2026): sem Critical/Important na lente banco (travas paciente → consulta, tenant
+consultivo no começo do portal, RETURNING decide, vencimento por pedido com try/catch, gatilho conversa com o módulo).
+- Teste de "ordem de travas sem 40P01" num fluxo embrulhado em `repetirSeDeadlock`: a ordem errada vira 40P01 → nova
+  tentativa → o teste ainda pode passar (só pela mensagem/tempo). Pedir prova direta: numa 3ª conexão, `FOR UPDATE NOWAIT`
+  no paciente enquanto o fluxo espera a trava do tenant (tem de conseguir).
+- Guarda de texto de status (status-guarda) cobre `<>|not in|in` no SQL, mas não `!=` nem `=` cru, alias de tabela,
+  `${'x'}` parametrizado nem `.includes(x.status)`: no SQL o typecheck não ajuda — pedir os bypass no controle positivo.
+- Trava consultiva do tenant tomada "só pela ordem" (remarcação) sem a reconferência que justifica a trava
+  (`app_pedidos_aguardando` sob ela): conferir se todo caminho que toma a trava faz a checagem que ela serializa.

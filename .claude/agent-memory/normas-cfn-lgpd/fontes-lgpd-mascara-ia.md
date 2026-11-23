@@ -14,3 +14,4 @@ nome de registro) NÃO exige versão nova da autorização 1.1, do consentimento
 - Boa prática: na próxima versão desses textos, "o seu nome (inclusive o nome social, se houver)".
 - Redação final segue com o advogado (D11/E-09); nada novo para ele nem para o CRN-3.
 Registrado no comentário de cabeçalho de `src/modules/ia/pseudonimizar.ts`.
+- Reconferidos no Planalto em 23/11/2026: art. 5º, I; 6º, III; 7º, V e IX; 18, caput, I e II; 19, caput, I, II e §§ 1º a 4º (o 19, II ressalva só segredo comercial e industrial; o § 3º dá cópia integral quando a base é consentimento ou contrato).

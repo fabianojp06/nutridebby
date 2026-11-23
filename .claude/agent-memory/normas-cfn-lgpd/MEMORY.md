@@ -2,3 +2,4 @@
 - [Pendências para a consulta ao CRN-3](pendencias-consulta-crn3.md) — perguntas abertas que a revisão da 14B-1 acrescentou ao rascunho (selo do plano criado de modelo da IA)
 - [LGPD e a máscara da IA](fontes-lgpd-mascara-ia.md) — artigos conferidos no Planalto em 17/11/2026; nome social na máscara sem versão nova dos textos (P18-11)
 - [Telenutrição — Res. CFN 760/2023](fontes-cfn-telenutricao.md) — artigos do aviso dos locais online (P23 T2), conferidos 23/11/2026 por fonte não oficial; pendências de redação para o portão do DOU
+- [Acesso às anotações da equipe](pendencia-acesso-anotacoes-equipe.md) — motivos e notas fora da exportação do titular; pergunta ao E-09 (art. 19 § 3º)
