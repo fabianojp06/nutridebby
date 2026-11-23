@@ -29,13 +29,23 @@ As políticas novas só pegam a sessão `recepcao` (RESTRICTIVE com `app_current
 ### `lock_timeout` de 10 s (RE-D64, R-498)
 
 O migrador do Drizzle aplica todas as migrations pendentes **numa transação só**. A conexão dele (`poolDoMigrador`,
-`src/db/migrate.ts`) abre com `-c lock_timeout=10s`, que vale para a execução inteira: a gerada (que trava `user`, lida em
-toda requisição) e o laço da custom (que trava, uma a uma, cada tabela com `tenant_id`, umas 100).
+`src/db/migrate.ts`) abre com `-c lock_timeout=10s`. O limite vale **para cada espera de trava**, em todos os comandos da
+execução — a gerada (que trava `user`, lida em toda requisição) e o laço da custom (que trava, uma a uma, cada tabela com
+`tenant_id`, umas 100) —, **não para a execução inteira**:
 
-Se alguma trava não sair em 10 s (a imagem anterior segurando uma transação longa):
+- as esperas **podem somar**: cada tabela pode esperar até 10 s sem estourar, e a migração inteira levar bem mais;
+- a trava exclusiva de `user`, tomada pela gerada no começo, **fica presa até o fim da transação**, inclusive durante o laço;
+  enquanto isso, toda requisição que lê `user` (login, sessão) espera atrás dela. Com a imagem anterior servindo, isso é
+  lentidão (ou erro) no app durante a migração — mais um motivo para o horário calmo;
+- uma transação do app que **já segura uma tabela** do laço e **depois lê `user`** pode fechar um ciclo com o migrador
+  (ele segura `user` e espera a tabela; ela segura a tabela e espera `user`): o Postgres detecta o **deadlock** (`40P01`) e
+  cancela um dos dois — a vítima pode ser a **requisição** (o usuário vê um erro e repete) ou o migrador (cai no caso abaixo).
 
-1. o Postgres cancela o comando (`55P03 lock_not_available`) e a transação **volta inteira** — o banco fica como antes,
-   nenhuma migration pela metade;
+Se alguma trava não sair em 10 s (a imagem anterior segurando uma transação longa), ou se o migrador for a vítima de um
+deadlock:
+
+1. o Postgres cancela o comando (`55P03 lock_not_available`, ou `40P01`) e a transação **volta inteira** — o banco fica como
+   antes, nenhuma migration pela metade;
 2. `scripts/migrate.ts` rejeita e o processo sai com erro; o `docker-entrypoint.sh` (`set -eu`) não chega ao `next start`;
 3. o Swarm reinicia o container do `nutri_app`, que tenta as migrations de novo (a imagem anterior continua servindo até a
    nova ficar de pé).

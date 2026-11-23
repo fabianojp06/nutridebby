@@ -463,6 +463,11 @@ const COM_MAE = new Set([
  * equipe_membros_regras: a recepção só lê a própria linha.
  */
 const RECUSA_DA_RECEPCAO_NO_GATILHO = new Set(['equipe_membros']);
+/** 42501 do gatilho (mensagem própria): nem a RLS nem a permissão revogada (revisão da T4). */
+const doGatilho = (e: unknown) => {
+  const c = ((e as { cause?: unknown }).cause ?? e) as { code?: string; message?: string };
+  return c.code === '42501' && !/row-level security|permission denied/.test(c.message ?? '');
+};
 /** violaRls, e a recusa veio da política da própria tabela `t` (não da mãe criada no CTE da fábrica). */
 const violaRlsDe = (t: string) => (e: unknown) => {
   if (!violaRls(e)) return false;
@@ -586,6 +591,51 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
     }
   });
 
+  /**
+   * Plano 26 (RN-505, RE-D55): negação por padrão da sessão `recepcao` em toda tabela com tenant_id — `recepcao_negada`
+   * (app_enable_tenant_rls e o laço da rls_recepcao); só RECEPCAO_LIBERADO abre comandos. Roda ANTES dos testes que apagam as
+   * linhas de B (revisão da T4): a leitura e a escrita entre consultórios só provam algo enquanto B tem linhas.
+   */
+  it('recepcao (RN-505): só lê e grava o que RECEPCAO_LIBERADO declara; o resto dá 0 linhas e recusa a escrita', async () => {
+    expect(RECEPCAO_A).toBeDefined();
+    const comoRecepcao = (q: SQL) => withTenant({ tenantId: A, role: 'recepcao', actorUserId: RECEPCAO_A }, (tx) => tx.execute(q), app.db);
+    for (const t of tabelas) {
+      const id = sql.identifier(t);
+      const antesA = await contarTenant(t, A);
+      const antesB = await contarTenant(t, B);
+      expect(antesA, t).toBeGreaterThan(0); // as linhas existem: é a política que esconde
+      const pode = RECEPCAO_LIBERADO[t]?.comandos ?? [];
+      if (pode.includes('select') || pode.includes('update')) expect(await contarTenant(t, B), t).toBeGreaterThan(0); // há linha de B para (não) ver
+      const vistas = (await comoRecepcao(sql`select tenant_id from ${id}`)).rows;
+      if (pode.includes('select')) {
+        expect(vistas.length, t).toBeGreaterThan(0);
+        for (const row of vistas) expect(row.tenant_id, t).toBe(A); // nem a recepção atravessa tenants
+      } else expect(vistas.length, t).toBe(0);
+      if (pode.includes('insert')) await expect(comoRecepcao(FABRICAS[t](B, PAC[B][0])), t).rejects.toSatisfy(violaRlsDe(t));
+      else await expect(comoRecepcao(FABRICAS[t](A, P2)), t).rejects.toSatisfy(RECUSA_DA_RECEPCAO_NO_GATILHO.has(t) ? doGatilho : violaRlsDe(t));
+      if (!SO_INSERE.has(t)) {
+        if (pode.includes('update')) {
+          // o UPDATE sem filtro alcança exatamente as linhas que a recepção vê (nenhuma de B), e não as leva para B
+          expect((await comoRecepcao(sql`update ${id} set tenant_id = tenant_id`)).rowCount, t).toBe(vistas.length);
+          await expect(comoRecepcao(sql`update ${id} set tenant_id = ${B}`), t).rejects.toSatisfy(IMUTAVEIS.has(t) ? negado : violaRls);
+        } else expect((await comoRecepcao(sql`update ${id} set tenant_id = tenant_id`)).rowCount, t).toBe(0);
+        if (DELETE_REVOGADO.has(t)) await expect(comoRecepcao(sql`delete from ${id}`), t).rejects.toSatisfy(negado);
+        else if (!pode.includes('delete')) expect((await comoRecepcao(sql`delete from ${id}`)).rowCount, t).toBe(0);
+      }
+      expect(await contarTenant(t, A), t).toBe(antesA); // owner confirma: nada mudou em A
+      expect(await contarTenant(t, B), t).toBe(antesB); // nem em B
+    }
+  });
+
+  it('recepcao: em equipe_membros lê só a própria linha (recepcao_cond_propria_linha) e não grava nem a própria', async () => {
+    const comoRecepcao = (q: SQL) => withTenant({ tenantId: A, role: 'recepcao', actorUserId: RECEPCAO_A }, (tx) => tx.execute(q), app.db);
+    expect(await contarTenant('equipe_membros', A)).toBeGreaterThan(1); // há a linha de outra pessoa da recepção no mesmo tenant
+    expect((await comoRecepcao(sql`select user_id from equipe_membros`)).rows).toEqual([{ user_id: RECEPCAO_A }]);
+    expect((await comoRecepcao(sql`update equipe_membros set financeiro = true where user_id = ${RECEPCAO_A}`)).rowCount).toBe(0);
+    const { rows } = await owner.pool.query(`select financeiro from equipe_membros where user_id = $1`, [RECEPCAO_A]);
+    expect(rows).toEqual([{ financeiro: false }]);
+  });
+
   it('o tenant B só vê e só altera as próprias linhas; as de A ficam intactas', async () => {
     for (const t of naOrdemDeExclusao(tabelas)) {
       const id = sql.identifier(t);
@@ -705,44 +755,5 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       },
       app.db,
     );
-  });
-
-  /**
-   * Plano 26 (RN-505, RE-D55): negação por padrão da sessão `recepcao` em toda tabela com tenant_id — `recepcao_negada`
-   * (app_enable_tenant_rls e o laço da rls_recepcao); só RECEPCAO_LIBERADO abre comandos. Roda depois dos testes que apagam as
-   * linhas de B: tudo aqui olha o tenant A.
-   */
-  it('recepcao (RN-505): só lê e grava o que RECEPCAO_LIBERADO declara; o resto dá 0 linhas e recusa a escrita', async () => {
-    expect(RECEPCAO_A).toBeDefined();
-    const comoRecepcao = (q: SQL) => withTenant({ tenantId: A, role: 'recepcao', actorUserId: RECEPCAO_A }, (tx) => tx.execute(q), app.db);
-    for (const t of tabelas) {
-      const id = sql.identifier(t);
-      const antesA = await contarTenant(t, A);
-      expect(antesA, t).toBeGreaterThan(0); // as linhas existem: é a política que esconde
-      const pode = RECEPCAO_LIBERADO[t]?.comandos ?? [];
-      const vistas = (await comoRecepcao(sql`select tenant_id from ${id}`)).rows;
-      if (pode.includes('select')) {
-        expect(vistas.length, t).toBeGreaterThan(0);
-        for (const row of vistas) expect(row.tenant_id, t).toBe(A); // nem a recepção atravessa tenants
-      } else expect(vistas.length, t).toBe(0);
-      if (pode.includes('insert')) await expect(comoRecepcao(FABRICAS[t](B, PAC[B][0])), t).rejects.toSatisfy(violaRlsDe(t));
-      else await expect(comoRecepcao(FABRICAS[t](A, P2)), t).rejects.toSatisfy(RECUSA_DA_RECEPCAO_NO_GATILHO.has(t) ? negado : violaRlsDe(t));
-      if (!SO_INSERE.has(t)) {
-        if (pode.includes('update')) await expect(comoRecepcao(sql`update ${id} set tenant_id = ${B}`), t).rejects.toSatisfy(IMUTAVEIS.has(t) ? negado : violaRls);
-        else expect((await comoRecepcao(sql`update ${id} set tenant_id = tenant_id`)).rowCount, t).toBe(0);
-        if (DELETE_REVOGADO.has(t)) await expect(comoRecepcao(sql`delete from ${id}`), t).rejects.toSatisfy(negado);
-        else if (!pode.includes('delete')) expect((await comoRecepcao(sql`delete from ${id}`)).rowCount, t).toBe(0);
-      }
-      expect(await contarTenant(t, A), t).toBe(antesA); // owner confirma: nada mudou em A
-    }
-  });
-
-  it('recepcao: em equipe_membros lê só a própria linha (recepcao_cond_propria_linha) e não grava nem a própria', async () => {
-    const comoRecepcao = (q: SQL) => withTenant({ tenantId: A, role: 'recepcao', actorUserId: RECEPCAO_A }, (tx) => tx.execute(q), app.db);
-    expect(await contarTenant('equipe_membros', A)).toBeGreaterThan(1); // há a linha de outra pessoa da recepção no mesmo tenant
-    expect((await comoRecepcao(sql`select user_id from equipe_membros`)).rows).toEqual([{ user_id: RECEPCAO_A }]);
-    expect((await comoRecepcao(sql`update equipe_membros set financeiro = true where user_id = ${RECEPCAO_A}`)).rowCount).toBe(0);
-    const { rows } = await owner.pool.query(`select financeiro from equipe_membros where user_id = $1`, [RECEPCAO_A]);
-    expect(rows).toEqual([{ financeiro: false }]);
   });
 });

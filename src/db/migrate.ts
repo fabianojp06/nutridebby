@@ -7,10 +7,11 @@ const ROLE_NAME = /^[a-z_][a-z0-9_]{2,62}$/;
 
 /**
  * RE-D64 (Plano 26): o migrador do Drizzle aplica todas as migrations pendentes numa transação só
- * (drizzle-orm pg-core/dialect.js). O `lock_timeout` de 10 s na conexão vale para a execução inteira: uma migration que
- * espera trava de uma tabela lida em toda requisição (como `user`) desiste em 10 s em vez de enfileirar o app atrás dela;
- * a transação volta inteira, o processo sai com erro (scripts/migrate.ts, docker-entrypoint.sh com `set -e`) e o Swarm
- * reinicia o container, que tenta de novo (docs/operacao/recepcao.md).
+ * (drizzle-orm pg-core/dialect.js). O `lock_timeout` de 10 s na conexão vale para cada espera de trava, em todos os comandos
+ * da execução (não é um teto da execução inteira: as esperas somam): uma migration que espera a trava de uma tabela lida em
+ * toda requisição (como `user`) desiste em 10 s em vez de enfileirar o app atrás dela; a transação volta inteira, o processo
+ * sai com erro (scripts/migrate.ts, docker-entrypoint.sh com `set -e`) e o Swarm reinicia o container, que tenta de novo
+ * (docs/operacao/recepcao.md).
  */
 export function poolDoMigrador(migratorUrl: string): Pool {
   return new Pool({ connectionString: migratorUrl, max: 1, options: '-c lock_timeout=10s' });

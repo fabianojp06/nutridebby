@@ -6,7 +6,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from '../../test/db';
 import { bancoProprioParaDdl } from '../../test/ddl';
 import { novoTenant, type TenantDeTeste } from '../../test/pacientes';
-import { withTenant, type TenantContext } from './tenant';
+import { withConta, withTenant, type TenantContext } from './tenant';
 
 /**
  * Plano 26 (spec §9.1 a §9.3, blocos 1 e 2; RN-498, RN-505): o banco da recepção sem o módulo — negação por padrão
@@ -217,6 +217,10 @@ describe('equipe_membros (spec §9.1)', () => {
   it('INSERT da nutricionista com conta de outro consultório, de papel nutri ou de paciente → 42501 do gatilho', async () => {
     await expect(em(T.ctx, inserir(T.tenantId, await contaDeRecepcao(T2.tenantId))), 'outro consultório').rejects.toSatisfy(doGatilho);
     await expect(em(T.ctx, inserir(T.tenantId, T.nutriId)), 'papel nutri').rejects.toSatisfy(doGatilho);
+    // linha de outro consultório: a RLS recusa, sem o gatilho ler a conta — a mensagem é a mesma para a recepção de T2 e para
+    // qualquer outro user_id (não revela de quem é a conta; revisão da T4)
+    await expect(em(T.ctx, inserir(T2.tenantId, await contaDeRecepcao(T2.tenantId))), 'recepção de T2 na linha de T2').rejects.toSatisfy(rlsDe('equipe_membros'));
+    await expect(em(T.ctx, inserir(T2.tenantId, T.nutriId)), 'nutri na linha de T2').rejects.toSatisfy(rlsDe('equipe_membros'));
     const paciente = randomUUID();
     await owner.pool.query(`insert into "user" (id, name, email, app_role) values ($1, 'Pac', $2, 'paciente')`, [paciente, `pac-${paciente.slice(0, 8)}@teste.dev`]);
     await expect(em(T.ctx, inserir(T.tenantId, paciente)), 'paciente').rejects.toSatisfy(doGatilho);
@@ -243,10 +247,15 @@ describe('equipe_membros (spec §9.1)', () => {
 
   it('desativar grava desativada_por = a nutricionista da sessão; reativar limpa; desativação registrada não muda', async () => {
     const [m] = await em(T.ctx, inserir(T.tenantId, await contaDeRecepcao()));
-    await em(T.ctx, sql`update equipe_membros set desativada_em = now(), desativada_por = ${randomUUID()} where id = ${m.id}`);
+    // o módulo manda uma data qualquer: vale o relógio do banco (revisão da T4)
+    await em(T.ctx, sql`update equipe_membros set desativada_em = now() + interval '30 days', desativada_por = ${randomUUID()} where id = ${m.id}`);
     const d = await ler(m.id);
     expect(d.desativada_por).toBe(T.nutriId);
-    expect(d.desativada_em).not.toBeNull();
+    const { rows: [agora] } = await owner.pool.query<{ ok: boolean }>(
+      `select desativada_em between clock_timestamp() - interval '1 minute' and clock_timestamp() as ok from equipe_membros where id = $1`,
+      [m.id],
+    );
+    expect(agora.ok).toBe(true);
     await expect(em(T.ctx, sql`update equipe_membros set desativada_por = ${randomUUID()} where id = ${m.id}`)).rejects.toSatisfy(doGatilho);
     await expect(em(T.ctx, sql`update equipe_membros set desativada_em = now() + interval '1 day' where id = ${m.id}`)).rejects.toSatisfy(doGatilho);
     await em(T.ctx, sql`update equipe_membros set desativada_em = null where id = ${m.id}`);
@@ -278,6 +287,18 @@ describe('equipe_membros (spec §9.1)', () => {
     const publico: TenantContext = { tenantId: T.tenantId, role: 'publico' };
     await expect(em(paciente, inserir(T.tenantId, await contaDeRecepcao()))).rejects.toSatisfy(rlsDe('equipe_membros'));
     await expect(em(publico, inserir(T.tenantId, await contaDeRecepcao()))).rejects.toSatisfy(rlsDe('equipe_membros'));
+  });
+
+  it('staff_only: paciente, publico e conta não leem equipe_membros (0 linhas), com a linha lá (STAFF_ONLY, revisão da T4)', async () => {
+    const [m] = await em(T.ctx, inserir(T.tenantId, await contaDeRecepcao()));
+    expect((await owner.pool.query('select 1 from equipe_membros where id = $1', [m.id])).rowCount).toBe(1); // controle positivo
+    expect(await em(T.ctx, sql`select id from equipe_membros where id = ${m.id}`)).toHaveLength(1); // a nutricionista vê
+    const paciente: TenantContext = { tenantId: T.tenantId, role: 'paciente', patientId: randomUUID(), actorUserId: randomUUID() };
+    const semConta: TenantContext = { tenantId: T.tenantId, role: 'paciente', patientId: randomUUID(), semConta: true };
+    const publico: TenantContext = { tenantId: T.tenantId, role: 'publico' };
+    for (const ctx of [paciente, semConta, publico]) expect(await em(ctx, sql`select id from equipe_membros`), ctx.role).toEqual([]);
+    const conta = await withConta(T.nutriId, (tx) => tx.execute(sql`select id from equipe_membros`), app.db);
+    expect(conta.rows).toEqual([]);
   });
 
   it('a nutricionista não apaga (DELETE revogado, RE-D28); índice parcial das ativas existe', async () => {

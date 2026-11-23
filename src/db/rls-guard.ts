@@ -125,6 +125,7 @@ export const STAFF_ONLY: Record<string, string> = {
   locais_atendimento: 'link da sala: fora do paciente e do público; projeções `app_locais_para_agendamento`/`app_local_da_consulta` (Plano 23, AG-D4)',
   recados: 'Plano 25 (RN-462): o recado do consultório e o filtro (etiquetas) — só a equipe; o paciente lê a cópia na própria conversa',
   chat_avisos_nutri: 'Plano 25 (CH-D70, RN-458): preferência e marca do último aviso por e-mail à nutricionista — pela data da marca, o paciente saberia que outro paciente escreveu nas últimas 2 h; a sessão de paciente só passa pela função app_chat_aviso_nutri_devido',
+  equipe_membros: 'Plano 26 (RN-502, RN-503): a equipe do consultório (contas da recepção, permissão do Financeiro, desativação) — só a equipe; a recepção lê só a própria linha',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
@@ -319,12 +320,26 @@ const NEGA_RECEPCAO = normalizarExpressao("app_current_role() IS DISTINCT FROM '
 
 /**
  * Plano 26 (RN-505): as condições extras da recepção — política RESTRICTIVE `recepcao_cond_<assunto>`, com o comando declarado
- * e os trechos (normalizados, sem espaços nem parênteses) que a expressão precisa ter, além da negação `NEGA_RECEPCAO` (a
- * condição só restringe a recepção). Tabela → política → regra.
+ * e a expressão INTEIRA esperada no USING e no WITH CHECK (`null` = sem a cláusula), escrita como o Postgres a guarda
+ * (`pg_policies.qual`/`with_check`, com os `::text`) e comparada por igualdade depois de normalizar (sem espaços nem
+ * parênteses), como a `recepcao_negada`: conferir por trecho deixaria passar `… OR NOT (…)` ou `… OR true` (revisão da T4).
+ * Toda expressão declarada começa pela negação `NEGA_RECEPCAO` seguida de OR (a condição só restringe a recepção).
+ * Tabela → política → regra.
  */
-export const RECEPCAO_CONDICOES: Record<string, Record<string, { comando: 'ALL' | 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE'; exige: string[]; motivo: string }>> = {
+export type CondicaoDaRecepcao = {
+  comando: 'ALL' | 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
+  using: string | null;
+  withCheck: string | null;
+  motivo: string;
+};
+export const RECEPCAO_CONDICOES: Record<string, Record<string, CondicaoDaRecepcao>> = {
   equipe_membros: {
-    recepcao_cond_propria_linha: { comando: 'SELECT', exige: ['user_id=app_current_user'], motivo: 'RN-503: a recepção lê só a própria linha' },
+    recepcao_cond_propria_linha: {
+      comando: 'SELECT',
+      using: "app_current_role() IS DISTINCT FROM 'recepcao'::text OR user_id = app_current_user()",
+      withCheck: null,
+      motivo: 'RN-503: a recepção lê só a própria linha',
+    },
   },
 };
 
@@ -360,12 +375,16 @@ export async function findRecepcaoViolations(db: Pool | PoolClient): Promise<Rls
       out.push({ table: r.t, problem: `condição ${r.pol} sem entrada em RECEPCAO_CONDICOES` });
       continue;
     }
-    const expressoes = [r.qual, r.with_check].filter((e): e is string => e !== null).map(normalizarExpressao);
+    const declaradas = [regra.using, regra.withCheck].filter((e): e is string => e !== null);
+    if (declaradas.length === 0 || !declaradas.every((e) => normalizarExpressao(e).startsWith(`${NEGA_RECEPCAO}or`))) {
+      out.push({ table: r.t, problem: `condição ${r.pol} declarada em RECEPCAO_CONDICOES sem começar pela negação da recepção` });
+      continue;
+    }
     const certa =
       r.cmd === regra.comando &&
-      expressoes.length > 0 &&
-      expressoes.every((e) => [NEGA_RECEPCAO, ...regra.exige].every((trecho) => e.includes(trecho)));
-    if (r.permissive === 'RESTRICTIVE' && !certa) out.push({ table: r.t, problem: `condição ${r.pol} sem o comando ou os trechos de RECEPCAO_CONDICOES` });
+      normalizarExpressao(r.qual) === normalizarExpressao(regra.using) &&
+      normalizarExpressao(r.with_check) === normalizarExpressao(regra.withCheck);
+    if (r.permissive === 'RESTRICTIVE' && !certa) out.push({ table: r.t, problem: `condição ${r.pol} sem o comando ou a expressão de RECEPCAO_CONDICOES` });
   }
   for (const [table, pols] of Object.entries(RECEPCAO_CONDICOES)) {
     for (const pol of Object.keys(pols)) {

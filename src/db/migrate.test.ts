@@ -91,8 +91,8 @@ describe('migrations de base', () => {
     expect(rows[0]).toEqual({ i: true, u: false, d: false });
   });
 
-  // Plano 26 (RE-D64): o migrador aplica todas as pendentes numa transação só (drizzle-orm pg-core/dialect.js); o limite de
-  // espera por trava vale para a execução inteira — a gerada (CHECK e coluna em "user") e o laço da rls_recepcao
+  // Plano 26 (RE-D64): o migrador aplica todas as pendentes numa transação só (drizzle-orm pg-core/dialect.js); o limite vale
+  // para cada espera de trava, em todos os comandos — a gerada (CHECK e coluna em "user") e o laço da rls_recepcao
   it('RE-D64: a conexão do migrador tem lock_timeout de 10 s', async () => {
     const { poolDoMigrador } = await import('./migrate');
     const pool = poolDoMigrador(inject('ownerDatabaseUrl'));

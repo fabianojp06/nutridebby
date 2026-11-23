@@ -357,9 +357,32 @@ describe('recepção (RN-505, Plano 26)', () => {
       const v = await findRecepcaoViolations(client);
       expect(v).toContainEqual({ table: 'exams', problem: 'sem política recepcao_negada (app_enable_tenant_rls/app_deny_recepcao)' });
       expect(v.filter((x) => x.table === 'equipe_membros').map((x) => x.problem).sort()).toEqual([
-        'condição recepcao_cond_propria_linha sem o comando ou os trechos de RECEPCAO_CONDICOES',
+        'condição recepcao_cond_propria_linha sem o comando ou a expressão de RECEPCAO_CONDICOES',
         'políticas da recepção diferentes de RECEPCAO_LIBERADO (esperado recepcao_sem_delete, recepcao_sem_insert, recepcao_sem_update)',
       ]);
+      // revisão da T4: com o trecho exigido, mas invertido (OR NOT) ou anulado (OR true), também quebra — a expressão é comparada inteira
+      const semExpressaoCerta = { table: 'equipe_membros', problem: 'condição recepcao_cond_propria_linha sem o comando ou a expressão de RECEPCAO_CONDICOES' };
+      for (const using of [
+        `app_current_role() is distinct from 'recepcao' or not (user_id = app_current_user())`,
+        `app_current_role() is distinct from 'recepcao' or user_id = app_current_user() or true`,
+        `(app_current_role() is distinct from 'recepcao' or user_id = app_current_user()) or true`,
+      ]) {
+        await client.query('drop policy recepcao_cond_propria_linha on equipe_membros');
+        await client.query(`create policy recepcao_cond_propria_linha on equipe_membros as restrictive for select using (${using})`);
+        expect(await findRecepcaoViolations(client), using).toContainEqual(semExpressaoCerta);
+      }
+      // controle: a expressão certa (escrita de outro jeito) volta a passar
+      await client.query('drop policy recepcao_cond_propria_linha on equipe_membros');
+      await client.query(
+        `create policy recepcao_cond_propria_linha on equipe_membros as restrictive for select using (app_current_role() is distinct from 'recepcao' or user_id = app_current_user())`,
+      );
+      expect((await findRecepcaoViolations(client)).filter((x) => x.problem.startsWith('condição recepcao_cond_propria_linha'))).toEqual([]);
+      // o comando também conta: FOR ALL no lugar de FOR SELECT quebra
+      await client.query('drop policy recepcao_cond_propria_linha on equipe_membros');
+      await client.query(
+        `create policy recepcao_cond_propria_linha on equipe_membros as restrictive for all using (app_current_role() is distinct from 'recepcao' or user_id = app_current_user())`,
+      );
+      expect(await findRecepcaoViolations(client)).toContainEqual(semExpressaoCerta);
       await client.query('drop policy recepcao_cond_propria_linha on equipe_membros');
       expect(await findRecepcaoViolations(client)).toContainEqual({ table: 'equipe_membros', problem: 'sem a condição recepcao_cond_propria_linha (RECEPCAO_CONDICOES)' });
     } finally {
