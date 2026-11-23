@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
+import { stopBoss } from '@/jobs/boss';
 import { consultorioDoChat, esperarBloqueio, mensagemDoDono, naSessao, pacienteDoChat } from '../../../test/mensagens';
 import { novoPaciente, type TenantDeTeste } from '../../../test/pacientes';
-import type { Db } from '@/db/client';
+import { closeDb, type Db } from '@/db/client';
 import type { TenantContext } from '@/db/tenant';
 import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { MSG_MENSAGENS, MSG_PORTAL_MENSAGENS } from './constantes';
@@ -18,6 +19,9 @@ import { salvarConfiguracao } from './horario';
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
 afterAll(async () => {
+  // T4: o envio dispara o motor de avisos (pg-boss) e enfileira e-mail
+  await stopBoss();
+  await closeDb();
   await app.pool.end();
   await owner.pool.end();
 });

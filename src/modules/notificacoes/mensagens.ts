@@ -4,6 +4,7 @@ import { openSecret } from '@/lib/crypto';
 import { urlDoApp } from '@/lib/url-do-app';
 import { partesNoFuso, quandoComFuso, rotuloDoFuso } from '@/modules/agenda/fuso';
 import { assinarLinkConsulta, urlDaConsulta } from '@/modules/agenda/link-consulta';
+import { TEXTOS_AVISO } from '@/modules/mensagens/constantes';
 import { telaDoPortal } from '@/modules/portal/link-portal';
 import type { ContextoEnvio } from './enviar';
 
@@ -38,6 +39,8 @@ export function linkDaConsulta(c: { consulta: AppointmentRow; tenant: TenantRow;
  */
 export function emailDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; chaveLinks: Buffer }): EmailMessage | null {
   const evento = c.n.tipo;
+  // Plano 25 (RN-457, CS-440): sem consulta e sem conteúdo — nem o texto, nem o anexo; o nome profissional do carimbo (RN-475)
+  if (evento === 'chat_mensagem') return { tipo: 'chat_mensagem', para: c.paciente.email, nome: primeiroNome(c.paciente.nome), nutri: c.tenant.nomeProfissional ?? c.tenant.nomeExibicao, link: urlDoApp(deps.appUrl, telaDoPortal('/p/mensagens', c.tenant.id)) };
   if (!c.consulta || (evento !== 'lembrete_24h' && evento !== 'lembrete_2h' && evento !== 'consulta_marcada' && evento !== 'consulta_cancelada' && evento !== 'resposta_remarcar')) return null;
   const d = dadosDaConsulta({ consulta: c.consulta, tenant: c.tenant });
   if (evento === 'resposta_remarcar') {
@@ -83,6 +86,7 @@ export function textoConviteWhatsapp(o: { nome: string; nutri: string; email: st
  * diz para qual e-mail (mascarado, como no convite). O endereço do consultório fica (não dá acesso a nada).
  */
 export function textoWhatsapp(c: ContextoEnvio): string | null {
+  if (c.n.tipo === 'chat_mensagem' || c.n.tipo === 'recado') return null; // Plano 25: nada do chat por WhatsApp (CS-440)
   if (c.n.conteudoSelado) return openSecret(c.n.conteudoSelado, FINALIDADE_CONTEUDO);
   if (c.n.tipo === 'resposta_confirmacao') return 'Presença confirmada. Até lá!';
   if (c.n.tipo === 'convite_paciente') return textoConviteWhatsapp({ nome: c.paciente.nome, nutri: c.tenant.nomeExibicao, email: c.paciente.email });
@@ -122,6 +126,9 @@ const AVISOS_DO_PORTAL: Record<string, { corpo: string; tela: string }> = {
   exame_expirado: { corpo: 'Há uma atualização para você no app.', tela: '/p/exames' },
   // Plano 15 (D24 = b, RNF-166): neutro de propósito — nem IA, nem dúvida, nem nutricionista
   duvida_vista: { corpo: 'Há uma atualização para você no app.', tela: '/p/plano/ia' },
+  // Plano 25 (RN-457, CS-440): neutros — nem o texto, nem o anexo, nem o recado
+  chat_mensagem: { corpo: TEXTOS_AVISO.push.mensagem, tela: '/p/mensagens' },
+  recado: { corpo: TEXTOS_AVISO.push.recado, tela: '/p/mensagens' },
 };
 
 /**

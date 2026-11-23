@@ -157,3 +157,28 @@ describe('primeiroNome (R11: um lugar só)', () => {
     expect(comCopia).toEqual([path.join('modules', 'notificacoes', 'mensagens.ts')]);
   });
 });
+
+describe('Plano 25 — avisos das mensagens (RN-457, CS-440): corpos fixos, nada do chat por WhatsApp', () => {
+  const doChat = (tipo: string, extra: Partial<NotificationRow> = {}): ContextoEnvio => ({ ...ctx(tipo, extra), consulta: null, tenant: { ...tenant, nomeProfissional: 'Débora Nutricionista', crn: 'CRN-4 12345' } as TenantRow, chatNaoLido: true });
+
+  it('push: título "NutriDebby", corpo fixo, toque em /p/mensagens do consultório (?v=)', () => {
+    expect(pushDaNotificacao(doChat('chat_mensagem'), deps)).toEqual({ titulo: 'NutriDebby', corpo: 'Você tem uma nova mensagem.', url: `https://app.exemplo.com/p/mensagens?v=${tenant.id}` });
+    expect(pushDaNotificacao(doChat('recado'), deps)).toEqual({ titulo: 'NutriDebby', corpo: 'Você tem um novo recado.', url: `https://app.exemplo.com/p/mensagens?v=${tenant.id}` });
+  });
+
+  it('e-mail só da mensagem (o recado nunca tem e-mail): primeiro nome, nome profissional e o link — só essas chaves', () => {
+    const e = emailDaNotificacao(doChat('chat_mensagem'), deps);
+    expect(e).toEqual({ tipo: 'chat_mensagem', para: 'ana@ex.com', nome: 'Ana', nutri: 'Débora Nutricionista', link: `https://app.exemplo.com/p/mensagens?v=${tenant.id}` });
+    expect(emailDaNotificacao(doChat('recado'), deps)).toBeNull();
+    // sem nome profissional, o nome de exibição do consultório
+    expect(emailDaNotificacao({ ...doChat('chat_mensagem'), tenant: { ...tenant, nomeProfissional: null } as TenantRow }, deps)).toMatchObject({ nutri: 'Debby Silva' });
+  });
+
+  it('WhatsApp: null para os dois tipos, mesmo com texto cifrado na linha', () => {
+    const selado = sealSecret('qualquer texto', FINALIDADE_CONTEUDO);
+    for (const tipo of ['chat_mensagem', 'recado']) {
+      expect(textoWhatsapp(doChat(tipo)), tipo).toBeNull();
+      expect(textoWhatsapp(doChat(tipo, { conteudoSelado: selado })), tipo).toBeNull();
+    }
+  });
+});

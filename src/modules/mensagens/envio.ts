@@ -1,6 +1,6 @@
 /**
- * Plano 25 (US-441, US-443; RN-443, RN-444, RN-447, RN-449, RN-458, RN-475; CH-D70, CH-D72): o envio de mensagem de texto
- * pelos dois lados (o anexo entra na T8, os avisos na T4). O gatilho chat_mensagens_regras e a política paciente_chat_envio
+ * Plano 25 (US-441, US-443; RN-443, RN-444, RN-447, RN-449, RN-456, RN-458, RN-475; CH-D70, CH-D72): o envio de mensagem de
+ * texto pelos dois lados (o anexo entra na T8), com os avisos na mesma transação (T4, avisos.ts). O gatilho chat_mensagens_regras e a política paciente_chat_envio
  * (0128) são a rede; o módulo confere antes e devolve os erros da tela (§6.2), sem gravar nada.
  *
  * Travas (RN-447): envio do paciente → paciente FOR UPDATE (a trava das ações do paciente: serializa com a pausa e com os
@@ -11,10 +11,12 @@ import { sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { chatConversas, chatMensagens, patients, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { getEnv } from '@/env';
 import { detectarRisco } from '@/modules/ia/nutri-paciente/sinais-risco';
 import { emHorarioSilencioso } from '@/modules/notificacoes/agendar';
 import { idValido, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { LIMITE_MENSAGENS_DIA, LIMITE_MENSAGENS_HORA, MSG_MENSAGENS, MSG_PORTAL_MENSAGENS, RISCO_DO_TEXTO_FIXO, TEXTO_MAX, type CodigoTextoFixo } from './constantes';
+import { avisarNutriDeMensagem, avisarPaciente } from './avisos';
 import { dentroDoHorario, horarioParaPaciente, type Faixa } from './horario';
 import { exigirNutri, exigirPacienteComConta } from './sessao';
 
@@ -90,13 +92,14 @@ export async function enviarComoNutri(
         .where(sql`${chatConversas.tenantId} = ${ctx.tenantId} and ${chatConversas.patientId} = ${p.id}`)
         .for('no key update');
       if (!c?.liberadaEm || c.pausadaEm) return erroPainel('conversa');
-      const [t] = await tx.select({ nome: tenants.nomeProfissional, crn: tenants.crn }).from(tenants).where(sql`${tenants.id} = ${ctx.tenantId}`);
+      const [t] = await tx.select({ nome: tenants.nomeProfissional, crn: tenants.crn, fuso: tenants.fuso }).from(tenants).where(sql`${tenants.id} = ${ctx.tenantId}`);
       if (!t?.nome || !t.crn) return erroPainel('carimbo');
       const [m] = await tx
         .insert(chatMensagens)
         .values({ tenantId: ctx.tenantId, patientId: p.id, autor: 'nutri', autorUserId: ctx.actorUserId!, texto })
         .returning({ id: chatMensagens.id });
-      // T4: avisarPaciente(tx, { tipo: 'chat_mensagem', … }) entra aqui, na mesma transação
+      // RN-456: push e e-mail ao paciente, agrupados, na mesma transação (depois das travas do paciente e da conversa)
+      await avisarPaciente(tx, { tenant: { id: ctx.tenantId, fuso: t.fuso }, patientId: p.id, tipo: 'chat_mensagem', agora: new Date() });
       await o.aposGravar?.();
       return { id: m.id };
     },
@@ -123,13 +126,14 @@ export function avisoNoHorario(h: { horarioAtivo: boolean; faixas: readonly Faix
   return h.horarioAtivo && h.faixas.length > 0 ? dentroDoHorario(h.faixas, fuso, agora) : !emHorarioSilencioso(agora, fuso);
 }
 
-type EnvioDoPaciente = { id: string; textoFixo: CodigoTextoFixo | null; avisoNutriDevido: boolean };
+type EnvioDoPaciente = { id: string; textoFixo: CodigoTextoFixo | null };
 
 /**
  * RN-447: trava o paciente (FOR UPDATE) → confere titular, conversa e limites → risco → app_chat_aviso_nutri_devido →
  * INSERT. A função do aviso roda em TODO envio que vai ser gravado (nunca num envio recusado) e ANTES do INSERT (CH-D72): o
  * FOR UPDATE dela, com a trava do paciente, serializa os envios, e a ordem de `criada_em` segue a ordem de commit. O retorno
- * dela fica só aqui dentro (T4: o e-mail à nutricionista); a resposta ao paciente não depende dele (canal lateral, CH-D70).
+ * dela fica só aqui dentro (o e-mail à nutricionista, avisarNutriDeMensagem, depois do INSERT); a resposta ao paciente não
+ * depende dele (canal lateral, CH-D70).
  */
 async function gravarDoPaciente(tx: Tx, ctx: TenantContext, texto: string): Promise<EnvioDoPaciente | ErroDeEnvio> {
   const patientId = ctx.patientId!;
@@ -173,7 +177,9 @@ async function gravarDoPaciente(tx: Tx, ctx: TenantContext, texto: string): Prom
       risco: sinal ? RISCO_DO_TEXTO_FIXO[sinal.textoFixo] : null,
     })
     .returning({ id: chatMensagens.id });
-  return { id: m.id, textoFixo: sinal?.textoFixo ?? null, avisoNutriDevido: aviso.devido === true };
+  // RN-458: o e-mail sai (ou não) aqui dentro; nada dele volta ao paciente
+  await avisarNutriDeMensagem(tx, { tenant: { id: ctx.tenantId }, devido: aviso.devido === true, appUrl: getEnv().APP_URL });
+  return { id: m.id, textoFixo: sinal?.textoFixo ?? null };
 }
 
 /**

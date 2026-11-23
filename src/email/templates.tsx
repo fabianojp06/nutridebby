@@ -5,6 +5,7 @@ import { DESTINO_ROTULO, MSG_AUTORIZACAO, type UsoIA } from '@/modules/ia/consta
 import { NOME_IA_NUTRI, RETENCAO_DIAS, RISCO_REVOGADO_MAX_DIAS } from '@/modules/ia/nutri-paciente/constantes';
 import { DESCRICAO_DO_USO } from '@/modules/ia/textos-legais';
 import { MSG_REVISAO } from '@/modules/pacientes/exames-enviados-constantes';
+import { TEXTOS_AVISO } from '@/modules/mensagens/constantes';
 import type { EmailMessage, RenderedEmail } from './types';
 
 // Só o worker importa este arquivo (react-dom/server fora do grafo do Next).
@@ -465,9 +466,38 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         [MSG_REVISAO.avisoEmail, ...(msg.pendentesAntigos ? [MSG_REVISAO.lembrete30] : [])],
         { href: msg.link, rotulo: 'Ver exames recebidos' },
       );
+    case 'chat_mensagem':
+      // Plano 25 (RN-457, CS-440): corpo fixo — nem o texto, nem o anexo
+      return comLinkNoFim(TEXTOS_AVISO.emailPaciente.assunto, TEXTOS_AVISO.emailPaciente.corpo(msg.nome, msg.nutri, msg.link), msg.link);
+    case 'aviso_mensagens_nutri':
+      // Plano 25 (RN-458, CS-440): sem nome de paciente nem texto
+      return comLinkNoFim(TEXTOS_AVISO.emailNutri.assunto, TEXTOS_AVISO.emailNutri.corpo(msg.link), msg.link);
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);
     }
   }
+}
+
+/**
+ * Plano 25: o corpo da spec é um parágrafo só, que termina no link (sem botão nem rótulo novo); no HTML, o link do fim
+ * vira clicável. A versão em texto é o corpo, igual.
+ */
+function comLinkNoFim(subject: string, corpo: string, link: string): RenderedEmail {
+  if (!corpo.endsWith(link)) throw new Error('comLinkNoFim: o corpo tem de terminar no link');
+  const antes = corpo.slice(0, corpo.length - link.length);
+  return {
+    subject,
+    html: html(
+      <Layout titulo={subject}>
+        <P>
+          {antes}
+          <a href={link} style={{ color: COR, wordBreak: 'break-all' }}>
+            {link}
+          </a>
+        </P>
+      </Layout>,
+    ),
+    text: corpo,
+  };
 }

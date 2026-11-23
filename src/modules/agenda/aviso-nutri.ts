@@ -10,7 +10,9 @@ export type EventoAgenda = Extract<EmailMessage, { tipo: 'aviso_agenda' }>['even
 
 /**
  * D18 / CLAUDE.md regra 1: a tabela `user` do Better Auth é lida aqui, fora do withTenant, só para o e-mail
- * da(s) nutricionista(s) do tenant nos avisos da agenda e do WhatsApp. Nada além do e-mail sai daqui.
+ * da(s) nutricionista(s) do tenant nos avisos da agenda e do WhatsApp — e, no Plano 25 (RN-458), no aviso "Mensagens novas
+ * de pacientes" (`avisarNutriDeMensagem`, src/modules/mensagens/avisos.ts, na transação do envio do paciente). Nada além do
+ * e-mail sai daqui.
  */
 export async function emailsDaNutri(tx: Tx, tenantId: string): Promise<string[]> {
   const us = await tx.select({ email: user.email }).from(user).where(and(eq(user.tenantId, tenantId), eq(user.appRole, 'nutri')));

@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
+import { stopBoss } from '@/jobs/boss';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
-import type { Db } from '@/db/client';
+import { closeDb, type Db } from '@/db/client';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { arquivarPaciente, desarquivarPaciente } from '@/modules/pacientes/lgpd';
@@ -21,6 +22,9 @@ import { salvarConfiguracao } from './horario';
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
 afterAll(async () => {
+  // T4: o envio dispara o motor de avisos (pg-boss) e enfileira e-mail
+  await stopBoss();
+  await closeDb();
   await app.pool.end();
   await owner.pool.end();
 });

@@ -85,7 +85,17 @@ export type EmailMessage =
    * Plano 15 (D10 = a, DP-6, RNF-166): pergunta com sinal de risco na fila "Dúvidas dos pacientes", às nutricionistas do
    * tenant (no máximo 1 a cada 15 min); `link` = /painel/duvidas. Genérico: sem nome de paciente, texto nem categoria (C-05).
    */
-  | { tipo: 'risco_ia_nutri'; para: string; link: string };
+  | { tipo: 'risco_ia_nutri'; para: string; link: string }
+  /**
+   * Plano 25 (RN-457, CS-440): mensagem nova da nutricionista no app, 30 min depois do push (agrupado). `nome` = primeiro
+   * nome do paciente; `nutri` = nome profissional do consultório; `link` = /p/mensagens do consultório. Nunca o texto nem o anexo.
+   */
+  | { tipo: 'chat_mensagem'; para: string; nome: string; nutri: string; link: string }
+  /**
+   * Plano 25 (RN-458, CS-440): mensagens novas de pacientes, às nutricionistas do tenant (no máximo 1 a cada 2 h, no horário
+   * de mensagens); `link` = /painel/mensagens?filtro=nao-lidas. Sem nome de paciente nem texto.
+   */
+  | { tipo: 'aviso_mensagens_nutri'; para: string; link: string };
 
 /** Payload do job `email` no pg-boss: nada legível além do tenant (RN-15). */
 export type EmailJobData = { tenantId: string | null; selado: string };

@@ -320,3 +320,28 @@ describe('Plano 14A — e-mails da autorização de IA', () => {
     expect(so.text).toContain('só para ler os laudos dos seus exames e sugerir os valores para o seu prontuário.');
   });
 });
+
+describe('Plano 25 — avisos das mensagens (RN-457, RN-458; CS-440): corpo fixo, sem conteúdo', () => {
+  it('chat_mensagem: assunto e corpo da spec, com o primeiro nome, o nome profissional e o link no fim (clicável no HTML)', () => {
+    const link = 'https://app.test/p/mensagens?v=t1';
+    const r = renderEmail({ tipo: 'chat_mensagem', para: 'ana@x.dev', nome: 'Ana', nutri: 'Débora Nutricionista', link });
+    expect(r.subject).toBe('Você tem uma nova mensagem');
+    expect(r.text).toBe(`Olá, Ana! Você tem uma nova mensagem de Débora Nutricionista no app. Para ler, entre no app: ${link}`);
+    expect(r.html).toContain(`href="${link}"`);
+    expect(r.html).toContain('Olá, Ana! Você tem uma nova mensagem de Débora Nutricionista no app. Para ler, entre no app: ');
+  });
+
+  it('aviso_mensagens_nutri: assunto e corpo da spec, sem nome de paciente nem texto (o modelo nem recebe)', () => {
+    const link = 'https://app.test/painel/mensagens?filtro=nao-lidas';
+    const r = renderEmail({ tipo: 'aviso_mensagens_nutri', para: 'debby@x.dev', link });
+    expect(r.subject).toBe('Mensagens novas de pacientes');
+    expect(r.text).toBe(`Você tem mensagens novas de pacientes no NutriDebby. Para ler, entre no painel: ${link}`);
+    expect(r.html).toContain(`href="${link}"`);
+  });
+
+  it('o nome vindo de dados é escapado', () => {
+    const r = renderEmail({ tipo: 'chat_mensagem', para: 'a@x.dev', nome: '<b>Ana</b>', nutri: 'Débora <i>N</i>', link: 'https://app.test/p/mensagens' });
+    expect(r.html).not.toContain('<b>Ana</b>');
+    expect(r.html).toContain('&lt;b&gt;Ana&lt;/b&gt;');
+  });
+});
