@@ -146,7 +146,7 @@ describe('resumoDoMes (US-305, RN-307)', () => {
       tipo: 'entrada',
       categoria: { id: C.consultas, nome: 'Consultas' },
       valorCentavos: 1200,
-      paciente: { id: C.ana, nome: 'Ana Souza', bloqueado: false },
+      paciente: { id: C.ana, nome: 'Ana Souza', bloqueado: false, anonimizado: false },
       situacao: 'em_atraso',
     });
   });
@@ -299,14 +299,24 @@ describe('pagamentosPendentes e pendenciasDoPaciente (US-304, RN-311, RN-318)', 
     await withTenant(worker(C), (tx) => tx.execute(sql`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01' where id = ${C.ana}`), app.db);
     expect((await pagamentosPendentes(C.ctx, C.tenant, deps)).map((p) => p.paciente.nome)).toContain('Ana Souza');
     const d = await pendenciasDoPaciente(C.ctx, C.tenant, C.ana, deps);
-    expect(d!.paciente).toEqual({ id: C.ana, nome: 'Ana Souza', bloqueado: true });
+    expect(d!.paciente).toEqual({ id: C.ana, nome: 'Ana Souza', bloqueado: true, anonimizado: false });
     expect(d!.linhas.every((l) => l.paciente?.bloqueado)).toBe(true);
+  });
+
+  it('detalhe do paciente anonimizado: sem pendência e não conta como bloqueado (TRI-17-20 #130)', async () => {
+    const { C } = await cenarioDasPendencias();
+    await withTenant(worker(C), (tx) => tx.execute(sql`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2020-01-01' where id = ${C.ana}`), app.db);
+    await withTenant(worker(C), (tx) => tx.execute(sql`select app_anonimizar_financeiro(${C.ana})`), app.db);
+    await withTenant(worker(C), (tx) => tx.execute(sql`update patients set anonimizado_em = now() where id = ${C.ana}`), app.db);
+    const d = await pendenciasDoPaciente(C.ctx, C.tenant, C.ana, deps);
+    expect(d!.paciente).toMatchObject({ id: C.ana, bloqueado: false, anonimizado: true });
+    expect(d!.linhas).toEqual([]); // a anonimização cancelou as cobranças em aberto
   });
 
   it('detalhe: as cobranças em aberto do paciente, a mais antiga primeiro, e UM "ler" por abertura', async () => {
     const { C, a1, a2 } = await cenarioDasPendencias();
     const d = await pendenciasDoPaciente(C.ctx, C.tenant, C.ana, deps);
-    expect(d!.paciente).toEqual({ id: C.ana, nome: 'Ana Souza', bloqueado: false });
+    expect(d!.paciente).toEqual({ id: C.ana, nome: 'Ana Souza', bloqueado: false, anonimizado: false });
     expect(d!.linhas.map((l) => [l.id, l.vencimento, l.situacao])).toEqual([
       [a1.id, '2026-10-10', 'em_atraso'],
       [a2.id, '2026-11-10', 'em_atraso'],
@@ -319,7 +329,7 @@ describe('pagamentosPendentes e pendenciasDoPaciente (US-304, RN-311, RN-318)', 
 
   it('detalhe sem pendência: o paciente sem linhas e sem "ler"; id inválido ou de outro consultório: null', async () => {
     const { C, carla } = await cenarioDasPendencias();
-    expect(await pendenciasDoPaciente(C.ctx, C.tenant, carla, deps)).toEqual({ paciente: { id: carla, nome: 'Carla Dias', bloqueado: false }, linhas: [] });
+    expect(await pendenciasDoPaciente(C.ctx, C.tenant, carla, deps)).toEqual({ paciente: { id: carla, nome: 'Carla Dias', bloqueado: false, anonimizado: false }, linhas: [] });
     expect(await pendenciasDoPaciente(C.ctx, C.tenant, 'nao-e-uuid', deps)).toBeNull();
     const B = await cenario();
     expect(await pendenciasDoPaciente(B.ctx, B.tenant, C.ana, deps)).toBeNull();

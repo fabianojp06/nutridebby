@@ -67,7 +67,8 @@ export type LancamentoNaTela = {
   pagoEm: string | null;
   forma: FormaPagamento | null;
   descricao: string | null;
-  paciente: { id: string; nome: string; bloqueado: boolean } | null;
+  /** `bloqueado` não inclui o anonimizado (TRI-17-20 #130: o aviso de cada um é outro). */
+  paciente: { id: string; nome: string; bloqueado: boolean; anonimizado: boolean } | null;
   consulta: { id: string; inicio: Date } | null;
   situacao: Situacao;
   canceladoEm: Date | null;

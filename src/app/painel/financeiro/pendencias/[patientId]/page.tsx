@@ -42,9 +42,9 @@ export default async function PendenciasDoPaciente({
   return (
     <>
       <TopoDoFinanceiro titulo={M.pendentesDoPaciente.titulo(paciente.nome)} parametros={parametros} />
-      {paciente.bloqueado && (
+      {(paciente.bloqueado || paciente.anonimizado) && (
         <Aviso tipo="aviso" papel="nenhum">
-          {M.bloqueado}
+          {paciente.anonimizado ? M.pacienteAnonimizado : M.bloqueado}
         </Aviso>
       )}
       {linhas.length === 0 ? (

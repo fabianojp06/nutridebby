@@ -237,8 +237,12 @@ Ordem paciente → consulta → lançamento, a mesma da agenda e do atendimento:
 - **Edição** (`/painel/financeiro/lancamentos/[id]`, `telaDeEdicao`): h1 "Entrada — {categoria}" / "Saída — {categoria}"
   (sem paciente nem data); tipo e paciente como texto; a consulta ligada como link "Cobrança da consulta de {data},
   {hora}". Cancelado ou anonimizado: só leitura, com a mensagem ("Este lançamento foi cancelado e não pode mais ser
-  alterado." / "…anonimizado…"). Paciente bloqueado: o aviso `bloqueado`, categoria, vencimento e descrição só como texto,
-  valor só para menor ou igual, receber/desfazer e cancelar.
+  alterado." / "…anonimizado…"; de paciente anonimizado, o aviso `pacienteAnonimizado`). Paciente bloqueado: o aviso
+  `bloqueado`, categoria, vencimento e descrição só como texto, valor só para menor ou igual, receber/desfazer e cancelar.
+  O anonimizado continua `bloqueado` no banco, mas na tela `paciente.bloqueado` só vale sem `anonimizado_em`
+  (`situacaoDoPaciente`, `lancamentos.ts`; TRI-17-20 #130): o aviso `bloqueado` ("As cobranças em aberto continuam
+  valendo…") nunca sai para ele — nem aqui, nem em "Pagamentos pendentes de {nome}" ou na seção "Cobrança" da consulta,
+  que mostram o `pacienteAnonimizado`.
 - **Bloqueado (RN-315, F-D20):** módulo e gatilho recusam o mesmo — nenhum lançamento novo; nos existentes, só receber,
   desfazer, reduzir o valor e cancelar ("Paciente bloqueado por pedido de exclusão: só é possível registrar o recebimento,
   reduzir o valor ou cancelar."). Anonimizado: nada muda.

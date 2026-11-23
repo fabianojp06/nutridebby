@@ -59,6 +59,7 @@ function ComCobranca({ consultaId, l, hoje }: { consultaId: string; l: Lancament
         </Link>
       </p>
       {l.paciente?.bloqueado && <p>{M.bloqueado}</p>}
+      {l.paciente?.anonimizado && <p>{M.pacienteAnonimizado}</p>}
       {aberta && (
         <>
           <FormValor acao={salvarValorCobrancaAction.bind(null, consultaId)} botao={M.consulta.salvarValor} inicial={valorParaCampo(l.valorCentavos)} lancamentoId={l.id} />

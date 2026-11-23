@@ -236,6 +236,8 @@ export const MSG_FINANCEIRO = {
     verTodos: (nome: string) => `Ver todos os lançamentos de ${nome}`,
   },
   bloqueado: 'Paciente bloqueado por pedido de exclusão. As cobranças em aberto continuam valendo; não é possível criar cobranças novas.',
+  /** TRI-17-20 #130: o anonimizado segue `bloqueado` no banco, mas a anonimização cancelou o que estava em aberto (provisório, Debby). */
+  pacienteAnonimizado: 'Paciente anonimizado. Os lançamentos ficam guardados sem os dados pessoais e não podem mais ser alterados.',
 
   // Relatórios (US-306)
   relatorios: {
