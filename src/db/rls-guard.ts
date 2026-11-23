@@ -118,6 +118,8 @@ export const STAFF_ONLY: Record<string, string> = {
   fin_configuracoes: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
   fin_categorias: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
   fin_lancamentos: 'Plano 20 (F-D1): financeiro do consultório — só a nutricionista; o titular recebe o que é dele pela exportação (inclusão explícita)',
+  anamnesis_templates: 'Plano 27 (QP-D25): modelos de anamnese e de questionário e a configuração do envio automático — o paciente recebe as perguntas pela cópia no envio',
+  metas_modelos: 'Plano 27: biblioteca de metas — o paciente recebe a cópia em metas_paciente',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
@@ -206,6 +208,8 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   ia_nutri_mensagens: { comandos: ['update'], motivo: 'Plano 15 (US-172, US-174): o paciente avalia a resposta e encaminha a própria pergunta — só essas colunas, de nulo para valor (gatilho ia_nutri_mensagens_regras, 0116); INSERT só por app_ia_nutri_perguntar (0117)' },
   ia_nutri_consentimentos: { comandos: ['insert'], motivo: 'Plano 15 (RN-171, US-171): o paciente dá o próprio consentimento da IA Nutri no app (paciente_consentimento_proprio, 0116); a revogação só por app_ia_nutri_revogar; UPDATE, DELETE e TRUNCATE revogados' },
   lembretes_rotina: { comandos: ['update'], motivo: 'Plano 17 (§5.3): o paciente desliga e religa o próprio lembrete — só desligado_pelo_paciente_em, com o relógio do banco (gatilho lembretes_rotina_regras, 0119); não cria, não edita a configuração nem apaga' },
+  questionario_envios: { comandos: ['update'], motivo: 'Plano 27 (RN-529): o paciente responde o próprio questionário uma vez, no app ou pelo link do e-mail (paciente sem login) — só enviado → respondido, antes de expira_em (gatilho questionario_envios_regras)' },
+  metas_registros: { comandos: ['insert', 'update'], motivo: 'Plano 27 (RN-547): o paciente com login registra a própria meta de hoje ou de ontem — só cumprida muda; sem DELETE (gatilho metas_registros_regras)' },
 };
 
 /** B-5 (P06-12): o texto que o Postgres guarda da negação de app_deny_paciente_escrita, sem espaços e parênteses. */

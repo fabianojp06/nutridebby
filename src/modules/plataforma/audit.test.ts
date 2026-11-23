@@ -275,3 +275,67 @@ describe('Plano 15 (RN-183) — a IA Nutri no Histórico de acessos', () => {
     expect(h.total).toBe(h.itens.length); // a contagem também esconde
   });
 });
+
+describe('Plano 27 (QP-D36) — questionário, recordatório e metas no Histórico de acessos', () => {
+  it('rótulos: "Enviou questionário", "Respondeu questionário", "Registrou meta"; as entidades novas', () => {
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'questionario' })).toBe('Enviou questionário');
+    expect(rotuloDaAcao({ acao: 'alterar', entidade: 'questionario' })).toBe('Alterou');
+    expect(rotuloDaAcao({ acao: 'ler', entidade: 'questionario' })).toBe('Visualizou');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'questionario_resposta' })).toBe('Respondeu questionário');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'metas_registro' })).toBe('Registrou meta');
+    expect(rotuloDaAcao({ acao: 'alterar', entidade: 'metas_registro' })).toBe('Registrou meta');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'metas' })).toBe('Criou');
+    expect(rotuloDaAcao({ acao: 'alterar', entidade: 'recordatorio' })).toBe('Alterou');
+    expect(ENTIDADE_ROTULO.questionario).toBe('Questionário pré-consulta');
+    expect(ENTIDADE_ROTULO.questionario_resposta).toBe('Questionário pré-consulta');
+    expect(ENTIDADE_ROTULO.recordatorio).toBe('Recordatório alimentar');
+    expect(ENTIDADE_ROTULO.metas).toBe('Metas');
+    expect(ENTIDADE_ROTULO.metas_registro).toBe('Metas');
+    // os itens do recordatório ficam só no audit_log (fora do Histórico): sem rótulo
+    expect(ENTIDADE_ROTULO.recordatorio_item).toBeUndefined();
+  });
+
+  it('o Histórico esconde o alterar de questionario sem ator e o do mesmo ator e envio de uma resposta, e os itens do recordatório; mostra o da nutricionista', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const worker: TenantContext = { tenantId: T.tenantId, role: 'worker' };
+    const ctxP: TenantContext = { tenantId: T.tenantId, role: 'paciente', patientId: p.id, actorUserId: randomUUID() };
+    const [e1, e2, e3, r] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    const grava = (ctx: TenantContext, acao: 'criar' | 'alterar' | 'excluir', entidade: string, entidadeId: string) =>
+      withTenant(ctx, (tx) => recordAudit(tx, { acao, entidade, entidadeId, patientId: p.id }), app.db);
+    await grava(T.ctx, 'criar', 'questionario', e1); // a nutricionista enviou (gatilho)
+    await grava(worker, 'criar', 'questionario', e2); // envio automático (ator nulo)
+    await grava(T.ctx, 'criar', 'questionario', e3);
+    // resposta pelo app: o gatilho grava o alterar com o ator do paciente; o módulo, o criar de questionario_resposta
+    await grava(ctxP, 'alterar', 'questionario', e1);
+    await grava(ctxP, 'criar', 'questionario_resposta', e1);
+    // o mesmo paciente num envio sem resposta: o alterar aparece (o critério é o envio, não o ator)
+    await grava(ctxP, 'alterar', 'questionario', e3);
+    // resposta pelo link: ator nulo nos dois
+    await grava(worker, 'alterar', 'questionario', e2);
+    await grava(worker, 'criar', 'questionario_resposta', e2);
+    // a nutricionista copia para a anamnese (alterar com ator, sem resposta dela): aparece
+    await grava(T.ctx, 'alterar', 'questionario', e1);
+    // recordatório: a mãe aparece; o item, nunca
+    await grava(T.ctx, 'criar', 'recordatorio', r);
+    await grava(T.ctx, 'criar', 'recordatorio_item', randomUUID());
+    await grava(T.ctx, 'excluir', 'recordatorio_item', randomUUID());
+
+    const h = await listAccessHistory(T.ctx, p.id, 1, app.db);
+    const doPlano27 = h.itens.filter((i) => i.entidade !== 'patients'); // o criar do paciente (novoPaciente) fica de fora
+    expect(doPlano27.map((i) => [rotuloDaAcao(i), i.entidade, i.entidadeId, i.ator ? 'ator' : 'Sistema'])).toEqual([
+      ['Criou', 'recordatorio', r, 'ator'],
+      ['Alterou', 'questionario', e1, 'ator'],
+      ['Respondeu questionário', 'questionario_resposta', e2, 'Sistema'],
+      ['Alterou', 'questionario', e3, 'ator'],
+      ['Respondeu questionário', 'questionario_resposta', e1, 'ator'],
+      ['Enviou questionário', 'questionario', e3, 'ator'],
+      ['Enviou questionário', 'questionario', e2, 'Sistema'],
+      ['Enviou questionário', 'questionario', e1, 'ator'],
+    ]);
+    expect(h.total).toBe(h.itens.length); // a contagem também esconde
+    // o audit_log guarda tudo
+    const brutos = await withTenant(worker, (tx) => tx.execute(sql`select count(*)::int as n from audit_log where patient_id = ${p.id}`), app.db);
+    expect(brutos.rows[0].n).toBe(13);
+  });
+});

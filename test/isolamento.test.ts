@@ -182,6 +182,29 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
         select ${t}, 'entrada', c.id, 100, '2026-11-10', ${p}, coalesce(app_current_user(), gen_random_uuid()) from c`,
   // Plano 18: cpf nulo (com CPF fixo, a fábrica de P1 e P2 cairia em patient_cadastro_cpf_unico)
   patient_cadastro: (t, p) => sql`insert into patient_cadastro (tenant_id, patient_id, estado_civil) values (${t}, ${p}, 'casado')`,
+  // Plano 27 (spec §9.2–§9.4), P27-01a: as fábricas rodam como `nutri` (os gatilhos e o PAPEL_DA_FABRICA 'dono' de
+  // metas_registros chegam na T1b/T1c). Envio legal da nutricionista, sem modelo e sem consulta (FKs anuláveis: fora de COM_MAE)
+  questionario_envios: (t, p) =>
+    sql`insert into questionario_envios (tenant_id, patient_id, modelo_snapshot, origem, enviado_por, expira_em)
+        values (${t}, ${p}, '{"nome":"Iso","perguntas":[]}', 'nutri', coalesce(app_current_user(), gen_random_uuid()), now() + interval '14 days')`,
+  recordatorios: (t, p) =>
+    sql`insert into recordatorios (tenant_id, patient_id, dia_relatado, criado_por) values (${t}, ${p}, '2026-01-01', coalesce(app_current_user(), gen_random_uuid()))`,
+  // a mãe no mesmo comando (COM_MAE): o item sem cadastro (só a descrição)
+  recordatorio_itens: (t, p) =>
+    sql`with r as (insert into recordatorios (tenant_id, patient_id, dia_relatado, criado_por)
+                   values (${t}, ${p}, '2026-01-01', coalesce(app_current_user(), gen_random_uuid())) returning id)
+        insert into recordatorio_itens (id, tenant_id, patient_id, recordatorio_id, refeicao, descricao, ordem)
+        select gen_random_uuid(), ${t}, ${p}, r.id, 'Almoço', 'Iso', 0 from r`,
+  // título único por consultório entre os não arquivados: um por chamada (a fábrica roda duas vezes por tenant)
+  metas_modelos: (t) => sql`insert into metas_modelos (tenant_id, titulo, categoria) values (${t}, 'Iso ' || gen_random_uuid()::text, 'agua')`,
+  metas_paciente: (t, p) =>
+    sql`insert into metas_paciente (tenant_id, patient_id, titulo, categoria, inicio, criado_por)
+        values (${t}, ${p}, 'Iso', 'agua', current_date - 1, coalesce(app_current_user(), gen_random_uuid()))`,
+  // a meta no mesmo comando (COM_MAE: o paciente não insere meta); um registro por meta e dia
+  metas_registros: (t, p) =>
+    sql`with m as (insert into metas_paciente (tenant_id, patient_id, titulo, categoria, inicio, criado_por)
+                   values (${t}, ${p}, 'Iso', 'agua', current_date - 1, coalesce(app_current_user(), gen_random_uuid())) returning id)
+        insert into metas_registros (tenant_id, patient_id, meta_id, dia, cumprida) select ${t}, ${p}, m.id, current_date, true from m`,
 };
 /** Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). */
 const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker' };
@@ -198,14 +221,16 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autoriza
  * recusa o DELETE fora do worker (e, no worker, sem o titular anonimizado).
  */
 // Plano 20: fin_lancamentos (cancela-se, nunca se apaga) e fin_configuracoes (a linha do consultório) — DELETE revogado (0123)
-const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro']);
+// Plano 27: questionario_envios, recordatorios, metas_paciente e metas_registros — DELETE revogado (prontuário: nada se apaga)
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro', 'questionario_envios', 'recordatorios', 'metas_paciente', 'metas_registros']);
 /**
  * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
  * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
  */
 // Plano 14B: ia_geracoes_modelos também tem DELETE/TRUNCATE revogados (0112).
 // Plano 20: fin_lancamentos e fin_configuracoes também (0123).
-const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancamentos', 'fin_configuracoes']);
+// Plano 27: questionario_envios, recordatorios, metas_paciente e metas_registros também.
+const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancamentos', 'fin_configuracoes', 'questionario_envios', 'recordatorios', 'metas_paciente', 'metas_registros']);
 /**
  * D19 (Plano 10A): os gatilhos de imutabilidade (0091, T2) — app_documento_imutavel, o das notas e app_codigo_acesso_regras
  * (colunas do código do link, R1 do pre-flight) — recusam mudar tenant_id/patient_id com 42501 ANTES do WITH CHECK da RLS
@@ -249,7 +274,11 @@ const SO_APAGA: Record<string, SQL> = {
                 and not exists (select 1 from ia_nutri_mensagens x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
                 and not exists (select 1 from ia_nutri_consentimentos x where x.tenant_id = patients.tenant_id and x.patient_id = patients.id)
                 and not exists (select 1 from fin_lancamentos f where f.tenant_id = patients.tenant_id and f.patient_id = patients.id)
-                and not exists (select 1 from patient_cadastro c where c.tenant_id = patients.tenant_id and c.patient_id = patients.id)`,
+                and not exists (select 1 from patient_cadastro c where c.tenant_id = patients.tenant_id and c.patient_id = patients.id)
+                and not exists (select 1 from questionario_envios q where q.tenant_id = patients.tenant_id and q.patient_id = patients.id)
+                and not exists (select 1 from recordatorios r where r.tenant_id = patients.tenant_id and r.patient_id = patients.id)
+                and not exists (select 1 from metas_paciente m where m.tenant_id = patients.tenant_id and m.patient_id = patients.id)
+                and not exists (select 1 from metas_registros m where m.tenant_id = patients.tenant_id and m.patient_id = patients.id)`,
   // Plano 20: a categoria com lançamento não se apaga (FK NO ACTION de fin_lancamentos, que está em SEM_DELETE) e "Consultas"
   // (chave preenchida) nunca (gatilho fin_categorias_fixas)
   fin_categorias: sql`chave is null and not exists (select 1 from fin_lancamentos f where f.tenant_id = fin_categorias.tenant_id and f.categoria_id = fin_categorias.id)`,
@@ -330,8 +359,11 @@ afterAll(async () => {
 
 /** Coluna do titular por tabela: em `patients` é o próprio `id` (app_enable_patient_rls('patients', 'id')). */
 const COLUNA_TITULAR: Record<string, string> = { patients: 'id' };
-/** O paciente nunca é apagado (arquiva, bloqueia, anonimiza), e as filhas `staff_only`, invisíveis para P2, seguram a FK. */
-const SEM_DELETE_DO_PACIENTE = new Set(['patients']);
+/**
+ * O paciente nunca é apagado (arquiva, bloqueia, anonimiza), e as filhas `staff_only`, invisíveis para P2, seguram a FK.
+ * Plano 27: o paciente lê estas tabelas, e o DELETE dele dá "permission denied" (REVOKE) em vez de 0 linhas.
+ */
+const SEM_DELETE_DO_PACIENTE = new Set(['patients', 'questionario_envios', 'recordatorios', 'metas_paciente', 'metas_registros']);
 
 const colunaTitular = async (t: string): Promise<string | null> => {
   if (COLUNA_TITULAR[t]) return COLUNA_TITULAR[t];
@@ -374,6 +406,10 @@ const COM_MAE = new Set([
   // Plano 20: escolha registrada na spec §9.5 — a recusa dos negativos de INSERT vem da política de fin_categorias; a prova
   // da política da própria fin_lancamentos está em src/modules/financeiro/banco.test.ts
   'fin_lancamentos',
+  // Plano 27: a mãe (recordatorios, metas_paciente) é obrigatória; a prova da política da própria tabela está em
+  // src/modules/{recordatorio,metas}/banco.test.ts
+  'recordatorio_itens',
+  'metas_registros',
 ]);
 /** violaRls, e a recusa veio da política da própria tabela `t` (não da mãe criada no CTE da fábrica). */
 const violaRlsDe = (t: string) => (e: unknown) => {

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, customType, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, customType, date, foreignKey, index, integer, jsonb, numeric, pgTable, smallint, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { user } from './auth';
 import { storedFiles, tenants } from './platform';
 import type { ModeloSchema, Resposta, SnapshotModelo } from '@/modules/pacientes/anamnese-tipos';
@@ -242,7 +242,16 @@ export const energyCalcs = pgTable(
 
 export type EnergyCalcRow = typeof energyCalcs.$inferSelect;
 
-/** US-012. "Excluir" = arquivar (as anamneses preenchidas guardam o snapshot). Um só modelo padrão por tenant. */
+/** Plano 27 (spec §9.1): o modelo serve à anamnese (a nutricionista preenche) ou ao questionário pré-consulta (o paciente). */
+export const FINALIDADES_MODELO = ['anamnese', 'questionario'] as const;
+export type FinalidadeModelo = (typeof FINALIDADES_MODELO)[number];
+export const ENVIOS_AUTOMATICOS = ['primeira', 'todas'] as const;
+export type EnvioAutomatico = (typeof ENVIOS_AUTOMATICOS)[number];
+
+/**
+ * US-012. "Excluir" = arquivar (as anamneses preenchidas guardam o snapshot). Um só modelo padrão por tenant e finalidade
+ * (Plano 27). STAFF_ONLY desde o Plano 27 (QP-D25): o paciente recebe as perguntas pela cópia em questionario_envios.
+ */
 export const anamnesisTemplates = pgTable(
   'anamnesis_templates',
   {
@@ -265,14 +274,33 @@ export const anamnesisTemplates = pgTable(
     aprovadoPor: uuid('aprovado_por'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Plano 27 (spec §9.1): default permanente — a imagem anterior (boot e volta atrás) grava sem a coluna e continua
+     * criando modelo de anamnese.
+     */
+    finalidade: text('finalidade').$type<FinalidadeModelo>().notNull().default('anamnese'),
+    /** Plano 27 (RN-533): envio automático do questionário antes da consulta (um modelo por tenant). */
+    envioAuto: text('envio_auto').$type<EnvioAutomatico>(),
+    /** Dias antes da consulta (1 a 7). */
+    envioAutoDias: smallint('envio_auto_dias'),
   },
   (t) => [
     unique('anamnesis_templates_tenant_id_unique').on(t.tenantId, t.id),
-    uniqueIndex('anamnesis_templates_padrao_idx').on(t.tenantId).where(sql`${t.padrao}`),
+    uniqueIndex('anamnesis_templates_padrao_idx').on(t.tenantId, t.finalidade).where(sql`${t.padrao}`),
     check('anamnesis_templates_nome_tamanho', sql`char_length(${t.nome}) between 1 and 80`),
     check('anamnesis_templates_aprovacao_coerente', sql`(${t.aprovadoEm} is null) = (${t.aprovadoPor} is null) and (${t.aprovadoEm} is null or ${t.iaGeracaoId} is not null)`),
     // RN-125: o modelo de anamnese sugerido e não aprovado nunca é o padrão (defesa: o código não tem "tornar padrão", desvio 9)
     check('anamnesis_templates_padrao_aprovado', sql`not ${t.padrao} or ${t.iaGeracaoId} is null or ${t.aprovadoEm} is not null`),
+    // Plano 27 (spec §9.1)
+    check('anamnesis_templates_finalidade_valida', sql`${t.finalidade} in ('anamnese', 'questionario')`),
+    check('anamnesis_templates_envio_auto_valido', sql`${t.envioAuto} in ('primeira', 'todas')`),
+    check('anamnesis_templates_envio_auto_dias_faixa', sql`${t.envioAutoDias} between 1 and 7`),
+    check(
+      'anamnesis_templates_envio_auto_coerente',
+      sql`(${t.envioAuto} is null) = (${t.envioAutoDias} is null) and (${t.envioAuto} is null or (${t.finalidade} = 'questionario' and ${t.arquivadoEm} is null))`,
+    ),
+    check('anamnesis_templates_questionario_sem_ia', sql`${t.finalidade} = 'anamnese' or ${t.iaGeracaoId} is null`),
+    uniqueIndex('anamnesis_templates_envio_auto_idx').on(t.tenantId).where(sql`${t.envioAuto} is not null`),
   ],
 );
 
@@ -293,6 +321,8 @@ export const anamneses = pgTable(
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'anamneses_paciente_fk' }),
     foreignKey({ columns: [t.tenantId, t.templateId], foreignColumns: [anamnesisTemplates.tenantId, anamnesisTemplates.id], name: 'anamneses_modelo_fk' }),
     index('anamneses_paciente_idx').on(t.tenantId, t.patientId, t.data),
+    // Plano 27 (spec §9.2): alvo da FK composta questionario_envios → anamneses (mesmo tenant e mesmo paciente)
+    unique('anamneses_tenant_paciente_id_unique').on(t.tenantId, t.patientId, t.id),
   ],
 );
 

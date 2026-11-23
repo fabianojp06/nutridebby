@@ -79,6 +79,14 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   // Plano 20 (RN-319): escritas de fin_lancamentos (gatilho), leituras de um paciente (RN-318) e o CSV (RN-321). A entidade
   // `financeiro_configuracoes` (RN-320) não tem paciente e fica fora do Histórico do paciente: sem rótulo
   financeiro: 'Financeiro',
+  // Plano 27 (QP-D36): o envio (gatilho de questionario_envios) e a resposta (recordAudit do módulo, nos dois canais) com o
+  // mesmo rótulo; o recordatório (a mãe; os itens, `recordatorio_item`, ficam sem rótulo e fora do Histórico); as metas
+  // (metas_paciente e as leituras) e o registro diário do paciente (metas_registros)
+  questionario: 'Questionário pré-consulta',
+  questionario_resposta: 'Questionário pré-consulta',
+  recordatorio: 'Recordatório alimentar',
+  metas: 'Metas',
+  metas_registro: 'Metas',
 };
 
 export type AccessHistoryItem = {
@@ -127,6 +135,11 @@ export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade' | 't
   // alterar o cadastro — evita dois "Criou" ao criar o paciente e o "Criou" no primeiro preenchimento de um paciente antigo.
   // O `excluir` da anonimização continua "Excluiu".
   if (i.entidade === 'patients' && i.acao === 'criar' && i.patientId !== undefined && i.entidadeId !== i.patientId) return ACAO_ROTULO.alterar;
+  // Plano 27 (QP-D36): o `criar` do gatilho de questionario_envios é o envio (ator nulo = automático); a resposta é o `criar`
+  // de questionario_resposta, gravado pelo módulo; o registro diário da meta, criado ou trocado, é sempre "Registrou meta"
+  if (i.entidade === 'questionario' && i.acao === 'criar') return 'Enviou questionário';
+  if (i.entidade === 'questionario_resposta' && i.acao === 'criar') return 'Respondeu questionário';
+  if (i.entidade === 'metas_registro' && (i.acao === 'criar' || i.acao === 'alterar')) return 'Registrou meta';
   return ACAO_ROTULO[i.acao];
 }
 
@@ -146,6 +159,12 @@ export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade' | 't
  * máximo, 1 minuto depois do registrado_em (que vem do gatilho, clock_timestamp). Com SQL arbitrário, uma linha forjada
  * esconde no máximo os `alterar` do próprio ator nesse minuto; se uma revogação de verdade passar disso, sobram "Alterou"
  * na tela (falha para o lado de mostrar).
+ * Plano 27 (QP-D36, spec §9.2 e §9.3): também ficam no audit_log e fora da tela os itens do recordatório
+ * (`recordatorio_item`: o Histórico mostra um "Criou"/"Alterou" da mãe por salvamento, nunca um "Excluiu" por item removido),
+ * o `alterar` de `questionario` com ator nulo (worker e resposta pelo link) e o `alterar` de `questionario` com o mesmo ator
+ * e o mesmo `entidade_id` de um `criar` de `questionario_resposta` (a resposta pelo app, que o gatilho também grava). Há uma
+ * resposta por envio (só enviado → respondido, uma vez), então o critério é exato, sem janela de tempo; o `alterar` da
+ * nutricionista (cancelar, copiar para a anamnese) continua visível.
  */
 const visivelNoHistorico = (patientId: string) =>
   sql`${auditLog.patientId} = ${patientId}
@@ -157,7 +176,13 @@ const visivelNoHistorico = (patientId: string) =>
          where r.patient_id = ${auditLog.patientId} and r.entidade = 'ia_nutri_revogacao' and r.acao = 'criar'
            and r.actor_user_id = ${auditLog.actorUserId}
            and c.evento = 'revogacao' and (c.registrado_por = r.actor_user_id or c.registrado_por is null)
-           and ${auditLog.criadoEm} between c.registrado_em and least(r.criado_em, c.registrado_em + interval '1 minute')))`;
+           and ${auditLog.criadoEm} between c.registrado_em and least(r.criado_em, c.registrado_em + interval '1 minute')))
+      and not (${auditLog.entidade} = 'recordatorio_item')
+      and not (${auditLog.entidade} = 'questionario' and ${auditLog.acao} = 'alterar' and ${auditLog.actorUserId} is null)
+      and not (${auditLog.entidade} = 'questionario' and ${auditLog.acao} = 'alterar' and exists (
+        select 1 from audit_log r
+         where r.patient_id = ${auditLog.patientId} and r.entidade = 'questionario_resposta' and r.acao = 'criar'
+           and r.entidade_id = ${auditLog.entidadeId} and r.actor_user_id is not distinct from ${auditLog.actorUserId}))`;
 
 export type AccessHistoryPage = { itens: AccessHistoryItem[]; pagina: number; totalPaginas: number; total: number };
 
