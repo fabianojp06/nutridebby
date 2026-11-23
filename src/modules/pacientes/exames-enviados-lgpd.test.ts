@@ -1,11 +1,12 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { arquivoDeEnvio, envioNoBanco, envioRecebido } from '../../../test/exames-enviados';
+import { varreduraSo } from '../../../test/varredura';
 import { closeDb } from '@/db/client';
 import { examSubmissionFiles, examSubmissions, exams, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -13,6 +14,12 @@ import { stopBoss } from '@/jobs/boss';
 import { resolverCaminho } from '@/modules/plataforma/armazenamento';
 import { montarDados } from './exportacao-job';
 import { anexosDoPaciente, anonimizarVencidos, apagarEnviosDoTitular, concluirExclusaoAtendida } from './lgpd';
+
+// SUS-105: a anonimização passa só pelo tenant do próprio teste (varreduraSo; implementação real por baixo)
+vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/tenant-status')>();
+  return { ...real, listarTenantsParaVarredura: vi.fn(real.listarTenantsParaVarredura) };
+});
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-envio-lgpd-'));
@@ -78,7 +85,8 @@ describe('LGPD e os exames enviados (spec C v0.3 §13.3)', () => {
   it('anonimização (fim do prazo): nenhuma linha de envio sobra, nem a do aceito; nenhum arquivo de envio', async () => {
     const t = await titularComEnvios();
     await bloquear(t.T, t.p.id, '2020-01-01');
-    await anonimizarVencidos(app.db, new Date(), { dataDir });
+    varreduraSo(t.T);
+    expect(await anonimizarVencidos(app.db, new Date(), { dataDir })).toEqual({ anonimizados: 1 });
     const [p] = await withTenant(t.T.ctx, (tx) => tx.select({ anonimizadoEm: patients.anonimizadoEm }).from(patients).where(eq(patients.id, t.p.id)), app.db);
     expect(p.anonimizadoEm).toBeInstanceOf(Date);
     expect(await t.envios()).toEqual([]);

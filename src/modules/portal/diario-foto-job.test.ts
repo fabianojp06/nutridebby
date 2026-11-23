@@ -2,10 +2,11 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
-import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
+import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { varreduraSo } from '../../../test/varredura';
 import { closeDb } from '@/db/client';
 import { diaryEntries, patients, storedFiles, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -14,6 +15,12 @@ import { COTA_BYTES, resolverCaminho, salvarArquivo } from '@/modules/plataforma
 import { registrarNoDiario } from './diario';
 import { semDetalhe } from '@/worker/sem-detalhe';
 import { converterFotoDoDiario, expirarFotosPendentes, fotoParaJpeg, FotoInvalidaError, MAX_PIXELS } from './diario-foto-job';
+
+// SUS-105: a varredura expirar-diario-foto passa só pelos tenants do próprio teste (varreduraSo; implementação real por baixo)
+vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/tenant-status')>();
+  return { ...real, listarTenantsParaVarredura: vi.fn(real.listarTenantsParaVarredura) };
+});
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -252,10 +259,13 @@ describe('conversão da foto do diário (RN-07)', () => {
   });
 
   describe('varredura expirar-diario-foto (registro parado com o original)', () => {
-    // datas de 2000 só aqui: a varredura cruza todos os tenants do banco de teste e não pode mexer nos registros de outros testes
+    // datas fixas (o prazo de 30 min conta delas); a varredura passa só pelos tenants do teste (varreduraSo)
     const parado = (id: string, quando = '2000-01-01T00:00:00Z') => owner.pool.query(`update diary_entries set updated_at = $2 where id = $1`, [id, quando]);
     const usado = async (tenantId: string) => (await app.db.select().from(tenants).where(eq(tenants.id, tenantId)))[0].armazenamentoBytes;
-    const varrer = async (quando: string) => expirarFotosPendentes({ db: app.db, dataDir, boss: await getBoss() }, new Date(quando));
+    const varrer = async (quando: string, ...ts: TenantDeTeste[]) => {
+      varreduraSo(...ts);
+      return expirarFotosPendentes({ db: app.db, dataDir, boss: await getBoss() }, new Date(quando));
+    };
 
     it('"processando" sem job vivo há mais de 30 min → "falhou", original fora do disco, de stored_files e da cota; com job na fila espera; recente fica', async () => {
       const r = await registro(await fotoComExif());
@@ -266,7 +276,7 @@ describe('conversão da foto do diário (RN-07)', () => {
       const usadoAntes = await usado(r.T.tenantId);
 
       // O job do envio ainda está na fila (worker parado, voltando agora): a varredura não mexe
-      expect(await varrer('2000-01-01T01:00:00Z')).toEqual({ descartadas: 0, originais: 0 });
+      expect(await varrer('2000-01-01T01:00:00Z', r.T, recente.T)).toEqual({ descartadas: 0, originais: 0 });
       expect(await r.ler()).toMatchObject({ fotoStatus: 'processando', fotoOriginalPath });
 
       // O job acabou sem terminar (expirou na última tentativa): sem job vivo, o registro é descartado
@@ -275,14 +285,14 @@ describe('conversão da foto do diário (RN-07)', () => {
       await boss.cancel('diario-foto', job.id);
       const [jobRecente] = await boss.findJobs('diario-foto', { data: { entryId: recente.id } });
       await boss.cancel('diario-foto', jobRecente.id);
-      expect(await varrer('2000-01-01T01:00:00Z')).toEqual({ descartadas: 1, originais: 0 });
+      expect(await varrer('2000-01-01T01:00:00Z', r.T, recente.T)).toEqual({ descartadas: 1, originais: 0 });
       expect(await r.ler()).toMatchObject({ fotoStatus: 'falhou', fotoOriginalPath: null, fotoPath: null });
       expect(existsSync(resolverCaminho(dataDir, fotoOriginalPath!))).toBe(false);
       const sobra = await withTenant(r.T.ctx, (tx) => tx.select().from(storedFiles).where(eq(storedFiles.caminho, fotoOriginalPath!)), app.db);
       expect(sobra).toEqual([]);
       expect(await usado(r.T.tenantId)).toBeLessThan(usadoAntes);
       expect(await recente.ler()).toMatchObject({ fotoStatus: 'processando' }); // 15 min: ainda dentro do prazo
-      expect(await varrer('2000-01-01T01:00:00Z')).toEqual({ descartadas: 0, originais: 0 }); // idempotente
+      expect(await varrer('2000-01-01T01:00:00Z', r.T, recente.T)).toEqual({ descartadas: 0, originais: 0 }); // idempotente
     });
 
     it('"pronta" que ainda aponta para o original há mais de 30 min → só apaga o original e solta o ponteiro', async () => {
@@ -293,7 +303,7 @@ describe('conversão da foto do diário (RN-07)', () => {
       await withTenant(r.T.ctx, (tx) => tx.update(diaryEntries).set({ fotoStatus: 'pronta', fotoPath: jpeg.caminho }).where(eq(diaryEntries.id, r.id)), app.db);
       await parado(r.id);
       const usadoAntes = await usado(r.T.tenantId);
-      expect(await varrer('2000-01-01T01:00:00Z')).toEqual({ descartadas: 0, originais: 1 });
+      expect(await varrer('2000-01-01T01:00:00Z', r.T)).toEqual({ descartadas: 0, originais: 1 });
       expect(await r.ler()).toMatchObject({ fotoStatus: 'pronta', fotoOriginalPath: null, fotoPath: jpeg.caminho });
       expect(existsSync(resolverCaminho(dataDir, fotoOriginalPath!))).toBe(false);
       expect(existsSync(resolverCaminho(dataDir, jpeg.caminho))).toBe(true);

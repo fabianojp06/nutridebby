@@ -1,11 +1,18 @@
-import { afterAll, describe, expect, inject, it } from 'vitest';
+import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
+import { varreduraSo } from '../../../test/varredura';
 import { accessEvents } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { hojeNoFuso, somarDias } from '@/modules/pacientes/datas';
 import { jaUsavaOApp, limparAcessosAntigos, registrarAcesso } from './acesso';
+
+// SUS-105: a retenção passa só pelo tenant do próprio teste (varreduraSo; implementação real por baixo)
+vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/tenant-status')>();
+  return { ...real, listarTenantsParaVarredura: vi.fn(real.listarTenantsParaVarredura) };
+});
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -45,7 +52,8 @@ describe('retenção de access_events (D13)', () => {
         ]),
       app.db,
     );
-    expect(await limparAcessosAntigos(app.db, agora)).toBeGreaterThanOrEqual(1);
+    varreduraSo(T);
+    expect(await limparAcessosAntigos(app.db, agora)).toBe(1);
     const dias = await withTenant(T.ctx, (tx) => tx.select({ dia: accessEvents.dia }).from(accessEvents).where(eq(accessEvents.patientId, p.id)), app.db);
     expect(dias.map((d) => d.dia).sort()).toEqual([somarDias(hoje, -400), somarDias(hoje, -399)]);
   });
