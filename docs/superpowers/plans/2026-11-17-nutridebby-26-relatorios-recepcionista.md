@@ -298,7 +298,7 @@ export async function relatorioRanking(ctx, tenant, p, o: { localId; por: 'consu
   - Reinício do 2FA (§3): `reiniciarPeloAdmin` numa conta `recepcao` grava `admin_actions.alvo_papel = 'recepcao'` e a próxima entrada dela cai em `setup-2fa`.
 - [ ] **Step 2:** `pnpm vitest run src/lib/session-rules.test.ts src/lib/tenant-session.test.ts src/lib/auth.test.ts src/app/painel/rotas-da-recepcao.test.ts src/app/papeis-fora-do-painel.test.ts src/app/painel/cabecalho.test.ts src/app/painel/sem-permissao src/app/conta src/app/inicio src/app/api/sessao src/modules/plataforma/reiniciar-2fa.test.ts src/modules/ajuda/conteudo.test.ts src/app/painel/rotas-axe.test.ts` → FAIL.
 - [ ] **Step 3:** implementar.
-- [ ] **Step 4:** mesmo comando → PASS; `e2e/recepcao.spec.ts` (primeiro bloco): `E2E_RECEPCAO` entra pelo login e pelo 2FA e **chega ao Início dela** (passando por `/inicio`, sem laço nem `/conta/outro-papel`), e `/painel/pacientes/{id}/antropometria` leva a "Sem permissão" sem gravar `audit_log`; `e2e/sessao-equipe.spec.ts` com a recepção (prazos e o aviso de 2 minutos antes de expirar, com o "Continuar conectada" renovando).
+- [ ] **Step 4:** mesmo comando → PASS; `e2e/recepcao.spec.ts` (primeiro bloco): `E2E_RECEPCAO` entra pelo login e pelo 2FA e **chega ao Início dela** (passando por `/inicio`, sem laço nem `/conta/outro-papel`), e `/painel/pacientes/{id}/antropometria` leva a "Sem permissão" sem gravar `audit_log`; `e2e/sessao-equipe.spec.ts` com a recepção (prazos e o aviso de 2 minutos antes de expirar, com o "Continuar na sessão" renovando).
 - [ ] **Step 5:** commit `feat(sessao): papel recepcao na entrada e nas rotas (P26-06)`.
 
 **Pronto quando:** testes verdes; revisão do `revisor-rls` (rotas, sessão) e do `revisor-interface` (páginas de aviso, Segurança) sem Critical/Important.
@@ -547,3 +547,11 @@ RE-D1 a RE-D48 e RE-D59 a RE-D69 (spec §14), todas. As que mudam a forma das ta
 | RE-D56 | **Funções `SECURITY DEFINER` da RN-510 testadas num `describe` no fim de `src/db/migrate-owner.test.ts`** | É o único cluster com dono `NOBYPASSRLS`, como em produção (molde AG-D54 do 23) |
 | RE-D57 | **Tipos de notificação com decisão obrigatória**: `TIPOS_DA_AGENDA` + `TIPOS_FORA_DA_RECEPCAO` cobrem o CHECK inteiro | Tipo novo do 23 ou do 25 sem decisão quebra o teste em vez de ficar calado fora ou dentro |
 | RE-D58 | **`exigirEquipe` em `src/modules/agenda/papel.ts`** com a lista `FUNCOES_DA_RECEPCAO` e teste de fonte | A troca de `ctx.role === 'nutri'` fica num lugar só, revisável, e as funções fora da lista continuam só da nutricionista |
+
+### Decisões da orquestradora durante a execução (23/11/2026)
+
+| ID | Decisão | Porquê |
+|---|---|---|
+| RE-D70 | **"Continuar na sessão"** no aviso de inatividade, para toda a equipe (nutricionista e recepção), no lugar de "Continuar conectada" | Um texto só e neutro em gênero, como a spec pede para a recepção; evita duas versões do mesmo aviso |
+| RE-D71 | **Portão do PR 2:** o PR 2 não abre sem `app_cpf_em_uso` (função booleana `SECURITY DEFINER`, bloco 5 da T5b) e sem o uso dela em `conferirCpf` na sessão da recepção (adiantado da T9), com teste de que o CPF repetido — inclusive de paciente bloqueado — não chega ao 23505 | A condição de paciente visível esconde da recepção o cadastro do bloqueado; sem a função, o índice único recusa e o CPF vai ao log do Postgres (regras 2 e 3 do `CLAUDE.md`) |
+| RE-D72 | **O merge do PR 2 espera o OK do dono sobre o texto do termo `sigilo-equipe-1.0`** (revisado pelo `normas-cfn-lgpd`; perguntas no pacote do advogado, E-09) | Texto legal novo (C-486) |

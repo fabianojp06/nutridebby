@@ -49,7 +49,7 @@ describe('prazos da equipe (RNF-06, P12-14 — decisão do dono 07/10/2026)', ()
   });
   it('textos exatos do aviso, do botão e do login', () => {
     expect(MSG_AVISO_INATIVIDADE).toBe('Sua sessão vai encerrar em 2 minutos por falta de uso.');
-    expect(ROTULO_CONTINUAR).toBe('Continuar conectada');
+    expect(ROTULO_CONTINUAR).toBe('Continuar na sessão');
     expect(MSG_FIM_DA_SESSAO.inatividade).toBe('Sua sessão foi encerrada por falta de uso. Entre de novo.');
     expect(MSG_FIM_DA_SESSAO.limite).toBe('Sua sessão chegou ao limite de 8 horas. Entre de novo.');
   });

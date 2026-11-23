@@ -175,7 +175,7 @@ abaixo). O paciente **não muda** (30 dias, PWA).
 | `PATIENT_REFRESH_MS` | 15 min (cadência do paciente, inalterada) | 16 |
 | `PRAZOS_DA_EQUIPE` | os quatro prazos da equipe numa estrutura (`inatividadeMs`, `avisoMs`, `cadenciaMs`, `limiteMs`) | 20 |
 | `MSG_FIM_DA_SESSAO` | "Sua sessão foi encerrada por falta de uso. Entre de novo." / "Sua sessão chegou ao limite de 8 horas. Entre de novo." | 41 |
-| `MSG_AVISO_INATIVIDADE`, `ROTULO_CONTINUAR` | "Sua sessão vai encerrar em 2 minutos por falta de uso." / "Continuar conectada" | 46-47 |
+| `MSG_AVISO_INATIVIDADE`, `ROTULO_CONTINUAR` | "Sua sessão vai encerrar em 2 minutos por falta de uso." / "Continuar na sessão" | 46-47 |
 | `SECURITY_PATH` | `/conta/seguranca` | 52 |
 | `SUSPENDED_PATH` | `/indisponivel` | 54 |
 | `MSG_SESSAO_EXPIRADA` | "Sessão expirada. Entre de novo." | 56 |
@@ -224,10 +224,10 @@ O cookie de sessão da equipe é **cookie de sessão do navegador** (sem `Max-Ag
 - **Rota `/api/sessao/ativa`** (`src/app/api/sessao/ativa/route.ts`, só `admin` e `nutri`; paciente → 403): `GET` devolve `estadoDaSessao` **sem renovar** (perguntar não é uso, `lerSessaoApi`); `POST` (com `mesmaOrigem` antes da sessão) é o uso na tela: `requireApiUser` renova (mesma cadência de 5 min) e devolve o estado. Sessão ociosa, acima de 8 h ou vencida → 401 e nada é renovado.
 - **Ao abrir** a tela, o `GET` dá o relógio (prazo da inatividade e do limite, em horas do aparelho).
 - **Uso real** (`keydown`, `pointerdown`, `touchstart`, `wheel`, `scroll`, na captura da `window`): `POST` se passou a cadência desde o último (desta aba ou de outra); senão, um `POST` no fim da cadência — o último uso nunca se perde. Com o aviso aberto, só o botão renova.
-- **2 min antes** do fim por inatividade, a tela pergunta (`GET`): se o servidor confirma, abre o aviso — `<dialog>` modal nativo com `role="alertdialog"`, foco no botão (`autoFocus`), fundo inerte, `onCancel` com `preventDefault` (Esc não fecha) e `onClose` que reabre se o navegador forçar o fechamento. Texto exato: "Sua sessão vai encerrar em 2 minutos por falta de uso." e o botão "Continuar conectada" (renova pelo `POST`).
+- **2 min antes** do fim por inatividade, a tela pergunta (`GET`): se o servidor confirma, abre o aviso — `<dialog>` modal nativo com `role="alertdialog"`, foco no botão (`autoFocus`), fundo inerte, `onCancel` com `preventDefault` (Esc não fecha) e `onClose` que reabre se o navegador forçar o fechamento. Texto exato: "Sua sessão vai encerrar em 2 minutos por falta de uso." e o botão "Continuar na sessão" (renova pelo `POST`).
 - **No fim**, a tela pergunta de novo e, com 401 (ou o prazo confirmado), envia um `<form method="post" action="/sair">` escondido com `motivo` — a mesma saída do botão "Sair" (sessão apagada, cookies, `Clear-Site-Data`). O `/sair` aceita `motivo` só da lista (`inatividade`, `limite`) e vai para `/entrar?motivo=…`; qualquer outro corpo vai para `/entrar`. `/entrar` mostra "Sua sessão foi encerrada por falta de uso. Entre de novo." ou "Sua sessão chegou ao limite de 8 horas. Entre de novo.".
 - **Limite de 8 h**: não há aviso (não se renova); na hora, a saída com `motivo=limite`.
-- **Abas**: `BroadcastChannel('nd-sessao')`, com o evento `storage` como alternativa. Mensagens só com horários e o motivo (`renovada` com `prazo`, `limite` e `ping`; `encerrar` com o motivo), conferidas por `lerMensagem` — nada de dado pessoal. "Continuar conectada" numa aba fecha o aviso nas outras; a saída numa aba tira todas.
+- **Abas**: `BroadcastChannel('nd-sessao')`, com o evento `storage` como alternativa. Mensagens só com horários e o motivo (`renovada` com `prazo`, `limite` e `ping`; `encerrar` com o motivo), conferidas por `lerMensagem` — nada de dado pessoal. "Continuar na sessão" numa aba fecha o aviso nas outras; a saída numa aba tira todas.
 - **Voltar à aba** (`visibilitychange`, também depois de o computador dormir): a tela pergunta de novo.
 
 ### Consultas automáticas não são uso (revisão da Tarefa 14)

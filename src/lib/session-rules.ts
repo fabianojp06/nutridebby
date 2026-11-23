@@ -46,7 +46,7 @@ export const MSG_FIM_DA_SESSAO: Record<MotivoDoFim, string> = {
 };
 /** O aviso que a tela mostra 2 min antes (P12-14) e o botão que renova a sessão. */
 export const MSG_AVISO_INATIVIDADE = 'Sua sessão vai encerrar em 2 minutos por falta de uso.';
-export const ROTULO_CONTINUAR = 'Continuar conectada';
+export const ROTULO_CONTINUAR = 'Continuar na sessão';
 
 const ms = (d: Date | string) => new Date(d).getTime();
 const ehEquipe = (role: string | null | undefined) => role !== 'paciente';
