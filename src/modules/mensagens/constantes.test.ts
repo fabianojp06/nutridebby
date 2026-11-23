@@ -11,6 +11,7 @@ import {
   RISCO_DO_TEXTO_FIXO,
   ROTULO_FORMA_TCLE,
   SOCORRO_DO_RISCO,
+  SOCORRO_NA_RECUSA,
   TEXTOS_AVISO,
   erroDoUpload,
   rotuloDoQuando,
@@ -211,3 +212,14 @@ describe('Plano 25 v0.4 — CH-D73: nenhum texto promete prazo de leitura', () =
   });
 });
 
+
+describe('CH-D77 (revisão CFN da T7): o socorro na recusa nunca diz "enviada"', () => {
+  it('transtorno só com o trecho de perigo do texto aprovado; emergência e sintoma agudo iguais aos do envio (que não dizem "enviada")', () => {
+    expect(Object.keys(SOCORRO_NA_RECUSA).sort()).toEqual([...RISCOS_CHAT].sort());
+    expect(SOCORRO_NA_RECUSA.transtorno_alimentar).toBe('Se você sentir que está em perigo, ligue para o CVV no 188 (gratuito, 24 horas) ou para o SAMU no 192.');
+    expect(SOCORRO_DO_RISCO.transtorno_alimentar.endsWith(SOCORRO_NA_RECUSA.transtorno_alimentar)).toBe(true);
+    expect(SOCORRO_NA_RECUSA.emergencia).toBe(SOCORRO_DO_RISCO.emergencia);
+    expect(SOCORRO_NA_RECUSA.sintoma_agudo).toBe(SOCORRO_DO_RISCO.sintoma_agudo);
+    for (const t of Object.values(SOCORRO_NA_RECUSA)) expect(t).not.toMatch(/enviad/i);
+  });
+});

@@ -23,6 +23,7 @@ import {
   RENOVAR_PLANO_MS,
   saiuDoPlano,
   TEXTO_SEM_CONEXAO,
+  TEXTO_URGENCIA,
   URL_PLANO,
   urlDaNotificacao,
   VALIDADE_PLANO_MS,
@@ -255,8 +256,16 @@ describe('Plano 25 (T7): /p/mensagens fora do cache e do plano guardado', () => 
     expect(html).toMatch(/<title>Mensagens<\/title>/);
     expect(html).toMatch(/<h1>Mensagens<\/h1>/);
     expect(html).toContain(`<p role="status">${MSG_PORTAL_MENSAGENS.erros.semInternet}</p>`);
-    expect(html).toContain('<a href="/p/inicio">Voltar para Hoje</a>');
+    expect(html).toMatch(/<a href="\/p\/inicio"[^>]*>Voltar para Hoje<\/a>/);
     expect(html).not.toMatch(/<script/);
+  });
+
+  it('rodada da T7 (CFN M3, minor): a página sem rede tem o aviso de urgência (RN-450) com o 192 discável; "Voltar para Hoje" com 44 px', async () => {
+    expect(TEXTO_URGENCIA).toBe(MSG_PORTAL_MENSAGENS.avisoUrgencia);
+    const html = await paginaSemConexao().text();
+    expect(html.replace(/<[^>]+>/g, '')).toContain(MSG_PORTAL_MENSAGENS.avisoUrgencia);
+    expect(html).toMatch(/<a href="tel:192"[^>]*>192<\/a>/);
+    expect(html).toMatch(/<a href="\/p\/inicio" style="[^"]*min-height:44px[^"]*">Voltar para Hoje<\/a>/);
   });
 
   it('sw.ts: a regra da conversa vem antes da navegação do portal e responde a página do aviso; só /p/plano vai para o cache; a busca da cópia avisa o servidor (o link "Mensagens" sai sem contador)', () => {

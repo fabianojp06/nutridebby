@@ -33,13 +33,20 @@ export function ehConversaDoPortal(url: URL, modo: RequestMode, origem: string):
 
 /** §6.2 "Portal: conversa" (sem internet): o mesmo texto de MSG_PORTAL_MENSAGENS.erros.semInternet (teste de igualdade). */
 export const TEXTO_SEM_CONEXAO = 'Sem conexão. Escreva quando voltar.';
+/** RN-450: o aviso de urgência da conversa — o mesmo texto de MSG_PORTAL_MENSAGENS.avisoUrgencia (teste de igualdade). */
+export const TEXTO_URGENCIA = 'Este canal não é para urgências. Em caso de urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo.';
+
+/** Alvo de toque de 44 px sem CSS do app (a página é montada no service worker; sem Content-Security-Policy própria). */
+const ALVO_44 = 'display:inline-block;min-height:44px;line-height:44px';
 
 /**
  * RN-473 e US-443 ("Sem internet"): o que a navegação para /p/mensagens recebe sem rede — uma página mínima, montada aqui
- * (nada vem do cache), com o aviso na região de status e o "Voltar" para Hoje. Sem script e sem nenhum dado do paciente.
+ * (nada vem do cache), com o aviso na região de status, o aviso de urgência da RN-450 (o 192 discável; rodada da T7, CFN
+ * M3) e o "Voltar" para Hoje. Sem script e sem nenhum dado do paciente.
  */
 export function paginaSemConexao(): Response {
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Mensagens</title></head><body><main><h1>Mensagens</h1><p role="status">${TEXTO_SEM_CONEXAO}</p><p><a href="/p/inicio">Voltar para Hoje</a></p></main></body></html>`;
+  const urgencia = TEXTO_URGENCIA.replace(/\b192\b/, `<a href="tel:192" style="${ALVO_44}">192</a>`);
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Mensagens</title></head><body><main><h1>Mensagens</h1><p role="status">${TEXTO_SEM_CONEXAO}</p><p>${urgencia}</p><p><a href="/p/inicio" style="${ALVO_44}">Voltar para Hoje</a></p></main></body></html>`;
   return new Response(html, { status: 503, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
 }
 

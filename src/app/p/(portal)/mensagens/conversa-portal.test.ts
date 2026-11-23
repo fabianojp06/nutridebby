@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CABECALHO_CONSULTA } from '@/lib/consulta-automatica';
-import { MSG_PORTAL_MENSAGENS, SOCORRO_DO_RISCO, SITUACAO_INTERVALO_MS } from '@/modules/mensagens/constantes';
+import { MSG_PORTAL_MENSAGENS, SOCORRO_DO_RISCO, SOCORRO_NA_RECUSA, SITUACAO_INTERVALO_MS } from '@/modules/mensagens/constantes';
 
 // Plano 25, T7 (US-443, RN-452, RN-473, RNF-441): o rodapé da conversa no app — a região viva, a consulta "há novas?" e o
 // campo. Sem jsdom (os testes do projeto são `.ts`): a consulta é a função pura compartilhada com o painel, com relógio e
@@ -18,7 +18,7 @@ vi.mock('react', async (original) => {
   // o estado devolvido pela action (o rascunho de volta), sem precisar de um envio de verdade
   return { ...r, useActionState: (_acao: unknown, inicial: unknown) => [ambiente.estado ?? inicial, vi.fn(), false] };
 });
-const { CampoDoPortal, SituacaoDoPortal, textoDaRegiaoDoPortal, urlDaSituacaoDoPortal } = await import('./conversa-portal');
+const { CampoDoPortal, estadoDaFalhaDeRede, ID_AVISO_URGENCIA, SituacaoDoPortal, textoDaRegiaoDoPortal, urlDaSituacaoDoPortal } = await import('./conversa-portal');
 const { acompanharSituacao } = await import('@/components/mensagens/situacao');
 const { ProvedorDaLeitura } = await import('@/components/mensagens/leitura');
 
@@ -128,7 +128,7 @@ describe('o campo do portal (US-443, RN-473)', () => {
     ambiente.estado = { marca: 'm2', erro: P.erros.muitas, texto: 'mais uma', enviada: false, textoFixo: null };
     const h = campo();
     expect(h).toMatch(new RegExp(`<p[^>]*id="erro-mensagem"[^>]*role="alert"[^>]*>${P.erros.muitas}</p>`));
-    expect(h).toMatch(/<textarea[^>]*aria-describedby="erro-mensagem"[^>]*aria-invalid="true"[^>]*>mais uma<\/textarea>/);
+    expect(h).toMatch(/<textarea[^>]*aria-describedby="aviso-urgencia erro-mensagem"[^>]*aria-invalid="true"[^>]*>mais uma<\/textarea>/);
     ambiente.estado = null;
     expect(campo({ erroInicial: P.erros.formato })).toMatch(new RegExp(`id="erro-mensagem"[^>]*role="alert"[^>]*>${P.erros.formato}<`));
   });
@@ -146,6 +146,40 @@ describe('o campo do portal (US-443, RN-473)', () => {
     expect(fonte).toMatch(/seguraFalhaDeRede\(/);
     expect(fonte).toMatch(/action=\{comJs \? /);
     expect(fonte).toMatch(/focus\(\{ preventScroll: true \}\)/);
-    expect(fonte).toContain("getElementById('rodape-da-conversa')");
+    // rodada da T7 (I3): rola até o fim do documento, não até o próprio rodapé sticky
+    expect(fonte).toMatch(/rolarAteOFim\(\)/);
+    expect(fonte).not.toMatch(/scrollIntoView/);
+  });
+
+  it('rodada da T7 (I1 e I2 da interface; minor): o aviso de urgência descreve o campo; borda de campo (contraste 3:1); 2 linhas', () => {
+    expect(ID_AVISO_URGENCIA).toBe('aviso-urgencia');
+    const h = campo();
+    expect(h).toMatch(/<textarea[^>]*aria-describedby="aviso-urgencia"/);
+    expect(h).not.toMatch(/<textarea[^>]*aria-invalid/);
+    expect(h).toMatch(/<textarea[^>]*rows="2"/);
+    expect(h).toMatch(/<textarea[^>]*class="[^"]*\bborder-campo\b/);
+    expect(h).not.toMatch(/<textarea[^>]*class="[^"]*\bborder-borda\b/);
+  });
+});
+
+describe('rodada da T7 — socorro na recusa (CH-D77, CFN I1 e M2)', () => {
+  it('transtorno recusado: só o trecho de perigo, nunca "enviada"; o cartão é uma nota (role="note")', () => {
+    ambiente.estado = { marca: 'm4', erro: P.erros.muitas, texto: 'vomito de proposito', enviada: false, textoFixo: 'risco_transtorno' };
+    const h = campo();
+    const texto = h.replace(/<[^>]+>/g, '');
+    expect(texto).toContain(SOCORRO_NA_RECUSA.transtorno_alimentar);
+    expect(texto).not.toMatch(/enviada/i);
+    expect(texto).not.toContain(SOCORRO_DO_RISCO.transtorno_alimentar);
+    expect(h).toMatch(/<div(?=[^>]*data-socorro="")(?=[^>]*role="note")[^>]*>/);
+  });
+
+  it('rede caída: o estado de falha traz o rascunho e o risco do texto recusado, calculado no aparelho', () => {
+    const dados = new FormData();
+    dados.set('texto', 'não aguento mais, quero sumir');
+    expect(estadoDaFalhaDeRede(dados)).toMatchObject({ erro: P.erros.falha, texto: 'não aguento mais, quero sumir', enviada: false, textoFixo: 'risco_emergencia' });
+    dados.set('texto', 'posso trocar o arroz?');
+    expect(estadoDaFalhaDeRede(dados).textoFixo).toBeNull();
+    // a peça de risco é a do Plano 15, sem import de servidor (o cliente a importa)
+    expect(readFileSync('src/modules/ia/nutri-paciente/sinais-risco.ts', 'utf8')).not.toMatch(/^import (?!type)/m);
   });
 });

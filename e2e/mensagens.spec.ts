@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Browser, type Page } from '@playwright/test';
 import { entrarComo } from './helpers';
+import { entradasDoPlano, pacienteNoPortal, publicarPlanoSimples } from './portal';
 import { escolherTema } from './painel';
 
 // Plano 25 (PD-90): Mensagens no painel, no consultório próprio do E2E do chat (scripts/e2e-seed.ts, CH-D67: novo a cada
@@ -435,7 +436,8 @@ test('T6c: a seção "Mensagens" no Início da ficha — "{n} não lidas", os it
 
 // ——— T7: a conversa no app (/p/mensagens). Bloco de IP: 10.9.25.20 a 10.9.25.39 — a primeira paciente do chat .20 (a
 // faixa, o envio e o "Lida"), .21 (sinal de risco), .22 (400 px e axe), .23 (sem rede), .24 (sem JavaScript), .25 (mensagem
-// nova com a tela aberta) ———
+// nova com a tela aberta); rodada da T7: .26 (a nutricionista do consultório principal) e .27 (a paciente com plano
+// guardado) ———
 
 const NO_APP = { campo: 'Escreva sua mensagem', urgencia: 'Este canal não é para urgências. Em caso de urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo.' };
 const listaDoApp = (page: Page) => page.getByRole('list', { name: 'Mensagens' });
@@ -452,15 +454,20 @@ async function nutriEscreve(texto: string): Promise<string> {
   await nutri.waitForLoadState('networkidle');
   await nutri.getByLabel('Mensagem').fill(texto);
   await nutri.getByRole('button', { name: 'Enviar', exact: true }).click();
-  await expect(listaDeMensagens(nutri).locator('li[data-mensagem]').filter({ hasText: texto })).toBeVisible();
+  const enviada = listaDeMensagens(nutri).locator('li[data-mensagem]').filter({ hasText: texto });
+  await expect(enviada).toBeVisible();
+  await expect(enviada).toBeInViewport(); // rodada da T7 (I3): depois de enviar, a tela rola até a nova (painel)
   return url;
 }
 
 test('T7: a paciente abre pela faixa ("Mensagens (1)"), vê o cabeçalho e o aviso, envia ("Você", "Enviada"); a faixa volta a "Mensagens"; no painel, aberta → no app, "Lida"', async ({ browser }) => {
   test.setTimeout(120_000);
+  // rodada da T7 (I4): sem depender da ordem — a paciente lê tudo antes, e só a mensagem deste teste fica não lida
+  const paciente = await primeiraPacienteNoApp(browser, '10.9.25.20');
+  await paciente.goto('/p/mensagens');
+  await expect(paciente.getByRole('heading', { level: 1, name: 'Mensagens' })).toBeVisible();
   const daNutri = `Bom dia! Como foi a semana? ${Date.now()}`;
   const url = await nutriEscreve(daNutri);
-  const paciente = await primeiraPacienteNoApp(browser, '10.9.25.20');
   await paciente.goto('/p/inicio');
   const link = paciente.getByRole('link', { name: 'Mensagens, 1 não lida' });
   await expect(link).toHaveText('Mensagens (1)');
@@ -472,6 +479,7 @@ test('T7: a paciente abre pela faixa ("Mensagens (1)"), vê o cabeçalho e o avi
   await expect(paciente.getByRole('link', { name: 'Voltar para Hoje' })).toHaveAttribute('href', '/p/inicio');
   const dela = listaDoApp(paciente).locator('li[data-mensagem]').filter({ hasText: daNutri });
   await expect(dela).toContainText('Nutri Chat E2E da Silva · Nutricionista · CRN-3 25025');
+  await expect(listaDoApp(paciente).locator('li[data-mensagem]').last()).toBeInViewport(); // abre no fim (I3)
   await expect(listaDoApp(paciente)).not.toContainText('CRN CRN');
   // o recado da semente, com o rótulo do consultório
   await expect(listaDoApp(paciente).locator('li[data-recado]').first()).toContainText('Recado do consultório · Nutri Chat E2E da Silva · CRN-3 25025');
@@ -484,6 +492,7 @@ test('T7: a paciente abre pela faixa ("Mensagens (1)"), vê o cabeçalho e o avi
   const minha = listaDoApp(paciente).locator('li[data-mensagem]').filter({ hasText: texto });
   await expect(minha).toContainText('Enviada');
   await expect(minha).toContainText('Você');
+  await expect(minha).toBeInViewport(); // depois de enviar, a nova à vista acima do rodapé (I3)
   await expect(campo).toHaveValue('');
   await expect(campo).toBeFocused();
   // de volta a Hoje: o link sem número (a conversa já foi lida)
@@ -492,6 +501,7 @@ test('T7: a paciente abre pela faixa ("Mensagens (1)"), vê o cabeçalho e o avi
   // a nutricionista abre a conversa; no app, "Lida"
   await nutri.goto(url);
   await expect(listaDeMensagens(nutri).getByText(texto)).toBeVisible();
+  await expect(listaDeMensagens(nutri).locator('li[data-mensagem]').last()).toBeInViewport(); // o painel abre no fim (I3)
   await paciente.goto('/p/mensagens');
   await expect(listaDoApp(paciente).locator('li[data-mensagem]').filter({ hasText: texto })).toContainText('Lida');
   await paciente.context().close();
@@ -613,4 +623,37 @@ test('T7: mensagem nova com a tela aberta — em 15 s "Nova mensagem da sua nutr
   await expect(paciente.getByLabel(NO_APP.campo)).toHaveValue(rascunho);
   await expect(regiaoDoApp(paciente)).toHaveText('');
   await paciente.context().close();
+});
+
+test('rodada T7 (I4): paciente com o plano guardado no aparelho — sem rede, /p/mensagens mostra o aviso e nunca o plano', async ({ browser }) => {
+  test.setTimeout(180_000);
+  // o consultório principal do E2E: a paciente nova tem plano publicado e a cópia guardada (o chat não importa aqui)
+  const principal = await entrarComo(browser, 'nutri-e2e@nutridebby.test', 'Nutri2026segura', '10.9.25.26');
+  await expect(principal).toHaveURL(/\/painel$/);
+  const p = await pacienteNoPortal(browser, principal, '10.9.25.27');
+  await publicarPlanoSimples(principal, p.prontuario);
+  await principal.context().close();
+  await p.page.goto('/p/inicio');
+  await p.page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await p.page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Plano' }).click();
+  await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
+  await expect.poll(() => entradasDoPlano(p.page)).toBe(1);
+  await p.page.context().setOffline(true);
+  try {
+    // a cópia existe: outra rota do portal cai nela…
+    await p.page.goto('/p/inicio');
+    await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
+    // …mas a conversa nunca: o aviso, sem o plano e sem o selo da cópia
+    await p.page.goto('/p/mensagens');
+    await expect(p.page.getByRole('status').filter({ hasText: 'Sem conexão. Escreva quando voltar.' })).toBeVisible();
+    await expect(p.page.getByText('Este canal não é para urgências.', { exact: false })).toBeVisible();
+    await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toHaveCount(0);
+    await expect(p.page.getByText('Offline — exibindo última versão')).toHaveCount(0);
+  } finally {
+    await p.page.goto('about:blank');
+    await p.page.context().setOffline(false);
+  }
+  await p.page.context().close();
 });

@@ -2,6 +2,7 @@
 import { useRouter } from 'next/navigation';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { ContextoDaLeitura } from '@/components/mensagens/leitura';
+import { rolarAteOFim } from '@/components/mensagens/rolagem';
 import { acompanharSituacao, novasNaTela, primeiraNovaDepois } from '@/components/mensagens/situacao';
 import { MSG_MENSAGENS } from '@/modules/mensagens/constantes';
 
@@ -67,7 +68,7 @@ export function SituacaoDaConversa({
   // I1 da rodada: a cada ato (liberar → pausar → retomar) o foco vai à região, sem rolar; sem ato, a tela abre no rodapé
   useEffect(() => {
     if (focarAviso) regiao.current?.focus({ preventScroll: true });
-    else document.getElementById('rodape-da-conversa')?.scrollIntoView({ block: 'end' });
+    else rolarAteOFim(); // rodada da T7 (I3): até o fim do documento (no rodapé sticky, a rolagem não andava)
   }, [focarAviso, aviso, marcador]);
 
   useEffect(() => {

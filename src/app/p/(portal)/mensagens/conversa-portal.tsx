@@ -3,8 +3,10 @@ import { useRouter } from 'next/navigation';
 import { useActionState, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ContextoDaLeitura } from '@/components/mensagens/leitura';
 import { seguraFalhaDeRede } from '@/components/mensagens/rede';
+import { rolarAteOFim } from '@/components/mensagens/rolagem';
 import { acompanharSituacao, novasNaTela, primeiraNovaDepois } from '@/components/mensagens/situacao';
 import { useOnline } from '@/components/portal/online';
+import { detectarRisco } from '@/modules/ia/nutri-paciente/sinais-risco';
 import { MSG_PORTAL_MENSAGENS, RISCO_DO_TEXTO_FIXO } from '@/modules/mensagens/constantes';
 import { enviarMensagemAction, type EstadoDoEnvioPortal } from './actions';
 import { Socorro } from './socorro';
@@ -15,9 +17,16 @@ const nada = () => () => undefined;
 const useComJs = () => useSyncExternalStore(nada, () => true, () => false);
 const marcaNova = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
-/** Leva a tela até o rodapé `sticky` (a última mensagem fica logo acima dele, nunca embaixo). */
-function rolarAteORodape() {
-  document.getElementById('rodape-da-conversa')?.scrollIntoView({ block: 'end' });
+/** Rodada da T7 (I1): o aviso de urgência do topo (RN-450) descreve o campo (`aria-describedby`), junto com o erro. */
+export const ID_AVISO_URGENCIA = 'aviso-urgencia';
+
+/**
+ * Rodada da T7 (CFN M2, CH-D77): a rede caída no envio — o rascunho de volta, o erro genérico e o sinal de risco do texto
+ * recusado, calculado no aparelho (`detectarRisco` é puro, sem import de servidor): o socorro aparece sem dizer "enviada".
+ */
+export function estadoDaFalhaDeRede(dados: FormData): EstadoDoEnvioPortal {
+  const texto = typeof dados.get('texto') === 'string' ? (dados.get('texto') as string) : '';
+  return { marca: marcaNova(), erro: P.erros.falha, texto, enviada: false, textoFixo: detectarRisco(texto)?.textoFixo ?? null };
 }
 
 /** RN-452: a rota leve da situação no app — só o id da última mensagem mostrada (o paciente vem da sessão). */
@@ -55,7 +64,7 @@ export function SituacaoDoPortal({ depois, consultar, aviso }: { depois: string 
 
   useEffect(() => {
     if (aviso) regiao.current?.focus({ preventScroll: true });
-    else rolarAteORodape();
+    else rolarAteOFim();
   }, [aviso]);
 
   useEffect(() => {
@@ -118,19 +127,19 @@ function Texto({ inicial, focar, idErro, desabilitado }: { inicial: string; foca
     }
     if (!focar) return;
     ref.current?.focus({ preventScroll: true });
-    rolarAteORodape();
+    rolarAteOFim();
   }, [focar]);
   return (
     <textarea
       ref={ref}
       id="texto-mensagem"
       name="texto"
-      rows={3}
+      rows={2}
       defaultValue={inicial}
       disabled={desabilitado}
-      aria-describedby={idErro}
+      aria-describedby={idErro ? `${ID_AVISO_URGENCIA} ${idErro}` : ID_AVISO_URGENCIA}
       aria-invalid={idErro ? true : undefined}
-      className="block w-full resize-y rounded-xl border border-borda bg-cartao p-3 text-texto disabled:opacity-60"
+      className="block w-full resize-y rounded-xl border border-campo bg-cartao p-3 text-texto disabled:opacity-60"
     />
   );
 }
@@ -141,19 +150,14 @@ function Texto({ inicial, focar, idErro, desabilitado }: { inicial: string; foca
  * mesma action embrulhada por `seguraFalhaDeRede`: a rede caída vira "Não foi possível enviar. Tente de novo." com o
  * rascunho de volta. Sem rede (RN-473), o campo e o botão ficam desabilitados e o texto fica. O erro junto ao campo
  * (`role="alert"`, reanunciado a cada resposta); `erroInicial` = o `?erro=` do envio sem JS. "Muitas" com sinal de risco
- * no texto recusado mostra também o socorro (RN-449; a mensagem não foi gravada). A foto entra na T8.
+ * no texto recusado — ou qualquer outra recusa, inclusive a rede caída (CH-D77) — mostra também o socorro, sem dizer
+ * "enviada" (RN-449; a mensagem não foi gravada). A foto entra na T8.
  */
 export function CampoDoPortal({ erroInicial }: { erroInicial: string | null }) {
   const online = useOnline();
   const [estadoSemJs, acaoSemJs] = useActionState<EstadoDoEnvioPortal | null, FormData>(enviarMensagemAction, null);
   const [estadoComJs, acaoComJs, enviando] = useActionState<EstadoDoEnvioPortal | null, FormData>(
-    seguraFalhaDeRede(enviarMensagemAction, (dados) => ({
-      marca: marcaNova(),
-      erro: P.erros.falha,
-      texto: typeof dados.get('texto') === 'string' ? (dados.get('texto') as string) : '',
-      enviada: false,
-      textoFixo: null,
-    })),
+    seguraFalhaDeRede(enviarMensagemAction, estadoDaFalhaDeRede),
     null,
   );
   const comJs = useComJs();
@@ -174,7 +178,8 @@ export function CampoDoPortal({ erroInicial }: { erroInicial: string | null }) {
           {erro}
         </p>
       )}
-      {estado?.erro && estado.textoFixo && <Socorro risco={RISCO_DO_TEXTO_FIXO[estado.textoFixo]} />}
+      {/* CH-D77: em qualquer recusa (a mensagem não foi gravada), o socorro do texto recusado, sem dizer "enviada" */}
+      {estado?.erro && estado.textoFixo && <Socorro risco={RISCO_DO_TEXTO_FIXO[estado.textoFixo]} recusa />}
       <div className="flex justify-end">
         <button
           type="submit"

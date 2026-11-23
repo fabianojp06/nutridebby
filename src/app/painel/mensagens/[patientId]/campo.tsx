@@ -1,5 +1,6 @@
 'use client';
 import { useActionState, useEffect, useRef, useSyncExternalStore } from 'react';
+import { rolarAteOFim } from '@/components/mensagens/rolagem';
 import { Botao } from '@/components/ui/botao';
 import { MSG_MENSAGENS } from '@/modules/mensagens/constantes';
 import { enviarAction, type EstadoDoEnvio } from './actions';
@@ -11,10 +12,6 @@ const nada = () => () => undefined;
 const useComJs = () => useSyncExternalStore(nada, () => true, () => false);
 const marcaNova = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
-/** Leva a tela até o rodapé (a última mensagem fica logo acima dele, nunca embaixo — rodada da T6b, I3). */
-export function rolarAteORodape() {
-  document.getElementById('rodape-da-conversa')?.scrollIntoView({ block: 'end' });
-}
 
 /**
  * O texto do campo, remontado só quando a action responde (`marca`) com o texto devolvido: no erro, o que foi escrito; no
@@ -26,7 +23,7 @@ function Texto({ inicial, focar, idErro }: { inicial: string; focar: boolean; id
   useEffect(() => {
     if (!focar) return;
     ref.current?.focus({ preventScroll: true });
-    rolarAteORodape();
+    rolarAteOFim(); // rodada da T7 (I3): até o fim do documento, não até o rodapé sticky
   }, [focar]);
   return (
     <textarea

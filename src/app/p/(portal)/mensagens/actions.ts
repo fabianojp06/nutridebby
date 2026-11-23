@@ -5,15 +5,19 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { logger, nomeDoErro, sqlstateDoErro } from '@/lib/logger';
 import { requirePaciente } from '@/lib/paciente-session';
+import { detectarRisco } from '@/modules/ia/nutri-paciente/sinais-risco';
 import { MSG_PORTAL_MENSAGENS, type CodigoTextoFixo } from '@/modules/mensagens/constantes';
 import { enviarComoPaciente } from '@/modules/mensagens/envio';
 
 const CAMINHO = '/p/mensagens';
+/** CH-D77: o sinal de risco do texto RECUSADO (qualquer recusa): a tela mostra o socorro sem dizer "enviada". */
+const riscoDoRecusado = (texto: string): CodigoTextoFixo | null => detectarRisco(texto)?.textoFixo ?? null;
 
 /**
  * O estado do campo (useActionState): o texto volta sempre (o que foi escrito nunca se perde no erro; no sucesso, vazio),
  * `marca` muda a cada resposta (o campo remonta com o texto devolvido) e `textoFixo` traz o sinal de risco (RN-449): no
- * envio gravado, o socorro aparece sob a mensagem (e recebe o foco); no "muitas" recusado, junto ao campo.
+ * envio gravado, o socorro aparece sob a mensagem (e recebe o foco); em qualquer recusa, junto ao campo, sem dizer
+ * "enviada" (CH-D77).
  */
 export type EstadoDoEnvioPortal = { marca: string; erro: string | null; texto: string; enviada: boolean; textoFixo: CodigoTextoFixo | null };
 
@@ -32,9 +36,9 @@ export async function enviarMensagemAction(_anterior: EstadoDoEnvioPortal | null
     r = await enviarComoPaciente(ctx, { texto });
   } catch (err) {
     logger.error({ err: nomeDoErro(err), sqlstate: sqlstateDoErro(err), acao: 'enviar' }, 'falha ao enviar mensagem pelo app');
-    return { marca: randomUUID(), erro: MSG_PORTAL_MENSAGENS.erros.falha, texto, enviada: false, textoFixo: null };
+    return { marca: randomUUID(), erro: MSG_PORTAL_MENSAGENS.erros.falha, texto, enviada: false, textoFixo: riscoDoRecusado(texto) };
   }
-  if ('erro' in r) return { marca: randomUUID(), erro: r.mensagem, texto, enviada: false, textoFixo: r.textoFixo ?? null };
+  if ('erro' in r) return { marca: randomUUID(), erro: r.mensagem, texto, enviada: false, textoFixo: r.textoFixo ?? riscoDoRecusado(texto) };
   revalidatePath(CAMINHO);
   if (!comJs) redirect(CAMINHO);
   return { marca: randomUUID(), erro: null, texto: '', enviada: true, textoFixo: r.textoFixo };

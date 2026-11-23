@@ -195,8 +195,9 @@ describe('rodada da T6b (revisão de interface)', () => {
 
   it('I3: a rolagem vai até o rodapé (as últimas mensagens não ficam sob ele) e cada mensagem tem margem de rolagem do tamanho do rodapé', () => {
     const fonte = readFileSync('src/app/painel/mensagens/[patientId]/situacao.tsx', 'utf8') + readFileSync('src/app/painel/mensagens/[patientId]/campo.tsx', 'utf8');
-    expect(fonte).not.toContain("getElementById('fim-da-conversa')");
-    expect(fonte).toContain("getElementById('rodape-da-conversa')");
+    // rodada da T7 (I3): o scrollIntoView no próprio rodapé sticky não rola; rola-se até o fim do documento
+    expect(fonte).not.toMatch(/scrollIntoView/);
+    expect(fonte.match(/rolarAteOFim\(\)/g)?.length).toBeGreaterThanOrEqual(2);
     expect(readFileSync('src/app/painel/mensagens/[patientId]/page.tsx', 'utf8')).toMatch(/id="rodape-da-conversa"/);
     expect(readFileSync('src/app/painel/mensagens/[patientId]/lista-de-mensagens.tsx', 'utf8')).toMatch(/data-mensagem=\{m\.id\}[\s\S]*?scroll-mb-/);
   });

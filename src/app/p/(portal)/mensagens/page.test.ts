@@ -293,7 +293,7 @@ describe('/p/mensagens — a conversa no app (US-443)', () => {
     for (const [codigo, texto] of Object.entries(codigos)) {
       const h = await pagina({ erro: codigo });
       expect(h, codigo).toMatch(new RegExp(`<p[^>]*id="erro-mensagem"[^>]*role="alert"[^>]*>${texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</p>`));
-      expect(campo(h)?.[0], codigo).toMatch(/aria-describedby="erro-mensagem"/);
+      expect(campo(h)?.[0], codigo).toMatch(/aria-describedby="aviso-urgencia erro-mensagem"/);
     }
     for (const codigo of ['outro', 'toString', '__proto__']) {
       const h = await pagina({ erro: codigo });
@@ -372,6 +372,52 @@ describe('/p/mensagens — a conversa no app (US-443)', () => {
     expect(links.length).toBeGreaterThan(0);
     for (const l of links) expect(l).toMatch(/prefetch=\{false\}/);
     expect(fontes).not.toMatch(/dangerouslySetInnerHTML/);
+  });
+});
+
+describe('rodada da T7 (revisão de interface e CFN)', () => {
+  const rodape = (h: string) => /<div id="rodape-da-conversa"[^>]*>([\s\S]*)<\/div><\/main>/.exec(h)?.[1] ?? '';
+
+  it('I1: pausada e só recados — o texto fica no rodapé, no lugar do campo; o aviso de urgência no topo, com o id que descreve o campo', async () => {
+    const T = await consultorio();
+    const so = await pacienteDoChat(db, T, { liberar: false });
+    await recadoPara(db, T, [so.p], 'Feriado');
+    await entrarComo(T, so);
+    let h = await pagina();
+    expect(rodape(h)).toContain(P.soRecados);
+    expect(h.indexOf(P.soRecados)).toBeGreaterThan(h.indexOf('id="rodape-da-conversa"'));
+    const ana = await pacienteDoChat(db, T);
+    await entrarComo(T, ana);
+    h = await pagina();
+    expect(h).toMatch(/<p id="aviso-urgencia"[^>]*>/);
+    expect(h.indexOf('id="aviso-urgencia"')).toBeLessThan(h.indexOf('aria-label="Mensagens"'));
+    expect(campo(h)?.[0]).toMatch(/aria-describedby="aviso-urgencia"/);
+    expect(await pausarConversa(T.ctx, ana.p, db)).toBe('ok');
+    h = await pagina();
+    expect(rodape(h)).toContain(P.pausada);
+    expect(h.split(P.pausada)).toHaveLength(2); // uma vez só
+  });
+
+  it('minors: sem o selo "Offline — exibindo última versão" nesta tela (só a região da conversa é status); o e-mail longo quebra', async () => {
+    const T = await consultorio({ contatos: true });
+    const ana = await pacienteDoChat(db, T);
+    await entrarComo(T, ana);
+    const h = await pagina();
+    expect(h.match(/role="status"/g)).toHaveLength(1);
+    expect(h).toMatch(/<a [^>]*href="mailto:[^"]*"[^>]*class="[^"]*\bwrap-anywhere\b|<a [^>]*class="[^"]*\bwrap-anywhere\b[^"]*"[^>]*href="mailto:/);
+  });
+
+  it('CFN M2 (CH-D77): o socorro do texto recusado em QUALQUER recusa — conversa pausada no meio, texto longo, erro inesperado', async () => {
+    const T = await consultorio();
+    const ana = await pacienteDoChat(db, T);
+    await entrarComo(T, ana);
+    const longo = `não aguento mais, quero sumir ${'a'.repeat(2000)}`;
+    expect(await enviarMensagemAction(null, form({ texto: longo, js: '1' }))).toMatchObject({ erro: P.erros.textoLongo, textoFixo: 'risco_emergencia', enviada: false });
+    expect(await pausarConversa(T.ctx, ana.p, db)).toBe('ok');
+    expect(await enviarMensagemAction(null, form({ texto: 'vomito de proposito', js: '1' }))).toMatchObject({ erro: P.erros.pausadaNoEnvio, textoFixo: 'risco_transtorno' });
+    expect(await enviarMensagemAction(null, form({ texto: 'Posso trocar o arroz?', js: '1' }))).toMatchObject({ erro: P.erros.pausadaNoEnvio, textoFixo: null });
+    await entrarComo(T, ana, { ...ana.P, actorUserId: undefined });
+    expect(await enviarMensagemAction(null, form({ texto: 'estou com dor no peito', js: '1' }))).toMatchObject({ erro: P.erros.falha, textoFixo: 'sintoma_agudo' });
   });
 });
 

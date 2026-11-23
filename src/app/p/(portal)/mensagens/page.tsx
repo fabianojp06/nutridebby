@@ -7,7 +7,7 @@ import { erroDoUpload, MSG_PORTAL_MENSAGENS } from '@/modules/mensagens/constant
 import { minhaConversa } from '@/modules/mensagens/conversa';
 import { formatarTelefone } from '@/modules/pacientes/telefone';
 import { ComTelefones } from '../plano/ia/texto-fixo';
-import { CampoDoPortal, SituacaoDoPortal } from './conversa-portal';
+import { CampoDoPortal, ID_AVISO_URGENCIA, SituacaoDoPortal } from './conversa-portal';
 import { ListaDoPortal } from './lista';
 
 export const dynamic = 'force-dynamic';
@@ -24,7 +24,8 @@ const LINK = 'inline-flex min-h-11 items-center font-semibold text-link underlin
  * nutricionista mostrada (CH-D72, no módulo). No topo: "Conversa com {nome profissional}, nutricionista, {crn}" e os
  * contatos do perfil (RN-471), o aviso de urgência sempre (RN-450) e o horário, quando ligado (RN-451, RN-472). Depois a
  * lista (com o socorro sob a mensagem de risco, RN-449) e o rodapé `sticky` com a região viva sempre montada e o campo.
- * Só recados (sem a conversa liberada) ou pausada: o texto e nenhum campo. Nunca no cache do service worker (RN-473).
+ * Só recados (sem a conversa liberada) ou pausada: o texto no rodapé, no lugar do campo. Nunca no cache do service worker
+ * (RN-473).
  */
 export default async function Mensagens({ searchParams }: PageProps<'/p/mensagens'>) {
   const { ctx, tenant } = await requirePaciente('/p/mensagens');
@@ -44,7 +45,8 @@ export default async function Mensagens({ searchParams }: PageProps<'/p/mensagen
 
   return (
     <>
-      <CabecalhoDetalhe titulo={P.titulo} voltar={{ href: '/p/inicio', secao: 'Hoje' }} />
+      {/* rodada da T7: sem o selo "Offline — exibindo última versão" (aqui nada vem de cópia; sem rede, a região avisa) */}
+      <CabecalhoDetalhe titulo={P.titulo} voltar={{ href: '/p/inicio', secao: 'Hoje' }} seloOffline={false} />
       <main className="flex flex-1 flex-col gap-4 p-4">
         <div className="space-y-2">
           {tenant.nomeProfissional && tenant.crn && <p className="font-semibold">{P.conversaCom(tenant.nomeProfissional, tenant.crn)}</p>}
@@ -52,15 +54,15 @@ export default async function Mensagens({ searchParams }: PageProps<'/p/mensagen
             <ul className="flex flex-wrap gap-x-4">
               {contatos.map((c) => (
                 <li key={c.href}>
-                  <a href={c.href} className={LINK}>
+                  <a href={c.href} className={`${LINK} wrap-anywhere`}>
                     {c.texto}
                   </a>
                 </li>
               ))}
             </ul>
           )}
-          {/* RN-450: sempre, como texto (não um aviso que some) */}
-          <p className="rounded-2xl border-2 border-erro bg-erro-fundo p-3 text-texto">
+          {/* RN-450: sempre, como texto (não um aviso que some); descreve o campo (rodada da T7, I1) */}
+          <p id={ID_AVISO_URGENCIA} className="rounded-2xl border-2 border-erro bg-erro-fundo p-3 text-texto">
             <ComTelefones texto={P.avisoUrgencia} />
           </p>
           {/* o horário só com o envio aberto: na conversa pausada, "fica guardada e será lida…" enganaria */}
@@ -70,8 +72,6 @@ export default async function Mensagens({ searchParams }: PageProps<'/p/mensagen
               {horario.foraDoHorario && <p>{P.foraDoHorario}</p>}
             </>
           )}
-          {!liberada && <p>{P.soRecados}</p>}
-          {liberada && estado.pausada && <p>{P.pausada}</p>}
         </div>
 
         {/* molde da rodada da T6b (C1): sem `key` — a página que refaz não remonta o campo nem a região viva */}
@@ -89,7 +89,8 @@ export default async function Mensagens({ searchParams }: PageProps<'/p/mensagen
           </div>
           <div id="rodape-da-conversa" className="sticky bottom-0 space-y-3 border-t border-borda bg-fundo pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
             <SituacaoDoPortal depois={ultima} consultar={antes === undefined} aviso={podeEnviar ? '' : (erroDaUrl ?? '')} />
-            {podeEnviar && <CampoDoPortal erroInicial={erroDaUrl} />}
+            {/* rodada da T7 (I1): só recados ou pausada — o texto no lugar do campo (a tela abre no fim, nunca o esconde) */}
+            {podeEnviar ? <CampoDoPortal erroInicial={erroDaUrl} /> : !liberada ? <p>{P.soRecados}</p> : estado.pausada ? <p>{P.pausada}</p> : null}
           </div>
         </ProvedorDaLeitura>
       </main>

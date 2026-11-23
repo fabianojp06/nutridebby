@@ -65,6 +65,17 @@ export const SOCORRO_DO_RISCO: Record<RiscoChat, string> = {
     'Que bom que você contou. Sua mensagem foi enviada à sua nutricionista, que não acompanha as mensagens em tempo real. Se você sentir que está em perigo, ligue para o CVV no 188 (gratuito, 24 horas) ou para o SAMU no 192.',
 };
 
+/**
+ * CH-D77 (revisão CFN da T7): o socorro junto ao campo quando o envio é RECUSADO (a mensagem não foi gravada). Nunca diz
+ * "enviada": o de transtorno fica só com o trecho de perigo do texto aprovado; os de emergência e de sintoma agudo não falam
+ * do envio e ficam iguais.
+ */
+export const SOCORRO_NA_RECUSA: Record<RiscoChat, string> = {
+  emergencia: SOCORRO_DO_RISCO.emergencia,
+  sintoma_agudo: SOCORRO_DO_RISCO.sintoma_agudo,
+  transtorno_alimentar: 'Se você sentir que está em perigo, ligue para o CVV no 188 (gratuito, 24 horas) ou para o SAMU no 192.',
+};
+
 // ——— TCLE (RN-441, CH-D3) ———
 /** As opções do diálogo de liberação, na ordem do `<select>` (sem a forma verbal: não deixa o comprovante). */
 export const OPCOES_FORMA_TCLE: Record<FormaTcle, string> = {
