@@ -109,13 +109,13 @@ describe('Plano 25 — mensagensParaExportacao (RN-467; CH-D74)', () => {
     );
     await pausarConversa(T.ctx, c.p, app.db);
     const r = await withTenant(worker(T), (tx) => mensagensParaExportacao(tx, c.p), app.db);
-    const carimbo = { nome: 'Débora Nutricionista', crn: CRN };
+    const carimbo = { nome: 'Débora Nutricionista', crn: CRN, profissao: 'Nutricionista' }; // Res. CFN 594/2017, art. 8º, II
     expect(r.conversa).toEqual({ liberadaEm: expect.any(String), formaDoTcle: 'Aceite por escrito (mensagem ou e-mail)', liberadaPor: carimbo, pausadaEm: expect.any(String), pausadaPor: carimbo });
     expect(new Date(r.conversa!.liberadaEm!).toISOString()).toBe(r.conversa!.liberadaEm);
     // a cópia do recado leva o carimbo que o gatilho grava na mensagem (o do consultório na hora do envio)
     expect(r.mensagens).toEqual([
       { criadaEm: expect.any(String), autor: 'nutricionista', autorNome: 'Débora Nutricionista', autorCrn: CRN, texto: 'Bom dia, Ana!', recado: false },
-      { criadaEm: expect.any(String), autor: 'paciente', texto: 'meu peito dói', recado: false, risco: 'Sinal de risco (sintoma agudo)' },
+      { criadaEm: expect.any(String), autor: 'paciente', texto: 'meu peito dói', recado: false, risco: 'Sinal de risco detectado automaticamente pelo app (sintoma agudo)' },
       { criadaEm: expect.any(String), autor: 'nutricionista', autorNome: 'Débora Nutricionista', autorCrn: CRN, texto: 'Feriado na segunda', recado: true },
       { criadaEm: expect.any(String), autor: 'nutricionista', autorNome: 'Débora Nutricionista', autorCrn: CRN, texto: 'Pode trocar por maçã.', recado: false, respostaADuvidaDe: '2026-11-20T13:00:00.000Z' },
     ]);
@@ -190,6 +190,36 @@ describe('Plano 25 — apagarConversaDoTitular (RN-466; CH-D41, CH-D59)', () => 
       );
       await esperarBloqueio(owner.pool, pid);
       await job.query("update chat_mensagens set anexo_status = 'pronto', anexo_path = $2 where id = $1", [m.id, convertido]);
+      await job.query('commit');
+      fechada = true;
+      expect(await apagar).toBe('ok');
+    } finally {
+      if (!fechada) await job.query('rollback').catch(() => undefined);
+      job.release();
+    }
+    expect(await sobras(T, c)).toEqual(NADA);
+  });
+
+  it('revisão da T5, M2: o ponteiro some entre a leitura e a soltura (o job soltou o original) → a soltura desiste sem erro, e tudo sai', async () => {
+    const T = await consultorio();
+    const c = await pacienteDoChat(app.db, T);
+    const m = await anexoDoDono(owner.pool, dataDir, T, c, 'pronto_com_original');
+    const [, original] = m.caminhos;
+    await bloqueadoVencido(owner.pool, c.p);
+    const job = await app.pool.connect();
+    let fechada = false;
+    try {
+      // como o job do anexo ao terminar: solta o original (a mensagem fica travada) e apaga o arquivo, ainda sem commit
+      await job.query('begin');
+      await job.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'worker', true)`, [T.tenantId]);
+      await job.query('select app_chat_soltar_anexo($1, $2)', [m.id, original]);
+      await job.query('delete from stored_files where caminho = $1', [original]);
+      const pid = (await job.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const apagar = apagarConversaDoTitular(worker(T), c.p, { db: app.db, dataDir }).then(
+        () => 'ok',
+        (e: unknown) => e,
+      );
+      await esperarBloqueio(owner.pool, pid);
       await job.query('commit');
       fechada = true;
       expect(await apagar).toBe('ok');

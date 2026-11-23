@@ -13,12 +13,15 @@ import { and, asc, eq, isNotNull, or, sql, type AnyColumn } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { chatConversas, chatMensagens, patients, type FormaTcle, type RiscoChat } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { logger } from '@/lib/logger';
-import { apagarArquivo, motivoDoErro } from '@/modules/plataforma/armazenamento';
+import { logger, nomeDoErro, sqlstateDoErro } from '@/lib/logger';
+import { apagarArquivo } from '@/modules/plataforma/armazenamento';
 import { OPCOES_FORMA_TCLE } from './constantes';
 
-/** Nome e CRN gravados na própria linha da conversa (CH-D74); o `crn` já vem com o prefixo ("CRN-4 12345"). */
-export type CarimboExportado = { nome: string; crn: string };
+/**
+ * Nome e CRN gravados na própria linha da conversa (CH-D74); o `crn` já vem com o prefixo ("CRN-4 12345"). A profissão
+ * completa a identificação de quem registrou (Res. CFN 594/2017, art. 8º, II; revisão CFN da T5).
+ */
+export type CarimboExportado = { nome: string; crn: string; profissao: 'Nutricionista' };
 /**
  * RN-467 (CH-D74): a liberação (data, forma do TCLE e quem liberou, com nome e CRN do momento) e a pausa em curso. Uma
  * conversa que só recebeu recados (sem liberação) vem com os campos da liberação nulos.
@@ -46,14 +49,17 @@ export type MensagemExportada = {
   risco?: string;
 };
 
-/** O risco gravado na mensagem do paciente (RN-449), como o titular o lê na exportação. */
+/**
+ * O risco gravado na mensagem do paciente (RN-449), como o titular o lê na exportação. Revisão CFN da T5: o rótulo diz que
+ * o sinal foi detectado automaticamente pelo app (não é avaliação da nutricionista).
+ */
 export const ROTULO_RISCO_EXPORTACAO: Record<RiscoChat, string> = {
-  emergencia: 'Sinal de risco (emergência)',
-  sintoma_agudo: 'Sinal de risco (sintoma agudo)',
-  transtorno_alimentar: 'Sinal de risco (alimentação)',
+  emergencia: 'Sinal de risco detectado automaticamente pelo app (emergência)',
+  sintoma_agudo: 'Sinal de risco detectado automaticamente pelo app (sintoma agudo)',
+  transtorno_alimentar: 'Sinal de risco detectado automaticamente pelo app (alimentação)',
 };
 
-const doCarimbo = (nome: string | null, crn: string | null): CarimboExportado | null => (nome && crn ? { nome, crn } : null);
+const doCarimbo = (nome: string | null, crn: string | null): CarimboExportado | null => (nome && crn ? { nome, crn, profissao: 'Nutricionista' } : null);
 
 /**
  * RN-467: a conversa e as mensagens do titular para o `dados.json`, nos dois escopos (`montarDados`). Leitura incluída
@@ -147,7 +153,16 @@ export async function apagarConversaDoTitular(ctx: TenantContext, patientId: str
         db,
         dataDir: deps.dataDir,
         removerAntesDoCommit: true,
+        // revisão da T5 (M2): o ponteiro foi lido numa transação anterior — relido aqui com a mensagem travada; se mudou ou
+        // sumiu (o job soltou o original no meio), desiste sem erro (a função recusaria com 42501). O que sobrar, a
+        // função do banco recusa no passo (3) e o dia seguinte tenta de novo
         naMesmaTransacao: async (tx) => {
+          const [atual] = await tx
+            .select({ caminho: sql<string | null>`${coluna}` })
+            .from(chatMensagens)
+            .where(and(doTitular, eq(chatMensagens.id, m.id)))
+            .for('update');
+          if (atual?.caminho !== m.caminho) return false;
           await tx.execute(sql`select app_chat_soltar_anexo(${m.id}, ${m.caminho})`);
           return true;
         },
@@ -183,7 +198,8 @@ export async function anexosDeChatRestantes(tx: Tx, patientId: string): Promise<
 export async function apagarConversasDosAnonimizados(ctx: TenantContext, deps: { db?: Db; dataDir?: string } = {}): Promise<void> {
   exigirWorker(ctx);
   const db = deps.db ?? getDb();
-  const falhou = (err: unknown) => logger.error({ motivo: motivoDoErro(err), tenantId: ctx.tenantId }, 'falha ao apagar a conversa de titular anonimizado');
+  // revisão da T5 (M3): o nome e o SQLSTATE do erro (motivoDoErro devolve 'erro' para o erro do Drizzle), nunca a mensagem
+  const falhou = (err: unknown) => logger.error({ err: nomeDoErro(err), sqlstate: sqlstateDoErro(err), tenantId: ctx.tenantId }, 'falha ao apagar a conversa de titular anonimizado');
   let ids: { id: string }[];
   try {
     ids = await withTenant(

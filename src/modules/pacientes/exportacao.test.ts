@@ -1441,7 +1441,7 @@ describe('Plano 25 (RN-467; CH-D74) — a conversa por mensagens no dados.json',
     await enviarComoNutri(T.ctx, c.p, { texto: 'Bom dia, Ana!' }, app.db);
     await enviarComoPaciente(c.P, { texto: 'Posso trocar a banana?' }, app.db);
     const esperado = {
-      conversa: { liberadaEm: expect.any(String), formaDoTcle: 'Aceite por escrito (mensagem ou e-mail)', liberadaPor: { nome: 'Débora Nutricionista', crn: 'CRN-4 54321' }, pausadaEm: null, pausadaPor: null },
+      conversa: { liberadaEm: expect.any(String), formaDoTcle: 'Aceite por escrito (mensagem ou e-mail)', liberadaPor: { nome: 'Débora Nutricionista', crn: 'CRN-4 54321', profissao: 'Nutricionista' }, pausadaEm: null, pausadaPor: null },
       mensagens: [
         { criadaEm: expect.any(String), autor: 'nutricionista', autorNome: 'Débora Nutricionista', autorCrn: 'CRN-4 54321', texto: 'Bom dia, Ana!', recado: false },
         { criadaEm: expect.any(String), autor: 'paciente', texto: 'Posso trocar a banana?', recado: false },
