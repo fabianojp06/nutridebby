@@ -21,7 +21,7 @@ type Props = {
   nutri?: string;
   termo: { titulo: string; paragrafos: string[]; rotulo: string; versao: string };
 };
-type Resposta = { erro?: string; erros?: Record<string, string>; pedido?: string; estado?: 'agendada' | 'pedido' | 'horario_ocupado'; quando?: string; horarios?: HorarioVisivel[]; indisponivel?: boolean };
+type Resposta = { erro?: string; erros?: Record<string, string>; pedido?: string; confirmarPedidos?: boolean; estado?: 'agendada' | 'pedido' | 'horario_ocupado'; quando?: string; horarios?: HorarioVisivel[]; indisponivel?: boolean };
 type Dados = { nome: string; email: string; telefone: string; whatsapp: boolean; maiorDeIdade: boolean; aceitouTermo: boolean };
 
 async function enviar(url: string, corpo: unknown): Promise<{ status: number; r: Resposta }> {
@@ -36,6 +36,27 @@ async function enviar(url: string, corpo: unknown): Promise<{ status: number; r:
 const texto = (v: FormDataEntryValue | null) => (typeof v === 'string' ? v : '');
 
 /**
+ * A etapa do código (RN-16 passo 2). Plano 23 (RN-429, revisão da T7): com a chave dos pedidos ligada — também quando a
+ * nutricionista a ligou depois de a página abrir (`solicitarCodigo` devolve a chave de agora) —, a frase do ponto de coleta
+ * aparece de novo antes de "Confirmar agendamento".
+ */
+export function EtapaDoCodigo({ email, pontoDeColeta, erroDoCodigo, alerta, enviando, aoEnviar }: { email: string; pontoDeColeta: boolean; erroDoCodigo?: string; alerta?: React.ReactNode; enviando: boolean; aoEnviar?: (e: React.FormEvent<HTMLFormElement>) => void }) {
+  return (
+    <form method="post" onSubmit={aoEnviar} className="max-w-sm space-y-3">
+      <p role="status">{MSG_PUBLICO.enviado(email)}</p>
+      <label htmlFor="codigo" className="block font-medium">Código</label>
+      <input id="codigo" name="codigo" inputMode="numeric" autoComplete="one-time-code" maxLength={7} required className="w-full rounded border p-2" {...(erroDoCodigo ? { 'aria-invalid': true as const, 'aria-describedby': 'codigo-erro' } : {})} />
+      {erroDoCodigo && <p id="codigo-erro" role="alert" className="text-sm text-red-700">{erroDoCodigo}</p>}
+      {alerta}
+      {pontoDeColeta && <p className="text-sm">{MSG_PUBLICO.pontoDeColeta}</p>}
+      <button disabled={enviando} className="rounded bg-emerald-700 px-4 py-2 text-white disabled:opacity-60">
+        Confirmar agendamento
+      </button>
+    </form>
+  );
+}
+
+/**
  * RN-16 em duas etapas: dados + Turnstile → código de 6 dígitos no e-mail → consulta. Se o horário foi ocupado no meio,
  * o pedido (já verificado) escolhe outro sem novo código. Plano 23 (I-13): o local escolhido filtra os horários aqui mesmo
  * (nada do que foi digitado se perde) e vai junto no pedido; a semana anterior/próxima o mantém (`?local=`).
@@ -48,6 +69,8 @@ export function AgendarForm({ slug, siteKey, locais, localInicial, semana, horar
   const [erros, setErros] = useState<Record<string, string>>({});
   const [erro, setErro] = useState('');
   const [pedido, setPedido] = useState('');
+  // a chave como `solicitarCodigo` a viu (pode ter sido ligada depois de a página abrir)
+  const [chaveNoCodigo, setChaveNoCodigo] = useState(confirmarPedidos);
   const [dados, setDados] = useState<Dados | null>(null);
   const [outros, setOutros] = useState<HorarioVisivel[]>([]);
   const [quando, setQuando] = useState('');
@@ -96,6 +119,7 @@ export function AgendarForm({ slug, siteKey, locais, localInicial, semana, horar
     setEnviando(false);
     if (status === 200 && r.pedido) {
       setPedido(r.pedido);
+      setChaveNoCodigo(r.confirmarPedidos ?? confirmarPedidos);
       setErros({});
       setErro('');
       setToken(null); // gasto
@@ -134,16 +158,7 @@ export function AgendarForm({ slug, siteKey, locais, localInicial, semana, horar
   if (etapa === 'pronto') return <p role="status" className="rounded bg-emerald-50 p-3">{MSG_PUBLICO.agendada(quando)}</p>;
   if (etapa === 'pedido') return <p role="status" className="rounded bg-emerald-50 p-3">{MSG_PUBLICO.pedidoEnviado(nutri)}</p>;
   if (etapa === 'codigo') {
-    return (
-      <form method="post" onSubmit={confirmar} className="max-w-sm space-y-3">
-        <p role="status">{MSG_PUBLICO.enviado(dados?.email ?? '')}</p>
-        <label htmlFor="codigo" className="block font-medium">Código</label>
-        <input id="codigo" name="codigo" inputMode="numeric" autoComplete="one-time-code" maxLength={7} required className="w-full rounded border p-2" {...aria('codigo')} />
-        {msg('codigo')}
-        {alerta}
-        {botao('Confirmar agendamento')}
-      </form>
-    );
+    return <EtapaDoCodigo email={dados?.email ?? ''} pontoDeColeta={chaveNoCodigo} erroDoCodigo={erros.codigo} alerta={alerta} enviando={enviando} aoEnviar={confirmar} />;
   }
   if (etapa === 'outro') {
     return (

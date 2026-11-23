@@ -179,6 +179,7 @@ describe('Início em bento (D22)', () => {
       naoVistos: await contarDiariosNaoVistos(T.ctx, app.db),
       metricas: await metricasDeSucesso(T.ctx, tenant, agora, app.db),
       documentosAguardando: null, // D20: sem a liberação, nem conta
+      solicitacoes: 0, // Plano 23 (US-409): nenhum pedido
     });
     expect(r.pendentes).toBe(1);
     expect(r.pedidos).toHaveLength(1);
@@ -191,6 +192,18 @@ describe('Início em bento (D22)', () => {
     const c2 = contandoTransacoes(app.db);
     expect((await lerInicio(T.ctx, liberado, agora, { whatsappLigado: false }, c2.db)).documentosAguardando).toBe(1);
     expect(c2.n()).toBe(1);
+  });
+  it('Plano 23 (US-409, T8): "Solicitações (3)" com 3 pedidos no prazo (o vencido e o respondido fora), na mesma transação; sem pendente, 0', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const [antes] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+    expect((await lerInicio(T.ctx, antes, agora, { whatsappLigado: false }, app.db)).solicitacoes).toBe(0);
+    for (const dia of [22, 23, 24]) await pedidoDireto(app.db, T, ana.id, new Date(Date.UTC(2026, 9, dia, 12, 0)));
+    await pedidoDireto(app.db, T, ana.id, new Date(Date.UTC(2026, 9, 20, 23, 0))); // 20:00 de hoje: vence às 08:00 (antecedência 12 h)
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+    const c = contandoTransacoes(app.db);
+    expect((await lerInicio(T.ctx, tenant, agora, { whatsappLigado: false }, c.db)).solicitacoes).toBe(3);
+    expect(c.n()).toBe(1);
   });
   it('Plano 23 (AG-D45): consultório sem local — abrir o Início cria o "Consultório" principal uma vez', async () => {
     const T = await novoTenant(app.db);

@@ -22,8 +22,8 @@ import { SELO_PRESENCA_A_REGISTRAR, selosDaConsulta, sqlEhRetorno } from './stat
 /** AG-D73: no PR 2 não há onde preencher a previsão de retorno; a T9 liga o marcador e o filtro "Previsões de retorno". */
 export const MARCADOR_RETORNO_LIGADO = false;
 
-/** AG-D72: o pedido `solicitada` só existe a partir da T6/T8, que liga esta marca (e o rótulo "Pedido a responder" da legenda). */
-export const PEDIDOS_NA_AGENDA = false;
+/** AG-D72: o pedido `solicitada` existe a partir da T6/T8; a T8 ligou esta marca (o rótulo "Pedido a responder" da legenda). */
+export const PEDIDOS_NA_AGENDA = true;
 
 /** Teto de consultas de uma tela (a Lista do paciente cobre 12 meses; o Mês de um consultório cheio, ~200). */
 const LIMITE_DE_CONSULTAS = 5000;

@@ -233,6 +233,23 @@ export const MSG_SOLICITACOES = {
   aceitar: 'Aceitar',
   recusar: 'Recusar',
   confirmarRecusa: (nome: string) => `Recusar o pedido de ${nome}? A pessoa recebe um e-mail avisando.`,
+  /** T8: as duas partes de `confirmarRecusa` no diálogo (o título e a descrição; juntas, o texto exato da §6.2). */
+  recusaTitulo: (nome: string) => `Recusar o pedido de ${nome}?`,
+  recusaAviso: 'A pessoa recebe um e-mail avisando.',
+  /** §7: os botões repetidos da fila levam o nome no `aria-label`. */
+  aceitarDe: (nome: string) => `Aceitar o pedido de ${nome}`,
+  recusarDe: (nome: string) => `Recusar o pedido de ${nome}`,
+  /** Abas da agenda e cartão do Início (§6.2 "Abas", US-409 "Início do painel"). */
+  aba: (n: number) => `Solicitações (${n})`,
+  /** US-407 (§6.2 "Horários"): a chave em Agenda › Horários. */
+  chave: {
+    titulo: 'Pedidos de consulta',
+    rotulo: 'Confirmar os pedidos antes de marcar',
+    ajuda: 'Os pedidos feitos pelo app e pela página de agendamento esperam a sua resposta em Solicitações.',
+    salva: 'Configuração salva.',
+    /** Fora da §6.2: o botão do formulário da chave. */
+    salvar: 'Salvar',
+  },
   motivo: 'Motivo (só você vê)',
   confirmarRecusaBotao: 'Confirmar recusa',
   vazio: 'Nenhum pedido aguardando resposta.',

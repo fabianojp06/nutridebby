@@ -9,6 +9,7 @@ import { requireNutri } from '@/lib/tenant-session';
 import type { Consulta } from '@/modules/agenda/consultas';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
 import { lerInicio, MSG_INICIO, textoSemProxima } from '@/modules/agenda/inicio';
+import { MSG_SOLICITACOES } from '@/modules/agenda/constantes';
 import { MSG_PRESENCA, textoTaxa } from '@/modules/agenda/presenca';
 import { provedorDoApp } from '@/modules/notificacoes/whatsapp/conexao';
 import { primeiroNome } from '@/modules/notificacoes/mensagens';
@@ -29,7 +30,7 @@ export default async function PainelHome() {
   const { data, tenant, ctx } = await requireNutri('/painel');
   const agora = new Date();
   // tudo numa transação só: com leituras em paralelo, o Início de duas nutricionistas ocupava o pool (achado 3)
-  const { whatsapp, cota, indicadores: ind, pendentes, novidades: nov, pedidos, dia, naoVistos, metricas: cs, documentosAguardando } = await lerInicio(ctx, tenant, agora, { whatsappLigado: provedorDoApp() !== null });
+  const { whatsapp, cota, indicadores: ind, pendentes, novidades: nov, pedidos, dia, naoVistos, metricas: cs, documentosAguardando, solicitacoes } = await lerInicio(ctx, tenant, agora, { whatsappLigado: provedorDoApp() !== null });
   const hora = (d: Date) => partesNoFuso(d, tenant.fuso).hora;
   const novidades: [string, Consulta[]][] = [
     ['Pedidos de remarcação', nov.pedidosRemarcacao],
@@ -152,6 +153,13 @@ export default async function PainelHome() {
             {cs.cs03.base !== null && <li>{`Taxa de faltas antes do sistema: ${formatarDecimal(cs.cs03.base, 1)}%`}</li>}
           </ul>
         </Cartao>
+
+        {/* Plano 23 (US-409, §4.1): só quando há pedido no prazo de resposta */}
+        {solicitacoes > 0 && (
+          <Cartao id="solicitacoes" titulo={MSG_SOLICITACOES.aba(solicitacoes)} className="border-aviso!">
+            <p><Link href="/painel/agenda/solicitacoes" className="inline-flex min-h-11 items-center underline">Responder em Solicitações</Link></p>
+          </Cartao>
+        )}
 
         {pedidos.length > 0 && (
           <Cartao id="pedidos-titular" titulo="Pedidos do titular" className="border-aviso!">

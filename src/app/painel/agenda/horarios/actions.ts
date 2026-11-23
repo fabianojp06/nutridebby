@@ -2,8 +2,9 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireNutri } from '@/lib/tenant-session';
-import { MSG_AGENDA } from '@/modules/agenda/constantes';
+import { MSG_AGENDA, MSG_SOLICITACOES } from '@/modules/agenda/constantes';
 import { criarBloqueio, criarRegra, DisponibilidadeError, excluirBloqueio, excluirRegra } from '@/modules/agenda/disponibilidade';
+import { salvarConfirmacaoDosPedidos } from '@/modules/agenda/solicitacoes';
 
 export type FormAgendaState = { erros?: Record<string, string>; valores?: Record<string, string>; ok?: string; envio?: number };
 const CAMINHO = '/painel/agenda/horarios';
@@ -48,4 +49,19 @@ export async function excluirBloqueioAction(id: string): Promise<void> {
   await excluirBloqueio(ctx, id);
   revalidatePath(CAMINHO);
   revalidatePath('/painel/agenda');
+}
+
+export type ChaveState = { ok?: string; erro?: string };
+
+/**
+ * Plano 23 (US-407, RN-420): "Confirmar os pedidos antes de marcar". A caixa desmarcada não vai no formulário: desliga. As
+ * telas com a aba "Solicitações" e o Início se refazem (a aba aparece com a chave ligada).
+ */
+export async function salvarChaveAction(_prev: ChaveState, fd: FormData): Promise<ChaveState> {
+  const { ctx } = await requireNutri(CAMINHO);
+  await salvarConfirmacaoDosPedidos(ctx, fd.get('confirmar') === 'on');
+  revalidatePath(CAMINHO);
+  revalidatePath('/painel/agenda');
+  revalidatePath('/painel');
+  return { ok: MSG_SOLICITACOES.chave.salva };
 }

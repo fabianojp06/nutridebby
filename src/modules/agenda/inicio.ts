@@ -14,6 +14,7 @@ import { listarAgendaNaTransacao, STATUS_ATIVOS, type Consulta } from './consult
 import { inicioDoDia } from './fuso';
 import { garantirLocaisIniciais } from './locais';
 import { contarPendenciasDePresencaNaTransacao, indicadoresDaAgendaNaTransacao, novidadesDaAgendaNaTransacao, type Indicadores, type Novidades } from './presenca';
+import { contarSolicitacoesNaTransacao } from './solicitacoes';
 
 export type ResumoDoDia = {
   proxima: { consulta: Consulta; numero: number; diario7d: number; portal7d: number } | null;
@@ -94,6 +95,8 @@ export type Inicio = {
   metricas: MetricasSucesso;
   /** P-B8 (Plano 10A): documentos aguardando assinatura; null sem a liberação dos documentos (D20). */
   documentosAguardando: number | null;
+  /** Plano 23 (US-409, §4.1): pedidos no prazo de resposta — o cartão "Solicitações ({n})" só aparece com algum. */
+  solicitacoes: number;
 };
 
 /**
@@ -103,7 +106,7 @@ export type Inicio = {
  */
 export async function lerInicio(
   ctx: TenantContext,
-  tenant: Pick<TenantRow, 'id' | 'enderecoConsultorio' | 'fuso' | 'goLiveEm' | 'taxaFaltasBase' | 'waCotaMensal' | 'documentosLiberados'>,
+  tenant: Pick<TenantRow, 'id' | 'enderecoConsultorio' | 'fuso' | 'goLiveEm' | 'taxaFaltasBase' | 'waCotaMensal' | 'documentosLiberados' | 'antecedenciaMinH'>,
   agora: Date,
   o: { whatsappLigado: boolean },
   db: Db = getDb(),
@@ -125,6 +128,7 @@ export async function lerInicio(
         naoVistos: await contarDiariosNaoVistosNaTransacao(tx),
         metricas: await metricasDeSucessoNaTransacao(tx, tenant, agora), // P08-07 / D15
         documentosAguardando: tenant.documentosLiberados ? await contarAguardandoAssinatura(tx) : null, // P-B8 / D20
+        solicitacoes: await contarSolicitacoesNaTransacao(tx, tenant, agora), // Plano 23 (US-409): cartão "Solicitações ({n})"
       };
     },
     db,

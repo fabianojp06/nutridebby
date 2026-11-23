@@ -8,7 +8,7 @@ import { formatarData } from '@/modules/pacientes/datas';
 import { consultaDoPaciente, horariosDaSemana } from '@/modules/portal/agenda';
 import { CabecalhoDetalhe } from '@/components/portal/cabecalho-detalhe';
 import { QuandoLocal } from '../../../quando-local';
-import { AcoesConsulta } from '../acoes-consulta';
+import { AcoesConsulta, DesistirDoPedido } from '../acoes-consulta';
 import { remarcarAction } from '../actions';
 import { AgendarForm } from '../agendar-form';
 
@@ -48,8 +48,11 @@ export default async function ConsultaDoPortal({ params, searchParams }: PagePro
           <AcoesConsulta id={c.id} confirmada={c.status === 'confirmada'} podeAlterar={c.podeAlterar} pedidoRemarcacao={c.pedidoRemarcacao} />
         ) : (
           // Plano 23 (AG-D43, AG-D44): o pedido mostra a situação dele ("Aguardando…", "Não confirmado", "Pedido cancelado");
-          // "Desistir do pedido" é da T8
-          <p>{c.pedido ? c.situacao : c.status === 'cancelada' ? 'Esta consulta foi cancelada.' : 'Consulta encerrada'}</p>
+          // o que ainda aguarda, no prazo, tem "Desistir do pedido" (US-408, T8)
+          <>
+            <p>{c.pedido ? c.situacao : c.status === 'cancelada' ? 'Esta consulta foi cancelada.' : 'Consulta encerrada'}</p>
+            {c.podeDesistir && <DesistirDoPedido id={c.id} />}
+          </>
         )}
         {s && (
           <section aria-labelledby="remarcar" className="space-y-3">

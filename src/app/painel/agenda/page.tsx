@@ -3,6 +3,7 @@ import { requireNutri } from '@/lib/tenant-session';
 import { faixaDaGrade, gradeDoMes, nomeDoMesDoAno, type Visao } from '@/modules/agenda/calendario';
 import { MSG_VISOES as M } from '@/modules/agenda/constantes';
 import { diaCurto, partesNoFuso } from '@/modules/agenda/fuso';
+import { abaDeSolicitacoes } from '@/modules/agenda/solicitacoes';
 import { agendaDoPeriodo, hrefDaAgenda, lerFiltros } from '@/modules/agenda/visoes';
 import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { AbasDaAgenda } from './abas';
@@ -27,6 +28,7 @@ export default async function AgendaPage({ searchParams }: PageProps<'/painel/ag
   const hoje = hojeNoFuso(tenant.fuso);
   const f = lerFiltros(await searchParams, hoje); // teto de datas da agenda: 9999-12-31 → hoje, nunca 500
   const a = await agendaDoPeriodo(ctx, tenant, f);
+  const solicitacoes = await abaDeSolicitacoes(ctx, tenant); // T8 (AG-D72): a aba só com a chave ligada ou pedido pendente
   const p = a.periodo;
   const rotulo = f.visao === 'dia' ? diaCurto(p.de) : f.visao === 'mes' ? nomeDoMesDoAno(p.de) : `${formatarData(p.de)} a ${formatarData(p.ate)}`;
   const marcadores = { aniversarios: a.aniversarios, retornos: a.retornos };
@@ -45,7 +47,7 @@ export default async function AgendaPage({ searchParams }: PageProps<'/painel/ag
         <h1 className="font-titulo text-2xl font-semibold">Agenda</h1>
         <Link data-guia="nova-consulta" href={`/painel/agenda/nova?data=${f.data}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Nova consulta</Link>
       </div>
-      <AbasDaAgenda atual="agenda" />
+      <AbasDaAgenda atual="agenda" solicitacoes={solicitacoes} />
       <nav aria-label="Período da agenda" data-guia="periodo-agenda" className="flex flex-wrap items-center gap-x-3 text-sm">
         {VISOES.map((v) => (
           <Link key={v} href={hrefDaAgenda({ ...f, visao: v })} aria-current={v === f.visao ? 'page' : undefined} className={`inline-flex min-h-11 items-center ${v === f.visao ? 'font-semibold' : 'text-link underline'}`}>{M.visoes[v]}</Link>

@@ -624,6 +624,106 @@ await withTenant(
   db,
 );
 
+// Plano 23 (T8, US-407 a US-409): os pedidos de consulta no E2E, em consultórios PRÓPRIOS — a chave "Confirmar os pedidos
+// antes de marcar" vale para o consultório inteiro, e ligá-la no "Consultório E2E" faria as specs que rodam ao mesmo tempo
+// (agenda.spec, portal.spec, acessibilidade) marcarem pedidos em vez de consultas. Dois consultórios, achados pelo slug e
+// reaproveitados: `e2e-pedidos` (o agenda-2.spec liga a chave, pede, aceita, recusa e desiste) começa a cada execução com a
+// chave DESLIGADA e sem pedido nem consulta; `e2e-pedidos-axe` (só leitura: o axe da fila, da recusa aberta, do portal com
+// pedido e do link da pessoa nova) começa com a chave LIGADA, um pedido da paciente com conta e uma pessoa nova aguardando
+// com o token fixo abaixo. Horários de domingo a sábado, 07:00–19:00, no "Consultório" de cada um. As specs copiam as
+// credenciais e o token (importar este arquivo roda o seed). IPs do bloco 10.9.23.10–.29 com os limites zerados.
+export const E2E_PEDIDOS = { email: 'pedidos-e2e@nutridebby.test', password: 'Nutri2026segura', slug: 'e2e-pedidos' };
+export const E2E_PEDIDOS_PACIENTE = { email: 'pedidos-paciente-e2e@nutridebby.test', password: 'Paciente2026segura', nome: 'Paula Pedidos Semente' };
+export const E2E_PEDIDOS_AXE = { email: 'pedidos-axe-e2e@nutridebby.test', password: 'Nutri2026segura', slug: 'e2e-pedidos-axe', token: 'e2ePedidoAxeTokenFixoDoLinkDeDesistencia012' };
+export const E2E_PEDIDOS_AXE_PACIENTE = { email: 'pedidos-axe-paciente-e2e@nutridebby.test', password: 'Paciente2026segura', nome: 'Pia Pedido Semente' };
+{
+  const { appointments, availabilityRules, publicBookingRequests } = await import('@/db/schema');
+  const { paraInstante } = await import('@/modules/agenda/fuso');
+  const { hojeNoFuso, somarDias } = await import('@/modules/pacientes/datas');
+  const { sha256 } = await import('@/lib/crypto');
+  const SP = 'America/Sao_Paulo';
+  for (const [cred, paciente, nomeExibicao, ligada] of [
+    [E2E_PEDIDOS, E2E_PEDIDOS_PACIENTE, 'Consultório Pedidos E2E', false],
+    [E2E_PEDIDOS_AXE, E2E_PEDIDOS_AXE_PACIENTE, 'Consultório Pedidos Axe E2E', true],
+  ] as const) {
+    const perfil = { dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), agendamentoPublicoAtivo: true, enderecoConsultorio: 'Rua dos Pedidos E2E, 23', crn: 'CRN-3 23023', nomeProfissional: `${nomeExibicao} Nutri`, antecedenciaMinH: 12, agendaConfirmarPedidos: false };
+    const [t] = await db
+      .insert(tenants)
+      .values({ slug: cred.slug, nomeExibicao, ...perfil })
+      .onConflictDoUpdate({ target: tenants.slug, set: { status: 'ativa', nomeExibicao, ...perfil } })
+      .returning({ id: tenants.id });
+    // a nutricionista, recriada como a E2E_NUTRI (manual visto, tema padrão)
+    await db.delete(user).where(eq(user.email, cred.email));
+    const nutriPedidosId = randomUUID();
+    await db.insert(user).values({ id: nutriPedidosId, name: `Nutri ${nomeExibicao}`, email: cred.email, emailVerified: true, appRole: 'nutri', tenantId: t.id, guia: TUDO_VISTO, tema: 'sistema' });
+    await db.insert(account).values({ id: randomUUID(), userId: nutriPedidosId, accountId: nutriPedidosId, providerId: 'credential', password: await hashPassword(cred.password) });
+    const ctxPedidos: TenantContext = { tenantId: t.id, role: 'nutri', actorUserId: nutriPedidosId };
+    // a agenda vazia e os pacientes das execuções anteriores arquivados (filhas antes das mães; sem Financeiro aqui)
+    await withTenant({ tenantId: t.id, role: 'worker' }, async (tx) => {
+      await tx.execute(sql`update consultations set appointment_id = null where appointment_id is not null`);
+      for (const tabela of ['public_booking_requests', 'notifications', 'appointments', 'availability_blocks', 'availability_rules']) await tx.execute(sql`delete from ${sql.identifier(tabela)}`);
+      await tx.execute(sql`update patients set status = 'arquivado', updated_at = now() where status = 'ativo'`);
+    }, db);
+    // o "Consultório" principal (o primeiro acesso o criaria, AG-D45) e os horários da semana inteira nele
+    const localId = await withTenant(ctxPedidos, async (tx) => {
+      const [ja] = await tx.select({ id: locaisAtendimento.id }).from(locaisAtendimento).where(eq(locaisAtendimento.nome, 'Consultório')).limit(1);
+      const estado = { nome: 'Consultório', endereco: perfil.enderecoConsultorio, cidade: 'Recife', mostrarEndereco: true, linkSala: null, principal: true, agendamentoOnline: true, arquivadoEm: null, updatedAt: new Date() };
+      if (ja) {
+        await tx.update(locaisAtendimento).set(estado).where(eq(locaisAtendimento.id, ja.id));
+        return ja.id;
+      }
+      const [novo] = await tx.insert(locaisAtendimento).values({ tenantId: t.id, tipo: 'presencial', ...estado }).returning({ id: locaisAtendimento.id });
+      return novo.id;
+    }, db);
+    await withTenant(ctxPedidos, (tx) =>
+      tx.insert(availabilityRules).values([0, 1, 2, 3, 4, 5, 6].map((diaSemana) => ({ tenantId: t.id, diaSemana, inicio: '07:00', fim: '19:00', duracaoMin: 60, modalidade: 'presencial', localId }))),
+    db);
+    // a paciente com conta (o termo do app aceito: `consents` é só de inclusão, a conta fica e só ganha a senha de novo)
+    const senha = await hashPassword(paciente.password);
+    const [existe] = await db.select({ id: user.id }).from(user).where(eq(user.email, paciente.email));
+    const pacienteUserId = existe?.id ?? randomUUID();
+    if (existe) await db.update(account).set({ password: senha }).where(eq(account.userId, pacienteUserId));
+    else {
+      await db.insert(user).values({ id: pacienteUserId, name: paciente.nome, email: paciente.email, emailVerified: true, appRole: 'paciente' });
+      await db.insert(account).values({ id: randomUUID(), userId: pacienteUserId, accountId: pacienteUserId, providerId: 'credential', password: senha });
+    }
+    const [linha] = await withTenant({ tenantId: t.id, role: 'worker' }, (tx) =>
+      tx
+        .insert(patients)
+        .values({ tenantId: t.id, userId: pacienteUserId, nome: paciente.nome, dataNascimento: '1990-03-15', sexo: 'F', email: paciente.email })
+        .onConflictDoUpdate({ target: [patients.tenantId, patients.email], set: { userId: pacienteUserId, nome: paciente.nome, status: 'ativo', updatedAt: new Date() } })
+        .returning({ id: patients.id }),
+    db);
+    await db.insert(consents).values({ userId: pacienteUserId, tenantId: t.id, termoVersao: TERMO_PACIENTE, ip: null }).onConflictDoNothing();
+    if (!ligada) continue;
+    // e2e-pedidos-axe: a chave ligada pela equipe (o gatilho só deixa a equipe e o contexto vazio), o pedido da paciente
+    // (o gatilho o grava `solicitada`, na sessão dela) e a pessoa nova aguardando com o token fixo — daqui a 10 e 11 dias
+    await withTenant(ctxPedidos, (tx) => tx.update(tenants).set({ agendaConfirmarPedidos: true }).where(eq(tenants.id, t.id)), db);
+    const dia = (n: number) => somarDias(hojeNoFuso(SP), n);
+    const inicioPedido = paraInstante(dia(10), '10:00', SP)!;
+    const [pedido] = await withTenant({ tenantId: t.id, role: 'paciente', patientId: linha.id, actorUserId: pacienteUserId }, (tx) =>
+      tx
+        .insert(appointments)
+        .values({ tenantId: t.id, patientId: linha.id, inicio: inicioPedido, fim: new Date(inicioPedido.getTime() + 3_600_000), modalidade: 'presencial', origem: 'paciente', localId })
+        .returning({ status: appointments.status }),
+    db);
+    if (pedido.status !== 'solicitada') throw new Error('semente do E2E: o pedido da paciente não nasceu solicitada');
+    const inicioNova = paraInstante(dia(11), '10:00', SP)!;
+    const agora = new Date();
+    await withTenant(ctxPedidos, (tx) =>
+      tx.insert(publicBookingRequests).values({
+        id: randomUUID(), tenantId: t.id, tokenHash: sha256(E2E_PEDIDOS_AXE.token), codigoHash: 'semente', email: 'nina-nova-axe-e2e@nutridebby.test', nome: 'Nina Nova Semente',
+        inicio: inicioNova, fim: new Date(inicioNova.getTime() + 3_600_000), modalidade: 'presencial', localId, termoVersao: TERMO_PACIENTE,
+        expiraEm: new Date(agora.getTime() + 10 * 60_000), verificadoEm: agora, aguardandoDesde: agora,
+      }),
+    db);
+  }
+  for (let i = 10; i <= 29; i++) {
+    await liberarLimite(db, chaveDoLimite('ip', `10.9.23.${i}`));
+    await liberarLimite(db, chaveDoLimite('pedido-link-ip', `10.9.23.${i}`));
+  }
+}
+
 await stopBoss(); // a publicação do plano enfileira o PDF
 await closeDb();
 console.log('Seed E2E pronto.');

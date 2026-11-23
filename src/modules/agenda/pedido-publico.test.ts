@@ -203,10 +203,17 @@ describe('fila com a pessoa nova (US-409)', () => {
     await recusarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'pessoa_nova', id: r.id }, depsSol());
     const fila = await listarSolicitacoes(T.ctx, tenantAgenda(T), depsSol());
     expect(fila).toEqual([
-      { tipo: 'pessoa_nova', id: p.id, nome: 'Carla Dias', inicio: em('2026-10-16', '09:00'), fim: em('2026-10-16', '10:00'), local: 'Consultório', origem: 'pagina', pedidoEm: em('2026-10-14', '09:30'), respondaAte: em('2026-10-15', '21:00') },
+      { tipo: 'pessoa_nova', id: p.id, nome: 'Carla Dias', inicio: em('2026-10-16', '09:00'), fim: em('2026-10-16', '10:00'), local: 'Consultório', origem: 'pagina', pedidoEm: em('2026-10-14', '09:30'), respondaAte: em('2026-10-15', '21:00'), primeiraOnline: false },
     ]);
     expect(JSON.stringify(fila)).not.toMatch(/@ex\.com|5511/); // nem e-mail nem telefone na fila
     expect(await withTenant(T.ctx, (tx) => contarSolicitacoesNaTransacao(tx, tenantAgenda(T), agora), app.db)).toBe(1);
+  });
+
+  it('T8 (RN-404): o pedido da pessoa nova num local de videoconferência é a primeira consulta online (aviso do TCLE na fila)', async () => {
+    const T = await consultorio();
+    const video = await novoLocal(app.db, T.ctx, { nome: 'Videoconferência', tipo: 'online', linkSala: SALA });
+    await aguardando(T, { localId: video, modalidade: 'online' });
+    expect(await listarSolicitacoes(T.ctx, tenantAgenda(T), depsSol())).toEqual([expect.objectContaining({ tipo: 'pessoa_nova', local: 'Videoconferência', primeiraOnline: true })]);
   });
 });
 

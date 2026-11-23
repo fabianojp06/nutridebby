@@ -111,7 +111,7 @@ describe('/painel/agenda (US-404, US-405)', () => {
     expect(h).toMatch(/<th scope="row"[^>]*>23h<\/th>/);
     const legenda = texto(/<section[^>]*aria-labelledby="titulo-legenda"[\s\S]*?<\/section>/.exec(h)?.[0] ?? '');
     for (const r of ['Legenda', 'Primeira consulta', 'Retorno', 'Presença a registrar', 'Bloqueio', 'Aniversário']) expect(legenda).toContain(r);
-    expect(legenda).not.toContain('Pedido a responder'); // AG-D72: só com o status `solicitada` (T6/T8, PEDIDOS_NA_AGENDA)
+    expect(legenda).toContain('Pedido a responder'); // AG-D72: ligado na T8 (PEDIDOS_NA_AGENDA), com a tela das Solicitações
     // M4: os dois formulários com nome; M5: "Anterior"/"Próximo" dizem a visão ao leitor de tela, depois do texto visível
     expect(filtrar).toContain('aria-label="Filtros da agenda"');
     expect(irPara).toContain('aria-label="Navegação por data"'); // E2E do PR 2: o nome do form não repete o rótulo do campo

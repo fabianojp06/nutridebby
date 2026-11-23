@@ -9,7 +9,7 @@ import { buscarConsulta, listarConsultas, STATUS_ATIVOS, type Consulta, type Sta
 import { inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { horariosVisiveis, type HorarioVisivel, type LocalVisivel } from '@/modules/agenda/horarios';
 import { localDaConsulta, type LocalDaConsulta } from '@/modules/agenda/locais';
-import { ehPedido, situacaoNoPortal, STATUS_OCUPA } from '@/modules/agenda/status';
+import { ehPedido, pedidoVencido, situacaoNoPortal, STATUS_OCUPA } from '@/modules/agenda/status';
 import { pacienteDaSessao } from './sessao';
 
 export type ConsultaDoPaciente = {
@@ -26,6 +26,8 @@ export type ConsultaDoPaciente = {
   situacao: string;
   /** O pedido (`solicitada`) ou o que ele virou (recusado, vencido, retirado): a tela mostra a situação, sem as ações da consulta. */
   pedido: boolean;
+  /** Plano 23 (US-408, T8): o pedido ainda aguardando, no prazo de resposta — a tela oferece "Desistir do pedido". */
+  podeDesistir: boolean;
   pedidoRemarcacao: boolean;
   podeAlterar: boolean;
   /** Plano 23: o local da consulta (nulo na antiga) e, só em "Sua consulta", o nome e o endereço dele pela projeção. */
@@ -42,6 +44,7 @@ const paraPaciente = (c: Consulta, tenant: TenantAgenda, agora: Date, local: Loc
   status: c.status,
   situacao: situacaoNoPortal(c, tenant, agora),
   pedido: ehPedido(c),
+  podeDesistir: c.status === 'solicitada' && !pedidoVencido(c, tenant, agora),
   pedidoRemarcacao: c.pedidoRemarcacaoEm !== null,
   podeAlterar: (STATUS_ATIVOS as readonly string[]).includes(c.status) && podeAlterarPeloPaciente(c.inicio, tenant.cancelamentoMinH, agora),
   localId: c.localId,

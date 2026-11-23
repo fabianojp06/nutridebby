@@ -40,7 +40,7 @@ export { PedidoMudouError };
 
 export type PedidoNaFila =
   | { tipo: 'consulta'; id: string; patientId: string; nome: string; inicio: Date; fim: Date; local: string | null; origem: 'app' | 'pagina'; pedidoEm: Date; respondaAte: Date; primeiraOnline: boolean }
-  | { tipo: 'pessoa_nova'; id: string; nome: string; inicio: Date; fim: Date; local: string | null; origem: 'pagina'; pedidoEm: Date; respondaAte: Date };
+  | { tipo: 'pessoa_nova'; id: string; nome: string; inicio: Date; fim: Date; local: string | null; origem: 'pagina'; pedidoEm: Date; respondaAte: Date; primeiraOnline: boolean };
 
 type Deps = { db?: Db; agora?: Date; appUrl?: string };
 type Alvo = { tipo: 'consulta' | 'pessoa_nova'; id: string };
@@ -87,13 +87,15 @@ export async function listarSolicitacoes(ctx: TenantContext, tenant: Pick<Tenant
           inicio: publicBookingRequests.inicio,
           fim: publicBookingRequests.fim,
           desde: publicBookingRequests.aguardandoDesde,
+          modalidade: publicBookingRequests.modalidade,
           local: locaisAtendimento.nome,
         })
         .from(publicBookingRequests)
         .leftJoin(locaisAtendimento, and(eq(locaisAtendimento.tenantId, publicBookingRequests.tenantId), eq(locaisAtendimento.id, publicBookingRequests.localId)))
         .where(and(aguardandoResposta, gt(publicBookingRequests.inicio, limite)));
       const daPessoaNova = novas.map(
-        (b): PedidoNaFila => ({ tipo: 'pessoa_nova', id: b.id, nome: b.nome, inicio: b.inicio, fim: b.fim ?? b.inicio, local: b.local, origem: 'pagina', pedidoEm: b.desde ?? b.inicio, respondaAte: prazoDoPedido(b.inicio, tenant) }),
+        // T8 (RN-404): a pessoa nova ainda não tem consulta — o pedido online é sempre a primeira consulta online
+        (b): PedidoNaFila => ({ tipo: 'pessoa_nova', id: b.id, nome: b.nome, inicio: b.inicio, fim: b.fim ?? b.inicio, local: b.local, origem: 'pagina', pedidoEm: b.desde ?? b.inicio, respondaAte: prazoDoPedido(b.inicio, tenant), primeiraOnline: b.modalidade === 'online' }),
       );
       const deConsulta = rs.map(({ c, nome, local, daPagina: pagina }): PedidoNaFila => ({
         tipo: 'consulta',
@@ -120,6 +122,36 @@ export async function contarSolicitacoesNaTransacao(tx: Tx, tenant: Pick<TenantA
   const limite = new Date(agora.getTime() + tenant.antecedenciaMinH * 3_600_000);
   const [b] = await tx.select({ n: count() }).from(publicBookingRequests).where(and(aguardandoResposta, gt(publicBookingRequests.inicio, limite)));
   return r.n + b.n;
+}
+
+/**
+ * Abas da agenda (§4.1, AG-D72): "Solicitações ({n})" só com a chave ligada ou com pedido pendente — `null` tira a aba. Um
+ * `count` numa transação curta da própria tela (as telas da agenda leem em transações próprias; a fila usa o tamanho da
+ * lista que já leu). Sessão `nutri` (RN-400).
+ */
+export async function abaDeSolicitacoes(ctx: TenantContext, tenant: Pick<TenantAgenda, 'antecedenciaMinH' | 'agendaConfirmarPedidos'>, deps: Deps = {}): Promise<number | null> {
+  exigirNutri(ctx);
+  const n = await withTenant(ctx, (tx) => contarSolicitacoesNaTransacao(tx, tenant, deps.agora ?? new Date()), deps.db ?? getDb());
+  return tenant.agendaConfirmarPedidos || n > 0 ? n : null;
+}
+
+/**
+ * US-407 / RN-420: liga ou desliga "Confirmar os pedidos antes de marcar" (o gatilho `tenants_agenda_da_equipe` só deixa a
+ * equipe mudar). Toma a trava dos pedidos do tenant **antes** do UPDATE (revisão da T7): `gravarPedido` e
+ * `agendarComoPaciente` leem a chave sob essa trava e o gatilho `appointments_regras_pedido` a relê no INSERT — sem ela, a
+ * chave mudaria no meio (a pessoa nova ganharia cadastro e uma consulta `solicitada`). Desligar não mexe nos pendentes:
+ * continuam na fila até a resposta ou o vencimento (US-407).
+ */
+export async function salvarConfirmacaoDosPedidos(ctx: TenantContext, ligar: boolean, deps: { db?: Db } = {}): Promise<void> {
+  exigirNutri(ctx);
+  await withTenant(
+    ctx,
+    async (tx) => {
+      await travarPedidosDoTenant(tx, ctx.tenantId);
+      await tx.update(tenants).set({ agendaConfirmarPedidos: ligar === true }).where(eq(tenants.id, ctx.tenantId));
+    },
+    deps.db ?? getDb(),
+  );
 }
 
 /**

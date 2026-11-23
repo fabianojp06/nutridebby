@@ -6,7 +6,7 @@ import { makeDb } from '../../../test/db';
 import { depsDeEnvio } from '../../../test/notificacoes';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, notifications, patients, user } from '@/db/schema';
+import { appointments, notifications, patients, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { logger } from '@/lib/logger';
@@ -16,7 +16,7 @@ import { remarcarComoPaciente } from './cancelamento';
 import { JANELA_RESPOSTA_PEDIDO_H, MSG_AGENDA, MSG_SOLICITACOES } from './constantes';
 import { ConsultaError, motivoDoCancelamentoDaNutri } from './consultas';
 import { partesNoFuso } from './fuso';
-import { aceitarSolicitacao, contarSolicitacoesNaTransacao, desistirDoPedido, listarSolicitacoes, PedidoMudouError, recusarSolicitacao, vencerSolicitacoes } from './solicitacoes';
+import { abaDeSolicitacoes, aceitarSolicitacao, contarSolicitacoesNaTransacao, desistirDoPedido, listarSolicitacoes, PedidoMudouError, recusarSolicitacao, salvarConfirmacaoDosPedidos, vencerSolicitacoes } from './solicitacoes';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl')); // só lê pg_stat_activity (quem ficou preso numa trava)
@@ -488,5 +488,61 @@ describe('AG-D75: o "não confirmado" ao paciente fora do horário silencioso (2
     await recusarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'consulta', id: r10 }, depsSol(em('2026-10-14', '10:00')));
     const dez = em('2026-10-14', '10:00').toISOString();
     expect(await agendadas(T, r10)).toEqual([`email@${dez}`, `push@${dez}`]);
+  });
+});
+
+describe('a chave "Confirmar os pedidos antes de marcar" (US-407, RN-420, T8)', () => {
+  const chave = async (T: TenantDeTeste) => (await app.db.select({ v: tenants.agendaConfirmarPedidos }).from(tenants).where(eq(tenants.id, T.tenantId)))[0].v;
+
+  it('salvarConfirmacaoDosPedidos liga e desliga; a sessão do paciente é recusada antes da transação', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    await salvarConfirmacaoDosPedidos(T.ctx, true, { db: app.db });
+    expect(await chave(T)).toBe(true);
+    await salvarConfirmacaoDosPedidos(T.ctx, false, { db: app.db });
+    expect(await chave(T)).toBe(false);
+    await expect(salvarConfirmacaoDosPedidos(ctxPaciente(T.tenantId, ana.id), true, { db: app.db })).rejects.toThrow('agenda: só a sessão nutri');
+    expect(await chave(T)).toBe(false);
+  });
+
+  it('revisão da T7: toma a trava dos pedidos do tenant antes do UPDATE — com um pedido em gravação segurando a trava, a chave só muda depois dele (pg_blocking_pids)', async () => {
+    const T = await novoTenant(app.db);
+    // barreira: quem grava um pedido (gravarPedido, agendarComoPaciente) segura a trava do tenant e lê a chave sob ela
+    const barreira = await app.pool.connect();
+    let terminou = false;
+    try {
+      await barreira.query('begin');
+      await barreira.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true)`, [T.tenantId]);
+      await barreira.query(`select pg_advisory_xact_lock(hashtext('agenda-pedidos-tenant'), hashtext($1))`, [T.tenantId]);
+      const pid = (await barreira.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const salvar = salvarConfirmacaoDosPedidos(T.ctx, true, { db: app.db }).finally(() => {
+        terminou = true;
+      });
+      for (let i = 0; ; i++) {
+        if ((await owner.pool.query<{ n: number }>('select count(*)::int as n from pg_stat_activity where $1 = any(pg_blocking_pids(pid))', [pid])).rows[0].n >= 1) break;
+        if (i > 500) throw new Error('a chave não esperou a trava dos pedidos do tenant');
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      // enquanto a gravação não termina, a chave que ela relê (o gatilho, no INSERT) continua a mesma
+      expect((await barreira.query<{ v: boolean }>('select agenda_confirmar_pedidos as v from tenants where id = $1', [T.tenantId])).rows[0].v).toBe(false);
+      expect(terminou).toBe(false);
+      await barreira.query('commit');
+      await salvar;
+    } finally {
+      await barreira.query('rollback').catch(() => undefined);
+      barreira.release();
+    }
+    expect(await chave(T)).toBe(true);
+  });
+
+  it('abaDeSolicitacoes (AG-D72): sem a aba com a chave desligada e nenhum pendente; "(0)" com a chave ligada; desligada com pendente, o número', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    expect(await abaDeSolicitacoes(T.ctx, tenantAgenda(T), depsSol())).toBeNull();
+    expect(await abaDeSolicitacoes(T.ctx, tenantAgenda(T, { agendaConfirmarPedidos: true }), depsSol())).toBe(0);
+    await pedidoDireto(app.db, T, ana.id, em('2026-10-20', '09:00'));
+    await chaveDosPedidos(app.db, T, false);
+    expect(await abaDeSolicitacoes(T.ctx, tenantAgenda(T), depsSol())).toBe(1);
+    await expect(abaDeSolicitacoes(ctxPaciente(T.tenantId, ana.id), tenantAgenda(T), depsSol())).rejects.toThrow('agenda: só a sessão nutri');
   });
 });

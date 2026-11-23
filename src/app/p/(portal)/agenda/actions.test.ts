@@ -5,9 +5,9 @@ import { appointments, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { horariosParaPaciente } from '@/modules/agenda/agendamento-paciente';
-import { MSG_AGENDA } from '@/modules/agenda/constantes';
+import { MSG_AGENDA, MSG_SOLICITACOES } from '@/modules/agenda/constantes';
 import type { TenantAgenda } from '@/modules/agenda/consultas';
-import { consultaDireta, semanaToda, tenantAgenda } from '../../../../../test/agenda';
+import { chaveDosPedidos, consultaDireta, pedidoDireto, semanaToda, tenantAgenda } from '../../../../../test/agenda';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant } from '../../../../../test/pacientes';
 
 // Rodada 1 da revisão da T12: as ações do PWA pelo caminho real (módulos do Plano 05 → Postgres via Testcontainers);
@@ -22,7 +22,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { avisarAction, cancelarAction, remarcarAction } = await import('./actions');
+const { agendarAction, avisarAction, cancelarAction, desistirAction, remarcarAction } = await import('./actions');
 const db = getDb();
 afterAll(async () => {
   await stopBoss();
@@ -121,5 +121,37 @@ describe('cancelarAction (US-033 no PWA)', () => {
     expect(await cancelarAction(id)).toEqual({ ok: MSG_AGENDA.cancelada });
     expect(await consulta(T, id)).toMatchObject({ status: 'cancelada', canceladoPor: 'paciente' });
     expect(sessao.revalidados).toEqual(['/p/agenda', `/p/agenda/${id}`]);
+  });
+});
+
+describe('Plano 23: o pedido no portal (US-408, AG-D42, AG-D53)', () => {
+  it('com a chave ligada, agendar mostra "Pedido enviado. Sua nutricionista vai confirmar…" (pelo status devolvido); desligada, "Consulta marcada para…"', async () => {
+    const { T, ana } = await cenario();
+    await chaveDosPedidos(db, T);
+    const ligada: TenantAgenda = tenantAgenda(T, { agendaConfirmarPedidos: true });
+    sessao.atual = { ctx: ctxPaciente(T.tenantId, ana.id), tenant: ligada };
+    const hs = await horariosParaPaciente(ligada, new Date(), { db });
+    await expect(agendarAction({}, formulario(hs[0].inicio))).resolves.toEqual({ ok: MSG_SOLICITACOES.portal.pedidoEnviado });
+    const [c] = await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.patientId, ana.id)), db);
+    expect(c).toMatchObject({ status: 'solicitada', inicio: hs[0].inicio });
+    expect(sessao.revalidados).toContain('/p/agenda');
+    await chaveDosPedidos(db, T, false);
+    sessao.atual = { ctx: ctxPaciente(T.tenantId, ana.id), tenant: tenantAgenda(T) };
+    const r = await agendarAction({}, formulario(hs[3].inicio));
+    expect(r.ok).toMatch(/^Consulta marcada para /);
+  });
+
+  it('desistir → volta a "Minhas consultas" com ?ok=pedido-cancelado e o pedido "pedido_desistido"; de novo → "Este pedido já foi respondido ou venceu." na própria tela', async () => {
+    const { T, ana } = await cenario();
+    const id = await pedidoDireto(db, T, ana.id, new Date(Date.now() + 5 * 24 * H));
+    sessao.atual = { ctx: ctxPaciente(T.tenantId, ana.id), tenant: tenantAgenda(T, { agendaConfirmarPedidos: true }) };
+    const err = await desistirAction(id).then(
+      () => null,
+      (e: { url?: string }) => e,
+    );
+    expect(err?.url).toBe('/p/agenda?ok=pedido-cancelado');
+    expect(await consulta(T, id)).toMatchObject({ status: 'cancelada', canceladoPor: 'pedido_desistido' });
+    expect(sessao.revalidados).toEqual(expect.arrayContaining(['/p/agenda', `/p/agenda/${id}`]));
+    await expect(desistirAction(id)).resolves.toEqual({ erro: MSG_SOLICITACOES.mudou });
   });
 });

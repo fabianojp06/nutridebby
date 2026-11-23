@@ -55,7 +55,7 @@ const EXCECOES: Record<string, { n: number; motivo: string }> = {
   'src/modules/notificacoes/agendar.ts': { n: 1, motivo: 'reativar lembretes depois da suspensão: lista literal sem o pedido (§4.3)' },
   'src/modules/notificacoes/whatsapp/webhook.ts': { n: 1, motivo: 'resposta "1"/"2": lista literal sem o pedido (§4.3)' },
   'src/modules/notificacoes/whatsapp/evolution.ts': { n: 1, motivo: 'falso positivo: status HTTP da Evolution, não da consulta' },
-  'src/modules/portal/agenda.ts': { n: 3, motivo: 'Minhas consultas: o pedido entra em "Próximas" (STATUS_OCUPA, §4.3); alterar só em STATUS_ATIVOS' },
+  'src/modules/portal/agenda.ts': { n: 4, motivo: 'Minhas consultas: o pedido entra em "Próximas" (STATUS_OCUPA, §4.3); alterar só em STATUS_ATIVOS; "Desistir do pedido" só no `solicitada` no prazo (US-408, T8)' },
   'src/modules/portal/mural.ts': { n: 2, motivo: 'mural: STATUS_ATIVOS (o pedido não aparece, §4.3) e "Confirmar presença" só agendada' },
   'src/modules/portal/jornada.ts': { n: 1, motivo: 'jornada: STATUS_ATIVOS (o pedido não aparece, §4.3)' },
   'src/modules/pacientes/atendimentos.ts': { n: 1, motivo: 'o atendimento leva a consulta a realizada (a regra do pedido mora em motivoParaNaoIniciarAtendimento)' },
@@ -68,6 +68,7 @@ const EXCECOES: Record<string, { n: number; motivo: string }> = {
   'src/app/painel/agenda/item-consulta.tsx': { n: 1, motivo: 'só a cancelada fica riscada (o pedido não)' },
   'src/app/painel/agenda/consultas/[id]/page.tsx': { n: 4, motivo: 'tela da consulta: cobrança da realizada, ações só em STATUS_ATIVOS, "começou" e o motivo da nutricionista (só cancelada)' },
   'src/app/p/(portal)/agenda/[id]/page.tsx': { n: 4, motivo: 'portal: ações só na agendada/confirmada (o pedido não remarca nem confirma, §4.3)' },
+  'src/app/p/(portal)/agenda/actions.ts': { n: 1, motivo: 'o status devolvido por agendarComoPaciente decide "Pedido enviado…" (US-408, AG-D53)' },
 };
 
 const PASTAS = ['src/modules', 'src/app'];

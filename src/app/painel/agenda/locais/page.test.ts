@@ -10,6 +10,8 @@ vi.mock('@/modules/agenda/locais', async (original) => ({
   ...(await original<typeof import('@/modules/agenda/locais')>()),
   listarLocais: async () => ({ locais: dados.locais, avisoLinkDivergente: dados.avisoLinkDivergente }),
 }));
+// Plano 23 (T8): a aba "Solicitações" tem teste próprio (solicitacoes/page.test.ts); aqui, sem a aba
+vi.mock('@/modules/agenda/solicitacoes', () => ({ abaDeSolicitacoes: async () => null }));
 vi.mock('./actions', () => ({
   salvarLocalAction: vi.fn(),
   definirPrincipalAction: vi.fn(),

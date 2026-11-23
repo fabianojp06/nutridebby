@@ -2,17 +2,19 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { notFound } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
-import { MSG_AGENDA, ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
+import { MSG_AGENDA, MSG_SOLICITACOES, ROTULO_MODALIDADE } from '@/modules/agenda/constantes';
 import { buscarConsulta, motivoDoCancelamentoDaNutri, STATUS_ATIVOS } from '@/modules/agenda/consultas';
 import { listarBloqueios } from '@/modules/agenda/disponibilidade';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
 import { sobrepoe } from '@/modules/agenda/horarios';
 import { locaisDoPainel } from '@/modules/agenda/locais';
 import { consultaParaIniciarAtendimento, MSG_PRESENCA } from '@/modules/agenda/presenca';
+import { listarSolicitacoes } from '@/modules/agenda/solicitacoes';
+import { ehPedido } from '@/modules/agenda/status';
 import { cobrancaDaConsulta, type TipoDeResultado } from '@/modules/financeiro/cobranca';
 import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 import { formatarReais } from '@/modules/financeiro/dinheiro';
-import { hojeNoFuso } from '@/modules/pacientes/datas';
+import { formatarData, hojeNoFuso } from '@/modules/pacientes/datas';
 import { listarNotificacoesDaConsulta } from '@/modules/notificacoes/agendar';
 import { ROTULO_CANAL, ROTULO_TIPO, situacaoDaNotificacao, type Canal, type TipoNotificacao } from '@/modules/notificacoes/tipos';
 import { cancelarAction, moverAction, presencaAction } from '../../actions';
@@ -24,6 +26,8 @@ import { CancelarForm } from './cancelar-form';
 import { SecaoCobranca } from './cobranca';
 import { ALVOS_DA_COBRANCA, ID_TITULO_CONSULTA } from './ids';
 import { PresencaForm } from './presenca';
+import { aceitarAction, recusarAction } from '../../solicitacoes/actions';
+import { AcoesDoPedido } from '../../solicitacoes/recusar-dialogo';
 import { Aviso } from '@/components/ui/aviso';
 
 export const dynamic = 'force-dynamic';
@@ -76,11 +80,16 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
   const mostrarCobranca = c.status === 'realizada' || secao.cobranca !== null;
   const ativa = STATUS_ATIVOS.includes(c.status);
   const agora = new Date();
-  const comecou = c.status !== 'cancelada' && c.inicio.getTime() <= agora.getTime();
+  // Plano 23 (US-409): o pedido não tem "Registrar presença" (nem "Alterar", fora de STATUS_ATIVOS)
+  const comecou = c.status !== 'cancelada' && !ehPedido(c) && c.inicio.getTime() <= agora.getTime();
+  // o pedido ainda no prazo de resposta (o mesmo recorte da fila; o vencido e não processado fica sem ações, RN-427)
+  const naFila = ehPedido(c) ? ((await listarSolicitacoes(ctx, tenant, { agora })).find((x) => x.tipo === 'consulta' && x.id === c.id) ?? null) : null;
   // rodada 1: já começou, não cancelada e sem atendimento ligado (também "realizada"/"faltou")
   const podeAtender = (await consultaParaIniciarAtendimento(ctx, c.patientId, c.id, agora)) !== null;
   // revisão final: o motivo que ela escreveu ao cancelar ("Só você vê.") — só nesta página do painel
-  const motivo = c.status === 'cancelada' && c.canceladoPor === 'nutri' ? await motivoDoCancelamentoDaNutri(ctx, c.id) : null;
+  // Plano 23 (AG-D23): também o motivo da recusa do pedido — só a nutricionista vê, só nesta página
+  const motivo = c.status === 'cancelada' && (c.canceladoPor === 'nutri' || c.canceladoPor === 'pedido_recusado') ? await motivoDoCancelamentoDaNutri(ctx, c.id) : null;
+  const rotuloDoMotivo = c.canceladoPor === 'pedido_recusado' ? `${MSG_SOLICITACOES.motivo}:` : 'Motivo do cancelamento (só você vê):';
   // Plano 23 (US-402, RN-407): o local no detalhe; a consulta anterior ao Plano 23 mostra o endereço do Perfil, como antes
   const nomeDoLocal = c.local?.nome ?? 'Consultório (endereço do perfil)';
   const locais = ativa ? await locaisDoPainel(ctx) : [];
@@ -102,10 +111,18 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
           <ul className="flex flex-wrap gap-1 text-sm" aria-label="Situação">
             {selosDaConsulta(c, emBloqueio).map((s) => <li key={s} className="rounded bg-linha px-1.5">{s}</li>)}
           </ul>
-          {motivo && <p className="text-sm"><span className="font-medium">Motivo do cancelamento (só você vê):</span> {motivo}</p>}
+          {motivo && <p className="text-sm"><span className="font-medium">{rotuloDoMotivo}</span> {motivo}</p>}
           <p className="text-sm"><Link href={`/painel/pacientes/${c.patientId}`} className="text-link underline">Abrir prontuário</Link></p>
         </header>
         {ok && <Aviso tipo="ok">{ok}</Aviso>}
+        {/* Plano 23 (US-409, RN-404): "Aceitar" e "Recusar" no pedido, com o aviso do TCLE na primeira consulta online */}
+        {naFila && (
+          <section aria-label={MSG_SOLICITACOES.pedidoAResponder} className="space-y-3">
+            <p className="font-medium">{MSG_SOLICITACOES.respondaAte(formatarData(partesNoFuso(naFila.respondaAte, tenant.fuso).data), partesNoFuso(naFila.respondaAte, tenant.fuso).hora)}</p>
+            {naFila.primeiraOnline && <Aviso tipo="aviso" papel="nenhum">{MSG_SOLICITACOES.primeiraOnline}</Aviso>}
+            <AcoesDoPedido nome={c.paciente} comMotivo aceitar={aceitarAction.bind(null, 'consulta', c.id)} recusar={recusarAction.bind(null, 'consulta', c.id)} />
+          </section>
+        )}
         {presenca && <Aviso tipo={presenca.tipo}>{presenca.texto}</Aviso>}
         {lerAvisos(sp.avisos).map((a) => <Aviso key={a} tipo="aviso">{AVISO_ROTULO[a]}</Aviso>)}
         {comecou && (

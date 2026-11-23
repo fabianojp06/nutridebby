@@ -244,7 +244,7 @@ describe('página pública (US-032, RN-16)', () => {
     // consulta passada ou cancelada não conta
     await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-01', '10:00'));
     const t = await solicitarCodigo(T.slug, pedido(em('2026-10-16', '09:00'), { email: ana.email }), deps());
-    expect(t).toEqual({ pedido: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) }); // mesma resposta de qualquer e-mail
+    expect(t).toEqual({ pedido: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), confirmarPedidos: false }); // mesma resposta de qualquer e-mail
     expect(await falha(confirmarCodigo(T.slug, { pedido: t.pedido, codigo: await codigoDe(ana.email) }, deps()))).toEqual({ status: 409, erros: { geral: MSG_AGENDA.limitePublico } });
     expect(await consultasDe(T, ana.id)).toHaveLength(4);
     // com uma das três canceladas, a próxima passa
@@ -662,6 +662,16 @@ describe('Plano 23: pedido aguardando (RN-424, RN-424a, RN-425, RN-426, RN-429)'
   const emailDaNutri = async (T: TenantDeTeste) => (await app.db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId)))[0].email;
   const quandoDe = (d: string, h: string) => quandoComFuso(em(d, h), SP);
 
+  it('revisão da T7 (RN-429): solicitarCodigo devolve a chave como está agora — ligada entre a página e o código, a etapa do código mostra o ponto de coleta', async () => {
+    const T = await consultorio();
+    const antes = await carregarPaginaPublica(T.slug, { agora, db: app.db });
+    expect(antes).toMatchObject({ estado: 'ativa', confirmarPedidos: false }); // a página abriu com a chave desligada
+    await chaveDosPedidos(app.db, T); // a nutricionista liga antes de a pessoa pedir o código
+    expect(await solicitarCodigo(T.slug, pedido(em('2026-10-16', '09:00')), deps())).toMatchObject({ confirmarPedidos: true });
+    await chaveDosPedidos(app.db, T, false);
+    expect(await solicitarCodigo(T.slug, pedido(em('2026-10-16', '10:00')), deps())).toMatchObject({ confirmarPedidos: false });
+  });
+
   it('2 consultas + 1 pedido `solicitada` → o teto de 3 futuras aparece depois do código (STATUS_OCUPA, §4.3)', async () => {
     const T = await consultorio();
     const ana = await novoPaciente(app.db, T.ctx);
@@ -669,7 +679,7 @@ describe('Plano 23: pedido aguardando (RN-424, RN-424a, RN-425, RN-426, RN-429)'
     await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-21', '09:00'));
     await pedidoDireto(app.db, T, ana.id, em('2026-10-22', '09:00')); // liga a chave
     const t = await solicitarCodigo(T.slug, pedido(em('2026-10-17', '09:00'), { email: ana.email }), deps());
-    expect(t).toEqual({ pedido: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) });
+    expect(t).toEqual({ pedido: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), confirmarPedidos: true });
     expect(await falha(confirmarCodigo(T.slug, { pedido: t.pedido, codigo: await codigoDe(ana.email) }, deps()))).toEqual({ status: 409, erros: { geral: MSG_AGENDA.limitePublico } });
   });
 
@@ -701,7 +711,7 @@ describe('Plano 23: pedido aguardando (RN-424, RN-424a, RN-425, RN-426, RN-429)'
     const ana = await novoPaciente(app.db, T.ctx);
     const e = pedido(em('2026-10-16', '09:00'), { email: ana.email });
     const t = await solicitarCodigo(T.slug, e, deps());
-    expect(t).toEqual({ pedido: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) });
+    expect(t).toEqual({ pedido: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), confirmarPedidos: true });
     expect(await confirmarCodigo(T.slug, { pedido: t.pedido, codigo: await codigoDe(ana.email) }, deps())).toEqual({ estado: 'pedido', quando: 'sex., 16/10/2026 às 09:00 (horário de Brasília)' });
     expect((await consultasDe(T, ana.id)).map((c) => c.status)).toEqual(['solicitada']);
     expect(await emailsNaFila('pedido_recebido', ana.email)).toEqual([{ tipo: 'pedido_recebido', para: ana.email, quando: 'sex., 16/10/2026 às 09:00 (horário de Brasília)', linkDesistir: null }]);
@@ -715,7 +725,7 @@ describe('Plano 23: pedido aguardando (RN-424, RN-424a, RN-425, RN-426, RN-429)'
     expect(await confirmarCodigo(T.slug, { pedido: t1.pedido, codigo: await codigoDe(e.email) }, depsR())).toMatchObject({ estado: 'pedido' });
     const mais = depsR({ agora: new Date(agoraReal.getTime() + 61_000) });
     const t2 = await solicitarCodigo(T.slug, pedido(em(dia(3), '11:00'), { email: e.email }), mais);
-    expect(t2).toEqual({ pedido: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) }); // antes do código, a mesma resposta
+    expect(t2).toEqual({ pedido: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), confirmarPedidos: true }); // antes do código, a mesma resposta
     expect(await falha(confirmarCodigo(T.slug, { pedido: t2.pedido, codigo: await codigoDe(e.email) }, mais))).toEqual({ status: 409, erros: { geral: MSG_PUBLICO.pedidoAguardando } });
     expect(await aguardandoDe(T, e.email)).toHaveLength(2);
     expect((await aguardandoDe(T, e.email)).filter((b) => b.aguardandoDesde)).toHaveLength(1);

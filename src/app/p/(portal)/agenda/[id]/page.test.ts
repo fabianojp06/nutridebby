@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 const estado = vi.hoisted(() => ({ consulta: null as unknown, semana: null as unknown }));
 vi.mock('@/lib/paciente-session', () => ({ requirePaciente: async () => ({ ctx: {}, tenant: { fuso: 'America/Sao_Paulo', enderecoConsultorio: 'Rua do Perfil, 1' } }) }));
 vi.mock('@/modules/portal/agenda', () => ({ consultaDoPaciente: async () => estado.consulta, horariosDaSemana: async () => estado.semana }));
-vi.mock('../actions', () => ({ remarcarAction: async () => ({}), confirmarAction: async () => ({}), cancelarAction: async () => ({}), avisarAction: async () => ({}) }));
+vi.mock('../actions', () => ({ remarcarAction: async () => ({}), confirmarAction: async () => ({}), cancelarAction: async () => ({}), avisarAction: async () => ({}), desistirAction: async () => ({}) }));
 const { default: ConsultaDoPortal } = await import('./page');
 
 const ID = '00000000-0000-4000-8000-000000000001';
@@ -58,5 +58,28 @@ describe('/p/agenda/[id]: Plano 23 (US-402, US-403)', () => {
     expect(html).toContain('16:00');
     expect(html).not.toContain('15:00');
     expect(html).toContain('Clínica Centro · Campinas');
+  });
+});
+
+describe('/p/agenda/[id]: Plano 23 (US-408, AG-D43)', () => {
+  const pedido = (extra: Record<string, unknown> = {}) => ({ ...online('solicitada'), modalidade: 'presencial', linkOnline: null, pedido: true, podeDesistir: true, situacao: 'Aguardando confirmação da nutricionista', ...extra });
+
+  it('o pedido aguardando: a situação e "Desistir do pedido" (a confirmação "Desistir deste pedido?" no diálogo); sem "Remarcar", "Confirmar presença" nem "Cancelar consulta"', async () => {
+    estado.semana = null;
+    estado.consulta = pedido();
+    const html = await pagina();
+    expect(html).toContain('Aguardando confirmação da nutricionista');
+    expect(html).toMatch(/<button[^>]*aria-haspopup="dialog"[^>]*>Desistir do pedido<\/button>/);
+    expect(html).toMatch(/<h2[^>]*>Desistir deste pedido\?<\/h2>/);
+    for (const fora of ['Remarcar', 'Confirmar presença', 'Cancelar consulta', 'Link da chamada']) expect(html, fora).not.toContain(fora);
+  });
+
+  it('o pedido vencido, recusado ou retirado: só a situação, sem "Desistir do pedido"', async () => {
+    for (const situacao of ['Não confirmado', 'Pedido cancelado']) {
+      estado.consulta = pedido({ status: 'cancelada', podeDesistir: false, situacao });
+      const html = await pagina();
+      expect(html).toContain(situacao);
+      expect(html).not.toContain('Desistir do pedido');
+    }
   });
 });

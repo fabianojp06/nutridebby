@@ -505,3 +505,48 @@ test('Plano 23: agenda em Mês e em Semana com filtro e 24 horas, Locais e impre
   }
   expect(falhas).toEqual([]);
 });
+
+/**
+ * Plano 23 (T8, US-409, RNF-401): a fila "Solicitações" com pedido (o da paciente e o da pessoa nova) e a recusa aberta
+ * (o `Dialogo` com "Motivo (só você vê)"), nos três modos, a 1280 e a 360 px. Num consultório próprio da semente
+ * (`e2e-pedidos-axe`: a chave ligada e os dois pedidos; só leitura — a recusa é aberta e fechada com Esc, nunca confirmada).
+ * IP: 10.9.23.20 (bloco do Plano 23, AG-D56).
+ */
+test('Plano 23: Solicitações com pedido e a recusa aberta, nos três modos, 1280 e 360 px', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const AXE = { email: 'pedidos-axe-e2e@nutridebby.test', senha: 'Nutri2026segura' }; // copiada da semente
+  const pagina = await entrarComo(browser, AXE.email, AXE.senha, '10.9.23.20');
+  await expect(pagina).toHaveURL(/\/painel$/);
+  const falhas: string[] = [];
+  try {
+    for (const [modo, tema, aparelho] of [
+      ['claro', 'Claro', 'light'],
+      ['escuro', 'Escuro', 'light'],
+      ['igual ao aparelho (aparelho escuro)', 'Igual ao aparelho', 'dark'],
+    ] as const) {
+      await escolherTema(pagina, tema);
+      await pagina.emulateMedia({ colorScheme: aparelho });
+      for (const [largura, altura] of [[1280, 720], [360, 780]] as const) {
+        await pagina.setViewportSize({ width: largura, height: altura });
+        await pagina.goto('/painel/agenda/solicitacoes');
+        await pagina.waitForLoadState('networkidle');
+        await expect(pagina.getByRole('article')).toHaveCount(2); // a paciente e a pessoa nova
+        for (const v of await violacoes(pagina, undefined, { ignorarForaDaTela: largura === 360 })) falhas.push(`${modo} ${largura} px fila — ${v}`);
+        if (largura === 360 && !(await pagina.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${modo} 360 px fila — rola na horizontal`);
+        await pagina.getByRole('button', { name: 'Recusar o pedido de Pia Pedido Semente' }).click();
+        const dialogo = pagina.getByRole('dialog', { name: 'Recusar o pedido de Pia Pedido Semente?' });
+        await expect(dialogo.getByLabel('Motivo (só você vê)')).toBeFocused();
+        for (const v of await violacoes(pagina)) falhas.push(`${modo} ${largura} px recusa aberta — ${v}`);
+        await pagina.keyboard.press('Escape');
+        await expect(dialogo).toBeHidden();
+        await expect(pagina.getByRole('button', { name: 'Recusar o pedido de Pia Pedido Semente' })).toBeFocused(); // o foco volta
+      }
+    }
+  } finally {
+    await pagina.setViewportSize({ width: 1280, height: 720 });
+    await pagina.emulateMedia({ colorScheme: 'light' });
+    await escolherTema(pagina, 'Igual ao aparelho');
+    await pagina.context().close();
+  }
+  expect(falhas).toEqual([]);
+});

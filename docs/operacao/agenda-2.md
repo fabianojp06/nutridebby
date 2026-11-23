@@ -89,3 +89,29 @@ imagem com "Confirmar os pedidos antes de marcar" ligada:
    aparece na agenda sem rótulo nem ação; volte ao PR 3 para respondê-lo.
 
 Com a chave desligada desde sempre, o PR 3 não grava nada novo e a volta é só trocar a imagem.
+
+## PR 3 (pedidos) — Volta atrás com a tela das Solicitações (T8)
+
+O PR 3 não tem migration: voltar é trocar a imagem pela do **PR 2** (e nunca por uma anterior ao PR 1, acima). A T8 põe a
+chave "Confirmar os pedidos antes de marcar" na tela (Agenda › Horários, seção "Pedidos de consulta"), a fila
+"Solicitações" e o "Desistir do pedido" do portal e da pessoa nova. A imagem do PR 2 não tem nada disso e, com pedido
+pendente no banco, deixa o pedido sem dono. Antes de trocar a imagem:
+
+1. **Desligue a chave** em Agenda › Horários › "Pedidos de consulta" e salve ("Configuração salva."). A partir daí os
+   pedidos novos do app e da página de agendamento voltam a ser marcados direto (a tela toma a trava dos pedidos do
+   consultório antes de mudar a chave: um pedido em gravação termina com a chave de antes).
+2. **Responda ou deixe vencer os pendentes** em Solicitações (o número da aba "Solicitações ({n})" e o cartão do Início
+   mostram quantos faltam). Recusar avisa a pessoa por e-mail; aceitar marca a consulta. O que não for respondido vence em
+   `início − antecedência mínima` (o vencimento roda no job de minuto das notificações).
+3. **Confira no banco** (só leitura, com o OK do dono, regra 3 do servidor) que não sobrou pedido:
+   - consulta de paciente aguardando: `select count(*) from appointments where status = 'solicitada'` → 0;
+   - pessoa nova aguardando: `select count(*) from public_booking_requests where aguardando_desde is not null and
+     resolvido_em is null` → 0.
+4. Só então troque a imagem pelo Easypanel. A imagem do PR 2 lê os horários pela modalidade do local (as regras
+   "ambas" já desdobradas no PR 1 continuam juntas no mesmo instante, AG-D47) e não sabe o que é `solicitada`: um pedido
+   esquecido continua segurando o horário (o `EXCLUDE` não muda), aparece na agenda sem rótulo nem ação e não vence; a
+   pessoa nova aguardando nunca recebe resposta e o link "Desistir do pedido" do e-mail dá 404. Volte ao PR 3 para
+   resolvê-los.
+
+Com a chave desligada desde sempre (o padrão da migration; a semente do E2E começa com ela desligada), o PR 3 não grava
+nada que a imagem do PR 2 não entenda: a volta é só trocar a imagem.

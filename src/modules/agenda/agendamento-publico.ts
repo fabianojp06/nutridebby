@@ -199,8 +199,11 @@ async function abrir(slug: string, deps: DepsPublico): Promise<{ db: Db; agora: 
 /**
  * RN-16 passo 1: valida, confere o Turnstile (antes de qualquer escrita de negócio), confere o horário e manda o código
  * de 6 dígitos (10 min). D12: a resposta é a mesma para e-mail cadastrado ou não — nada aqui olha `patients`.
+ * Plano 23 (RN-429, revisão da T7): devolve também a chave "Confirmar os pedidos antes de marcar" como está agora — se a
+ * nutricionista a ligou entre a página e o código, a etapa do código ainda mostra a frase do ponto de coleta antes de
+ * "Confirmar agendamento" (a chave que vale é a relida na transação da confirmação).
  */
-export async function solicitarCodigo(slug: string, input: Record<string, unknown>, deps: DepsPublico): Promise<{ pedido: string }> {
+export async function solicitarCodigo(slug: string, input: Record<string, unknown>, deps: DepsPublico): Promise<{ pedido: string; confirmarPedidos: boolean }> {
   const { db, agora, tenant } = await abrir(slug, deps);
   const v = validarPedido(input);
   const t = await deps.verificarTurnstile(typeof input.turnstileToken === 'string' ? input.turnstileToken : null);
@@ -250,7 +253,7 @@ export async function solicitarCodigo(slug: string, input: Record<string, unknow
     },
     db,
   );
-  return { pedido };
+  return { pedido, confirmarPedidos: tenant.agendaConfirmarPedidos };
 }
 
 type PedidoRow = typeof publicBookingRequests.$inferSelect;
