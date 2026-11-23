@@ -276,7 +276,7 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota('/painel/exames-recebidos')?.id).toBe('exames-recebidos');
     expect(g.passos.map((p) => p.alvo)).toEqual(['secoes-exames', 'nomes-para-comecar', 'novo-exame-catalogo', 'faixas-consultorio', 'modelos-nota']);
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
-    expect(config.versao).toBe(9); // Plano 22: o cartão "Exames" (+1 sobre a main)
+    expect(config.versao).toBeGreaterThanOrEqual(9); // Plano 22: o cartão "Exames" (+1 sobre a main); 10 desde a T10b (o cartão "Prescrição", abaixo)
     expect(config.passos.find((p) => p.alvo === 'cartoes-configuracoes')?.texto).toContain('"Exames"');
   });
 
@@ -300,5 +300,18 @@ describe('conteúdo do manual (P08-10)', () => {
     // o guia do prontuário continua sem a palavra "documento" (D20): a solicitação só aparece com os documentos liberados
     const pront = GUIAS.find((x) => x.id === 'prontuario')!;
     expect([pront.ajuda.resumo, ...pront.ajuda.secoes.flatMap((s) => s.itens), ...pront.passos.map((p) => p.texto)].filter((t) => /documento/i.test(t))).toEqual([]);
+  });
+  it('Plano 22 (T10b, EP-D52): o guia "prescricao" cobre as telas de /painel/prescricao; "configuracoes" sobe (+1) e o passo dos cartões cita "Prescrição"; o de documentos cita os diálogos da receita', () => {
+    const g = GUIAS.find((x) => x.id === 'prescricao')!;
+    expect(g.versao).toBe(1);
+    for (const r of ['/painel/prescricao/itens', '/painel/prescricao/itens/novo', `/painel/prescricao/itens/${UUID}`, '/painel/prescricao/modelos', `/painel/prescricao/modelos/${UUID}`]) {
+      expect(guiaDaRota(r)?.id, r).toBe('prescricao');
+    }
+    expect(g.passos.map((p) => p.alvo)).toEqual(['secoes-prescricao', 'novo-item-salvo']);
+    const config = GUIAS.find((x) => x.id === 'configuracoes')!;
+    expect(config.versao).toBe(10); // Plano 22 (T10b): o cartão "Prescrição" (+1 sobre a versão do branch, a 9 da T3)
+    expect(config.passos.find((p) => p.alvo === 'cartoes-configuracoes')?.texto).toContain('"Prescrição"');
+    const docs = GUIAS.find((x) => x.id === 'documentos')!.ajuda.secoes.flatMap((s) => s.itens).join(' ');
+    for (const b of ['"Salvar item"', '"Adicionar item salvo"', '"Salvar como modelo"', '"Carregar modelo"']) expect(docs, b).toContain(b);
   });
 });

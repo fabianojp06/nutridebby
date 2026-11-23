@@ -117,6 +117,9 @@ export const GUIAS: readonly Guia[] = [
             // Plano 22 (T8, RN-390): rascunho para a Debby e o revisor-interface
             'Com a solicitação assinada, "Lançar resultados" abre o "Novo exame" na aba Exames com o título e uma linha por exame pedido (um painel, como o hemograma, vira uma linha por exame que o compõe). É uma cópia: o exame lançado não muda a solicitação.',
             'Planos de saúde podem recusar pedido de exame feito por nutricionista: o aviso aparece no rascunho, não no PDF.',
+            // Plano 22 (T10b, US-379; o guia já subiu na T8 deste PR, EP-D52): rascunho para a Debby e o revisor-interface
+            'Na receita, "Salvar item" guarda um item para usar de novo e "Salvar como modelo" guarda os itens e as orientações (a justificativa de uso não vai). Nenhum dos dois salva o rascunho. Retire dados do paciente antes de salvar.',
+            '"Adicionar item salvo" copia o item para a receita: mudar o item salvo depois não muda a receita. "Carregar modelo" acrescenta os itens do modelo ou substitui os da receita e salva o rascunho, com as mesmas conferências do "Salvar rascunho".',
           ],
         },
       ],
@@ -369,11 +372,11 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'configuracoes',
-    versao: 9, // Plano 22: o cartão "Exames" (+1 sobre a main); 8 = Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
+    versao: 10, // Plano 22 (T10b): o cartão "Prescrição" (+1 sobre a 9 da T3, o cartão "Exames"); 8 = Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
-      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança, exames do consultório e o tema do painel.',
+      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança, exames do consultório, prescrição e o tema do painel.',
       secoes: [
         { titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] },
         {
@@ -400,8 +403,8 @@ export const GUIAS: readonly Guia[] = [
       ],
     },
     passos: [
-      // Plano 22: o cartão "Exames" (catálogo e modelos de solicitação)
-      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório. Em "Exames" ficam o catálogo de exames, as suas faixas e os modelos de solicitação.' },
+      // Plano 22: o cartão "Exames" (catálogo e modelos de solicitação); T10b: o cartão "Prescrição" (só com os documentos liberados)
+      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório. Em "Exames" ficam o catálogo de exames, as suas faixas e os modelos de solicitação. Com os documentos liberados, "Prescrição" guarda os itens salvos e os modelos de prescrição.' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
       { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas e dos pareceres. Mudar depois não altera documento já preparado.' },
       // Plano 14B: a seção só aparece com a IA ativa no consultório; sem ela, o passo abre no centro, sem destaque (como o de cima)
@@ -532,6 +535,38 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'financeiro-pendentes', titulo: 'Pagamentos pendentes', texto: 'As cobranças que os pacientes ainda não pagaram, uma linha por paciente, começando pela mais antiga. Clique em "Ver" para receber cada uma. Esta lista é só sua: nada é enviado ao paciente.' },
       { alvo: 'financeiro-relatorios', titulo: 'Relatórios', texto: 'O fluxo de caixa do ano, mês a mês, e as entradas e saídas dos últimos 12 meses. Só entram os lançamentos recebidos ou pagos. Troque o ano em "Ano".' },
       { alvo: 'financeiro-csv', titulo: 'CSV para o contador', texto: 'Escolha o período (até 12 meses) e clique em "Baixar CSV". Sem marcar "Incluir o nome dos pacientes", o arquivo sai sem os nomes e sem a descrição das entradas de pacientes.' },
+    ],
+  },
+  {
+    // Plano 22 (T10b, US-379, RN-393, RN-394): rascunho para o revisor-interface e a Debby
+    id: 'prescricao',
+    versao: 1,
+    padrao: /^\/painel\/prescricao(\/.*)?$/,
+    titulo: 'Prescrição',
+    ajuda: {
+      resumo: 'Os itens salvos (suplementos e fitoterápicos) e os modelos de prescrição do consultório, para montar receitas mais rápido. A receita guarda uma cópia: mudar ou excluir um item salvo ou um modelo não muda as receitas já feitas.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Em "Novo item salvo", dê um nome e preencha o item como na receita. Também dá para salvar um item direto da receita, com "Salvar item".',
+            'Os modelos de prescrição nascem da receita: monte os itens e as orientações e clique em "Salvar como modelo". Aqui você muda o nome, os itens e as orientações, ou exclui o modelo.',
+            'Na receita, use "Adicionar item salvo" ou "Carregar modelo".',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'A justificativa de uso nunca vai para o modelo: ela é de cada paciente e fica no prontuário.',
+            'Sem a habilitação em Fitoterapia, os fitoterápicos formulados ficam desabilitados, também nos itens salvos e nos modelos.',
+            'Os itens salvos e os modelos são do consultório: retire dados do paciente antes de salvar.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'secoes-prescricao', titulo: 'Itens e modelos', texto: 'Suplementos e Fitoterápicos guardam os itens salvos; Modelos de prescrição, receitas prontas para começar.' },
+      { alvo: 'novo-item-salvo', titulo: 'Novo item salvo', texto: 'Dê um nome e preencha o item como na receita. Na receita, "Adicionar item salvo" copia o item.' },
     ],
   },
 ];

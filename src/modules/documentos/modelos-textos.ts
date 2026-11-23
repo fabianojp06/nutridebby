@@ -41,6 +41,21 @@ export const MSG_MODELOS = {
   cancelar: 'Cancelar',
   vazioItens: 'Nenhum item salvo. Salve um item da receita com Salvar item.',
   vazioModelos: 'Nenhum modelo de prescrição ainda. Salve um a partir de uma receita, com Salvar como modelo.',
+  /** T10b (§6.2, "Estados vazios"): o diálogo "Adicionar item salvo" sem itens e o "Carregar modelo" sem modelo. */
+  vazioAdicionar: 'Nenhum item salvo.',
+  semModelo: 'Nenhum modelo ainda.',
+  /** T10b: textos novos das telas (rascunho para a Debby e o `revisor-interface`). */
+  itensN: (n: number) => (n === 1 ? '1 item' : `${n} itens`),
+  salvar: 'Salvar',
+  adicionar: 'Adicionar',
+  /** O link de volta ao hub, como o de /painel/exames (`MSG_EXAMES.catalogo.voltar`). */
+  voltar: 'Configurações',
+  /** O nome acessível dos botões repetidos por linha (o texto visível vem primeiro: WCAG 2.5.3). */
+  excluirRotulo: (nome: string) => `Excluir ${nome}`,
+  salvarItemRotulo: (n: number) => `Salvar item ${n}`,
+  acrescentarRotulo: (nome: string) => `Acrescentar aos itens: ${nome}`,
+  substituirRotulo: (nome: string) => `Substituir os itens: ${nome}`,
+  adicionarRotulo: (nome: string) => `Adicionar ${nome}`,
   erros: {
     /** O mesmo texto do nome no catálogo (§6.2, "Catálogo: erros"). */
     nome: 'O nome tem de 1 a 80 caracteres.',

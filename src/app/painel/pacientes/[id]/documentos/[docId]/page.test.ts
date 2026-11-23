@@ -16,7 +16,7 @@ vi.mock('../../prontuario', () => ({
 }));
 // os componentes 'use client' (EnviarDigitalizada, EstadoPdf) usam o roteador, que não existe no renderToStaticMarkup
 vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal<typeof import('next/navigation')>()), useRouter: () => ({ refresh: () => undefined }) }));
-vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn(), entreguePessoalmenteAction: vi.fn(), reenviarLinkAction: vi.fn(), cancelarAction: vi.fn(), salvarParecerAction: vi.fn(), prepararParecerAction: vi.fn(), retificarAction: vi.fn(), salvarSolicitacaoAction: vi.fn(), prepararSolicitacaoAction: vi.fn() }));
+vi.mock('../actions', () => ({ apagarRascunhoAction: vi.fn(), pedirNovoPdfAction: vi.fn(), voltarAEditarAction: vi.fn(), entreguePessoalmenteAction: vi.fn(), reenviarLinkAction: vi.fn(), cancelarAction: vi.fn(), salvarParecerAction: vi.fn(), prepararParecerAction: vi.fn(), retificarAction: vi.fn(), salvarSolicitacaoAction: vi.fn(), prepararSolicitacaoAction: vi.fn(), salvarItemAction: vi.fn(), salvarComoModeloAction: vi.fn(), carregarModeloAction: vi.fn() }));
 vi.mock('@/modules/documentos/documentos', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/documentos/documentos')>()),
   // RN-140 (c): emitido anonimizado — conteudo '{}', sem PDF
@@ -40,6 +40,8 @@ vi.mock('@/modules/exames/modelos-solicitacao', () => ({
     return { catalogo: [{ id: 'c1', nome: 'Hemograma completo', unidade: null, sinonimos: [], componentes: ['Hemoglobina', 'Hematócrito'], faixas: [] }], modelos: [{ id: 'm1', nome: 'Check-up anual', exames: [{ nome: 'Glicemia de jejum' }], orientacoes: '' }] };
   },
 }));
+// Plano 22 (T10b): o editor da receita recebe os itens salvos e os modelos de prescrição (vazios aqui)
+vi.mock('@/modules/documentos/modelos', () => ({ listarItensSalvos: async () => [], listarModelosPrescricao: async () => [] }));
 const { default: DocumentoPage } = await import('./page');
 
 describe('página do documento: documento anonimizado (RN-140 c)', () => {

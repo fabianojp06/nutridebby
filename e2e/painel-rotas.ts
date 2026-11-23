@@ -13,6 +13,9 @@ export type IdsDoPainel = {
   exame: string;
   /** Plano 22 (T5b): um segundo exame do mesmo paciente, lançado pela UI (o comparativo com dois exames). */
   exameComparar: string;
+  /** Plano 22 (T10b): um item salvo (Novo item salvo) e um modelo de prescrição (Salvar como modelo, na receita), pela UI. */
+  itemSalvo: string;
+  modeloPrescricao: string;
 };
 
 /**
@@ -96,4 +99,10 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/pacientes/[id]/exames/[exameId]': (i) => `/painel/pacientes/${i.paciente}/exames/${i.exame}`,
   // Plano 22 (T5b): o comparativo com os dois exames do paciente (a tabela marcador × datas)
   '/painel/pacientes/[id]/exames/comparativo': (i) => `/painel/pacientes/${i.paciente}/exames/comparativo?ids=${i.exame}&ids=${i.exameComparar}`,
+  // Plano 22 (T10b): itens salvos e modelos de prescrição (hub Configurações; o consultório do E2E tem os documentos liberados)
+  '/painel/prescricao/itens': () => '/painel/prescricao/itens?tipo=suplementos',
+  '/painel/prescricao/itens/novo': () => '/painel/prescricao/itens/novo?tipo=fitoterapicos',
+  '/painel/prescricao/itens/[id]': (i) => `/painel/prescricao/itens/${i.itemSalvo}`,
+  '/painel/prescricao/modelos': () => '/painel/prescricao/modelos',
+  '/painel/prescricao/modelos/[id]': (i) => `/painel/prescricao/modelos/${i.modeloPrescricao}`,
 };

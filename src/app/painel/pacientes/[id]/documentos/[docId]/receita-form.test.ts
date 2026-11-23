@@ -9,7 +9,7 @@ import type { ConteudoReceita } from '@/modules/documentos/prescricao';
 // comportamento no navegador (o reset do React 19, o envio do que está na tela) fica no e2e/receita-editor.spec.ts.
 const estado = vi.hoisted(() => ({ atual: {} as Record<string, unknown> }));
 vi.mock('react', async (importOriginal) => ({ ...(await importOriginal<typeof import('react')>()), useActionState: () => [estado.atual, () => {}, false] }));
-vi.mock('../actions', () => ({ salvarRascunhoAction: vi.fn(), prepararAction: vi.fn() }));
+vi.mock('../actions', () => ({ salvarRascunhoAction: vi.fn(), prepararAction: vi.fn(), salvarItemAction: vi.fn(), salvarComoModeloAction: vi.fn(), carregarModeloAction: vi.fn() }));
 const { ReceitaForm } = await import('./receita-form');
 const { marcarDeclaracao, MSG_DECLARACAO_MUDOU, Preparar, seguirDeclaracao } = await import('./preparar');
 
@@ -122,5 +122,34 @@ describe('revisão da P22-09: a confirmação da declaração vale só para o te
     expect(mudou).toContain(`<p id="declaracao-mudou" role="status" class="text-sm">${MSG_DECLARACAO_MUDOU}</p>`);
     expect(tag(mudou, 'declaracao')).toContain('aria-describedby="declaracao-mudou"');
     expect(tag(mudou, 'declaracao')).not.toContain('checked');
+  });
+});
+
+describe('Plano 22 (T10b, US-379, RN-394): os botões das bibliotecas na receita; os diálogos só existem abertos, fora do <form>', () => {
+  const montarCom = (n: number) => {
+    estado.atual = {};
+    const conteudo = { versao: 1, tipo: 'receita', itens: Array.from({ length: n }, () => suplemento([VITD])), orientacoes: '' } as ConteudoReceita;
+    return renderToStaticMarkup(
+      createElement(ReceitaForm, {
+        patientId: 'p', docId: 'd', conteudo, justificativa: '', habilitada: false,
+        itensSalvos: [{ id: 'i1', nome: 'Vitamina D', tipo: 'suplemento', item: suplemento([VITD]) }],
+        modelos: [{ id: 'm1', nome: 'Rotina', itens: 2 }],
+      }),
+    );
+  };
+  it('"Salvar item" por item (nome acessível com o número), "Adicionar item salvo", "Carregar modelo" e "Salvar como modelo"; um <form> só e nenhum diálogo montado', () => {
+    const html = montarCom(2);
+    expect(html.match(/<button[^>]*type="button"[^>]*aria-label="Salvar item \d"[^>]*>Salvar item<\/button>/g)).toHaveLength(2);
+    for (const b of ['Adicionar item salvo', 'Carregar modelo', 'Salvar como modelo']) expect(html, b).toMatch(new RegExp(`<button[^>]*type="button"[^>]*>${b}</button>`));
+    expect(html.match(/<form/g)).toHaveLength(1);
+    expect(html).not.toContain('<dialog');
+    // o título da lista recebe o foco depois de "Carregar modelo" (a remontagem)
+    expect(html).toMatch(/<h3 id="itens-da-receita" tabindex="-1"[^>]*>Itens da receita<\/h3>/);
+    expect(html).toContain('role="status"');
+  });
+  it('com 20 itens, nem "Adicionar item" nem "Adicionar item salvo"', () => {
+    const html = montarCom(20);
+    expect(html).not.toContain('>Adicionar item</button>');
+    expect(html).not.toContain('>Adicionar item salvo</button>');
   });
 });

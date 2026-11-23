@@ -221,6 +221,8 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   const exame = await exameEditado(nutri, p, sufixo);
   // Plano 22 (T5b): um segundo exame, para o comparativo
   const exameComparar = await exameLancado(nutri, p, `Retorno axe ${sufixo}`);
+  // Plano 22 (T10b): um item salvo e um modelo de prescrição, pelo caminho real da UI (o modelo nasce da receita)
+  const { itemSalvo, modeloPrescricao } = await bibliotecasDePrescricao(nutri, `${p}/documentos/${documento}`, sufixo);
 
   return {
     paciente: p.split('/').pop()!,
@@ -250,6 +252,8 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
     modeloSolicitacao,
     exame,
     exameComparar,
+    itemSalvo,
+    modeloPrescricao,
   };
 }
 
@@ -344,4 +348,41 @@ export async function exameLancado(nutri: Page, prontuario: string, titulo: stri
   const m = new RegExp(`/exames/(${UUID})$`).exec(href.split('?')[0]);
   expect(m, `o link "Abrir ${titulo}" (${href})`).not.toBeNull();
   return m![1];
+}
+
+/**
+ * Plano 22 (T10b, US-379): um item salvo, pela tela "Novo item salvo", e um modelo de prescrição, pela receita do axe —
+ * "Adicionar item salvo" copia o item para o rascunho e "Salvar como modelo" grava o modelo (sem salvar o rascunho).
+ * Nomes com o sufixo da execução: o seed não apaga as bibliotecas, e o nome é único no consultório.
+ */
+export async function bibliotecasDePrescricao(nutri: Page, receita: string, sufixo: string): Promise<{ itemSalvo: string; modeloPrescricao: string }> {
+  const nomeItem = `Vitamina D axe ${sufixo}`;
+  await nutri.goto('/painel/prescricao/itens/novo?tipo=suplementos');
+  await nutri.getByLabel('Nome do item salvo').fill(nomeItem);
+  await nutri.getByLabel('Componente 1').fill('Vitamina D3');
+  await nutri.getByLabel('Quantidade', { exact: true }).fill('2000');
+  await nutri.getByLabel('Unidade', { exact: true }).selectOption('UI');
+  await nutri.getByLabel('Forma de apresentação').fill('Cápsula');
+  await nutri.getByLabel('Posologia').fill('1 cápsula ao dia');
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri).toHaveURL(/\/painel\/prescricao\/itens\?tipo=suplementos&ok=salvo/);
+  await expect(nutri.getByRole('status').filter({ hasText: 'Item salvo.' })).toBeVisible();
+  const itemSalvo = await idPeloNome(nutri, nomeItem, new RegExp(`/painel/prescricao/itens/(${UUID})$`));
+
+  const nomeModelo = `Rotina axe ${sufixo}`;
+  await nutri.goto(receita);
+  await nutri.getByRole('button', { name: 'Adicionar item salvo' }).click();
+  const adicionar = nutri.getByRole('dialog', { name: 'Adicionar item salvo' });
+  await adicionar.getByRole('button', { name: `Adicionar ${nomeItem}` }).click();
+  await expect(adicionar).toBeHidden();
+  await nutri.getByRole('button', { name: 'Salvar como modelo' }).click();
+  const salvar = nutri.getByRole('dialog', { name: 'Salvar como modelo' });
+  await expect(salvar).toContainText('Retire dados do paciente antes de salvar. A justificativa de uso não vai para o modelo.');
+  await salvar.getByLabel('Nome do modelo').fill(nomeModelo);
+  await salvar.getByRole('button', { name: 'Salvar como modelo' }).click();
+  await expect(salvar).toBeHidden();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Modelo salvo.' })).toBeVisible();
+  await nutri.goto('/painel/prescricao/modelos');
+  const modeloPrescricao = await idPeloNome(nutri, nomeModelo, new RegExp(`/painel/prescricao/modelos/(${UUID})$`));
+  return { itemSalvo, modeloPrescricao };
 }

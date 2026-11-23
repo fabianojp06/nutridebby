@@ -2,13 +2,15 @@
 
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
+import { acessoComDocumentos as acesso } from '@/app/painel/documentos-liberados';
 import type { TenantContext } from '@/db/tenant';
-import { requireNutri } from '@/lib/tenant-session';
 import { cancelarDocumento } from '@/modules/documentos/cancelamento';
 import { apagarRascunho, criarParecer, criarReceita, criarSolicitacao, pedirNovoPdfDocumento, prepararParaAssinatura, salvarRascunhoParecer, salvarRascunhoReceita, salvarRascunhoSolicitacao, voltarAEditar } from '@/modules/documentos/documentos';
 import { reenviarLink } from '@/modules/documentos/entrega';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from '@/modules/documentos/erros';
 import { PerfilIncompletoError } from '@/modules/documentos/perfil-profissional';
+import { carregarModeloNaReceita, salvarItemSalvo, salvarModeloPrescricao } from '@/modules/documentos/modelos';
+import type { ConteudoReceita } from '@/modules/documentos/prescricao';
 import { marcarEntreguePessoalmente } from '@/modules/documentos/recebimento';
 import { retificarDocumento } from '@/modules/documentos/retificacao';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
@@ -17,12 +19,8 @@ export type EstadoForm = { erros?: Record<string, string>; ok?: boolean; perfilI
 
 const caminho = (patientId: string, docId?: string) => `/painel/pacientes/${patientId}/documentos${docId ? `/${docId}` : ''}`;
 
-/** D20: sem a liberação, as ações não existem (404), como a aba. */
-async function acesso(path: string) {
-  const a = await requireNutri(path);
-  if (!a.tenant.documentosLiberados) notFound();
-  return a;
-}
+// D20: sem a liberação, as ações não existem (404), como a aba — `acesso` é `acessoComDocumentos` (Plano 22, R22-11:
+// a mesma guarda das telas e actions de /painel/prescricao, src/app/painel/documentos-liberados.ts)
 
 function comoEstado(e: unknown): EstadoForm {
   if (e instanceof DocumentoError) return { erros: e.erros };
@@ -250,4 +248,76 @@ export async function retificarAction(patientId: string, docId: string, _prev: E
   }
   revalidatePath(caminho(patientId), 'layout');
   redirect(caminho(patientId, id));
+}
+
+/**
+ * Plano 22 (T10b, US-379, RN-393, RN-394): o retorno dos diálogos "Salvar item" e "Salvar como modelo" da receita — o
+ * `<form>` próprio do diálogo (fora do da receita) recebe os erros, o nome digitado (`valores`, com `envio` para a `key`)
+ * e, deu certo, `ok`. Nenhum dos dois salva o rascunho.
+ */
+export type EstadoBiblioteca = { erros?: Record<string, string>; ok?: boolean; valores?: { nome: string }; envio?: number };
+
+const nomeDigitado = (f: FormData) => {
+  const v = f.get('nome');
+  return typeof v === 'string' ? v : '';
+};
+function lerJson(v: FormDataEntryValue | null): unknown {
+  try {
+    return JSON.parse(String(v ?? ''));
+  } catch {
+    return null;
+  }
+}
+/** A biblioteca mudou: a lista do diálogo da receita e as telas de /painel/prescricao. */
+function revalidarBiblioteca(patientId: string, docId: string) {
+  revalidatePath(caminho(patientId, docId));
+  revalidatePath('/painel/prescricao', 'layout');
+}
+
+/** US-379 "Salvar item": o item da tela (JSON, como o editor o guarda) com o nome do diálogo; o mesmo Zod do item da receita. */
+export async function salvarItemAction(patientId: string, docId: string, _prev: EstadoBiblioteca, f: FormData): Promise<EstadoBiblioteca> {
+  const { ctx, tenant } = await acesso(caminho(patientId, docId));
+  try {
+    await salvarItemSalvo(ctx, tenant, null, { nome: f.get('nome'), item: lerJson(f.get('item')) });
+  } catch (e) {
+    if (e instanceof DocumentoError) return { erros: e.erros, valores: { nome: nomeDigitado(f) }, envio: Date.now() };
+    throw e;
+  }
+  revalidarBiblioteca(patientId, docId);
+  return { ok: true, envio: Date.now() };
+}
+
+/** US-379 "Salvar como modelo": os itens e as orientações da tela (o campo `conteudo` do editor); a justificativa nunca vai (RN-394). */
+export async function salvarComoModeloAction(patientId: string, docId: string, _prev: EstadoBiblioteca, f: FormData): Promise<EstadoBiblioteca> {
+  const { ctx, tenant } = await acesso(caminho(patientId, docId));
+  const c = (lerJson(f.get('conteudo')) ?? {}) as { itens?: unknown; orientacoes?: unknown };
+  try {
+    await salvarModeloPrescricao(ctx, tenant, null, { nome: f.get('nome'), itens: c.itens, orientacoes: c.orientacoes });
+  } catch (e) {
+    if (e instanceof DocumentoError) return { erros: e.erros, valores: { nome: nomeDigitado(f) }, envio: Date.now() };
+    throw e;
+  }
+  revalidarBiblioteca(patientId, docId);
+  return { ok: true, envio: Date.now() };
+}
+
+/**
+ * RN-394, EP-D30 "Carregar modelo": o conteúdo **da tela** e a justificativa digitada (os campos do editor), o modelo e o
+ * modo; grava pelo mesmo caminho do "Salvar rascunho" (`carregarModeloNaReceita` → `salvarRascunhoReceita`, tudo ou nada)
+ * e devolve o conteúdo gravado — o editor remonta com ele (`key`), sem perder a justificativa nem o motivo digitados.
+ */
+export async function carregarModeloAction(patientId: string, docId: string, f: FormData): Promise<EstadoForm & { conteudo?: ConteudoReceita }> {
+  const { ctx, tenant } = await acesso(caminho(patientId, docId));
+  const editor = lerEditor(f);
+  if (!editor) return { erros: { geral: 'Formulário inválido.' } };
+  // o módulo confere o modo (fora de acrescentar/substituir → DocumentoError, que volta ao diálogo)
+  const modo = String(f.get('modo') ?? '') as 'acrescentar' | 'substituir';
+  let conteudo: ConteudoReceita;
+  try {
+    conteudo = await carregarModeloNaReceita(ctx, tenant, patientId, docId, { conteudo: editor.conteudo, justificativa: editor.justificativa, modeloId: String(f.get('modeloId') ?? ''), modo });
+  } catch (e) {
+    return comoEstado(e);
+  }
+  revalidatePath(caminho(patientId), 'layout');
+  return { conteudo };
 }

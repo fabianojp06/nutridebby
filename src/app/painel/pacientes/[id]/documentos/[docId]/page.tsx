@@ -20,6 +20,7 @@ import { descreverItem, type ConteudoReceita } from '@/modules/documentos/prescr
 import { MSG_SOLICITACAO, type ConteudoSolicitacao } from '@/modules/documentos/solicitacao';
 import { assertNever, type ConteudoAnonimizado } from '@/modules/documentos/tipos-de-documento';
 import { bibliotecasParaExames } from '@/modules/exames/modelos-solicitacao';
+import { listarItensSalvos, listarModelosPrescricao } from '@/modules/documentos/modelos';
 import { listarExames } from '@/modules/pacientes/exames';
 import { carregarProntuario } from '../../prontuario';
 import { apagarRascunhoAction, pedirNovoPdfAction, retificarAction, voltarAEditarAction } from '../actions';
@@ -76,6 +77,10 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
     : [];
   // Plano 22 (T8, R22-08): o editor da solicitação recebe o catálogo e os modelos de solicitação (uma transação só)
   const bibliotecas = solicitacao && d.status === 'rascunho' && !bloqueado ? await bibliotecasParaExames(ctx) : null;
+  // Plano 22 (T10b, US-379): o editor da receita recebe os itens salvos ("Adicionar item salvo") e os modelos ("Carregar modelo")
+  const daReceita = receita && d.status === 'rascunho' && !bloqueado
+    ? { itensSalvos: [...(await listarItensSalvos(ctx, 'suplementos')), ...(await listarItensSalvos(ctx, 'fitoterapicos'))], modelos: await listarModelosPrescricao(ctx) }
+    : null;
   // RN-148 v0.5: o aviso de exame mudado/excluído só onde a nutricionista ainda age (aguardando → voltar a editar; assinado → retificar)
   const situacao = parecer && !anonimizado && (d.status === 'aguardando_assinatura' || d.status === 'assinado') ? await situacaoDosExames(ctx, paciente.id, parecer.exames) : {};
   // D24: um envio digitalizado recebendo as fotos ou na fila do worker ("Montando o PDF digitalizado…"), com o mesmo prazo
@@ -126,7 +131,7 @@ export default async function DocumentoPage({ params, searchParams }: PageProps<
         <>
           {/* o preparo é um botão do mesmo formulário: envia o que está na tela (revisão da T6) */}
           {/* Plano 22 (EP-D56): a declaração vem do conteúdo da tela (declaracaoDoDocumento, no próprio formulário) */}
-          <ReceitaForm patientId={paciente.id} docId={d.id} conteudo={receita} justificativa={d.justificativa ?? ''} habilitada={habilitada} motivo={motivo} />
+          <ReceitaForm patientId={paciente.id} docId={d.id} conteudo={receita} justificativa={d.justificativa ?? ''} habilitada={habilitada} motivo={motivo} itensSalvos={daReceita?.itensSalvos} modelos={daReceita?.modelos} />
           <AcaoDocumento acao={apagarRascunhoAction.bind(null, paciente.id, d.id)} rotulo="Apagar rascunho" confirmar="Apagar este rascunho?" />
         </>
       )}
