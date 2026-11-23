@@ -104,11 +104,15 @@ export const MSG_MENSAGENS = {
     abaDuvidas: 'Dúvidas da IA Nutri',
     abaDuvidasComContador: (n: number) => `Dúvidas da IA Nutri (${n})`,
     abaRecados: 'Recados',
+    /** §4.1: o `<nav>` das abas (caixa, fila de dúvidas e recados). */
+    rotuloDasAbas: 'Seções de Mensagens',
   },
   caixa: {
     titulo: 'Mensagens',
     filtroTodas: 'Todas',
     filtroNaoLidas: 'Não lidas',
+    /** §4.1: o `<nav>` das pílulas "Todas"/"Não lidas". */
+    rotuloDoFiltro: 'Filtro das conversas',
     buscarPaciente: 'Buscar paciente',
     buscar: 'Buscar',
     novaConversa: 'Nova conversa',
@@ -117,6 +121,7 @@ export const MSG_MENSAGENS = {
     seloRisco: 'Sinal de risco',
     vazio: 'Nenhuma conversa ainda. Para começar, toque em "Nova conversa" ou abra a ficha do paciente.',
     vazioDoFiltro: 'Nenhuma mensagem não lida.',
+    mostrarMais: 'Mostrar mais',
   },
   novaConversa: {
     titulo: 'Nova conversa',
@@ -124,6 +129,7 @@ export const MSG_MENSAGENS = {
     buscar: 'Buscar',
     nenhum: 'Nenhum paciente encontrado.',
     semAcessoAoApp: 'Sem acesso ao app',
+    mostrarMais: 'Mostrar mais',
   },
   conversa: {
     abrirFicha: 'Abrir ficha',

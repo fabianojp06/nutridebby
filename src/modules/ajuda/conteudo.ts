@@ -17,8 +17,8 @@ const ID = '[0-9a-f-]{36}';
 export const GUIAS: readonly Guia[] = [
   {
     id: ID_BOAS_VINDAS,
-    versao: 4, // Plano 12: o passo do menu passou a citar "Exames recebidos"; 3 = Plano 15: o passo do menu cita "Dúvidas dos pacientes" (★ DO-6)
-    // 4 = Plano 20: o passo do menu cita "Financeiro" (sobe +1 sobre a da main no rebase)
+    versao: 5, // Plano 12: o passo do menu passou a citar "Exames recebidos"; 3 = Plano 15: o passo do menu cita "Dúvidas dos pacientes" (★ DO-6)
+    // 4 = Plano 20: o passo do menu cita "Financeiro"; 5 = Plano 25: "Mensagens" no lugar das dúvidas (sobe +1 sobre a da main no rebase)
     padrao: /^\/painel$/,
     titulo: 'Início',
     ajuda: {
@@ -30,7 +30,7 @@ export const GUIAS: readonly Guia[] = [
     },
     passos: [
       { titulo: 'Boas-vindas ao NutriDebby', texto: 'Um passeio rápido pelo painel. Você pode pular agora e rever depois no menu da sua conta.' },
-      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Conteúdos, Financeiro e Configurações ficam no topo. Com o recebimento de exames ligado, "Exames recebidos" aparece também, com o número dos que aguardam. Quando você ativa a IA Nutri para pacientes, "Dúvidas dos pacientes" aparece também, com o número das abertas.' },
+      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Mensagens, Conteúdos, Financeiro e Configurações ficam no topo. Com o recebimento de exames ligado, "Exames recebidos" aparece também, com o número dos que aguardam. Em "Mensagens", o número soma as conversas não lidas e as dúvidas abertas da IA Nutri.' },
       { alvo: 'proxima-consulta', titulo: 'Próxima consulta', texto: 'A consulta mais próxima de hoje, com atalhos para o prontuário e para a chamada online.' },
       { alvo: 'atalhos', titulo: 'Atalhos', texto: 'Cadastre um paciente, marque uma consulta ou publique um conteúdo direto do Início.' },
       { alvo: 'tema', titulo: 'Claro ou escuro', texto: 'Este botão liga e desliga o modo escuro. A escolha fica salva na sua conta, em qualquer aparelho.' },
@@ -295,9 +295,9 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'duvidas',
-    versao: 1,
+    versao: 1, // Plano 25 (CH-D45): só o título virou "Dúvidas da IA Nutri"; a versão sobe na T9 (CH-D55)
     padrao: /^\/painel\/duvidas(\/.*)?$/,
-    titulo: 'Dúvidas dos pacientes',
+    titulo: 'Dúvidas da IA Nutri',
     ajuda: {
       resumo: 'Aqui chegam as perguntas que os pacientes enviaram pela IA Nutri e as mensagens com sinal de risco, que ficam no topo. Abra a dúvida para ler, siga o protocolo nas de risco e toque em "Marcar como vista": o paciente vê no app que a dúvida foi vista. A resposta você dá na consulta ou pelo canal que já usa.',
       secoes: [
@@ -311,7 +311,41 @@ export const GUIAS: readonly Guia[] = [
         },
       ],
     },
-    passos: [{ alvo: 'fila-duvidas', titulo: 'Dúvidas dos pacientes', texto: 'As mensagens com sinal de risco ficam no topo, depois as mais antigas. Abra a dúvida para ler e, depois de tratar, toque em "Marcar como vista".' }],
+    passos: [{ alvo: 'fila-duvidas', titulo: 'Dúvidas da IA Nutri', texto: 'As mensagens com sinal de risco ficam no topo, depois as mais antigas. Abra a dúvida para ler e, depois de tratar, toque em "Marcar como vista".' }],
+  },
+  {
+    id: 'mensagens',
+    versao: 1, // Plano 25 (T6a): a caixa e a nova conversa; a T6b acrescenta os passos da conversa sem subir a versão (CH-D55)
+    padrao: /^\/painel\/mensagens(\/.*)?$/,
+    titulo: 'Mensagens',
+    ajuda: {
+      resumo: 'As conversas por mensagens com os pacientes. A caixa mostra quem escreveu, a conversa mais recente primeiro, e nunca o texto das mensagens: ele só aparece quando você abre a conversa.',
+      secoes: [
+        {
+          titulo: 'O que dá para fazer aqui',
+          itens: [
+            'Ver as conversas e, em "Não lidas", só as que têm mensagem do paciente ainda não lida.',
+            'Achar um paciente pelo nome em "Buscar paciente".',
+            'Começar uma conversa em "Nova conversa": a lista mostra os pacientes ativos, e quem ainda não usa o app aparece com "Sem acesso ao app".',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'A conversa com mensagem que pode indicar risco fica no topo, com o selo "Sinal de risco", até você abrir a conversa.',
+            'O número ao lado de "Mensagens", no menu, soma as conversas com mensagem não lida e as dúvidas abertas da IA Nutri.',
+            'As dúvidas que a IA Nutri encaminha ficam na aba "Dúvidas da IA Nutri", que aparece quando a IA Nutri está ativa ou quando há dúvida aberta.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'mensagens-abas', titulo: 'Seções de Mensagens', texto: '"Conversas" reúne as conversas com os pacientes. "Dúvidas da IA Nutri" aparece quando a IA Nutri está ativa ou quando há dúvida aberta.' },
+      { alvo: 'mensagens-filtro', titulo: 'Filtro e busca', texto: 'Escolha "Todas" ou "Não lidas" e busque o paciente pelo nome.' },
+      { alvo: 'mensagens-caixa', titulo: 'Conversas', texto: 'Cada linha mostra o paciente, quando chegou a última mensagem, de que tipo ela é e quantas não foram lidas. O texto só aparece ao abrir a conversa.' },
+      { alvo: 'nova-conversa', titulo: 'Nova conversa', texto: 'Escolha o paciente para abrir a conversa com ele.' },
+      { alvo: 'busca-nova-conversa', titulo: 'Escolher o paciente', texto: 'Busque pelo nome. Quem ainda não usa o app aparece com "Sem acesso ao app".' },
+    ],
   },
   {
     id: 'diarios',

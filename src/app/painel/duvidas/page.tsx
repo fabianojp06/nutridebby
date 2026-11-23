@@ -3,6 +3,8 @@ import { Selo } from '@/components/ui/selo';
 import { requireNutri } from '@/lib/tenant-session';
 import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
 import { filaDeDuvidas } from '@/modules/ia/nutri-paciente/duvidas';
+import { MSG_MENSAGENS } from '@/modules/mensagens/constantes';
+import { AbasDeMensagens, contagensDasAbas } from '../mensagens/abas';
 import { horasDesde, ROTULO_DO_SELO } from './apresentacao';
 
 export const dynamic = 'force-dynamic';
@@ -10,16 +12,18 @@ export const dynamic = 'force-dynamic';
 /**
  * US-175 "Fila": as dúvidas abertas dos pacientes — "Sinal de risco" no topo, depois as mais antigas — com o paciente, "há
  * {n} horas" e o selo. Só lista (sem auditoria, como "Exames recebidos"); abrir é auditado. `?vista=1` (de "Marcar como
- * vista") vai para a região `role="status"` sempre montada.
+ * vista") vai para a região `role="status"` sempre montada. Plano 25 (CH-D45): a fila é a aba "Dúvidas da IA Nutri" de
+ * Mensagens — h1 com esse nome e as abas de Mensagens (o menu marca "Mensagens").
  */
 export default async function Duvidas({ searchParams }: PageProps<'/painel/duvidas'>) {
-  const { ctx } = await requireNutri('/painel/duvidas');
+  const { ctx, tenant } = await requireNutri('/painel/duvidas');
   const { vista } = await searchParams;
-  const fila = await filaDeDuvidas(ctx);
+  const [fila, contagens] = await Promise.all([filaDeDuvidas(ctx), contagensDasAbas(ctx, tenant)]);
   const agora = new Date();
   return (
     <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
-      <h1 className="font-titulo text-2xl font-semibold">{MSG_IA_NUTRI.fila}</h1>
+      <h1 className="font-titulo text-2xl font-semibold">{MSG_MENSAGENS.duvida.nomeDaFila}</h1>
+      <AbasDeMensagens atual="duvidas" contagens={contagens} />
       <p role="status">{vista === '1' ? MSG_IA_NUTRI.vista : ''}</p>
       {fila.length === 0 ? (
         <p>{MSG_IA_NUTRI.filaVazia}</p>

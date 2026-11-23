@@ -15,17 +15,21 @@ export const ITENS_DO_MENU = [
 /** Plano 12 (D11): "Exames recebidos" — 5º item, só com o recebimento ligado ou com envio aguardando (o layout decide). */
 export const ITEM_EXAMES = { href: '/painel/exames-recebidos', rotulo: 'Exames recebidos' } as const;
 
-/** Plano 15 (US-175): "Dúvidas dos pacientes" — com a IA Nutri ativada ou com dúvida aberta (o layout decide), antes de "Conteúdos". */
-export const ITEM_DUVIDAS = { href: '/painel/duvidas', rotulo: 'Dúvidas dos pacientes' } as const;
+/**
+ * Plano 25 (§4.1, CH-D14): "Mensagens" — sempre na sessão `nutri`, no lugar de "Dúvidas dos pacientes" (Plano 15) e na
+ * mesma posição, antes de "Conteúdos". A fila das dúvidas virou a aba "Dúvidas da IA Nutri" de Mensagens (a rota
+ * /painel/duvidas fica e marca "Mensagens").
+ */
+export const ITEM_MENSAGENS = { href: '/painel/mensagens', rotulo: 'Mensagens' } as const;
 
-export function itensDoMenu(o: { exames: boolean; duvidas?: boolean }): { href: string; rotulo: string }[] {
+export function itensDoMenu(o: { exames: boolean; mensagens: boolean }): { href: string; rotulo: string }[] {
   const base = o.exames ? [...ITENS_DO_MENU.slice(0, 4), ITEM_EXAMES, ...ITENS_DO_MENU.slice(4)] : [...ITENS_DO_MENU];
-  if (!o.duvidas) return base;
+  if (!o.mensagens) return base;
   const i = base.findIndex((x) => x.href === '/painel/conteudos');
-  return [...base.slice(0, i), ITEM_DUVIDAS, ...base.slice(i)];
+  return [...base.slice(0, i), ITEM_MENSAGENS, ...base.slice(i)];
 }
 
-/** US-162: "Exames recebidos (3)"; US-175: "Dúvidas dos pacientes (2)"; sem pendentes, só o nome. */
+/** US-162: "Exames recebidos (3)"; Plano 25 (RN-459): "Mensagens (2)"; sem pendentes, só o nome. */
 export const rotuloDoItem = (rotulo: string, contador: number): string => (contador > 0 ? `${rotulo} (${contador})` : rotulo);
 
 /** Telas que moram no hub "Configurações" (o item fica marcado nelas). */
@@ -35,7 +39,9 @@ const dentro = (caminho: string, base: string) => caminho === base || caminho.st
 export function itemAtual(caminho: string): string | null {
   if (caminho === '/painel') return '/painel';
   if (DO_HUB.some((b) => dentro(caminho, b))) return '/painel/configuracoes';
-  return [...ITENS_DO_MENU, ITEM_EXAMES, ITEM_DUVIDAS].find((i) => i.href !== '/painel' && dentro(caminho, i.href))?.href ?? null;
+  // Plano 25 (CH-D14): a fila "Dúvidas da IA Nutri" é uma aba de Mensagens
+  if (dentro(caminho, '/painel/duvidas')) return ITEM_MENSAGENS.href;
+  return [...ITENS_DO_MENU, ITEM_EXAMES, ITEM_MENSAGENS].find((i) => i.href !== '/painel' && dentro(caminho, i.href))?.href ?? null;
 }
 
 /**

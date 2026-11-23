@@ -141,7 +141,7 @@ export const MSG_IA_NUTRI = {
   liberadaAguardando: 'IA Nutri: liberada — aguardando o aceite do paciente',
   liberadaEmUso: 'IA Nutri: liberada e em uso', // novo
   bloqueada: 'IA Nutri: bloqueada', // novo
-  fila: 'Dúvidas dos pacientes',
+  fila: 'Dúvidas da IA Nutri', // Plano 25 (CH-D45): um nome só para a fila (era "Dúvidas dos pacientes")
   seloRisco: 'Sinal de risco',
   seloRiscoRevogado: 'Sinal de risco — o paciente desativou a IA Nutri',
   avisoMinimoRisco: 'Aviso: houve sinal de risco', // novo (D22 b)

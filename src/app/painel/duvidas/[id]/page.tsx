@@ -7,6 +7,7 @@ import { requireNutri } from '@/lib/tenant-session';
 import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
 import { abrirDuvida } from '@/modules/ia/nutri-paciente/duvidas';
 import { TEXTOS_FIXOS } from '@/modules/ia/nutri-paciente/textos';
+import { MSG_MENSAGENS } from '@/modules/mensagens/constantes';
 import { formatarDataHora } from '@/modules/pacientes/datas';
 import { marcarVistaAction } from '../actions';
 import { horasDesde, ROTULO_DO_SELO } from '../apresentacao';
@@ -28,7 +29,7 @@ export default async function Duvida({ params }: PageProps<'/painel/duvidas/[id]
   return (
     <main className="mx-auto w-full max-w-3xl space-y-4 p-4 md:p-6">
       <p>
-        <Link href="/painel/duvidas" className="inline-flex min-h-11 items-center text-link underline">{`Voltar para ${MSG_IA_NUTRI.fila}`}</Link>
+        <Link href="/painel/duvidas" className="inline-flex min-h-11 items-center text-link underline">{MSG_MENSAGENS.duvida.voltar}</Link>
       </p>
       <h1 className="font-titulo text-2xl font-semibold">{d.paciente}</h1>
       <p className="flex flex-wrap items-center gap-2 text-suave">

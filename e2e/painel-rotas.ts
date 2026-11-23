@@ -75,4 +75,6 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/planos/modelos': () => '/painel/planos/modelos',
   '/painel/planos/modelos/[id]': (i) => `/painel/planos/modelos/${i.modeloPlano}`,
   '/painel/whatsapp': () => '/painel/whatsapp',
+  '/painel/mensagens': () => '/painel/mensagens', // Plano 25 (T6a): a caixa
+  '/painel/mensagens/nova': () => '/painel/mensagens/nova',
 };
