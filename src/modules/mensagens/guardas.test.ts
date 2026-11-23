@@ -18,10 +18,10 @@ const ROTAS_DE_MENSAGENS = (raiz: string) =>
     : [];
 const FONTES = () => [...fontesDe('src/modules/mensagens'), ...ROTAS_DE_MENSAGENS('src/app')];
 
-/** As chamadas `logger.x(…)`/`Sentry.x(…)` de uma fonte (do nome até o parêntese que fecha). */
+/** As chamadas `logger.x(…)`/`Sentry.x(…)`/`console.x(…)` de uma fonte (do nome até o parêntese que fecha). */
 function chamadasDeLog(fonte: string): string[] {
   const out: string[] = [];
-  const re = /\b(logger|Sentry)\.\w+\s*\(/g;
+  const re = /\b(logger|Sentry|console)\.\w+\s*\(/g;
   for (let m = re.exec(fonte); m; m = re.exec(fonte)) {
     let nivel = 0;
     let i = m.index + m[0].length - 1;
@@ -33,14 +33,27 @@ function chamadasDeLog(fonte: string): string[] {
   }
   return out;
 }
+/** `new Error(` (ou de uma subclasse `…Error(`) cujo argumento é um template com `${…}`. */
+function errosInterpolados(fonte: string): string[] {
+  return [...fonte.matchAll(/new\s+\w*Error\s*\(\s*`[^`]*\$\{[^`]*`/g)].map((m) => m[0]);
+}
 const PROIBIDO_NO_LOG = /\b(texto|anexoNome|anexo_nome|recado|caminho|anexoPath|anexo_path|anexoOriginalPath|nome|email)\b/i;
 
-describe('RN-470: nada do chat em log ou Sentry', () => {
+describe('RN-470: nada do chat em log, console ou Sentry', () => {
   it('a regra pega a chamada em várias linhas e deixa passar a que leva só ids e códigos', () => {
     expect(chamadasDeLog("logger.warn(\n  { patientId, texto },\n  'x',\n);")).toEqual(["logger.warn(\n  { patientId, texto },\n  'x',\n)"]);
     expect(PROIBIDO_NO_LOG.test(chamadasDeLog("logger.warn({ patientId, texto }, 'x')")[0])).toBe(true);
     expect(PROIBIDO_NO_LOG.test(chamadasDeLog("Sentry.captureException(err, { extra: { caminho } })")[0])).toBe(true);
     expect(PROIBIDO_NO_LOG.test(chamadasDeLog("logger.error({ err: nomeDoErro(e), sqlstate, mensagemId }, 'chat: falhou')")[0])).toBe(false);
+    expect(PROIBIDO_NO_LOG.test(chamadasDeLog('console.log(texto)')[0])).toBe(true);
+    expect(errosInterpolados('throw new Error(`mensagens: ${texto}`);')).toHaveLength(1);
+    expect(errosInterpolados("throw new Error('mensagens: só a sessão nutri');")).toEqual([]);
+    expect(errosInterpolados('throw new Error(`falhou`);')).toEqual([]);
+  });
+
+  it('nenhum `new Error(` com template interpolado (o texto da mensagem acabaria na mensagem do erro, no log e no Sentry)', () => {
+    const violacoes = FONTES().flatMap((f) => errosInterpolados(readFileSync(f, 'utf8')).map((c) => `${f}: ${c}`));
+    expect(violacoes).toEqual([]);
   });
 
   it('nenhuma chamada de logger/Sentry em src/modules/mensagens e nas rotas de mensagens leva texto, nome de anexo, recado ou caminho', () => {

@@ -14,6 +14,19 @@ export type TipoDaUltima = 'paciente' | 'nutri' | 'imagem' | 'pdf' | 'recado';
 export type ItemDaCaixa = { patientId: string; nome: string; quando: Date | null; tipo: TipoDaUltima | null; naoLidas: number; riscoNaoLido: boolean };
 export const ITENS_DA_CAIXA_POR_PAGINA = 50;
 
+/**
+ * O marcador do consultório de cada conversa (`lida.ate`; sem marcador, `-infinity`). O `offset 0` impede o planejador de
+ * achatar a subconsulta: achatada, a comparação vira `criada_em > coalesce((subplano), …)`, que a RLS de chat_mensagens
+ * (barreira de segurança) não promove a condição do índice, e a contagem lê todas as mensagens da conversa em vez de só as
+ * novas. Com a cerca, `criada_em > lida.ate` entra no índice (tenant_id, patient_id, criada_em, id). EXPLAIN no relatório
+ * da T3 (revisão, I1).
+ */
+const MARCADOR_DO_CONSULTORIO = sql`cross join lateral (
+            select coalesce((select l.lida_ate from chat_leituras l
+                              where l.tenant_id = c.tenant_id and l.patient_id = c.patient_id and l.lado = 'consultorio'),
+                            '-infinity'::timestamptz) as ate
+            offset 0) lida`;
+
 const paginaValida = (p: unknown) => (typeof p === 'number' && Number.isInteger(p) && p >= 1 ? p : 1);
 
 /**
@@ -43,35 +56,31 @@ export async function caixaDeMensagens(
     ctx,
     (tx) =>
       tx.execute<{ patient_id: string; nome: string; quando_ms: number | null; autor: string | null; recado: boolean | null; anexo_tipo: string | null; nao_lidas: number; risco: boolean }>(sql`
-        with conv as (
-          select c.patient_id, p.nome
-            from chat_conversas c
-            join patients p on p.tenant_id = c.tenant_id and p.id = c.patient_id
-            left join patient_cadastro pc on pc.tenant_id = p.tenant_id and pc.patient_id = p.id
-           where c.tenant_id = app_current_tenant()
-             and (c.liberada_em is not null
-                  or exists (select 1 from chat_mensagens i where i.tenant_id = c.tenant_id and i.patient_id = c.patient_id and i.recado_id is null))
-             and ${condicaoDaBusca(o.busca)}
-        ), ultima as (
-          select distinct on (m.patient_id) m.patient_id, m.criada_em, m.autor, m.recado_id is not null as recado, m.anexo_tipo
-            from chat_mensagens m join conv on conv.patient_id = m.patient_id
-           where m.tenant_id = app_current_tenant()
-           order by m.patient_id, m.criada_em desc, m.id desc
-        ), nao_lidas as (
-          select m.patient_id, count(*)::int as n, bool_or(m.risco is not null) as risco
-            from chat_mensagens m
-            join conv on conv.patient_id = m.patient_id
-            left join chat_leituras l on l.tenant_id = m.tenant_id and l.patient_id = m.patient_id and l.lado = 'consultorio'
-           where m.tenant_id = app_current_tenant() and m.autor = 'paciente' and m.criada_em > coalesce(l.lida_ate, '-infinity')
-           group by m.patient_id
-        )
-        select conv.patient_id, conv.nome, (extract(epoch from u.criada_em) * 1000)::float8 as quando_ms, u.autor, u.recado, u.anexo_tipo,
-               coalesce(nl.n, 0) as nao_lidas, coalesce(nl.risco, false) as risco
-          from conv
-          left join ultima u on u.patient_id = conv.patient_id
-          left join nao_lidas nl on nl.patient_id = conv.patient_id
-         where ${o.filtro === 'nao-lidas' ? sql`coalesce(nl.n, 0) > 0` : sql`true`}
-         order by coalesce(nl.risco, false) desc, u.criada_em desc nulls last, conv.patient_id
+        select c.patient_id, p.nome, (extract(epoch from u.criada_em) * 1000)::float8 as quando_ms, u.autor, u.recado, u.anexo_tipo,
+               nl.n as nao_lidas, nl.risco
+          from chat_conversas c
+          join patients p on p.tenant_id = c.tenant_id and p.id = c.patient_id
+          left join patient_cadastro pc on pc.tenant_id = p.tenant_id and pc.patient_id = p.id
+          ${MARCADOR_DO_CONSULTORIO}
+          -- a última mensagem e as não lidas por conversa, pelo índice (tenant_id, patient_id, criada_em, id): nada varre o
+          -- histórico do consultório (revisão da T3, I1)
+          left join lateral (
+            select m.criada_em, m.autor, m.recado_id is not null as recado, m.anexo_tipo
+              from chat_mensagens m
+             where m.tenant_id = c.tenant_id and m.patient_id = c.patient_id
+             order by m.criada_em desc, m.id desc
+             limit 1) u on true
+          cross join lateral (
+            select count(*)::int as n, coalesce(bool_or(m.risco is not null), false) as risco
+              from chat_mensagens m
+             where m.tenant_id = c.tenant_id and m.patient_id = c.patient_id and m.autor = 'paciente'
+               and m.criada_em > lida.ate) nl
+         where c.tenant_id = app_current_tenant()
+           and (c.liberada_em is not null
+                or exists (select 1 from chat_mensagens i where i.tenant_id = c.tenant_id and i.patient_id = c.patient_id and i.recado_id is null))
+           and ${condicaoDaBusca(o.busca)}
+           and ${o.filtro === 'nao-lidas' ? sql`nl.n > 0` : sql`true`}
+         order by nl.risco desc, u.criada_em desc nulls last, c.patient_id
          limit ${ITENS_DA_CAIXA_POR_PAGINA + 1} offset ${(pagina - 1) * ITENS_DA_CAIXA_POR_PAGINA}`),
     db,
   );
@@ -90,17 +99,23 @@ export async function caixaDeMensagens(
   };
 }
 
-/** RN-459: conversas com mensagem do paciente não lida (o menu soma `contadorDeDuvidas`, T6). Sem auditRead. */
+/**
+ * RN-459: conversas com mensagem do paciente não lida (o menu soma `contadorDeDuvidas`, T6). Parte de chat_conversas e procura
+ * uma mensagem depois do marcador pelo índice da conversa (revisão da T3, I1). Sem auditRead.
+ */
 export async function contadorDeMensagens(ctx: TenantContext, db: Db = getDb()): Promise<number> {
   exigirNutri(ctx);
   const r = await withTenant(
     ctx,
     (tx) =>
       tx.execute<{ n: number }>(sql`
-        select count(distinct m.patient_id)::int as n
-          from chat_mensagens m
-          left join chat_leituras l on l.tenant_id = m.tenant_id and l.patient_id = m.patient_id and l.lado = 'consultorio'
-         where m.tenant_id = app_current_tenant() and m.autor = 'paciente' and m.criada_em > coalesce(l.lida_ate, '-infinity')`),
+        select count(*)::int as n
+          from chat_conversas c
+          ${MARCADOR_DO_CONSULTORIO}
+         where c.tenant_id = app_current_tenant()
+           and exists (select 1 from chat_mensagens m
+                        where m.tenant_id = c.tenant_id and m.patient_id = c.patient_id and m.autor = 'paciente'
+                          and m.criada_em > lida.ate)`),
     db,
   );
   return r.rows[0].n;

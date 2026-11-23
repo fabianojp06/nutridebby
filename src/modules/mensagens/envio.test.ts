@@ -8,7 +8,7 @@ import type { TenantContext } from '@/db/tenant';
 import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { MSG_MENSAGENS, MSG_PORTAL_MENSAGENS } from './constantes';
 import { minhaConversa, pausarConversa } from './conversa';
-import { enviarComoNutri, enviarComoPaciente } from './envio';
+import { avisoNoHorario, enviarComoNutri, enviarComoPaciente } from './envio';
 import { salvarConfiguracao } from './horario';
 
 /**
@@ -132,6 +132,15 @@ describe('Plano 25 — enviarComoPaciente (RN-443, RN-447, RN-449)', () => {
     expect(await enviarComoPaciente(ontem.P, { texto: 'Oi' }, app.db)).toMatchObject({ textoFixo: null });
   });
 
+  it('M8: recusado por "muitas" com sinal de risco no texto → o erro leva o textoFixo do socorro; nada é gravado', async () => {
+    const T = await consultorio();
+    const c = await pacienteDoChat(app.db, T);
+    for (let i = 0; i < 30; i++) await mensagemDoDono(owner.pool, T, c, { criadaEm: new Date(Date.now() - (i + 1) * 60_000).toISOString() });
+    expect(await enviarComoPaciente(c.P, { texto: 'meu peito dói' }, app.db)).toEqual({ erro: 'muitas', mensagem: MSG_PORTAL_MENSAGENS.erros.muitas, textoFixo: 'sintoma_agudo' });
+    expect(await enviarComoPaciente(c.P, { texto: 'Oi' }, app.db)).toEqual({ erro: 'muitas', mensagem: MSG_PORTAL_MENSAGENS.erros.muitas });
+    expect(await mensagensDe(T, c.p)).toHaveLength(30);
+  });
+
   it('conversa pausada ou não liberada, vazio e longo → erro com o texto do portal e nada gravado', async () => {
     const T = await consultorio();
     const c = await pacienteDoChat(app.db, T);
@@ -190,17 +199,37 @@ describe('Plano 25 — aviso à nutricionista no envio do paciente (RN-458; CH-D
     expect(semId(desligado)).toEqual(semId(devido));
   });
 
-  it('envio do paciente × salvar a configuração ao mesmo tempo: o horário é lido sem trava antes da função — sem 40P01', async () => {
+  it('envio do paciente × configuração travada: o horário do aviso é lido sem trava, e o envio termina antes do commit de quem segura chat_configuracoes', async () => {
     const T = await consultorio();
+    await salvarConfiguracao(T.ctx, { horarioAtivo: true, avisoEmail: true, faixas: [{ diaSemana: 1, inicioMin: 480, fimMin: 720 }] }, app.db);
     const c = await pacienteDoChat(app.db, T);
-    const faixas = [{ diaSemana: 1, inicioMin: 480, fimMin: 720 }];
-    const r = await Promise.allSettled(
-      Array.from({ length: 6 }, (_, i) =>
-        i % 2 ? salvarConfiguracao(T.ctx, { horarioAtivo: i % 4 === 1, avisoEmail: true, faixas }, app.db) : enviarComoPaciente(c.P, { texto: `Oi ${i}` }, app.db),
-      ),
-    );
-    expect(r.filter((x) => x.status === 'rejected')).toEqual([]);
-    expect(await mensagensDe(T, c.p)).toHaveLength(3);
+    const outra = await app.pool.connect();
+    try {
+      // como salvarConfiguracao: a linha da configuração travada, sem commit
+      await outra.query('begin');
+      await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true), set_config('app.user_id', $2, true)`, [T.tenantId, T.nutriId]);
+      await outra.query('select 1 from chat_configuracoes where tenant_id = $1 for update', [T.tenantId]);
+      const r = await Promise.race([enviarComoPaciente(c.P, { texto: 'Oi' }, app.db), new Promise<'preso'>((ok) => setTimeout(() => ok('preso'), 3000))]);
+      expect(r).toMatchObject({ textoFixo: null });
+    } finally {
+      await outra.query('rollback').catch(() => undefined);
+      outra.release();
+    }
+    expect(await mensagensDe(T, c.p)).toHaveLength(1);
+  });
+
+  it('M7: o horário do aviso — dentro das faixas com o horário ligado; desligado ou ligado sem faixas, fora das 21h–8h', () => {
+    const fuso = 'America/Sao_Paulo';
+    const as = (h: string) => new Date(`2026-11-23T${h}:00-03:00`); // segunda
+    const faixas = [{ diaSemana: 1, inicioMin: 9 * 60, fimMin: 12 * 60 }];
+    expect(avisoNoHorario({ horarioAtivo: true, faixas }, fuso, as('10:00'))).toBe(true);
+    expect(avisoNoHorario({ horarioAtivo: true, faixas }, fuso, as('14:00'))).toBe(false);
+    for (const h of [{ horarioAtivo: false, faixas }, { horarioAtivo: true, faixas: [] }]) {
+      expect(avisoNoHorario(h, fuso, as('14:00'))).toBe(true);
+      expect(avisoNoHorario(h, fuso, as('08:00'))).toBe(true);
+      expect(avisoNoHorario(h, fuso, as('21:00'))).toBe(false);
+      expect(avisoNoHorario(h, fuso, as('07:59'))).toBe(false);
+    }
   });
 });
 
@@ -232,27 +261,63 @@ describe('Plano 25 — concorrência do envio (RN-447)', () => {
     expect(await mensagensDe(T, c.p)).toEqual([]);
   });
 
-  it('envio da nutricionista em curso (paciente FOR SHARE, conversa FOR NO KEY UPDATE) não segura o render do paciente (marcador de leitura)', async () => {
+  it('envio da nutricionista em curso (enviarComoNutri parado depois do INSERT, com as travas) não segura o render do paciente; o envio do paciente espera', async () => {
     const T = await consultorio();
     const c = await pacienteDoChat(app.db, T);
     await enviarComoNutri(T.ctx, c.p, { texto: 'Primeira' }, app.db);
+    let soltar!: () => void;
+    let parou!: () => void;
+    const parado = new Promise<void>((ok) => (parou = ok));
+    const envioNutri = enviarComoNutri(T.ctx, c.p, { texto: 'Segunda' }, app.db, {
+      aposGravar: () => {
+        parou();
+        return new Promise<void>((ok) => (soltar = ok));
+      },
+    });
+    await parado;
+    try {
+      // o render do paciente (auditRead + marcarLida, com o FOR KEY SHARE da FK na conversa) passa sem esperar
+      const tela = await Promise.race([minhaConversa(c.P, {}, app.db), new Promise<'preso'>((ok) => setTimeout(() => ok('preso'), 3000))]);
+      expect(tela).not.toBe('preso');
+      expect((tela as Awaited<ReturnType<typeof minhaConversa>>).mensagens.map((m) => m.texto)).toEqual(['Primeira']);
+      // o envio do paciente (paciente FOR UPDATE) espera o FOR SHARE do envio da nutricionista
+      const envioPaciente = enviarComoPaciente(c.P, { texto: 'Resposta' }, app.db);
+      const r = await Promise.race([envioPaciente, new Promise<'preso'>((ok) => setTimeout(() => ok('preso'), 300))]);
+      expect(r).toBe('preso');
+      soltar();
+      expect(await envioNutri).toEqual({ id: expect.any(String) });
+      expect(await envioPaciente).toMatchObject({ textoFixo: null });
+    } finally {
+      soltar?.();
+    }
+    expect((await mensagensDe(T, c.p)).map((m) => m.texto)).toEqual(['Primeira', 'Segunda', 'Resposta']);
+  });
+
+  it('M2: quem segura o paciente FOR SHARE (como o envio da nutricionista) faz o envio do paciente esperar', async () => {
+    const T = await consultorio();
+    const c = await pacienteDoChat(app.db, T);
     const outra = await app.pool.connect();
+    let fechada = false;
     try {
       await outra.query('begin');
       await outra.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'nutri', true), set_config('app.user_id', $2, true)`, [T.tenantId, T.nutriId]);
       await outra.query('select 1 from patients where id = $1 for share', [c.p]);
-      await outra.query('select 1 from chat_conversas where patient_id = $1 for no key update', [c.p]);
-      await outra.query(`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, texto) values ($1, $2, 'nutri', $3, 'Segunda')`, [T.tenantId, c.p, T.nutriId]);
-      // o render do paciente (auditRead + marcarLida, com o FOR KEY SHARE da FK na conversa) passa sem esperar
-      const tela = await Promise.race([minhaConversa(c.P, {}, app.db), new Promise<'preso'>((r) => setTimeout(() => r('preso'), 3000))]);
-      expect(tela).not.toBe('preso');
-      expect((tela as Awaited<ReturnType<typeof minhaConversa>>).mensagens.map((m) => m.texto)).toEqual(['Primeira']);
+      const pid = (await outra.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid;
+      const envio = enviarComoPaciente(c.P, { texto: 'Oi' }, app.db).then(
+        (x) => x,
+        (e: unknown) => e,
+      );
+      await esperarBloqueio(owner.pool, pid);
+      expect(await mensagensDe(T, c.p)).toEqual([]);
+      await outra.query('commit');
+      fechada = true;
+      expect(await envio).toMatchObject({ textoFixo: null });
     } finally {
-      await outra.query('rollback').catch(() => undefined);
+      if (!fechada) await outra.query('rollback').catch(() => undefined);
       outra.release();
     }
+    expect(await mensagensDe(T, c.p)).toHaveLength(1);
   });
-
   it('em paralelo, sem trava manual: envios dos dois lados e renders do paciente sem 40P01', async () => {
     const T = await consultorio();
     const c = await pacienteDoChat(app.db, T);

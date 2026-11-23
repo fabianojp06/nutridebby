@@ -15,12 +15,15 @@ import { detectarRisco } from '@/modules/ia/nutri-paciente/sinais-risco';
 import { emHorarioSilencioso } from '@/modules/notificacoes/agendar';
 import { idValido, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { LIMITE_MENSAGENS_DIA, LIMITE_MENSAGENS_HORA, MSG_MENSAGENS, MSG_PORTAL_MENSAGENS, RISCO_DO_TEXTO_FIXO, TEXTO_MAX, type CodigoTextoFixo } from './constantes';
-import { dentroDoHorario, horarioParaPaciente } from './horario';
+import { dentroDoHorario, horarioParaPaciente, type Faixa } from './horario';
 import { exigirNutri, exigirPacienteComConta } from './sessao';
 
 export type CodigoErroDeEnvio = 'vazio' | 'longo' | 'conversa' | 'carimbo' | 'muitas';
-/** O erro com o texto exato da §6.2 do lado que enviou (painel ou portal). */
-export type ErroDeEnvio = { erro: CodigoErroDeEnvio; mensagem: string };
+/**
+ * O erro com o texto exato da §6.2 do lado que enviou (painel ou portal). `textoFixo` só no `muitas` do paciente com sinal
+ * de risco no texto recusado (revisão da T3, M8): a mensagem não é gravada, mas a tela mostra o socorro (RN-449).
+ */
+export type ErroDeEnvio = { erro: CodigoErroDeEnvio; mensagem: string; textoFixo?: CodigoTextoFixo };
 
 const ERROS_PAINEL: Record<Exclude<CodigoErroDeEnvio, 'muitas'>, string> = {
   vazio: MSG_MENSAGENS.erros.semConteudo,
@@ -63,7 +66,14 @@ const ativo = (p: Titular) => p.status === 'ativo' && !p.anonimizadoEm;
  * liberada e não pausada (`conversa`), carimbo do consultório (`carimbo`, RN-475). O carimbo vai para a linha pelo gatilho.
  * Paciente fora do consultório → PacienteNaoEncontradoError.
  */
-export async function enviarComoNutri(ctx: TenantContext, patientId: string, i: { texto: string }, db: Db = getDb()): Promise<{ id: string } | ErroDeEnvio> {
+export async function enviarComoNutri(
+  ctx: TenantContext,
+  patientId: string,
+  i: { texto: string },
+  db: Db = getDb(),
+  /** Só para os testes de concorrência: roda depois do INSERT, com as travas seguras, antes do commit. */
+  o: { aposGravar?: () => Promise<void> } = {},
+): Promise<{ id: string } | ErroDeEnvio> {
   exigirNutri(ctx);
   if (!idValido(patientId)) throw new PacienteNaoEncontradoError();
   const texto = textoDoEnvio(i?.texto);
@@ -87,6 +97,7 @@ export async function enviarComoNutri(ctx: TenantContext, patientId: string, i: 
         .values({ tenantId: ctx.tenantId, patientId: p.id, autor: 'nutri', autorUserId: ctx.actorUserId!, texto })
         .returning({ id: chatMensagens.id });
       // T4: avisarPaciente(tx, { tipo: 'chat_mensagem', … }) entra aqui, na mesma transação
+      await o.aposGravar?.();
       return { id: m.id };
     },
     db,
@@ -101,8 +112,15 @@ export async function enviarComoNutri(ctx: TenantContext, patientId: string, i: 
  */
 async function noHorarioDoAviso(tx: Tx, tenantId: string, agora: Date): Promise<boolean> {
   const [t] = await tx.select({ fuso: tenants.fuso }).from(tenants).where(sql`${tenants.id} = ${tenantId}`);
-  const h = await horarioParaPaciente(tx);
-  return h.horarioAtivo ? dentroDoHorario(h.faixas, t.fuso, agora) : !emHorarioSilencioso(agora, t.fuso);
+  return avisoNoHorario(await horarioParaPaciente(tx), t.fuso, agora);
+}
+
+/**
+ * RN-458, puro: dentro das faixas com o horário ligado; com o horário desligado — ou ligado sem nenhuma faixa (revisão da
+ * T3, M7: não há horário definido) —, fora do silêncio das 21h às 8h no fuso do consultório.
+ */
+export function avisoNoHorario(h: { horarioAtivo: boolean; faixas: readonly Faixa[] }, fuso: string, agora: Date): boolean {
+  return h.horarioAtivo && h.faixas.length > 0 ? dentroDoHorario(h.faixas, fuso, agora) : !emHorarioSilencioso(agora, fuso);
 }
 
 type EnvioDoPaciente = { id: string; textoFixo: CodigoTextoFixo | null; avisoNutriDevido: boolean };
@@ -122,16 +140,26 @@ async function gravarDoPaciente(tx: Tx, ctx: TenantContext, texto: string): Prom
     .from(chatConversas)
     .where(sql`${chatConversas.tenantId} = ${ctx.tenantId} and ${chatConversas.patientId} = ${patientId}`);
   if (!c?.liberadaEm || c.pausadaEm) return erroPortal('conversa');
-  // RN-447: 30 na última hora e 200 no dia (no fuso do consultório), contadas no banco (nenhum Date do JS filtra criada_em)
+  // RN-447: 30 na última hora e 200 no dia (no fuso do consultório), contadas no banco (nenhum Date do JS filtra criada_em).
+  // O limite inferior (o menor dos dois inícios) deixa o índice da conversa ler só a janela, nunca o histórico (revisão da T3,
+  // M1). `materialized` e a coluna `desde` pronta: inlinada, a comparação viraria `criada_em >= least(…)`, que a RLS de
+  // chat_mensagens (barreira de segurança) não promove a condição do índice (EXPLAIN no relatório da T3)
   const [n] = (
     await tx.execute<{ hora: number; dia: number }>(sql`
-      select count(*) filter (where m.criada_em > now() - interval '1 hour')::int as hora,
-             count(*) filter (where m.criada_em >= (date_trunc('day', now() at time zone t.fuso) at time zone t.fuso))::int as dia
-        from chat_mensagens m join tenants t on t.id = m.tenant_id
+      with t as materialized (
+        select h.hora, h.dia, least(h.hora, h.dia) as desde
+          from (select now() - interval '1 hour' as hora, (date_trunc('day', now() at time zone fuso) at time zone fuso) as dia
+                  from tenants where id = ${ctx.tenantId}) h)
+      select count(*) filter (where m.criada_em > t.hora)::int as hora,
+             count(*) filter (where m.criada_em >= t.dia)::int as dia
+        from t join chat_mensagens m on m.criada_em >= t.desde
        where m.tenant_id = ${ctx.tenantId} and m.patient_id = ${patientId} and m.autor = 'paciente'`)
   ).rows;
-  if (n.hora >= LIMITE_MENSAGENS_HORA || n.dia >= LIMITE_MENSAGENS_DIA) return erroPortal('muitas');
   const sinal = detectarRisco(texto);
+  if (n.hora >= LIMITE_MENSAGENS_HORA || n.dia >= LIMITE_MENSAGENS_DIA) {
+    // revisão da T3, M8 (segurança do paciente): a mensagem não é gravada, mas o socorro aparece (RN-449)
+    return sinal ? { ...erroPortal('muitas'), textoFixo: sinal.textoFixo } : erroPortal('muitas');
+  }
   const noHorario = await noHorarioDoAviso(tx, ctx.tenantId, new Date());
   const [aviso] = (await tx.execute<{ devido: boolean }>(sql`select app_chat_aviso_nutri_devido(${noHorario}) as devido`)).rows;
   const [m] = await tx
