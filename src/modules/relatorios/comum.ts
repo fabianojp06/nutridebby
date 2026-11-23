@@ -1,4 +1,4 @@
-import type { Db } from '@/db/client';
+import type { Db, Tx } from '@/db/client';
 import type { TenantContext } from '@/db/tenant';
 import { intervaloDoMes } from '@/modules/financeiro/meses';
 import { exigirSecao, type Acesso } from './acesso';
@@ -10,7 +10,12 @@ import { limitesDoMes, type Periodo } from './periodo';
  * conferem a seção (`exigirSecao`), o filtro de local e o período — e os limites do período no fuso do consultório.
  */
 export type TenantRel = { fuso: string };
-export type DepsRel = { db?: Db; agora?: Date };
+/**
+ * `naMesmaTransacao` (RN-493, RE-D4): chamado **dentro** da transação da leitura, depois dela, com os dados que a função
+ * vai devolver — o CSV e a impressão gravam ali o `exportar` (`exportacaoNaLeitura`, `registro.ts`). Se ele falhar, a
+ * transação volta inteira e a leitura não sai (nem dado sem rastro, nem rastro sem dado).
+ */
+export type DepsRel<T = never> = { db?: Db; agora?: Date; naMesmaTransacao?: (tx: Tx, dados: T) => Promise<void> };
 export type OpcoesRel = { localId: string | null; acesso: Acesso };
 
 export type Limites = {
@@ -45,4 +50,10 @@ export function prepararSecao(ctx: TenantContext, tenant: TenantRel, secao: Seca
 export function porMes<R extends { mes: string }, T>(meses: readonly string[], linhas: R[], linha: (mes: string, r: R | undefined) => T): T[] {
   const doMes = new Map(linhas.map((r) => [r.mes, r]));
   return meses.map((mes) => linha(mes, doMes.get(mes)));
+}
+
+/** O fim de toda leitura: o `naMesmaTransacao` (se houver) na mesma transação, e só então os dados saem. */
+export async function fecharLeitura<T>(tx: Tx, dados: T, deps: DepsRel<T>): Promise<T> {
+  await deps.naMesmaTransacao?.(tx, dados);
+  return dados;
 }

@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { consultaDireta, em, SP } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { auditLog, consultations, mealPlans, patientCadastro, patients } from '@/db/schema';
-import type { Db } from '@/db/client';
+import type { Db, Tx } from '@/db/client';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { listarCategorias, salvarConfiguracoes } from '@/modules/financeiro/configuracoes';
 import { cancelarLancamento, criarLancamento } from '@/modules/financeiro/lancamentos';
@@ -19,7 +19,7 @@ import { relatorioPacientes } from './pacientes';
 import { periodoDaUrl, type Periodo } from './periodo';
 import { relatorioPlanos } from './planos';
 import { relatorioRanking } from './ranking';
-import { registrarExportacao } from './registro';
+import { exportacaoNaLeitura } from './registro';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
@@ -66,6 +66,17 @@ const atendimento = (T: TenantDeTeste, patientId: string, data: string, appointm
 /** Linhas do `audit_log` do consultório, lidas dentro de `withTenant` na sessão da nutricionista (a RLS esconderia fora). */
 const linhasDoLog = (T: TenantDeTeste) =>
   withTenant(T.ctx, async (tx) => (await tx.select({ n: sql<number>`count(*)::int` }).from(auditLog).where(eq(auditLog.tenantId, T.tenantId)))[0].n, app.db);
+/** As linhas da entidade `relatorios`, lidas dentro de `withTenant` como `linhasDoLog`. */
+const exportacoes = (T: TenantDeTeste) =>
+  withTenant(
+    T.ctx,
+    (tx) =>
+      tx
+        .select({ acao: auditLog.acao, entidadeId: auditLog.entidadeId, patientId: auditLog.patientId })
+        .from(auditLog)
+        .where(and(eq(auditLog.tenantId, T.tenantId), eq(auditLog.entidade, 'relatorios'))),
+    app.db,
+  );
 
 describe('relatorioPacientes (US-480, RN-483 a RN-487)', () => {
   let T: TenantDeTeste;
@@ -417,7 +428,7 @@ describe('relatorioRanking (US-485, RN-492)', () => {
 });
 
 describe('Relatórios: agregado sem auditRead, recusa antes da transação (RN-480, RN-493)', () => {
-  it('nenhuma das seis leituras grava audit_log; registrarExportacao grava (controle positivo da mesma leitura)', async () => {
+  it('nenhuma das seis leituras grava audit_log sem o naMesmaTransacao; com ele, grava (controle positivo da mesma leitura)', async () => {
     const T = await novoTenant(app.db);
     const ana = await um(T, { nome: 'Ana' });
     await consulta(T, ana, em('2026-03-05', '10:00'), { status: 'realizada' });
@@ -432,8 +443,55 @@ describe('Relatórios: agregado sem auditRead, recusa antes da transação (RN-4
     await relatorioRanking(T.ctx, tenant, PADRAO, { ...o, por: 'receita' }, deps);
     expect(ranking.linhas.map((l) => l.patientId)).toEqual([ana]);
     expect(await linhasDoLog(T)).toBe(antes);
-    await withTenant(T.ctx, (tx) => registrarExportacao(tx, { secao: 'ranking', periodo: PADRAO, localId: null, pacientes: ranking.linhas.map((l) => l.patientId) }), app.db);
+    await relatorioRanking(T.ctx, tenant, PADRAO, { ...o, por: 'consultas' }, { ...deps, naMesmaTransacao: exportacaoNaLeitura('ranking', PADRAO, null) });
     expect(await linhasDoLog(T)).toBe(antes + 1);
+  });
+
+  it('o exportar do CSV e da impressão sai pelo naMesmaTransacao das seis leituras (RN-493, RE-D4): agregado sem paciente, Ranking um por paciente da lista', async () => {
+    const T = await novoTenant(app.db);
+    const [ana, bia] = await pacientes(T, [{ nome: 'Ana' }, { nome: 'Bia' }]);
+    await consulta(T, ana, em('2026-03-05', '10:00'), { status: 'realizada' });
+    await consulta(T, bia, em('2026-03-06', '10:00'), { status: 'realizada' });
+    expect(await exportacoes(T)).toEqual([]);
+    await relatorioPacientes(T.ctx, tenant, PADRAO, o, { ...deps, naMesmaTransacao: exportacaoNaLeitura('pacientes', PADRAO, null) });
+    await relatorioAtendimentos(T.ctx, tenant, PADRAO, o, { ...deps, naMesmaTransacao: exportacaoNaLeitura('atendimentos', PADRAO, null) });
+    await relatorioPlanos(T.ctx, tenant, PADRAO, o, { ...deps, naMesmaTransacao: exportacaoNaLeitura('planos', PADRAO, null) });
+    await relatorioAgenda(T.ctx, tenant, PADRAO, o, { ...deps, naMesmaTransacao: exportacaoNaLeitura('agenda', PADRAO, null) });
+    // não configurado: o gancho roda também no estado vazio
+    await relatorioFinanceiro(T.ctx, tenant, PADRAO, o, { ...deps, naMesmaTransacao: exportacaoNaLeitura('financeiro', PADRAO, null) });
+    const porRanking = { ...deps, naMesmaTransacao: exportacaoNaLeitura('ranking', PADRAO, null) };
+    const ranking = await relatorioRanking(T.ctx, tenant, PADRAO, { ...o, por: 'consultas' }, porRanking);
+    expect(ranking.linhas.map((l) => l.patientId).sort()).toEqual([ana, bia].sort()); // controle positivo: a lista tem os dois
+    await relatorioRanking(T.ctx, tenant, PADRAO, { ...o, por: 'receita' }, porRanking); // lista vazia: uma linha sem paciente
+    const log = await exportacoes(T);
+    const daSecao = (secao: string) => log.filter((l) => l.entidadeId === `${secao}|${PADRAO.de}..${PADRAO.ate}|todos`);
+    for (const secao of ['pacientes', 'atendimentos', 'planos', 'agenda', 'financeiro']) {
+      expect(daSecao(secao), secao).toEqual([{ acao: 'exportar', entidadeId: `${secao}|${PADRAO.de}..${PADRAO.ate}|todos`, patientId: null }]);
+    }
+    expect(daSecao('ranking').map((l) => l.patientId ?? 'sem paciente').sort()).toEqual([ana, bia, 'sem paciente'].sort());
+    expect(log.every((l) => l.acao === 'exportar')).toBe(true);
+    expect(log).toHaveLength(8);
+  });
+
+  it('erro no naMesmaTransacao volta a transação inteira: a leitura não sai e o exportar já gravado some (rollback)', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await um(T, { nome: 'Ana' });
+    await consulta(T, ana, em('2026-03-05', '10:00'), { status: 'realizada' });
+    /** Grava o `exportar` e então falha (como a montagem do CSV que quebra depois do rastro). */
+    const falhando = <D,>(grava: (tx: Tx, dados: D) => Promise<void>) => ({
+      ...deps,
+      naMesmaTransacao: async (tx: Tx, dados: D) => {
+        await grava(tx, dados);
+        throw new Error('falha depois de gravar');
+      },
+    });
+    const ranking = relatorioRanking(T.ctx, tenant, PADRAO, { ...o, por: 'consultas' }, falhando(exportacaoNaLeitura('ranking', PADRAO, null)));
+    await expect(ranking).rejects.toThrow('falha depois de gravar');
+    await expect(relatorioAgenda(T.ctx, tenant, PADRAO, o, falhando(exportacaoNaLeitura('agenda', PADRAO, null)))).rejects.toThrow('falha depois de gravar');
+    expect(await exportacoes(T)).toEqual([]);
+    // controle positivo: o mesmo pedido sem a falha grava, e a mesma leitura do log o enxerga
+    await relatorioRanking(T.ctx, tenant, PADRAO, { ...o, por: 'consultas' }, { ...deps, naMesmaTransacao: exportacaoNaLeitura('ranking', PADRAO, null) });
+    expect(await exportacoes(T)).toEqual([{ acao: 'exportar', entidadeId: `ranking|${PADRAO.de}..${PADRAO.ate}|todos`, patientId: ana }]);
   });
 
   it('a recepção sem a seção, o worker e a sessão de paciente são recusados antes de abrir a transação', async () => {

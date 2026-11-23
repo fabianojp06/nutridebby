@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { getDb } from '@/db/client';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { porMes, prepararSecao, type DepsRel, type OpcoesRel, type TenantRel } from './comum';
+import { fecharLeitura, porMes, prepararSecao, type DepsRel, type OpcoesRel, type TenantRel } from './comum';
 import type { Periodo } from './periodo';
 import type { LinhaAgenda, RelAgenda } from './tipos';
 
@@ -18,7 +18,7 @@ import type { LinhaAgenda, RelAgenda } from './tipos';
  * Nenhum nome, nenhum `auditRead`. O que depende do Plano 23 (`solicitada`, pedidos, previsões) entra na T11a; na sessão
  * da recepção, "Retornos" virá da função `SECURITY DEFINER` do PR 2 (RN-510, T11b).
  */
-export async function relatorioAgenda(ctx: TenantContext, tenant: TenantRel, p: Periodo, o: OpcoesRel, deps: DepsRel = {}): Promise<RelAgenda> {
+export async function relatorioAgenda(ctx: TenantContext, tenant: TenantRel, p: Periodo, o: OpcoesRel, deps: DepsRel<RelAgenda> = {}): Promise<RelAgenda> {
   const lim = prepararSecao(ctx, tenant, 'agenda', p, o);
   const agora = deps.agora ?? new Date();
   return withTenant(
@@ -51,7 +51,7 @@ export async function relatorioAgenda(ctx: TenantContext, tenant: TenantRel, p: 
         ) x
         group by mes`);
       const zero = { marcadas: 0, realizadas: 0, faltas: 0, iniciadas: 0, canceladasPaciente: 0, canceladasConsultorio: 0, marcadasPeloPaciente: 0, retornos: 0 };
-      return { meses: porMes(p.meses, rows, (mes, r) => ({ ...zero, ...r, mes })) };
+      return fecharLeitura(tx, { meses: porMes(p.meses, rows, (mes, r) => ({ ...zero, ...r, mes })) }, deps);
     },
     deps.db ?? getDb(),
   );

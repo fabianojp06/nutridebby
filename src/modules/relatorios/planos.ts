@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { getDb } from '@/db/client';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { porMes, prepararSecao, type DepsRel, type OpcoesRel, type TenantRel } from './comum';
+import { fecharLeitura, porMes, prepararSecao, type DepsRel, type OpcoesRel, type TenantRel } from './comum';
 import type { Periodo } from './periodo';
 import type { RelPlanos } from './tipos';
 
@@ -12,7 +12,7 @@ import type { RelPlanos } from './tipos';
  * todos os ativos. Lê só `publicado_em`, `patient_id` e `status`: nenhuma coluna de conteúdo do plano, nenhum `auditRead`.
  * O filtro de local não se aplica (US-482). Só da nutricionista (RN-480).
  */
-export async function relatorioPlanos(ctx: TenantContext, tenant: TenantRel, p: Periodo, o: OpcoesRel, deps: DepsRel = {}): Promise<RelPlanos> {
+export async function relatorioPlanos(ctx: TenantContext, tenant: TenantRel, p: Periodo, o: OpcoesRel, deps: DepsRel<RelPlanos> = {}): Promise<RelPlanos> {
   const lim = prepararSecao(ctx, tenant, 'planos', p, o);
   return withTenant(
     ctx,
@@ -36,10 +36,14 @@ export async function relatorioPlanos(ctx: TenantContext, tenant: TenantRel, p: 
                ))::int as com_plano
         from patients p
         where p.tenant_id = ${ctx.tenantId} and p.status = 'ativo' and p.anonimizado_em is null`);
-      return {
-        meses: porMes(p.meses, rows, (mes, r) => ({ mes, publicacoes: r?.publicacoes ?? 0, pacientes: r?.pacientes ?? 0 })),
-        hoje: { comPlano: hoje.com_plano, ativos: hoje.ativos },
-      };
+      return fecharLeitura(
+        tx,
+        {
+          meses: porMes(p.meses, rows, (mes, r) => ({ mes, publicacoes: r?.publicacoes ?? 0, pacientes: r?.pacientes ?? 0 })),
+          hoje: { comPlano: hoje.com_plano, ativos: hoje.ativos },
+        },
+        deps,
+      );
     },
     deps.db ?? getDb(),
   );

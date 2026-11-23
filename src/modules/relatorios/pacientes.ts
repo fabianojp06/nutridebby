@@ -2,7 +2,7 @@ import { sql, type SQL } from 'drizzle-orm';
 import { getDb } from '@/db/client';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
-import { prepararSecao, type DepsRel, type OpcoesRel, type TenantRel } from './comum';
+import { fecharLeitura, prepararSecao, type DepsRel, type OpcoesRel, type TenantRel } from './comum';
 import { FAIXAS_ETARIAS, MSG_RELATORIOS } from './constantes';
 import { limitesDoMes, type Periodo } from './periodo';
 import type { LinhaContagem, RelPacientes } from './tipos';
@@ -19,7 +19,7 @@ const FAIXAS = FAIXAS_ETARIAS.slice(1);
  * números: nenhum nome, nenhum `auditRead` (RN-493). Na sessão da recepção (T11b), a linha "Bloqueados" não existe e o
  * total é só do que ela vê (RE-D39; a RLS esconde bloqueados e anonimizados).
  */
-export async function relatorioPacientes(ctx: TenantContext, tenant: TenantRel, p: Periodo, o: OpcoesRel, deps: DepsRel = {}): Promise<RelPacientes> {
+export async function relatorioPacientes(ctx: TenantContext, tenant: TenantRel, p: Periodo, o: OpcoesRel, deps: DepsRel<RelPacientes> = {}): Promise<RelPacientes> {
   prepararSecao(ctx, tenant, 'pacientes', p, o);
   const hoje = hojeNoFuso(tenant.fuso, deps.agora ?? new Date());
   const meses = p.meses.map((m) => limitesDoMes(m, tenant.fuso));
@@ -68,7 +68,7 @@ export async function relatorioPacientes(ctx: TenantContext, tenant: TenantRel, 
         { rotulo: L.idosos, n: r.idosos },
         { rotulo: L.semNascimento, n: r.sem_nascimento },
       ];
-      return {
+      const dados: RelPacientes = {
         situacao: {
           ativos: r.ativos,
           arquivados: r.arquivados,
@@ -84,6 +84,7 @@ export async function relatorioPacientes(ctx: TenantContext, tenant: TenantRel, 
         faixas: FAIXAS.map((f, i) => ({ rotulo: f.rotulo, n: r.faixas[i] })),
         novosPorMes: p.meses.map((mes, i) => ({ mes, n: r.novos[i] })),
       };
+      return fecharLeitura(tx, dados, deps);
     },
     deps.db ?? getDb(),
   );

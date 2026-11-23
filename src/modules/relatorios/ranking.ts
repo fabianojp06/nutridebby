@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import { getDb } from '@/db/client';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { receitaPorPaciente } from '@/modules/financeiro/resumo';
-import { prepararSecao, type DepsRel, type OpcoesRel, type TenantRel } from './comum';
+import { fecharLeitura, prepararSecao, type DepsRel, type OpcoesRel, type TenantRel } from './comum';
 import { RANKING_LIMITE, type RankingPor } from './constantes';
 import type { Periodo } from './periodo';
 import type { LinhaRanking, RelRanking } from './tipos';
@@ -13,21 +13,24 @@ import type { LinhaRanking, RelRanking } from './tipos';
  * diferença de acento e maiúsculas (`app_unaccent(lower(…))`, RE-D68), depois pelo id. "Maior receita" só pela função do
  * módulo do Financeiro (`receitaPorPaciente`, RN-491). Devolve o id e os dois nomes (o exibido na tela; o de registro no
  * CSV e na impressão) e o número — nada mais do paciente. A tela não chama `auditRead` (RN-493: como a lista de
- * pacientes); quem exporta grava um `exportar` por paciente (`registrarExportacao`).
+ * pacientes); quem exporta grava um `exportar` por paciente da lista devolvida, na
+ * transação da leitura (`deps.naMesmaTransacao` = `exportacaoNaLeitura`).
  */
 export async function relatorioRanking(
   ctx: TenantContext,
   tenant: TenantRel,
   p: Periodo,
   o: OpcoesRel & { por: RankingPor },
-  deps: DepsRel = {},
+  deps: DepsRel<RelRanking> = {},
 ): Promise<RelRanking> {
   const lim = prepararSecao(ctx, tenant, 'ranking', p, o);
   if (o.por !== 'consultas' && o.por !== 'receita') throw new RangeError('relatorios: critério do ranking inválido');
   return withTenant(
     ctx,
     async (tx): Promise<RelRanking> => {
-      if (o.por === 'receita') return { por: o.por, linhas: await receitaPorPaciente(tx, ctx.tenantId, p, { limite: RANKING_LIMITE }) };
+      if (o.por === 'receita') {
+        return fecharLeitura(tx, { por: o.por, linhas: await receitaPorPaciente(tx, ctx.tenantId, p, { limite: RANKING_LIMITE }) }, deps);
+      }
       const { rows } = await tx.execute<LinhaRanking>(sql`
         select p.id as "patientId", coalesce(pc.nome_social, p.nome) as "nomeExibido", p.nome as "nomeRegistro", count(*)::int as "valor"
         from appointments a
@@ -38,7 +41,7 @@ export async function relatorioRanking(
         group by p.id, p.nome, pc.nome_social
         order by count(*) desc, app_unaccent(lower(coalesce(pc.nome_social, p.nome))), p.id
         limit ${RANKING_LIMITE}`);
-      return { por: o.por, linhas: rows };
+      return fecharLeitura(tx, { por: o.por, linhas: rows }, deps);
     },
     deps.db ?? getDb(),
   );

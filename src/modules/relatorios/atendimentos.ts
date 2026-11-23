@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { getDb } from '@/db/client';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { porMes, prepararSecao, type DepsRel, type OpcoesRel, type TenantRel } from './comum';
+import { fecharLeitura, porMes, prepararSecao, type DepsRel, type OpcoesRel, type TenantRel } from './comum';
 import type { Periodo } from './periodo';
 import type { RelAtendimentos } from './tipos';
 
@@ -13,7 +13,7 @@ import type { RelAtendimentos } from './tipos';
  * datas e o status: nenhuma coluna de conteúdo do atendimento é lida, nenhum `auditRead` (agregado, RN-493). Pacientes
  * anonimizados contam (número sem identificação). Só da nutricionista (RN-480).
  */
-export async function relatorioAtendimentos(ctx: TenantContext, tenant: TenantRel, p: Periodo, o: OpcoesRel, deps: DepsRel = {}): Promise<RelAtendimentos> {
+export async function relatorioAtendimentos(ctx: TenantContext, tenant: TenantRel, p: Periodo, o: OpcoesRel, deps: DepsRel<RelAtendimentos> = {}): Promise<RelAtendimentos> {
   const lim = prepararSecao(ctx, tenant, 'atendimentos', p, o);
   return withTenant(
     ctx,
@@ -38,16 +38,20 @@ export async function relatorioAtendimentos(ctx: TenantContext, tenant: TenantRe
         join primeiro pr on pr.patient_id = e.patient_id
         where e.dia >= ${lim.primeiroDia}::date and e.dia <= ${lim.ultimoDia}::date
         group by 1`);
-      return {
-        meses: porMes(p.meses, rows, (mes, r) => ({
-          mes,
-          atendidos: r?.atendidos ?? 0,
-          novos: r?.novos ?? 0,
-          retorno: (r?.atendidos ?? 0) - (r?.novos ?? 0),
-          consultasRealizadas: r?.consultas ?? 0,
-          atendimentosRegistrados: r?.atendimentos ?? 0,
-        })),
-      };
+      return fecharLeitura(
+        tx,
+        {
+          meses: porMes(p.meses, rows, (mes, r) => ({
+            mes,
+            atendidos: r?.atendidos ?? 0,
+            novos: r?.novos ?? 0,
+            retorno: (r?.atendidos ?? 0) - (r?.novos ?? 0),
+            consultasRealizadas: r?.consultas ?? 0,
+            atendimentosRegistrados: r?.atendimentos ?? 0,
+          })),
+        },
+        deps,
+      );
     },
     deps.db ?? getDb(),
   );
