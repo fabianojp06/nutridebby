@@ -548,8 +548,8 @@ GRANT EXECUTE ON FUNCTION app_chat_aviso_nutri_devido(boolean) TO nutri_app_role
 -- contexto worker do tenant da sessão (DELETE revogado de nutri_app_role: só por aqui). Trava o paciente FOR UPDATE (passo
 -- (1) da anonimização) e aceita (a) o titular bloqueado, ainda não anonimizado, com anonimizar_apos ANTES de hoje no fuso do
 -- consultório (a regra de anonimizarVencidos; nunca current_date) ou (b) o titular já anonimizado (rede de limpeza depois de
--- uma volta atrás). Recusa se alguma mensagem ainda aponta arquivo (os arquivos saem antes, por apagarArquivo +
--- app_chat_soltar_anexo). As exclusões passam pelo gatilho de auditoria.
+-- uma volta atrás). Trava as mensagens do titular e recusa se alguma ainda aponta arquivo ou está em processamento (os
+-- arquivos saem antes, por apagarArquivo + app_chat_soltar_anexo). As exclusões passam pelo gatilho de auditoria.
 CREATE OR REPLACE FUNCTION app_chat_apagar_do_titular(p_patient uuid) RETURNS void
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = public, pg_temp
@@ -574,9 +574,12 @@ BEGIN
           OR (v_status = 'bloqueado' AND v_apos IS NOT NULL AND v_apos < (now() AT TIME ZONE v_fuso)::date)) THEN
     RAISE EXCEPTION 'app_chat_apagar_do_titular(): o titular não está na anonimização' USING ERRCODE = '42501';
   END IF;
+  -- revisão (M1): as mensagens do titular travadas antes da conferência — um job que concluísse processando → pronto entre o
+  -- EXISTS e o DELETE deixaria o chat_anexo órfão. Anexo em processamento também recusa, mesmo sem caminho (falha fechada)
+  PERFORM 1 FROM public.chat_mensagens m WHERE m.tenant_id = v_tenant AND m.patient_id = p_patient FOR UPDATE;
   IF EXISTS (SELECT 1 FROM public.chat_mensagens m WHERE m.tenant_id = v_tenant AND m.patient_id = p_patient
-               AND (m.anexo_path IS NOT NULL OR m.anexo_original_path IS NOT NULL)) THEN
-    RAISE EXCEPTION 'app_chat_apagar_do_titular(): ainda há anexo apontado' USING ERRCODE = '42501';
+               AND (m.anexo_path IS NOT NULL OR m.anexo_original_path IS NOT NULL OR m.anexo_status = 'processando')) THEN
+    RAISE EXCEPTION 'app_chat_apagar_do_titular(): ainda há anexo apontado ou em processamento' USING ERRCODE = '42501';
   END IF;
   DELETE FROM public.chat_leituras WHERE tenant_id = v_tenant AND patient_id = p_patient;
   DELETE FROM public.chat_mensagens WHERE tenant_id = v_tenant AND patient_id = p_patient;

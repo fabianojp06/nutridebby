@@ -157,6 +157,9 @@ describe('Plano 25 — RLS das tabelas do chat (spec §9.1–§9.5)', () => {
     await em(C.ctx, leitura(C, C.p1, 'consultorio'));
     await em(C.ctx, sql`insert into chat_configuracoes (tenant_id) values (${C.tenantId})`);
     await em(C.ctx, sql`insert into chat_horarios (tenant_id, dia_semana, inicio_min, fim_min) values (${C.tenantId}, 1, 480, 720)`);
+    await em(C.ctx, sql`insert into chat_avisos_nutri (tenant_id) values (${C.tenantId})`); // a linha existe: é a staff_only que esconde
+    await recado(C);
+    for (const t of TODAS) expect((await em(C.ctx, sql`select 1 from ${sql.identifier(t)}`)).length, t).toBeGreaterThan(0);
     const S = semConta(C.tenantId, C.p1);
     for (const t of TODAS) expect(await em(S, sql`select 1 from ${sql.identifier(t)}`), t).toEqual([]);
     const novo = (await novoPaciente(app.db, C.ctx)).id;
@@ -189,6 +192,9 @@ describe('Plano 25 — RLS das tabelas do chat (spec §9.1–§9.5)', () => {
     await em(C.ctx, sql`insert into chat_configuracoes (tenant_id) values (${C.tenantId})`);
     await em(C.ctx, sql`insert into chat_horarios (tenant_id, dia_semana, inicio_min, fim_min) values (${C.tenantId}, 1, 480, 720)`);
     await recado(C);
+    await em(C.ctx, sql`insert into chat_avisos_nutri (tenant_id) values (${C.tenantId})`);
+    // as linhas das sete tabelas existem (lidas pela equipe): é a política que esconde
+    for (const t of TODAS) expect((await em(C.ctx, sql`select 1 from ${sql.identifier(t)}`)).length, t).toBeGreaterThan(0);
     for (const t of TODAS) {
       expect(await em(publico(C.tenantId), sql`select 1 from ${sql.identifier(t)}`), t).toEqual([]);
       expect(await naConta(sql`select 1 from ${sql.identifier(t)}`), t).toEqual([]);

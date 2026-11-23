@@ -849,8 +849,10 @@ default true, `aviso_nutri_em` timestamptz, `updated_at`. `chat_horarios`: `id`,
 (tenant_id WITH =, dia_semana WITH =, int4range(inicio_min, fim_min) WITH &&)` (`btree_gist` já existe pela 0051),
 no máximo 3 por dia (módulo, sob a trava da configuração). RLS: `app_enable_tenant_rls` nas duas; fora de `STAFF_ONLY`
 (a sessão de paciente lê; o módulo projeta só `horario_ativo` e as faixas); escrita só da equipe (padrão
-`paciente_sem_*`). Sem auditoria (sem `patient_id`). v0.2: a linha de `chat_configuracoes` também nasce em
-`app_chat_aviso_nutri_devido` (RN-458); política RESTRICTIVE `paciente_com_conta` nas duas.
+`paciente_sem_*`). Sem auditoria (sem `patient_id`). A linha de `chat_configuracoes` nasce só na primeira gravação da tela
+da nutricionista; sem ela, o módulo trata o consultório como `horario_ativo = false` (CH-D70: a função
+`app_chat_aviso_nutri_devido` cria a linha de `chat_avisos_nutri`, não a desta tabela); política RESTRICTIVE
+`paciente_com_conta` nas duas.
 
 **CH-D70 (decisão da orquestradora, 23/11/2026):** `aviso_email` e `aviso_nutri_em` saem de `chat_configuracoes` (que fica
 com `tenant_id`, `horario_ativo` e `updated_at`) para a tabela nova **`chat_avisos_nutri`**: `tenant_id` PK (FK `tenants`),
@@ -897,8 +899,8 @@ o papel desconhecido caem no 42501 do gatilho. `criado_em` com `default clock_ti
   marcador antes de cada `RETURN` e no ramo de erro** (`set_config(…, true)` vale até o fim da transação, não da função).
 - `app_chat_aviso_nutri_devido(p_no_horario boolean)`: chamada no envio do paciente (sessão `paciente`, troca de papel do
   molde 0083); v0.3: recusa (42501) fora da sessão de paciente com conta (`app_current_role() = 'paciente'`, tenant,
-  paciente e `app_current_user()` preenchidos), antes de trocar o papel; cria a linha de `chat_configuracoes` do tenant da sessão quando não existe (`INSERT … ON CONFLICT DO
-  NOTHING`, com os padrões), trava a linha e devolve `false` com `aviso_email` desligado, fora do horário (`p_no_horario`,
+  paciente e `app_current_user()` preenchidos), antes de trocar o papel; cria a linha de `chat_avisos_nutri` (CH-D70) do tenant da sessão quando não existe (`INSERT … ON
+  CONFLICT DO NOTHING`, com o padrão `aviso_email` ligado), trava a linha e devolve `false` com `aviso_email` desligado, fora do horário (`p_no_horario`,
   calculado no módulo) ou com `aviso_nutri_em` a menos de 2 h; senão grava `aviso_nutri_em = now()` e devolve `true`.
   Não devolve nenhuma coluna. Restaura o contexto antes de cada `RETURN`.
 - `app_chat_apagar_do_titular(p_patient uuid)`: contexto `worker` com tenant; trava o paciente `FOR UPDATE`; aceita (a)

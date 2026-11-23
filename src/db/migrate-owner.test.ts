@@ -851,34 +851,78 @@ describe('Plano 25: peças SECURITY DEFINER com dono NOBYPASSRLS', () => {
     await fim();
   });
 
-  it('app_chat_apagar_do_titular compara anonimizar_apos com o "hoje" do fuso do consultório, nunca com current_date', async () => {
-    // O relógio do Postgres não é falsificável aqui: escolhe-se um fuso cujo dia, AGORA, difere do dia em UTC — atrás (UTC-12,
-    // de 00h a 12h UTC: como Brasília entre 00h e 03h UTC) e/ou à frente (UTC+14, de 10h a 24h UTC)
-    const { rows } = await owner.query(
-      `select current_date::text as utc, (now() at time zone 'Etc/GMT+12')::date::text as atras, (now() at time zone 'Etc/GMT-14')::date::text as adiante,
-              (now() at time zone 'UTC')::date::text as hoje_utc`,
-    );
-    const { atras, adiante, hoje_utc: utc } = rows[0] as Record<string, string>;
-    let provados = 0;
-    if (atras < utc) {
-      // o "hoje" do consultório é ontem em UTC: anonimizar_apos = hoje no fuso ainda NÃO venceu (current_date diria que sim)
-      const S = await cenario('Etc/GMT+12');
+  it('app_chat_apagar_do_titular trava as mensagens e recusa anexo em processamento, mesmo sem caminho (falha fechada)', async () => {
+    const S = await cenario();
+    await ctx(S.t, 'nutri', { user: NUTRI });
+    // PDF da nutricionista em processamento: nenhum caminho ainda (o job o gravaria entre a conferência e o DELETE)
+    await c.query(`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, anexo_status, anexo_tipo, anexo_nome) values ($1, $2, 'nutri', $3, 'processando', 'pdf', 'plano.pdf')`, [
+      S.t,
+      S.p1,
+      NUTRI,
+    ]);
+    await fim();
+    await ctx(S.t, 'worker');
+    await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2026-01-01' where id = $1`, [S.p1]);
+    const e = await tenta('select app_chat_apagar_do_titular($1)', [S.p1]);
+    expect(e?.code).toBe('42501');
+    expect(e?.message).toMatch(/ainda há anexo apontado ou em processamento/);
+    await fim();
+    expect(await contarDoTitular(S.t, S.p1)).toEqual({ chat_conversas: 1, chat_mensagens: 2, chat_leituras: 1 });
+  });
+
+  // O relógio do Postgres não é falsificável aqui. Para cada fuso, "hoje" é lido no próprio banco e a regra é provada nos dois
+  // lados: anonimizar_apos = hoje no fuso ainda não venceu (recusa) e = ontem no fuso já venceu (aceita). Uma versão que use
+  // outro "hoje" (current_date, ou America/Sao_Paulo fixo) erra um dos dois lados sempre que o dia dela difere do dia do fuso
+  // — e, em qualquer hora, UTC-12 ou UTC+14 tem o dia diferente do de UTC e do de São Paulo (conferido no fim).
+  const FUSOS = ['Etc/GMT+12', 'Etc/GMT-14', 'America/Sao_Paulo'];
+  const diasNoFuso = async (fuso: string) =>
+    (await owner.query(`select (now() at time zone $1)::date::text as hoje, ((now() at time zone $1)::date - 1)::text as ontem`, [fuso])).rows[0] as {
+      hoje: string;
+      ontem: string;
+    };
+  const fusosComPoder = async () => {
+    const dia = async (f: string) => (await diasNoFuso(f)).hoje;
+    const [utc, sp] = [await dia('UTC'), await dia('America/Sao_Paulo')];
+    const dias = await Promise.all(FUSOS.map(dia));
+    expect(dias.some((d) => d !== utc), 'algum fuso com o dia diferente do de UTC').toBe(true);
+    expect(dias.some((d) => d !== sp), 'algum fuso com o dia diferente do de São Paulo').toBe(true);
+  };
+
+  it('app_chat_apagar_do_titular compara anonimizar_apos com o "hoje" do fuso do consultório (nem current_date, nem São Paulo fixo)', async () => {
+    for (const fuso of FUSOS) {
+      const S = await cenario(fuso);
+      const { hoje, ontem } = await diasNoFuso(fuso);
       await ctx(S.t, 'worker');
-      await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = $2 where id = $1`, [S.p1, atras]);
-      expect((await tenta('select app_chat_apagar_do_titular($1)', [S.p1]))?.code).toBe('42501');
+      await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = $2 where id = $1`, [S.p1, hoje]);
+      await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = $2 where id = $1`, [S.p2, ontem]);
+      const e = await tenta('select app_chat_apagar_do_titular($1)', [S.p1]);
+      expect(e?.code, fuso).toBe('42501');
+      expect(e?.message, fuso).toMatch(/o titular não está na anonimização/);
+      await c.query('select app_chat_apagar_do_titular($1)', [S.p2]);
       await fim();
-      provados++;
+      expect(await contarDoTitular(S.t, S.p1), fuso).toEqual({ chat_conversas: 1, chat_mensagens: 1, chat_leituras: 1 });
+      expect(await contarDoTitular(S.t, S.p2), fuso).toEqual({ chat_conversas: 0, chat_mensagens: 0, chat_leituras: 0 });
     }
-    if (adiante > utc) {
-      // o "hoje" do consultório é amanhã em UTC: anonimizar_apos = hoje em UTC já venceu no fuso (current_date diria que não)
-      const S = await cenario('Etc/GMT-14');
+    await fusosComPoder();
+  });
+
+  it('app_chat_soltar_anexo usa o mesmo "hoje" do fuso do consultório para o prazo vencido', async () => {
+    for (const fuso of FUSOS) {
+      const S = await cenario(fuso);
+      const { hoje, ontem } = await diasNoFuso(fuso);
+      const m = await foto(S, S.p1);
+      const path = await concluir(S, S.p1, m.id);
       await ctx(S.t, 'worker');
-      await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = $2 where id = $1`, [S.p1, utc]);
-      await c.query('select app_chat_apagar_do_titular($1)', [S.p1]);
+      await c.query('select app_chat_soltar_anexo($1, $2)', [m.id, m.orig]);
+      await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = $2 where id = $1`, [S.p1, hoje]);
+      const e = await tenta('select app_chat_soltar_anexo($1, $2)', [m.id, path]);
+      expect(e?.code, fuso).toBe('42501');
+      expect(e?.message, fuso).toMatch(/o anexo só sai com o titular na anonimização/);
+      await c.query(`update patients set anonimizar_apos = $2 where id = $1`, [S.p1, ontem]);
+      await c.query('select app_chat_soltar_anexo($1, $2)', [m.id, path]);
+      expect(await mensagem(m.id), fuso).toEqual({ anexo_status: 'removido', anexo_path: null, anexo_original_path: null });
       await fim();
-      expect(await contarDoTitular(S.t, S.p1)).toEqual({ chat_conversas: 0, chat_mensagens: 0, chat_leituras: 0 });
-      provados++;
     }
-    expect(provados).toBeGreaterThan(0);
+    await fusosComPoder();
   });
 });
