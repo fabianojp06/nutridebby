@@ -414,3 +414,11 @@ Plano 20, revisão final do PR 2 (17/11/2026):
   automático do Next chama o GET. Conferir guarda `Sec-Fetch-Site` (same-origin/none) antes do módulo e HEAD 405.
 - `onConflictDoNothing` + `return` cedo que pula efeito colateral (marca no tenant): idempotente demais — depois de uma
   volta atrás o reaceite não regrava e o usuário fica preso. Conferir o caminho "linha já existe" de todo aceite.
+
+SUS-102 (gatilho de UPDATE em tenants, 23/11/2026): limpo na lente banco. Resíduos a lembrar em tabelas sem RLS guardadas por
+gatilho de sessão: (1) "só a própria linha" para a `nutri` não fecha as colunas que só a admin deveria mudar (status, cotas
+fora das da IA, contador de armazenamento para baixo) — conferir coluna a coluna quem é o dono; (2) liberação "só para cima"
+de contador ainda deixa a sessão inflar o contador e esgotar a cota do consultório (DoS) — sugerir teto no gatilho.
+- Re-revisão (23/11): o "só para cima/teto" do contador NÃO serve para a sessão que também devolve espaço (`apagarArquivo`
+  na `nutri`) nem para a troca com `liberados` (passa a cota por um instante) — aceitar como resíduo Minor (cota própria,
+  não isolamento). Teto do paciente replicado como literal no SQL: conferir que o teste compara com a constante TS.
