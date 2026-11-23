@@ -10,7 +10,7 @@ import { prepararAction, salvarRascunhoAction, type EstadoForm } from '../action
 import { CamposDoItem, chavesDoItem, doItem, novoItem, type ItemNoFormulario } from './campos-do-item';
 import { MotivoRetificacao } from './motivo-retificacao';
 import { OrientacoesCampo } from './orientacoes-campo';
-import { Preparar } from './preparar';
+import { marcarDeclaracao, Preparar, seguirDeclaracao, type EstadoDaDeclaracao } from './preparar';
 
 type Estado = EstadoForm & { intencao?: 'salvar' | 'preparar' };
 
@@ -33,7 +33,12 @@ export function ReceitaForm({ patientId, docId, conteudo, justificativa: justifi
   const [itens, setItens] = useState<ItemNoFormulario[]>(() => conteudo.itens.map(doItem));
   const [orientacoes, setOrientacoes] = useState(conteudo.orientacoes);
   const [justificativa, setJustificativa] = useState(justificativaSalva);
-  const [declarada, setDeclarada] = useState(false);
+  // revisão da P22-09: a confirmação é do texto que estava na tela; a declaração muda com a fórmula e a caixa volta desmarcada
+  const declaracao = declaracaoDoDocumento({ ...conteudo, itens: itens as unknown as ConteudoReceita['itens'], orientacoes });
+  const [estadoDecl, setEstadoDecl] = useState<EstadoDaDeclaracao>({ vista: declaracao, marcada: false, mudou: false });
+  // ajuste do estado durante a renderização (o padrão do React para "informação da renderização anterior"), sem efeito
+  const decl = seguirDeclaracao(estadoDecl, declaracao);
+  if (decl !== estadoDecl) setEstadoDecl(decl);
   // Q13-1 ★: null = não é retificação (o campo não aparece nem vai no formulário)
   const [motivoRet, setMotivoRet] = useState(motivo ?? '');
   const e = s.erros ?? {};
@@ -71,7 +76,6 @@ export function ReceitaForm({ patientId, docId, conteudo, justificativa: justifi
       </div>
     </>
   );
-  const declaracao = declaracaoDoDocumento({ ...conteudo, itens: itens as unknown as ConteudoReceita['itens'], orientacoes });
   const erroDeclaracao = e.declaracao;
   const sobras = [...new Set(Object.keys(e).filter((k) => !mostradas.has(k)).map((k) => e[k]))];
   // o aviso geral (e as chaves sem campo) aparece junto do botão que foi usado
@@ -92,7 +96,7 @@ export function ReceitaForm({ patientId, docId, conteudo, justificativa: justifi
       {s.intencao !== 'preparar' && aviso}
       {s.ok && s.intencao === 'salvar' && <p role="status">Rascunho salvo.</p>}
       <Botao disabled={pendente}>Salvar rascunho</Botao>
-      <Preparar declaracao={declaracao} marcada={declarada} aoMarcar={setDeclarada} erro={erroDeclaracao} aviso={s.intencao === 'preparar' ? aviso : null} pendente={pendente} />
+      <Preparar declaracao={declaracao} marcada={decl.marcada} aoMarcar={(v) => setEstadoDecl((d) => marcarDeclaracao(seguirDeclaracao(d, declaracao), v))} mudou={decl.mudou} erro={erroDeclaracao} aviso={s.intencao === 'preparar' ? aviso : null} pendente={pendente} />
     </form>
   );
 }

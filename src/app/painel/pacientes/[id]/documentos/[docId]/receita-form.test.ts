@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { DECLARACAO_RECEITA, FRASE_FORMULA_FITOTERAPICA } from '@/modules/documentos/constantes';
+import { DECLARACAO_RECEITA, declaracaoDoDocumento, FRASE_FORMULA_FITOTERAPICA } from '@/modules/documentos/constantes';
 import type { ConteudoReceita } from '@/modules/documentos/prescricao';
 
 // Só a montagem do editor com um estado de erro (o useActionState devolve o estado pedido; as ações não rodam). O
@@ -11,6 +11,7 @@ const estado = vi.hoisted(() => ({ atual: {} as Record<string, unknown> }));
 vi.mock('react', async (importOriginal) => ({ ...(await importOriginal<typeof import('react')>()), useActionState: () => [estado.atual, () => {}, false] }));
 vi.mock('../actions', () => ({ salvarRascunhoAction: vi.fn(), prepararAction: vi.fn() }));
 const { ReceitaForm } = await import('./receita-form');
+const { marcarDeclaracao, MSG_DECLARACAO_MUDOU, Preparar, seguirDeclaracao } = await import('./preparar');
 
 const suplemento = (composicao: { nome: string; quantidade: number; unidade: string }[]) =>
   ({ tipo: 'suplemento', categoria: 'nutriente', composicao, forma: 'Cápsula', via: 'oral', posologia: '1 ao dia', manipulado: false }) as unknown as ConteudoReceita['itens'][number];
@@ -82,5 +83,44 @@ describe('editor da receita: o reset automático do React 19 não desencontra a 
     expect(f).toMatch(/<input type="hidden" name="conteudo" value=\{JSON\.stringify\(\{ itens, orientacoes \}\)\} \/>/);
     const p = readFileSync('src/app/painel/pacientes/[id]/documentos/[docId]/parecer-form.tsx', 'utf8');
     expect(p).toMatch(/<form action=\{action\} ref=\{semResetAutomatico\}/);
+  });
+});
+
+describe('revisão da P22-09: a confirmação da declaração vale só para o texto que estava na tela (EP-D56)', () => {
+  const formula = { tipo: 'formula_fitoterapica', compostos: [], formaFarmaceutica: 'Cápsula', via: 'oral', posologia: '1', duracao: '' } as unknown as ConteudoReceita['itens'][number];
+  const declDe = (itens: ConteudoReceita['itens']) => declaracaoDoDocumento({ versao: 1, tipo: 'receita', itens, orientacoes: '' } as ConteudoReceita);
+  const semFormula = declDe([suplemento([VITD])]);
+  const comFormula = declDe([suplemento([VITD]), formula]);
+
+  it('marcar, adicionar a fórmula: a caixa volta desmarcada e o aviso aparece; marcar de novo tira o aviso', () => {
+    expect(comFormula).not.toBe(semFormula); // controle: a fórmula muda mesmo o texto
+    const marcada = marcarDeclaracao({ vista: semFormula, marcada: false, mudou: false }, true);
+    expect(seguirDeclaracao(marcada, semFormula)).toBe(marcada); // controle: sem mudança no texto, a caixa continua marcada
+    const depois = seguirDeclaracao(marcada, comFormula);
+    expect(depois).toEqual({ vista: comFormula, marcada: false, mudou: true });
+    expect(marcarDeclaracao(depois, true)).toEqual({ vista: comFormula, marcada: true, mudou: false });
+  });
+
+  it('tirar a fórmula depois de confirmar: também desmarca; voltar ao texto de antes não remarca sozinha', () => {
+    const confirmada = marcarDeclaracao({ vista: comFormula, marcada: false, mudou: false }, true);
+    const semEla = seguirDeclaracao(confirmada, semFormula);
+    expect(semEla).toEqual({ vista: semFormula, marcada: false, mudou: true });
+    expect(seguirDeclaracao(semEla, comFormula)).toEqual({ vista: comFormula, marcada: false, mudou: true });
+  });
+
+  it('sem a caixa marcada, a troca do texto não mostra o aviso (não havia o que confirmar de novo)', () => {
+    expect(seguirDeclaracao({ vista: semFormula, marcada: false, mudou: false }, comFormula)).toEqual({ vista: comFormula, marcada: false, mudou: false });
+  });
+
+  it('a região role="status" do aviso existe desde a montagem (vazia), para o leitor de tela ouvir a troca', () => {
+    const html = montar([suplemento([VITD])]);
+    expect(html).toContain('<p id="declaracao-mudou" role="status" class="text-sm"></p>');
+    expect(html).not.toContain(MSG_DECLARACAO_MUDOU);
+    expect(tag(html, 'declaracao')).not.toContain('checked');
+    expect(tag(html, 'declaracao')).not.toContain('declaracao-mudou'); // só aponta para o aviso quando ele aparece
+    const mudou = renderToStaticMarkup(createElement(Preparar, { declaracao: comFormula, marcada: false, aoMarcar: () => {}, aviso: null, pendente: false, mudou: true }));
+    expect(mudou).toContain(`<p id="declaracao-mudou" role="status" class="text-sm">${MSG_DECLARACAO_MUDOU}</p>`);
+    expect(tag(mudou, 'declaracao')).toContain('aria-describedby="declaracao-mudou"');
+    expect(tag(mudou, 'declaracao')).not.toContain('checked');
   });
 });
