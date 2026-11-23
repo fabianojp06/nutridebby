@@ -85,7 +85,12 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
   const nomeDoLocal = c.local?.nome ?? 'Consultório (endereço do perfil)';
   const locais = ativa ? await locaisDoPainel(ctx) : [];
   // a consulta sem local (anterior ao Plano 23) abre "Alterar" no primeiro local do tipo dela (o principal, se for desse tipo)
-  const localInicial = c.localId ?? (locais.find((l) => l.tipo === c.modalidade && l.principal) ?? locais.find((l) => l.tipo === c.modalidade))?.id ?? '';
+  // revisão (I-1): o local arquivado não está entre as opções; sem isto o navegador marcaria a primeira e o "Salvar alteração"
+  // trocaria o local (e a modalidade) sem a nutricionista escolher. Fica o "Escolha o local" e o servidor pede o local.
+  const localArquivado = c.localId !== null && !locais.some((l) => l.id === c.localId);
+  const localInicial = c.localId
+    ? (localArquivado ? '' : c.localId)
+    : ((locais.find((l) => l.tipo === c.modalidade && l.principal) ?? locais.find((l) => l.tipo === c.modalidade))?.id ?? '');
   return (
     <>
       <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
@@ -125,7 +130,7 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
         {ativa && (
           <section aria-labelledby="alterar" className="space-y-2">
             <h2 id="alterar" className="text-lg font-semibold">Alterar data e hora</h2>
-            <ConsultaForm acao={moverAction.bind(null, c.id)} locais={locais.map(({ id, nome, tipo, linkSala }) => ({ id, nome, tipo, linkSala }))} botao="Salvar alteração"
+            <ConsultaForm acao={moverAction.bind(null, c.id)} avisoDoLocal={localArquivado ? 'O local desta consulta foi arquivado.' : undefined} locais={locais.map(({ id, nome, tipo, linkSala }) => ({ id, nome, tipo, linkSala }))} botao="Salvar alteração"
               inicial={{ data: p.data, hora: p.hora, duracaoMin: String(Math.round((c.fim.getTime() - c.inicio.getTime()) / 60_000)), localId: localInicial, linkOnline: c.linkOnline ?? '' }} />
           </section>
         )}

@@ -15,6 +15,8 @@ type Props = {
   inicial: Record<string, string>;
   pacientes?: { id: string; nome: string; email: string }[];
   locais: LocalDoFormulario[];
+  /** Aviso junto do campo "Local" (o local da consulta foi arquivado: não está entre as opções). */
+  avisoDoLocal?: string;
   botao: string;
 };
 
@@ -23,7 +25,7 @@ type Props = {
  * videoconferência aparece "Link da chamada": vazio = a sala fixa do local. O link gravado só volta ao campo com o mesmo
  * local da consulta; trocando de local, o campo recomeça vazio (o link de uma sala não passa para outra).
  */
-export function ConsultaForm({ acao, inicial, pacientes, locais, botao }: Props) {
+export function ConsultaForm({ acao, inicial, pacientes, locais, avisoDoLocal, botao }: Props) {
   const [state, action, pendente] = useActionState<ConsultaState, FormData>(acao, {});
   const v = state.valores ?? inicial;
   const e = state.erros ?? {};
@@ -58,10 +60,12 @@ export function ConsultaForm({ acao, inicial, pacientes, locais, botao }: Props)
       </div>
       <div className="space-y-1">
         <label htmlFor="localId" className="block font-medium">Local</label>
-        <select key={v.localId} id="localId" name="localId" defaultValue={v.localId ?? ''} onChange={(ev) => setLocalId(ev.target.value)} className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...aria('localId')}>
+        <select key={v.localId} id="localId" name="localId" defaultValue={v.localId ?? ''} onChange={(ev) => setLocalId(ev.target.value)} className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...aria('localId')}
+          aria-describedby={[avisoDoLocal ? 'localId-aviso' : null, e.localId ? 'localId-erro' : null].filter(Boolean).join(' ') || undefined}>
           <option value="" disabled>Escolha o local</option>
           {locais.map((l) => <option key={l.id} value={l.id}>{`${l.nome} (${ROTULO_TIPO_LOCAL[l.tipo]})`}</option>)}
         </select>
+        {avisoDoLocal && <p id="localId-aviso" className="text-sm text-suave">{avisoDoLocal}</p>}
         {erro('localId')}
       </div>
       {local?.tipo === 'online' && (

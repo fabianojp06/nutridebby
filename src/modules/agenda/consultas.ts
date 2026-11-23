@@ -61,6 +61,10 @@ export class ConsultaNaoEncontradaError extends Error {
 }
 
 type Deps = { db?: Db; now?: Date };
+/** RN-400: marcar e alterar pelo painel são só da sessão da nutricionista; conferido antes de abrir a transação. */
+const exigirNutri = (ctx: TenantContext) => {
+  if (ctx.role !== 'nutri') throw new Error('agenda: só a sessão nutri');
+};
 export const STATUS_ATIVOS: readonly StatusConsulta[] = ['agendada', 'confirmada'];
 /** O banco exige `^https://` e até 500 caracteres (appointments_link_online). */
 export const linkValido = (v: string) => /^https:\/\/\S+$/.test(v) && v.length <= 500 && URL.canParse(v);
@@ -151,6 +155,7 @@ async function comoConflito(ctx: TenantContext, i: Intervalo, fuso: string, db: 
  * Paciente arquivado não é agendado; bloqueado/anonimizado → PacienteBloqueadoError (carregarPacienteParaEscrita).
  */
 export async function agendarPelaNutri(ctx: TenantContext, tenant: TenantAgenda, input: EntradaConsulta, deps: Deps = {}): Promise<{ id: string; avisos: AvisoAgenda[] }> {
+  exigirNutri(ctx);
   const erros: Record<string, string> = {};
   const patientId = idValido(input.patientId) ? input.patientId : null;
   if (!patientId) erros.patientId = MSG_AGENDA.pacienteObrigatorio;
@@ -202,6 +207,7 @@ export async function lerConsultaParaEscrita(tx: Tx, id: string): Promise<Appoin
  * link que a consulta tinha (o formulário só reapresenta o link gravado com o mesmo local).
  */
 export async function moverConsulta(ctx: TenantContext, tenant: TenantAgenda, id: string, input: EntradaConsulta, deps: Deps = {}): Promise<{ avisos: AvisoAgenda[] }> {
+  exigirNutri(ctx);
   const erros: Record<string, string> = {};
   const now = deps.now ?? new Date();
   const d = validarData(tenant, input, erros, now);

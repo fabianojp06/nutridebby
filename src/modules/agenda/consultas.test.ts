@@ -507,4 +507,15 @@ describe('Plano 23 (T3): local na consulta e nos horários livres', () => {
     );
     expect(await horas()).toEqual(['08:00', '10:00']);
   });
+
+  it('RN-400 (revisão, M1): agendarPelaNutri e moverConsulta só na sessão da nutricionista — o papel é conferido antes da transação', async () => {
+    const { T, clinica, ana } = await doisLocais();
+    const entrada = { patientId: ana.id, data: '2026-10-15', hora: '09:00', duracaoMin: '60', localId: clinica };
+    const comoPaciente = ctxPaciente(T.tenantId, ana.id);
+    await expect(agendarPelaNutri(comoPaciente, tenantAgenda(T), entrada, deps)).rejects.toThrow('agenda: só a sessão nutri');
+    const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), entrada, deps);
+    await expect(moverConsulta(comoPaciente, tenantAgenda(T), id, { ...entrada, hora: '10:00' }, deps)).rejects.toThrow('agenda: só a sessão nutri');
+    await expect(moverConsulta({ tenantId: T.tenantId, role: 'publico' }, tenantAgenda(T), id, { ...entrada, hora: '10:00' }, deps)).rejects.toThrow('agenda: só a sessão nutri');
+    expect(await gravada(T, id)).toMatchObject({ inicio: em('2026-10-15', '09:00') });
+  });
 });

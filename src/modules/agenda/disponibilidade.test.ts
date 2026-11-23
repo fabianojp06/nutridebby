@@ -72,6 +72,11 @@ describe('horários de atendimento (US-030)', () => {
     const vistas = await withTenant(ctxPaciente(T.tenantId, p.id), (tx) => tx.select().from(availabilityRules), app.db);
     expect(vistas).toEqual([]);
     await expect(criarRegra(ctxPaciente(T.tenantId, p.id), T.terca, deps)).rejects.toThrow('agenda: só a sessão nutri');
+    // e o banco recusa a gravação direta da sessão de paciente (paciente_sem_insert), não só o módulo
+    await expect(
+      withTenant(ctxPaciente(T.tenantId, p.id), (tx) => tx.insert(availabilityRules).values({ tenantId: T.tenantId, diaSemana: 3, inicio: '08:00', fim: '12:00', duracaoMin: 60, modalidade: 'presencial', localId: T.consultorio }), app.db),
+    ).rejects.toMatchObject({ code: '42501' });
+    expect(await regrasNoBanco(T)).toHaveLength(1);
   });
 
   it('várias gravações ao mesmo tempo no mesmo horário: só uma entra (a trava por tenant serializa a checagem de sobreposição)', async () => {
