@@ -251,3 +251,60 @@ describe('Plano 27 — gatilhos recordatorios_regras e recordatorio_itens_coluna
     expect(await em(C.ctx, sql`delete from recordatorio_itens where id = ${i.id} returning id`)).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// P27-01d: endurecimentos da revisão final do PR 1 (titular bloqueado ou anonimizado; paciente sem login não lê)
+// ---------------------------------------------------------------------------------------------------------------------
+
+const semConta = (T: TenantDeTeste, patientId: string): TenantContext => ({ tenantId: T.tenantId, role: 'paciente', patientId, semConta: true });
+const bloquear = (C: Cenario) =>
+  em(C.ctx, sql`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01' where id = ${C.p}`);
+/** Anonimizado ainda "ativo", gravado sem os gatilhos: prova que o gatilho olha `anonimizado_em` sozinho. */
+const anonimizar = (paciente: string) =>
+  owner.db.transaction(async (tx) => {
+    await tx.execute(sql`set local session_replication_role = replica`);
+    await tx.execute(sql`update patients set anonimizado_em = now() where id = ${paciente}`);
+  });
+
+describe('Plano 27 — recordatórios: endurecimentos (P27-01d; RN-540, Res. CFN 594/2017)', () => {
+  it('titular bloqueado ou anonimizado: INSERT e UPDATE da nutricionista → 42501 do gatilho; o UPDATE sem mudança e o contexto vazio passam', async () => {
+    for (const preparar of [(C: Cenario) => bloquear(C), (C: Cenario) => anonimizar(C.p)]) {
+      const C = await cenario();
+      const r = await recordatorio(C);
+      await preparar(C);
+      await expect(em(C.ctx, novoRecordatorio(C))).rejects.toSatisfy(doGatilho);
+      await expect(em(C.ctx, sql`update recordatorios set dia_atipico = true where id = ${r.id}`)).rejects.toSatisfy(doGatilho);
+      await expect(em(C.ctx, sql`update recordatorios set updated_at = now() where id = ${r.id}`)).rejects.toSatisfy(doGatilho);
+      expect(await em(C.ctx, sql`update recordatorios set dia_atipico = dia_atipico where id = ${r.id} returning id`)).toHaveLength(1);
+      await expect(dono(novoRecordatorio(C))).resolves.toHaveLength(1);
+    }
+  });
+
+  it('titular arquivado: a nutricionista ainda grava e edita (RN-540: paciente ativo ou arquivado)', async () => {
+    const C = await cenario();
+    const r = await recordatorio(C);
+    await em(C.ctx, sql`update patients set status = 'arquivado' where id = ${C.p}`);
+    await expect(em(C.ctx, novoRecordatorio(C))).resolves.toHaveLength(1);
+    expect(await em(C.ctx, sql`update recordatorios set dia_atipico = true where id = ${r.id} returning id`)).toHaveLength(1);
+  });
+
+  it('paciente sem login (link, contexto da IA Nutri, "No app") não lê recordatórios nem itens (paciente_recordatorio_com_conta); com login, lê os próprios', async () => {
+    const C = await cenario();
+    const r = await recordatorio(C);
+    const [i] = await em(C.ctx, novoItem(C, r.id));
+    expect(await em(semConta(C, C.p), sql`select 1 from recordatorios`)).toEqual([]);
+    expect(await em(semConta(C, C.p), sql`select 1 from recordatorio_itens`)).toEqual([]);
+    const pac = ctxPaciente(C.tenantId, C.p);
+    expect((await em(pac, sql`select id from recordatorios`)).map((x) => x.id)).toEqual([r.id]);
+    expect((await em(pac, sql`select id from recordatorio_itens`)).map((x) => x.id)).toEqual([i.id]);
+    // a equipe segue lendo
+    expect(await em(C.ctx, sql`select 1 from recordatorio_itens`)).toHaveLength(1);
+    const { rows } = await owner.pool.query(
+      `select tablename, permissive, cmd from pg_policies where policyname = 'paciente_recordatorio_com_conta' order by tablename`,
+    );
+    expect(rows).toEqual([
+      { tablename: 'recordatorio_itens', permissive: 'RESTRICTIVE', cmd: 'SELECT' },
+      { tablename: 'recordatorios', permissive: 'RESTRICTIVE', cmd: 'SELECT' },
+    ]);
+  });
+});

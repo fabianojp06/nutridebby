@@ -191,8 +191,11 @@ describe('Plano 27 — questionario_envios no banco (spec §9.2)', () => {
       await expect(em(C.ctx, q)).rejects.toSatisfy(doGatilho);
       await expect(semGatilho(q)).rejects.toSatisfy(comCodigo('23514'));
     }
-    // prazo e snapshot: o envio legal da nutricionista passa pelo gatilho e cai no CHECK
-    await expect(em(C.ctx, insert(sql`modelo_snapshot, origem, enviado_por, expira_em`, sql`${SNAPSHOT}::jsonb, 'nutri', ${C.nutriId}, now() - interval '1 day'`))).rejects.toSatisfy(comCodigo('23514'));
+    // prazo: o gatilho recusa antes (P27-01d: o enviado_em é do relógio e o prazo tem de vir depois); o CHECK, sem o gatilho
+    const prazoVencido = insert(sql`modelo_snapshot, origem, enviado_por, expira_em`, sql`${SNAPSHOT}::jsonb, 'nutri', ${C.nutriId}, now() - interval '1 day'`);
+    await expect(em(C.ctx, prazoVencido)).rejects.toSatisfy(doGatilho);
+    await expect(semGatilho(prazoVencido)).rejects.toSatisfy(comCodigo('23514'));
+    // snapshot: o envio legal da nutricionista passa pelo gatilho e cai no CHECK
     await expect(em(C.ctx, insert(sql`modelo_snapshot, origem, enviado_por, expira_em`, sql`'[]'::jsonb, 'nutri', ${C.nutriId}, now() + interval '1 day'`))).rejects.toSatisfy(comCodigo('23514'));
     const e = await enviar(C);
     // situação e motivo inválidos: o gatilho recusa a transição antes (nutri e worker); o CHECK, sem o gatilho
@@ -621,6 +624,72 @@ describe('Plano 27 — gatilho questionario_envios_regras: QP-D35 e colunas fixa
     await expect(atualizar(C.ctx, e.id, sql`tenant_id = ${D.tenantId}`)).rejects.toSatisfy(rlsDe('questionario_envios'));
     await expect(atualizar(ctxPaciente(C.tenantId, C.p), e.id, sql`patient_id = ${p2}`)).rejects.toSatisfy(rlsDe('questionario_envios'));
     expect(await ler(e.id)).toMatchObject({ tenant_id: C.tenantId, patient_id: C.p, origem: 'nutri', enviado_por: C.nutriId });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// P27-01d: endurecimentos da revisão final do PR 1 (data do envio do relógio; realinhamento sem consulta cancelada nem
+// prazo antes do envio)
+// ---------------------------------------------------------------------------------------------------------------------
+
+describe('Plano 27 — gatilho questionario_envios_regras: endurecimentos (P27-01d)', () => {
+  const doRelogio = (v: unknown) => Math.abs(new Date(v as string).getTime() - Date.now()) < 5 * 60_000;
+
+  it('INSERT da nutricionista e do worker: enviado_em e created_at do relógio do banco (o valor mandado não vale); o contexto vazio grava o mandado', async () => {
+    const C = await cenario();
+    const comDatas = (origem: string, por: string | null) =>
+      sql`insert into questionario_envios (tenant_id, patient_id, modelo_snapshot, origem, enviado_por, enviado_em, created_at, expira_em)
+          values (${C.tenantId}, ${C.p}, ${SNAPSHOT}::jsonb, ${origem}, ${por}, ${NO_ANO_2000}, ${NO_ANO_2000}, now() + interval '1 day') returning *`;
+    for (const [ctx, origem, por] of [[C.ctx, 'nutri', C.nutriId], [worker(C), 'automatico', null]] as const) {
+      const [e] = await em(ctx, comDatas(origem, por));
+      expect(doRelogio(e.enviado_em), `${ctx.role} enviado_em`).toBe(true);
+      expect(doRelogio(e.created_at), `${ctx.role} created_at`).toBe(true);
+    }
+    const [s] = await dono(comDatas('automatico', null));
+    expect(new Date(s.enviado_em as string).toISOString()).toBe('2000-01-01T00:00:00.000Z');
+  });
+
+  it('INSERT com o prazo antes (ou no instante) do envio → 42501 do gatilho, antes do CHECK (nutricionista e worker)', async () => {
+    const C = await cenario();
+    const comPrazo = (origem: string, por: string | null, prazo: SQL) =>
+      sql`insert into questionario_envios (tenant_id, patient_id, modelo_snapshot, origem, enviado_por, enviado_em, expira_em)
+          values (${C.tenantId}, ${C.p}, ${SNAPSHOT}::jsonb, ${origem}, ${por}, ${NO_ANO_2000}, ${prazo})`;
+    // o enviado_em mandado no passado não vale: vira o relógio, e o prazo de agora (ou de antes) já não serve
+    for (const prazo of [sql`now() - interval '1 minute'`, sql`now()`]) {
+      await expect(em(C.ctx, comPrazo('nutri', C.nutriId, prazo))).rejects.toSatisfy(doGatilho);
+      await expect(em(worker(C), comPrazo('automatico', null, prazo))).rejects.toSatisfy(doGatilho);
+    }
+    expect((await owner.pool.query('select count(*)::int as n from questionario_envios where tenant_id = $1', [C.tenantId])).rows[0].n).toBe(0);
+  });
+
+  it('realinhamento do worker para consulta cancelada → 42501 (na remarcação e na mesma consulta); o contexto vazio também', async () => {
+    const C = await cenario();
+    const a = await consulta(C);
+    const b = await consulta(C);
+    const e = await enviar(C, { consulta: a });
+    await cancelarConsulta(C, b);
+    await expect(atualizar(worker(C), e.id, sql`appointment_id = ${b}, expira_em = ${inicioDa(b)}`)).rejects.toSatisfy(doGatilho);
+    await expect(dono(sql`update questionario_envios set appointment_id = ${b}, expira_em = ${inicioDa(b)} where id = ${e.id}`)).rejects.toSatisfy(doGatilho);
+    // a própria consulta movida e cancelada: o worker cancela o envio, não realinha o prazo
+    await moverConsulta(C, a, sql`inicio + interval '1 day'`);
+    await cancelarConsulta(C, a);
+    await expect(atualizar(worker(C), e.id, sql`expira_em = ${inicioDa(a)}`)).rejects.toSatisfy(doGatilho);
+    expect((await ler(e.id)).appointment_id).toBe(a);
+    expect((await atualizar(worker(C), e.id, cancelamento('consulta_cancelada', null)))[0].situacao).toBe('cancelado');
+  });
+
+  it('realinhamento para um início antes (ou no instante) do envio → 42501 do gatilho, antes do CHECK (o 23514 levaria a linha ao log)', async () => {
+    const C = await cenario();
+    const a = await consulta(C);
+    const e = await enviar(C, { consulta: a });
+    await moverConsulta(C, a, sql`now() - interval '2 hours'`);
+    await expect(atualizar(worker(C), e.id, sql`expira_em = ${inicioDa(a)}`)).rejects.toSatisfy(doGatilho);
+    await expect(dono(sql`update questionario_envios set expira_em = ${inicioDa(a)} where id = ${e.id}`)).rejects.toSatisfy(doGatilho);
+    await moverConsulta(C, a, sql`(select q.enviado_em from questionario_envios q where q.id = ${e.id})`);
+    await expect(atualizar(worker(C), e.id, sql`expira_em = ${inicioDa(a)}`)).rejects.toSatisfy(doGatilho);
+    // o mesmo prazo sem o gatilho cai no CHECK (defesa em profundidade)
+    await expect(semGatilho(sql`update questionario_envios set expira_em = enviado_em where id = ${e.id}`)).rejects.toSatisfy(comCodigo('23514'));
+    expect((await ler(e.id)).situacao).toBe('enviado');
   });
 });
 

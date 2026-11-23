@@ -46,6 +46,12 @@ const doGatilho = (e: unknown) => {
 const worker = (T: TenantDeTeste): TenantContext => ({ tenantId: T.tenantId, role: 'worker' });
 /** O contexto vazio do dono (migration, semente, fábrica do isolamento): sem tenant nem papel, com os gatilhos ligados. */
 const dono = async (q: SQL): Promise<Row[]> => (await owner.db.execute(q)).rows as Row[];
+/** O dono com os gatilhos desligados (local à transação): prova o CHECK que o gatilho já recusa antes (defesa em profundidade). */
+const semGatilho = (q: SQL) =>
+  owner.db.transaction(async (tx) => {
+    await tx.execute(sql`set local session_replication_role = replica`);
+    return tx.execute(q);
+  });
 
 type Cenario = TenantDeTeste & { p: string; pac: TenantContext };
 async function cenario(): Promise<Cenario> {
@@ -127,8 +133,10 @@ describe('Plano 27 — metas_paciente (spec §9.4)', () => {
     await expect(em(C.ctx, novaMeta(C, { fim: sql`${HOJE} - 1 + 366` }))).rejects.toSatisfy(comCodigo('23514'));
     await expect(em(C.ctx, novaMeta(C, { fim: sql`${HOJE} - 1 + 365` }))).resolves.toHaveLength(1);
     const m = await meta(C);
-    await expect(em(C.ctx, sql`update metas_paciente set situacao = 'alcancada' where id = ${m.id}`)).rejects.toSatisfy(comCodigo('23514'));
-    await expect(em(C.ctx, sql`update metas_paciente set encerrada_em = now() where id = ${m.id}`)).rejects.toSatisfy(comCodigo('23514'));
+    // situação × encerrada_em: o gatilho grava a data ao encerrar e recusa a data numa meta ativa (P27-01d); o CHECK, sem o gatilho
+    await expect(semGatilho(sql`update metas_paciente set situacao = 'alcancada' where id = ${m.id}`)).rejects.toSatisfy(comCodigo('23514'));
+    await expect(semGatilho(sql`update metas_paciente set encerrada_em = now() where id = ${m.id}`)).rejects.toSatisfy(comCodigo('23514'));
+    await expect(em(C.ctx, sql`update metas_paciente set encerrada_em = now() where id = ${m.id}`)).rejects.toSatisfy(doGatilho);
     await expect(em(C.ctx, sql`update metas_paciente set situacao = 'pausada', encerrada_em = now() where id = ${m.id}`)).rejects.toSatisfy(comCodigo('23514'));
     await expect(em(C.ctx, sql`update metas_paciente set titulo = 'Ab' where id = ${m.id}`)).rejects.toSatisfy(comCodigo('23514'));
     await expect(em(C.ctx, sql`update metas_paciente set categoria = 'corrida' where id = ${m.id}`)).rejects.toSatisfy(comCodigo('23514'));
@@ -306,6 +314,114 @@ describe('Plano 27 — gatilho metas_paciente_regras (spec §9.4, QP-D34, QP-D35
     }
     await expect(dono(sql`update metas_paciente set tenant_id = ${D.tenantId} where id = ${m.id}`)).rejects.toSatisfy(doGatilho);
     await expect(atualizarMeta(C.ctx, m.id, sql`tenant_id = ${D.tenantId}`)).rejects.toSatisfy(rlsDe('metas_paciente'));
+  });
+});
+
+describe('Plano 27 — gatilho metas_paciente_regras: endurecimentos (P27-01d; RN-546, RN-550)', () => {
+  const doRelogio = (v: unknown) => Math.abs(new Date(v as string).getTime() - Date.now()) < 5 * 60_000;
+  const NO_ANO_2000 = sql`'2000-01-01T00:00:00Z'::timestamptz`;
+
+  it('ao encerrar, encerrada_em é do relógio do banco (o valor mandado não vale; sem mandar, também), na sessão nutri e no contexto vazio', async () => {
+    const C = await cenario();
+    const m = await meta(C);
+    const n = await meta(C);
+    const o = await meta(C);
+    const [a] = await atualizarMeta(C.ctx, m.id, sql`situacao = 'alcancada', encerrada_em = ${NO_ANO_2000}`);
+    expect(doRelogio(a.encerrada_em)).toBe(true);
+    const [b] = await atualizarMeta(C.ctx, n.id, sql`situacao = 'encerrada'`);
+    expect(doRelogio(b.encerrada_em)).toBe(true);
+    const [c] = await dono(sql`update metas_paciente set situacao = 'encerrada', encerrada_em = ${NO_ANO_2000} where id = ${o.id} returning *`);
+    expect(doRelogio(c.encerrada_em)).toBe(true);
+  });
+
+  it('meta encerrada ou alcançada: encerrada_em e o conteúdo não mudam (42501), nem pelo contexto vazio; o UPDATE sem mudança e o de updated_at passam', async () => {
+    const C = await cenario();
+    for (const situacao of ['alcancada', 'encerrada']) {
+      const m = await meta(C);
+      await atualizarMeta(C.ctx, m.id, sql`situacao = ${situacao}`);
+      const mudancas = [
+        sql`encerrada_em = encerrada_em - interval '1 day'`,
+        sql`titulo = 'Beber 3 litros de água'`,
+        sql`como_fazer = 'Uma garrafa por turno'`,
+        sql`fim = inicio + 30`,
+        sql`categoria = 'habitos'`,
+        sql`lembrete_sugerido = 'agua'`,
+        sql`modelo_id = ${randomUUID()}`,
+        sql`inicio = inicio - 1`,
+      ];
+      for (const set of mudancas) {
+        await expect(atualizarMeta(C.ctx, m.id, set), situacao).rejects.toSatisfy(doGatilho);
+        await expect(dono(sql`update metas_paciente set ${set} where id = ${m.id}`), situacao).rejects.toSatisfy(doGatilho);
+      }
+      expect(await atualizarMeta(C.ctx, m.id, sql`titulo = titulo`)).toHaveLength(1);
+      expect(await atualizarMeta(C.ctx, m.id, sql`updated_at = now()`)).toHaveLength(1);
+    }
+  });
+
+  it('a meta nasce ativa, sem data de encerramento (42501 para a nutricionista); a data numa meta ativa → 42501; o contexto vazio grava a mandada', async () => {
+    const C = await cenario();
+    const ins = (situacao: string, encerradaEm: SQL) =>
+      sql`insert into metas_paciente (tenant_id, patient_id, titulo, categoria, inicio, situacao, encerrada_em, criado_por)
+          values (${C.tenantId}, ${C.p}, 'Dormir 8 horas', 'sono', ${HOJE}, ${situacao}, ${encerradaEm}, ${C.nutriId}) returning *`;
+    await expect(em(C.ctx, ins('encerrada', NO_ANO_2000))).rejects.toSatisfy(doGatilho);
+    await expect(em(C.ctx, ins('alcancada', sql`now()`))).rejects.toSatisfy(doGatilho);
+    await expect(em(C.ctx, ins('ativa', sql`now()`))).rejects.toSatisfy(doGatilho);
+    const m = await meta(C);
+    await expect(atualizarMeta(C.ctx, m.id, sql`encerrada_em = now()`)).rejects.toSatisfy(doGatilho);
+    await expect(dono(sql`update metas_paciente set encerrada_em = now() where id = ${m.id}`)).rejects.toSatisfy(doGatilho);
+    const [s] = await dono(ins('alcancada', NO_ANO_2000));
+    expect(new Date(s.encerrada_em as string).toISOString()).toBe('2000-01-01T00:00:00.000Z');
+  });
+
+  it('titular bloqueado: INSERT e edição da nutricionista → 42501; só "encerrada", sem mais nada, passa (o bloqueio encerra as ativas, RN-550); o contexto vazio é livre', async () => {
+    const C = await cenario();
+    const m = await meta(C);
+    const n = await meta(C);
+    await bloquear(C);
+    await expect(em(C.ctx, novaMeta(C))).rejects.toSatisfy(doGatilho);
+    for (const set of [sql`titulo = 'Beber 3 litros de água'`, sql`fim = inicio + 10`, sql`situacao = 'alcancada'`, sql`situacao = 'encerrada', fim = inicio + 10`]) {
+      await expect(atualizarMeta(C.ctx, m.id, set)).rejects.toSatisfy(doGatilho);
+    }
+    const [enc] = await atualizarMeta(C.ctx, m.id, sql`situacao = 'encerrada', encerrada_em = ${NO_ANO_2000}`);
+    expect(enc.situacao).toBe('encerrada');
+    expect(doRelogio(enc.encerrada_em)).toBe(true);
+    expect(await atualizarMeta(C.ctx, n.id, sql`titulo = titulo`)).toHaveLength(1);
+    await expect(dono(novaMeta(C))).resolves.toHaveLength(1);
+  });
+
+  it('titular anonimizado: INSERT e qualquer UPDATE da nutricionista → 42501 (o encerramento também); arquivado: o banco aceita (o "ativo" do atribuir é do módulo, RN-546)', async () => {
+    const A = await cenario();
+    const x = await meta(A);
+    await anonimizar(A.p);
+    await expect(em(A.ctx, novaMeta(A))).rejects.toSatisfy(doGatilho);
+    for (const set of [sql`situacao = 'encerrada'`, sql`titulo = 'Beber 3 litros de água'`]) {
+      await expect(atualizarMeta(A.ctx, x.id, set)).rejects.toSatisfy(doGatilho);
+    }
+    const R = await cenario();
+    const y = await meta(R);
+    await arquivar(R);
+    await expect(em(R.ctx, novaMeta(R))).resolves.toHaveLength(1);
+    await expect(atualizarMeta(R.ctx, y.id, sql`fim = inicio + 10`)).resolves.toHaveLength(1);
+  });
+
+  it('bloqueio em curso × edição da meta: a edição espera a trava do titular e recebe 42501 do gatilho depois do bloqueio; nenhum 40P01', async () => {
+    const C = await cenario();
+    const m = await meta(C);
+    const bloqueio = await abrir(C.ctx);
+    const edicao = await abrir(C.ctx);
+    try {
+      await bloqueio.c.query('select 1 from patients where id = $1 for update', [C.p]);
+      await bloqueio.c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01' where id = $1`, [C.p]);
+      await bloqueio.c.query(`update metas_paciente set situacao = 'encerrada' where patient_id = $1 and situacao = 'ativa'`, [C.p]);
+      // a edição pela ordem do módulo (titular FOR UPDATE e depois a meta): espera a trava do titular até o COMMIT
+      const r = capturar(EQUIPE(edicao, C, m.id, `titulo = 'Beber 3 litros de água'`));
+      await esperarTrava(edicao.pid);
+      await bloqueio.c.query('commit');
+      expect(await r).toSatisfy(doGatilho);
+    } finally {
+      await fechar(bloqueio, edicao);
+    }
+    expect((await owner.pool.query('select situacao, titulo from metas_paciente where id = $1', [m.id])).rows[0]).toEqual({ situacao: 'encerrada', titulo: 'Beber 2 litros de água' });
   });
 });
 

@@ -865,7 +865,9 @@ REVOKE DELETE, TRUNCATE ON questionario_envios FROM nutri_app_role;
 --   INSERT ('nutri', 'worker', ''): lê o titular FOR KEY SHARE (NOT FOUND → RETURN NEW; status ≠ 'ativo' ou anonimizado_em
 --           → 42501): espera o bloqueio em curso e nunca cria envio para titular bloqueado (RN-533);
 --           'nutri': origem 'nutri', enviado_por = app_current_user(); 'worker'/'': origem 'automatico', enviado_por nulo;
---           para os dois: situacao 'enviado', sem respostas, sem cancelamento, sem anamnese_id
+--           para os dois: situacao 'enviado', sem respostas, sem cancelamento, sem anamnese_id;
+--           'nutri' e 'worker': enviado_em e created_at := clock_timestamp() (o valor mandado não vale) e expira_em nulo ou
+--           <= enviado_em → 42501, antes do CHECK (P27-01d); '' grava o mandado (semente)
 --   UPDATE, colunas fixas para todos: id, tenant_id, patient_id, modelo_id, modelo_snapshot, origem, enviado_por, enviado_em,
 --           created_at; respostas, respondido_em e respondido_via nunca mudam depois de gravadas
 --   'paciente': só enviado → respondido (RN-529), clock_timestamp() < OLD.expira_em, titular ativo e não anonimizado
@@ -880,7 +882,8 @@ REVOKE DELETE, TRUNCATE ON questionario_envios FROM nutri_app_role;
 --           enviado → cancelado (motivo 'consulta_cancelada', cancelado_por nulo, só com a consulta de OLD.appointment_id
 --           em 'cancelada' — QP-D59; cancelado_em := clock_timestamp()); com situacao 'enviado', troca de expira_em, com ou
 --           sem troca de appointment_id
---           (remarcação e consulta movida, RN-535: lê a consulta de NEW.appointment_id e exige expira_em = inicio dela)
+--           (remarcação e consulta movida, RN-535: lê a consulta de NEW.appointment_id e exige expira_em = inicio dela;
+--           consulta 'cancelada' → 42501, e expira_em <= OLD.enviado_em → 42501 antes do CHECK — P27-01d)
 --   qualquer outro caso: 42501
 ```
 
@@ -955,7 +958,12 @@ REVOKE DELETE, TRUNCATE ON recordatorios FROM nutri_app_role;
 -- recordatorios_regras (BEFORE INSERT OR UPDATE): INSERT na sessão 'nutri' → criado_por := app_current_user(); 'worker' no
 --   próprio tenant → 42501 (nenhum fluxo do worker grava recordatório, e o papel worker também roda no processo web — QP-D59);
 --   '' (migration, semente, fábrica) passa; tenant de fora e os outros papéis → RETURN NEW (a RLS decide);
---   UPDATE: id, tenant_id, patient_id, criado_por, created_at fixos (42501); 'worker' → 42501
+--   UPDATE: id, tenant_id, patient_id, criado_por, created_at fixos (42501); 'worker' → 42501;
+--   'nutri', INSERT e UPDATE (com mudança): lê o titular FOR KEY SHARE e recusa o bloqueado ou anonimizado com 42501 (o
+--   bloqueio congela o prontuário; arquivado segue, RN-540 — P27-01d)
+-- política RESTRICTIVE paciente_recordatorio_com_conta (FOR SELECT, nas duas tabelas): app_current_role() IS DISTINCT FROM
+--   'paciente' OR app_current_user() IS NOT NULL — o paciente sem login (link, contexto da IA Nutri, "No app") não lê
+--   recordatório nem item; molde patient_cadastro_paciente_com_conta (P27-01d)
 -- recordatorio_itens_colunas_fixas (BEFORE UPDATE): id, tenant_id, patient_id, recordatorio_id fixos (42501): um item nunca
 --   muda de recordatório nem de paciente
 -- recordatorio_itens_sem_worker (BEFORE INSERT OR UPDATE OR DELETE, P27-01c): como a mãe, 'worker' no próprio tenant → 42501
@@ -963,7 +971,7 @@ REVOKE DELETE, TRUNCATE ON recordatorios FROM nutri_app_role;
 ```
 
 - **Sem** `staff_only` (dado do titular; o portal não lê na v1, QP-D16); sem escrita do paciente (nega por
-  `app_enable_tenant_rls`); sem `publico`.
+  `app_enable_tenant_rls`); sem `publico`; o paciente sem login não lê (`paciente_recordatorio_com_conta`, P27-01d).
 - **Guardas:** `FABRICAS` (`recordatorios`; `recordatorio_itens` em `COM_MAE`, a mãe criada no mesmo comando),
   `SEM_DELETE`, `DELETE_REVOGADO` e `SEM_DELETE_DO_PACIENTE` (`recordatorios`), `IMUTAVEIS` (`recordatorios`, `recordatorio_itens`), `ULTIMAS` se a FK em cascata pedir
   (conferir na tarefa), filtro em `SO_APAGA.patients` (`recordatorios`). `foods` já está em `ULTIMAS` (a FK `RESTRICT` da filha só pede a ordem que já existe).
@@ -1026,7 +1034,12 @@ REVOKE DELETE, TRUNCATE ON metas_paciente FROM nutri_app_role;
 --   id, tenant_id, patient_id, inicio (depois do 1º registro, lido sob a trava do paciente que o módulo toma), criado_por,
 --   created_at fixos (42501); 'ativa' → 'alcancada'|'encerrada' sem volta; só 'nutri' e '' gravam; 'worker' no próprio
 --   tenant → 42501 (nenhum fluxo do worker grava meta: a meta terminada é derivada na leitura, QP-D55, QP-D59); o paciente é
---   negado pela RLS — NUNCA liberar update em metas_paciente ao paciente, QP-D34: este gatilho não tem ramo de paciente
+--   negado pela RLS — NUNCA liberar update em metas_paciente ao paciente, QP-D34: este gatilho não tem ramo de paciente.
+--   P27-01d: ao ir para 'alcancada'|'encerrada', encerrada_em := clock_timestamp() (o valor mandado não vale); meta
+--   terminada não muda mais nada (encerrada_em, título, como_fazer, categoria, lembrete, fim…: 42501; só updated_at);
+--   encerrada_em numa meta 'ativa' → 42501; INSERT 'nutri' nasce 'ativa' sem encerrada_em. Na sessão 'nutri', o titular é
+--   lido FOR KEY SHARE: anonimizado → 42501 em tudo; bloqueado → 42501 no INSERT e no UPDATE, salvo 'ativa' → 'encerrada'
+--   sem outra coluna (o UPDATE do bloqueio em atenderPedidoExclusao, RN-550); '' livre
 SELECT app_enable_tenant_rls('metas_registros'); SELECT app_enable_patient_rls('metas_registros');
 SELECT app_enable_audit('metas_registros', 'metas_registro');  -- "Registrou meta" (QP-D36)
 SELECT app_allow_paciente_escrita('metas_registros', 'insert', 'update');

@@ -40,6 +40,15 @@ SELECT app_enable_audit('recordatorio_itens', 'recordatorio_item');
 -- QP-D17: o recordatório não é apagado (os itens sim, na edição; e em cascata de um DELETE que o código não faz)
 REVOKE DELETE, TRUNCATE ON recordatorios FROM nutri_app_role;
 --> statement-breakpoint
+-- P27-01d: o paciente sem login (link, contexto da IA Nutri, "No app do paciente") não lê recordatório nem item, nem os
+-- próprios; o titular com login continua lendo (molde patient_cadastro_paciente_com_conta, 0125). Sem escrita do paciente,
+-- basta FOR SELECT. Nenhum arquivo de SEM_CONTA_PERMITIDOS lê estas tabelas.
+CREATE POLICY paciente_recordatorio_com_conta ON recordatorios AS RESTRICTIVE FOR SELECT
+  USING (app_current_role() IS DISTINCT FROM 'paciente' OR app_current_user() IS NOT NULL);
+--> statement-breakpoint
+CREATE POLICY paciente_recordatorio_com_conta ON recordatorio_itens AS RESTRICTIVE FOR SELECT
+  USING (app_current_role() IS DISTINCT FROM 'paciente' OR app_current_user() IS NOT NULL);
+--> statement-breakpoint
 -- (4) metas_modelos: biblioteca de metas do consultório — só a equipe; o paciente recebe a cópia em metas_paciente. Sem
 -- paciente: sem auditoria
 SELECT app_enable_tenant_rls('metas_modelos');
@@ -110,7 +119,9 @@ GRANT EXECUTE ON FUNCTION app_hoje_do_tenant() TO nutri_app_role;
 --   INSERT ('nutri', 'worker', ''): lê o titular FOR KEY SHARE (NOT FOUND → RETURN NEW; status ≠ 'ativo' ou anonimizado_em
 --           → 42501): espera o bloqueio em curso e nunca cria envio para titular bloqueado (RN-533);
 --           'nutri': origem 'nutri', enviado_por = app_current_user(); 'worker'/'': origem 'automatico', enviado_por nulo;
---           para os dois: situacao 'enviado', sem respostas, sem cancelamento, sem anamnese_id
+--           para os dois: situacao 'enviado', sem respostas, sem cancelamento, sem anamnese_id;
+--           'nutri' e 'worker': enviado_em e created_at := clock_timestamp() (o valor mandado não vale) e expira_em nulo ou
+--           <= enviado_em → 42501, antes do CHECK (P27-01d); '' grava o mandado (semente)
 --   UPDATE, colunas fixas para todos: id, tenant_id, patient_id, modelo_id, modelo_snapshot, origem, enviado_por, enviado_em,
 --           created_at; respostas, respondido_em e respondido_via nunca mudam depois de gravadas
 --   'paciente': só enviado → respondido (RN-529), clock_timestamp() < OLD.expira_em, titular ativo e não anonimizado
@@ -126,7 +137,9 @@ GRANT EXECUTE ON FUNCTION app_hoje_do_tenant() TO nutri_app_role;
 --           enviado → cancelado (motivo 'consulta_cancelada', cancelado_por nulo, só com a consulta de OLD.appointment_id
 --           em 'cancelada' — QP-D59; cancelado_em := clock_timestamp()); com situacao 'enviado', troca de expira_em, com ou
 --           sem troca de appointment_id
---           (remarcação e consulta movida, RN-535: lê a consulta de NEW.appointment_id e exige expira_em = inicio dela)
+--           (remarcação e consulta movida, RN-535: lê a consulta de NEW.appointment_id e exige expira_em = inicio dela;
+--           consulta 'cancelada' → 42501, e expira_em <= OLD.enviado_em → 42501 antes do CHECK — P27-01d: o 23514 do
+--           dono/migrator levaria a linha ao log do Postgres)
 --   qualquer outro caso: 42501
 -- A consulta é lida com FOR KEY SHARE (ordem de travas RN-559: paciente → envio → consulta). cancelado_em, como
 -- respondido_em, é do relógio do banco: o valor mandado não vale (P27-01c).
@@ -181,6 +194,14 @@ BEGIN
        OR NEW.cancelado_em IS NOT NULL OR NEW.cancelado_por IS NOT NULL OR NEW.cancelado_motivo IS NOT NULL
        OR NEW.anamnese_id IS NOT NULL THEN
       RAISE EXCEPTION 'o envio nasce enviado, sem resposta, cancelamento nem anamnese' USING ERRCODE = '42501';
+    END IF;
+    -- P27-01d: a data do envio no prontuário é do relógio do banco, e o prazo vem depois dela (42501 antes do CHECK)
+    IF r IN ('nutri', 'worker') THEN
+      NEW.enviado_em := clock_timestamp();
+      NEW.created_at := NEW.enviado_em;
+      IF NEW.expira_em IS NULL OR NEW.expira_em <= NEW.enviado_em THEN
+        RAISE EXCEPTION 'o prazo do envio precisa ser depois do envio' USING ERRCODE = '42501';
+      END IF;
     END IF;
     RETURN NEW;
   END IF;
@@ -283,9 +304,16 @@ BEGIN
     IF NEW.situacao = 'enviado'
        AND (to_jsonb(NEW) - 'expira_em' - 'appointment_id' - 'updated_at') IS NOT DISTINCT FROM (to_jsonb(OLD) - 'expira_em' - 'appointment_id' - 'updated_at') THEN
       IF NEW.appointment_id IS NOT NULL THEN
-        SELECT a.inicio INTO v_inicio
+        SELECT a.inicio, a.status INTO v_inicio, v_consulta_status
           FROM public.appointments a WHERE a.tenant_id = NEW.tenant_id AND a.patient_id = NEW.patient_id AND a.id = NEW.appointment_id
           FOR KEY SHARE;
+        -- P27-01d: consulta cancelada não recebe o envio (o worker cancela pela consulta, RN-534); o prazo vem depois do envio
+        IF v_consulta_status IS NOT DISTINCT FROM 'cancelada' THEN
+          RAISE EXCEPTION 'o envio não passa para uma consulta cancelada' USING ERRCODE = '42501';
+        END IF;
+        IF NEW.expira_em <= OLD.enviado_em THEN
+          RAISE EXCEPTION 'o prazo do envio precisa ser depois do envio' USING ERRCODE = '42501';
+        END IF;
         IF NEW.expira_em IS NOT DISTINCT FROM v_inicio THEN
           RETURN NEW;
         END IF;
@@ -303,12 +331,16 @@ CREATE TRIGGER questionario_envios_regras BEFORE INSERT OR UPDATE ON questionari
 --   próprio tenant → 42501 (nenhum fluxo do worker grava recordatório, e o papel worker também roda no processo web — QP-D59);
 --   '' (migration, semente, fábrica) passa; tenant de fora e os outros papéis → RETURN NEW (a RLS decide);
 --   UPDATE: id, tenant_id, patient_id, criado_por, created_at fixos (42501); 'worker' → 42501
+--   'nutri', INSERT e UPDATE (com mudança), P27-01d: lê o titular FOR KEY SHARE e recusa o bloqueado ou anonimizado com
+--   42501 (o bloqueio congela o prontuário; arquivado segue, RN-540); ordem de travas: o módulo já travou o paciente antes
 -- (QP-D35: o UPDATE sem mudança passa para todo papel, inclusive o worker)
 CREATE OR REPLACE FUNCTION app_recordatorios_regras() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp AS $$
 DECLARE
   r text := coalesce(app_current_role(), '');
+  v_status text;
+  v_anonimizado timestamptz;
 BEGIN
   IF TG_OP = 'UPDATE' AND to_jsonb(NEW) IS NOT DISTINCT FROM to_jsonb(OLD) THEN
     RETURN NEW;
@@ -322,15 +354,21 @@ BEGIN
   IF r = 'worker' THEN
     RAISE EXCEPTION 'o recordatório só pela sessão da nutricionista' USING ERRCODE = '42501';
   END IF;
-  IF TG_OP = 'INSERT' THEN
-    IF r = 'nutri' THEN
-      NEW.criado_por := app_current_user();
-    END IF;
-    RETURN NEW;
-  END IF;
-  IF (NEW.id, NEW.tenant_id, NEW.patient_id, NEW.criado_por, NEW.created_at)
+  IF TG_OP = 'UPDATE' AND (NEW.id, NEW.tenant_id, NEW.patient_id, NEW.criado_por, NEW.created_at)
      IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.patient_id, OLD.criado_por, OLD.created_at) THEN
     RAISE EXCEPTION 'coluna fixa do recordatório' USING ERRCODE = '42501';
+  END IF;
+  IF r = 'nutri' THEN
+    -- NOT FOUND (só no INSERT): a FK recordatorios_paciente_fk recusa
+    SELECT p.status, p.anonimizado_em INTO v_status, v_anonimizado
+      FROM public.patients p WHERE p.tenant_id = NEW.tenant_id AND p.id = NEW.patient_id
+      FOR KEY SHARE;
+    IF v_status IS NOT DISTINCT FROM 'bloqueado' OR v_anonimizado IS NOT NULL THEN
+      RAISE EXCEPTION 'recordatório de titular bloqueado ou anonimizado não muda' USING ERRCODE = '42501';
+    END IF;
+    IF TG_OP = 'INSERT' THEN
+      NEW.criado_por := app_current_user();
+    END IF;
   END IF;
   RETURN NEW;
 END $$;
@@ -392,12 +430,21 @@ CREATE TRIGGER recordatorio_itens_sem_worker BEFORE INSERT OR UPDATE OR DELETE O
 --   id, tenant_id, patient_id, inicio (depois do 1º registro, lido sob a trava do paciente que o módulo toma), criado_por,
 --   created_at fixos (42501); 'ativa' → 'alcancada'|'encerrada' sem volta; só 'nutri' e '' gravam; 'worker' no próprio
 --   tenant → 42501 (nenhum fluxo do worker grava meta: a meta terminada é derivada na leitura, QP-D55, QP-D59); o paciente é
---   negado pela RLS — NUNCA liberar update em metas_paciente ao paciente, QP-D34: este gatilho não tem ramo de paciente
+--   negado pela RLS — NUNCA liberar update em metas_paciente ao paciente, QP-D34: este gatilho não tem ramo de paciente.
+--   P27-01d ('nutri' e ''): ao ir para 'alcancada'|'encerrada', encerrada_em := clock_timestamp() (o valor mandado não vale);
+--   meta terminada não muda mais nada (encerrada_em, título, como_fazer, categoria, lembrete, fim, inicio, modelo: 42501;
+--   só updated_at — a spec não prevê editar meta encerrada: "Não há reabrir: nova meta", RN-546); encerrada_em numa meta
+--   'ativa' → 42501 (antes do CHECK); INSERT 'nutri' nasce 'ativa', sem encerrada_em. Na sessão 'nutri' o titular é lido
+--   FOR KEY SHARE (o módulo já o travou FOR UPDATE, QP-D33): anonimizado → 42501 em tudo; bloqueado → 42501 no INSERT e no
+--   UPDATE, salvo 'ativa' → 'encerrada' sem outra coluna (o UPDATE do bloqueio em atenderPedidoExclusao, RN-550); '' livre
 CREATE OR REPLACE FUNCTION app_metas_paciente_regras() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp AS $$
 DECLARE
   r text := coalesce(app_current_role(), '');
+  v_status text;
+  v_anonimizado timestamptz;
+  v_encerrar text[] := ARRAY['situacao', 'encerrada_em', 'updated_at'];
 BEGIN
   IF TG_OP = 'UPDATE' AND to_jsonb(NEW) IS NOT DISTINCT FROM to_jsonb(OLD) THEN
     RETURN NEW;
@@ -411,18 +458,45 @@ BEGIN
   IF r NOT IN ('nutri', '') THEN
     RAISE EXCEPTION 'a meta do paciente só pela sessão da nutricionista' USING ERRCODE = '42501';
   END IF;
+  IF TG_OP = 'UPDATE' AND (NEW.id, NEW.tenant_id, NEW.patient_id, NEW.criado_por, NEW.created_at)
+     IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.patient_id, OLD.criado_por, OLD.created_at) THEN
+    RAISE EXCEPTION 'coluna fixa da meta' USING ERRCODE = '42501';
+  END IF;
+  IF r = 'nutri' THEN
+    -- NOT FOUND (só no INSERT): a FK metas_paciente_paciente_fk recusa
+    SELECT p.status, p.anonimizado_em INTO v_status, v_anonimizado
+      FROM public.patients p WHERE p.tenant_id = NEW.tenant_id AND p.id = NEW.patient_id
+      FOR KEY SHARE;
+    IF v_anonimizado IS NOT NULL THEN
+      RAISE EXCEPTION 'meta de titular anonimizado não muda' USING ERRCODE = '42501';
+    END IF;
+    IF v_status IS NOT DISTINCT FROM 'bloqueado'
+       AND NOT (TG_OP = 'UPDATE' AND OLD.situacao = 'ativa' AND NEW.situacao = 'encerrada'
+                AND (to_jsonb(NEW) - v_encerrar) IS NOT DISTINCT FROM (to_jsonb(OLD) - v_encerrar)) THEN
+      RAISE EXCEPTION 'meta de titular bloqueado só se encerra' USING ERRCODE = '42501';
+    END IF;
+  END IF;
   IF TG_OP = 'INSERT' THEN
     IF r = 'nutri' THEN
+      IF NEW.situacao IS DISTINCT FROM 'ativa' OR NEW.encerrada_em IS NOT NULL THEN
+        RAISE EXCEPTION 'a meta nasce ativa' USING ERRCODE = '42501';
+      END IF;
       NEW.criado_por := app_current_user();
     END IF;
     RETURN NEW;
   END IF;
-  IF (NEW.id, NEW.tenant_id, NEW.patient_id, NEW.criado_por, NEW.created_at)
-     IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.patient_id, OLD.criado_por, OLD.created_at) THEN
-    RAISE EXCEPTION 'coluna fixa da meta' USING ERRCODE = '42501';
-  END IF;
   IF OLD.situacao IS DISTINCT FROM 'ativa' AND NEW.situacao IS DISTINCT FROM OLD.situacao THEN
     RAISE EXCEPTION 'meta encerrada não volta' USING ERRCODE = '42501';
+  END IF;
+  -- P27-01d: meta terminada é registro fechado do prontuário (só updated_at muda)
+  IF OLD.situacao IS DISTINCT FROM 'ativa'
+     AND (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at') THEN
+    RAISE EXCEPTION 'meta encerrada não muda' USING ERRCODE = '42501';
+  END IF;
+  IF OLD.situacao = 'ativa' AND NEW.situacao IN ('alcancada', 'encerrada') THEN
+    NEW.encerrada_em := clock_timestamp();
+  ELSIF NEW.situacao = 'ativa' AND NEW.encerrada_em IS NOT NULL THEN
+    RAISE EXCEPTION 'meta ativa não tem data de encerramento' USING ERRCODE = '42501';
   END IF;
   IF NEW.inicio IS DISTINCT FROM OLD.inicio
      AND EXISTS (SELECT 1 FROM public.metas_registros m WHERE m.tenant_id = OLD.tenant_id AND m.meta_id = OLD.id) THEN
