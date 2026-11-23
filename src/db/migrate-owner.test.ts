@@ -488,6 +488,51 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
     }
   });
 
+  it('Plano 27: app_dia_no_fuso e app_hoje_do_tenant com EXECUTE só do app (REVOKE/GRANT pelo dono sem superusuário); o registro de meta pelo gatilho sob FORCE RLS', async () => {
+    const { rows: fs } = await owner.query(
+      `select p.proname, pg_get_userbyid(p.proowner) as dono,
+              exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0 and a.privilege_type = 'EXECUTE') as publico,
+              has_function_privilege('nutri_app_role', p.oid, 'EXECUTE') as app
+         from pg_proc p where p.proname in ('app_dia_no_fuso', 'app_hoje_do_tenant') order by 1`,
+    );
+    expect(fs).toEqual([
+      { proname: 'app_dia_no_fuso', dono: 'nutri_owner', publico: false, app: true },
+      { proname: 'app_hoje_do_tenant', dono: 'nutri_owner', publico: false, app: true },
+    ]);
+    const c = await app.connect();
+    const nutri = '00000000-0000-4000-8000-000000000271';
+    const conta = '00000000-0000-4000-8000-000000000272';
+    const ctx = async (t: string, role: string, o: { patient?: string; user?: string } = {}) => {
+      await c.query('begin');
+      await c.query(
+        `select set_config('app.tenant_id', $1, true), set_config('app.role', $2, true), set_config('app.patient_id', $3, true), set_config('app.user_id', $4, true)`,
+        [t, role, o.patient ?? '', o.user ?? ''],
+      );
+    };
+    try {
+      const t = (await c.query(`insert into tenants (slug, nome_exibicao, fuso) values ('metas-dono', 'M', 'Asia/Tokyo') returning id`)).rows[0].id as string;
+      await ctx(t, 'worker');
+      const p = (await c.query(`insert into patients (tenant_id, nome, data_nascimento, sexo, email) values ($1, 'Pac', '1990-01-01', 'F', 'pac@metas.dev') returning id`, [t])).rows[0].id as string;
+      const hoje = await c.query(`select app_hoje_do_tenant()::text as hoje, app_dia_no_fuso(now(), 'Asia/Tokyo')::text as esperado`);
+      expect(hoje.rows[0].hoje).toBe(hoje.rows[0].esperado);
+      await c.query('commit');
+      await ctx(t, 'nutri', { user: nutri });
+      const m = (await c.query(`insert into metas_paciente (tenant_id, patient_id, titulo, categoria, inicio, criado_por) values ($1, $2, 'Beber água', 'agua', app_hoje_do_tenant() - 1, $3) returning id`, [t, p, nutri]))
+        .rows[0].id as string;
+      await c.query('commit');
+      await ctx(t, 'paciente', { patient: p, user: conta });
+      await c.query('select 1 from patients where id = $1 for key share', [p]);
+      const ontem = (await c.query(`select (app_hoje_do_tenant() - 1)::text as d`)).rows[0].d as string;
+      const r = await c.query(`insert into metas_registros (tenant_id, patient_id, meta_id, dia, cumprida) values ($1, $2, $3, app_hoje_do_tenant() - 1, true) returning dia::text as dia`, [t, p, m]);
+      expect(r.rows[0].dia).toBe(ontem);
+      await expect(c.query(`insert into metas_registros (tenant_id, patient_id, meta_id, dia, cumprida) values ($1, $2, $3, app_hoje_do_tenant() - 2, true)`, [t, p, m])).rejects.toMatchObject({ code: '42501' });
+      await c.query('rollback');
+    } finally {
+      await c.query('rollback').catch(() => undefined);
+      c.release();
+    }
+  });
+
   // JUR-01 (dono, 09/10/2026; Res. CFN 594/2017, art. 3º, VI, "b"): o prazo de guarda conta do último registro do
   // prontuário — no pedido de exclusão, o próprio bloqueio. A 0110 recalcula quem já está bloqueado: data do bloqueio no
   // fuso do tenant + 20 anos, só para mais (GREATEST), com o gatilho de auditoria ligado, sob FORCE RLS (dono sem

@@ -7,8 +7,8 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 
 /**
  * Plano 27 (spec §9.3): `recordatorios` e `recordatorio_itens` no banco — RLS, CHECKs, FKs, REVOKE e auditoria. Tudo por
- * SQL cru, sem o módulo. T1a: só o que não depende dos gatilhos recordatorios_regras e recordatorio_itens_colunas_fixas
- * (criado_por pelo gatilho, worker recusado e colunas fixas são da T1b).
+ * SQL cru, sem o módulo. T1a: RLS, CHECKs, FKs, REVOKE e auditoria; T1b: os gatilhos recordatorios_regras (criado_por
+ * pelo gatilho, worker recusado — QP-D59 —, colunas fixas) e recordatorio_itens_colunas_fixas.
  */
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -34,6 +34,14 @@ const permissaoNegada = (e: unknown) => {
   return code === '42501' && /permission denied/.test(message);
 };
 const comCodigo = (codigo: string) => (e: unknown) => erro(e).code === codigo;
+/** Recusa de um gatilho (42501), nem da RLS nem de permissão. */
+const doGatilho = (e: unknown) => {
+  const { code, message } = erro(e);
+  return code === '42501' && !/row-level security|permission denied/.test(message);
+};
+const worker = (T: TenantDeTeste): TenantContext => ({ tenantId: T.tenantId, role: 'worker' });
+/** O contexto vazio do dono (migration, semente, fábrica): sem tenant nem papel, com os gatilhos ligados. */
+const dono = async (q: SQL): Promise<Row[]> => (await owner.db.execute(q)).rows as Row[];
 
 type Cenario = TenantDeTeste & { p: string };
 async function cenario(): Promise<Cenario> {
@@ -165,5 +173,59 @@ describe('Plano 27 — recordatorios e recordatorio_itens no banco (spec §9.3)'
     ]);
     const todas = await owner.pool.query('select * from audit_log where tenant_id = $1', [C.tenantId]);
     expect(JSON.stringify(todas.rows)).not.toContain(marca);
+  });
+});
+
+describe('Plano 27 — gatilhos recordatorios_regras e recordatorio_itens_colunas_fixas (spec §9.3, QP-D35, QP-D59)', () => {
+  it('criado_por: o gatilho grava a usuária da sessão nutri (ignora o mandado); o contexto vazio grava o mandado', async () => {
+    const C = await cenario();
+    const outra = randomUUID();
+    const ins = sql`insert into recordatorios (tenant_id, patient_id, dia_relatado, criado_por) values (${C.tenantId}, ${C.p}, '2026-11-20', ${outra}) returning *`;
+    expect((await em(C.ctx, ins))[0].criado_por).toBe(C.nutriId);
+    expect((await dono(ins))[0].criado_por).toBe(outra);
+  });
+
+  it('worker no próprio tenant: INSERT e UPDATE → 42501 do gatilho (QP-D59); o UPDATE sem mudança passa', async () => {
+    const C = await cenario();
+    await expect(em(worker(C), novoRecordatorio(C))).rejects.toSatisfy(doGatilho);
+    const r = await recordatorio(C);
+    await expect(em(worker(C), sql`update recordatorios set dia_atipico = true where id = ${r.id}`)).rejects.toSatisfy(doGatilho);
+    expect(await em(worker(C), sql`update recordatorios set dia_atipico = dia_atipico where id = ${r.id} returning id`)).toHaveLength(1);
+    // o worker de outro tenant cai na RLS (o gatilho devolve NEW)
+    const D = await cenario();
+    await expect(em(worker(D), novoRecordatorio(C))).rejects.toSatisfy(rlsDe('recordatorios'));
+  });
+
+  it('a nutricionista edita o recordatório; id, paciente, autora e created_at são fixos (42501); tenant de fora → RLS', async () => {
+    const C = await cenario();
+    const D = await cenario();
+    const p2 = (await novoPaciente(app.db, C.ctx)).id;
+    const r = await recordatorio(C);
+    expect(await em(C.ctx, sql`update recordatorios set dia_atipico = true, observacao = 'Aniversário', dia_relatado = '2026-11-19' where id = ${r.id} returning id`)).toHaveLength(1);
+    for (const set of [sql`id = ${randomUUID()}`, sql`patient_id = ${p2}`, sql`criado_por = ${randomUUID()}`, sql`created_at = created_at - interval '1 hour'`]) {
+      await expect(em(C.ctx, sql`update recordatorios set ${set} where id = ${r.id}`)).rejects.toSatisfy(doGatilho);
+      await expect(dono(sql`update recordatorios set ${set} where id = ${r.id}`)).rejects.toSatisfy(doGatilho);
+    }
+    await expect(dono(sql`update recordatorios set tenant_id = ${D.tenantId} where id = ${r.id}`)).rejects.toSatisfy(doGatilho);
+    await expect(em(C.ctx, sql`update recordatorios set tenant_id = ${D.tenantId} where id = ${r.id}`)).rejects.toSatisfy(rlsDe('recordatorios'));
+  });
+
+  it('itens: um item nunca muda de recordatório nem de paciente (42501); o resto muda; tenant de fora → RLS', async () => {
+    const C = await cenario();
+    const D = await cenario();
+    const p2 = (await novoPaciente(app.db, C.ctx)).id;
+    const r = await recordatorio(C);
+    const outro = await recordatorio(C);
+    const deP2 = await recordatorio(C, p2);
+    const [i] = await em(C.ctx, novoItem(C, r.id));
+    expect(await em(C.ctx, sql`update recordatorio_itens set quantidade_g = 150, ordem = 3, horario = '12:30' where id = ${i.id} returning id`)).toHaveLength(1);
+    for (const set of [sql`recordatorio_id = ${outro.id}`, sql`patient_id = ${p2}, recordatorio_id = ${deP2.id}`, sql`id = ${randomUUID()}`]) {
+      await expect(em(C.ctx, sql`update recordatorio_itens set ${set} where id = ${i.id}`)).rejects.toSatisfy(doGatilho);
+      await expect(em(worker(C), sql`update recordatorio_itens set ${set} where id = ${i.id}`)).rejects.toSatisfy(doGatilho);
+      await expect(dono(sql`update recordatorio_itens set ${set} where id = ${i.id}`)).rejects.toSatisfy(doGatilho);
+    }
+    await expect(dono(sql`update recordatorio_itens set tenant_id = ${D.tenantId} where id = ${i.id}`)).rejects.toSatisfy(doGatilho);
+    await expect(em(C.ctx, sql`update recordatorio_itens set tenant_id = ${D.tenantId} where id = ${i.id}`)).rejects.toSatisfy(rlsDe('recordatorio_itens'));
+    expect(await em(C.ctx, sql`update recordatorio_itens set recordatorio_id = recordatorio_id where id = ${i.id} returning id`)).toHaveLength(1);
   });
 });

@@ -182,8 +182,8 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
         select ${t}, 'entrada', c.id, 100, '2026-11-10', ${p}, coalesce(app_current_user(), gen_random_uuid()) from c`,
   // Plano 18: cpf nulo (com CPF fixo, a fábrica de P1 e P2 cairia em patient_cadastro_cpf_unico)
   patient_cadastro: (t, p) => sql`insert into patient_cadastro (tenant_id, patient_id, estado_civil) values (${t}, ${p}, 'casado')`,
-  // Plano 27 (spec §9.2–§9.4), P27-01a: as fábricas rodam como `nutri` (os gatilhos e o PAPEL_DA_FABRICA 'dono' de
-  // metas_registros chegam na T1b/T1c). Envio legal da nutricionista, sem modelo e sem consulta (FKs anuláveis: fora de COM_MAE)
+  // Plano 27 (spec §9.2–§9.4): as fábricas rodam como `nutri` (gatilhos da P27-01b), menos metas_registros (PAPEL_DA_FABRICA
+  // 'dono'). Envio legal da nutricionista, sem modelo e sem consulta (FKs anuláveis: fora de COM_MAE)
   questionario_envios: (t, p) =>
     sql`insert into questionario_envios (tenant_id, patient_id, modelo_snapshot, origem, enviado_por, expira_em)
         values (${t}, ${p}, '{"nome":"Iso","perguntas":[]}', 'nutri', coalesce(app_current_user(), gen_random_uuid()), now() + interval '14 days')`,
@@ -200,14 +200,19 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   metas_paciente: (t, p) =>
     sql`insert into metas_paciente (tenant_id, patient_id, titulo, categoria, inicio, criado_por)
         values (${t}, ${p}, 'Iso', 'agua', current_date - 1, coalesce(app_current_user(), gen_random_uuid()))`,
-  // a meta no mesmo comando (COM_MAE: o paciente não insere meta); um registro por meta e dia
+  // a meta no mesmo comando (COM_MAE: o paciente não insere meta); um registro por meta e dia. Semeada pelo contexto vazio do
+  // dono (PAPEL_DA_FABRICA 'dono', P27-01b: metas_registros_regras recusa a equipe e o worker); o dia é o de hoje no fuso
+  // padrão dos tenants da fábrica (app_hoje_do_tenant() é nulo sem app.tenant_id)
   metas_registros: (t, p) =>
     sql`with m as (insert into metas_paciente (tenant_id, patient_id, titulo, categoria, inicio, criado_por)
                    values (${t}, ${p}, 'Iso', 'agua', current_date - 1, coalesce(app_current_user(), gen_random_uuid())) returning id)
-        insert into metas_registros (tenant_id, patient_id, meta_id, dia, cumprida) select ${t}, ${p}, m.id, current_date, true from m`,
+        insert into metas_registros (tenant_id, patient_id, meta_id, dia, cumprida) select ${t}, ${p}, m.id, app_dia_no_fuso(now(), 'America/Sao_Paulo'), true from m`,
 };
-/** Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). */
-const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker' };
+/**
+ * Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). `'dono'`: o laço
+ * roda a fábrica pelo `owner.pool`, no contexto vazio (Plano 27: metas_registros_regras recusa nutri e worker).
+ */
+const PAPEL_DA_FABRICA: Record<string, TenantRole | 'dono'> = { lembretes_rotina_envios: 'worker', metas_registros: 'dono' };
 /** Tabelas append-only: UPDATE/DELETE já são negados por permissão. */
 const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autorizacoes', 'ia_nutri_consentimentos']);
 /**
@@ -339,6 +344,10 @@ beforeAll(async () => {
     if (!FABRICAS[t]) continue;
     for (const tenantId of [A, B]) {
       const role = PAPEL_DA_FABRICA[t] ?? 'nutri';
+      if (role === 'dono') {
+        for (const p of PAC[tenantId]) await owner.db.execute(FABRICAS[t](tenantId, p));
+        continue;
+      }
       const ator = role === 'nutri' ? { actorUserId: randomUUID() } : {};
       for (const p of PAC[tenantId]) await withTenant({ tenantId, role, ...ator }, (tx) => tx.execute(FABRICAS[t](tenantId, p)), app.db);
     }
