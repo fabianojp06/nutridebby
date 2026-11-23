@@ -2,7 +2,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { linkDaRecusa, recusaDoPortal, type RecusaDoPortal } from '@/app/p/recusa-api';
 import type { TipoDocumento } from '@/modules/documentos/constantes';
-import { erroDoCompartilhar, faseDaResposta, jeitoDeEntregar, type FaseCompartilhar } from './compartilhar-pdf-estado';
+import { erroDoCompartilhar, faseDaResposta, jeitoDeEntregar, paginaDoLink, type FaseCompartilhar } from './compartilhar-pdf-estado';
 
 /** Plano 22 (spec §6.2, US-380): os textos do "Compartilhar". `objeto` completa o nome acessível ("… a receita de 12/11/2026"). */
 export const MSG_COMPARTILHAR = {
@@ -17,6 +17,13 @@ export const MSG_COMPARTILHAR = {
   venceu: 'O acesso venceu. Digite o código de novo.',
   falha: 'Não foi possível preparar o PDF. Tente de novo.',
 } as const;
+
+/**
+ * A ação ao lado do "O acesso venceu…" (fora da spec, como o "Entrar" da recusa do portal; revisão da P22-11): a página do
+ * link aberta não tem campo de código, e o texto também cobre o link expirado ou indisponível. Recarrega a página do link,
+ * que decide entre pedir o código, o aviso de sempre ou o documento.
+ */
+export const DIGITAR_CODIGO = 'Digitar o código';
 
 const TEXTO_DO_STATUS: Partial<Record<FaseCompartilhar, string>> = {
   preparando: MSG_COMPARTILHAR.preparando,
@@ -115,7 +122,8 @@ export function CompartilharPdf({ url, tipo, data, nomeDoArquivo }: { url: strin
   }
 
   const erro = fase === 'venceu' ? MSG_COMPARTILHAR.venceu : fase === 'recusa' ? (recusa?.mensagem ?? MSG_COMPARTILHAR.falha) : fase === 'falha' ? MSG_COMPARTILHAR.falha : null;
-  const link = fase === 'recusa' ? linkDaRecusa(recusa) : null;
+  const paginaVencida = fase === 'venceu' ? paginaDoLink(url) : null;
+  const link = fase === 'recusa' ? linkDaRecusa(recusa) : paginaVencida ? { href: paginaVencida, texto: DIGITAR_CODIGO } : null;
   return (
     <div className="space-y-2">
       <p id={idTexto} className="text-sm">{`${MSG_COMPARTILHAR.porTipo[tipo]} ${MSG_COMPARTILHAR.saude}`}</p>

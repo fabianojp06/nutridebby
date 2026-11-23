@@ -5,6 +5,7 @@ import { corDaFaixa } from '@/lib/tema/marca-tema';
 import { emitirReceita, entrarComoDocs } from './documentos';
 import { entrarComo } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
+import { criarPacientePeloFormulario } from './pacientes-form';
 import { avaliar, entradasDoPlano, marcarParaPaciente, mostrarPercGordura, pacienteNoPortal, publicarPlanoSimples } from './portal';
 
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
@@ -482,6 +483,53 @@ test('"Compartilhar" o PDF assinado (US-380): Preparar → foco no Compartilhar 
     await expect(compartilhar).toBeVisible(); // o PDF segue em memória: baixar de novo não lê a rota outra vez
   } finally {
     await p.page.context().close();
+    await docs.context().close();
+  }
+});
+
+// Revisão da P22-11 (US-380, cenário "Página do link com o acesso vencido"): a sessão de 15 min do link vence com a página
+// aberta (o cookie sai). "Preparar para compartilhar" mostra a mensagem da spec com a ação "Digitar o código" ao lado (a
+// página aberta não tem campo de código); a ação recarrega a página do link, que pede o código. IPs: nutricionista
+// 10.9.22.52, visitante do link 10.9.22.53.
+test('página do link com o acesso vencido (US-380): "O acesso venceu. Digite o código de novo." com "Digitar o código", que volta ao pedido do código', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const docs = await entrarComoDocs(browser, '10.9.22.52');
+  const visitante = await (await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.22.53' } })).newPage();
+  try {
+    // paciente sem o app: a receita assinada chega por um link no e-mail (RN-158)
+    const email = `link-vencido-${Date.now().toString(36)}@nutridebby.test`;
+    await emitirReceita(docs, await criarPacientePeloFormulario(docs, { nome: 'Lia Link Vencido', email, nascimento: '1990-05-20' }));
+    const aviso = await esperarEmail(email, { assunto: 'Você tem um novo documento' });
+    const token = /\/documento\/([\w-]{92})/.exec(aviso.html)?.[1];
+    expect(token, 'link do documento no e-mail').toBeTruthy();
+
+    await visitante.goto(`/documento/${token}`);
+    // Turnstile com a site key de teste da Cloudflare (sempre passa): espera o token chegar
+    const enviarCodigo = visitante.getByRole('button', { name: 'Enviar código' });
+    await expect(enviarCodigo).toBeEnabled({ timeout: 20_000 });
+    const antes = new Date();
+    await enviarCodigo.click();
+    await expect(visitante.getByText('Código enviado. Confira seu e-mail.')).toBeVisible();
+    const m = await esperarEmail(email, { assuntoComeca: 'Código para abrir seu documento:', depoisDe: antes });
+    const codigo = /\b(\d{6})\b/.exec(m.assunto)![1]!;
+    await visitante.getByLabel('Código').fill(codigo);
+    await visitante.getByRole('button', { name: 'Abrir' }).click();
+    await expect(visitante.getByRole('heading', { name: /^Receita · / })).toBeVisible();
+
+    await visitante.context().clearCookies(); // a sessão de 15 min do link "vence" com a página aberta
+    await visitante.getByRole('button', { name: /^Preparar para compartilhar a receita de \d{2}\/\d{2}\/\d{4}$/ }).click();
+    const alerta = visitante.getByRole('alert').filter({ hasText: 'O acesso venceu. Digite o código de novo.' });
+    await expect(alerta).toBeVisible();
+    await expect(visitante.getByRole('button', { name: /^Compartilhar a receita/ })).toHaveCount(0); // nada é compartilhado
+    const digitar = alerta.getByRole('link', { name: 'Digitar o código' });
+    await expect(digitar).toHaveAttribute('href', `/documento/${token}`);
+    expect((await digitar.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await digitar.click();
+    await expect(visitante.getByRole('heading', { name: /^Receita · / })).toHaveCount(0);
+    await expect(visitante.getByLabel('Código')).toBeVisible();
+    await expect(visitante.getByRole('button', { name: 'Enviar código' })).toBeVisible();
+  } finally {
+    await visitante.context().close();
     await docs.context().close();
   }
 });

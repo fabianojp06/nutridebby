@@ -24,6 +24,16 @@ export function faseDaResposta(r: { ok: boolean; status: number; contentType: st
   return 'falha';
 }
 
+/**
+ * A página do link (`/documento/{token}`) a partir da rota do PDF do link. "O acesso venceu. Digite o código de novo." vem
+ * com o "Digitar o código" ao lado: a página recarregada é que decide (pedir o código, o aviso de expirado ou indisponível,
+ * ou o documento, se outra aba já entrou) — a página aberta não tem campo de código. Fora da rota do link, `null`.
+ */
+export function paginaDoLink(url: string): string | null {
+  const m = /^\/api(\/documento\/[^/?#]+)\/pdf$/.exec(url);
+  return m ? m[1]! : null;
+}
+
 type NavegadorQueCompartilha = { share?: unknown; canShare?: (dados: { files: File[] }) => boolean };
 
 /** Pelo compartilhar do aparelho só quando ele aceita o arquivo (`canShare({ files })`); senão, o download. */

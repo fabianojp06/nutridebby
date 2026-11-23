@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { CompartilharPdf, MSG_COMPARTILHAR } from './compartilhar-pdf';
-import { erroDoCompartilhar, faseDaResposta, jeitoDeEntregar, nomeDoPdf } from './compartilhar-pdf-estado';
+import { CompartilharPdf, DIGITAR_CODIGO, MSG_COMPARTILHAR } from './compartilhar-pdf';
+import { erroDoCompartilhar, faseDaResposta, jeitoDeEntregar, nomeDoPdf, paginaDoLink } from './compartilhar-pdf-estado';
 
 const URL_PORTAL = '/api/p/documentos/00000000-0000-4000-8000-0000000000d1/pdf';
 const URL_LINK = '/api/documento/abc/pdf';
@@ -105,5 +105,20 @@ describe('"Compartilhar" o PDF assinado (Plano 22, US-380, RN-396)', () => {
     expect(fonte).toContain('URL.createObjectURL(');
     expect(fonte).toContain('URL.revokeObjectURL(');
     expect(fonte).not.toMatch(/method:\s*'POST'|sendBeacon|dangerouslySetInnerHTML/);
+  });
+
+  it('"O acesso venceu" vem com uma ação: "Digitar o código" leva à página do link, que decide o que mostrar (revisão da P22-11)', () => {
+    expect(DIGITAR_CODIGO).toBe('Digitar o código');
+    expect(paginaDoLink(URL_LINK)).toBe('/documento/abc');
+    expect(paginaDoLink('/api/documento/Ab-_9x/pdf')).toBe('/documento/Ab-_9x');
+    // no portal não há código a digitar (a sessão vencida é a recusa de sempre, com o "Entrar")
+    expect(paginaDoLink(URL_PORTAL)).toBeNull();
+    expect(paginaDoLink('/api/documento/abc/recebido')).toBeNull();
+    expect(paginaDoLink('https://outro.example/api/documento/abc/pdf')).toBeNull();
+    // a fonte: na fase "venceu", o link ao lado da mensagem (alvo ≥ 44 px), como o da recusa
+    const fonte = readFileSync(new URL('./compartilhar-pdf.tsx', import.meta.url), 'utf8');
+    expect(fonte).toContain("fase === 'venceu' ? paginaDoLink(url) : null");
+    expect(fonte).toContain('{ href: paginaVencida, texto: DIGITAR_CODIGO }');
+    expect(fonte).toMatch(/<a href=\{link\.href\} className="[^"]*\bmin-h-11\b/);
   });
 });
