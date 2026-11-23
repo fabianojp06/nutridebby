@@ -46,6 +46,11 @@ const permissaoNegada = (e: unknown) => {
   const { code, message } = erro(e);
   return code === '42501' && /permission denied/.test(message);
 };
+/** 42501 do gatilho (mensagem própria), não da RLS nem da permissão. */
+const doGatilho = (e: unknown) => {
+  const { code, message } = erro(e);
+  return code === '42501' && message !== '' && !/row-level security|permission denied/.test(message);
+};
 const restricao = (codigo: string, nome: string) => (e: unknown) => {
   const r = erro(e);
   return r.code === codigo && r.constraint === nome;
@@ -531,15 +536,15 @@ describe('Plano 25 — auditoria (spec §9.3, regra 8)', () => {
         )
       ).rows;
     expect(await trilha('chat_conversa', c.id)).toEqual([{ acao: 'criar', actor_user_id: T.nutriId, patient_id: p }]);
-    await em(T.ctx, sql`update chat_conversas set pausada_em = now(), pausada_por = ${T.nutriId} where id = ${c.id}`);
-    expect((await trilha('chat_conversa', c.id)).map((r) => r.acao)).toEqual(['criar', 'alterar']);
-
     const [m] = await em(
       T.ctx,
       sql`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, autor_nome, autor_crn, texto)
           values (${T.tenantId}, ${p}, 'nutri', ${T.nutriId}, ${CARIMBO.nome}, ${CARIMBO.crn}, 'Texto sigiloso da conversa') returning id`,
     );
     expect(await trilha('chat', m.id)).toEqual([{ acao: 'criar', actor_user_id: T.nutriId, patient_id: p }]);
+    // a pausa (UPDATE) depois da mensagem: com a conversa pausada, o gatilho (T1b) recusa a mensagem individual
+    await em(T.ctx, sql`update chat_conversas set pausada_em = now(), pausada_por = ${T.nutriId} where id = ${c.id}`);
+    expect((await trilha('chat_conversa', c.id)).map((r) => r.acao)).toEqual(['criar', 'alterar']);
     // o audit_log não tem coluna de conteúdo: nenhuma linha do tenant carrega o texto
     const { rows } = await owner.pool.query('select to_jsonb(a)::text as j from audit_log a where tenant_id = $1', [T.tenantId]);
     for (const r of rows) expect(r.j).not.toContain('sigiloso');
@@ -552,5 +557,283 @@ describe('Plano 25 — auditoria (spec §9.3, regra 8)', () => {
       [[...TODAS]],
     );
     expect(gatilhos.rows.map((r) => r.t)).toEqual(['chat_conversas', 'chat_mensagens']);
+  });
+});
+
+describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, CH-D60)', () => {
+  const agora = () => Date.now();
+  const recente = (v: unknown) => Math.abs(new Date(v as string).getTime() - agora()) < 60_000;
+  const atualizar = (ctx: TenantContext, id: unknown, set: SQL, soltando = false) =>
+    withTenant(
+      ctx,
+      async (tx) => {
+        if (soltando) await tx.execute(sql`select set_config('app.chat_soltando', 'on', true)`);
+        return (await tx.execute(sql`update chat_mensagens set ${set} where id = ${id} returning *`)).rows as Row[];
+      },
+      app.db,
+    );
+  /** Transação crua do app com um papel qualquer (o withTenant só aceita os quatro papéis conhecidos). */
+  const comPapel = (papel: string, tenantId: string, q: SQL, userId: string = randomUUID()) =>
+    app.db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true), set_config('app.role', ${papel}, true),
+                                  set_config('app.patient_id', '', true), set_config('app.user_id', ${userId}, true)`);
+      return tx.execute(q);
+    });
+  const ler = async (id: unknown) => (await owner.pool.query('select * from chat_mensagens where id = $1', [id])).rows[0] as Row;
+  const semCarimbo = async () => {
+    const T = await novoTenant(app.db);
+    const p = (await novoPaciente(app.db, T.ctx)).id;
+    // sem papel (dono): a liberação sem carimbo só para montar o cenário
+    await comoDono(sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma) values (${T.tenantId}, ${p}, now(), ${T.nutriId}, 'aceite_escrito')`);
+    return { T, p };
+  };
+
+  it('chat_mensagens INSERT: criada_em do relógio do banco, carimbo de tenants; ator de outra, autor paciente pela nutri e o worker → 42501', async () => {
+    const C = await cenario();
+    const [m] = await em(
+      C.ctx,
+      sql`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, autor_nome, autor_crn, texto, criada_em)
+          values (${C.tenantId}, ${C.p1}, 'nutri', ${C.nutriId}, 'Outra Pessoa', 'CRN-9 1', 'Olá', '2001-01-01') returning *`,
+    );
+    expect(recente(m.criada_em)).toBe(true);
+    expect(m).toMatchObject({ autor_nome: CARIMBO.nome, autor_crn: CARIMBO.crn, autor_user_id: C.nutriId });
+    const [d] = await em(
+      C.P1,
+      sql`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, texto, criada_em) values (${C.tenantId}, ${C.p1}, 'paciente', ${C.u1}, 'Oi', '2001-01-01') returning criada_em`,
+    );
+    expect(recente(d.criada_em)).toBe(true);
+    await expect(em(C.ctx, daNutri(C, { autorUserId: randomUUID() }))).rejects.toSatisfy(doGatilho);
+    await expect(em(C.ctx, mensagem(C, { autorUserId: C.nutriId }))).rejects.toSatisfy(doGatilho);
+    await expect(em(worker(C.tenantId), daNutri(C))).rejects.toSatisfy(doGatilho);
+    await expect(em(worker(C.tenantId), mensagem(C))).rejects.toSatisfy(doGatilho);
+  });
+
+  it('sem carimbo no consultório (RN-475): mensagem, recado e liberação → 42501', async () => {
+    const { T, p } = await semCarimbo();
+    await expect(
+      em(T.ctx, sql`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, autor_nome, autor_crn, texto) values (${T.tenantId}, ${p}, 'nutri', ${T.nutriId}, 'Nome Forjado', 'CRN', 'Olá')`),
+    ).rejects.toSatisfy(doGatilho);
+    await expect(
+      em(T.ctx, sql`insert into recados (tenant_id, texto, filtro, destinatarios, autor_nome, autor_crn, criado_por) values (${T.tenantId}, 'x', '{"tipo":"todos"}', 1, 'Nome Forjado', 'CRN', ${T.nutriId})`),
+    ).rejects.toSatisfy(doGatilho);
+    const p2 = (await novoPaciente(app.db, T.ctx)).id;
+    await expect(liberar(T, p2)).rejects.toSatisfy(doGatilho);
+    // só o nome, ou só o CRN, também não basta
+    await owner.pool.query("update tenants set nome_profissional = 'Débora Nutricionista' where id = $1", [T.tenantId]);
+    await expect(liberar(T, p2)).rejects.toSatisfy(doGatilho);
+  });
+
+  it('mensagem individual exige a conversa liberada e não pausada e o titular ativo; a cópia de recado, só o titular ativo', async () => {
+    const C = await cenario();
+    const rec = await recado(C);
+    const p3 = (await novoPaciente(app.db, C.ctx)).id;
+    await em(C.ctx, sql`insert into chat_conversas (tenant_id, patient_id) values (${C.tenantId}, ${p3})`);
+    await expect(em(C.ctx, daNutri(C, { patientId: p3 }))).rejects.toSatisfy(doGatilho);
+    // RN-462: o recado chega também a quem ainda não teve a conversa liberada
+    expect(await em(C.ctx, daNutri(C, { patientId: p3, recadoId: rec }))).toHaveLength(1);
+    await em(C.ctx, sql`update chat_conversas set pausada_em = now(), pausada_por = ${C.nutriId} where patient_id = ${C.p2}`);
+    await expect(em(C.ctx, daNutri(C, { patientId: C.p2 }))).rejects.toSatisfy(doGatilho);
+    for (const set of [`status = 'arquivado'`, `status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01'`, `anonimizado_em = now()`]) {
+      const D = await cenario();
+      const r = await recado(D);
+      await owner.pool.query(`update patients set ${set} where id = $1`, [D.p1]);
+      await expect(em(D.ctx, daNutri(D)), set).rejects.toSatisfy(doGatilho);
+      await expect(em(D.ctx, daNutri(D, { recadoId: r })), set).rejects.toSatisfy(doGatilho);
+    }
+  });
+
+  it('recados INSERT: criado_por, criado_em e carimbo da sessão; o worker → 42501', async () => {
+    const C = await cenario();
+    const [r] = await em(
+      C.ctx,
+      sql`insert into recados (tenant_id, texto, filtro, destinatarios, autor_nome, autor_crn, criado_por, criado_em)
+          values (${C.tenantId}, 'Feriado', '{"tipo":"todos"}', 3, 'Outra Pessoa', 'CRN-9 1', ${randomUUID()}, '2001-01-01') returning *`,
+    );
+    expect(r).toMatchObject({ criado_por: C.nutriId, autor_nome: CARIMBO.nome, autor_crn: CARIMBO.crn });
+    expect(recente(r.criado_em)).toBe(true);
+    await expect(
+      em(worker(C.tenantId), sql`insert into recados (tenant_id, texto, filtro, destinatarios, autor_nome, autor_crn, criado_por) values (${C.tenantId}, 'x', '{"tipo":"todos"}', 1, ${CARIMBO.nome}, ${CARIMBO.crn}, ${randomUUID()})`),
+    ).rejects.toSatisfy(doGatilho);
+  });
+
+  it('chat_conversas: liberar só na nutri, em nome de quem libera, com titular ativo; liberação fixa depois de gravada', async () => {
+    const C = await cenario();
+    const novo = async () => (await novoPaciente(app.db, C.ctx)).id;
+    const lib = (p: string, por: string) =>
+      em(C.ctx, sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma) values (${C.tenantId}, ${p}, '2001-01-01', ${por}, 'termo_assinado') returning *`);
+    await expect(lib(await novo(), randomUUID())).rejects.toSatisfy(doGatilho);
+    const arquivado = await novo();
+    await owner.pool.query(`update patients set status = 'arquivado' where id = $1`, [arquivado]);
+    await expect(lib(arquivado, C.nutriId)).rejects.toSatisfy(doGatilho);
+    const anonimizado = await novo();
+    await owner.pool.query(`update patients set anonimizado_em = now() where id = $1`, [anonimizado]);
+    await expect(lib(anonimizado, C.nutriId)).rejects.toSatisfy(doGatilho);
+    const [c] = await lib(await novo(), C.nutriId);
+    expect(recente(c.liberada_em)).toBe(true); // relógio do banco
+
+    // liberar depois (UPDATE de nulo a valor): as mesmas regras
+    const p = await novo();
+    const [v] = await em(C.ctx, sql`insert into chat_conversas (tenant_id, patient_id) values (${C.tenantId}, ${p}) returning id`);
+    const upd = (set: SQL, ctx: TenantContext = C.ctx) => em(ctx, sql`update chat_conversas set ${set} where id = ${v.id} returning *`);
+    await expect(upd(sql`liberada_em = now(), liberada_por = ${randomUUID()}, tcle_forma = 'aceite_escrito'`)).rejects.toSatisfy(doGatilho);
+    await expect(upd(sql`liberada_em = now(), liberada_por = ${C.nutriId}, tcle_forma = 'aceite_escrito'`, worker(C.tenantId))).rejects.toSatisfy(doGatilho);
+    const [lib2] = await upd(sql`liberada_em = '2001-01-01', liberada_por = ${C.nutriId}, tcle_forma = 'aceite_escrito'`);
+    expect(recente(lib2.liberada_em)).toBe(true);
+    for (const set of [
+      sql`liberada_em = now() - interval '1 day'`,
+      sql`liberada_em = null, liberada_por = null, tcle_forma = null`,
+      sql`tcle_forma = 'termo_assinado'`,
+      sql`liberada_por = ${randomUUID()}`,
+      sql`patient_id = ${C.p1}`,
+      sql`created_at = now() - interval '1 day'`,
+    ]) {
+      await expect(upd(set)).rejects.toSatisfy(doGatilho);
+    }
+    expect(await upd(sql`tenant_id = tenant_id, updated_at = now()`)).toHaveLength(1);
+    // o worker não cria conversa
+    await expect(em(worker(C.tenantId), sql`insert into chat_conversas (tenant_id, patient_id) values (${C.tenantId}, ${await novo()})`)).rejects.toSatisfy(doGatilho);
+  });
+
+  it('chat_conversas: pausar e retomar só na nutri, em nome de quem pausa', async () => {
+    const C = await cenario();
+    const upd = (set: SQL, ctx: TenantContext = C.ctx) => em(ctx, sql`update chat_conversas set ${set} where patient_id = ${C.p1} returning *`);
+    await expect(upd(sql`pausada_em = now(), pausada_por = ${randomUUID()}`)).rejects.toSatisfy(doGatilho);
+    await expect(upd(sql`pausada_em = now(), pausada_por = ${C.nutriId}`, worker(C.tenantId))).rejects.toSatisfy(doGatilho);
+    const [pausada] = await upd(sql`pausada_em = '2001-01-01', pausada_por = ${C.nutriId}`);
+    expect(recente(pausada.pausada_em)).toBe(true);
+    const outra = randomUUID();
+    await expect(upd(sql`pausada_em = now(), pausada_por = ${outra}`, { ...C.ctx, actorUserId: outra })).rejects.toSatisfy(doGatilho); // já pausada
+    await expect(upd(sql`pausada_em = null, pausada_por = null`, worker(C.tenantId))).rejects.toSatisfy(doGatilho);
+    const [retomada] = await upd(sql`pausada_em = null, pausada_por = null`);
+    expect(retomada.pausada_em).toBeNull();
+  });
+
+  it('anexo: o worker conclui processando → pronto | falhou com o chat_anexo do mesmo paciente; o resto das transições → 42501', async () => {
+    const C = await cenario();
+    const W = worker(C.tenantId);
+    const original = await arquivo(C, C.p1, 'chat_anexo_original');
+    const [m] = await em(C.P1, mensagem(C, { texto: null, anexoStatus: 'processando', anexoTipo: 'imagem', anexoOriginalPath: original }));
+    const meu = await arquivo(C, C.p1, 'chat_anexo');
+    const deP2 = await arquivo(C, C.p2, 'chat_anexo');
+    const outroTipo = await arquivo(C, C.p1, 'diario_foto', 'chat_anexo');
+    await expect(atualizar(C.ctx, m.id, sql`anexo_status = 'pronto', anexo_path = ${meu}`)).rejects.toSatisfy(doGatilho); // a nutri não conclui
+    await expect(atualizar(W, m.id, sql`anexo_status = 'pronto', anexo_path = ${deP2}`)).rejects.toSatisfy(doGatilho);
+    await expect(atualizar(W, m.id, sql`anexo_status = 'pronto', anexo_path = ${outroTipo}`)).rejects.toSatisfy(doGatilho);
+    await expect(atualizar(W, m.id, sql`anexo_path = ${meu}`)).rejects.toSatisfy(doGatilho); // o caminho só entra na conclusão
+    expect(await atualizar(W, m.id, sql`anexo_status = 'pronto', anexo_path = ${meu}, updated_at = now()`)).toHaveLength(1);
+    const outro = await arquivo(C, C.p1, 'chat_anexo');
+    await expect(atualizar(W, m.id, sql`anexo_path = ${outro}`)).rejects.toSatisfy(doGatilho); // pronto → pronto trocando o caminho
+    await expect(atualizar(W, m.id, sql`anexo_status = 'processando'`)).rejects.toSatisfy(doGatilho);
+    await expect(atualizar(W, m.id, sql`anexo_status = 'falhou'`)).rejects.toSatisfy(doGatilho);
+    await expect(atualizar(W, m.id, sql`anexo_original_path = null`)).rejects.toSatisfy(doGatilho); // sem o marcador
+    await expect(atualizar(W, m.id, sql`anexo_status = 'removido', anexo_path = null, anexo_original_path = null`)).rejects.toSatisfy(doGatilho);
+    // o marcador local só vale no worker (é o contexto de app_chat_soltar_anexo, T1c)
+    await expect(atualizar(C.ctx, m.id, sql`anexo_original_path = null`, true)).rejects.toSatisfy(doGatilho);
+    expect(await atualizar(W, m.id, sql`anexo_original_path = null`, true)).toHaveLength(1);
+    expect(await atualizar(W, m.id, sql`anexo_status = 'removido', anexo_path = null`, true)).toHaveLength(1);
+    await expect(atualizar(W, m.id, sql`anexo_status = 'pronto'`, true)).rejects.toSatisfy(doGatilho); // removido é final
+    expect(await ler(m.id)).toMatchObject({ anexo_status: 'removido', anexo_path: null, anexo_original_path: null });
+
+    // processando → falhou, pelo worker
+    const original2 = await arquivo(C, C.p1, 'chat_anexo_original');
+    const [f] = await em(C.P1, mensagem(C, { texto: null, anexoStatus: 'processando', anexoTipo: 'imagem', anexoOriginalPath: original2 }));
+    await expect(atualizar(C.ctx, f.id, sql`anexo_status = 'falhou'`)).rejects.toSatisfy(doGatilho);
+    expect(await atualizar(W, f.id, sql`anexo_status = 'falhou'`)).toHaveLength(1);
+  });
+
+  it('anexo: o original nunca entra num UPDATE; os caminhos do INSERT da nutri são do mesmo paciente e do tipo certo (CH-D60)', async () => {
+    const C = await cenario();
+    const W = worker(C.tenantId);
+    const [pdf] = await em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'processando', anexoTipo: 'pdf', anexoNome: 'plano.pdf' }));
+    const original = await arquivo(C, C.p1, 'chat_anexo_original');
+    await expect(atualizar(W, pdf.id, sql`anexo_original_path = ${original}`)).rejects.toSatisfy(doGatilho);
+    const meu = await arquivo(C, C.p1, 'chat_anexo');
+    const deP2 = await arquivo(C, C.p2, 'chat_anexo');
+    const outroTipo = await arquivo(C, C.p1, 'exame', 'chat_anexo');
+    const origP2 = await arquivo(C, C.p2, 'chat_anexo_original');
+    await expect(em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'pronto', anexoTipo: 'pdf', anexoPath: deP2 }))).rejects.toSatisfy(doGatilho);
+    await expect(em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'pronto', anexoTipo: 'pdf', anexoPath: outroTipo }))).rejects.toSatisfy(doGatilho);
+    await expect(em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'processando', anexoTipo: 'imagem', anexoOriginalPath: origP2 }))).rejects.toSatisfy(doGatilho);
+    expect(await em(C.ctx, daNutri(C, { texto: null, anexoStatus: 'pronto', anexoTipo: 'pdf', anexoPath: meu }))).toHaveLength(1);
+    // a nutri só mexe em updated_at
+    await expect(atualizar(C.ctx, pdf.id, sql`anexo_status = 'falhou'`)).rejects.toSatisfy(doGatilho);
+    expect(await atualizar(C.ctx, pdf.id, sql`updated_at = now()`)).toHaveLength(1);
+  });
+
+  it('chat_leituras: lado × papel ao gravar; lida_ate só avança e nunca passa do relógio; o UPDATE sem mudança da nutri passa', async () => {
+    const C = await cenario();
+    await expect(em(C.ctx, leitura(C, C.p1, 'paciente'))).rejects.toSatisfy(doGatilho);
+    await expect(em(worker(C.tenantId), leitura(C, C.p1, 'paciente'))).rejects.toSatisfy(doGatilho);
+    await expect(em(worker(C.tenantId), leitura(C, C.p1, 'consultorio'))).rejects.toSatisfy(doGatilho);
+    await em(C.ctx, sql`insert into chat_leituras (tenant_id, patient_id, lado, lida_ate) values (${C.tenantId}, ${C.p1}, 'consultorio', now() + interval '1 day')`);
+    await em(C.P1, sql`insert into chat_leituras (tenant_id, patient_id, lado, lida_ate) values (${C.tenantId}, ${C.p1}, 'paciente', now() + interval '1 day')`);
+    const lida = async (lado: string) =>
+      new Date((await owner.pool.query('select lida_ate from chat_leituras where patient_id = $1 and lado = $2', [C.p1, lado])).rows[0].lida_ate).getTime();
+    for (const lado of ['consultorio', 'paciente']) expect(await lida(lado), lado).toBeLessThanOrEqual(agora() + 1_000);
+    const antes = await lida('consultorio');
+    await em(C.ctx, sql`update chat_leituras set lida_ate = lida_ate - interval '1 day' where lado = 'consultorio'`);
+    expect(await lida('consultorio')).toBe(antes); // não volta
+    await em(C.P1, sql`update chat_leituras set lida_ate = now() + interval '1 day'`);
+    expect(await lida('paciente')).toBeLessThanOrEqual(agora() + 1_000); // nem passa do relógio
+    // CH-D58: o `set tenant_id = tenant_id` da equipe numa linha do paciente não é escrita do lado do paciente
+    const r = await withTenant(C.ctx, (tx) => tx.execute(sql`update chat_leituras set tenant_id = tenant_id where lado = 'paciente'`), app.db);
+    expect(r.rowCount).toBe(1);
+    await expect(em(C.ctx, sql`update chat_leituras set lida_ate = now() where lado = 'paciente'`)).rejects.toSatisfy(doGatilho);
+    await expect(em(worker(C.tenantId), sql`update chat_leituras set lida_ate = now() where lado = 'consultorio'`)).rejects.toSatisfy(doGatilho);
+    await expect(em(C.ctx, sql`update chat_leituras set patient_id = ${C.p2} where lado = 'consultorio'`)).rejects.toSatisfy(doGatilho); // chave fixa
+  });
+
+  it('devolvem NEW no que a RLS já recusa: outro tenant, a P2 no P1, a P2 na própria conversa e em recados, publico e conta', async () => {
+    const A = await cenario();
+    const B = await cenario();
+    const pA = (await novoPaciente(app.db, A.ctx)).id;
+    const conversa = (p: string) => sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma) values (${A.tenantId}, ${p}, now(), ${randomUUID()}, 'aceite_escrito')`;
+    const rec = sql`insert into recados (tenant_id, texto, filtro, destinatarios, autor_nome, autor_crn, criado_por) values (${A.tenantId}, 'x', '{"tipo":"todos"}', 1, ${CARIMBO.nome}, ${CARIMBO.crn}, ${randomUUID()})`;
+    const casos: [string, TenantContext | 'conta', SQL][] = [
+      ['chat_conversas', B.ctx, conversa(pA)],
+      ['chat_mensagens', B.ctx, daNutri(A, { autorUserId: B.nutriId })],
+      ['chat_leituras', B.ctx, leitura(A, A.p1, 'consultorio')],
+      ['recados', B.ctx, rec],
+      ['chat_conversas', A.P2, conversa(pA)],
+      ['chat_mensagens', A.P2, mensagem(A, { patientId: A.p1, autorUserId: A.u2 })],
+      ['chat_leituras', A.P2, leitura(A, A.p1, 'paciente')],
+      // CH-D57: a P2 na própria conversa (paciente_sem_insert) e num recado (staff_only)
+      ['chat_conversas', ctxPaciente(A.tenantId, pA, A.u2), conversa(pA)],
+      ['recados', A.P2, rec],
+      ['chat_conversas', publico(A.tenantId), conversa(pA)],
+      ['chat_mensagens', publico(A.tenantId), daNutri(A)],
+      ['chat_leituras', publico(A.tenantId), leitura(A, A.p1, 'consultorio')],
+      ['recados', publico(A.tenantId), rec],
+      ['chat_conversas', 'conta', conversa(pA)],
+      ['chat_mensagens', 'conta', daNutri(A)],
+      ['chat_leituras', 'conta', leitura(A, A.p1, 'consultorio')],
+      ['recados', 'conta', rec],
+    ];
+    for (const [t, ctx, q] of casos) {
+      const r = ctx === 'conta' ? withConta(randomUUID(), (tx) => tx.execute(q), app.db) : em(ctx, q);
+      await expect(r, `${t} ${ctx === 'conta' ? 'conta' : ctx.role}`).rejects.toSatisfy(rlsDe(t));
+    }
+    // os UPDATEs que movem linha para outro tenant ou titular também chegam à RLS
+    await em(A.P2, leitura(A, A.p2, 'paciente'));
+    await expect(em(A.P2, sql`update chat_leituras set patient_id = ${A.p1}`)).rejects.toSatisfy(rlsDe('chat_leituras'));
+    await expect(em(B.ctx, sql`update chat_conversas set tenant_id = ${A.tenantId}`)).rejects.toSatisfy(rlsDe('chat_conversas'));
+  });
+
+  it('papel desconhecido (e a recepcao, sem o Plano 26 na main) recebe o 42501 do gatilho nas quatro tabelas (falha fechada)', async () => {
+    const C = await cenario();
+    const pX = (await novoPaciente(app.db, C.ctx)).id;
+    const escritas: [string, SQL][] = [
+      ['chat_conversas', sql`insert into chat_conversas (tenant_id, patient_id) values (${C.tenantId}, ${pX})`],
+      ['chat_mensagens', daNutri(C)],
+      ['chat_leituras', leitura(C, C.p1, 'consultorio')],
+      ['recados', sql`insert into recados (tenant_id, texto, filtro, destinatarios, autor_nome, autor_crn, criado_por) values (${C.tenantId}, 'x', '{"tipo":"todos"}', 1, ${CARIMBO.nome}, ${CARIMBO.crn}, ${randomUUID()})`],
+    ];
+    for (const papel of ['desconhecido', 'recepcao']) {
+      for (const [t, q] of escritas) await expect(comPapel(papel, C.tenantId, q, C.nutriId), `${papel} ${t}`).rejects.toSatisfy(doGatilho);
+    }
+    // e no UPDATE
+    await em(C.ctx, daNutri(C));
+    await expect(comPapel('desconhecido', C.tenantId, sql`update chat_conversas set updated_at = now()`)).rejects.toSatisfy(doGatilho);
+    await expect(comPapel('desconhecido', C.tenantId, sql`update chat_mensagens set updated_at = now()`)).rejects.toSatisfy(doGatilho);
   });
 });

@@ -117,8 +117,279 @@ ALTER TABLE recados ADD CONSTRAINT recados_filtro_com_tipo CHECK (filtro ->> 'ti
 ALTER TABLE chat_horarios ADD CONSTRAINT chat_horarios_sem_sobreposicao
   EXCLUDE USING gist (tenant_id WITH =, dia_semana WITH =, int4range(inicio_min, fim_min) WITH &&);
 
--- ===== T1b (P25-01b): os quatro gatilhos — chat_conversas_regras, chat_mensagens_regras, chat_leituras_regras e
--- recados_regras — entram aqui (cada um com o próprio separador de comando do Drizzle), antes das funções. =====
+--> statement-breakpoint
+-- ===== T1b (P25-01b): os quatro gatilhos (spec §9.1–§9.5 v0.3, CH-D38, CH-D57, CH-D60, CH-D67) =====
+-- Todos BEFORE, SECURITY INVOKER, search_path fixo, 42501. Cada um devolve NEW, ANTES de ler qualquer tabela, sempre que a
+-- RLS já recusa aquele papel naquele comando — para a recusa vir da política da própria tabela (testes de isolamento):
+--   (i)   NEW.tenant_id diferente do tenant da sessão (tenant_isolation);
+--   (ii)  sessão de paciente com NEW.patient_id diferente do paciente da sessão (patient_isolation);
+--   (iii) os papéis que a RLS nega, numa lista fechada: `publico` (publico_negado) e `conta` (sem tenant);
+--   (iv)  a sessão de paciente onde a RLS a recusa (chat_conversas: paciente_sem_*; recados: staff_only e paciente_sem_*;
+--         chat_mensagens: paciente_chat_envio cobre todas as regras do paciente; chat_leituras: lado do consultório ou sem
+--         conta — paciente_leitura_propria_* e paciente_com_conta).
+-- Papel desconhecido (qualquer outro valor de app.role) recebe o 42501 do gatilho: falha fechada — app_current_role() não
+-- valida o valor e a tenant_isolation não olha o papel. A `recepcao` (Plano 26) entra na lista (iii) só quando a RLS a negar
+-- (RN-505 do 26); até lá, é papel desconhecido. Sem papel (migration, semente sem withTenant): devolve NEW; as colunas de
+-- relógio vêm do default e quem grava preenche o carimbo (o CHECK exige).
+
+-- §9.1 (RN-441, RN-442): chaves fixas; a conversa só nasce pela sessão `nutri` (liberação ou recado; o worker não cria);
+-- liberar (liberada_em de nulo a valor) só na `nutri`, em nome de quem libera, com o titular ativo e não anonimizado e o
+-- carimbo do consultório (RN-475); liberada_em/liberada_por/tcle_forma não mudam depois de gravados; pausar e retomar só na
+-- `nutri`, pausar em nome de quem pausa. liberada_em e pausada_em com o relógio do banco.
+CREATE OR REPLACE FUNCTION app_chat_conversas_regras() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public, pg_temp AS $$
+DECLARE
+  r text := coalesce(current_setting('app.role', true), '');
+  libera boolean;
+  pausa_antes timestamptz;
+  pausa_por_antes uuid;
+BEGIN
+  IF r = '' THEN RETURN NEW; END IF;
+  IF NEW.tenant_id IS DISTINCT FROM app_current_tenant() THEN RETURN NEW; END IF;
+  IF r IN ('publico', 'conta') THEN RETURN NEW; END IF;
+  IF r NOT IN ('nutri', 'paciente', 'worker') THEN
+    RAISE EXCEPTION 'chat_conversas: papel desconhecido' USING ERRCODE = '42501';
+  END IF;
+  -- (ii) e (iv): a RLS recusa a sessão de paciente em todo comando (fora de PACIENTE_ESCREVE)
+  IF r = 'paciente' THEN RETURN NEW; END IF;
+  IF TG_OP = 'INSERT' THEN
+    IF r <> 'nutri' THEN
+      RAISE EXCEPTION 'a conversa só é criada pela sessão da nutricionista' USING ERRCODE = '42501';
+    END IF;
+    libera := NEW.liberada_em IS NOT NULL;
+    pausa_antes := NULL;
+    pausa_por_antes := NULL;
+  ELSE
+    IF (NEW.id, NEW.tenant_id, NEW.patient_id, NEW.created_at) IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.patient_id, OLD.created_at) THEN
+      RAISE EXCEPTION 'coluna fixa da conversa' USING ERRCODE = '42501';
+    END IF;
+    IF OLD.liberada_em IS NOT NULL
+       AND (NEW.liberada_em, NEW.liberada_por, NEW.tcle_forma) IS DISTINCT FROM (OLD.liberada_em, OLD.liberada_por, OLD.tcle_forma) THEN
+      RAISE EXCEPTION 'a liberação da conversa não muda depois de gravada' USING ERRCODE = '42501';
+    END IF;
+    libera := OLD.liberada_em IS NULL AND NEW.liberada_em IS NOT NULL;
+    pausa_antes := OLD.pausada_em;
+    pausa_por_antes := OLD.pausada_por;
+  END IF;
+  IF libera THEN
+    IF r <> 'nutri' THEN
+      RAISE EXCEPTION 'só a sessão da nutricionista libera a conversa' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.liberada_por IS DISTINCT FROM app_current_user() THEN
+      RAISE EXCEPTION 'a liberação é gravada em nome de quem libera' USING ERRCODE = '42501';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.patients p WHERE p.tenant_id = NEW.tenant_id AND p.id = NEW.patient_id
+                     AND p.status = 'ativo' AND p.anonimizado_em IS NULL) THEN
+      RAISE EXCEPTION 'só se libera a conversa de titular ativo' USING ERRCODE = '42501';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.tenants t WHERE t.id = NEW.tenant_id AND t.nome_profissional IS NOT NULL AND t.crn IS NOT NULL) THEN
+      RAISE EXCEPTION 'o consultório ainda não tem nome profissional e CRN' USING ERRCODE = '42501';
+    END IF;
+    NEW.liberada_em := clock_timestamp();
+  END IF;
+  IF (NEW.pausada_em, NEW.pausada_por) IS DISTINCT FROM (pausa_antes, pausa_por_antes) THEN
+    IF r <> 'nutri' THEN
+      RAISE EXCEPTION 'só a sessão da nutricionista pausa e retoma a conversa' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.pausada_em IS NOT NULL THEN
+      IF pausa_antes IS NOT NULL THEN
+        RAISE EXCEPTION 'a conversa já está pausada' USING ERRCODE = '42501';
+      END IF;
+      IF NEW.pausada_por IS DISTINCT FROM app_current_user() THEN
+        RAISE EXCEPTION 'a pausa é gravada em nome de quem pausa' USING ERRCODE = '42501';
+      END IF;
+      NEW.pausada_em := clock_timestamp();
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER chat_conversas_regras BEFORE INSERT OR UPDATE ON chat_conversas FOR EACH ROW EXECUTE FUNCTION app_chat_conversas_regras();
+--> statement-breakpoint
+-- §9.2 (RN-443, RN-445, RN-462, RN-475; v0.2 (b)–(d), v0.3 (f)–(h)). INSERT: criada_em com o relógio do banco; o paciente
+-- fica com a política paciente_chat_envio (que confere autor, conta, conversa, titular, anexo e original); o worker não grava
+-- mensagem; a `nutri` grava só `autor = 'nutri'`, em nome da própria usuária, com o carimbo de `tenants` (42501 sem ele), o
+-- titular ativo e não anonimizado e — fora a cópia de recado — a conversa liberada e não pausada; os caminhos do anexo são
+-- de um stored_files do mesmo tenant e paciente, do tipo certo. UPDATE: colunas fixas, menos as quatro do GRANT; o anexo só
+-- muda pelo worker — processando → pronto | falhou, com o anexo_path entrando só em processando → pronto (mesma amarra);
+-- pronto | falhou → removido e os caminhos a nulo só com o marcador local app.chat_soltando (app_chat_soltar_anexo, T1c); o
+-- original nunca entra num UPDATE e nenhum caminho troca por outro.
+CREATE OR REPLACE FUNCTION app_chat_mensagens_regras() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public, pg_temp AS $$
+DECLARE
+  r text := coalesce(current_setting('app.role', true), '');
+  soltando boolean := coalesce(current_setting('app.chat_soltando', true), '') = 'on';
+  livres text[] := ARRAY['anexo_status', 'anexo_path', 'anexo_original_path', 'updated_at'];
+  nome text;
+  crn text;
+BEGIN
+  IF r = '' THEN RETURN NEW; END IF;
+  IF NEW.tenant_id IS DISTINCT FROM app_current_tenant() THEN RETURN NEW; END IF;
+  IF r IN ('publico', 'conta') THEN RETURN NEW; END IF;
+  IF r NOT IN ('nutri', 'paciente', 'worker') THEN
+    RAISE EXCEPTION 'chat_mensagens: papel desconhecido' USING ERRCODE = '42501';
+  END IF;
+  IF r = 'paciente' AND NEW.patient_id IS DISTINCT FROM app_current_patient() THEN RETURN NEW; END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    NEW.criada_em := clock_timestamp();
+    -- (iv): a política paciente_chat_envio confere todas as regras do envio do paciente
+    IF r = 'paciente' THEN RETURN NEW; END IF;
+    IF r = 'worker' THEN
+      RAISE EXCEPTION 'o worker não grava mensagem' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.autor IS DISTINCT FROM 'nutri' THEN
+      RAISE EXCEPTION 'a sessão da nutricionista só grava mensagem da nutricionista' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.autor_user_id IS DISTINCT FROM app_current_user() THEN
+      RAISE EXCEPTION 'a mensagem é gravada em nome de quem envia' USING ERRCODE = '42501';
+    END IF;
+    SELECT t.nome_profissional, t.crn INTO nome, crn FROM public.tenants t WHERE t.id = NEW.tenant_id;
+    IF nome IS NULL OR crn IS NULL THEN
+      RAISE EXCEPTION 'o consultório ainda não tem nome profissional e CRN' USING ERRCODE = '42501';
+    END IF;
+    NEW.autor_nome := nome;
+    NEW.autor_crn := crn;
+    IF NOT EXISTS (SELECT 1 FROM public.patients p WHERE p.tenant_id = NEW.tenant_id AND p.id = NEW.patient_id
+                     AND p.status = 'ativo' AND p.anonimizado_em IS NULL) THEN
+      RAISE EXCEPTION 'mensagem só para titular ativo' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.recado_id IS NULL AND NOT EXISTS (
+         SELECT 1 FROM public.chat_conversas c WHERE c.tenant_id = NEW.tenant_id AND c.patient_id = NEW.patient_id
+            AND c.liberada_em IS NOT NULL AND c.pausada_em IS NULL) THEN
+      RAISE EXCEPTION 'a conversa não está liberada ou está pausada' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.anexo_path IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM public.stored_files f WHERE f.tenant_id = NEW.tenant_id AND f.patient_id = NEW.patient_id
+            AND f.tipo = 'chat_anexo' AND f.caminho = NEW.anexo_path) THEN
+      RAISE EXCEPTION 'o anexo não é um chat_anexo deste paciente' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.anexo_original_path IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM public.stored_files f WHERE f.tenant_id = NEW.tenant_id AND f.patient_id = NEW.patient_id
+            AND f.tipo = 'chat_anexo_original' AND f.caminho = NEW.anexo_original_path) THEN
+      RAISE EXCEPTION 'o original não é um chat_anexo_original deste paciente' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE. (iv): a sessão de paciente não tem UPDATE (paciente_sem_update esconde as linhas)
+  IF r = 'paciente' THEN RETURN NEW; END IF;
+  IF (to_jsonb(NEW) - livres) IS DISTINCT FROM (to_jsonb(OLD) - livres) THEN
+    RAISE EXCEPTION 'coluna fixa da mensagem' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.anexo_status IS DISTINCT FROM OLD.anexo_status THEN
+    IF OLD.anexo_status = 'processando' AND NEW.anexo_status IN ('pronto', 'falhou') THEN
+      IF r <> 'worker' THEN
+        RAISE EXCEPTION 'só o worker conclui o anexo' USING ERRCODE = '42501';
+      END IF;
+    ELSIF OLD.anexo_status IN ('pronto', 'falhou') AND NEW.anexo_status = 'removido' THEN
+      IF r <> 'worker' OR NOT soltando THEN
+        RAISE EXCEPTION 'o anexo só é removido por app_chat_soltar_anexo' USING ERRCODE = '42501';
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'transição do anexo inválida' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  IF NEW.anexo_path IS DISTINCT FROM OLD.anexo_path THEN
+    IF OLD.anexo_path IS NULL THEN
+      IF NOT (OLD.anexo_status = 'processando' AND NEW.anexo_status = 'pronto') THEN
+        RAISE EXCEPTION 'o anexo convertido só entra na conclusão (processando → pronto)' USING ERRCODE = '42501';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM public.stored_files f WHERE f.tenant_id = NEW.tenant_id AND f.patient_id = NEW.patient_id
+                       AND f.tipo = 'chat_anexo' AND f.caminho = NEW.anexo_path) THEN
+        RAISE EXCEPTION 'o anexo não é um chat_anexo deste paciente' USING ERRCODE = '42501';
+      END IF;
+    ELSIF NEW.anexo_path IS NOT NULL THEN
+      RAISE EXCEPTION 'o caminho do anexo não troca por outro' USING ERRCODE = '42501';
+    ELSIF r <> 'worker' OR NOT soltando THEN
+      RAISE EXCEPTION 'o caminho do anexo só sai por app_chat_soltar_anexo' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  IF NEW.anexo_original_path IS DISTINCT FROM OLD.anexo_original_path THEN
+    IF NEW.anexo_original_path IS NOT NULL THEN
+      RAISE EXCEPTION 'o original não entra nem troca depois do envio' USING ERRCODE = '42501';
+    ELSIF r <> 'worker' OR NOT soltando THEN
+      RAISE EXCEPTION 'o original só sai por app_chat_soltar_anexo' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER chat_mensagens_regras BEFORE INSERT OR UPDATE ON chat_mensagens FOR EACH ROW EXECUTE FUNCTION app_chat_mensagens_regras();
+--> statement-breakpoint
+-- §9.3 (RN-448; v0.2, v0.3): chaves fixas; lado × papel só no INSERT e no UPDATE em que lida_ate muda (CH-D58: o `set
+-- tenant_id = tenant_id` da equipe numa linha do paciente não é escrita do lado do paciente) — `consultorio` só na `nutri`,
+-- `paciente` só na sessão de paciente com conta (o worker e a equipe não gravam o lado do paciente: seria um "Lida" falso);
+-- lida_ate só avança e nunca passa do relógio do banco (o excesso é cortado, não recusado: o upsert do módulo não falha).
+CREATE OR REPLACE FUNCTION app_chat_leituras_regras() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public, pg_temp AS $$
+DECLARE
+  r text := coalesce(current_setting('app.role', true), '');
+BEGIN
+  IF r = '' THEN RETURN NEW; END IF;
+  IF NEW.tenant_id IS DISTINCT FROM app_current_tenant() THEN RETURN NEW; END IF;
+  IF r IN ('publico', 'conta') THEN RETURN NEW; END IF;
+  IF r NOT IN ('nutri', 'paciente', 'worker') THEN
+    RAISE EXCEPTION 'chat_leituras: papel desconhecido' USING ERRCODE = '42501';
+  END IF;
+  -- (ii) e (iv): outro paciente, o lado do consultório ou a sessão sem conta — a RLS recusa
+  IF r = 'paciente' AND (NEW.patient_id IS DISTINCT FROM app_current_patient() OR NEW.lado IS DISTINCT FROM 'paciente'
+                         OR app_current_user() IS NULL) THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND (NEW.tenant_id, NEW.patient_id, NEW.lado) IS DISTINCT FROM (OLD.tenant_id, OLD.patient_id, OLD.lado) THEN
+    RAISE EXCEPTION 'coluna fixa do marcador de leitura' USING ERRCODE = '42501';
+  END IF;
+  IF TG_OP = 'INSERT' OR NEW.lida_ate IS DISTINCT FROM OLD.lida_ate THEN
+    IF NOT ((NEW.lado = 'consultorio' AND r = 'nutri') OR (NEW.lado = 'paciente' AND r = 'paciente')) THEN
+      RAISE EXCEPTION 'cada lado só grava o próprio marcador de leitura' USING ERRCODE = '42501';
+    END IF;
+    IF TG_OP = 'INSERT' THEN
+      NEW.lida_ate := least(NEW.lida_ate, clock_timestamp());
+    ELSE
+      NEW.lida_ate := greatest(OLD.lida_ate, least(NEW.lida_ate, clock_timestamp()));
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER chat_leituras_regras BEFORE INSERT OR UPDATE ON chat_leituras FOR EACH ROW EXECUTE FUNCTION app_chat_leituras_regras();
+--> statement-breakpoint
+-- §9.5 (RN-462, RN-475; v0.2, v0.3): só a sessão `nutri` grava recado, em nome da própria usuária, com o relógio do banco e o
+-- carimbo de `tenants` (42501 sem ele); o worker → 42501. A sessão de paciente (staff_only, paciente_sem_insert) devolve NEW.
+CREATE OR REPLACE FUNCTION app_recados_regras() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public, pg_temp AS $$
+DECLARE
+  r text := coalesce(current_setting('app.role', true), '');
+  nome text;
+  crn text;
+BEGIN
+  IF r = '' THEN RETURN NEW; END IF;
+  IF NEW.tenant_id IS DISTINCT FROM app_current_tenant() THEN RETURN NEW; END IF;
+  IF r IN ('publico', 'conta') THEN RETURN NEW; END IF;
+  IF r NOT IN ('nutri', 'paciente', 'worker') THEN
+    RAISE EXCEPTION 'recados: papel desconhecido' USING ERRCODE = '42501';
+  END IF;
+  IF r = 'paciente' THEN RETURN NEW; END IF;
+  IF r <> 'nutri' THEN
+    RAISE EXCEPTION 'só a sessão da nutricionista grava recado' USING ERRCODE = '42501';
+  END IF;
+  SELECT t.nome_profissional, t.crn INTO nome, crn FROM public.tenants t WHERE t.id = NEW.tenant_id;
+  IF nome IS NULL OR crn IS NULL THEN
+    RAISE EXCEPTION 'o consultório ainda não tem nome profissional e CRN' USING ERRCODE = '42501';
+  END IF;
+  NEW.autor_nome := nome;
+  NEW.autor_crn := crn;
+  NEW.criado_por := app_current_user();
+  NEW.criado_em := clock_timestamp();
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER recados_regras BEFORE INSERT ON recados FOR EACH ROW EXECUTE FUNCTION app_recados_regras();
 
 -- ===== T1c (P25-01c): as três funções SECURITY DEFINER — app_chat_soltar_anexo, app_chat_aviso_nutri_devido e
 -- app_chat_apagar_do_titular — entram aqui, no fim do arquivo. =====
