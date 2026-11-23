@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Pool, type PoolClient } from 'pg';
@@ -583,5 +584,301 @@ describe('migrations com migrator sem superusuário (runbook da Tarefa 13)', () 
       await c.query('rollback').catch(() => undefined);
       c.release();
     }
+  });
+});
+
+// Plano 25 (spec §9.7 v0.3, CH-D59, CH-D70; Review Focus 2): as três funções SECURITY DEFINER do chat com o dono SEM
+// superusuário e NOBYPASSRLS, como em produção — a RLS (FORCE) vale também dentro delas, então a troca de papel para o
+// worker e o contexto restaurado são o que as faz funcionar. A custom é achada pelo sufixo (o número muda no §5).
+describe('Plano 25: peças SECURITY DEFINER com dono NOBYPASSRLS', () => {
+  const ARQUIVO = readdirSync(new URL('../../drizzle/', import.meta.url)).find((f) => f.endsWith('_rls_mensagens.sql'));
+  const FUNCOES = ['app_chat_apagar_do_titular', 'app_chat_aviso_nutri_devido', 'app_chat_soltar_anexo'];
+  const NUTRI = '00000000-0000-4000-8000-0000000025a1';
+  let c: PoolClient;
+  let seq = 0;
+  beforeAll(async () => {
+    c = await app.connect();
+  });
+  afterAll(async () => {
+    await c?.query('rollback').catch(() => undefined);
+    c?.release();
+  });
+
+  const ctx = async (t: string, role: string, o: { patient?: string; user?: string } = {}) => {
+    await c.query('begin');
+    await c.query(
+      `select set_config('app.tenant_id', $1, true), set_config('app.role', $2, true), set_config('app.patient_id', $3, true), set_config('app.user_id', $4, true)`,
+      [t, role, o.patient ?? '', o.user ?? ''],
+    );
+  };
+  const fim = () => c.query('commit');
+  /** Roda num SAVEPOINT e devolve o erro (ou null): a transação segue para as conferências seguintes. */
+  const tenta = async (q: string, params: unknown[] = []) => {
+    await c.query('savepoint p25');
+    try {
+      await c.query(q, params);
+      await c.query('release savepoint p25');
+      return null;
+    } catch (e) {
+      await c.query('rollback to savepoint p25');
+      return e as { code?: string; message?: string };
+    }
+  };
+  const marcador = async () => (await c.query(`select coalesce(current_setting('app.chat_soltando', true), '') as m`)).rows[0].m as string;
+  const contexto = async () =>
+    (await c.query(`select current_setting('app.role', true) as r, current_setting('app.patient_id', true) as p, current_setting('app.user_id', true) as u`)).rows[0];
+
+  type Cenario = { t: string; p1: string; p2: string; contas: Record<string, string> };
+  async function cenario(fuso = 'America/Sao_Paulo'): Promise<Cenario> {
+    const n = ++seq;
+    const t = (
+      await c.query(`insert into tenants (slug, nome_exibicao, nome_profissional, crn, fuso) values ($1, 'Chat', 'Débora Nutricionista', 'CRN-3 25025', $2) returning id`, [
+        `chat-dono-${n}-${randomUUID().slice(0, 6)}`,
+        fuso,
+      ])
+    ).rows[0].id as string;
+    await ctx(t, 'worker');
+    const novo = async (nome: string) =>
+      (await c.query(`insert into patients (tenant_id, nome, data_nascimento, sexo, email) values ($1, $2, '1990-01-01', 'F', $3) returning id`, [t, nome, `${nome}-${n}@chat.dev`]))
+        .rows[0].id as string;
+    const p1 = await novo('p1');
+    const p2 = await novo('p2');
+    await fim();
+    await ctx(t, 'nutri', { user: NUTRI });
+    for (const p of [p1, p2]) {
+      await c.query(`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma) values ($1, $2, now(), $3, 'aceite_escrito')`, [t, p, NUTRI]);
+      await c.query(`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, texto) values ($1, $2, 'nutri', $3, 'Olá')`, [t, p, NUTRI]);
+      await c.query(`insert into chat_leituras (tenant_id, patient_id, lado, lida_ate) values ($1, $2, 'consultorio', now())`, [t, p]);
+    }
+    await fim();
+    return { t, p1, p2, contas: { [p1]: randomUUID(), [p2]: randomUUID() } };
+  }
+  /** O paciente envia uma foto (processando, com o original dele). */
+  const foto = async (S: Cenario, p: string) => {
+    await ctx(S.t, 'paciente', { patient: p, user: S.contas[p] });
+    const orig = `${S.t}/chat_anexo_original/${randomUUID()}.jpg`;
+    await c.query(`insert into stored_files (tenant_id, patient_id, tipo, caminho, bytes, mime) values ($1, $2, 'chat_anexo_original', $3, 10, 'image/jpeg')`, [S.t, p, orig]);
+    const id = (
+      await c.query(
+        `insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, anexo_status, anexo_tipo, anexo_original_path) values ($1, $2, 'paciente', $3, 'processando', 'imagem', $4) returning id`,
+        [S.t, p, S.contas[p], orig],
+      )
+    ).rows[0].id as string;
+    await fim();
+    return { id, orig };
+  };
+  /** O worker conclui a conversão: processando → pronto com o chat_anexo do mesmo paciente. */
+  const concluir = async (S: Cenario, p: string, id: string) => {
+    await ctx(S.t, 'worker');
+    const path = `${S.t}/chat_anexo/${randomUUID()}.jpg`;
+    await c.query(`insert into stored_files (tenant_id, patient_id, tipo, caminho, bytes, mime) values ($1, $2, 'chat_anexo', $3, 10, 'image/jpeg')`, [S.t, p, path]);
+    await c.query(`update chat_mensagens set anexo_status = 'pronto', anexo_path = $2, updated_at = now() where id = $1`, [id, path]);
+    await fim();
+    return path;
+  };
+  const mensagem = async (id: string) =>
+    (await c.query(`select anexo_status, anexo_path, anexo_original_path from chat_mensagens where id = $1`, [id])).rows[0] as Record<string, unknown>;
+  const contarDoTitular = async (t: string, p: string) => {
+    await ctx(t, 'worker');
+    const r: Record<string, number> = {};
+    for (const tabela of ['chat_conversas', 'chat_mensagens', 'chat_leituras']) {
+      r[tabela] = Number((await c.query(`select count(*)::int as n from ${tabela} where patient_id = $1`, [p])).rows[0].n);
+    }
+    await fim();
+    return r;
+  };
+
+  it('as três estão na custom, são SECURITY DEFINER do dono sem superusuário, com search_path fixo, e o PUBLIC não executa', async () => {
+    expect(ARQUIVO).toBeDefined();
+    const sqlDaCustom = readFileSync(new URL(`../../drizzle/${ARQUIVO}`, import.meta.url), 'utf8');
+    // as funções da custom: só as três são SECURITY DEFINER (as dos gatilhos, T1b, rodam com quem grava)
+    const definidas = [...sqlDaCustom.matchAll(/CREATE OR REPLACE FUNCTION (\w+)\(/g)].map((m) => m[1]);
+    const definer = await owner.query(`select proname as nome from pg_proc where proname = any($1) and prosecdef order by 1`, [definidas]);
+    expect(definer.rows.map((r) => r.nome)).toEqual(FUNCOES);
+    expect(definidas).toEqual(expect.arrayContaining(FUNCOES));
+    const { rows } = await owner.query(
+      `select p.proname as nome, p.prosecdef as definer, pg_get_userbyid(p.proowner) as dono, p.proconfig as config,
+              exists (select 1 from aclexplode(p.proacl) a where a.grantee = 0) as publico,
+              has_function_privilege('nutri_app', p.oid, 'EXECUTE') as app
+         from pg_proc p where p.proname = any($1) order by 1`,
+      [FUNCOES],
+    );
+    expect(rows).toEqual(FUNCOES.map((nome) => ({ nome, definer: true, dono: 'nutri_owner', config: ['search_path=public, pg_temp'], publico: false, app: true })));
+  });
+
+  it('app_chat_aviso_nutri_devido: cria a linha (aviso ligado), marca a janela de 2 h, respeita o horário e o aviso desligado; contexto restaurado', async () => {
+    const S = await cenario();
+    const conta = S.contas[S.p1];
+    await ctx(S.t, 'paciente', { patient: S.p1, user: conta });
+    const r1 = await c.query('select app_chat_aviso_nutri_devido(true) as devido');
+    expect(r1.rows).toEqual([{ devido: true }]); // só o booleano: nenhuma coluna da tabela volta
+    expect(await contexto()).toEqual({ r: 'paciente', p: S.p1, u: conta });
+    expect((await c.query('select app_chat_aviso_nutri_devido(true) as devido')).rows[0].devido).toBe(false); // menos de 2 h
+    expect(await contexto()).toEqual({ r: 'paciente', p: S.p1, u: conta });
+    // a sessão de paciente não lê a linha que a função criou (staff_only, CH-D70)
+    expect((await c.query('select 1 from chat_avisos_nutri')).rowCount).toBe(0);
+    await fim();
+    await ctx(S.t, 'nutri', { user: NUTRI });
+    const linha = (await c.query('select aviso_email, aviso_nutri_em from chat_avisos_nutri where tenant_id = $1', [S.t])).rows;
+    expect(linha).toHaveLength(1);
+    expect(linha[0].aviso_email).toBe(true);
+    expect(linha[0].aviso_nutri_em).not.toBeNull();
+    await c.query(`update chat_avisos_nutri set aviso_nutri_em = now() - interval '3 hours' where tenant_id = $1`, [S.t]);
+    await fim();
+    await ctx(S.t, 'paciente', { patient: S.p2, user: S.contas[S.p2] });
+    expect((await c.query('select app_chat_aviso_nutri_devido(false) as devido')).rows[0].devido).toBe(false); // fora do horário
+    expect((await c.query('select app_chat_aviso_nutri_devido(null) as devido')).rows[0].devido).toBe(false);
+    await fim();
+    await ctx(S.t, 'nutri', { user: NUTRI });
+    await c.query(`update chat_avisos_nutri set aviso_email = false where tenant_id = $1`, [S.t]);
+    await fim();
+    await ctx(S.t, 'paciente', { patient: S.p2, user: S.contas[S.p2] });
+    expect((await c.query('select app_chat_aviso_nutri_devido(true) as devido')).rows[0].devido).toBe(false); // aviso desligado
+    expect(await contexto()).toEqual({ r: 'paciente', p: S.p2, u: S.contas[S.p2] });
+    await fim();
+    await ctx(S.t, 'nutri', { user: NUTRI });
+    await c.query(`update chat_avisos_nutri set aviso_email = true where tenant_id = $1`, [S.t]);
+    await fim();
+    await ctx(S.t, 'paciente', { patient: S.p2, user: S.contas[S.p2] });
+    expect((await c.query('select app_chat_aviso_nutri_devido(true) as devido')).rows[0].devido).toBe(true); // passou das 2 h
+    await fim();
+  });
+
+  it('app_chat_aviso_nutri_devido recusa (42501) nas sessões nutri, publico, worker e de paciente sem conta, sem tocar a marca', async () => {
+    const S = await cenario();
+    const marca = async () => {
+      await ctx(S.t, 'worker');
+      const r = (await c.query('select aviso_nutri_em from chat_avisos_nutri where tenant_id = $1', [S.t])).rows;
+      await fim();
+      return r;
+    };
+    for (const [role, o] of [
+      ['nutri', { user: NUTRI }],
+      ['publico', {}],
+      ['worker', {}],
+      ['paciente', { patient: S.p1 }],
+    ] as const) {
+      await ctx(S.t, role, o);
+      const e = await tenta('select app_chat_aviso_nutri_devido(true)');
+      expect(e?.code, role).toBe('42501');
+      expect(await contexto(), role).toMatchObject({ r: role });
+      await fim();
+    }
+    expect(await marca()).toEqual([]); // nem a linha nasceu
+  });
+
+  it('app_chat_soltar_anexo: só no worker, só o ponteiro atual; o original fora de processando; o anexo só sem original (CH-D59) e com o titular na anonimização; marcador sempre zerado', async () => {
+    const S = await cenario();
+    const m = await foto(S, S.p1);
+    await ctx(S.t, 'nutri', { user: NUTRI });
+    expect((await tenta('select app_chat_soltar_anexo($1, $2)', [m.id, m.orig]))?.code).toBe('42501'); // fora do worker
+    await fim();
+    await ctx(S.t, 'worker');
+    expect((await tenta('select app_chat_soltar_anexo($1, $2)', [m.id, m.orig]))?.code).toBe('42501'); // em processando
+    expect(await marcador()).toBe(''); // também depois de um erro capturado num SAVEPOINT
+    expect((await tenta('select app_chat_soltar_anexo($1, $2)', [m.id, `${S.t}/chat_anexo_original/outro.jpg`]))?.code).toBe('42501'); // outro caminho
+    expect((await tenta('select app_chat_soltar_anexo($1, null)', [m.id]))?.code).toBe('42501');
+    await fim();
+    const path = await concluir(S, S.p1, m.id);
+    await ctx(S.t, 'worker');
+    const e = await tenta('select app_chat_soltar_anexo($1, $2)', [m.id, path]); // CH-D59: ainda tem o original
+    expect(e?.code).toBe('42501');
+    expect(e?.message).toMatch(/solte antes o original/);
+    await c.query('select app_chat_soltar_anexo($1, $2)', [m.id, m.orig]); // conversão concluída: o original sai
+    expect(await marcador()).toBe('');
+    expect(await mensagem(m.id)).toEqual({ anexo_status: 'pronto', anexo_path: path, anexo_original_path: null });
+    expect((await tenta('select app_chat_soltar_anexo($1, $2)', [m.id, path]))?.code).toBe('42501'); // titular ativo
+    expect(await marcador()).toBe('');
+    await fim();
+
+    // falhou: o original sai
+    const f = await foto(S, S.p1);
+    await ctx(S.t, 'worker');
+    await c.query(`update chat_mensagens set anexo_status = 'falhou' where id = $1`, [f.id]);
+    await c.query('select app_chat_soltar_anexo($1, $2)', [f.id, f.orig]);
+    expect(await mensagem(f.id)).toEqual({ anexo_status: 'falhou', anexo_path: null, anexo_original_path: null });
+    // anonimização: titular bloqueado com o prazo vencido — o anexo sai e a mensagem fica `removido`
+    await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2026-01-01' where id = $1`, [S.p1]);
+    await c.query('select app_chat_soltar_anexo($1, $2)', [m.id, path]);
+    expect(await marcador()).toBe('');
+    expect(await mensagem(m.id)).toEqual({ anexo_status: 'removido', anexo_path: null, anexo_original_path: null });
+    expect(await contexto()).toMatchObject({ r: 'worker' });
+    await fim();
+    // de outro consultório: a mensagem não existe para o worker deste
+    const T = await cenario();
+    const g = await foto(S, S.p2);
+    await ctx(T.t, 'worker');
+    expect((await tenta('select app_chat_soltar_anexo($1, $2)', [g.id, g.orig]))?.code).toBe('42501');
+    await fim();
+  });
+
+  it('app_chat_apagar_do_titular: só no worker; recusa ativo, prazo no futuro e anexo apontado; apaga o bloqueado vencido e o já anonimizado, só no tenant da sessão', async () => {
+    const S = await cenario();
+    const O = await cenario(); // outro consultório, que não pode ser tocado
+    await ctx(S.t, 'nutri', { user: NUTRI });
+    expect((await tenta('select app_chat_apagar_do_titular($1)', [S.p1]))?.code).toBe('42501');
+    await fim();
+    await ctx(S.t, 'worker');
+    expect((await tenta('select app_chat_apagar_do_titular($1)', [S.p1]))?.code).toBe('42501'); // ativo
+    await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01' where id = $1`, [S.p1]);
+    expect((await tenta('select app_chat_apagar_do_titular($1)', [S.p1]))?.code).toBe('42501'); // prazo no futuro
+    expect((await tenta('select app_chat_apagar_do_titular($1)', [O.p1]))?.code).toBe('42501'); // de outro tenant
+    await c.query(`update patients set anonimizar_apos = '2026-01-01' where id = $1`, [S.p1]);
+    await c.query('select app_chat_apagar_do_titular($1)', [S.p1]);
+    await fim();
+    expect(await contarDoTitular(S.t, S.p1)).toEqual({ chat_conversas: 0, chat_mensagens: 0, chat_leituras: 0 });
+    expect(await contarDoTitular(S.t, S.p2)).toEqual({ chat_conversas: 1, chat_mensagens: 1, chat_leituras: 1 });
+    expect(await contarDoTitular(O.t, O.p1)).toEqual({ chat_conversas: 1, chat_mensagens: 1, chat_leituras: 1 });
+
+    // anexo ainda apontado → recusa; depois de soltar, apaga (titular já anonimizado: a rede de limpeza, RN-466)
+    const m = await foto(S, S.p2);
+    const path = await concluir(S, S.p2, m.id);
+    await ctx(S.t, 'worker');
+    await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2046-01-01', anonimizado_em = now() where id = $1`, [S.p2]);
+    expect((await tenta('select app_chat_apagar_do_titular($1)', [S.p2]))?.code).toBe('42501');
+    await c.query('select app_chat_soltar_anexo($1, $2)', [m.id, m.orig]);
+    await c.query('select app_chat_soltar_anexo($1, $2)', [m.id, path]);
+    await c.query('select app_chat_apagar_do_titular($1)', [S.p2]);
+    await fim();
+    expect(await contarDoTitular(S.t, S.p2)).toEqual({ chat_conversas: 0, chat_mensagens: 0, chat_leituras: 0 });
+    // a trilha das exclusões (gatilho de auditoria) sob a RLS forçada
+    await ctx(S.t, 'worker');
+    const log = await c.query(`select entidade, count(*)::int as n from audit_log where patient_id = $1 and acao = 'excluir' group by 1 order by 1`, [S.p1]);
+    expect(log.rows).toEqual([
+      { entidade: 'chat', n: 1 },
+      { entidade: 'chat_conversa', n: 1 },
+    ]);
+    await fim();
+  });
+
+  it('app_chat_apagar_do_titular compara anonimizar_apos com o "hoje" do fuso do consultório, nunca com current_date', async () => {
+    // O relógio do Postgres não é falsificável aqui: escolhe-se um fuso cujo dia, AGORA, difere do dia em UTC — atrás (UTC-12,
+    // de 00h a 12h UTC: como Brasília entre 00h e 03h UTC) e/ou à frente (UTC+14, de 10h a 24h UTC)
+    const { rows } = await owner.query(
+      `select current_date::text as utc, (now() at time zone 'Etc/GMT+12')::date::text as atras, (now() at time zone 'Etc/GMT-14')::date::text as adiante,
+              (now() at time zone 'UTC')::date::text as hoje_utc`,
+    );
+    const { atras, adiante, hoje_utc: utc } = rows[0] as Record<string, string>;
+    let provados = 0;
+    if (atras < utc) {
+      // o "hoje" do consultório é ontem em UTC: anonimizar_apos = hoje no fuso ainda NÃO venceu (current_date diria que sim)
+      const S = await cenario('Etc/GMT+12');
+      await ctx(S.t, 'worker');
+      await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = $2 where id = $1`, [S.p1, atras]);
+      expect((await tenta('select app_chat_apagar_do_titular($1)', [S.p1]))?.code).toBe('42501');
+      await fim();
+      provados++;
+    }
+    if (adiante > utc) {
+      // o "hoje" do consultório é amanhã em UTC: anonimizar_apos = hoje em UTC já venceu no fuso (current_date diria que não)
+      const S = await cenario('Etc/GMT-14');
+      await ctx(S.t, 'worker');
+      await c.query(`update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = $2 where id = $1`, [S.p1, utc]);
+      await c.query('select app_chat_apagar_do_titular($1)', [S.p1]);
+      await fim();
+      expect(await contarDoTitular(S.t, S.p1)).toEqual({ chat_conversas: 0, chat_mensagens: 0, chat_leituras: 0 });
+      provados++;
+    }
+    expect(provados).toBeGreaterThan(0);
   });
 });

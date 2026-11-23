@@ -403,5 +403,165 @@ END $$;
 --> statement-breakpoint
 CREATE TRIGGER recados_regras BEFORE INSERT ON recados FOR EACH ROW EXECUTE FUNCTION app_recados_regras();
 
--- ===== T1c (P25-01c): as três funções SECURITY DEFINER — app_chat_soltar_anexo, app_chat_aviso_nutri_devido e
--- app_chat_apagar_do_titular — entram aqui, no fim do arquivo. =====
+--> statement-breakpoint
+-- ===== T1c (P25-01c): as três funções SECURITY DEFINER (spec §9.7 v0.3, CH-D59, CH-D70) =====
+-- Dona = role de migration (em produção, sem superusuário e NOBYPASSRLS: a RLS FORCE vale também aqui dentro). Molde
+-- 0083/0117: search_path fixo, nomes com `public.`, troca de papel com set_config(..., true) e o contexto do chamador
+-- restaurado antes de cada RETURN e no ramo de erro; REVOKE ALL do PUBLIC e EXECUTE só para nutri_app_role.
+
+-- §9.7: solta UM ponteiro de arquivo da mensagem, no naMesmaTransacao do apagarArquivo do worker (conversão concluída,
+-- falha, varredura ou anonimização). O original sai só fora de `processando`; o anexo convertido só depois do original
+-- (CH-D59: o CHECK `removido ⇒ sem caminhos` daria 23514 no meio da anonimização) e só com o titular na condição de
+-- app_chat_apagar_do_titular — e aí a mensagem fica `removido`. O marcador local app.chat_soltando (que o gatilho
+-- chat_mensagens_regras exige para levar um caminho a nulo) vale só durante o UPDATE e é zerado antes de cada RETURN e no erro.
+CREATE OR REPLACE FUNCTION app_chat_soltar_anexo(p_mensagem uuid, p_caminho text) RETURNS void
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_tenant uuid := public.app_current_tenant();
+  v_status text;
+  v_path text;
+  v_original text;
+  v_patient uuid;
+BEGIN
+  IF v_tenant IS NULL OR public.app_current_role() IS DISTINCT FROM 'worker' THEN
+    RAISE EXCEPTION 'app_chat_soltar_anexo() só roda no contexto worker de um tenant' USING ERRCODE = '42501';
+  END IF;
+  SELECT m.anexo_status, m.anexo_path, m.anexo_original_path, m.patient_id INTO v_status, v_path, v_original, v_patient
+    FROM public.chat_mensagens m WHERE m.tenant_id = v_tenant AND m.id = p_mensagem FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'app_chat_soltar_anexo(): mensagem fora deste tenant' USING ERRCODE = '42501';
+  END IF;
+  IF p_caminho IS NULL OR p_caminho IS DISTINCT FROM v_original AND p_caminho IS DISTINCT FROM v_path THEN
+    RAISE EXCEPTION 'app_chat_soltar_anexo(): o caminho não é o ponteiro atual da mensagem' USING ERRCODE = '42501';
+  END IF;
+  IF p_caminho = v_original THEN
+    IF v_status = 'processando' THEN
+      RAISE EXCEPTION 'app_chat_soltar_anexo(): o original só sai depois do processamento' USING ERRCODE = '42501';
+    END IF;
+    BEGIN
+      PERFORM set_config('app.chat_soltando', 'on', true);
+      UPDATE public.chat_mensagens SET anexo_original_path = NULL, updated_at = clock_timestamp()
+       WHERE tenant_id = v_tenant AND id = p_mensagem;
+      PERFORM set_config('app.chat_soltando', '', true);
+    EXCEPTION WHEN OTHERS THEN
+      PERFORM set_config('app.chat_soltando', '', true);
+      RAISE;
+    END;
+    RETURN;
+  END IF;
+  -- p_caminho = anexo_path
+  IF v_original IS NOT NULL THEN
+    RAISE EXCEPTION 'app_chat_soltar_anexo: solte antes o original' USING ERRCODE = '42501';
+  END IF;
+  IF NOT EXISTS (
+       SELECT 1 FROM public.patients p JOIN public.tenants t ON t.id = p.tenant_id
+        WHERE p.tenant_id = v_tenant AND p.id = v_patient
+          AND (p.anonimizado_em IS NOT NULL
+               OR (p.status = 'bloqueado' AND p.anonimizar_apos < (now() AT TIME ZONE t.fuso)::date))) THEN
+    RAISE EXCEPTION 'app_chat_soltar_anexo(): o anexo só sai com o titular na anonimização' USING ERRCODE = '42501';
+  END IF;
+  BEGIN
+    PERFORM set_config('app.chat_soltando', 'on', true);
+    UPDATE public.chat_mensagens SET anexo_path = NULL, anexo_status = 'removido', updated_at = clock_timestamp()
+     WHERE tenant_id = v_tenant AND id = p_mensagem;
+    PERFORM set_config('app.chat_soltando', '', true);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM set_config('app.chat_soltando', '', true);
+    RAISE;
+  END;
+  RETURN;
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_chat_soltar_anexo(uuid, text) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_chat_soltar_anexo(uuid, text) TO nutri_app_role;
+--> statement-breakpoint
+-- RN-458 / §9.7 (v0.3; CH-D70): no envio do paciente, decide se o e-mail "Mensagens novas de pacientes" é devido e marca a
+-- janela. Só na sessão de paciente com conta (conferido ANTES de trocar o papel); a sessão de paciente não lê nem grava
+-- chat_avisos_nutri (staff_only), então a função troca o papel para o worker, cria a linha do consultório quando falta (com o
+-- padrão aviso_email ligado), trava a linha (depois das travas do paciente, que o módulo já tem) e devolve false com o aviso
+-- desligado, fora do horário (p_no_horario, calculado no módulo; nulo conta como fora) ou com a marca a menos de 2 h; senão
+-- grava a marca e devolve true. Devolve só o booleano, nunca uma coluna.
+CREATE OR REPLACE FUNCTION app_chat_aviso_nutri_devido(p_no_horario boolean) RETURNS boolean
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_role text := current_setting('app.role', true);
+  v_patient_txt text := current_setting('app.patient_id', true);
+  v_tenant uuid := public.app_current_tenant();
+  v_user uuid := public.app_current_user();
+  v_ligado boolean;
+  v_marca timestamptz;
+  v_devido boolean;
+BEGIN
+  IF v_tenant IS NULL OR v_user IS NULL OR v_role IS DISTINCT FROM 'paciente' OR nullif(v_patient_txt, '') IS NULL THEN
+    RAISE EXCEPTION 'app_chat_aviso_nutri_devido() só roda na sessão de paciente com conta' USING ERRCODE = '42501';
+  END IF;
+  BEGIN
+    PERFORM set_config('app.role', 'worker', true);
+    PERFORM set_config('app.patient_id', '', true);
+    INSERT INTO public.chat_avisos_nutri (tenant_id) VALUES (v_tenant) ON CONFLICT (tenant_id) DO NOTHING;
+    SELECT a.aviso_email, a.aviso_nutri_em INTO v_ligado, v_marca FROM public.chat_avisos_nutri a WHERE a.tenant_id = v_tenant FOR UPDATE;
+    v_devido := v_ligado AND coalesce(p_no_horario, false) AND (v_marca IS NULL OR v_marca <= now() - interval '2 hours');
+    IF v_devido THEN
+      UPDATE public.chat_avisos_nutri SET aviso_nutri_em = now(), updated_at = now() WHERE tenant_id = v_tenant;
+    END IF;
+    PERFORM set_config('app.role', v_role, true);
+    PERFORM set_config('app.patient_id', v_patient_txt, true);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM set_config('app.role', v_role, true);
+    PERFORM set_config('app.patient_id', v_patient_txt, true);
+    RAISE;
+  END;
+  RETURN v_devido;
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_chat_aviso_nutri_devido(boolean) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_chat_aviso_nutri_devido(boolean) TO nutri_app_role;
+--> statement-breakpoint
+-- §9.7 (RN-465, RN-466): apaga a conversa do titular — marcadores, mensagens e a conversa, nessa ordem (FKs NO ACTION) —, no
+-- contexto worker do tenant da sessão (DELETE revogado de nutri_app_role: só por aqui). Trava o paciente FOR UPDATE (passo
+-- (1) da anonimização) e aceita (a) o titular bloqueado, ainda não anonimizado, com anonimizar_apos ANTES de hoje no fuso do
+-- consultório (a regra de anonimizarVencidos; nunca current_date) ou (b) o titular já anonimizado (rede de limpeza depois de
+-- uma volta atrás). Recusa se alguma mensagem ainda aponta arquivo (os arquivos saem antes, por apagarArquivo +
+-- app_chat_soltar_anexo). As exclusões passam pelo gatilho de auditoria.
+CREATE OR REPLACE FUNCTION app_chat_apagar_do_titular(p_patient uuid) RETURNS void
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_tenant uuid := public.app_current_tenant();
+  v_status text;
+  v_apos date;
+  v_anonimizado timestamptz;
+  v_fuso text;
+BEGIN
+  IF v_tenant IS NULL OR public.app_current_role() IS DISTINCT FROM 'worker' THEN
+    RAISE EXCEPTION 'app_chat_apagar_do_titular() só roda no contexto worker de um tenant' USING ERRCODE = '42501';
+  END IF;
+  SELECT p.status, p.anonimizar_apos, p.anonimizado_em INTO v_status, v_apos, v_anonimizado
+    FROM public.patients p WHERE p.tenant_id = v_tenant AND p.id = p_patient FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'app_chat_apagar_do_titular(): paciente fora deste tenant' USING ERRCODE = '42501';
+  END IF;
+  SELECT t.fuso INTO v_fuso FROM public.tenants t WHERE t.id = v_tenant;
+  IF NOT (v_anonimizado IS NOT NULL
+          OR (v_status = 'bloqueado' AND v_apos IS NOT NULL AND v_apos < (now() AT TIME ZONE v_fuso)::date)) THEN
+    RAISE EXCEPTION 'app_chat_apagar_do_titular(): o titular não está na anonimização' USING ERRCODE = '42501';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.chat_mensagens m WHERE m.tenant_id = v_tenant AND m.patient_id = p_patient
+               AND (m.anexo_path IS NOT NULL OR m.anexo_original_path IS NOT NULL)) THEN
+    RAISE EXCEPTION 'app_chat_apagar_do_titular(): ainda há anexo apontado' USING ERRCODE = '42501';
+  END IF;
+  DELETE FROM public.chat_leituras WHERE tenant_id = v_tenant AND patient_id = p_patient;
+  DELETE FROM public.chat_mensagens WHERE tenant_id = v_tenant AND patient_id = p_patient;
+  DELETE FROM public.chat_conversas WHERE tenant_id = v_tenant AND patient_id = p_patient;
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_chat_apagar_do_titular(uuid) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_chat_apagar_do_titular(uuid) TO nutri_app_role;
