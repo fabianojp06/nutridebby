@@ -1536,8 +1536,9 @@ indisponível".
   (`@custom-variant dark`). `@media print` volta aos claros. `:focus-visible` global.
 - **Sem `light-dark()`**: o Safari só o tem a partir da 17.5 e a RNF-09 exige iOS 16.4+.
 - O `data-tema` fica no contêiner do layout, não no `<html>`.
-- Fontes Figtree (texto) e Bricolage Grotesque (títulos) por `next/font/google`, servidas pelo próprio app
-  (`src/app/layout.tsx`, o layout raiz), com `preload: false` desde o P08-13: no layout raiz o preload vale para **todas**
+- Fontes Figtree (texto) e Bricolage Grotesque (títulos) por `next/font/local` desde o SUS-106 (antes `next/font/google`,
+  que buscava as fontes no build e derrubava o CI): os `woff2` do subconjunto latin ficam versionados em `src/fontes/`
+  (`LEIAME.md`: origem, licença OFL 1.1, subconjunto), servidas pelo próprio app (`src/app/layout.tsx`, o layout raiz), com `preload: false` desde o P08-13: no layout raiz o preload vale para **todas**
   as rotas, e o portal do paciente (`/p`, que tem fontes próprias, §5.7.6) baixava ~60 KB destas duas no celular antes do
   primeiro quadro sem usá-las. Fora do `/p` elas baixam quando a página as usa (`display: 'swap'`, com a fonte de reserva
   ajustada pelo `next/font`).
@@ -1612,10 +1613,15 @@ O portal segue o modo do aparelho, **sem botão**: `data-tema="sistema"` fixo (`
   conferido no E2E (contorno ≥ 3:1 contra a cor da faixa, claro e escuro). O anel duplo de 2 px da RN-207 não foi feito
   (Desvio 15, backlog).
 - **Fontes (D9, RNF-193).** `src/app/p/fontes.ts`: Red Hat Display (títulos e números, pesos 700/800/900,
-  `--font-redhat`) e Atkinson Hyperlegible Next (texto, 400/700, `--font-atkinson`) por `next/font/google`, subconjunto
-  `latin`, `display: 'swap'`, aplicadas só em `src/app/p/layout.tsx`. São baixadas no build e servidas pelo próprio app
-  (CSP `font-src 'self'`; o navegador não fala com o Google — LGPD). O Google entrega as duas como fontes variáveis: um
-  `woff2` por família e subconjunto para todos os pesos. Orçamento: **160 KB** de `woff2` no primeiro carregamento de
+  `--font-redhat`) e Atkinson Hyperlegible Next (texto, 400/700, `--font-atkinson`) por `next/font/local` (SUS-106: woff2
+  versionados em `src/fontes/`), subconjunto `latin`, `display: 'swap'`, aplicadas só em `src/app/p/layout.tsx`. São servidas pelo próprio app
+  (CSP `font-src 'self'`; o navegador não fala com o Google — LGPD). Os dois arquivos são variáveis (um `woff2` por família
+  para todos os pesos, os mesmos que o Google entregava): a Red Hat é declarada na faixa `700 900` (abaixo de 700 cai no
+  700, como as faces 700/800/900 de antes) e a Atkinson em **duas faces fixas, 400 e 700**, do mesmo arquivo (baixado uma
+  vez), para o `font-medium` cair no 400 e o `font-semibold` no 700 como no `next/font/google` — uma faixa `400 700` daria
+  500 e 600 de verdade e mudaria o peso de botões e rótulos (revisão do SUS-106). Só o subconjunto latin, que tem os acentos
+  do português: um caractere de latin-ext ou vietnamese (ex.: "ł", "ş" num nome) sai na fonte de reserva, só ele
+  (`src/fontes/LEIAME.md`). Orçamento: **160 KB** de `woff2` no primeiro carregamento de
   `/p`. Medido na T2: 126 112 bytes (≈ 123,2 KB) no primeiro carregamento; as fontes novas somam ≈ 95,6 KB em
   `.next/static/media` (menos de 0,1 MB na imagem comprimida). O `e2e/fontes-portal.spec.ts` (IP `10.9.19.6`, conta MULTI
   em `/p/escolher`; o plano dizia `10.9.26.1`, a dispatch da T2 deu este) mede de novo a cada execução e imprime o total
