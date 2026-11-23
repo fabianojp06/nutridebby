@@ -170,7 +170,7 @@ export type VersaoDoExame = { versao: number; titulo: string; data: string; valo
 
 /**
  * "Versões anteriores" (RN-378): o exame e as versões pelos dois ids, da mais nova para a mais antiga; `auditRead`
- * (entidade `exames_versoes`) só quando há versão. O nome de quem alterou vem de `nomesDosAtores`, fora da transação
+ * (entidade `exames_versoes`) sempre que o exame é achado (o título e a data saem mesmo sem versão). O nome de quem alterou vem de `nomesDosAtores`, fora da transação
  * (como o Histórico de acessos); sem conta → "Usuário removido".
  */
 export async function versoesDoExame(

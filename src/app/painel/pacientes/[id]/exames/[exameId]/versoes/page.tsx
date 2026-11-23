@@ -13,8 +13,8 @@ const X = MSG_EXAMES.exame;
 
 /**
  * Plano 22 (T4, US-371, RN-378): "Versões anteriores" — o estado do exame antes de cada edição (título, data e linhas), a
- * justificativa, quem e quando; e (T5a, RN-383) as "Notas anteriores", por `notasAnteriores`. Lê só por `versoesDoExame` (pelos dois ids; `auditRead` de `exames_versoes` quando há
- * versão); exame de outro paciente → 404.
+ * justificativa, quem e quando; e (T5a, RN-383) as "Notas anteriores", por `notasAnteriores`. Lê só por `versoesDoExame` (pelos dois ids; `auditRead` de `exames_versoes` sempre
+ * que o exame é achado); exame de outro paciente → 404.
  */
 export default async function VersoesDoExamePage({ params }: PageProps<'/painel/pacientes/[id]/exames/[exameId]/versoes'>) {
   const { id, exameId } = await params;
