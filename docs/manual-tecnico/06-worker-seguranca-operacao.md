@@ -929,7 +929,7 @@ merge, o OK do dono ao texto do termo `sigilo-equipe-1.0` (RE-D72, texto legal n
 - **A recepção na imagem anterior** entra em **laço de redirecionamento**: o `forbidden` leva a `/conta/outro-papel`, que
   nela também recusa `recepcao` (o `/inicio`, destino do login, também); nenhum dado aparece e as APIs respondem 403. No
   PR 2 não há conta `recepcao` em produção (a Equipe nasce desligada, RE-D52); depois do PR 3, avisar a nutricionista de
-  que a recepção fica fora até a imagem nova voltar (README, divergência #168).
+  que a recepção fica fora até a imagem nova voltar (README, divergência #175).
 - **Desativar pela Equipe** só existe na imagem nova; as linhas de `equipe_membros` seguem como estavam.
 - **Não desfazer as migrations**: nada nelas quebra a imagem anterior; se for preciso, migration nova, com o dono.
 

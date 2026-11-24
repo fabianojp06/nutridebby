@@ -51,7 +51,7 @@ Plano 22: `exames_catalogo` e `exames_modelos_solicitacao` também não (bibliot
 
 **Arquivos:** `src/modules/plataforma/contas.ts`, `convites.ts`, `dpa.ts`, `suspensao.ts`, `tenant-status.ts`, `admin-bootstrap.ts`; desde o Plano 26 (PR 2), `equipe.ts`, `equipe-textos.ts`, `membro-da-equipe.ts` e o termo em `textos-versionados.ts`.
 
-**Tabelas:** `tenants` (sem RLS, sem `tenant_id`), `user`/`account`/`session` (Better Auth, exceção de RLS), `invites` e `consents` (com `tenant_id`, mas em `RLS_EXCEPTIONS`); desde o Plano 26, `equipe_membros` (RLS, `staff_only`; [§2.5.13](02-banco-de-dados.md#2513-equipe-do-consultório-equipets-plano-26)).
+**Tabelas:** `tenants` (sem RLS, sem `tenant_id`), `user`/`account`/`session` (Better Auth, exceção de RLS), `invites` e `consents` (com `tenant_id`, mas em `RLS_EXCEPTIONS`); desde o Plano 26, `equipe_membros` (RLS, `staff_only`; [§2.5.14](02-banco-de-dados.md#2514-equipe-do-consultório-equipets-plano-26)).
 
 | Função | O que faz | Onde |
 |---|---|---|
@@ -1579,13 +1579,13 @@ Plano 22, PR 3 ("Mostrar no app", Tarefa 6; [§4.2.13](#4213-mostrar-no-app-plan
 
 Plano 26, PR 2 (Equipe; conferido no branch `plano-26-relatorios-recepcionista` em 24/11/2026, T4 a T8 prontas, `02c82ea7..bfe38520`):
 
-20. **Spec do Plano 26, §4.2: `membroAtivo(tx, userId)` em `equipe.ts`.** O código usa `lerMembroDaEquipe(db, tenantId,
+26. **Spec do Plano 26, §4.2: `membroAtivo(tx, userId)` em `equipe.ts`.** O código usa `lerMembroDaEquipe(db, tenantId,
     userId)` em `src/modules/plataforma/membro-da-equipe.ts` (a sessão importa sem o módulo da Equipe), que também devolve
     `termoAceito`.
-21. **Spec do Plano 26, RN-499: a busca do e-mail sob a trava do consultório.** O código toma também uma trava global do
+27. **Spec do Plano 26, RN-499: a busca do e-mail sob a trava do consultório.** O código toma também uma trava global do
     e-mail (`hashtext('user-email')`, `equipe.ts:137`), depois da do consultório: dois consultórios convidando o mesmo
     e-mail ao mesmo tempo não chegam ao `23505`, cujo texto levaria o e-mail ao log (revisão da P26-07).
-22. **Spec do Plano 26, §6.2: lista fechada dos textos.** Textos novos sem fonte na spec, marcados RASCUNHO no código:
+28. **Spec do Plano 26, §6.2: lista fechada dos textos.** Textos novos sem fonte na spec, marcados RASCUNHO no código:
     `MSG_RECEPCAO.acessoDesativado.termoPendente` e `MSG_EQUIPE.convite.expirado` (`equipe-textos.ts:21-25`, `:114-115`),
     `MSG_RECEPCAO.emailDaConta` ("E-mail da conta: {e-mail}.", `:36-37`), `MSG_INICIO_RECEPCAO`
     (`src/modules/agenda/inicio.ts:39`) e o guia `recepcao-seguranca` (`src/modules/ajuda/conteudo.ts:559`); entram na

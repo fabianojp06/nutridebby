@@ -780,28 +780,29 @@ Os números abaixo foram renumerados no rebase sobre o Plano 20 (que ocupou 142�
 
 Conferido no branch `plano-26-relatorios-recepcionista` em 24/11/2026 (T4 a T8 prontas e as correções das revisões,
 `02c82ea7..bfe38520`), contra a spec `docs/superpowers/specs/2026-11-17-nutridebby-26-relatorios-recepcionista-design.md` (v0.3)
-e o plano do Plano 26; detalhe nas divergências 13–19 do [cap. 2](02-banco-de-dados.md#divergências-encontradas), 8–12 do
-[cap. 3](03-autenticacao-e-acesso.md#divergências-encontradas) e 20–22 do [cap. 4](04-modulos-clinicos.md#divergências-encontradas).
-Planos em paralelo numeram a partir do mesmo número: quem rebaseia renumera.
+e o plano do Plano 26; detalhe nas divergências 15–21 do [cap. 2](02-banco-de-dados.md#divergências-encontradas), 8–12 do
+[cap. 3](03-autenticacao-e-acesso.md#divergências-encontradas) e 26–28 do [cap. 4](04-modulos-clinicos.md#divergências-encontradas).
+Planos em paralelo numeram a partir do mesmo número: quem rebaseia renumera. Os números abaixo foram renumerados no rebase sobre o Plano 22, PR 2 (#69, que ocupou 154–160
+no README, 13–14 no cap. 2 e 20–25 no cap. 4).
 
 | # | Fonte | Diz | Código | Tipo | Cap. |
 |---|---|---|---|---|---|
-| 154 | Spec §4.3 (`patient_cadastro`) | O `EXISTS` do paciente visível conta com a RLS de `patients` dentro da subconsulta | O `EXISTS` repete os filtros e não depende dela (em todas as filhas) | Doc | 2 #13 |
-| 155 | RN-505 | `RECEPCAO_CONDICOES` com os trechos exigidos (molde `AUDIENCIA_EXIGE`) | A expressão inteira, comparada por igualdade (revisão da T4: trecho deixaria passar `… OR true`) | Doc | 2 #14 |
-| 156 | §4.4, RN-511 | Três decisões; gatilho de tabela liberada "que lê `patients`" | Cinco decisões; também o gatilho que lê tabela negada à recepção (RE-D62) | Doc | 2 #15 |
-| 157 | §9.3, RN-510 | Três peças `SECURITY DEFINER` | Quatro, com `app_cpf_em_uso` (RE-D71); RE-D70 e RE-D71 ainda fora da spec §14 (entram na T12) | Doc | 2 #16 |
-| 158 | RN-509 | INSERT da recepção "agendada (ou o estado de pedido que o 23 decidir)" | Só `agendada`; consulta encerrada imutável, relógio do banco e `confirmada_via` só a nulo (revisão da T5b) | Doc | 2 #17 |
-| 159 | RN-500, RN-503 | A recepção desativada recebe `forbidden` | Decisão própria `desativada`; também a conta ativa sem o termo aceito, com texto RASCUNHO | Doc | 3 #8 |
-| 160 | §4.2 | `membroAtivo(tx, userId)` em `equipe.ts` | `lerMembroDaEquipe` em `membro-da-equipe.ts`, com `termoAceito` | Doc | 3 #9, 4 #20 |
-| 161 | RN-500 | — ("Esqueci minha senha" não citado) | A recepção sem senha não recebe o link de redefinição (o termo só pelo convite) | Doc | 3 #10 |
-| 162 | RE-D70 | Fora da spec §14 | **Resolvida (`bfe38520`):** "Continuar na sessão" no código e no comentário do `POST /api/sessao/ativa`; falta só a §14 da spec (T12) | — | 3 #11 |
-| 163 | RN-500 | Aceite do `sigilo-equipe-1.0` no primeiro acesso | A sessão exige a versão em vigor, mas não há tela de novo aceite e o reenvio recusa quem tem senha: subir a versão trancaria a recepção | Pend. | 3 #12 |
-| 164 | RN-499 | Busca do e-mail sob a trava do consultório | Também a trava global do e-mail (sem `23505` com o e-mail no log) | Doc | 4 #21 |
-| 165 | Spec §6.2 | Lista fechada dos textos | Textos RASCUNHO: o do termo pendente, o do convite vencido da recepção, o "E-mail da conta: {e-mail}.", `MSG_INICIO_RECEPCAO` e o guia `recepcao-seguranca` | Pend. | 4 #22 |
-| 166 | Spec §14 | Decisões RE-D1 a RE-D48 e RE-D59 a RE-D69 | Também RE-D72 (o merge do PR 2 espera o OK do dono ao texto do termo `sigilo-equipe-1.0`) e RE-D73 (`pedido_nao_confirmado` em `TIPOS_DA_AGENDA`, `aniversario` em `TIPOS_FORA_DA_RECEPCAO`), só no plano (`…/plans/2026-11-17-nutridebby-26-relatorios-recepcionista.md:557-558`); com RE-D70 e RE-D71 (#157, #162), entram na §14 na T12 | Doc | — |
-| 167 | Spec R-498 | `lock_timeout` "para a execução inteira"; o laço pega "~100 tabelas" | Por espera de trava (as esperas somam; a trava de `user` fica até o fim); o laço pega 59 tabelas e a 60ª nasce negada | Doc | 2 #18 |
-| 168 | Spec §18.5, "Banco Minor 7" (linha 1302) | Na volta atrás, "a imagem antiga já recusa a recepção em `requireUser`/`requireNutri`" | Recusa sem mostrar dado, mas em **laço de redirecionamento**: o `forbidden` leva a `/conta/outro-papel`, que na imagem antiga também recusa `recepcao` (e o `/inicio`, destino do login, idem). Sem efeito no PR 2 (nenhuma conta `recepcao` em produção); depois do PR 3, a recepção fica fora até a imagem nova voltar | Comp. | 6 §6.8.1 |
-| 169 | Spec RNF-486 | "O CHECK de `user` só ganha um valor" | A `0132` também cria `user_recepcao_com_tenant` e `user.ultimo_acesso_em` e troca os CHECKs de `invites`; tudo expansão | Doc | 2 #19 |
+| 161 | Spec §4.3 (`patient_cadastro`) | O `EXISTS` do paciente visível conta com a RLS de `patients` dentro da subconsulta | O `EXISTS` repete os filtros e não depende dela (em todas as filhas) | Doc | 2 #15 |
+| 162 | RN-505 | `RECEPCAO_CONDICOES` com os trechos exigidos (molde `AUDIENCIA_EXIGE`) | A expressão inteira, comparada por igualdade (revisão da T4: trecho deixaria passar `… OR true`) | Doc | 2 #16 |
+| 163 | §4.4, RN-511 | Três decisões; gatilho de tabela liberada "que lê `patients`" | Cinco decisões; também o gatilho que lê tabela negada à recepção (RE-D62) | Doc | 2 #17 |
+| 164 | §9.3, RN-510 | Três peças `SECURITY DEFINER` | Quatro, com `app_cpf_em_uso` (RE-D71); RE-D70 e RE-D71 ainda fora da spec §14 (entram na T12) | Doc | 2 #18 |
+| 165 | RN-509 | INSERT da recepção "agendada (ou o estado de pedido que o 23 decidir)" | Só `agendada`; consulta encerrada imutável, relógio do banco e `confirmada_via` só a nulo (revisão da T5b) | Doc | 2 #19 |
+| 166 | RN-500, RN-503 | A recepção desativada recebe `forbidden` | Decisão própria `desativada`; também a conta ativa sem o termo aceito, com texto RASCUNHO | Doc | 3 #8 |
+| 167 | §4.2 | `membroAtivo(tx, userId)` em `equipe.ts` | `lerMembroDaEquipe` em `membro-da-equipe.ts`, com `termoAceito` | Doc | 3 #9, 4 #26 |
+| 168 | RN-500 | — ("Esqueci minha senha" não citado) | A recepção sem senha não recebe o link de redefinição (o termo só pelo convite) | Doc | 3 #10 |
+| 169 | RE-D70 | Fora da spec §14 | **Resolvida (`bfe38520`):** "Continuar na sessão" no código e no comentário do `POST /api/sessao/ativa`; falta só a §14 da spec (T12) | — | 3 #11 |
+| 170 | RN-500 | Aceite do `sigilo-equipe-1.0` no primeiro acesso | A sessão exige a versão em vigor, mas não há tela de novo aceite e o reenvio recusa quem tem senha: subir a versão trancaria a recepção | Pend. | 3 #12 |
+| 171 | RN-499 | Busca do e-mail sob a trava do consultório | Também a trava global do e-mail (sem `23505` com o e-mail no log) | Doc | 4 #27 |
+| 172 | Spec §6.2 | Lista fechada dos textos | Textos RASCUNHO: o do termo pendente, o do convite vencido da recepção, o "E-mail da conta: {e-mail}.", `MSG_INICIO_RECEPCAO` e o guia `recepcao-seguranca` | Pend. | 4 #28 |
+| 173 | Spec §14 | Decisões RE-D1 a RE-D48 e RE-D59 a RE-D69 | Também RE-D72 (o merge do PR 2 espera o OK do dono ao texto do termo `sigilo-equipe-1.0`) e RE-D73 (`pedido_nao_confirmado` em `TIPOS_DA_AGENDA`, `aniversario` em `TIPOS_FORA_DA_RECEPCAO`), só no plano (`…/plans/2026-11-17-nutridebby-26-relatorios-recepcionista.md:557-558`); com RE-D70 e RE-D71 (#164, #169), entram na §14 na T12 | Doc | — |
+| 174 | Spec R-498 | `lock_timeout` "para a execução inteira"; o laço pega "~100 tabelas" | Por espera de trava (as esperas somam; a trava de `user` fica até o fim); o laço pega 59 tabelas e a 60ª nasce negada | Doc | 2 #20 |
+| 175 | Spec §18.5, "Banco Minor 7" (linha 1302) | Na volta atrás, "a imagem antiga já recusa a recepção em `requireUser`/`requireNutri`" | Recusa sem mostrar dado, mas em **laço de redirecionamento**: o `forbidden` leva a `/conta/outro-papel`, que na imagem antiga também recusa `recepcao` (e o `/inicio`, destino do login, idem). Sem efeito no PR 2 (nenhuma conta `recepcao` em produção); depois do PR 3, a recepção fica fora até a imagem nova voltar | Comp. | 6 §6.8.1 |
+| 176 | Spec RNF-486 | "O CHECK de `user` só ganha um valor" | A `0132` também cria `user_recepcao_com_tenant` e `user.ultimo_acesso_em` e troca os CHECKs de `invites`; tudo expansão | Doc | 2 #21 |
 
 Pendências do Plano 26 para a T12 (registradas só aqui): o escopo do README e o glossário da numeração nova (M9 da revisão do PR 2) e a §14 da spec com RE-D49 a RE-D58 e RE-D70 a RE-D73.
 
@@ -814,6 +815,6 @@ Conferido no branch `runner-proprio` em `bbd7728` (antes do merge; mergeado no P
 |---|---|---|---|---|---|
 | 102 | Spec §9.7 ("Merge na `main`") e RNF-03 | Build da imagem no GitHub Actions, não na VPS, para não consumir CPU e memória do CRM | O CI roda na VPS, no runner próprio, inclusive o build de prova do job `image` (sem push), dentro da `user-1500.slice` (4 de 8 vCPU, 12 GB, sem swap); a imagem publicada segue montada no `publish` hospedado | Doc | 1 #13, 7 #11 |
 
-**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68, #74, #153 e #168. As de tipo Doc entram na
+**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68, #74, #153 e #175. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.
 Plano 22, PR 2: #145 (Comp.).
