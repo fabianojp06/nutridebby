@@ -52,6 +52,12 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
       NUTRI_DB_CONTAINER: inject('pgContainerId'),
       NUTRI_DB_USER: inject('pgUser'),
       NUTRI_DB_NAME: inject('pgDatabase'),
+      // SUS-107: o banco do Vitest é um só para todos os arquivos, e o dump dele inteiro crescia com os dados dos outros
+      // testes (3,8 s com 14 MB, 14,5 s com 254 MB) até estourar o prazo sob carga. Aqui o dump passa só pela tabela que
+      // estes testes controlam — o caminho (pg_dump -Fc no container → crypt → retenção → registro) é o mesmo; o dump do
+      // banco inteiro, restaurado de verdade, é provado em test/restauracao.test.ts. Quem precisa de outros argumentos
+      // (falha no dump) passa os seus.
+      NUTRI_PG_DUMP_ARGS: '--table=backup_runs',
     } as unknown as NodeJS.ProcessEnv;
   });
   afterAll(async () => {
@@ -85,6 +91,16 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     (await execFile('rclone', ['lsf', `cripto:${p}`], { env })).stdout.split('\n').filter(Boolean).sort();
   const cat = async (p: string) =>
     (await execFile('rclone', ['cat', `cripto:${p}`], { env, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 })).stdout as unknown as Buffer;
+  /** Vários arquivos no remoto com um `rclone copy` só (um rcat por arquivo era um processo do rclone, e o crypt, cada). */
+  const semear = async (arquivos: Record<string, string>) => {
+    const origem = mkdtempSync(path.join(base, 'semente-'));
+    for (const [p, conteudo] of Object.entries(arquivos)) {
+      mkdirSync(path.dirname(path.join(origem, p)), { recursive: true });
+      writeFileSync(path.join(origem, p), conteudo);
+    }
+    await execFile('rclone', ['copy', origem, 'cripto:'], { env });
+    rmSync(origem, { recursive: true, force: true });
+  };
   const rcat = (p: string, conteudo: string) =>
     new Promise<void>((ok, falha) => {
       const c = execFileCb('rclone', ['rcat', `cripto:${p}`], { env }, (e) => (e ? falha(e) : ok()));
@@ -108,8 +124,12 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
   });
 
   it('domingo: dump cifrado no diário e no semanal, /data sincronizado, retenção 7+4, registro em backup_runs', async () => {
-    for (let d = 20; d <= 27; d++) await rcat(`db/diario/nutri-2026-09-${d}.dump`, 'antigo'); // 8 diários antigos
-    for (const d of ['2026-08-30', '2026-09-06', '2026-09-13', '2026-09-20', '2026-09-27']) await rcat(`db/semanal/nutri-${d}.dump`, 'antigo');
+    await semear(
+      Object.fromEntries([
+        ...Array.from({ length: 8 }, (_, i) => `db/diario/nutri-2026-09-${20 + i}.dump`), // 8 diários antigos
+        ...['2026-08-30', '2026-09-06', '2026-09-13', '2026-09-20', '2026-09-27'].map((d) => `db/semanal/nutri-${d}.dump`),
+      ].map((p) => [p, 'antigo'])),
+    );
     const antes = await referencia();
     // X-1: outro arquivo de teste (monitoramento.test.ts) grava no mesmo banco, ao mesmo tempo, execuções com datas
     // antigas; com a tabela ainda vazia elas não podem entrar nas "execuções desde a referência"
