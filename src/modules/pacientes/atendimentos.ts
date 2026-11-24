@@ -5,6 +5,7 @@ import { appointments, consultationNotes, consultations } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { caracteres } from '@/lib/text';
 import { motivoParaNaoIniciarAtendimento } from '@/modules/agenda/presenca';
+import { previsaoNaFaixa, retornoEmSemanas } from '@/modules/agenda/retorno';
 import { cobrarConsultaRealizada, type ResultadoCobranca } from '@/modules/financeiro/cobranca';
 import { auditRead } from '@/modules/plataforma/audit';
 import { carregarPacienteParaEscrita, idValido } from './base';
@@ -22,6 +23,8 @@ export const MSG_ATENDIMENTO = {
   consultaNaoComecou: 'Esta consulta ainda não começou.',
   /** Plano 23 (§4.3, §6.2 "Atendimento"): a consulta ligada ainda é um pedido (`solicitada`). */
   pedido: 'Aceite o pedido antes de registrar o atendimento.',
+  /** Plano 23 (RN-430, §6.2 "Atendimento"): a previsão de retorno fora da faixa do CHECK `consultations_retorno_previsto_faixa`. */
+  retornoPrevisto: 'A previsão de retorno deve ficar entre a data do atendimento e 2 anos depois.',
 } as const;
 
 export class AtendimentoError extends Error {
@@ -31,15 +34,40 @@ export class AtendimentoError extends Error {
   }
 }
 
-export type Atendimento = { id: string; data: string; orientacoesPaciente: string | null; notasPrivadas: string | null; createdAt: Date };
-/** `appointmentId` (Plano 05): só no registro, quando o atendimento é iniciado pela agenda; a edição ignora. */
-type Entrada = { data: unknown; notasPrivadas: unknown; orientacoes: unknown; appointmentId?: unknown };
+export type Atendimento = { id: string; data: string; orientacoesPaciente: string | null; notasPrivadas: string | null; retornoPrevistoEm: string | null; createdAt: Date };
+/**
+ * `appointmentId` (Plano 05): só no registro, quando o atendimento é iniciado pela agenda; a edição ignora.
+ * Plano 23 (US-410, RN-430): "Retorno previsto (opcional)" — `retornoPrevistoEm` (a data) ou `retornoSemanas` ("Em {n}
+ * semanas", contadas da data do atendimento, que já está no fuso do consultório); com as semanas preenchidas, elas valem.
+ * Os dois vazios ('') tiram a previsão; os dois ausentes (`undefined`, quem chama sem o campo) mantêm a gravada na edição.
+ */
+type Entrada = { data: unknown; notasPrivadas: unknown; orientacoes: unknown; appointmentId?: unknown; retornoPrevistoEm?: unknown; retornoSemanas?: unknown };
 
-function validar(input: Entrada, hoje: string): { data: string; notas: string | null; orientacoes: string | null } {
+/** Semanas: inteiro (sem sinal nem fração); outro texto não vira previsão. */
+const SEMANAS = /^\d{1,3}$/;
+
+/**
+ * A previsão pedida: `undefined` = não informada (manter a gravada), `null` = sem previsão, `string` = a data, ou `false`
+ * quando o texto não forma uma data (a mensagem da RN-430). A faixa é conferida depois, contra a data do atendimento.
+ */
+function previsaoPedida(input: Entrada, data: string): string | null | undefined | false {
+  if (input.retornoPrevistoEm === undefined && input.retornoSemanas === undefined) return undefined;
+  const texto = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const semanas = texto(input.retornoSemanas);
+  if (semanas) return SEMANAS.test(semanas) && dataValida(data) ? retornoEmSemanas(data, Number(semanas)) : false;
+  const dia = texto(input.retornoPrevistoEm);
+  if (!dia) return null;
+  return dataValida(dia) ? dia : false;
+}
+
+function validar(input: Entrada, hoje: string): { data: string; notas: string | null; orientacoes: string | null; retorno: string | null | undefined } {
   const erros: Record<string, string> = {};
   const data = typeof input.data === 'string' ? input.data.trim() : '';
   if (!dataValida(data)) erros.data = MSG_ATENDIMENTO.data;
   else if (data > hoje) erros.data = MSG_ATENDIMENTO.futuro;
+  // RN-430: entre a data do atendimento e + 730 dias, antes do banco (o CHECK é a última defesa: o 23514 levaria a linha ao log)
+  const retorno = previsaoPedida(input, data);
+  if (retorno === false || (typeof retorno === 'string' && dataValida(data) && !previsaoNaFaixa(data, retorno))) erros.retornoPrevistoEm = MSG_ATENDIMENTO.retornoPrevisto;
   // o navegador envia quebra de linha como CRLF, mas o maxLength do textarea conta 1 caractere: normaliza antes de medir
   const limpo = (v: unknown) => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n').trim() : '');
   const notas = limpo(input.notasPrivadas);
@@ -47,7 +75,7 @@ function validar(input: Entrada, hoje: string): { data: string; notas: string | 
   const orientacoes = limpo(input.orientacoes);
   if (caracteres(orientacoes) > 5000) erros.orientacoes = MSG_ATENDIMENTO.orientacoes;
   if (Object.keys(erros).length) throw new AtendimentoError(erros);
-  return { data, notas: notas || null, orientacoes: orientacoes || null };
+  return { data, notas: notas || null, orientacoes: orientacoes || null, retorno: retorno === false ? null : retorno };
 }
 
 async function gravarNota(tx: Tx, a: { tenantId: string; patientId: string; consultationId: string }, notas: string | null, now: Date) {
@@ -100,7 +128,7 @@ export async function registrarAtendimento(
         }
         const [c] = await tx
           .insert(consultations)
-          .values({ tenantId: ctx.tenantId, patientId: p.id, data: v.data, orientacoesPaciente: v.orientacoes, appointmentId: appointmentId as string | null, createdAt: now, updatedAt: now })
+          .values({ tenantId: ctx.tenantId, patientId: p.id, data: v.data, orientacoesPaciente: v.orientacoes, retornoPrevistoEm: v.retorno ?? null, appointmentId: appointmentId as string | null, createdAt: now, updatedAt: now })
           .returning({ id: consultations.id });
         await gravarNota(tx, { tenantId: ctx.tenantId, patientId: p.id, consultationId: c.id }, v.notas, now);
         return { id: c.id, cobranca };
@@ -127,10 +155,19 @@ export async function atualizarAtendimento(
     ctx,
     async (tx) => {
       const p = await carregarPacienteParaEscrita(tx, patientId);
+      if (v.retorno === undefined && idValido(id)) {
+        // sem os campos da previsão, ela fica — e é conferida contra a data nova antes do UPDATE (nunca o 23514, RN-430)
+        const [atual] = await tx
+          .select({ retorno: consultations.retornoPrevistoEm })
+          .from(consultations)
+          .where(and(eq(consultations.id, id), eq(consultations.patientId, p.id)))
+          .for('update');
+        if (atual?.retorno && !previsaoNaFaixa(v.data, atual.retorno)) throw new AtendimentoError({ retornoPrevistoEm: MSG_ATENDIMENTO.retornoPrevisto });
+      }
       const [c] = idValido(id)
         ? await tx
             .update(consultations)
-            .set({ data: v.data, orientacoesPaciente: v.orientacoes, updatedAt: now })
+            .set({ data: v.data, orientacoesPaciente: v.orientacoes, ...(v.retorno === undefined ? {} : { retornoPrevistoEm: v.retorno }), updatedAt: now })
             .where(and(eq(consultations.id, id), eq(consultations.patientId, p.id)))
             .returning({ id: consultations.id })
         : [];
@@ -145,6 +182,8 @@ const COLUNAS = {
   id: consultations.id,
   data: consultations.data,
   orientacoesPaciente: consultations.orientacoesPaciente,
+  // Plano 23 (RN-430): a previsão de retorno, na tela da equipe (o portal lê os atendimentos por outras funções, sem ela)
+  retornoPrevistoEm: consultations.retornoPrevistoEm,
   createdAt: consultations.createdAt,
 };
 

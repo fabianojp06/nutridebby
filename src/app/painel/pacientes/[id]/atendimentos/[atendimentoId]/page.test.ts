@@ -107,3 +107,34 @@ describe('registrarAtendimentoAction + a página do atendimento (US-303, §6.2)'
       expect(texto(await pagina(C, idDa(url), { ok: 'atendimento', cobranca }))).not.toContain('Atendimento registrado.');
   });
 });
+
+describe('Plano 23 (US-410, §6.2): "Retorno previsto (opcional)" no atendimento', () => {
+  it('"Em {n} semanas" no formulário grava a data; a página do atendimento abre com a data no campo "Data"; fora da faixa, a mensagem da RN-430 ligada aos campos', async () => {
+    const C = await cenario({ status: 'realizada' });
+    const fd = formulario(C, '');
+    fd.set('retornoPrevistoEm', '');
+    fd.set('retornoSemanas', '6');
+    const url = await registrarAtendimentoAction(C.p, {}, fd).then(
+      (r) => {
+        throw new Error(`devia redirecionar: ${JSON.stringify(r)}`);
+      },
+      (e: Error) => e.message.replace(/^redirect /, ''),
+    );
+    const hoje = hojeNoFuso(C.tenant.fuso);
+    const [a, m, d] = hoje.split('-').map(Number);
+    const esperada = new Date(Date.UTC(a, m - 1, d + 42)).toISOString().slice(0, 10);
+    const html = await pagina(C, idDa(url), {});
+    expect(html).toMatch(/<legend[^>]*>Retorno previsto \(opcional\)<\/legend>/);
+    expect(/<input id="retornoPrevistoEm"[^>]*>/.exec(html)?.[0]).toMatch(new RegExp(`type="date"[^>]*name="retornoPrevistoEm"[^>]*value="${esperada}"`));
+    expect(html).toMatch(/<label for="retornoPrevistoEm"[^>]*>Data<\/label>/);
+    expect(texto(html)).toMatch(/Em\s*semanas/);
+    expect(html).toMatch(/<label for="retornoSemanas"[^>]*>Em<input id="retornoSemanas" type="number"[^>]*name="retornoSemanas"[^>]*\/>semanas<\/label>/);
+
+    const errado = formulario(C, '');
+    errado.set('retornoPrevistoEm', '2000-01-01');
+    errado.set('retornoSemanas', '');
+    const r = await registrarAtendimentoAction(C.p, {}, errado);
+    expect(r.erros).toEqual({ retornoPrevistoEm: 'A previsão de retorno deve ficar entre a data do atendimento e 2 anos depois.' });
+    expect(r.valores).toMatchObject({ retornoPrevistoEm: '2000-01-01', retornoSemanas: '' });
+  });
+});

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { MSG_VISOES as M } from '@/modules/agenda/constantes';
 import { diaCurto, partesNoFuso } from '@/modules/agenda/fuso';
 import type { ItemDaAgenda, Marcador } from '@/modules/agenda/visoes';
+import { hrefDoRetorno } from './grade-semana';
 import { MARCA } from './legenda';
 
 /**
@@ -29,8 +30,8 @@ const MAX_NOMES = 3;
 export function GradeDoMes({ semanas, mes, caption, hoje, fuso, itens, marcadores, hrefDoDia }: Props) {
   const doDia = (dia: string) => itens.filter((c) => partesNoFuso(c.inicio, fuso).data === dia);
   const marcadoresDoDia = (dia: string) => [
-    ...marcadores.retornos.filter((m) => m.data === dia).map((m) => ({ chave: `r-${m.patientId}`, texto: M.marcadorRetorno(m.nome), marca: MARCA.retornoPrevisto })),
-    ...marcadores.aniversarios.filter((m) => m.data === dia).map((m) => ({ chave: `a-${m.patientId}`, texto: M.marcadorAniversario(m.nome), marca: MARCA.aniversario })),
+    ...marcadores.retornos.filter((m) => m.data === dia).map((m) => ({ chave: `r-${m.patientId}`, texto: M.marcadorRetorno(m.nome), marca: MARCA.retornoPrevisto, href: hrefDoRetorno(m.patientId) })),
+    ...marcadores.aniversarios.filter((m) => m.data === dia).map((m) => ({ chave: `a-${m.patientId}`, texto: M.marcadorAniversario(m.nome), marca: MARCA.aniversario, href: null })),
   ];
   const diasDoMes = semanas.flat().filter((d) => d.startsWith(mes));
   const comConteudo = diasDoMes.filter((d) => doDia(d).length > 0 || marcadoresDoDia(d).length > 0);
@@ -72,7 +73,7 @@ export function GradeDoMes({ semanas, mes, caption, hoje, fuso, itens, marcadore
                     )}
                     {ms.length > 0 && (
                       <ul className="mt-1 space-y-1">
-                        {ms.map((m) => <li key={m.chave} className={`rounded p-0.5 ${m.marca}`}>{m.texto}</li>)}
+                        {ms.map((m) => <li key={m.chave} className={`rounded p-0.5 ${m.marca}`}>{m.href ? <Link href={m.href} className="inline-flex min-h-6 items-center text-texto underline">{m.texto}</Link> : m.texto}</li>)}
                       </ul>
                     )}
                   </td>
@@ -98,7 +99,7 @@ export function GradeDoMes({ semanas, mes, caption, hoje, fuso, itens, marcadore
                 {cs.length > 0 && <ul className="text-suave">{cs.map((c) => <li key={c.id}>{c.paciente}</li>)}</ul>}
                 {marcadoresDoDia(d).length > 0 && (
                   <ul className="space-y-1">
-                    {marcadoresDoDia(d).map((m) => <li key={m.chave} className={`rounded p-1 ${m.marca}`}>{m.texto}</li>)}
+                    {marcadoresDoDia(d).map((m) => <li key={m.chave} className={`rounded p-1 ${m.marca}`}>{m.href ? <Link href={m.href} className="inline-flex min-h-11 items-center text-texto underline">{m.texto}</Link> : m.texto}</li>)}
                   </ul>
                 )}
               </section>

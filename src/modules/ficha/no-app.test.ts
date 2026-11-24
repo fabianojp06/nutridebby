@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { count, eq, sql } from 'drizzle-orm';
+import { consultaDireta, pedidoDireto } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { novaEtiqueta, novoConteudo } from '../../../test/conteudos';
 import { documentoNoBanco, liberarDocumentos } from '../../../test/documentos';
@@ -23,6 +24,7 @@ import { situacaoDoAcesso } from '@/modules/pacientes/convite-paciente';
 import { criarExame } from '@/modules/pacientes/exames';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { definirPesoOculto } from '@/modules/pacientes/peso-oculto';
+import { consultasDoPaciente } from '@/modules/portal/agenda';
 import { feedDeConteudos } from '@/modules/portal/conteudos';
 import { diarioDoPaciente } from '@/modules/portal/diario';
 import { evolucaoParaPaciente } from '@/modules/portal/evolucao';
@@ -166,6 +168,11 @@ async function montar() {
       .returning({ id: consultations.id }),
   );
   await definirPesoOculto(T.ctx, ana.id, true, { db: app.db });
+  // Plano 23 (seção "Consultas"): uma agendada e um pedido futuros ("Próximas" do portal), uma realizada e uma cancelada
+  const consultaFutura = await consultaDireta(app.db, T.ctx, ana.id, new Date(AGORA.getTime() + 5 * DIA), 60);
+  const pedidoFuturo = await pedidoDireto(app.db, T, ana.id, new Date(AGORA.getTime() + 6 * DIA), 60);
+  const consultaPassada = await consultaDireta(app.db, T.ctx, ana.id, new Date(AGORA.getTime() - 5 * DIA), 60, { status: 'realizada' });
+  const consultaCancelada = await consultaDireta(app.db, T.ctx, ana.id, new Date(AGORA.getTime() + 7 * DIA), 60, { status: 'cancelada', canceladoPor: 'nutri', canceladaEm: AGORA });
 
   await inserir(ctxAna, (tx) =>
     tx.insert(diaryEntries).values([
@@ -214,6 +221,7 @@ async function montar() {
       exames: [exameLiberado, exameNaoLiberado],
       avaliacoes: [av1.id, av2.id],
       atendimentos: [at1.id, at2.id],
+      consultas: [consultaFutura, pedidoFuturo, consultaPassada, consultaCancelada],
       paraTodos: paraTodos.id,
     },
   };
@@ -246,6 +254,14 @@ const CASOS: Record<string, Caso> = {
       // a Jornada não devolve o id do atendimento: os ids que a sessão da Ana lê da mesma tabela
       const ids = await withTenant(c.ctxAna, (tx) => tx.select({ id: consultations.id }).from(consultations).where(eq(consultations.patientId, c.ana.id)), app.db);
       return { total: j.marcos.filter((m) => m.tipo === 'atendimento').length, ids: ids.map((i) => i.id) };
+    },
+  },
+  // Plano 23 (§4.4): as "Próximas" de "Minhas consultas" (agendada, confirmada e o pedido que ainda não terminaram)
+  consultas: {
+    pedidos: (c) => c.ids.consultas,
+    portal: async (c) => {
+      const m = await consultasDoPaciente(c.ctxAna, c.tenant, AGORA, app.db);
+      return { total: m.proximas.length, ids: m.proximas.map((x) => x.id) };
     },
   },
   documentos: {
@@ -294,8 +310,9 @@ describe('noAppDoPaciente (Plano 18, D16, RN-281)', () => {
       expect(semOrdem(r.visiveis[id] ?? []), id).toEqual(semOrdem(pedidos.filter((i) => portal.ids.includes(i))));
     }
     // os casos do cenário, para o teste não passar com tudo zerado
-    expect(r.contagens).toMatchObject({ 'plano-alimentar': 1, antropometria: 2, atendimentos: 2, documentos: 2, 'exames-enviados': 1, exames: 1 });
+    expect(r.contagens).toMatchObject({ 'plano-alimentar': 1, antropometria: 2, atendimentos: 2, documentos: 2, 'exames-enviados': 1, exames: 1, consultas: 2 });
     expect(r.visiveis.exames).toEqual([c.ids.exames[0]]); // Plano 22: só o liberado tem o selo
+    expect(semOrdem(r.visiveis.consultas)).toEqual(semOrdem(c.ids.consultas.slice(0, 2))); // sem a realizada e a cancelada
     expect(r.visiveis['plano-alimentar']).toEqual([c.ids.planos[1]]); // o arquivado (que a RLS entrega) fica sem selo
     expect(semOrdem(r.visiveis.documentos)).toEqual(semOrdem(c.ids.documentos.slice(0, 2))); // sem o rascunho e o anonimizado
     expect(r.visiveis['exames-enviados']).toEqual([c.ids.envios[1]]); // sem o cancelado

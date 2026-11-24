@@ -267,7 +267,8 @@ export type DadosExportacao = {
     mostradoNoAppEm: string | null;
   }[];
   /** Só as orientações: notas privadas (staff_only) nunca saem (US-016). */
-  atendimentos: { data: string; orientacoes: string | null }[];
+  /** Plano 23 (RN-438): a previsão de retorno do atendimento (a exportação lista as colunas de `consultations` à mão). */
+  atendimentos: { data: string; orientacoes: string | null; retornoPrevistoEm: string | null }[];
   /** Planos alimentares: todas as versões; o rascunho só no escopo da equipe. Publicado/arquivado com os valores congelados (D10). */
   planos: {
     versao: number;
@@ -520,7 +521,7 @@ export async function montarDados(
     notasPorExame.set(n.examId, lista);
   }
   const at = await tx
-    .select({ data: consultations.data, orientacoes: consultations.orientacoesPaciente })
+    .select({ data: consultations.data, orientacoes: consultations.orientacoesPaciente, retornoPrevistoEm: consultations.retornoPrevistoEm })
     .from(consultations)
     .where(eq(consultations.patientId, patientId))
     .orderBy(asc(consultations.data));

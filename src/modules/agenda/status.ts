@@ -1,6 +1,6 @@
 import { getTableName, sql, type SQL } from 'drizzle-orm';
 import type { appointments, consultations } from '@/db/schema';
-import { MSG_AGENDA, MSG_SOLICITACOES } from './constantes';
+import { MSG_AGENDA, MSG_SOLICITACOES, MSG_VISOES } from './constantes';
 import type { Consulta, StatusConsulta, TenantAgenda } from './consultas';
 
 /**
@@ -40,6 +40,14 @@ const SELO_DA_CANCELADA: Partial<Record<NonNullable<Consulta['canceladoPor']>, s
 /** Plano 23 (RN-415, RN-416, §6.2): rótulos do tipo da consulta e dos selos novos, em texto (a cor só reforça). */
 export const ROTULO_TIPO_CONSULTA: Record<'primeira' | 'retorno', string> = { primeira: 'Primeira consulta', retorno: 'Retorno' };
 export const SELO_PRESENCA_A_REGISTRAR = 'Presença a registrar';
+
+/**
+ * Plano 23 (§4.4, AG-D74): o título da seção "Consultas" do Início da ficha mora aqui, não em `MSG_FICHA.titulos`
+ * (`ficha/registro.test.ts` exige lá exatamente os 8 títulos do Plano 18); `status.ts` é o único módulo da agenda que a
+ * seção importa. "Retorno previsto" (o item da seção sem consulta futura) é o mesmo texto da legenda da agenda.
+ */
+export const TITULO_SECAO_CONSULTAS = 'Consultas';
+export const ROTULO_RETORNO_PREVISTO = MSG_VISOES.retornoPrevisto;
 
 /** Situação e alertas da consulta, em texto (acessibilidade: nada só por cor). Era de src/app/painel/agenda/periodo.ts. */
 export function selosDaConsulta(c: Consulta, dentroDeBloqueio: boolean): string[] {

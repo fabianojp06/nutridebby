@@ -2,6 +2,7 @@ import type { SecaoDaFicha } from '../tipos';
 import { secaoAnamneses } from './anamneses';
 import { secaoAntropometria } from './antropometria';
 import { secaoAtendimentos } from './atendimentos';
+import { secaoConsultas } from './consultas';
 import { secaoDocumentos } from './documentos';
 import { secaoExames } from './exames';
 import { secaoExamesEnviados } from './exames-enviados';
@@ -21,4 +22,5 @@ export const SECOES_DA_FICHA: readonly SecaoDaFicha[] = [
   secaoExames,
   secaoExamesEnviados,
   secaoDocumentos,
+  secaoConsultas,
 ];

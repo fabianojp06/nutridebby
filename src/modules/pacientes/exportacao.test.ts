@@ -129,7 +129,8 @@ async function prontuarioCompleto() {
     T.ctx,
     T.tenant,
     p.id,
-    { data: '2026-09-01', notasPrivadas: NOTA, orientacoes: 'beber 2 L de água/dia' },
+    // Plano 23 (RN-438): a previsão de retorno vai ao dados.json (`atendimentos[].retornoPrevistoEm`)
+    { data: '2026-09-01', notasPrivadas: NOTA, orientacoes: 'beber 2 L de água/dia', retornoPrevistoEm: '2026-10-13' },
     deps,
   );
   await salvarEtiquetasDoPaciente(T.ctx, p.id, { etiquetas: [], nova: 'etiqueta-secreta' }, app.db);
@@ -222,7 +223,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(dados.paciente).toMatchObject({ nome: 'Ana Souza', dataNascimento: '1991-03-10' });
     expect(dados.anamneses[0].respostas).toEqual([{ pergunta: 'Alergias', resposta: 'Lactose' }]);
     expect(dados.atendimentos).toEqual([
-      { data: '2026-09-01', orientacoes: 'beber 2 L de água/dia' },
+      { data: '2026-09-01', orientacoes: 'beber 2 L de água/dia', retornoPrevistoEm: '2026-10-13' },
     ]);
     expect(dados.exames[0].valores[0]).toMatchObject({ nome: 'Glicemia de jejum', valor: 95 });
     expect(dados.planos).toEqual([

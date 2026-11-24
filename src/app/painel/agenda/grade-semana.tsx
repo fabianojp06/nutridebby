@@ -70,15 +70,22 @@ function Bloqueio({ b }: { b: BloqueioDoDia }) {
   );
 }
 
-function MarcadoresDoDia({ dia, marcadores }: { dia: string; marcadores: Props['marcadores'] }) {
+/** US-410: o toque no "Retorno previsto" abre "Nova consulta" com o paciente preenchido. */
+export const hrefDoRetorno = (patientId: string) => `/painel/agenda/nova?paciente=${patientId}`;
+
+function MarcadoresDoDia({ dia, marcadores, grande = false }: { dia: string; marcadores: Props['marcadores']; grande?: boolean }) {
   const lista = [
-    ...marcadores.retornos.filter((m) => m.data === dia).map((m) => ({ chave: `r-${m.patientId}`, texto: M.marcadorRetorno(m.nome), marca: MARCA.retornoPrevisto })),
-    ...marcadores.aniversarios.filter((m) => m.data === dia).map((m) => ({ chave: `a-${m.patientId}`, texto: M.marcadorAniversario(m.nome), marca: MARCA.aniversario })),
+    ...marcadores.retornos.filter((m) => m.data === dia).map((m) => ({ chave: `r-${m.patientId}`, texto: M.marcadorRetorno(m.nome), marca: MARCA.retornoPrevisto, href: hrefDoRetorno(m.patientId) })),
+    ...marcadores.aniversarios.filter((m) => m.data === dia).map((m) => ({ chave: `a-${m.patientId}`, texto: M.marcadorAniversario(m.nome), marca: MARCA.aniversario, href: null })),
   ];
   if (!lista.length) return null;
   return (
     <ul className="space-y-1">
-      {lista.map((m) => <li key={m.chave} className={`rounded-lg p-1 ${m.marca}`}>{m.texto}</li>)}
+      {lista.map((m) => (
+        <li key={m.chave} className={`rounded-lg p-1 ${m.marca}`}>
+          {m.href ? <Link href={m.href} className={`inline-flex ${grande ? 'min-h-11' : 'min-h-6'} items-center text-texto underline`}>{m.texto}</Link> : m.texto}
+        </li>
+      ))}
     </ul>
   );
 }
@@ -136,7 +143,7 @@ export function GradeDaSemana({ dias, hoje, fuso, faixa, caption, itens, bloquei
           return (
             <section key={d} aria-labelledby={`lista-dia-${d}`} className="space-y-2">
               <h2 id={`lista-dia-${d}`} className={`text-sm font-semibold ${d === hoje ? 'text-ok' : ''}`}>{titulo(d)}</h2>
-              <MarcadoresDoDia dia={d} marcadores={marcadores} />
+              <MarcadoresDoDia dia={d} marcadores={marcadores} grande />
               {bs.map((b) => <Bloqueio key={b.id} b={b} />)}
               {cs.length === 0 && bs.length === 0 ? (
                 <p className="text-sm text-suave">{M.semConsultasNoDia}</p>

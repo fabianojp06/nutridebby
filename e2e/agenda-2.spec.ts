@@ -117,13 +117,14 @@ test('Semana em grade: filtro de local, "Próximo" mantém o filtro, 24 horas, "
   await expect(grade.getByRole('link', { name: new RegExp(RUI.nome) })).toBeVisible();
   await expect(grade.getByRole('link', { name: new RegExp(LIA.nome) })).toHaveCount(0);
 
-  // legenda em texto; sem o marcador de previsão de retorno no PR 2 (AG-D73)
+  // legenda em texto; o filtro e o item da previsão de retorno ligados na T9 (AG-D73)
   const legenda = nutri.getByRole('region', { name: 'Legenda' });
   for (const r of ['Primeira consulta', 'Retorno', 'Presença a registrar', 'Bloqueio', 'Aniversário']) {
     await expect(legenda.getByText(r, { exact: true })).toBeVisible();
   }
   await expect(legenda.getByText('Pedido a responder')).toBeVisible(); // AG-D72: ligado na T8 (PEDIDOS_NA_AGENDA)
-  await expect(nutri.getByText('Previsões de retorno')).toHaveCount(0);
+  await expect(legenda.getByText('Retorno previsto', { exact: true })).toBeVisible();
+  await expect(nutri.getByRole('checkbox', { name: 'Previsões de retorno' })).toBeVisible();
   await nutri.getByRole('link', { name: 'Limpar filtros' }).click();
   await expect(nutri).toHaveURL(new RegExp(`/painel/agenda\\?visao=semana&data=${TERCA}$`));
 });

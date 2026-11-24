@@ -69,6 +69,8 @@ const EXCECOES: Record<string, { n: number; motivo: string }> = {
   'src/app/painel/agenda/consultas/[id]/page.tsx': { n: 4, motivo: 'tela da consulta: cobrança da realizada, ações só em STATUS_ATIVOS, "começou" e o motivo da nutricionista (só cancelada)' },
   'src/app/p/(portal)/agenda/[id]/page.tsx': { n: 4, motivo: 'portal: ações só na agendada/confirmada (o pedido não remarca nem confirma, §4.3)' },
   'src/app/p/(portal)/agenda/actions.ts': { n: 1, motivo: 'o status devolvido por agendarComoPaciente decide "Pedido enviado…" (US-408, AG-D53)' },
+  'src/modules/agenda/retorno.ts': { n: 1, motivo: 'marcador "Retorno previsto": some com consulta futura em STATUS_OCUPA — o pedido conta como futura (RN-430, §4.3; T9)' },
+  'src/modules/ficha/secoes/consultas.ts': { n: 1, motivo: 'seção "Consultas" da ficha: as futuras em STATUS_OCUPA, o pedido com "Pedido a responder" (§4.4; T9)' },
 };
 
 const PASTAS = ['src/modules', 'src/app'];

@@ -39,6 +39,7 @@ function dados(atendimentos: number, exames: number): DadosExportacao {
     atendimentos: Array.from({ length: atendimentos }, (_, i) => ({
       data: '2026-09-01',
       orientacoes: `Orientação do atendimento ${i + 1}: beber água e manter o plano.`,
+      retornoPrevistoEm: null,
     })),
     planos: [],
     pedidosLgpd: [],
