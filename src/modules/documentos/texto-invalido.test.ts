@@ -67,7 +67,8 @@ describe('SUS-109: texto com NUL ou surrogate sem par nos documentos', () => {
     for (const [nome, ch] of INVALIDOS) {
       errosDoBanco.length = 0;
       const conteudo = { versao: 1, tipo: 'receita', itens: [], orientacoes: sujo('Com água', ch) };
-      await expect(withTenant(c.T.ctx, (tx) => tx.update(signedDocuments).set({ conteudo }).where(eq(signedDocuments.id, docId)), app.db)).rejects.toThrow();
+      // SUS-121: pelo tipo da coluna (jsonbSeguro) o valor chega limpo; o jsonb recusa só o texto cru (`::jsonb` sem paraJsonbSeguro)
+      await expect(withTenant(c.T.ctx, (tx) => tx.update(signedDocuments).set({ conteudo: sql`${JSON.stringify(conteudo)}::jsonb` }).where(eq(signedDocuments.id, docId)), app.db)).rejects.toThrow();
       // no text, o driver troca o surrogate por U+FFFD em silêncio: só o NUL é recusado
       const texto = withTenant(c.T.ctx, (tx) => tx.update(signedDocumentNotes).set({ justificativaUso: sujo('Uso', ch) }).where(eq(signedDocumentNotes.documentoId, docId)), app.db);
       if (ch === '\u0000') await expect(texto).rejects.toThrow();
