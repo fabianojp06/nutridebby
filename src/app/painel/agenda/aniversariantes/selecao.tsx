@@ -86,7 +86,9 @@ export function TabelaDosAniversariantes({ linhas, corrente, nutri, saemAgora, e
           <p role="status" className="text-sm">{ids.length ? M.marcados(ids.length) : ''}</p>
         </div>
       )}
-      <div className="overflow-x-auto">
+      {/* relative: o contêiner que rola é o bloco de contenção do sr-only (absolute) dos cabeçalhos; sem ele, o span escapa
+          da rolagem e a página rola na horizontal a 360 px (E2E do axe do Plano 23) */}
+      <div className="relative overflow-x-auto">
         <table className="w-full min-w-[640px] border-collapse text-left">
           <thead>
             <tr className="border-b border-borda">
