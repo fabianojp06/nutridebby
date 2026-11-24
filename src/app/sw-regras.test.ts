@@ -16,6 +16,7 @@ import {
   idDoBuild,
   lerMensagem,
   mensagemDaPropriaOrigem,
+  deveRecarregarAoVoltar,
   paginaSemConexao,
   recarregaAoVoltarARede,
   planoValido,
@@ -296,7 +297,24 @@ describe('Plano 25: a rede que volta não recarrega a conversa (o rascunho fica)
   it('sw-provider.tsx: o reloadOnOnline do Serwist desligado e refeito com a exceção', () => {
     const f = readFileSync('src/app/p/sw-provider.tsx', 'utf8');
     expect(f).toMatch(/<SerwistProvider[^>]*reloadOnOnline=\{false\}/);
-    expect(f).toMatch(/if \(recarregaAoVoltarARede\(window\.location\.pathname\)\) window\.location\.reload\(\)/);
     expect(f).toMatch(/addEventListener\('online', aoVoltar\)/);
+  });
+});
+
+// E2E "rodada T7 (I4) … nunca o plano": o `online` chegava à página da cópia do plano no meio da saída para /p/mensagens, e
+// o reload dela passava por cima da navegação — a conversa virava o plano
+describe('Plano 25: o reload ao reconectar nunca atropela uma navegação em curso', () => {
+  it('recarrega só com a rede de volta, a página ficando e fora da conversa', () => {
+    expect(deveRecarregarAoVoltar({ pathname: '/p/plano', saindo: false, online: true })).toBe(true);
+    expect(deveRecarregarAoVoltar({ pathname: '/p/plano', saindo: true, online: true })).toBe(false); // saindo (beforeunload/pagehide)
+    expect(deveRecarregarAoVoltar({ pathname: '/p/plano', saindo: false, online: false })).toBe(false); // evento sem rede de fato
+    expect(deveRecarregarAoVoltar({ pathname: '/p/mensagens', saindo: false, online: true })).toBe(false);
+  });
+  it('sw-provider.tsx: marca a saída no beforeunload e no pagehide (desmarca na volta do bfcache) e só então decide', () => {
+    const f = readFileSync('src/app/p/sw-provider.tsx', 'utf8');
+    expect(f).toMatch(/addEventListener\('beforeunload', aoSair\)/);
+    expect(f).toMatch(/addEventListener\('pagehide', aoSair\)/);
+    expect(f).toMatch(/if \(e\.persisted\) saindo = false/);
+    expect(f).toMatch(/deveRecarregarAoVoltar\(\{ pathname: window\.location\.pathname, saindo, online: navigator\.onLine \}\)/);
   });
 });
