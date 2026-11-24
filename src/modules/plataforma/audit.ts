@@ -84,6 +84,8 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   // Histórico. Sem o nome das tabelas aqui: este arquivo é alcançável pela IA (guarda da RN-399, exames/guardas.test.ts)
   exames_versoes: 'Versões do exame',
   exames_nota: 'Nota de interpretação do exame',
+  // Plano 26 (RN-493): o CSV e a impressão dos Relatórios (`exportar`; no Ranking, um por paciente da lista)
+  relatorios: 'Relatórios',
   // Plano 22 (T6, RN-385, EP-D45): "Mostrar no app" (recordAudit do módulo); a ação sai na coluna Ação (rotuloDaAcao)
   exame_no_app_liberado: 'Exames',
   exame_no_app_retirado: 'Exames',

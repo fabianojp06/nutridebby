@@ -56,8 +56,8 @@ export async function escolherTema(page: Page, rotulo: 'Claro' | 'Escuro' | 'Igu
   await expect(page.getByRole('status').filter({ hasText: 'Tema salvo.' })).toBeVisible();
 }
 
-/** D20: os itens fixos do topo (Plano 20: com "Financeiro"). */
-export async function irPeloMenu(page: Page, item: 'Início' | 'Pacientes' | 'Agenda' | 'Diários' | 'Conteúdos' | 'Financeiro' | 'Configurações'): Promise<void> {
+/** D20: os itens fixos do topo (Plano 20: com "Financeiro"; Plano 26: com "Relatórios"). */
+export async function irPeloMenu(page: Page, item: 'Início' | 'Pacientes' | 'Agenda' | 'Diários' | 'Conteúdos' | 'Financeiro' | 'Relatórios' | 'Configurações'): Promise<void> {
   await page.getByRole('navigation', { name: 'Menu do painel' }).getByRole('link', { name: item, exact: true }).click();
 }
 

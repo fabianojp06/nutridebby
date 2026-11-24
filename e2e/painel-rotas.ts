@@ -105,4 +105,11 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/prescricao/itens/[id]': (i) => `/painel/prescricao/itens/${i.itemSalvo}`,
   '/painel/prescricao/modelos': () => '/painel/prescricao/modelos',
   '/painel/prescricao/modelos/[id]': (i) => `/painel/prescricao/modelos/${i.modeloPrescricao}`,
+  '/painel/relatorios': () => '/painel/relatorios', // Plano 26 (US-480 a US-487): as seis seções e a impressão
+  '/painel/relatorios/atendimentos': () => '/painel/relatorios/atendimentos',
+  '/painel/relatorios/planos': () => '/painel/relatorios/planos',
+  '/painel/relatorios/agenda': () => '/painel/relatorios/agenda',
+  '/painel/relatorios/financeiro': () => '/painel/relatorios/financeiro',
+  '/painel/relatorios/ranking': () => '/painel/relatorios/ranking',
+  '/painel/relatorios/imprimir': () => '/painel/relatorios/imprimir?secao=agenda',
 };

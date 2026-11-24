@@ -290,3 +290,66 @@ export async function pendenciasDoPaciente(ctx: TenantContext, tenant: Tenant, p
     deps.db ?? getDb(),
   );
 }
+
+/**
+ * Plano 26 (RN-491, RE-D68): os agregados que os Relatórios leem do Financeiro — nenhuma consulta a `fin_*` fora deste
+ * módulo. Funções "na transação de quem chama" (como `dozeMesesNaTransacao`): quem chama já conferiu o papel e a seção
+ * (`exigirSecao` dos Relatórios) antes de abrir a transação. Período = meses inteiros 'AAAA-MM' (`de` a `ate`, `meses` na
+ * ordem). Só recebidos e pagos, não cancelados, pelo dia do pagamento (RN-305/RN-306), pelo `fin_lancamentos_pago_idx`;
+ * em aberto e previstos não entram (o Resumo mostra). Sem `auditRead`: agregado (RN-493). O filtro de local (US-416 do
+ * Plano 23) chega na T11a, com `localId`.
+ */
+export type PeriodoDeMeses = { de: string; ate: string; meses: readonly string[] };
+export type RecebidoEPagoDoMes = { mes: string; recebido: number; pago: number };
+export type ValorPorCategoria = { categoria: string; valor: number };
+export type ReceitaDoPaciente = { patientId: string; nomeExibido: string; nomeRegistro: string; valor: number };
+
+const recebidosEPagosNoPeriodo = (tenantId: string, p: PeriodoDeMeses) =>
+  and(eq(L.tenantId, tenantId), ativo, pago, entre(L.pagoEm, intervaloDoMes(p.de).de, intervaloDoMes(p.ate).ate));
+
+/** US-484: "Recebido" (entradas) e "Pago" (saídas) por mês do pagamento, uma linha por mês do período (zero sem movimento). */
+export async function recebidoEPagoPorMes(tx: Tx, tenantId: string, p: PeriodoDeMeses): Promise<RecebidoEPagoDoMes[]> {
+  const porMes = await tx
+    .select({ mes: mesDoPagamento, recebido: soma(entrada), pago: soma(saida) })
+    .from(L)
+    .where(recebidosEPagosNoPeriodo(tenantId, p))
+    .groupBy(mesDoPagamento);
+  const doMes = new Map(porMes.map((m) => [m.mes, m]));
+  return p.meses.map((mes) => ({ mes, recebido: centavos(doMes.get(mes)?.recebido), pago: centavos(doMes.get(mes)?.pago) }));
+}
+
+/**
+ * US-484 "Por categoria": soma por categoria no período, entradas e saídas em blocos separados, só as categorias com
+ * movimento (arquivadas também, se tiveram), na ordem das Configurações ("Consultas" primeiro, depois pelo nome).
+ */
+export async function porCategoriaNoPeriodo(tx: Tx, tenantId: string, p: PeriodoDeMeses): Promise<{ entradas: ValorPorCategoria[]; saidas: ValorPorCategoria[] }> {
+  const linhas = await tx
+    .select({ tipo: finCategorias.tipo, categoria: finCategorias.nome, valor: somaTudo })
+    .from(L)
+    .innerJoin(finCategorias, and(eq(finCategorias.tenantId, L.tenantId), eq(finCategorias.id, L.categoriaId)))
+    .where(recebidosEPagosNoPeriodo(tenantId, p))
+    .groupBy(finCategorias.id, finCategorias.tipo, finCategorias.nome, finCategorias.chave)
+    .orderBy(asc(finCategorias.tipo), sql`${finCategorias.chave} is null`, sql`lower(${finCategorias.nome})`, asc(finCategorias.id));
+  const doTipo = (tipo: TipoLancamento) => linhas.filter((l) => l.tipo === tipo).map((l) => ({ categoria: l.categoria, valor: centavos(l.valor) }));
+  return { entradas: doTipo('entrada'), saidas: doTipo('saida') };
+}
+
+/**
+ * US-485 "Maior receita" (RN-492): soma das entradas recebidas no período, não canceladas, com paciente `ativo` ou
+ * `arquivado` e não anonimizado; as `limite` maiores, empate pelo nome exibido sem diferença de acento e maiúsculas
+ * (`app_unaccent(lower(…))`, RE-D68), depois pelo id. Na tela, o nome exibido (nome social primeiro, RN-266 do Plano 18);
+ * no CSV e na impressão, o de registro. Sem `auditRead` (lista nominal na tela, RN-493; quem exporta grava o `exportar`).
+ */
+export async function receitaPorPaciente(tx: Tx, tenantId: string, p: PeriodoDeMeses, o: { limite: number }): Promise<ReceitaDoPaciente[]> {
+  const total = sql`sum(${L.valorCentavos}::bigint)`;
+  const linhas = await tx
+    .select({ patientId: patients.id, nomeExibido: nomeDeExibicao, nomeRegistro: patients.nome, valor: somaTudo })
+    .from(L)
+    .innerJoin(patients, and(eq(patients.tenantId, L.tenantId), eq(patients.id, L.patientId)))
+    .leftJoin(patientCadastro, cadastroDoPaciente)
+    .where(and(recebidosEPagosNoPeriodo(tenantId, p), entrada, sql`${patients.status} in ('ativo', 'arquivado')`, isNull(patients.anonimizadoEm)))
+    .groupBy(patients.id, patients.nome, patientCadastro.nomeSocial)
+    .orderBy(sql`${total} desc`, sql`app_unaccent(lower(${nomeDeExibicao}))`, asc(patients.id))
+    .limit(o.limite);
+  return linhas.map((l) => ({ patientId: l.patientId, nomeExibido: l.nomeExibido ?? l.nomeRegistro, nomeRegistro: l.nomeRegistro, valor: centavos(l.valor) }));
+}
