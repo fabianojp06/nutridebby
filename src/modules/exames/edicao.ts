@@ -65,14 +65,13 @@ export type LinhaEditada = { origem: number | null; nome: unknown; valor: unknow
 const chaveDaLinha = (v: ValorExame) => JSON.stringify([v.nome, v.valor, v.unidade, v.referencia, v.iaTarefaId ?? null, v.refMin ?? null, v.refMax ?? null]);
 
 /**
- * Justificativa (RN-378): 5 a 500 caracteres (code points), sem NUL nem surrogate sem par (SUS-109: o `text` recusaria o
- * NUL com 22021 e trocaria o surrogate por U+FFFD); vazia → `null`; inválida → `undefined`.
+ * Justificativa (RN-378): 5 a 500 caracteres (code points), contados depois de tirar o NUL e o surrogate sem par em
+ * silêncio (SUS-109: o `text` recusaria o NUL com 22021 e trocaria o surrogate por U+FFFD); vazia → `null`; inválida → `undefined`.
  */
 function lerJustificativa(v: unknown): string | null | undefined {
   if (v === undefined || v === null) return null;
   if (typeof v !== 'string') return undefined;
-  if (semInvalidosNoBanco(v) !== v) return undefined;
-  const t = v.trim();
+  const t = semInvalidosNoBanco(v).trim();
   if (!t) return null;
   // por code point, como o CHECK `char_length` (0127): "🙂🙂🙂" tem 3, não 6 (a recusa nunca chega ao banco nem ao log)
   const tamanho = [...t].length;
