@@ -2,6 +2,7 @@ import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { diaryEntries, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
 import { avisarComentario } from './avisos';
@@ -96,7 +97,8 @@ export async function abrirRegistro(ctx: TenantContext, id: string, o: { db?: Db
  */
 export async function comentarRegistro(ctx: TenantContext, id: string, texto: unknown, o: { db?: Db; agora?: Date } = {}): Promise<{ primeiro: boolean }> {
   soNutri(ctx);
-  const comentario = typeof texto === 'string' ? texto.normalize('NFC').trim() : '';
+  // SUS-110 (regra 3): sem o NUL (22021, com o comentário no log) nem o surrogate sem par
+  const comentario = typeof texto === 'string' ? semInvalidosNoBanco(texto).normalize('NFC').trim() : '';
   if (!comentario) throw new ComentarioError({ comentario: MSG_COMENTARIO.vazio });
   if (comentario.length > COMENTARIO_MAX) throw new ComentarioError({ comentario: MSG_COMENTARIO.tamanho });
   if (!idValido(id)) throw new ComentarioError({ comentario: MSG_COMENTARIO.naoEncontrado });

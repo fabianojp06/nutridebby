@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 import { PgBoss } from 'pg-boss';
 import { getServerEnv } from '@/env';
-import { logger } from '@/lib/logger';
+import { camposDoErro, logger } from '@/lib/logger';
 import { ensureQueues } from './queues';
 
 // globalThis: o `next dev` recarrega módulos; sem isso cada HMR abriria outra instância
@@ -25,7 +25,7 @@ export function getBoss(): Promise<PgBoss> {
       supervise: false,
       schedule: false,
     });
-    boss.on('error', (err) => logger.error({ err }, 'pg-boss (produtor) erro'));
+    boss.on('error', (err) => logger.error(camposDoErro(err), 'pg-boss (produtor) erro')); // regra 3: nunca o erro cru
     await boss.start();
     await ensureQueues(boss);
     return boss;

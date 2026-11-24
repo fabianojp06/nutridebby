@@ -101,7 +101,7 @@ export async function editarExame(
   const agora = deps.agora ?? new Date();
   const erros: Record<string, string> = {};
   // SUS-109: sem NUL (22021 com o título no log) nem surrogate sem par, também o que o corte em 120 deixar sozinho
-  const titulo = semInvalidosNoBanco(normalizarTexto(typeof input.titulo === 'string' ? semInvalidosNoBanco(input.titulo) : input.titulo).slice(0, 120));
+  const titulo = semInvalidosNoBanco(normalizarTexto(typeof input.titulo === 'string' ? semInvalidosNoBanco(input.titulo) : input.titulo).slice(0, 120)).trimEnd();
   if (!titulo) erros.titulo = MSG_EXAME.titulo;
   const data = typeof input.data === 'string' ? input.data.trim() : '';
   if (!dataValida(data)) erros.data = MSG_EXAME.data;

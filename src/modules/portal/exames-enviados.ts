@@ -6,6 +6,7 @@ import { examSubmissionFiles, examSubmissions, patients, tenants } from '@/db/sc
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
 import { detectarTipo } from '@/lib/file-type';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { idValido } from '@/modules/pacientes/base';
 import { dataValida, hojeNoFuso, somarAnos } from '@/modules/pacientes/datas';
@@ -51,10 +52,14 @@ export async function classificarArquivos(arquivos: readonly Buffer[]): Promise<
   return { tipo: 'fotos' };
 }
 
-/** Texto digitado: NFC e sem espaço nas pontas; o nome também junta os espaços (a observação guarda as quebras de linha). */
+/**
+ * Texto digitado: NFC e sem espaço nas pontas; o nome também junta os espaços (a observação guarda as quebras de linha).
+ * SUS-110 (regra 3): o NUL (22021 no `text`, com o texto no log) e o surrogate sem par (U+FFFD no banco) saem em silêncio,
+ * antes de tudo — como no diário; antes o NUL era recusado com "Formulário inválido.".
+ */
 const texto = (v: unknown, juntarEspacos: boolean): string => {
   if (typeof v !== 'string') return '';
-  const t = v.normalize('NFC').trim();
+  const t = semInvalidosNoBanco(v).normalize('NFC').trim();
   return juntarEspacos ? t.replace(/\s+/g, ' ') : t;
 };
 const caracteres = (s: string) => [...s].length; // code points, como o CHECK (char_length)
@@ -104,8 +109,6 @@ export async function enviarExame(
   const agora = deps.agora ?? new Date();
   const nome = texto(entrada.nome, true);
   const observacao = texto(entrada.observacao, false);
-  // NUL não cabe num `text` do Postgres (SQLSTATE 22021): sem isto, um 500 em vez de um 400
-  if (nome.includes('\0') || observacao.includes('\0')) throw new EnvioError(400, { geral: MSG_ENVIO.formulario });
   const erros: Partial<Record<Campo, string>> = {};
   if (caracteres(nome) > NOME_ENVIO_MAX) erros.nome = MSG_ENVIO.nome;
   if (caracteres(observacao) > OBSERVACAO_ENVIO_MAX) erros.observacao = MSG_ENVIO.observacao;

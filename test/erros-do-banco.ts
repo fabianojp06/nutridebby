@@ -1,3 +1,4 @@
+import { expect } from 'vitest';
 import type { Pool, PoolClient } from 'pg';
 
 /**
@@ -25,4 +26,29 @@ export function espiarErrosDoBanco(pool: Pool): string[] {
     };
   });
   return erros;
+}
+
+/** SUS-109/SUS-110: os caracteres que o Postgres recusa (ou troca por U+FFFD) num texto digitado, um caso por linha. */
+export const INVALIDOS = [
+  ['NUL', '\u0000'],
+  ['surrogate alto sem par', '\ud800'],
+  ['surrogate baixo sem par', '\udc00'],
+] as const;
+/** "Ferritina<c> baixa 🙂" → "Ferritina baixa 🙂" (`limpo`): o caractere inválido sai e o emoji (par válido) fica. */
+export const sujo = (t: string, c: string) => `${t}${c} baixa 🙂`;
+export const limpo = (t: string) => `${t} baixa 🙂`;
+
+/**
+ * Roda a gravação com o espião (`espiarErrosDoBanco`) zerado; o erro do banco (se houver) aparece como o SQLSTATE
+ * anotado, antes de qualquer outra conferência.
+ */
+export async function semErroDoBanco<T>(erros: string[], f: () => Promise<T>): Promise<T> {
+  erros.length = 0;
+  const r = await f().then(
+    (v) => ({ ok: true as const, v }),
+    (e: unknown) => ({ ok: false as const, e }),
+  );
+  expect(erros).toEqual([]);
+  if (!r.ok) throw r.e;
+  return r.v;
 }

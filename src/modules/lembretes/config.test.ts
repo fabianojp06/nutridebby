@@ -57,9 +57,15 @@ describe('validarLembrete', () => {
     expect(validarLembrete(livre('  Tomar sol  '))).toEqual({ ok: true, valor: { tipo: 'livre', config: { horarios: ['09:00'], dias: TODOS }, texto: 'Tomar sol' } });
   });
 
-  it('texto com NUL (U+0000) é erro do campo, não 500 do Postgres (22021)', () => {
-    expect(erros(validarLembrete(suplemento({}, 'Vitamina\u0000D')))).toEqual({ texto: 'Formulário inválido.' });
-    expect(erros(validarLembrete({ tipo: 'livre', config: { horarios: ['09:00'], dias: TODOS }, texto: 'Tomar\u0000sol' }))).toEqual({ texto: 'Formulário inválido.' });
+  it('SUS-110: o NUL (U+0000) e o surrogate sem par saem em silêncio, antes de aparar e medir; o emoji fica', () => {
+    const livre = (texto: unknown) => ({ tipo: 'livre', config: { horarios: ['09:00'], dias: TODOS }, texto });
+    for (const c of ['\u0000', '\ud800', '\udc00']) {
+      expect(validarLembrete(suplemento({}, `Vitamina${c} D 🙂`))).toMatchObject({ ok: true, valor: { texto: 'Vitamina D 🙂' } });
+      expect(validarLembrete(livre(`${c} Tomar sol${c} `))).toMatchObject({ ok: true, valor: { texto: 'Tomar sol' } });
+      expect(erros(validarLembrete(livre(` ${c} `)))).toEqual({ texto: 'Escreva o texto do lembrete.' });
+    }
+    // conta depois da limpeza: 60 caracteres + NUL cabem no suplemento
+    expect(validarLembrete(suplemento({}, `${'x'.repeat(60)}\u0000`)).ok).toBe(true);
   });
 
   it('refeições: antecedência e diário só da lista', () => {

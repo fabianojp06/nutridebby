@@ -6,6 +6,7 @@ import { patientCadastro, patients, type PatientRow, type TenantRow } from '@/db
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { normalizeEmail } from '@/lib/text';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { agendarConviteWhatsapp } from '@/modules/notificacoes/agendar';
 import { auditRead } from '@/modules/plataforma/audit';
@@ -40,7 +41,8 @@ export { PacienteError, type ErrosPaciente } from './base';
 export function pacienteSchema(hoje: string) {
   return z
     .object({
-      nome: z.string().trim().min(2, MSG_PACIENTE.nome).max(120, MSG_PACIENTE.nome),
+      // SUS-110 (regra 3): sem o NUL (22021, com o nome no log) nem o surrogate sem par, antes de aparar e medir
+      nome: z.string().transform(semInvalidosNoBanco).pipe(z.string().trim().min(2, MSG_PACIENTE.nome).max(120, MSG_PACIENTE.nome)),
       dataNascimento: z
         .string()
         .trim()
@@ -294,7 +296,8 @@ export async function listarPacientes(ctx: TenantContext, filtro: FiltroDaLista,
   if (filtro.etiquetaId) {
     conds.push(sql`exists (select 1 from patient_tag_links l where l.patient_id = ${patients.id} and l.tag_id = ${filtro.etiquetaId})`);
   }
-  const busca = filtro.busca?.trim();
+  // SUS-110 (regra 3): o termo vem cru da URL (`filtroDaUrl`); o NUL daria 22021 (um 500) com o termo no erro
+  const busca = filtro.busca === undefined ? undefined : semInvalidosNoBanco(filtro.busca).trim();
   if (busca) {
     const termo = `%${busca.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     conds.push(

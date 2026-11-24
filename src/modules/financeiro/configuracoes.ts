@@ -3,6 +3,7 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { DbError, fkViolation, uniqueViolation } from '@/db/errors';
 import { finCategorias, finConfiguracoes, finLancamentos, TIPOS_DE_LANCAMENTO, type FinCategoriaRow, type TipoLancamento } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { idValido } from '@/modules/pacientes/base';
 import { dataValida, hojeNoFuso } from '@/modules/pacientes/datas';
 import { recordAudit } from '@/modules/plataforma/audit';
@@ -18,8 +19,12 @@ export const DATA_MINIMA = '2000-01-01';
 const E = MSG_FINANCEIRO.errosConfig;
 const EC = MSG_FINANCEIRO.errosCategoria;
 
-/** Texto do formulário sem os espaços das pontas; o que não é texto vira vazio. */
-export const textoDoCampo = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+/**
+ * Texto do formulário sem os espaços das pontas; o que não é texto vira vazio. SUS-110 (regra 3): sem o NUL nem o surrogate
+ * sem par, antes de aparar — a descrição e o motivo do lançamento e o nome da categoria iriam ao `text` (22021, com o
+ * texto no log); nas datas, valores e ids, o que sobra continua passando pela conferência do campo.
+ */
+export const textoDoCampo = (v: unknown): string => (typeof v === 'string' ? semInvalidosNoBanco(v).trim() : '');
 /** Caracteres como o `char_length` do Postgres conta (pontos de código, não unidades UTF-16). */
 export const caracteres = (s: string): number => [...s].length;
 

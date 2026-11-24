@@ -1,5 +1,6 @@
 import { lerDecimal } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { dataValida } from './datas';
 
 /** US-012: os 7 tipos de pergunta. Arquivo puro: o editor de modelos e o formulário usam no navegador. */
@@ -36,6 +37,17 @@ export const MSG_ANAMNESE = {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LIMITE_PERGUNTAS = 100;
 const texto = normalizarTexto;
+/**
+ * SUS-110: o corte pode deixar meio emoji (surrogate sem par) no fim, que o jsonb do modelo recusaria (22P02) — limpo de
+ * novo, e sem o espaço que ficaria antes dele.
+ */
+const cortado = (v: unknown, max: number) => semInvalidosNoBanco(texto(v).slice(0, max)).trimEnd();
+/**
+ * SUS-110 (regra 3): a resposta do formulário sem o NUL e o surrogate sem par, antes de tudo — o jsonb `respostas`
+ * recusaria (22P05/22P02) com um trecho da resposta, dado de saúde, no log do Postgres e no erro do app.
+ */
+const respostaLimpa = (v: unknown): unknown =>
+  typeof v === 'string' ? semInvalidosNoBanco(v) : Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? semInvalidosNoBanco(x) : x)) : v;
 const tipoValido = (t: unknown): t is TipoPergunta => TIPOS_PERGUNTA.some((x) => x.id === t);
 const temOpcoes = (t: TipoPergunta) => t === 'escolha_unica' || t === 'multipla_escolha';
 
@@ -44,7 +56,7 @@ export function validarModelo(input: { nome: unknown; perguntas: unknown }):
   | { ok: true; nome: string; perguntas: Pergunta[] }
   | { ok: false; erros: Record<string, string> } {
   const erros: Record<string, string> = {};
-  const nome = texto(input.nome).slice(0, 80);
+  const nome = cortado(input.nome, 80);
   if (!nome) erros.nome = MSG_ANAMNESE.nomeModelo;
   const brutas: (Record<string, unknown> | null)[] = Array.isArray(input.perguntas) ? input.perguntas : [];
   if (!brutas.length) erros.perguntas = MSG_ANAMNESE.semPerguntas;
@@ -56,14 +68,14 @@ export function validarModelo(input: { nome: unknown; perguntas: unknown }):
     const b = item ?? {};
     const tipo = b.tipo;
     if (!tipoValido(tipo)) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.tipo);
-    const rotulo = texto(b.rotulo).slice(0, 200);
+    const rotulo = cortado(b.rotulo, 200);
     if (!rotulo) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.rotulo);
     let id = typeof b.id === 'string' && UUID.test(b.id) ? b.id.toLowerCase() : crypto.randomUUID();
     if (ids.has(id)) id = crypto.randomUUID();
     ids.add(id);
     const p: Pergunta = { id, tipo, rotulo, obrigatoria: b.obrigatoria === true };
     if (tipo === 'numero') {
-      const unidade = texto(b.unidade).slice(0, 20);
+      const unidade = cortado(b.unidade, 20);
       if (unidade) p.unidade = unidade;
     }
     if (temOpcoes(tipo)) {
@@ -85,7 +97,7 @@ export function validarRespostas(
   const respostas: Record<string, Resposta> = {};
   const erros: Record<string, string> = {};
   for (const p of perguntas) {
-    const v = bruto[p.id];
+    const v = respostaLimpa(bruto[p.id]);
     const vazio = v === undefined || v === null || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && v.length === 0);
     if (vazio) {
       if (p.obrigatoria) erros[p.id] = MSG_ANAMNESE.responda(p.rotulo);

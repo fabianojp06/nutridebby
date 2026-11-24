@@ -8,6 +8,7 @@ import { gramasDaMedida, QTD_MEDIDA_MAX, textoMedida } from '@/modules/alimentos
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { lerDecimal, arredondar } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import type { ItemIa, RefeicaoIa } from '@/modules/ia/plano-ia';
 import { lerQuantidade } from './calculo';
 import { MAX_ENVIOS_INCERTOS, MAX_ITENS, MAX_REFEICOES, MAX_TEXTO, META_MAX, META_MIN, MSG_PLANO } from './constantes';
@@ -66,9 +67,16 @@ type Validado = { revisao: number; envio: string; enviosIncertos: string[]; titu
 const HORARIO = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** D7: chave de idempotência de cada PUT (uuid do cliente) e as dos envios sem resposta confirmada. */
 const chavesSchema = z.object({ envio: z.uuid(), enviosIncertos: z.array(z.uuid()).max(MAX_ENVIOS_INCERTOS).optional() });
+/**
+ * SUS-110 (regra 3): os textos livres do plano (orientações, observação da refeição, nome e plural da medida) sem o NUL
+ * nem o surrogate sem par, antes de medir — o `text`/jsonb recusaria com um trecho do plano no log e no erro do app. O
+ * título e o nome da refeição já vêm limpos de `normalizarTexto`; o horário é conferido pelo padrão HH:MM (o NUL é erro do campo).
+ */
+const textoLivre = (v: unknown): string => (typeof v === 'string' ? semInvalidosNoBanco(v).trim() : '');
+const textoDaMedida = z.string().transform(semInvalidosNoBanco).pipe(z.string().trim().min(1).max(60));
 const medidaSchema = z.object({
-  nome: z.string().trim().min(1).max(60),
-  plural: z.string().trim().min(1).max(60),
+  nome: textoDaMedida,
+  plural: textoDaMedida,
   gramas: z.number().min(0.1).max(5000),
   qtd: z.number().gt(0).max(QTD_MEDIDA_MAX),
 });
@@ -84,7 +92,7 @@ function validar(entrada: unknown): Validado {
   if (!titulo || titulo.length > 120) erros.titulo = MSG_PLANO.titulo;
   const metaN = lerDecimal(o.metaKcal);
   if (metaN !== null && (Number.isNaN(metaN) || metaN < META_MIN || metaN > META_MAX)) erros.metaKcal = MSG_PLANO.meta;
-  const orientacoes = typeof o.orientacoes === 'string' ? o.orientacoes.trim() : '';
+  const orientacoes = textoLivre(o.orientacoes);
   if (orientacoes.length > MAX_TEXTO) erros.orientacoes = MSG_PLANO.texto;
   const refeicoesEntrada = o.refeicoes as Record<string, unknown>[];
   const totalItens = refeicoesEntrada.reduce((n, r) => n + (Array.isArray(r?.itens) ? r.itens.length : 0), 0);
@@ -101,7 +109,7 @@ function validar(entrada: unknown): Validado {
     if (!nome || nome.length > 60) erros[`${chave}:nome`] = MSG_PLANO.refeicaoNome;
     const horario = typeof r.horario === 'string' ? r.horario.trim() : '';
     if (horario && !HORARIO.test(horario)) erros[`${chave}:horario`] = MSG_PLANO.horario;
-    const observacao = typeof r.observacao === 'string' ? r.observacao.trim() : '';
+    const observacao = textoLivre(r.observacao);
     if (observacao.length > MAX_TEXTO) erros[`${chave}:observacao`] = MSG_PLANO.texto;
     const receita = r.recipeContentId ?? null;
     if (receita !== null && !idValido(receita)) erros[`${chave}:receita`] = MSG_PLANO.receita;

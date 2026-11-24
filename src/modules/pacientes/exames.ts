@@ -34,7 +34,7 @@ const MAX_VALOR = 1e15; // acima disso o número perde precisão / viraria nota�
 /** SUS-109: sem NUL nem surrogate sem par antes de normalizar (o jsonb `exams.valores` e o text do título recusariam com o texto no log). */
 const limpo = (v: unknown): unknown => (typeof v === 'string' ? semInvalidosNoBanco(v) : v);
 /** De novo depois do corte: o `.slice` pode deixar meio emoji (surrogate sem par) no fim. */
-const texto = (v: unknown, max: number) => semInvalidosNoBanco(normalizarTexto(limpo(v)).slice(0, max));
+const texto = (v: unknown, max: number) => semInvalidosNoBanco(normalizarTexto(limpo(v)).slice(0, max)).trimEnd();
 const passaDoLimite = (v: unknown, max: number) => normalizarTexto(limpo(v)).length > max;
 const F = MSG_EXAMES.lancamentoErros;
 
