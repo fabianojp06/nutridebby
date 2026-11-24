@@ -299,7 +299,8 @@ describe('guarda: nenhum json/jsonb cru em src/db/schema (SUS-121)', () => {
   });
 
   it('nenhum arquivo do schema usa o json/jsonb cru', () => {
-    const arquivos = readdirSync(PASTA_SCHEMA).filter((f) => f.endsWith('.ts'));
+    // recursivo: o drizzle-kit lê a pasta inteira, também as subpastas (re-revisão do SUS-121, Minor 2)
+    const arquivos = readdirSync(PASTA_SCHEMA, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.ts'));
     expect(arquivos.length).toBeGreaterThan(10);
     const violacoes = arquivos.flatMap((f) => jsonbCru(readFileSync(path.join(PASTA_SCHEMA, f), 'utf8')).map((m) => `${f}: ${m}`));
     expect(violacoes).toEqual([]);
