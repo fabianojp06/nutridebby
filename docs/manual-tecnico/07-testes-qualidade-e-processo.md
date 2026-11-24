@@ -439,7 +439,9 @@ Ficam de fora os do painel e os mistos em que o lado do paciente não se separa 
   5 min combinados. O job tem o banco e o Mailpit dele, então os mesmos specs não rodam duas vezes, ao mesmo tempo,
   contra as contas fixas do seed e os IPs do limite de login. O tempo medido sai do CI do PR do SUS-117.
 - **O host da VPS não abre o WebKit** (faltam as bibliotecas do sistema; instalar é com o dono): local, só
-  `pnpm exec playwright test --list --project=webkit`. A imagem do CI (`mcr.microsoft.com/playwright:v1.63.0-noble`) já
+  `pnpm exec playwright test --list --project=webkit`, e o E2E local sempre com
+  `--project=chromium --project=celular --project=painel` (o mesmo filtro do job `e2e`; é o comando que o
+  `scripts/sessao-paralela.sh` imprime): sem `--project`, o `pnpm test:e2e` inclui o `webkit` e falha no lançamento do navegador. A imagem do CI (`mcr.microsoft.com/playwright:v1.63.0-noble`) já
   traz o navegador e as dependências.
 
 O aparelho de verdade continua no teste manual do runbook (checklist `docs/operacao/go-live.md`, "Produto e
@@ -549,7 +551,7 @@ Os números são de chamadas `test(` no arquivo; laços geram mais casos na exec
 ```bash
 pnpm e2e:seed            # banco de DEV (DATABASE_URL do .env.local)
 pnpm build
-pnpm test:e2e            # sobe next start na 3100 e o worker
+pnpm test:e2e --project=chromium --project=celular --project=painel   # sobe next start na 3100 e o worker; sem o webkit (só no CI)
 pnpm test:e2e e2e/agenda.spec.ts --project=chromium   # um spec
 ```
 
