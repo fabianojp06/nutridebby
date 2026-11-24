@@ -80,6 +80,12 @@ export function textoDoStatus(o: { online: boolean; emAndamento: boolean; envian
   return o.emAndamento || o.enviando ? MSG_IA_NUTRI.pensando : o.aviso;
 }
 
+/**
+ * SUS-112: o aviso guardado quando a rede volta. "Sem conexão…" (a pergunta que falhou sem rede, `chamar`) sai: antes o
+ * reload do portal ao reconectar o limpava, e agora a página viva fica. Os outros avisos ficam.
+ */
+export const avisoAoVoltarARede = (aviso: string): string => (aviso === MSG_IA_NUTRI.semConexao ? '' : aviso);
+
 const CAIXA = 'rounded-xl border border-borda p-3 text-sm';
 const BOTAO = 'min-h-11 rounded-xl border border-borda bg-cartao px-4 disabled:opacity-60';
 
@@ -117,6 +123,13 @@ export function Conversa({ tenantId, mensagens, podePerguntar, sessaoNova, texto
   const foco = useRef<Foco | null>(null);
   const [todas, setTodas] = useState(false);
   const emAndamento = mensagens.some((m) => m.autor === 'paciente' && (m.status === 'na_fila' || m.status === 'processando'));
+
+  // SUS-112: a rede voltou (comparação na renderização, como "A resposta chegou."): o "Sem conexão…" guardado sai
+  const [onlineAntes, setOnlineAntes] = useState(online);
+  if (onlineAntes !== online) {
+    setOnlineAntes(online);
+    if (online && aviso !== avisoAoVoltarARede(aviso)) setAviso(avisoAoVoltarARede(aviso));
+  }
 
   const [andavaAntes, setAndavaAntes] = useState(emAndamento);
   if (andavaAntes !== emAndamento) {

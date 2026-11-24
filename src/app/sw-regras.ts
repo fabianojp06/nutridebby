@@ -46,47 +46,101 @@ export function deveRecarregarAoVoltar(o: { copia: boolean; saindo: boolean; onl
 export const SAINDO_SEM_DESCARREGAR_MS = 5_000;
 
 type Relogio = { setTimeout: (f: () => void, ms: number) => unknown; clearTimeout: (t: never) => void };
+type Documento = EventTarget & { visibilityState?: string; querySelector: (seletor: string) => unknown };
 
 /**
  * A página está saindo? `beforeunload` marca e, se a página não descarregar em `SAINDO_SEM_DESCARREGAR_MS`, desmarca;
- * `pagehide` marca de vez (a página foi embora, ou para o bfcache); `pageshow` com `persisted` (a volta do bfcache)
- * desmarca. Sem DOM: os eventos chegam por `janela` (a `window`; injetável nos testes). Devolve a leitura e o "parar".
+ * `pagehide` marca sem prazo. Desmarcam: QUALQUER `pageshow` (a volta do bfcache e o `pagehide` que não descarregou) e o
+ * `visibilitychange` para `visible` (no iOS/PWA o `pagehide` vem ao trocar de app sem a página sair — sem isto, "saindo"
+ * ficaria preso para sempre). `aoFicar` avisa cada vez que "saindo" volta a falso. Sem DOM: os eventos chegam por `janela`
+ * (a `window`) e `documento` (o `document`), injetáveis nos testes. Devolve a leitura e o "parar".
  */
-export function vigiarSaida(janela: EventTarget, relogio: Relogio = globalThis as unknown as Relogio): { saindo: () => boolean; parar: () => void } {
+export function vigiarSaida(
+  janela: EventTarget,
+  o: { documento?: Documento; relogio?: Relogio; aoFicar?: () => void } = {},
+): { saindo: () => boolean; parar: () => void } {
+  const relogio = o.relogio ?? (globalThis as unknown as Relogio);
   let saindo = false;
   let timer: unknown;
   const limpar = () => {
     if (timer !== undefined) relogio.clearTimeout(timer as never);
     timer = undefined;
   };
+  const ficar = () => {
+    limpar();
+    if (!saindo) return;
+    saindo = false;
+    o.aoFicar?.();
+  };
   const aoAvisarSaida = () => {
     saindo = true;
     limpar();
     timer = relogio.setTimeout(() => {
       timer = undefined;
-      saindo = false;
+      ficar(); // o `tel:`/download não descarregou: a página ficou
     }, SAINDO_SEM_DESCARREGAR_MS);
   };
   const aoEsconder = () => {
     limpar();
     saindo = true;
   };
-  const aoMostrar = (e: Event) => {
-    if ((e as Event & { persisted?: boolean }).persisted) {
-      limpar();
-      saindo = false; // de volta do bfcache: a página ficou
-    }
+  const aoVer = () => {
+    if (o.documento?.visibilityState === 'visible') ficar();
   };
   janela.addEventListener('beforeunload', aoAvisarSaida);
   janela.addEventListener('pagehide', aoEsconder);
-  janela.addEventListener('pageshow', aoMostrar);
+  janela.addEventListener('pageshow', ficar);
+  o.documento?.addEventListener('visibilitychange', aoVer);
   return {
     saindo: () => saindo,
     parar: () => {
       limpar();
       janela.removeEventListener('beforeunload', aoAvisarSaida);
       janela.removeEventListener('pagehide', aoEsconder);
-      janela.removeEventListener('pageshow', aoMostrar);
+      janela.removeEventListener('pageshow', ficar);
+      o.documento?.removeEventListener('visibilitychange', aoVer);
+    },
+  };
+}
+
+/**
+ * SUS-112: evento da `window` que o selo offline dispara quando o ping (`/api/p/ping`) volta a responder depois de falhar.
+ * Cobre a cópia servida pelo NetworkFirst com `navigator.onLine` verdadeiro o tempo todo (rede lenta), sem evento `online`.
+ */
+export const EVENTO_REDE_VOLTOU = 'nd:rede-voltou';
+
+/**
+ * SUS-112: o recarregamento da cópia quando a rede volta. Na página viva devolve `null` sem instalar nenhum ouvinte (sem
+ * `beforeunload`, o Firefox continua usando o bfcache). Na cópia, um caminho só (`tentar`), chamado pelo `online` e pelo
+ * EVENTO_REDE_VOLTOU, decide por `deveRecarregarAoVoltar` e recarrega no máximo uma vez; pulado porque a página estava
+ * saindo, fica pendente e tenta de novo quando "saindo" volta a falso (prazo de 5 s, `pageshow`, `visibilitychange`).
+ */
+export function recarregarCopiaAoVoltar(o: {
+  janela: EventTarget;
+  documento: Documento;
+  online: () => boolean;
+  recarregar: () => void;
+  relogio?: Relogio;
+}): { parar: () => void } | null {
+  if (!ehCopiaOffline(o.documento)) return null;
+  let pendente = false;
+  let recarregou = false;
+  const tentar = () => {
+    if (recarregou) return;
+    const decisao = { copia: ehCopiaOffline(o.documento), online: o.online(), saindo: saida.saindo() };
+    pendente = decisao.copia && decisao.online && decisao.saindo;
+    if (!deveRecarregarAoVoltar(decisao)) return;
+    recarregou = true;
+    o.recarregar();
+  };
+  const saida = vigiarSaida(o.janela, { documento: o.documento, relogio: o.relogio, aoFicar: () => pendente && tentar() });
+  o.janela.addEventListener('online', tentar);
+  o.janela.addEventListener(EVENTO_REDE_VOLTOU, tentar);
+  return {
+    parar: () => {
+      saida.parar();
+      o.janela.removeEventListener('online', tentar);
+      o.janela.removeEventListener(EVENTO_REDE_VOLTOU, tentar);
     },
   };
 }

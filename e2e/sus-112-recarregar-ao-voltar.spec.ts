@@ -40,7 +40,7 @@ async function quedaDeRede(page: Page) {
 test('diário: o paciente digita, a rede cai e volta, e o texto continua no campo — a página não recarrega', async ({ browser }) => {
   const p = await pacienteNoPortal(browser, nutri, '10.9.112.2');
   await abrirControlada(p.page, '/p/diario');
-  const campo = p.page.getByLabel('O que você comeu?');
+  const campo = p.page.getByLabel('O que você comeu?', { exact: true });
   await campo.fill('Arroz, feijão e salada');
   await expect(p.page.locator(`[${MARCA_DA_COPIA}]`)).toHaveCount(0); // página viva, não a cópia
   let navegacoes = 0;
@@ -78,8 +78,11 @@ test('cópia do plano: servida sem rede em /p/inicio (com a marca e o selo) e re
     (window as unknown as { sus112?: string }).sus112 = 'copia';
   });
 
+  // o reload destrói o contexto da página: espera o `load` do documento novo (armado antes de religar a rede)
+  const recarregou = p.page.waitForEvent('load', { timeout: 15_000 });
   await p.page.context().setOffline(false);
-  await expect.poll(() => p.page.evaluate(() => (window as unknown as { sus112?: string }).sus112 ?? 'recarregou'), { timeout: 10_000 }).toBe('recarregou');
+  await recarregou;
+  expect(await p.page.evaluate(() => (window as unknown as { sus112?: string }).sus112)).toBeUndefined();
   await expect(p.page.locator(`[${MARCA_DA_COPIA}]`)).toHaveCount(0); // a página de verdade no lugar da cópia
   await expect(p.page.getByRole('heading', { level: 1, name: /^Olá, / })).toBeVisible();
   await p.page.context().close();
