@@ -242,7 +242,7 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(g.ajuda.secoes.flatMap((s) => s.itens)).toContainEqual(expect.stringContaining('os documentos (só quando liberados no consultório)'));
     // Plano 20 (US-308): a seção Financeiro só na gaveta, nas perguntas comuns (os passos do tour não mudam; versão 3, +1 sobre a main)
     expect(g.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')!.itens).toContain(
-      'A seção Financeiro mostra os lançamentos do paciente, sem valores: "Ver todos" abre os lançamentos dele no Financeiro, e "Nova entrada", no "Adicionar", abre o formulário com o paciente já escolhido. Abrir o Início de um paciente com lançamentos fica registrado no Histórico de acessos.',
+      'A seção Financeiro mostra os lançamentos do paciente, sem valores: "Ver todos" abre os lançamentos dele no Financeiro, e "Nova entrada", no "Adicionar", abre o formulário com o paciente já escolhido (se o Financeiro ainda não foi configurado, abre as Configurações, para informar o saldo do caixa). Abrir o Início de um paciente com lançamentos fica registrado no Histórico de acessos.',
     );
     expect(JSON.stringify(g.passos)).not.toContain('Financeiro');
   });

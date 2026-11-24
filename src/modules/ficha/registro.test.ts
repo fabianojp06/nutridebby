@@ -47,7 +47,12 @@ const IMPORTS_PERMITIDOS = [
  * Módulos da lista em que só alguns nomes podem vir (o resto do módulo fica fora): de `pacientes/base`, só o `idValido`
  * (não `carregarPacienteParaEscrita` nem outro helper que leia o banco).
  */
-const NOMES_PERMITIDOS: Record<string, readonly string[]> = { '@/modules/pacientes/base': ['idValido'] };
+const NOMES_PERMITIDOS: Record<string, readonly string[]> = {
+  '@/modules/pacientes/base': ['idValido'],
+  // Plano 20 (T12, revisão final): de `financeiro/resumo`, só o resumo da seção — `pendenciasDoPaciente` chama auditRead
+  '@/modules/financeiro/resumo': ['resumoFinanceiroDoPaciente'],
+  '@/modules/financeiro/constantes': ['MSG_FINANCEIRO'],
+};
 /** Os nomes de `import { a, b as c } from '<de>'` (sem `type`, sem `* as`, sem default). */
 const nomesImportadosDe = (src: string, de: string) =>
   [...src.matchAll(new RegExp(`^\\s*import\\s+([^;]*?)\\s+from\\s+['"]${de.replace(/[/.@]/g, '\\$&')}['"]`, 'gm'))].map((m) => {

@@ -171,7 +171,7 @@ export const GUIAS: readonly Guia[] = [
             'Paciente bloqueado por pedido de exclusão não tem o botão "Adicionar": o prontuário é só para consulta.',
             // Plano 20 (US-308): a seção Financeiro só na gaveta; os passos do tour não mudam (a versão sobe para 3, +1 sobre
             // a da main, como o item novo nas perguntas comuns do Plano 14A)
-            'A seção Financeiro mostra os lançamentos do paciente, sem valores: "Ver todos" abre os lançamentos dele no Financeiro, e "Nova entrada", no "Adicionar", abre o formulário com o paciente já escolhido. Abrir o Início de um paciente com lançamentos fica registrado no Histórico de acessos.',
+            'A seção Financeiro mostra os lançamentos do paciente, sem valores: "Ver todos" abre os lançamentos dele no Financeiro, e "Nova entrada", no "Adicionar", abre o formulário com o paciente já escolhido (se o Financeiro ainda não foi configurado, abre as Configurações, para informar o saldo do caixa). Abrir o Início de um paciente com lançamentos fica registrado no Histórico de acessos.',
           ],
         },
       ],
