@@ -216,7 +216,7 @@ Sobe um **segundo** container (também por `novoPostgres`/`uriDoPostgres`) e mon
 superusuário (Plano 01, Tarefa 13, Ruling R49). Prova que as migrations rodam assim, que o role da aplicação não
 cria tabela temporária (M5) e que a função `SECURITY DEFINER` das métricas do admin funciona sob `FORCE RLS`. É o único
 teste com dono **sem** superusuário, então é nele que as peças `SECURITY DEFINER` dos planos são provadas; o do Plano 26 é o
-`describe` "Plano 26: peças SECURITY DEFINER da recepção com dono NOBYPASSRLS" (`src/db/migrate-owner.test.ts:1233`, no
+`describe` "Plano 26: peças SECURITY DEFINER da recepção com dono NOBYPASSRLS" (`src/db/migrate-owner.test.ts:1574`, no
 fim do arquivo, RE-D56): as quatro funções são do migrator, com `search_path` fixo, sem `EXECUTE` para `PUBLIC` e com
 `EXECUTE` para o app; `app_retorno_das_consultas` e `app_previsoes_de_retorno` devolvem só as colunas delas, só de pacientes
 visíveis do tenant, recusam período acima de 13 meses e voltam vazias para paciente, público e `worker`;
@@ -283,6 +283,7 @@ Outros testes de banco que funcionam como guarda:
 | `src/db/migrate-owner.test.ts` | Migrator sem superusuário (7.3); desde o Plano 26, as quatro peças `SECURITY DEFINER` da recepção (`:1233`) |
 | `src/db/migrate.test.ts` (Plano 26, RE-D64) | A conexão do migrador (`poolDoMigrador`) tem `lock_timeout` de 10 s (`:96`) |
 | `src/db/recepcao-banco.test.ts` (Plano 26) | A negação por padrão (`app_enable_tenant_rls` numa tabela de rascunho cria `tenant_isolation`, `publico_negado`, os `paciente_sem_*` e `recepcao_negada`; o laço só pega o `public`; a custom sem `SET LOCAL lock_timeout`), os CHECKs de `user` e `invites`, o gatilho de `equipe_membros`, as liberações e condições (paciente escondido, notificações da agenda, Financeiro com e sem a permissão, `InitPlan`, `public_booking_requests` negada), os gatilhos de colunas (inclusive a coluna nova que nasce fixa), os pedidos do Plano 23 e o `tenants_so_nutri` |
+| `src/db/recepcao-gatilhos-copiados.test.ts` (Plano 26, sem banco) | As funções que a custom `rls_recepcao` refaz por `CREATE OR REPLACE` — os quatro gatilhos do chat do Plano 25 (bloco 6) e o `app_appointments_regras_pedido` do Plano 23 (bloco 4) — têm o corpo da última migration anterior a ela no `_journal.json` que define cada uma, só com as trocas do papel `recepcao`; controle negativo em memória (um PR anterior que refaz a função faz a custom falhar) |
 | `src/modules/notificacoes/tipos.test.ts` (Plano 26, RN-507) | `TIPOS_DA_AGENDA` = a lista da política `recepcao_cond_notificacoes_da_agenda` (lida de `pg_policies`) e ⊂ CHECK de `notifications.tipo`; agenda + `TIPOS_FORA_DA_RECEPCAO` = o CHECK inteiro: tipo novo de outro plano sem decisão quebra (`:32`) |
 | `src/db/paciente-colunas.test.ts` | Gatilho `paciente_colunas` (migration 0085, B-4): a sessão de paciente só altera as colunas permitidas de `patients` e `data_exports` |
 | `src/modules/alimentos/taco-fonte.test.ts` | A planilha da TACO tem o `sha256` esperado e `seeds/taco-4ed.csv` e a migration de seed são exatamente o que `pnpm seed:taco` gera |

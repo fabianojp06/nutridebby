@@ -40,6 +40,11 @@ As políticas novas só pegam a sessão `recepcao` (RESTRICTIVE com `app_current
   `FUNCOES_COM_PAPEL` com a decisão (`findPapelEmFuncoesViolations`); gatilho novo com lista fechada de papéis ganha a
   `recepcao` na lista dos que a RLS nega, como os do chat no bloco 6; tipo novo de notificação entra em `TIPOS_DA_AGENDA`
   ou em `TIPOS_FORA_DA_RECEPCAO`; rota nova do painel decidida nas guardas `ROTAS_DA_RECEPCAO`/`FORA_DO_PAINEL`.
+- Recopiar o bloco 6 de cada gatilho do chat (`app_chat_conversas_regras`, `app_chat_mensagens_regras`,
+  `app_chat_leituras_regras`, `app_recados_regras`) e o `app_appointments_regras_pedido` (bloco 4) a partir da definição
+  mais recente na `main`, mudando só os pontos do papel `recepcao`; o teste `src/db/recepcao-gatilhos-copiados.test.ts`
+  ("funções refeitas pela custom rls_recepcao: cópia da última definição anterior") quebra se esquecer — compara cada
+  corpo da custom com o da última migration anterior a ela no `_journal.json` que define a função.
 - Recriar o banco de dev da sessão, `pnpm db:migrate`, `pnpm e2e:seed` duas vezes e a suíte completa.
 
 ## Deploy
@@ -57,7 +62,7 @@ As políticas novas só pegam a sessão `recepcao` (RESTRICTIVE com `app_current
 O migrador do Drizzle aplica todas as migrations pendentes **numa transação só**. A conexão dele (`poolDoMigrador`,
 `src/db/migrate.ts`) abre com `-c lock_timeout=10s`. O limite vale **para cada espera de trava**, em todos os comandos da
 execução — a gerada (que trava `user`, lida em toda requisição) e o laço da custom (que trava, uma a uma, cada tabela com
-`tenant_id`: as 59 que já existiam; a 60ª, `equipe_membros`, nasce negada pelo `app_enable_tenant_rls`) —, **não para a
+`tenant_id`: as 66 que já existiam, com as sete do Plano 25; a 67ª, `equipe_membros`, nasce negada pelo `app_enable_tenant_rls`) —, **não para a
 execução inteira**:
 
 - as esperas **podem somar**: cada tabela pode esperar até 10 s sem estourar, e a migração inteira levar bem mais;

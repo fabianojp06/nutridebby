@@ -916,27 +916,8 @@ describe('gatilhos de colunas da recepção (bloco 4)', () => {
       const r = await pedido();
       expect(await em(T.ctx, sql`update appointments set status = 'cancelada', cancelado_por = 'pedido_recusado', cancelada_em = now() where id = ${r} returning id`)).toHaveLength(1);
     });
-
-    it('a custom refaz app_appointments_regras_pedido com o corpo da 0131 e só os dois pontos do papel (RE-D59)', () => {
-      const corpo = (texto: string) => {
-        const m = texto.match(/CREATE OR REPLACE FUNCTION app_appointments_regras_pedido\(\)[\s\S]*?END \$\$;/);
-        expect(m).not.toBeNull();
-        return m![0];
-      };
-      const pasta = path.resolve('drizzle');
-      const do23 = readdirSync(pasta).filter((f) => /^\d{4}_rls_agenda_2\.sql$/.test(f));
-      expect(do23).toHaveLength(1);
-      const original = corpo(readFileSync(path.join(pasta, do23[0]), 'utf8'));
-      const refeita = corpo(sqlDaCustom());
-      const aceite = `r IS DISTINCT FROM 'nutri' THEN`;
-      const recusa = `OR (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('nutri'::text, 'pedido_recusado'::text) THEN`;
-      expect(original).toContain(aceite);
-      expect(original).toContain(recusa);
-      const esperado = original
-        .replace(aceite, `r NOT IN ('nutri', 'recepcao') THEN`)
-        .replace(recusa, `OR (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('nutri'::text, 'pedido_recusado'::text)\n         OR (r, NEW.cancelado_por) IS NOT DISTINCT FROM ('recepcao'::text, 'pedido_recusado'::text) THEN`);
-      expect(refeita).toBe(esperado);
-    });
+    // O corpo de app_appointments_regras_pedido na custom (o da última definição anterior, só com os dois pontos do papel,
+    // RE-D59) é conferido em recepcao-gatilhos-copiados.test.ts, sem banco.
   });
 
   describe('tenants_so_nutri (RN-512)', () => {

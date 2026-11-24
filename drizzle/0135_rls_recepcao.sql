@@ -833,7 +833,11 @@ GRANT EXECUTE ON FUNCTION app_cpf_em_uso(text, uuid) TO nutri_app_role;
 -- migration roda) e nenhuma entra em RECEPCAO_LIBERADO. Os quatro gatilhos do 25 passam a devolver NEW para a `recepcao` na
 -- lista (iii) dos papéis que a RLS nega — a recusa vem da política da própria tabela (recepcao_negada), como para `publico` e
 -- `conta`; papel desconhecido continua no 42501 do gatilho (falha fechada). CREATE OR REPLACE com o corpo da 0133 da `main`
--- (rls_mensagens), mudando só essa linha. As três funções SECURITY DEFINER do 25 (app_chat_soltar_anexo,
+-- (rls_mensagens), mudando só essa linha; o comentário da 0133_rls_mensagens.sql:136-141 ("a `recepcao` … até lá, é papel
+-- desconhecido") fica superado por este bloco (a 0133 já foi aplicada e não muda). Na vez do merge, recopiar cada corpo da
+-- definição mais recente da `main`: src/db/recepcao-gatilhos-copiados.test.ts compara o corpo daqui com o da última
+-- migration anterior que define a função (o mesmo para app_appointments_regras_pedido, bloco 4). As três funções SECURITY
+-- DEFINER do 25 (app_chat_soltar_anexo,
 -- app_chat_apagar_do_titular: só `worker`; app_chat_aviso_nutri_devido: só a sessão de paciente) recusam a recepção pela
 -- própria guarda e ficam como estão.
 CREATE OR REPLACE FUNCTION app_chat_conversas_regras() RETURNS trigger
