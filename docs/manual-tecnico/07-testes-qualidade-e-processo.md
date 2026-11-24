@@ -420,6 +420,12 @@ por tela (ex.: `src/app/p/(portal)/plano/page.test.ts`), não como varredura. O 
 O Safari do iOS fica no teste manual do runbook (comentário em `playwright.config.ts:16`; checklist
 `docs/operacao/go-live.md`, "Produto e acessibilidade").
 
+**Relógio do E2E (`E2E_AGORA`, SUS-119).** `agora()` (`src/lib/agora.ts`) é o "agora" do app: `new Date()`, salvo com `E2E_AGORA`
+(app e worker) — um instante ISO 8601 com fuso (o relógio começa nele no primeiro uso e segue andando) ou um deslocamento
+(`+36h`, `-2d`, `+90m`). O banco (`now()`, `clock_timestamp()`, `app_hoje_do_tenant()`) não é deslocado: o spec escolhe
+instantes coerentes com o relógio real dele. `src/env.ts` valida o formato e recusa a variável em produção (`emProducao`,
+o mesmo critério do `SESSAO_TESTE_MS`, [§3.6](03-autenticacao-e-acesso.md#36-sessão-inatividade-e-renovação)); testes em `src/lib/agora.test.ts` e `src/env.test.ts`.
+
 ### Dados do E2E: `scripts/e2e-seed.ts`
 
 `pnpm e2e:seed` prepara o banco antes da suíte (`ci.yml:169`). Ele:

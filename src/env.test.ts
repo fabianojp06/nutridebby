@@ -477,3 +477,42 @@ describe('P12-14 — SESSAO_TESTE_MS (só teste)', () => {
     for (const v of ['abc', '5999', '1800001', '15000.5']) expect(() => parseEnv({ ...base, SESSAO_TESTE_MS: v }), v).toThrow(/SESSAO_TESTE_MS/);
   });
 });
+
+describe('SUS-119 — E2E_AGORA (só teste), no app e no worker', () => {
+  const prodApp = { ...base, NODE_ENV: 'production', APP_URL: 'https://nutri.exemplo.com', TRUSTED_PROXIES: '10.0.0.0/8', TURNSTILE_SITE_KEY: 'chave-real', TURNSTILE_SECRET_KEY: 'segredo-real' };
+  const w = { NODE_ENV: 'development', DATABASE_URL, APP_URL: 'http://localhost:3100', ENCRYPTION_KEY: KEY, DATA_DIR: './data', EMAIL_FROM: 'NutriDebby <x@y.dev>', MAILPIT_URL: 'http://localhost:8025' };
+  const prodWorker = { ...w, NODE_ENV: 'production', APP_URL: 'https://nutri.exemplo.com', RESEND_API_KEY: 're_x' };
+
+  it('ausente por padrão; vazia conta como ausente', () => {
+    expect(parseEnv(base).E2E_AGORA).toBeUndefined();
+    expect(parseEnv({ ...base, E2E_AGORA: '' }).E2E_AGORA).toBeUndefined();
+    expect(parseWorkerEnv(w).E2E_AGORA).toBeUndefined();
+    expect(parseWorkerEnv({ ...w, E2E_AGORA: '' }).E2E_AGORA).toBeUndefined();
+  });
+
+  it('aceita em dev, test e no E2E (produção em localhost), nos dois formatos', () => {
+    for (const v of ['2026-12-01T08:00:00-03:00', '+36h', '-2d', '+90m']) {
+      expect(parseEnv({ ...base, E2E_AGORA: v }).E2E_AGORA, v).toBe(v);
+      expect(parseEnv({ ...base, NODE_ENV: 'test', E2E_AGORA: v }).E2E_AGORA, v).toBe(v);
+      expect(parseEnv({ ...base, NODE_ENV: 'production', TRUSTED_PROXIES: '10.0.0.0/8', E2E_AGORA: v }).E2E_AGORA, v).toBe(v);
+      expect(parseEnv({ ...base, NODE_ENV: 'production', APP_URL: 'http://127.0.0.1:3000', TRUSTED_PROXIES: '10.0.0.0/8', E2E_AGORA: v }).E2E_AGORA, v).toBe(v);
+      expect(parseWorkerEnv({ ...w, E2E_AGORA: v }).E2E_AGORA, v).toBe(v);
+      expect(parseWorkerEnv({ ...w, NODE_ENV: 'test', E2E_AGORA: v }).E2E_AGORA, v).toBe(v);
+      expect(parseWorkerEnv({ ...w, NODE_ENV: 'production', EMAIL_TRANSPORT: 'mailpit', E2E_AGORA: v }).E2E_AGORA, v).toBe(v);
+    }
+  });
+
+  it('recusada em produção fora de localhost: o app e o worker não sobem com o relógio deslocado', () => {
+    expect(parseEnv(prodApp).E2E_AGORA).toBeUndefined();
+    expect(parseWorkerEnv(prodWorker).E2E_AGORA).toBeUndefined();
+    expect(() => parseEnv({ ...prodApp, E2E_AGORA: '+36h' })).toThrow(/E2E_AGORA só fora de produção/);
+    expect(() => parseWorkerEnv({ ...prodWorker, E2E_AGORA: '2026-12-01T08:00:00-03:00' })).toThrow(/E2E_AGORA só fora de produção/);
+  });
+
+  it('formato inválido é recusado com a mensagem do formato, nos dois schemas', () => {
+    for (const v of ['amanhã', '36h', '2026-12-01T08:00:00', '2026-02-30T08:00:00-03:00']) {
+      expect(() => parseEnv({ ...base, E2E_AGORA: v }), v).toThrow(/E2E_AGORA: E2E_AGORA deve ser um instante ISO 8601 com fuso/);
+      expect(() => parseWorkerEnv({ ...w, E2E_AGORA: v }), v).toThrow(/E2E_AGORA: E2E_AGORA deve ser um instante ISO 8601 com fuso/);
+    }
+  });
+});
