@@ -189,6 +189,8 @@ async function travarPedidoPublico(tx: Tx, tenantId: string, id: string): Promis
  */
 async function resolverPedidoPublico(tx: Tx, r: PedidoPublico, resolucao: 'recusado' | 'vencido', fuso: string, agora: Date, appUrl: string): Promise<void> {
   await tx.update(publicBookingRequests).set({ resolvidoEm: agora, resolucao }).where(eq(publicBookingRequests.id, r.id));
+  // AG-D81: o horário pedido já passou (o worker parou): só marca o estado — "escolha outro horário" para uma data antiga confunde
+  if (r.inicio.getTime() <= agora.getTime()) return;
   const [t] = await tx.select({ slug: tenants.slug, ativa: tenants.agendamentoPublicoAtivo }).from(tenants).where(eq(tenants.id, r.tenantId));
   const link = t ? linkDeOutroHorario({ daPagina: true, tenant: { id: r.tenantId, slug: t.slug, agendamentoPublicoAtivo: t.ativa } }, appUrl) : null;
   const sai = quandoAvisar(agora, fuso);
@@ -351,8 +353,9 @@ export async function vencerSolicitacoes(db: Db, agora: Date, o: { tenantId?: st
             if (c.status !== 'solicitada' || prazoDoPedido(c.inicio, p).getTime() > agora.getTime()) return false;
             await tx.update(appointments).set({ status: 'cancelada', canceladoPor: 'pedido_vencido', canceladaEm: agora, updatedAt: agora }).where(eq(appointments.id, c.id));
             await cancelarLembretes(tx, c.id, agora);
-            // titular arquivado ou bloqueado (exclusão pedida, LGPD art. 18, IV): o pedido vence sem criar aviso para ele
-            if (titular.status === 'ativo') {
+            // titular arquivado ou bloqueado (exclusão pedida, LGPD art. 18, IV): o pedido vence sem criar aviso para ele;
+            // AG-D81: nem para o horário que já passou (depois de uma parada longa do worker) — só o estado
+            if (titular.status === 'ativo' && c.inicio.getTime() > agora.getTime()) {
               await avisarPaciente(tx, { tenantId, patientId: c.patientId, appointmentId: c.id, inicio: c.inicio }, 'pedido_nao_confirmado', agora, quandoAvisar(agora, p.fuso));
             }
             return true;

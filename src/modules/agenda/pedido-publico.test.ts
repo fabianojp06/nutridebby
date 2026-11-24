@@ -265,6 +265,17 @@ describe('recusa e vencimento da pessoa nova (RN-428, AG-D23, AG-D63, AG-D75)', 
     expect(await erro(aceitarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'pessoa_nova', id: p.id }, depsSol(em('2026-10-16', '03:00'))))).toBeInstanceOf(PedidoMudouError);
   });
 
+  it('AG-D81: o pedido da pessoa nova cujo horário já passou (o worker parou) só vence (resolvido_em/vencido), sem o e-mail; o de horário futuro, com ele', async () => {
+    const T = await consultorio();
+    const passou = await aguardando(T, { inicio: em('2026-10-16', '16:00') });
+    const futuro = await aguardando(T, { inicio: em('2026-10-17', '03:00') }); // venceu às 15:00 do dia 16 e ainda não começou
+    expect(await vencerSolicitacoes(app.db, em('2026-10-16', '16:00'), { tenantId: T.tenantId })).toBe(2);
+    expect(await linhaDoPedido(T, passou.id)).toMatchObject({ resolvidoEm: em('2026-10-16', '16:00'), resolucao: 'vencido' });
+    expect(await emailsNaFila('pedido_nao_confirmado_publico', passou.email)).toEqual([]);
+    expect(await linhaDoPedido(T, futuro.id)).toMatchObject({ resolucao: 'vencido' });
+    expect(await emailsNaFila('pedido_nao_confirmado_publico', futuro.email)).toHaveLength(1);
+  });
+
   it('AG-D75: recusa às 22:00 e vencimento às 03:00 (fuso de São Paulo, servidor em UTC) → o e-mail sai às 08:00 locais; às 10:00, na hora', async () => {
     const T = await consultorio();
     const r22 = await aguardando(T, { inicio: em('2026-10-17', '09:00') });
