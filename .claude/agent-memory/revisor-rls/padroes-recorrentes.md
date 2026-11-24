@@ -558,3 +558,21 @@ Plano 23, revisão final do PR 2 (locais e visões, 24/11/2026): sem Critical; p
 - Impressão com filtro por paciente gravando `exportar` sem `patient_id` enquanto a main (RN-493, Ranking) grava um por titular.
 - Runbook da volta atrás que lista só os efeitos de ESCRITA da imagem antiga: esquecer o que ela OFERECE e MOSTRA sobre o dado
   novo (horários de local sem agendamento/arquivado, endereço do Perfil nas mensagens, teto antigo de regras).
+Plano 23, revisão final do PR 4 (filtros de local, AG-D79–D82, fechamento, 24/11/2026): sem Critical/Important na lente banco.
+- Repetiu "runbook da volta atrás incompleto": o PR que se descreve como "só lê" também mudava o worker (AG-D81: sem aviso
+  para horário passado, com `prazo_passado` no envio). A imagem anterior manda as notificações que a nova já criou contando
+  com a recusa no envio. Conferir no diff do PR todo arquivo de worker/notificações antes de aceitar "só lê".
+- Critério das opções do filtro ≠ critério do filtro (opção "arquivado com consulta" conta qualquer status; o filtro exclui
+  cancelada/solicitada): opção que devolve lista vazia. Cruzar sempre o EXISTS das opções com o do filtro.
+Plano 23, revisão final do PR 3 (pedidos, retorno, aniversário, 24/11/2026): sem Critical/Important na lente banco (ordem
+trava consultiva do tenant → paciente → consulta coerente em portal/página/aceite/vencimento; exclusão sem a consultiva, sem ciclo).
+- Discriminador lido de tabela de vida curta: `daPagina` (origem do pedido, link do "não confirmado") vem de
+  `public_booking_requests`, que a limpeza apaga 24 h depois da criação enquanto a consulta `solicitada` dura dias. Conferir
+  a retenção de toda tabela usada como "de onde veio" de um registro que vive mais que ela.
+- Tipo novo de notificação com índice "uma por ano": na janela do deploy (ou na volta atrás) o worker antigo marca `falhou`
+  (sem modelo) e a linha ocupa o balde do ano para sempre. Pedir o worker primeiro ou o tratamento no runbook.
+- CLAUDE.md dizendo "semConta só para gravar" quando o módulo também lê com semConta no GET (estado do link): conferir verbo.
+Plano 23, re-revisão escopada das correções do /code-review do PR 2 (24/11/2026): sem Critical/Important.
+- Defesa no servidor mais larga que o gatilho que ela espelha (gatilho só age na troca de local; o código grava a sala
+  sempre): sobrescreve, sem a nutricionista ver, um link antigo ≠ sala atual. Cruzar o "quando" do gatilho com o do código.
+- Fallback "resolver pelo único candidato" (local do pedido sem local): conferir que o teste cobre o caso ambíguo (>1).
