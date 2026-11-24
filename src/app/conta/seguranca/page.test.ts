@@ -35,3 +35,26 @@ describe('/conta/seguranca: ajuda na própria tela (D18, Plano 10A)', () => {
     expect(html).toContain('Depois de 5 códigos errados, espere 15 minutos para tentar de novo.');
   });
 });
+
+describe('/conta/seguranca: recepção (Plano 26, RE-D45, RN-500)', () => {
+  it('a página aceita a recepção (a lista de papéis tem `recepcao`)', async () => {
+    const { requireUser } = await import('@/lib/session');
+    usuario.atual = { appRole: 'recepcao', tema: 'claro', twoFactorEnabled: true };
+    await SegurancaPage();
+    expect(vi.mocked(requireUser).mock.lastCall?.[0]).toEqual(expect.arrayContaining(['admin', 'nutri', 'recepcao']));
+  });
+  it.each(['claro', 'escuro', 'sistema'])('tema da conta, como a nutricionista (%s)', async (tema) => {
+    usuario.atual = { appRole: 'recepcao', tema, twoFactorEnabled: true };
+    expect(await temaDaPagina()).toBe(tema);
+  });
+  it('sem 2FA: o aviso do 2FA obrigatório (como o do admin); com 2FA, sem aviso', async () => {
+    usuario.atual = { appRole: 'recepcao', tema: 'claro', twoFactorEnabled: false };
+    const sem = renderToStaticMarkup(await SegurancaPage());
+    expect(sem).toContain('A recepção precisa da verificação em duas etapas. Configure agora para continuar.');
+    expect(sem).toContain('role="alert"');
+    usuario.atual = { appRole: 'recepcao', tema: 'claro', twoFactorEnabled: true };
+    expect(renderToStaticMarkup(await SegurancaPage())).not.toContain('A recepção precisa');
+    usuario.atual = { appRole: 'nutri', tema: 'claro', twoFactorEnabled: false };
+    expect(renderToStaticMarkup(await SegurancaPage())).not.toContain('A recepção precisa');
+  });
+});

@@ -1,4 +1,4 @@
-import { ACESSO_DA_NUTRI, BASE, filtroDaUrl, navegacaoDaPropriaOrigem, ROTA_DA_SECAO, secaoDaUrl, urlDaSecao } from '@/app/painel/relatorios/url';
+import { ACESSO_DA_NUTRI, BASE, filtroDaUrl, navegacaoDaPropriaOrigem, ROTA_DA_SECAO, secaoDaUrl, semPermissaoDaSecao, urlDaSecao } from '@/app/painel/relatorios/url';
 import { getEnv } from '@/env';
 import { logger, nomeDoErro } from '@/lib/logger';
 import { DPA_PATH, requireApiNutri } from '@/lib/tenant-session';
@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
  * navegação (o link "Baixar CSV"), nunca `fetch`: sem sessão → login com a volta para a seção; DPA pendente → /painel/dpa;
  * papel errado (paciente, admin) → o 403 JSON de sempre (`acesso-negado.test.ts`). Pedido de outro site, ou sem como
  * confirmar a origem → 303 para a seção, sem ler nem gravar (o `exportar` sai em nome da nutricionista). Seção
- * desconhecida → os Relatórios; não permitida (RN-480) → 403 por enquanto (a T6 troca pelo 303 a "Sem permissão");
+ * desconhecida → os Relatórios; não permitida (RN-480) → 303 para "Sem permissão" com o motivo (T6, RE-D47);
  * período inválido → a seção com `?erro=periodo`. A leitura, o `exportar` (agregado: um sem paciente; Ranking: um por
  * paciente da lista) e a montagem do arquivo ficam na mesma transação: se a montagem falhar, o registro volta junto. O
  * erro vai ao log só com o código, a seção e o nome do erro (RN-497, RNF-482).
@@ -32,7 +32,7 @@ export async function GET(req: Request) {
   }
   if (!navegacaoDaPropriaOrigem(req.headers, getEnv().APP_URL)) return irPara(voltaDaSecao);
   if (!secao) return irPara(BASE);
-  if (!podeVerSecao(ACESSO_DA_NUTRI, secao)) return Response.json({ erro: 'Acesso negado' }, { status: 403, headers: { 'cache-control': 'no-store' } });
+  if (!podeVerSecao(ACESSO_DA_NUTRI, secao)) return irPara(semPermissaoDaSecao(secao));
   const filtro = filtroDaUrl(sp, new Date(), acesso.tenant.fuso);
   if (filtro.erro) return irPara(urlDaSecao(secao, { erro: 'periodo' }));
   if (!filtro.porValido) return irPara(voltaDaSecao);

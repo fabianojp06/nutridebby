@@ -167,3 +167,21 @@ describe('withConta (D2)', () => {
     await expect(withConta('nao-e-uuid', async () => 1, app.db)).rejects.toThrow(TenantContextError);
   });
 });
+
+describe('withTenant: sessão da recepção (Plano 26, RN-498)', () => {
+  it('recepcao exige o ator e recusa patientId e semConta', async () => {
+    const tenantId = randomUUID();
+    await expect(withTenant({ tenantId, role: 'recepcao' }, async () => 1, app.db)).rejects.toThrow('actorUserId obrigatório para sessão da recepção');
+    await expect(
+      withTenant({ tenantId, role: 'recepcao', actorUserId: randomUUID(), patientId: randomUUID() }, async () => 1, app.db),
+    ).rejects.toThrow(/patientId/);
+    await expect(
+      withTenant({ tenantId, role: 'recepcao', actorUserId: randomUUID(), semConta: true } as never, async () => 1, app.db),
+    ).rejects.toThrow('semConta só é permitido para paciente sem ator');
+    await expect(withTenant({ tenantId, role: 'recepcao', semConta: true } as never, async () => 1, app.db)).rejects.toThrow(TenantContextError);
+    const ator = randomUUID();
+    const r = await withTenant({ tenantId, role: 'recepcao', actorUserId: ator }, (tx) =>
+      tx.execute<{ r: string; u: string }>(sql`select app_current_role() as r, app_current_user()::text as u`), app.db);
+    expect(r.rows[0]).toEqual({ r: 'recepcao', u: ator });
+  });
+});

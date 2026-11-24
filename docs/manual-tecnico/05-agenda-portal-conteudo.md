@@ -294,6 +294,24 @@ O cartão "Próxima consulta" não mostra peso (P08 D22): exigiria `auditRead` a
 então é auditada (entidade `diario`) **no máximo uma vez por paciente por dia, por ator**, no fuso do tenant
 (`auditarDiarioUmaVezNoDia`, trava `pg_advisory_xact_lock('inicio-diario', paciente)`; decisão do dono de 04/10/2026).
 
+**Plano 26 (T8, RN-514, RE-D63): o Início da recepção.** `/painel` na sessão `recepcao` desenha `InicioDaRecepcao`
+(`src/app/painel/inicio-recepcao.tsx`), que lê `inicioDaRecepcao` (`src/modules/agenda/inicio-recepcao.ts`; só a sessão
+`recepcao`, uma transação): "Agenda de hoje (n)" (`listarAgendaNaTransacao` do dia no fuso, sem canceladas nem
+`solicitada`), "Presença a registrar (n)" (`contarPendenciasDePresencaNaTransacao` e as `PRESENCA_NO_INICIO` = 5 mais
+antigas, `pendenciasDePresencaNaTransacao`; para ela, só "Faltou", com o texto `MSG_RECEPCAO.presenca`), "Solicitações (n)"
+(consultas `solicitada` do Plano 23 com `inicio − antecedência > agora`: pedidos de paciente cadastrado; os de pessoa nova
+moram em `public_booking_requests`, negada a ela, e ficam com a nutricionista — RE-D59, `MSG_RECEPCAO.pedidosPessoaNova`) e
+"O que os pacientes fizeram na agenda" (`novidadesDaAgendaNaTransacao`; os títulos das três listas vêm de
+`TITULOS_DAS_NOVIDADES`, `src/modules/agenda/inicio.ts:29`, usados pelos dois Inícios). Os textos do Início dela sem
+fonte na spec ficam em `MSG_INICIO_RECEPCAO` (`inicio.ts:39`, RASCUNHO, vão à tabela de textos na T12); os links "Ver a
+agenda" e "Responder" têm o `aria-label` "Ver a agenda de hoje" e "Responder solicitações", com o texto visível dentro
+(WCAG 2.5.3). Nada do `lerInicio`: sem "Próxima consulta" (lê
+diário e acesso ao app, com `auditRead`), indicadores do mês (ficam em Relatórios › Agenda), armazenamento, WhatsApp, IA,
+exames, dúvidas, documentos ou pedidos do titular; nenhuma leitura auditada (D10). A RLS dela esconde o paciente bloqueado e
+o anonimizado (RE-D40). Os links levam às telas da agenda, que no PR 2 ainda dão "Sem permissão" (T10, PR 3; a Equipe nasce
+desligada, RE-D52). Testes: `inicio-recepcao.test.ts` (chaves, contagens e RLS no banco) e `src/app/painel/page.test.ts`
+(com o espião de leituras negadas, [§7.4.3](07-testes-qualidade-e-processo.md#743-guardas-de-código-leitura-do-fonte)).
+
 ---
 
 ## 5.2 Página pública `/n/<slug>` (RN-16, P05 D11–D13)
@@ -1613,14 +1631,27 @@ Guardas: `src/app/painel/cores.test.ts` (sem cor fixa, sem `dark:` espalhado, bo
 
 - `src/app/painel/layout.tsx` monta o cabeçalho de todas as telas. **Não é barreira de segurança**: cada página chama
   `requireNutri` (guarda em `cabecalho.test.ts`). Com o DPA pendente, o cabeçalho mostra só marca, tema e "Sair".
+  Desde o Plano 26 (T6, T8), o layout chama `requireEquipe('/painel', { permitirDpaPendente: true })` (as telas de aviso
+  da recepção ficam dentro do painel; com `requireNutri` ela voltaria a "Sem permissão" sem fim) e passa o `papel` e o
+  `financeiro` ao `CabecalhoPainel`. Os contadores clínicos (`contarEnviosRecebidos`, `contadorDeDuvidas`) só são lidos no
+  ramo da nutricionista com o DPA em dia (`const nutri = completo && papel === 'nutri'`, `layout.tsx:36`); na recepção nem
+  rodam (espião de leituras negadas em `layout.test.ts`, [§7.4.3](07-testes-qualidade-e-processo.md#743-guardas-de-código-leitura-do-fonte)).
 - Menu de 8 itens fixos (`ITENS_DO_MENU`): Início, Pacientes, Agenda, Diários, Conteúdos, Financeiro (Plano 20, RN-327:
   para toda nutricionista, sem contador), Relatórios (Plano 26, §4.1: entre "Financeiro" e "Configurações"; marca também
   a impressão, `/painel/relatorios/imprimir`) e Configurações; "Exames recebidos" (Plano 12) e "Dúvidas dos pacientes"
   (Plano 15) entram quando ligados, e o menu chega a 10 itens (o cabeçalho quebra a linha, R-310 do Plano 20; aceito na
   spec do Plano 26, §4.1). "Configurações" é um
   hub de cartões e fica marcado também em WhatsApp, Alimentos e modelos (`DO_HUB`).
+- **Menu da recepção** (Plano 26, RN-514): `itensDoMenu({ exames, duvidas, papel, financeiro })`
+  (`src/app/painel/navegacao.ts:35`) com `papel: 'recepcao'` devolve só os itens de `ITENS_DA_RECEPCAO` (`:29`) — Início,
+  Pacientes, Agenda, Financeiro (só com a permissão) e Relatórios, na ordem do menu da nutricionista; nunca Diários, Exames
+  recebidos, Dúvidas dos pacientes, Conteúdos e Configurações, e item novo de outro plano fica fora dela por padrão.
+  `itemAtual` marca "Pacientes" também em `/painel/cadastro/{id}` (`:52`), o cadastro do paciente pela recepção (PR 3).
 - Menu da conta no avatar (`<details>`, `src/app/painel/menu-conta.tsx`): "Perfil e marca", "Segurança", "Manual",
-  "Rever o tour de boas-vindas", "Sair".
+  "Rever o tour de boas-vindas", "Sair". O da recepção (Plano 26) abre com "{nome} · Recepção" (`MSG_RECEPCAO.menuDaConta`)
+  e "E-mail da conta: {e-mail}." (`MSG_RECEPCAO.emailDaConta`, neutro em gênero, RASCUNHO; o "Conectado como {e-mail}." é
+  da nutricionista), não tem "Perfil e marca" (Configurações é da nutricionista) e o item do tour é "Rever o tour", que
+  leva ao dela (`/painel?tour=recepcao-inicio`, `ID_TOUR_DO_INICIO`).
 - Sem sino de avisos na v1 (P08 D21): os alertas ficam no Início, como `Aviso`.
 
 ### 5.7.5 Tema da conta (P08 D17)
@@ -1709,7 +1740,7 @@ mora numa aba que já tinha guia: nenhuma tela nova do painel, nada em `SEM_AJUD
 
 Plano 18, PR 1 (abas Início e Perfil, [§4.2.10](04-modulos-clinicos.md#4210-ficha-do-paciente-início-perfil-cabeçalho-e-registro-de-seções-plano-18-pr-1)):
 
-- **Guia novo `inicio-paciente`**, na versão 1 (`conteudo.ts:152`), com título "Início do paciente". O título "Início" é
+- **Guia novo `inicio-paciente`**, na versão 1 (`conteudo.ts:161`), com título "Início do paciente". O título "Início" é
   do guia de boas-vindas, e o teste "nenhum título de guia repetido" impede o mesmo h2 duas vezes no manual completo.
   - `padrao` `^/painel/pacientes/ID$`: só a aba Início da ficha.
   - Fica **antes** do `prontuario`, porque `guiaDaRota` pega o primeiro que casa, e o `prontuario` casa todas as abas.
@@ -1718,7 +1749,7 @@ Plano 18, PR 1 (abas Início e Perfil, [§4.2.10](04-modulos-clinicos.md#4210-fi
   - Os dois primeiros repetem os textos do `prontuario`. "Adicionar" diz "Um botão só para registrar anamnese, medidas,
     exames, atendimentos e prescrições."; "Seções", "Cada seção mostra quantos registros há e os três mais recentes."
   - A frase do selo "No app" da spec §8.3 fica para a Tarefa 9, com a v2. O teste garante que a v1 não fala do selo.
-- **`prontuario` na v3** (`conteudo.ts:214`, comentário "3 = Plano 18: abas Início e Perfil"):
+- **`prontuario` na v3** (`conteudo.ts:222`, comentário "3 = Plano 18: abas Início e Perfil"):
   - Passo `cabecalho-paciente`: "Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o
     paciente está arquivado ou bloqueado.".
   - Passo `abas-prontuario`: "Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento
@@ -1734,7 +1765,7 @@ Plano 18, PR 1 (abas Início e Perfil, [§4.2.10](04-modulos-clinicos.md#4210-fi
 
 Plano 18, PR 2 (cadastro em seções, lista e "No app", [§4.2.11](04-modulos-clinicos.md#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)):
 
-- **`pacientes` na v2** (`conteudo.ts:43`, comentário "Plano 18: abas da lista, Ações e o cadastro em seções"; spec
+- **`pacientes` na v2** (`conteudo.ts:51`, comentário "Plano 18: abas da lista, Ações e o cadastro em seções"; spec
   §8.1 e §8.4). Passos `novo-paciente` (sem mudança), `busca-pacientes` ("Ache um paciente pelo nome ou pelo e-mail. As
   abas separam ativos e arquivados; os bloqueados ficam em Ver bloqueados."), o novo `acoes-paciente` ("Em Ações você
   abre a ficha, edita o cadastro, arquiva ou reativa o paciente sem sair da lista."; alvo no cabeçalho da coluna
@@ -1742,11 +1773,11 @@ Plano 18, PR 2 (cadastro em seções, lista e "No app", [§4.2.11](04-modulos-cl
   nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta."; alvo no `<form>` de
   `paciente-form.tsx:107`, que só existe em "Novo paciente": na lista o passo aparece centralizado). A gaveta trocou "no
   filtro de situação" por "os arquivados ficam na aba Inativos" e "prontuário" por "ficha".
-- **`inicio-paciente` na v2** (`conteudo.ts:153`): o passo `secoes-inicio` ganhou a frase da spec §8.3 ("… O selo No
+- **`inicio-paciente` na v2** (`conteudo.ts:161`): o passo `secoes-inicio` ganhou a frase da spec §8.3 ("… O selo No
   app marca o que o paciente vê no app.") e entrou o passo `no-app-cartao` ("O que o paciente enxerga no app, contado
   com as mesmas regras do app."; alvo no cartão, `inicio/cartao-no-app.tsx:48`). A gaveta explica o cartão e a página
   "No app do paciente" (a página `/app` cai no guia `prontuario`, que casa qualquer aba).
-- **Guia novo `perfil-paciente`** (v1, `conteudo.ts:182`, título "Perfil do paciente"; padrão `^/painel/pacientes/ID/perfil$`,
+- **Guia novo `perfil-paciente`** (v1, `conteudo.ts:190`, título "Perfil do paciente"; padrão `^/painel/pacientes/ID/perfil$`,
   antes do `prontuario`): o mesmo passo `cadastro-paciente` do guia `pacientes` e a gaveta com o nome social "só a
   pedido do paciente", o CPF fora da lista e do app (e o link "Abrir o cadastro existente (abre em nova aba)"), a
   observação na cópia dos dados do titular e o paciente bloqueado só para consulta.
@@ -1755,7 +1786,7 @@ Plano 18, PR 2 (cadastro em seções, lista e "No app", [§4.2.11](04-modulos-cl
 
 Plano 20 (Financeiro, [§12.6](12-financeiro.md#126-telas-navegação-e-manual-guiado)):
 
-- **Guia novo `financeiro`**, versão 1, o **último** de `GUIAS` (`conteudo.ts:442`; o Plano 18 insere guias antes do
+- **Guia novo `financeiro`**, versão 1, o **último** de `GUIAS` (`conteudo.ts:593`; o Plano 18 insere guias antes do
   `prontuario`), título "Financeiro", `padrao` `^/painel/financeiro(/.*)?$`: cobre as oito telas novas (nada em
   `SEM_AJUDA`). Ajuda com "Para começar" e "Perguntas comuns"; 12 passos com os alvos `financeiro-secoes`,
   `financeiro-cartoes`, `financeiro-saldo`, `financeiro-valor-consulta`, `financeiro-categorias`, `financeiro-filtros`,

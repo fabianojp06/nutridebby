@@ -1,8 +1,21 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ID_GUIA } from '@/modules/plataforma/preferencias-tipos';
-import { GUIAS, guiaDaRota, ID_BOAS_VINDAS, precisaDoGuia } from './conteudo';
+import { EQUIPE_LIGADA } from '@/modules/plataforma/equipe-textos';
+import { GUIAS, guiaDaRota, guiasDoPapel, ID_BOAS_VINDAS, ID_TOUR_DO_INICIO, papeisDoGuia, precisaDoGuia } from './conteudo';
+
+// code review do PR 2 do Plano 26: o valor real de EQUIPE_LIGADA, salvo quando um teste liga (`equipe.ligada`)
+const equipe = vi.hoisted(() => ({ ligada: null as boolean | null }));
+vi.mock('@/modules/plataforma/equipe-textos', async (orig) => {
+  const real = await orig<typeof import('@/modules/plataforma/equipe-textos')>();
+  return {
+    ...real,
+    get EQUIPE_LIGADA() {
+      return equipe.ligada ?? real.EQUIPE_LIGADA;
+    },
+  };
+});
 
 const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.tsx')).map((d) => path.join(d.parentPath, d.name)))
@@ -23,8 +36,13 @@ const SEM_AJUDA: Record<string, string> = {
   '/painel/ajuda': 'é o próprio manual',
   '/conta/outro-papel': 'aviso de aparelho conectado com outro papel (P09-03): uma frase e o botão Sair, sem fluxo para ensinar',
   '/painel/relatorios/imprimir': 'Plano 26 (RN-495): página de impressão, sem menu; o guia é o dos Relatórios, de onde se chega a ela',
+  '/painel/sem-permissao': 'Plano 26 (RE-D47): tela de aviso, sem tarefa — uma frase e o "Voltar ao início"',
+  '/painel/contrato-pendente': 'Plano 26 (RN-501): tela de aviso, sem tarefa — a recepção espera a nutricionista aceitar o contrato',
+  '/conta/acesso-desativado':
+    'Plano 26 (RN-503): tela de aviso, sem tarefa — uma frase e o "Sair"; com o termo de confidencialidade pendente (code review do PR 2, RN-500), o próprio termo, a caixa e o botão',
 };
 const UUID = '0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b';
+const textosDoGuia = (g: (typeof GUIAS)[number]) => [g.titulo, g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => [s.titulo, ...s.itens]), ...g.passos.flatMap((p) => [p.titulo, p.texto])];
 // D18 (Plano 10A): as páginas de /conta (Segurança) também têm guia, mostrado na própria tela (fora do layout do painel)
 const PAGINAS = ['painel', 'conta'].flatMap((raiz) =>
   readdirSync(path.resolve('src/app', raiz), { recursive: true, withFileTypes: true })
@@ -309,5 +327,109 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(passo).toContain('"Editar"');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/editar`)?.id).toBe('prontuario');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/versoes`)?.id).toBe('prontuario');
+  });
+
+  it('Plano 26 (RE-D20, revisão da P26-08): a recepção tem a Segurança dela (`recepcao-seguranca`, 2FA obrigatório); a da nutricionista fica como estava (v1, só dela)', () => {
+    const g = GUIAS.find((x) => x.id === 'recepcao-seguranca')!;
+    expect(g).toMatchObject({ versao: 1, papeis: ['recepcao'] });
+    expect(g.ajuda.resumo).toContain('o painel só abre depois de ativá-la');
+    expect(guiaDaRota('/conta/seguranca', 'recepcao')?.id).toBe('recepcao-seguranca');
+    expect(guiaDaRota('/conta/seguranca', 'nutri')?.id).toBe('seguranca');
+    const nutri = GUIAS.find((x) => x.id === 'seguranca')!;
+    expect(nutri.versao).toBe(1);
+    expect(papeisDoGuia(nutri)).toEqual(['nutri']);
+    expect(textosDoGuia(nutri).join(' ')).not.toMatch(/recepção/i);
+    expect(textosDoGuia(g).join(' ')).not.toMatch(/assin/i); // assinar documentos é da nutricionista
+  });
+  it('Plano 26 (T6): as telas de aviso da recepção ficam sem guia (SEM_AJUDA)', () => {
+    for (const rota of ['/painel/sem-permissao', '/painel/contrato-pendente', '/conta/acesso-desativado']) {
+      expect(guiaDaRota(rota), rota).toBeNull();
+      expect(rota in SEM_AJUDA, rota).toBe(true);
+    }
+  });
+});
+
+describe('Plano 26 (T7): o guia da Equipe', () => {
+  it('a Equipe tem guia próprio (`equipe`, v1), antes do de Configurações, com os dois passos da spec', () => {
+    expect(guiaDaRota('/painel/configuracoes/equipe')?.id).toBe('equipe');
+    expect(guiaDaRota('/painel/configuracoes')?.id).toBe('configuracoes');
+    expect(guiaDaRota('/painel/configuracoes/perfil')?.id).toBe('configuracoes');
+    const ids = GUIAS.map((g) => g.id);
+    expect(ids.indexOf('equipe')).toBeLessThan(ids.indexOf('configuracoes'));
+    const g = GUIAS.find((x) => x.id === 'equipe')!;
+    expect(g.versao).toBe(1);
+    expect(g.passos.map((p) => [p.alvo, p.texto])).toEqual([
+      ['convidar', 'Convide a pessoa da recepção. Ela cuida da agenda e do cadastro e não vê dados de saúde.'],
+      ['permissao-financeiro', 'Marque se ela também cuida do Financeiro.'],
+    ]);
+  });
+});
+
+describe('code review do PR 2 do Plano 26 (RE-D52): o guia da Equipe fora do manual enquanto a tela estiver desligada', () => {
+  it('com EQUIPE_LIGADA = false (o valor do PR 2): fora de guiasDoPapel (o índice e as seções de /painel/ajuda), mas ainda em GUIAS', () => {
+    expect(EQUIPE_LIGADA).toBe(false);
+    expect(guiasDoPapel('nutri').map((g) => g.id)).not.toContain('equipe');
+    expect(guiasDoPapel('recepcao').map((g) => g.id)).not.toContain('equipe');
+    expect(GUIAS.map((g) => g.id)).toContain('equipe');
+    // só a Equipe sai: o resto do manual da nutricionista continua inteiro, na ordem de GUIAS
+    expect(guiasDoPapel('nutri').map((g) => g.id)).toEqual(GUIAS.filter((g) => papeisDoGuia(g).includes('nutri') && g.id !== 'equipe').map((g) => g.id));
+  });
+  it('com a Equipe ligada, o guia volta ao manual da nutricionista, antes do de Configurações', () => {
+    equipe.ligada = true;
+    try {
+      const ids = guiasDoPapel('nutri').map((g) => g.id);
+      expect(ids).toContain('equipe');
+      expect(ids.indexOf('equipe')).toBeLessThan(ids.indexOf('configuracoes'));
+      expect(guiasDoPapel('recepcao').map((g) => g.id)).not.toContain('equipe');
+    } finally {
+      equipe.ligada = null;
+    }
+  });
+});
+
+describe('Plano 26 (T8, RE-D42): manual guiado por papel', () => {
+  const PROIBIDAS_NA_RECEPCAO = [/Configura[çc][õo]es/i, /Realizada/i, /Iniciar atendimento/i, /Ver bloqueados/i, /etiqueta/i, /\barquivar\b/i];
+  const textosDe = (g: (typeof GUIAS)[number]) => [g.titulo, g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => [s.titulo, ...s.itens]), ...g.passos.flatMap((p) => [p.titulo, p.texto])];
+  const daRecepcao = GUIAS.filter((g) => papeisDoGuia(g).includes('recepcao'));
+
+  it('sem `papeis`, o guia é só da nutricionista; o boas-vindas é só dela e o Início da recepção tem o tour próprio', () => {
+    const boasVindas = GUIAS.find((g) => g.id === ID_BOAS_VINDAS)!;
+    expect(papeisDoGuia(boasVindas)).toEqual(['nutri']);
+    expect(guiaDaRota('/painel', 'nutri')?.id).toBe(ID_BOAS_VINDAS);
+    expect(guiaDaRota('/painel')?.id).toBe(ID_BOAS_VINDAS); // padrão: a nutricionista
+    expect(guiaDaRota('/painel', 'recepcao')?.id).toBe('recepcao-inicio');
+    expect(ID_TOUR_DO_INICIO).toEqual({ nutri: ID_BOAS_VINDAS, recepcao: 'recepcao-inicio' });
+    for (const g of GUIAS.filter((x) => !x.papeis)) expect(papeisDoGuia(g), g.id).toEqual(['nutri']);
+  });
+  it('o guia `recepcao-inicio` (v1, só da recepção, em /painel) aponta para alvos do Início dela e do cabeçalho', () => {
+    const g = GUIAS.find((x) => x.id === 'recepcao-inicio')!;
+    expect(g).toMatchObject({ versao: 1, papeis: ['recepcao'] });
+    expect(g.padrao.test('/painel')).toBe(true);
+    expect(g.padrao.test('/painel/agenda')).toBe(false);
+    const alvos = g.passos.flatMap((p) => (p.alvo ? [p.alvo] : []));
+    expect(alvos).toEqual(expect.arrayContaining(['menu', 'agenda-hoje', 'presenca']));
+    expect(alvos.filter((a) => !['menu', 'agenda-hoje', 'presenca', 'tema', 'ajuda', 'conta'].includes(a))).toEqual([]);
+    expect(GUIAS.at(-1)?.id).toBe('financeiro'); // o Financeiro continua o último
+  });
+  it('a recepção não vê nenhum guia clínico nem da nutricionista: só os `recepcao-*`', () => {
+    const ids = guiasDoPapel('recepcao').map((g) => g.id);
+    expect(ids).toEqual(['recepcao-inicio', 'recepcao-seguranca']); // revisão final do PR 2: o índice do manual dela, exato
+    expect(ids.filter((id) => !id.startsWith('recepcao-'))).toEqual([]);
+    for (const rota of ['/painel/pacientes', `/painel/pacientes/${UUID}`, `/painel/pacientes/${UUID}/plano-alimentar`, '/painel/agenda', '/painel/diarios', '/painel/configuracoes', '/painel/financeiro', '/painel/relatorios'])
+      expect(guiaDaRota(rota, 'recepcao'), rota).toBeNull();
+    expect(guiaDaRota('/conta/seguranca', 'recepcao')?.id).toBe('recepcao-seguranca');
+    expect(guiasDoPapel('nutri').map((g) => g.id)).not.toContain('recepcao-inicio');
+  });
+  it.each(daRecepcao.map((g) => [g.id]))('o guia %s, que a recepção vê, não cita Configurações, Realizada, Iniciar atendimento, Ver bloqueados, Etiqueta nem Arquivar', (id) => {
+    const textos = textosDe(GUIAS.find((g) => g.id === id)!);
+    for (const p of PROIBIDAS_NA_RECEPCAO) expect(textos.filter((t) => p.test(t)), `${id}: ${p}`).toEqual([]);
+  });
+  it('todo chamador de guiaDaRota fora dos testes passa o papel da sessão (o padrão `nutri` é só para os testes antigos)', () => {
+    const fontes = ['src', 'scripts']
+      .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && /\.tsx?$/.test(d.name) && !/\.test\.tsx?$/.test(d.name)).map((d) => path.join(d.parentPath, d.name)))
+      .filter((f) => !f.endsWith(path.join('modules', 'ajuda', 'conteudo.ts')));
+    const chamadas = fontes.flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/\bguiaDaRota\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g)].map((m) => ({ f: path.relative(process.cwd(), f), args: m[1] })));
+    expect(chamadas.length).toBeGreaterThan(0);
+    expect(chamadas.filter((c) => !c.args.includes(',')).map((c) => `${c.f}: guiaDaRota(${c.args})`)).toEqual([]);
   });
 });

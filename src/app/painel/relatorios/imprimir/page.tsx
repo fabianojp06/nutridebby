@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
-import { notFound, redirect } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import { BotaoLink } from '@/components/ui/botao';
 import { getEnv } from '@/env';
 import { requireNutri } from '@/lib/tenant-session';
@@ -12,7 +12,7 @@ import { lerSecao } from '@/modules/relatorios/leitura';
 import { mesNumerico } from '@/modules/relatorios/periodo';
 import { exportacaoNaLeitura } from '@/modules/relatorios/registro';
 import { ConteudoDaSecao, semDados } from '../secoes';
-import { ACESSO_DA_NUTRI, BASE, filtroDaUrl, navegacaoDaPropriaOrigem, paraBusca, secaoDaUrl, urlDaSecao } from '../url';
+import { ACESSO_DA_NUTRI, BASE, filtroDaUrl, navegacaoDaPropriaOrigem, paraBusca, secaoDaUrl, semPermissaoDaSecao, urlDaSecao } from '../url';
 import { BotaoImprimir } from './imprimir';
 
 export const dynamic = 'force-dynamic';
@@ -42,8 +42,8 @@ export default async function ImprimirRelatorio({ searchParams }: PageProps<'/pa
   const sp = paraBusca(await searchParams);
   const secao = secaoDaUrl(sp.get('secao'));
   if (!secao) redirect(BASE);
-  // RN-480: a T6 troca por "Sem permissão"; no PR 1 a nutricionista vê todas as seções
-  if (!podeVerSecao(ACESSO_DA_NUTRI, secao)) notFound();
+  // RN-480 (RE-D47): a seção que o acesso não vê leva a "Sem permissão"; no PR 2 a nutricionista vê todas as seções
+  if (!podeVerSecao(ACESSO_DA_NUTRI, secao)) redirect(semPermissaoDaSecao(secao));
   if (!navegacaoDaPropriaOrigem(await headers(), getEnv().APP_URL)) redirect(urlDaSecao(secao));
   const agora = new Date();
   const filtro = filtroDaUrl(sp, agora, tenant.fuso);

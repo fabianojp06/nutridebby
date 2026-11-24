@@ -386,7 +386,7 @@ cobrança (inclusive "Faltou"); h2 com `tabIndex={-1}` que recebe o foco depois 
   pendente → 303 para `/painel/dpa`; papel errado (paciente, admin, conta sem consultório) → o 403 JSON `{ erro: 'Acesso
   negado' }` de sempre (a guarda `src/app/api/painel/acesso-negado.test.ts` chama toda `route.ts` de `/api/painel`). Os
   dois 403 se distinguem pelo `motivo` que `requireApiNutri` passou a devolver (`MotivoDaRecusa`,
-  `src/lib/tenant-session.ts:37`: `sem_sessao`, `dpa_pendente`, `papel`; os da sessão vêm de `requireApiUser`, que já
+  `src/lib/tenant-session.ts:43`: `sem_sessao`, `dpa_pendente`, `papel`; os da sessão vêm de `requireApiUser`, que já
   conhece a decisão, nunca do status), nunca lendo o corpo. Período inválido → 303 para
   `/painel/financeiro/relatorios?erro=periodo`; ano inválido → 303 para Relatórios.
 - **Só da própria origem, sem HEAD** (revisão final do PR 2): o cookie da sessão é SameSite=Lax e vai junto numa navegação

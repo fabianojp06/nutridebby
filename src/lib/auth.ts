@@ -8,12 +8,13 @@ import { getDb, type Db } from '@/db/client';
 import * as authSchema from '@/db/schema/auth';
 import { tenants } from '@/db/schema';
 import { getEnv } from '@/env';
+import { lerMembroDaEquipe } from '@/modules/plataforma/membro-da-equipe';
 import { getTenantStatus, statusDe, type TenantStatus } from '@/modules/plataforma/tenant-status';
 import { clientIp } from './ip';
 import { validatePasswordPolicy } from './password-policy';
 import { commonPasswords, hashPassword, verifyPassword } from './password.server';
 import { deliverPasswordLink } from './password-links';
-import { logger } from './logger';
+import { logger, nomeDoErro } from './logger';
 import { MSG_TURNSTILE_FORA, MSG_TURNSTILE_INVALIDO, verifyTurnstile, type ResultadoTurnstile } from './turnstile';
 import { registrarFalhaTurnstile } from './turnstile-log';
 import {
@@ -78,6 +79,10 @@ export function createAuth(
       // F2/F3: o tenantId vai junto (RN-15) e a entrega nunca lança nem segura a resposta
       sendResetPassword: async ({ user, url }) => {
         const tenantId = (user as { tenantId?: string | null }).tenantId ?? null;
+        // Revisão da P26-07 (RN-500, Res. CFN 599, art. 20, I): a recepção sem senha só cria a senha pelo convite, que pede o
+        // termo de confidencialidade — o /reset-password criaria a conta credential sem ele. A resposta do endpoint não muda
+        // (US-002); só o link não sai. Por papel: a nutricionista e o admin sem senha continuam recebendo (admin-bootstrap.ts).
+        if ((user as { appRole?: string }).appRole === 'recepcao' && !(await recepcaoTemSenha(db, user.id))) return;
         await deliverPasswordLink({ email: user.email, url, tenantId });
       },
     },
@@ -118,10 +123,27 @@ export function createAuth(
           // suspensa → apaga a sessão e recusa; ainda ativa → uma suspensão que venha depois
           // enxerga esta sessão no próprio DELETE.
           // G7: uma consulta só (usuária → tenant), sem repetir o findUserById do `before`.
-          after: async (s) => {
-            if ((await statusDoTenantDaUsuaria(db, s.userId)) !== 'suspensa') return;
-            await db.delete(authSchema.session).where(eq(authSchema.session.id, s.id));
-            throw new APIError('FORBIDDEN', { code: 'CONTA_SUSPENSA', message: 'Conta temporariamente indisponível' });
+          after: async (s, ctx) => {
+            const u = await statusDoTenantDaUsuaria(db, s.userId);
+            if (u?.status === 'suspensa') {
+              await db.delete(authSchema.session).where(eq(authSchema.session.id, s.id));
+              throw new APIError('FORBIDDEN', { code: 'CONTA_SUSPENSA', message: 'Conta temporariamente indisponível' });
+            }
+            // Plano 26 (RN-516, RE-D43): o "Último acesso" da tela Equipe. A sessão some no logout, na expiração e na
+            // desativação; por isso a data fica na conta. Só o acesso que abre o painel conta: com o 2FA ativo (sem ele,
+            // a conta só configura o 2FA — primeiro acesso ou depois do reinício) e a linha ativa em equipe_membros (a
+            // desativada não entra). A sessão da senha com o 2FA ativo é provisória (o plugin do 2FA a apaga e pede o
+            // código): o acesso conta no verify-totp, não aqui.
+            if (u?.appRole === 'recepcao' && u.tenantId && u.twoFactorEnabled && ctx?.path !== '/sign-in/email') {
+              try {
+                const m = await lerMembroDaEquipe(db, u.tenantId, s.userId);
+                if (m?.ativo && m.termoAceito)
+                  await db.update(authSchema.user).set({ ultimoAcessoEm: new Date() }).where(eq(authSchema.user.id, s.userId));
+              } catch (err) {
+                // a data é só informativa: falhar aqui não pode derrubar o login. Só o nome do erro e o id (regra 3)
+                logger.warn({ erro: nomeDoErro(err), userId: s.userId }, 'falha ao gravar o último acesso');
+              }
+            }
           },
         },
       },
@@ -208,15 +230,37 @@ export function createAuth(
  * linha de `tenants`: espera a suspensão em curso (UPDATE sem COMMIT) e devolve o status já
  * confirmado. `null` para quem não tem tenant (admin). Roda no hook `after`, que o Better Auth
  * chama depois da transação do endpoint — a linha da usuária já existia antes do login.
+ * Plano 26 (RN-516): na mesma consulta, o papel e o 2FA (o último acesso da recepção).
  */
-async function statusDoTenantDaUsuaria(db: Db, userId: string): Promise<TenantStatus | null> {
+async function statusDoTenantDaUsuaria(
+  db: Db,
+  userId: string,
+): Promise<{ status: TenantStatus | null; appRole: string; tenantId: string; twoFactorEnabled: boolean } | null> {
   const [row] = await db
-    .select({ status: tenants.status })
+    .select({ status: tenants.status, appRole: authSchema.user.appRole, tenantId: tenants.id, twoFactorEnabled: authSchema.user.twoFactorEnabled })
     .from(authSchema.user)
     .innerJoin(tenants, eq(tenants.id, authSchema.user.tenantId))
     .where(eq(authSchema.user.id, userId))
     .for('share', { of: tenants });
-  return statusDe(row);
+  return row ? { status: statusDe(row), appRole: row.appRole, tenantId: row.tenantId, twoFactorEnabled: row.twoFactorEnabled === true } : null;
+}
+
+/**
+ * Revisão da P26-07: a conta `recepcao` já tem a senha (conta `credential`)? Falha da leitura = não (o link não sai: falha
+ * fechada), só com o nome do erro no log (regra 3).
+ */
+async function recepcaoTemSenha(db: Db, userId: string): Promise<boolean> {
+  try {
+    const [a] = await db
+      .select({ id: authSchema.account.id })
+      .from(authSchema.account)
+      .where(and(eq(authSchema.account.userId, userId), eq(authSchema.account.providerId, 'credential')))
+      .limit(1);
+    return !!a;
+  } catch (err) {
+    logger.warn({ erro: nomeDoErro(err), userId }, 'falha ao conferir a senha da recepção');
+    return false;
+  }
 }
 
 export type Auth = ReturnType<typeof createAuth>;

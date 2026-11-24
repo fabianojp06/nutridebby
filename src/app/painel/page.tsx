@@ -5,10 +5,10 @@ import { Cartao } from '@/components/ui/cartao';
 import { formatarBytes } from '@/lib/format';
 import { formatarDecimal } from '@/lib/numero';
 import { CINZA_SOBRE_DESTAQUE } from '@/lib/tema/marca-tema';
-import { requireNutri } from '@/lib/tenant-session';
+import { requireEquipe } from '@/lib/tenant-session';
 import type { Consulta } from '@/modules/agenda/consultas';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
-import { lerInicio, MSG_INICIO, textoSemProxima } from '@/modules/agenda/inicio';
+import { lerInicio, MSG_INICIO, textoSemProxima, TITULOS_DAS_NOVIDADES } from '@/modules/agenda/inicio';
 import { MSG_PRESENCA, textoTaxa } from '@/modules/agenda/presenca';
 import { provedorDoApp } from '@/modules/notificacoes/whatsapp/conexao';
 import { primeiroNome } from '@/modules/notificacoes/mensagens';
@@ -16,6 +16,7 @@ import { MSG_COTA } from '@/modules/notificacoes/whatsapp/cota';
 import { formatarData } from '@/modules/pacientes/datas';
 import { COTA_BYTES, MSG_COTA_ESGOTADA, nivelDeUso } from '@/modules/plataforma/armazenamento';
 import { DIAS_CS01 } from '@/modules/plataforma/metricas-sucesso';
+import { InicioDaRecepcao } from './inicio-recepcao';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,16 +27,16 @@ const LINK_CLARO = 'inline-flex min-h-11 items-center rounded-full bg-white px-5
 const LINK_PILULA = 'inline-flex min-h-11 items-center rounded-full border border-current px-4';
 
 export default async function PainelHome() {
-  const { data, tenant, ctx } = await requireNutri('/painel');
+  const { data, tenant, ctx, papel } = await requireEquipe('/painel');
+  // Plano 26 (RN-514, RE-D63): a recepção tem o Início dela (o trabalho do dia, inicio-recepcao.tsx). Nada do Início da
+  // nutricionista (indicadores, armazenamento, WhatsApp, IA, exames, diários, documentos) é lido na sessão dela: o espião de
+  // leituras negadas de page.test.ts falha se este ramo chamar algum (R-482).
+  if (papel === 'recepcao') return <InicioDaRecepcao nome={data.user.name} ctx={ctx} tenant={tenant} />;
   const agora = new Date();
   // tudo numa transação só: com leituras em paralelo, o Início de duas nutricionistas ocupava o pool (achado 3)
   const { whatsapp, cota, indicadores: ind, pendentes, novidades: nov, pedidos, dia, naoVistos, metricas: cs, documentosAguardando } = await lerInicio(ctx, tenant, agora, { whatsappLigado: provedorDoApp() !== null });
   const hora = (d: Date) => partesNoFuso(d, tenant.fuso).hora;
-  const novidades: [string, Consulta[]][] = [
-    ['Pedidos de remarcação', nov.pedidosRemarcacao],
-    ['Marcadas pelo paciente (últimos 7 dias)', nov.marcadasPeloPaciente],
-    ['Canceladas pelo paciente (últimos 7 dias)', nov.canceladasPeloPaciente],
-  ];
+  const novidades = (Object.keys(TITULOS_DAS_NOVIDADES) as (keyof typeof TITULOS_DAS_NOVIDADES)[]).map((k): [string, Consulta[]] => [TITULOS_DAS_NOVIDADES[k], nov[k]]);
   const uso = nivelDeUso(tenant.armazenamentoBytes);
   const p = dia.proxima;
   const maxBarra = Math.max(1, ...cs.cs02.porDia.map((d) => d.n));

@@ -54,7 +54,7 @@ os valores marcados "10A" abaixo. **Atualização do Plano 11** (`2efa27b`, PR #
 | Arquivos de teste do Vitest | **219** (215 em `src/`, ao lado do código; 4 em `test/`); 10A: **244**; 11: **282** | `find src test -name "*.test.ts" \| wc -l` |
 | Casos do Vitest (execução) | **2024**; 10A: **2244**; 11: **2558** | "Resultado da entrega" do Plano 08 (`pnpm test` com 219 arquivos e 2024 testes); relatório das correções do `/code-review high` do PR #19 (244 arquivos, 2244 testes) e do PR #23 (282 arquivos, 2558 testes) |
 | Chamadas `it(`/`test(` no código | 1502 | Contagem estática; a diferença para 2024 vem de laços e `it.each` (21 arquivos usam `it.each`) |
-| Specs do Playwright | **17**; 10A: **18** (`documentos.spec.ts`); 11: **21** (`painel-pwa.spec.ts` do Plano 09, `ia-laudos.spec.ts` e `conferencia-ia.spec.ts`); em 17/11/2026, com o Plano 18, PR 2 (`cadastro.spec.ts`), e o Plano 20 (`financeiro.spec.ts`): **36** | `ls e2e/*.spec.ts` |
+| Specs do Playwright | **17**; 10A: **18** (`documentos.spec.ts`); 11: **21** (`painel-pwa.spec.ts` do Plano 09, `ia-laudos.spec.ts` e `conferencia-ia.spec.ts`); em 17/11/2026, com o Plano 18, PR 2 (`cadastro.spec.ts`), e o Plano 20 (`financeiro.spec.ts`): **36**; em 24/11/2026, com o Plano 26 (PR 1 e PR 2: `relatorios.spec.ts`, `recepcao.spec.ts`, `equipe-primeiro-acesso.spec.ts`): **39** | `ls e2e/*.spec.ts` |
 | Testes E2E (execução no CI) | **130**, em 10,6 min | "Resultado da entrega" do Plano 08; 120 chamadas `test(` estáticas, o resto vem de laços (ex.: um teste por rota do portal em `e2e/acessibilidade.spec.ts:138-139`) |
 | Migrations | **89** (`0000` a `0088`); 10A: **94** (`0000` a `0093`); 11: **101** (`0000` a `0100`) | `ls drizzle/*.sql`; 24 delas (10A: 25; 11: 26) se chamam `*rls_*` |
 | Fábricas na matriz de isolamento | 36 (34 tabelas do app + 2 tabelas-fixture do `global-setup`); 10A: 40 (38 + 2); 11: 42 (40 + 2) | `FABRICAS`, `test/isolamento.test.ts:24` |
@@ -214,7 +214,14 @@ pelo Docker rootless do CI (`DOCKER_HOST`). Fora do CI, sem `rclone`, eles são 
 
 Sobe um **segundo** container (também por `novoPostgres`/`uriDoPostgres`) e monta o banco como o runbook de produção: o migrator é dono do banco e **não** é
 superusuário (Plano 01, Tarefa 13, Ruling R49). Prova que as migrations rodam assim, que o role da aplicação não
-cria tabela temporária (M5) e que a função `SECURITY DEFINER` das métricas do admin funciona sob `FORCE RLS`.
+cria tabela temporária (M5) e que a função `SECURITY DEFINER` das métricas do admin funciona sob `FORCE RLS`. É o único
+teste com dono **sem** superusuário, então é nele que as peças `SECURITY DEFINER` dos planos são provadas; o do Plano 26 é o
+`describe` "Plano 26: peças SECURITY DEFINER da recepção com dono NOBYPASSRLS" (`src/db/migrate-owner.test.ts:1574`, no
+fim do arquivo, RE-D56): as quatro funções são do migrator, com `search_path` fixo, sem `EXECUTE` para `PUBLIC` e com
+`EXECUTE` para o app; `app_retorno_das_consultas` e `app_previsoes_de_retorno` devolvem só as colunas delas, só de pacientes
+visíveis do tenant, recusam período acima de 13 meses e voltam vazias para paciente, público e `worker`;
+`app_consulta_tem_atendimento` e `app_cpf_em_uso` devolvem só o booleano (nulo fora da equipe); todas devolvem o
+`app.role` e o `app.patient_id` do chamador.
 
 ### Fora do Vitest
 
@@ -237,17 +244,19 @@ Todas leem `pg_class`, `pg_policies`, `pg_trigger` e `information_schema` com a 
 `public` com a coluna `tenant_id`.
 
 A tabela completa das guardas de banco — cada lista (`RLS_EXCEPTIONS`, `PATIENT_POLICY_EXCEPTIONS`, `STAFF_ONLY`,
-`PUBLICO_LIBERADO`, `PACIENTE_ESCREVE`, `CONTEUDO_POR_AUDIENCIA`, `ESCRITA_POR_AUDIENCIA`, `AUDIT_EXCEPTIONS`), o
+`PUBLICO_LIBERADO`, `PACIENTE_ESCREVE`, `CONTEUDO_POR_AUDIENCIA`, `ESCRITA_POR_AUDIENCIA`, `AUDIT_EXCEPTIONS` e, desde o
+Plano 26, `RECEPCAO_LIBERADO`, `RECEPCAO_CONDICOES` e `FUNCOES_COM_PAPEL`), o
 conteúdo de hoje, a função que confere (`findRlsViolations`, `findStaffOnlyViolations`, `findPublicoViolations`,
-`findPacienteEscritaViolations`, `findConteudoAudienciaViolations`, `findStaleExceptions`, `findAuditViolations`) e
+`findPacienteEscritaViolations`, `findConteudoAudienciaViolations`, `findStaleExceptions`, `findAuditViolations`,
+`findRecepcaoViolations`, `findPapelEmFuncoesViolations`) e
 a linha do teste — está no capítulo do banco, [§2.7 Guardas no CI](02-banco-de-dados.md#27-guardas-no-ci). Aqui fica
 o porquê.
 
 **Por que a guarda confere a expressão e não só o nome.** Uma política `paciente_sem_delete USING (true)` tem o nome
 e o comando certos e não nega nada. A guarda normaliza o texto que o Postgres guarda e compara com a negação
-esperada (`normalizarExpressao` e `NEGA_PACIENTE`, `rls-guard.ts:212-213`; débito B-5 do Plano 06). O mesmo vale para a audiência: uma
+esperada (`normalizarExpressao` e `NEGA_PACIENTE`, `rls-guard.ts:219-220`; débito B-5 do Plano 06). O mesmo vale para a audiência: uma
 `paciente_conteudo_visivel USING (true)` mostraria ao paciente todo conteúdo do tenant (`AUDIENCIA_EXIGE`,
-`HERDA_DE_CONTENTS`, R11 do Plano 07). Os testes "B-5" e "R11" de `src/db/rls-guard.test.ts` (`:170` e `:204`)
+`HERDA_DE_CONTENTS`, R11 do Plano 07). Os testes "B-5" e "R11" de `src/db/rls-guard.test.ts` (`:203` e `:237`)
 provam que essas armadilhas quebram o CI.
 
 **Por que "negar por padrão".** O `publico` (Plano 05, D11) e a escrita do paciente (Plano 06, D1) nascem negados
@@ -257,12 +266,25 @@ a chamada SQL (`app_allow_publico`, `drizzle/0051_rls_consultas.sql:19`; `app_al
 `drizzle/0070_paciente_sem_escrita.sql:25`) e a entrada na lista TypeScript com o motivo. Esquecer qualquer um dos
 dois quebra o CI. A lista vira documentação viva de tudo o que o paciente e o visitante podem fazer.
 
+**A recepção (Plano 26) também nasce negada** (`recepcao_negada`, desde a `0135`), e o plano levou a ideia mais longe em
+três pontos ([§2.6.9](02-banco-de-dados.md#269-sessão-da-recepção-plano-26-pr-2)): `RECEPCAO_CONDICOES` guarda a **expressão inteira** de cada condição
+`recepcao_cond_*`, comparada por igualdade (por trecho, `… OR true` passaria); `findPapelEmFuncoesViolations` lê o corpo de
+toda função do `public` e exige uma decisão para a recepção de cada função que olha o papel e de cada gatilho de tabela
+liberada que lê `patients` ou tabela negada a ela (vazio calado não é recusa, RE-D62); e a negação tem a sua camada no app,
+com os testes de fonte das rotas (§7.4.3). Os testes de `src/db/rls-guard.test.ts:310-502` têm controles positivos em
+tabelas e funções de rascunho (tabela nova nasce negada; perder a negada, liberar sem declarar, condição PERMISSIVE, nome
+fora dos três padrões, comando ou expressão errados e função nova sem decisão quebram).
+
 Outros testes de banco que funcionam como guarda:
 
 | Teste | Regra |
 |---|---|
 | `src/db/migrate.test.ts` | Role da aplicação sem superusuário/`BYPASSRLS`; extensões exigidas; **nenhuma coluna `timestamp` sem fuso** no schema `public`; migrations idempotentes; `CREATEDB`/`CREATEROLE` removidos ao reaplicar; desde o Plano 20, o **`_journal.json`** com `idx` sem buraco e `when` estritamente crescente (o migrador do Drizzle pula em silêncio a migration com `when` menor que o da última aplicada: sessões paralelas, `docs/operacao/sessoes-paralelas.md` §5) |
-| `src/db/migrate-owner.test.ts` | Migrator sem superusuário (7.3) |
+| `src/db/migrate-owner.test.ts` | Migrator sem superusuário (7.3); desde o Plano 26, as quatro peças `SECURITY DEFINER` da recepção (`:1233`) |
+| `src/db/migrate.test.ts` (Plano 26, RE-D64) | A conexão do migrador (`poolDoMigrador`) tem `lock_timeout` de 10 s (`:96`) |
+| `src/db/recepcao-banco.test.ts` (Plano 26) | A negação por padrão (`app_enable_tenant_rls` numa tabela de rascunho cria `tenant_isolation`, `publico_negado`, os `paciente_sem_*` e `recepcao_negada`; o laço só pega o `public`; a custom sem `SET LOCAL lock_timeout`), os CHECKs de `user` e `invites`, o gatilho de `equipe_membros`, as liberações e condições (paciente escondido, notificações da agenda, Financeiro com e sem a permissão, `InitPlan`, `public_booking_requests` negada), os gatilhos de colunas (inclusive a coluna nova que nasce fixa), os pedidos do Plano 23 e o `tenants_so_nutri` |
+| `src/db/recepcao-gatilhos-copiados.test.ts` (Plano 26, sem banco) | As funções que a custom `rls_recepcao` refaz por `CREATE OR REPLACE` — os quatro gatilhos do chat do Plano 25 (bloco 6) e o `app_appointments_regras_pedido` do Plano 23 (bloco 4) — têm o corpo da última migration anterior a ela no `_journal.json` que define cada uma, só com as trocas do papel `recepcao`; controle negativo em memória (um PR anterior que refaz a função faz a custom falhar) |
+| `src/modules/notificacoes/tipos.test.ts` (Plano 26, RN-507) | `TIPOS_DA_AGENDA` = a lista da política `recepcao_cond_notificacoes_da_agenda` (lida de `pg_policies`) e ⊂ CHECK de `notifications.tipo`; agenda + `TIPOS_FORA_DA_RECEPCAO` = o CHECK inteiro: tipo novo de outro plano sem decisão quebra (`:32`) |
 | `src/db/paciente-colunas.test.ts` | Gatilho `paciente_colunas` (migration 0085, B-4): a sessão de paciente só altera as colunas permitidas de `patients` e `data_exports` |
 | `src/modules/alimentos/taco-fonte.test.ts` | A planilha da TACO tem o `sha256` esperado e `seeds/taco-4ed.csv` e a migration de seed são exatamente o que `pnpm seed:taco` gera |
 
@@ -271,7 +293,7 @@ Outros testes de banco que funcionam como guarda:
 É o teste do RNF-07: "tenta ler, alterar e excluir dados de outro tenant e de outro paciente do mesmo tenant em
 todas as tabelas 🔒". Nasceu no Plano 02, Tarefa 8, e cada plano acrescentou as suas tabelas.
 
-**Montagem (`beforeAll`, `:278`).** Cria dois tenants, A e B, cada um com dois pacientes (`PAC`). A tem os pacientes
+**Montagem (`beforeAll`, `:326`).** Cria dois tenants, A e B, cada um com dois pacientes (`PAC`). A tem os pacientes
 P1 e P2. Para cada tabela com `tenant_id` fora de `RLS_EXCEPTIONS`, roda a fábrica uma vez por paciente de cada
 tenant, como nutricionista (`withTenant`, papel `nutri`, conexão `nutri_app`). Semear os **dois** tenants faz o teste
 falhar tanto se uma política negar tudo quanto se liberar tudo (PF-F3).
@@ -279,34 +301,36 @@ falhar tanto se uma política negar tudo quanto se liberar tudo (PF-F3).
 | Peça | Linha | O que é |
 |---|---|---|
 | `FABRICAS` | `:24` | Tabela → função `(tenantId, patientId) => SQL` que grava uma linha. Fábrica que precisa de linha-mãe cria a mãe **no mesmo comando** (CTE), ex.: `consultation_notes`, `meal_items`, `recipe_ingredients` |
-| `PAPEL_DA_FABRICA` | `:185` | Plano 17: papel do `beforeAll` quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão); `lembretes_rotina_envios` é semeada como `worker` (o gatilho `lembretes_rotina_envios_do_worker` recusa a equipe) |
-| `SO_INSERE` | `:187` | Tabelas append-only (`audit_log` e, desde o Plano 10A, `signed_document_receipts`; depois `ia_autorizacoes`, Plano 14A, e `ia_nutri_consentimentos`, Plano 15): UPDATE/DELETE já são negados por permissão |
-| `SEM_DELETE`, `DELETE_REVOGADO` | `:197`, `:204` | Plano 11 (D9): em `ia_tarefas` e `ia_uso` o DELETE da equipe é negado (gatilho `ia_tarefas_sem_apagar`; `REVOKE` em `ia_uso`): o teste do tenant B pula o DELETE e confere que nada sumiu; em `ia_uso` a recusa vem da permissão, antes da RLS, para qualquer contexto (inclusive `publico`; R4 do pre-flight). Plano 20: `fin_lancamentos` e `fin_configuracoes` nas duas listas (`REVOKE DELETE, TRUNCATE`, 0123). Limpeza dos Minor (TRI-17-20 #5): `lembretes_rotina_envios` em `SEM_DELETE` (gatilho `lembretes_rotina_envios_sem_apagar`, 0129; as marcas de B saem pela cascata de `lembretes_rotina`, em `ULTIMAS`) |
-| `IMUTAVEIS` | `:216` | Plano 10A (D19): `signed_documents`, `signed_document_notes`, `document_access_codes`; Plano 11 (revisão final): `ia_tarefas`; depois `exam_submissions` (Plano 12), `ia_geracoes_modelos` (14B-1), `ia_nutri_mensagens` (15), `lembretes_rotina` e `lembretes_rotina_envios` (17), `fin_lancamentos` (20) — o gatilho recusa mudar `tenant_id`/`patient_id` com `42501` antes do `WITH CHECK` da RLS (mensagem própria, não "row-level security") |
-| `SO_APAGA` | `:234` | Plano 10A: em `signed_documents` o DELETE de B só apaga rascunhos (os emitidos ficam, pelo gatilho); em `patients`, só os pacientes sem documento nem recibo (FK `NO ACTION`) — e, desde o Plano 20, sem lançamento do Financeiro. Um paciente a mais por tenant, sem documento, faz o filtro casar. Plano 20: `fin_categorias` só sem lançamento e sem `chave` ("Consultas" nunca sai) |
-| `ULTIMAS` | `:255` | Apagadas por último no teste de DELETE, porque as filhas têm FK `NO ACTION`/`RESTRICT` para elas (`foods`), ou cascata que zeraria linhas de B que o teste ainda conta (`contents`, `recipes`); desde o Plano 10A, `signed_documents` e `stored_files` (FKs `NO ACTION` dos PDFs); desde o Plano 17, `lembretes_rotina` (apagar antes zeraria em cascata as marcas de B); `patients` é sempre a última. `fin_categorias` (Plano 20) fica fora: a única filha está em `SEM_DELETE` e o `SO_APAGA` deixa de fora a categoria com lançamento |
-| `COLUNA_TITULAR` | `:324` | Em `patients` o titular é a coluna `id` |
-| `SEM_DELETE_DO_PACIENTE` | `:326` | O paciente nunca é apagado (arquiva, bloqueia, anonimiza) |
-| `UPDATE_DO_PACIENTE` | `:384` | O único UPDATE que a sessão de paciente consegue na própria linha de `data_exports` (`pendente → falhou`); depois `exam_submissions` (Plano 12), `ia_nutri_mensagens` (15) e `lembretes_rotina` (`desligado_pelo_paciente_em = now()`, 17) |
+| `PAPEL_DA_FABRICA` | `:215` | Plano 17: papel do `beforeAll` quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão); `lembretes_rotina_envios` é semeada como `worker` (o gatilho `lembretes_rotina_envios_do_worker` recusa a equipe) |
+| `SO_INSERE` | `:218` | Tabelas append-only (`audit_log` e, desde o Plano 10A, `signed_document_receipts`; depois `ia_autorizacoes`, Plano 14A, e `ia_nutri_consentimentos`, Plano 15): UPDATE/DELETE já são negados por permissão |
+| `SEM_DELETE`, `DELETE_REVOGADO` | `:233`, `:241` | Plano 11 (D9): em `ia_tarefas` e `ia_uso` o DELETE da equipe é negado (gatilho `ia_tarefas_sem_apagar`; `REVOKE` em `ia_uso`): o teste do tenant B pula o DELETE e confere que nada sumiu; em `ia_uso` a recusa vem da permissão, antes da RLS, para qualquer contexto (inclusive `publico`; R4 do pre-flight). Plano 20: `fin_lancamentos` e `fin_configuracoes` nas duas listas (`REVOKE DELETE, TRUNCATE`, 0123). Limpeza dos Minor (TRI-17-20 #5): `lembretes_rotina_envios` em `SEM_DELETE` (gatilho `lembretes_rotina_envios_sem_apagar`, 0129; as marcas de B saem pela cascata de `lembretes_rotina`, em `ULTIMAS`) |
+| `IMUTAVEIS` | `:255` | Plano 10A (D19): `signed_documents`, `signed_document_notes`, `document_access_codes`; Plano 11 (revisão final): `ia_tarefas`; depois `exam_submissions` (Plano 12), `ia_geracoes_modelos` (14B-1), `ia_nutri_mensagens` (15), `lembretes_rotina` e `lembretes_rotina_envios` (17), `fin_lancamentos` (20) — o gatilho recusa mudar `tenant_id`/`patient_id` com `42501` antes do `WITH CHECK` da RLS (mensagem própria, não "row-level security") |
+| `SO_APAGA` | `:276` | Plano 10A: em `signed_documents` o DELETE de B só apaga rascunhos (os emitidos ficam, pelo gatilho); em `patients`, só os pacientes sem documento nem recibo (FK `NO ACTION`) — e, desde o Plano 20, sem lançamento do Financeiro. Um paciente a mais por tenant, sem documento, faz o filtro casar. Plano 20: `fin_categorias` só sem lançamento e sem `chave` ("Consultas" nunca sai) |
+| `ULTIMAS` | `:300` | Apagadas por último no teste de DELETE, porque as filhas têm FK `NO ACTION`/`RESTRICT` para elas (`foods`), ou cascata que zeraria linhas de B que o teste ainda conta (`contents`, `recipes`); desde o Plano 10A, `signed_documents` e `stored_files` (FKs `NO ACTION` dos PDFs); desde o Plano 17, `lembretes_rotina` (apagar antes zeraria em cascata as marcas de B); `patients` é sempre a última. `fin_categorias` (Plano 20) fica fora: a única filha está em `SEM_DELETE` e o `SO_APAGA` deixa de fora a categoria com lançamento |
+| `COLUNA_TITULAR` | `:376` | Em `patients` o titular é a coluna `id` |
+| `SEM_DELETE_DO_PACIENTE` | `:378` | O paciente nunca é apagado (arquiva, bloqueia, anonimiza) |
+| `RECEPCAO_A`, `RECUSA_DA_RECEPCAO_NO_GATILHO` (Plano 26, RE-D55) | `:321`, `:429` | A conta de recepção do tenant A que age no caso da recepção: a primeira linha de `equipe_membros` semeada pela fábrica (que cria o `user` de recepção no mesmo comando, num CTE, `:208`), levada a `financeiro = true` pela nutricionista no `beforeAll` — sem isso, `app_recepcao_tem_financeiro()` daria falso e os negativos entre consultórios de `fin_*` passariam pela condição, não pelo isolamento; a fábrica de `notifications` usa `lembrete_24h`, um tipo da agenda. `RECUSA_DA_RECEPCAO_NO_GATILHO`: em `equipe_membros` a escrita da recepção é recusada pelo gatilho (42501 com mensagem própria), não pela RLS. `equipe_membros` também em `SEM_DELETE`, `DELETE_REVOGADO` e `IMUTAVEIS` |
+| `UPDATE_DO_PACIENTE` | `:449` | O único UPDATE que a sessão de paciente consegue na própria linha de `data_exports` (`pendente → falhou`); depois `exam_submissions` (Plano 12), `ia_nutri_mensagens` (15) e `lembretes_rotina` (`desligado_pelo_paciente_em = now()`, 17) |
 
-**O que cada caso prova (`describe` em `:397`):**
+**O que cada caso prova (`describe` em `:462`):**
 
 | Caso | Prova |
 |---|---|
-| "toda tabela com tenant_id tem fábrica neste teste" (`:398`) | Tabela nova sem fábrica quebra o CI |
-| WITH CHECK do tenant (`:403`) | B não grava linha com o `tenant_id` de A nem move a própria linha para A |
-| WITH CHECK do paciente (`:416`) | P2 não grava linha de P1 nem move a própria para P1 |
-| D1 (`:437`) | Fora de `PACIENTE_ESCREVE`, P2 não cria nem a própria linha |
-| `staff_only` (`:446`) | A sessão de paciente não vê nem grava nada nessas tabelas |
-| `publico` (`:459`) | O visitante só lê e grava o que `PUBLICO_LIBERADO` declara |
-| `conta` (`:480`) | Sem tenant, a conta do paciente não vê nem grava nada (só `patients` da própria conta) |
-| Leitura, alteração e exclusão de B (`:491`) | B só vê e só altera as próprias linhas; as de A ficam intactas (contagem feita com o dono) |
-| Leitura, alteração e exclusão de P2 (`:541`) | P2 só vê e altera as próprias linhas; as de P1 ficam intactas |
+| "toda tabela com tenant_id tem fábrica neste teste" (`:463`) | Tabela nova sem fábrica quebra o CI |
+| WITH CHECK do tenant (`:468`) | B não grava linha com o `tenant_id` de A nem move a própria linha para A |
+| WITH CHECK do paciente (`:481`) | P2 não grava linha de P1 nem move a própria para P1 |
+| D1 (`:502`) | Fora de `PACIENTE_ESCREVE`, P2 não cria nem a própria linha |
+| `staff_only` (`:511`) | A sessão de paciente não vê nem grava nada nessas tabelas |
+| `publico` (`:524`) | O visitante só lê e grava o que `PUBLICO_LIBERADO` declara |
+| `conta` (`:545`) | Sem tenant, a conta do paciente não vê nem grava nada (só `patients` da própria conta) |
+| `recepcao` (Plano 26, RN-505, `:561`) | Em **toda** tabela com `tenant_id`, a sessão `recepcao` de A só lê e grava o que `RECEPCAO_LIBERADO` declara: o que ela lê é só de A (há linhas de B para não ver), o INSERT liberado com o tenant de B e o não liberado em A são recusados pela política da própria tabela (ou pelo gatilho), o UPDATE alcança exatamente as linhas que ela vê e não as leva para B, e o DELETE não alcança nada; o dono confirma que nada mudou em A nem em B. Roda antes dos casos que apagam as linhas de B. Mais dois casos: em `equipe_membros` ela lê só a própria linha e não grava nem a própria (`:592`); sem a permissão do Financeiro, 0 linhas em `fin_*` e a escrita recusada (`:601`) |
+| Leitura, alteração e exclusão de B (`:616`) | B só vê e só altera as próprias linhas; as de A ficam intactas (contagem feita com o dono) |
+| Leitura, alteração e exclusão de P2 (`:666`) | P2 só vê e altera as próprias linhas; as de P1 ficam intactas |
 
 O teste distingue a recusa da RLS (`violaRls`: código `42501` e mensagem de *row-level security*) de outro erro
 qualquer. Uma FK quebrada não conta como isolamento. Desde o Plano 11 (revisão da T1), nos testes negativos de escrita a
 recusa tem de vir da política **da própria tabela** (`violaRlsDe`: a mensagem cita `for table "<tabela>"`); só as
-fábricas de `COM_MAE` (`:350`; desde o Plano 17, também `lembretes_rotina_envios`, que cria o lembrete-mãe no mesmo comando; desde o Plano 20, `fin_lancamentos`, que cria a categoria no mesmo comando — a prova da política da própria tabela no INSERT fica em `src/modules/financeiro/banco.test.ts`), que criam a mãe no mesmo comando, aceitam a recusa da mãe. Tabela nova não entra em
+fábricas de `COM_MAE` (`:402`; desde o Plano 17, também `lembretes_rotina_envios`, que cria o lembrete-mãe no mesmo comando; desde o Plano 20, `fin_lancamentos`, que cria a categoria no mesmo comando — a prova da política da própria tabela no INSERT fica em `src/modules/financeiro/banco.test.ts`), que criam a mãe no mesmo comando, aceitam a recusa da mãe. Tabela nova não entra em
 `COM_MAE`: a fábrica grava só a própria tabela, como a de `ia_tarefas` (`exam_id` nulo, status `falhou`).
 
 ### 7.4.3 Guardas de código (leitura do fonte)
@@ -314,8 +338,8 @@ fábricas de `COM_MAE` (`:350`; desde o Plano 17, também `lembretes_rotina_envi
 | Guarda | Arquivo | Regra |
 |---|---|---|
 | Admin sem tabelas 🔒 | `src/app/admin/sem-tabelas-tenant.test.ts` | O admin nunca consulta tabela com `tenant_id` (§4.1), nem pelo que importa de `src/modules` |
-| `semConta` em lista fechada | `src/db/sem-conta-guarda.test.ts` | `semConta: true` só nos arquivos de `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:39`) |
-| Ações e APIs do painel fora da sessão certa | `src/app/painel/acoes-de-paciente.test.ts`, `src/app/api/painel/acesso-negado.test.ts` | Toda função exportada de todo arquivo `actions.ts` de `src/app/painel` e `src/app/admin` (`acoesDe`, `acoes-de-paciente.test.ts:31-35`), chamada por paciente, volta ao portal; por nutricionista, as do admin voltam ao painel; toda rota de `/api/painel` responde 403 a paciente e a admin. Ação `'use server'` fora de um `actions.ts` (em `page.tsx` ou outro arquivo) **não** é conferida |
+| `semConta` em lista fechada | `src/db/sem-conta-guarda.test.ts` | `semConta: true` só nos arquivos de `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:44`) |
+| Ações e APIs do painel fora da sessão certa | `src/app/painel/acoes-de-paciente.test.ts`, `src/app/api/painel/acesso-negado.test.ts` | Toda função exportada de todo arquivo `actions.ts` de `src/app/painel` e `src/app/admin` (`acoesDe`, `acoes-de-paciente.test.ts:34-38`), chamada por paciente, volta ao portal; por nutricionista, as do admin voltam ao painel; toda rota de `/api/painel` responde 403 a paciente e a admin. Ação `'use server'` fora de um `actions.ts` (em `page.tsx` ou outro arquivo) **não** é conferida |
 | Origem nas rotas de escrita com cookie (P09-01) | `src/app/api/mesma-origem-rotas.test.ts` | Toda rota de `src/app/api/{painel,p,documento}` (lista lida do disco) chamada em `POST`/`PUT`/`PATCH`/`DELETE` sem cookie e com `Origin: https://evil.example` responde 403: a origem é conferida antes da sessão (uma rota que lesse a sessão primeiro daria 401). Fora, de propósito: `/api/auth`, `/api/n`, `/api/webhooks`, `/api/csp-relatorio`, `/api/erro-cliente` |
 | Liberação das receitas do plano | `src/modules/portal/conteudos.test.ts`, caso "guarda: só 'Meu plano' e o detalhe pelo cartão…" (`:151`) | `liberarReceitasDoPlano` só em `planoDoPaciente` e `conteudoDoPaciente(…, { doPlano: true })` |
 | PDF e ZIP só no worker | `src/modules/pacientes/exportacao.test.ts:1125` | Nada do grafo do Next (`src/app`, `proxy`, `instrumentation`, `next.config`) alcança `exportacao-job`, os PDFs (inclusive `documento-pdf.tsx`, `documento-pdf-job.ts` e `digitalizada-job.tsx`, Plano 10A) ou o `@react-pdf` |
@@ -341,9 +365,13 @@ fábricas de `COM_MAE` (`:350`; desde o Plano 17, também `lembretes_rotina_envi
 | Erro de job sem detalhe | `src/worker/sem-detalhe.test.ts` | Todo job registra por `workSemDetalhe`; nenhum `boss.work(` direto em `src/worker/index.ts` |
 | Axe em toda tela | `src/app/painel/rotas-axe.test.ts:8` | `ROTAS_DO_PAINEL` tem exatamente um caminho por `page.tsx` de `src/app/painel` (Plano 08, D25) |
 | Imagem Docker | `src/app/painel/rotas-axe.test.ts:19` | Todo arquivo de `e2e/` importado por `src/` volta ao contexto do build no `.dockerignore` |
-| Visual V2 | `src/app/painel/cores.test.ts`, `cabecalho.test.ts`, `navegacao.test.ts` | Sem cor fixa nas telas da nutricionista (D24), foco visível, cabeçalho desenhado só pelo layout (D20); todo `page.tsx` do painel chama `requireNutri(` ou `carregarProntuario(` (`cabecalho.test.ts:49-51`, conferência de texto) |
-| Manual guiado | `src/modules/ajuda/conteudo.test.ts:51,54` | Todo nome de botão citado no manual existe numa tela (desde o Plano 10A, também em `src/app/conta`); toda página de `src/app/painel` e `src/app/conta` tem guia ou está em `SEM_AJUDA`; o guia `prontuario` não cita a aba Documentos (D20). Plano 18: `TSX_FORA` lê também `src/modules/ficha` (os textos do Início em `MSG_FICHA`), nenhum título de guia se repete e o `inicio-paciente` vem antes do `prontuario` |
+| Visual V2 | `src/app/painel/cores.test.ts`, `cabecalho.test.ts`, `navegacao.test.ts` | Sem cor fixa nas telas da nutricionista (D24), foco visível, cabeçalho desenhado só pelo layout (D20); todo `page.tsx` do painel chama `requireNutri(` ou `carregarProntuario(` — desde o Plano 26, `requireEquipe(` nas rotas de `ROTAS_DA_RECEPCAO`, e o layout chama `requireEquipe` com `permitirDpaPendente` (`cabecalho.test.ts:54-58`, conferência de texto) |
+| Manual guiado | `src/modules/ajuda/conteudo.test.ts:56,59` | Todo nome de botão citado no manual existe numa tela (desde o Plano 10A, também em `src/app/conta`); toda página de `src/app/painel` e `src/app/conta` tem guia ou está em `SEM_AJUDA`; o guia `prontuario` não cita a aba Documentos (D20). Plano 18: `TSX_FORA` lê também `src/modules/ficha` (os textos do Início em `MSG_FICHA`), nenhum título de guia se repete e o `inicio-paciente` vem antes do `prontuario`. Plano 26 (PR 2): `/painel/sem-permissao`, `/painel/contrato-pendente` e `/conta/acesso-desativado` em `SEM_AJUDA` (telas de aviso, sem tarefa); o guia `equipe` v1 vem antes do `configuracoes`; o `seguranca` continua só da nutricionista, v1 igual à produção, e a recepção tem o `recepcao-seguranca` |
 | Workflows no runner próprio (12/10/2026) | `test/runner-proprio.test.ts` | Nenhum workflow com `pull_request_target`, `workflow_run` ou `issue_comment`; todo `runs-on` é `ubuntu-latest` ou `[self-hosted, nutri-ci]`; os jobs `mudancas`, `quality`, `test`, `e2e` e `image` do `ci.yml` no runner próprio; nenhum job fora do `ubuntu-latest` com `secrets`, permissão de escrita ou `EASYPANEL` (texto bruto); `decidir` e `publish` hospedados, `publish` com `packages: write`; emergência só na `main` com `PUBLICAR-SEM-CI`, e o job `confirmar` falha no contrário. Alarme contra engano, não barreira ([§7.7](#77-pipeline-do-ci-e-deploy)) |
+| Rotas da recepção (Plano 26, RN-513) | `src/app/painel/rotas-da-recepcao.test.ts` | Negação por padrão no app: toda `page.tsx`, todo handler de `route.ts` (`GET`, `POST`…) e **toda action exportada de todo arquivo com `'use server'`** de `src/app/painel` e `src/app/api/painel` (não só `actions.ts`; também `export { … }`, com `as`, e a action que chama a sessão por uma função local) chama `requireNutri`/`requireApiNutri`, ou chama `requireEquipe`/`requireApiEquipe` **e** está em `ROTAS_DA_RECEPCAO`; toda entrada da lista existe e chama `requireEquipe`; export que a guarda não sabe ler (default anônimo, reexportação, desestruturação, `let`) quebra; layout aninhado só da nutricionista em volta de rota da lista quebra, e o sem sessão que importa módulo, banco ou sessão também (salvo módulo de `src/modules` sem import nenhum, só constantes e textos, como o `exames/constantes.ts` do layout de `/painel/exames`, Plano 22); `carregarProntuario` chama `requireNutri`; o PR 2 libera só o Início, as telas de aviso, o manual e as duas actions de preferências. Controles positivos com rascunhos (`test/fonte.ts`) |
+| Papéis fora do painel (Plano 26, RE-D67) | `src/app/papeis-fora-do-painel.test.ts` | Todo `requireUser(`/`requireUserComTenant(`/`requireApiUser(`/`lerSessaoApi(` de `src/app` fora de `src/app/painel` e `src/app/api/painel` está em `PAPEIS_FORA_DO_PAINEL` com a decisão para a recepção — **aceita** (a lista de papéis tem `recepcao` e a rota está em `FORA_DO_PAINEL`) ou **recusa** (nenhuma lista tem `recepcao`); a lista de papéis lida pode ser uma constante do arquivo; `requireEquipe` fora do painel quebra; só `requireEquipe` e `requireApiEquipe` de `tenant-session.ts` aceitam a recepção entre os wrappers de `src/lib` |
+| Leituras negadas à recepção (Plano 26, T8; R-482, RNF-484 e) | `src/app/painel/leituras-negadas.ts` (usado por `layout.test.ts`, `page.test.ts` e `ajuda/page.test.ts`) | Espião para os testes das páginas de `ROTAS_DA_RECEPCAO`: `LEITURAS_NEGADAS` lista módulo, funções (ou `'todas'` com `exceto` para as puras) e o motivo — etiquetas, conexão e cota do WhatsApp, `carregarProntuario`, o `lerInicio`/`resumoDoDia` da nutricionista, os contadores de exames recebidos e de dúvidas, diários, métricas de sucesso, documentos, pedidos do titular, a cobrança, `consultaParaIniciarAtendimento` e `motivoDoCancelamentoDaNutri`. `espiarLeiturasNegadas(vi)` registra `vi.doMock` em cada módulo e em `auditRead` (só a entidade `patients`, o cadastro, passa: `AUDIT_READ_DA_RECEPCAO`) antes do `await import()` da página: a função negada lança `LeituraNegadaError` e entra em `chamadas`; função listada que o módulo não exporta também falha. `layout.test.ts` e `page.test.ts` têm o controle positivo na sessão da nutricionista; cada página da recepção do PR 3 usa o espião no próprio teste. Contador ou leitura clínica nova de outro plano entra no fim da lista. Só os testes importam o arquivo |
+| Manual guiado por papel (Plano 26, T8; RE-D42) | `src/modules/ajuda/conteudo.test.ts` (describe "manual guiado por papel") | Sem `papeis`, o guia é só da nutricionista; `guiaDaRota('/painel', 'recepcao')` = `recepcao-inicio`; a recepção só vê os `recepcao-*` (inclusive a Segurança dela, `recepcao-seguranca`); os guias que ela vê não citam Configurações, Realizada, Iniciar atendimento, Ver bloqueados, etiqueta nem arquivar; todo chamador de `guiaDaRota` fora dos testes passa o papel (guarda de fonte) |
 | Variáveis | `src/env.test.ts` | Validação de cada variável por processo (chaves de teste do Turnstile recusadas em produção fora de `localhost`, `AUTH_SECRET` ≥ 32, `DATABASE_URL_MIGRATOR` nunca exposta ao app…) |
 | Exames fora da IA (Plano 22, RN-399) | `src/modules/exames/guardas.test.ts` | Pelo grafo de imports a partir de cada fonte de `src/modules/ia/**`: nenhum arquivo alcançado (fora de `src/db/schema/**`) contém `examInterpretacoes`, `examVersoes`, `exam_interpretacoes` ou `exam_versoes`, nem é `exames/interpretacao.ts`, `edicao.ts` ou `detalhe.ts` (com controle positivo); `src/modules/ia/nutri-paciente/**` não importa `exams` nem `@/modules/portal/exames-liberados`; `campos-enviados.ts` igual; `src/app/sw.ts` sem `/p/exames` ([§10.15](10-ia.md#1015-exames-do-consultório-fora-da-ia-plano-22-rn-399)) |
 | Exames sem dado em log (Plano 22, RNF-370) | `src/modules/exames/log.test.ts` | Erros forçados em `editarExame`, `salvarNota`, `salvarExameDoCatalogo` e `salvarModeloSolicitacao` com nome, valor, faixa, nota e justificativa marcadores: nada chega ao logger nem ao `beforeSend` de `src/lib/sentry-filtro.ts` |
@@ -369,15 +397,15 @@ que o CI cobra; "nenhuma" quer dizer que só a revisão pega o esquecimento.
 
 | # | Passo | Onde | Guarda |
 |---|---|---|---|
-| 1 | Primeira linha da página: `await requireNutri('/painel/…')` (`src/lib/tenant-session.ts:22`); use o `ctx` devolvido em `withTenant` | `page.tsx` | `cabecalho.test.ts:49-51` (só confere o texto) |
-| 2 | Aba do prontuário (`/painel/pacientes/[id]/…`): use `carregarProntuario(id)` (`src/app/painel/pacientes/[id]/prontuario.ts:13`) em vez de `requireNutri` + `buscarPaciente`. Ela chama `requireNutri`, faz **uma** leitura auditada do paciente por requisição (o `cache` do React divide a leitura entre o layout e a página) e dá 404 a paciente de outro tenant ou id malformado. Desde o Plano 18, o layout também lê a última avaliação por `carregarCabecalho` (`prontuario.ts:25`, um `auditRead` de antropometria por execução): a aba nova nunca chama `lerCabecalho`. A faixa tem 13 abas e uma 14ª não cabe a 1280 px (R-266) | `page.tsx` da aba | `cabecalho.test.ts:49-51`; `src/modules/ficha/cabecalho-fonte.test.ts` |
+| 1 | Primeira linha da página: `await requireNutri('/painel/…')` (`src/lib/tenant-session.ts:28`); use o `ctx` devolvido em `withTenant` | `page.tsx` | `cabecalho.test.ts:56-58` (só confere o texto) |
+| 2 | Aba do prontuário (`/painel/pacientes/[id]/…`): use `carregarProntuario(id)` (`src/app/painel/pacientes/[id]/prontuario.ts:13`) em vez de `requireNutri` + `buscarPaciente`. Ela chama `requireNutri`, faz **uma** leitura auditada do paciente por requisição (o `cache` do React divide a leitura entre o layout e a página) e dá 404 a paciente de outro tenant ou id malformado. Desde o Plano 18, o layout também lê a última avaliação por `carregarCabecalho` (`prontuario.ts:25`, um `auditRead` de antropometria por execução): a aba nova nunca chama `lerCabecalho`. A faixa tem 13 abas e uma 14ª não cabe a 1280 px (R-266) | `page.tsx` da aba | `cabecalho.test.ts:56-58`; `src/modules/ficha/cabecalho-fonte.test.ts` |
 | 3 | Server Action só num arquivo `actions.ts`, e toda função exportada começa pela guarda (`requireNutri`; no admin, `requireUser(['admin'])`). Não declare `'use server'` dentro de `page.tsx` nem em outro arquivo | `actions.ts` | `acoes-de-paciente.test.ts` (só lê arquivos `actions.ts`) |
-| 4 | Rota em `/api/painel/*`: `requireApiNutri(req)` (`tenant-session.ts:46`); escrita: `mesmaOrigem(req)` antes da sessão (`src/lib/mesma-origem.ts:9`) | `route.ts` | `src/app/api/painel/acesso-negado.test.ts` (sessão), `src/app/api/mesma-origem-rotas.test.ts` (origem) |
+| 4 | Rota em `/api/painel/*`: `requireApiNutri(req)` (`tenant-session.ts:53`); escrita: `mesmaOrigem(req)` antes da sessão (`src/lib/mesma-origem.ts:9`) | `route.ts` | `src/app/api/painel/acesso-negado.test.ts` (sessão), `src/app/api/mesma-origem-rotas.test.ts` (origem) |
 | 5 | Entrada em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts:14`) | `e2e/painel-rotas.ts` | `rotas-axe.test.ts:8` |
 | 6 | Tela com `[id]`: campo novo em `IdsDoPainel` (`e2e/painel-rotas.ts:2`) e a criação do registro pela UI em `prepararTelasComId` (`e2e/painel.ts:74`) | `e2e/` | `pnpm typecheck` (o `tsconfig.json` inclui `e2e/`): campo usado em `ROTAS_DO_PAINEL` e não devolvido por `prepararTelasComId` não compila |
 | 7 | Cores só por token (sem `bg-white`, `text-gray-…`); sem cabeçalho próprio (o layout desenha) | `.tsx` | `cores.test.ts`, `cabecalho.test.ts` |
-| 8 | Se a tela é um destino: item em `ITENS_DO_MENU` (8 itens fixos desde o Plano 26 — 7 no Plano 20 —, `src/app/painel/navegacao.ts:6`) ou cartão no hub de Configurações (`DO_HUB`, `navegacao.ts:35`) | `navegacao.ts` | `navegacao.test.ts:10` fixa os 8 itens e o teste do teclado de `e2e/acessibilidade-painel.spec.ts` os 10 com os condicionais (`:414`): item novo no menu exige decisão (P08 D20; o "Financeiro" foi decisão do dono, RN-327; o "Relatórios", da spec do Plano 26, §4.1) |
-| 9 | Guia do manual, se couber: entrada em `GUIAS` (`src/modules/ajuda/conteudo.ts:17`) | `conteudo.ts` | `conteudo.test.ts:54` (nomes de botão) |
+| 8 | Se a tela é um destino: item em `ITENS_DO_MENU` (8 itens fixos desde o Plano 26 — 7 no Plano 20 —, `src/app/painel/navegacao.ts:6`) ou cartão no hub de Configurações (`DO_HUB`, `navegacao.ts:47`) | `navegacao.ts` | `navegacao.test.ts:10` fixa os 8 itens e o teste do teclado de `e2e/acessibilidade-painel.spec.ts` os 10 com os condicionais (`e2e/acessibilidade-painel.spec.ts:405`): item novo no menu exige decisão (P08 D20; o "Financeiro" foi decisão do dono, RN-327; o "Relatórios", da spec do Plano 26, §4.1) |
+| 9 | Guia do manual, se couber: entrada em `GUIAS` (`src/modules/ajuda/conteudo.ts:25`) | `conteudo.ts` | `conteudo.test.ts:54` (nomes de botão) |
 | 10 | Dado de saúde devolvido: `auditRead(tx, …)` na mesma transação (`src/modules/plataforma/audit.ts:28`, regra 8) | módulo | nenhuma |
 
 **Portal do paciente (`src/app/p/…`, `src/app/api/p/…`)**
@@ -436,7 +464,22 @@ O Safari do iOS fica no teste manual do runbook (comentário em `playwright.conf
   não se apaga): todo "Realizada" deixa a consulta no banco de dev para sempre, e nenhum spec pode esperar a agenda vazia
   (R-312); e cria **dois consultórios novos por execução**, sem Financeiro, com as contas `E2E_FIN_NOVO` (o
   `financeiro.spec` configura) e `E2E_FIN_AXE` (o axe do estado não configurado) recriadas apontando para eles — o primeiro
-  acesso fica repetível sem apagar a linha de `fin_configuracoes` ([§12.10](12-financeiro.md#1210-testes-e-e2e)).
+  acesso fica repetível sem apagar a linha de `fin_configuracoes` ([§12.10](12-financeiro.md#1210-testes-e-e2e));
+- desde o Plano 26 (PR 2), as contas da recepção **criadas uma vez e reaproveitadas** (RE-D46, RE-D69; nunca `delete user`:
+  `equipe_membros` tem o DELETE revogado e a FK `NO ACTION` para `user`, e `consents` aponta para a conta): `E2E_RECEPCAO`
+  (sem a permissão do Financeiro, com o manual guiado todo visto) e `E2E_RECEPCAO_FIN` (com a permissão, com o manual
+  zerado a cada execução, para o tour dela), no consultório do E2E, e `E2E_RECEPCAO_CONTRATO`, num consultório só dela
+  (`e2e-contrato-pendente`) com o DPA numa versão antiga a cada execução. A cada execução: senha e 2FA de teste de novo (o
+  segredo da `E2E_DOCS`), a linha de `equipe_membros` ativa e com a permissão certa — gravada por `withTenant` com o papel
+  `nutri` e ator, porque o gatilho `equipe_membros_regras` recusa o `worker` e o contexto vazio — e o aceite do termo em
+  vigor (`SIGILO_EQUIPE_TERMO`, sem o qual a sessão recusa). Desde a revisão final do PR 2, mais duas num consultório só
+  delas (`e2e-recepcao-sem-acesso`, DPA em vigor), que só abrem `/conta/acesso-desativado`: `E2E_RECEPCAO_DESATIVADA` (a
+  linha de `equipe_membros` desativada de novo a cada execução, com `desativada_em` pelo gatilho, RN-503) e
+  `E2E_RECEPCAO_SEM_TERMO` (ativa, nunca recebe o aceite do termo: o aviso de termo pendente, RN-500);
+- e um **consultório novo por execução** para o primeiro acesso da recepção (`E2E_EQUIPE_NOVA`, RE-D69), com o DPA aceito,
+  uma nutricionista sem senha (só o ator do convite) e o convite criado pelo próprio módulo (`convidarRecepcao`) para um
+  e-mail novo por execução: com e-mail fixo, a 2ª execução cairia em "Este e-mail já tem uma conta". O spec acha o convite
+  pelo assunto no Mailpit (`destinatarioDoUltimo`, `e2e/mailpit.ts`). Os consultórios das execuções anteriores ficam no banco.
 
 As senhas dessas contas são fictícias e fixas no arquivo (o GitGuardian acusou; o backlog manda marcar como
 credencial de teste). Nunca reaproveite essas contas fora do E2E.
@@ -449,7 +492,13 @@ apontado para produção.
 - **Um bloco de IP por spec.** O login tem limite de 5 tentativas a cada 15 min por IP. Cada spec declara a sua
   faixa no topo (ex.: `e2e/acessibilidade.spec.ts:11`, `10.9.10.21` a `.30`) e o `entrarComo` manda o IP no
   `x-forwarded-for` (`e2e/helpers.ts:7`). No CI, `TRUSTED_PROXIES` aponta para a TEST-NET-1, que satisfaz a
-  validação de produção sem confiar em nenhum proxy real (comentário no job `e2e` do `ci.yml`).
+  validação de produção sem confiar em nenhum proxy real (comentário no job `e2e` do `ci.yml`). O Plano 26 usa o bloco
+  **`10.9.36.x`** (RE-D50; o `10.9.26.x` já era do `e2e/portal.spec.ts`): `.1` a `.9` nos Relatórios (`.1` no
+  `relatorios.spec.ts`), `.10` a `.14` no `recepcao.spec.ts` (`.14`: o tour da
+  `E2E_RECEPCAO_FIN`, T8) e no caso da recepção do `sessao-equipe.spec.ts` (`.11`), `.15` e `.16` no axe da recepção do
+  `acessibilidade-painel.spec.ts` (T8), `.17` a `.19` no axe das outras telas da recepção do mesmo spec (revisão final do
+  PR 2), `.40` no `equipe-primeiro-acesso.spec.ts` e `.41` no axe de
+  `/termos/sigilo-equipe` do `acessibilidade.spec.ts`.
 - **E-mail pelo Mailpit.** `esperarEmail` (`e2e/mailpit.ts`) consulta a API do Mailpit em laço, com prazo. Falha do
   Mailpit falha na hora com o status (M4). Com `CI` definida e sem `MAILPIT_URL`, o módulo lança erro em vez de cair no
   `http://localhost:8025` de dev (no runner próprio, seria o Mailpit de dev da VPS).
@@ -474,7 +523,7 @@ apontado para produção.
 | Spec | Projeto | Tags do axe | Cobertura |
 |---|---|---|---|
 | `e2e/acessibilidade.spec.ts` | `celular` | `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` | 10 rotas do portal, cada uma num teste; modo escuro do aparelho no portal e no painel; foco sobre a cor do consultório (contraste ≥ 3:1); 360 px e 320 px sem rolagem horizontal; alvo de toque ≥ 44 px; telas avulsas (consulta, exportação, sem acesso, escolher consultório, termo); paciente não alcança o painel |
-| `e2e/acessibilidade-painel.spec.ts` | `painel` | as mesmas + `wcag22aa` (alvo de toque) | **Todas** as telas do painel (`ROTAS_DO_PAINEL` + `/conta/seguranca`) nos modos **claro**, **escuro** e **"igual ao aparelho" com o aparelho escuro**; menu da conta aberto e erros de formulário; 768 px sem rolagem horizontal |
+| `e2e/acessibilidade-painel.spec.ts` | `painel` | as mesmas + `wcag22aa` (alvo de toque) | **Todas** as telas do painel (`ROTAS_DO_PAINEL` + `/conta/seguranca`) nos modos **claro**, **escuro** e **"igual ao aparelho" com o aparelho escuro**; menu da conta aberto e erros de formulário; 768 px sem rolagem horizontal. Plano 26 (T8, RNF-481): laço próprio da recepção com a conta dela — Início, "Sem permissão" (os dois motivos) com `E2E_RECEPCAO` e "Contrato pendente" com `E2E_RECEPCAO_CONTRATO`, a 1280 e a 360 px, claro e escuro (o tema pelo botão do cabeçalho; a conta termina no claro), e o Tab pelo menu dela. Revisão final do PR 2: um segundo laço, nos mesmos modos e larguras, com a Segurança (2FA ativo; o guia `recepcao-seguranca` aberto e fechado; o "Sair" de 44 px), o manual (`/painel/ajuda`: o índice só com `recepcao-inicio` e `recepcao-seguranca`), "Conectado com outra conta" vinda de `/p/inicio` e de `/admin`, e "Acesso desativado" com `E2E_RECEPCAO_DESATIVADA` e `E2E_RECEPCAO_SEM_TERMO` (os dois textos; o tema delas vem do aparelho) |
 
 Detalhes que evitam falso verde:
 
@@ -503,8 +552,8 @@ Detalhes que evitam falso verde:
 | `manual.spec.ts` | 10 | Manual guiado |
 | `csp.spec.ts` | 3 | CSP e cabeçalhos |
 | `health.spec.ts` | 1 | `/api/health` (o que o monitor externo confere) |
-| `acessibilidade.spec.ts` | 11 (+ laço) | Portal |
-| `acessibilidade-painel.spec.ts` | 10 (+ laço) | Painel; desde o Plano 18, a faixa de 13 abas da ficha a 1280 px sem rolar e sem "incomplete", com o cadastro no Perfil, e (PR 2) Início, Perfil, lista e "No app do paciente" a 1280 e 360 px, claro e escuro; desde o Plano 20, o Financeiro não configurado (conta `E2E_FIN_AXE`, `10.9.20.2`), o detalhe de pendências vazio e o lançamento com erro, claro e escuro, 1280 e 360 px, as telas do Financeiro também a 360 px e o menu com 9 itens no teclado (10 desde o Plano 26, com "Relatórios") |
+| `acessibilidade.spec.ts` | 21 (+ laço) | Portal; desde o Plano 26, o axe de `/termos/sigilo-equipe` sem login (claro e escuro, Pixel 7 e 360 × 800 px, sem rolagem horizontal) |
+| `acessibilidade-painel.spec.ts` | 12 (+ laço) | Painel; desde o Plano 18, a faixa de 13 abas da ficha a 1280 px sem rolar e sem "incomplete", com o cadastro no Perfil, e (PR 2) Início, Perfil, lista e "No app do paciente" a 1280 e 360 px, claro e escuro; desde o Plano 20, o Financeiro não configurado (conta `E2E_FIN_AXE`, `10.9.20.2`), o detalhe de pendências vazio e o lançamento com erro, claro e escuro, 1280 e 360 px, as telas do Financeiro também a 360 px e o menu com 9 itens no teclado (10 desde o Plano 26, com "Relatórios") |
 | `documentos.spec.ts` (Plano 10A) | 1 | Receita de ponta a ponta pela digitalizada (rascunho → preparar → fotos + 2FA → portal: abrir e confirmar → situação no painel → verificação pública sem dado do paciente), com axe nos cartões "Aguardando assinatura" e "Documento assinado"; `acessibilidade.spec.ts` ganhou o axe de `/p/documentos`, `/v/<código>` e `/documento/<token>` (claro, escuro, 360 px) |
 
 | `painel-pwa.spec.ts` (Plano 09) | 1 | Painel instalável: manifest próprio, nenhum service worker, HTML sem cache (P09-05) |
@@ -513,11 +562,17 @@ Detalhes que evitam falso verde:
 | `ficha.spec.ts` (Plano 18, PR 1) | 5 (+ laço de 2 temas) | Aba Início (US-262, US-263, CS-260): diálogo "Adicionar ao prontuário" (foco no título; Esc e "Fechar" devolvem o foco ao botão); Adicionar → Antropometria (foco em "Nova avaliação") e → Anamnese (foco no seletor de modelo); Adicionar → Receita (rascunho pela Server Action da aba Documentos); seção → item em 2 cliques; axe do diálogo aberto, claro e escuro. Bloco de IP `10.9.18.1`–`.5`. Cadastra o paciente por `criarPacientePeloFormulario` |
 | `financeiro.spec.ts` (Plano 20) | 3 (`serial`) | Conta `E2E_FIN_NOVO` (`10.9.20.1`): primeiro acesso ("Comece por aqui" → Configurações → Resumo); CS-300 (consulta já começada → "Realizada" → cobrança de R$ 250,00 → "Marcar como recebido" com Pix → sai de "Pagamentos pendentes" → no Resumo), com axe da seção "Cobrança" nos dois temas a 1280 e 360 px; CSV (13 meses → alerta; 1 mês → download sem a coluna Paciente). Asserções só sobre o paciente da execução ([§12.10](12-financeiro.md#1210-testes-e-e2e)) |
 | `lembretes.spec.ts` (Plano 17) | 2 (+ laço de 3 modos) | A nutricionista salva a sugestão na seção "Lembretes no app" ("Previsto para hoje", aviso sem aparelho), o paciente desliga a água em Eu › Lembretes (interruptor otimista com a ação presa na rede, foco e região de status) e a nutricionista vê "Desligado pelo paciente em {data}" sem o "Apagar"; axe da seção com lembretes salvos e com o suplemento aberto com erro nos três modos do painel. IPs `10.9.31.71`–`.75`. O envio do push fica nos testes de `src/modules/lembretes` (o E2E não tem aparelho inscrito); `acessibilidade.spec.ts` ganhou `/p/perfil/lembretes` (com o lembrete livre de link longo, a 320 px com texto a 200%) e a tela vazia (`10.9.10.25`) |
+| `recepcao.spec.ts` (Plano 26, PR 2) | 4 (`serial`) | T8: no primeiro acesso, `E2E_RECEPCAO_FIN` (manual guiado zerado pela semente) vê o tour `recepcao-inicio`, nunca o `boas-vindas`, o menu dela com o Financeiro, o menu da conta "{nome} · Recepção" com "Rever o tour", e muda o tema pelo botão do cabeçalho; `E2E_RECEPCAO` entra pelo login e pelo 2FA e chega ao Início dela passando por `/inicio`, sem laço nem "Conectado com outra conta" (RE-D67); uma tela do prontuário leva a "Sem permissão" sem nada no Histórico de acessos do paciente; com o DPA do consultório numa versão antiga, toda tela leva a "Contrato do consultório pendente" (RN-501); desde a `bfe38520`, "Rever o tour" reabre o dela, e o Esc fecha e tira o `?tour=` da URL |
+| `relatorios.spec.ts` (Plano 26, PR 1) | 5 | Menu "Relatórios" → Pacientes e o período mantido entre as abas (US-486); período inválido com o erro e o foco (RN-481); CSV da Agenda (RN-494); versão para imprimir (RN-495); Ranking (US-485). IP `10.9.36.1` |
+| `sessao-equipe.spec.ts` (P12-14) | 7 (`serial`) | Cookie de sessão do navegador, aviso de inatividade (foco, Esc não fecha, saída por inatividade), "Continuar na sessão" numa aba e em duas, uso real renovando e axe do aviso; desde o Plano 26, o caso da recepção (prazos da equipe, aviso e "Continuar na sessão", RN-501, IP `10.9.36.11`) |
+| `equipe-primeiro-acesso.spec.ts` (Plano 26, PR 2) | 1 (`serial`) | No consultório novo da execução: o convite pelo Mailpit, o termo de confidencialidade na página, a senha, a configuração do 2FA e o Início da recepção (US-489), com axe de `/convite/[token]` da recepção e, desde a revisão final do PR 2, da Segurança sem o 2FA (o aviso, o guia aberto, o "Sair" de 44 px; claro e escuro, 1280 e 360 px) |
 | `cadastro.spec.ts` (Plano 18, PR 2) | 10 (2 em laço de 2 temas) | Cadastro com CPF, estado civil e CEP (US-260; o CPF nunca na lista); CPF repetido com a mensagem, o link em nova aba e o digitado mantido, com axe claro e escuro; Perfil (o estado civil e a Observação não voltam atrás, foco no CEP inválido); lista (abas, "Mais recentes" com a busca, `?status=arquivado` → Inativos); menu da linha (Esc, clique fora, Tab depois do último item); arquivar pela lista duas vezes (região de status e foco no título, D26); Início (nota "Cadastro incompleto", selo e cartão "No app"); "No app do paciente" da paciente da semente; impressão com o nome civil antes de "Nome social"; axe do menu aberto e do diálogo Adicionar. IPs `10.9.18.20`–`.29`; repetível no banco de dev (CPF novo a cada execução, sufixo `c18…`) |
 | `exames.spec.ts` (Plano 22, PR 2) | 2 | CS-371: com o catálogo da semente (painel "Hemograma completo" de 20 componentes e "Ferritina", `scripts/e2e-seed.ts`), "Adicionar do catálogo" monta as 20 linhas, a faixa preenchida mostra "Acima da referência" antes de salvar, abrir o exame e salvar a nota; US-374: marcar 2 exames e abrir o comparativo (fora de 2 a 6, o botão fica `aria-disabled`). IP `10.9.22.20` |
 | `acessibilidade-exames.spec.ts` (Plano 22, PR 2) | 11 (2 em laço de 2 temas × 2 larguras) | axe no catálogo e no detalhe (com "Ver referência" e "Inserir modelo") a 1280 e 360 px, claro e escuro; foco do `Dialogo` (Esc, fechar pelo navegador, desmontado aberto), da busca no catálogo, de "Acrescentar faixa"/"Remover faixa", das linhas do exame ("Usar {a} a {b}", "Remover", "Remover todos") e da nota ("Nota salva." com o foco no título). IP `10.9.22.10` |
 
-Os números são de chamadas `test(` no arquivo; laços geram mais casos na execução.
+Os números são de chamadas `test(` no arquivo; laços geram mais casos na execução. Fora desta tabela (39 specs em
+24/11/2026, `ls e2e/*.spec.ts`): `app-paciente`, `autorizacao-ia`, `exames-enviados`, `fontes-portal`, `ia-modelos`,
+`ia-nutri-paciente`, `ia-nutri`, `nada-some`, `parecer` e `revisao-envio-form` (descritos nos capítulos de cada plano).
 
 ### Rodar localmente
 
@@ -824,7 +879,7 @@ real está no código e nas guardas; a regra diz onde.
 
 | # | Regra (resumo) | Por quê | Onde o código garante |
 |---|---|---|---|
-| 1 | Toda consulta a tabela com `tenant_id` passa por `withTenant(ctx, fn)`. O admin nunca consulta essas tabelas. `withConta` só em `vinculos.ts`. Exceções nominais para `user`, `consents`, `invites` e as tabelas sem tenant | A RLS só funciona se a transação tiver `app.tenant_id`, `app.role`, `app.patient_id`, `app.user_id` e `app.ip`. Fora de `withTenant` a conexão vê 0 linhas (Plano 01, Review Focus 1). A lista de exceções é nominal para que cada acesso fora da RLS seja auditável por leitura | `withTenant` (`src/db/tenant.ts:86`) com `set_config(..., true)`; `assertContext` recusa papel `admin` e exige `actorUserId` para nutricionista e paciente com login; guardas `sem-tabelas-tenant.test.ts` e `sem-conta-guarda.test.ts` |
+| 1 | Toda consulta a tabela com `tenant_id` passa por `withTenant(ctx, fn)`. O admin nunca consulta essas tabelas. `withConta` só em `vinculos.ts`. Exceções nominais para `user`, `consents`, `invites` e as tabelas sem tenant | A RLS só funciona se a transação tiver `app.tenant_id`, `app.role`, `app.patient_id`, `app.user_id` e `app.ip`. Fora de `withTenant` a conexão vê 0 linhas (Plano 01, Review Focus 1). A lista de exceções é nominal para que cada acesso fora da RLS seja auditável por leitura | `withTenant` (`src/db/tenant.ts:93`) com `set_config(..., true)`; `assertContext` recusa papel `admin` e exige `actorUserId` para nutricionista e paciente com login; guardas `sem-tabelas-tenant.test.ts` e `sem-conta-guarda.test.ts` |
 | 2 | Tabela nova com `tenant_id`: migration custom com `app_enable_tenant_rls` (+ `patient`, `staff_only`, `publico`, escrita do paciente, audiência) e a entrada na lista certa | Isolamento no banco, não na aplicação: um bug de consulta não vaza dado de outro consultório. Negar por padrão faz a tabela nova nascer fechada | `rls-guard.ts` e `rls-guard.test.ts` ([§2.7](02-banco-de-dados.md#27-guardas-no-ci), 7.4.1) |
 | 3 | Senhas, tokens, cookies e dados de saúde nunca vão para log, Sentry ou mensagens | LGPD e sigilo profissional: o log e o Sentry não são lugar de dado sensível, e o Sentry é um serviço de terceiro | `REDACT_KEYS` do pino (`src/lib/logger.ts:4`); `sanitizarErroDeBanco` no `withTenant`; filtro único `src/lib/sentry-filtro.ts`; `sem-detalhe.test.ts` |
 | 4 | Textos de interface em pt-BR, com o texto exato da spec | As histórias têm critérios BDD com o texto exato; o E2E procura por esse texto (`getByRole(..., { name })`) | Specs E2E; tabelas "Textos de interface" nas histórias |

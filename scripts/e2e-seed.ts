@@ -7,6 +7,7 @@ import {
   anthropometry,
   consents,
   examesCatalogo,
+  equipeMembros,
   finCategorias,
   finConfiguracoes,
   iaNutriConsentimentos,
@@ -27,6 +28,9 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { stopBoss } from '@/jobs/boss';
 import { hashPassword } from '@/lib/password.server';
+// Plano 26 (T7): o convite da recepção do primeiro acesso, criado pelo módulo da Equipe
+import { convidarRecepcao } from '@/modules/plataforma/equipe';
+import { SIGILO_EQUIPE_TERMO } from '@/modules/plataforma/textos-versionados';
 import { chaveDoLimite, liberarLimite } from '@/modules/agenda/limite-ip';
 import { idTaco } from '@/modules/alimentos/taco';
 import { GUIAS } from '@/modules/ajuda/conteudo';
@@ -623,6 +627,138 @@ await withTenant(
   },
   db,
 );
+
+// Plano 26 (PM-R10, RE-D46, RE-D69): as duas contas da recepção do consultório do E2E — `E2E_RECEPCAO` (sem a permissão do
+// Financeiro) e `E2E_RECEPCAO_FIN` (com ela) —, criadas UMA vez e reaproveitadas: nunca `delete user` (equipe_membros tem o
+// DELETE revogado e a FK NO ACTION para `user`; consents também aponta para a conta). A cada execução: a senha e o 2FA de
+// teste de novo (o mesmo segredo da E2E_DOCS, `Secret.fromUTF8` no spec), a linha de equipe_membros ativa e com a permissão
+// certa — gravada pela sessão `nutri` com ator (o gatilho equipe_membros_regras recusa `worker` e o contexto vazio) — e o
+// aceite do termo de confidencialidade em vigor (`SIGILO_EQUIPE_TERMO`, sem o qual a sessão recusa). `E2E_RECEPCAO_FIN` começa com o manual
+// guiado zerado (o tour dela no primeiro acesso, T8); `E2E_RECEPCAO`, com tudo visto. Copiadas nos specs: importar o seed
+// roda o seed.
+export const E2E_RECEPCAO = { email: 'recepcao-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção E2E' };
+export const E2E_RECEPCAO_FIN = { email: 'recepcao-fin-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Financeiro E2E' };
+// `E2E_RECEPCAO_CONTRATO` (RN-501): a recepção de um consultório só dela, com o DPA numa versão antiga a cada execução —
+// toda tela a leva a "Contrato do consultório pendente" (a nutricionista desse consultório não existe: ninguém aceita).
+export const E2E_RECEPCAO_CONTRATO = { email: 'recepcao-contrato-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Contrato E2E' };
+// Revisão final do PR 2 (RNF-481): as duas contas da recepção que só abrem /conta/acesso-desativado, num consultório só
+// delas (com o DPA em vigor; a nutricionista desse consultório não existe, como no do contrato): `E2E_RECEPCAO_DESATIVADA`
+// (linha de equipe_membros desativada a cada execução, com `desativada_em` pelo gatilho — RN-503) e
+// `E2E_RECEPCAO_SEM_TERMO` (ativa, com o 2FA, sem o aceite do termo de confidencialidade, RN-500: desde o code review do
+// PR 2, o formulário do aceite da versão em vigor; o axe nunca aceita — quem aceita é a `E2E_RECEPCAO_TERMO_NOVO`). Fora do
+// consultório principal: não contam nas 3 ativas dele nem aparecem na tela Equipe da nutricionista do E2E.
+export const E2E_RECEPCAO_DESATIVADA = { email: 'recepcao-desativada-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Desativada E2E' };
+export const E2E_RECEPCAO_SEM_TERMO = { email: 'recepcao-sem-termo-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Sem Termo E2E' };
+const [semAcesso] = await db
+  .insert(tenants)
+  .values({ slug: 'e2e-recepcao-sem-acesso', nomeExibicao: 'Consultório E2E Sem Acesso', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date() })
+  .onConflictDoUpdate({ target: tenants.slug, set: { status: 'ativa', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date() } })
+  .returning({ id: tenants.id });
+const atorSemAcesso = randomUUID();
+const [contratoPendente] = await db
+  .insert(tenants)
+  .values({ slug: 'e2e-contrato-pendente', nomeExibicao: 'Consultório E2E Contrato', dpaVersao: '0.1-provisorio', dpaAceitoEm: new Date() })
+  .onConflictDoUpdate({ target: tenants.slug, set: { status: 'ativa', dpaVersao: '0.1-provisorio' } })
+  .returning({ id: tenants.id });
+for (const [cred, financeiro, tenantId, ator] of [
+  [E2E_RECEPCAO, false, consultorio.id, nutriId],
+  [E2E_RECEPCAO_FIN, true, consultorio.id, nutriId],
+  [E2E_RECEPCAO_CONTRATO, false, contratoPendente.id, randomUUID()],
+  [E2E_RECEPCAO_DESATIVADA, false, semAcesso.id, atorSemAcesso],
+  [E2E_RECEPCAO_SEM_TERMO, false, semAcesso.id, atorSemAcesso],
+] as const) {
+  const senha = await hashPassword(cred.password);
+  const [ja] = await db.select({ id: user.id }).from(user).where(eq(user.email, cred.email));
+  const id = ja?.id ?? randomUUID();
+  if (ja) {
+    await db.update(user).set({ name: cred.nome, appRole: 'recepcao', tenantId, twoFactorEnabled: true, tema: 'sistema' }).where(eq(user.id, id));
+    await db.update(account).set({ password: senha }).where(eq(account.userId, id));
+    await db.delete(twoFactor).where(eq(twoFactor.userId, id));
+  } else {
+    await db.insert(user).values({ id, name: cred.nome, email: cred.email, emailVerified: true, appRole: 'recepcao', tenantId, twoFactorEnabled: true });
+    await db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: senha });
+  }
+  await db.insert(twoFactor).values({
+    id: randomUUID(),
+    userId: id,
+    verified: true,
+    secret: await symmetricEncrypt({ key: chave, data: cred.totp }),
+    backupCodes: await symmetricEncrypt({ key: chave, data: JSON.stringify([]) }),
+  });
+  await withTenant(
+    { tenantId, role: 'nutri', actorUserId: ator },
+    async (tx) => {
+      await tx
+        .insert(equipeMembros)
+        .values({ tenantId, userId: id, papel: 'recepcao', financeiro, convidadaPor: ator })
+        .onConflictDoUpdate({ target: equipeMembros.userId, set: { financeiro, desativadaEm: null, desativadaPor: null, updatedAt: new Date() } });
+      // o gatilho equipe_membros_regras grava `desativada_em` (relógio do banco) e `desativada_por` (a usuária da sessão)
+      if (cred === E2E_RECEPCAO_DESATIVADA)
+        await tx.update(equipeMembros).set({ desativadaEm: new Date(), desativadaPor: ator, updatedAt: new Date() }).where(eq(equipeMembros.userId, id));
+    },
+    db,
+  );
+  // `E2E_RECEPCAO_SEM_TERMO` nunca recebe o aceite (consents não se apaga: a conta é só dela)
+  if (cred !== E2E_RECEPCAO_SEM_TERMO)
+    await db.insert(consents).values({ userId: id, tenantId, termoVersao: SIGILO_EQUIPE_TERMO, ip: null }).onConflictDoNothing();
+  await db.update(user).set({ guia: cred === E2E_RECEPCAO_FIN ? {} : TUDO_VISTO }).where(eq(user.id, id));
+}
+
+// Code review do PR 2 do Plano 26 (RN-500): `E2E_RECEPCAO_TERMO_NOVO`, a recepção ativa, com o 2FA, que aceitou só uma
+// versão ANTIGA do termo de confidencialidade (`sigilo-equipe-0.9`) e aceita a versão em vigor pelo formulário de
+// /conta/acesso-desativado (e2e/recepcao.spec.ts). O aceite fica em `consents`, que é só de inclusão (0009: DELETE e UPDATE
+// revogados) — a semente não tem como devolver a conta ao estado "sem termo". Por isso, a cada execução, uma conta NOVA com o
+// mesmo e-mail num consultório NOVO (com o DPA em vigor; a nutricionista dele não existe, só o ator da linha de
+// `equipe_membros`): a conta da execução anterior fica no banco com o e-mail trocado para um arquivado (`user` e
+// `equipe_membros` não se apagam). `E2E_RECEPCAO_SEM_TERMO` continua como está (nunca aceita: o axe do formulário).
+export const E2E_RECEPCAO_TERMO_NOVO = { email: 'recepcao-termo-novo-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Termo Novo E2E' };
+{
+  const cred = E2E_RECEPCAO_TERMO_NOVO;
+  const [anterior] = await db.select({ id: user.id }).from(user).where(eq(user.email, cred.email));
+  if (anterior) await db.update(user).set({ email: `recepcao-termo-novo-arquivada-${anterior.id}@nutridebby.test` }).where(eq(user.id, anterior.id));
+  const [t] = await db
+    .insert(tenants)
+    .values({ slug: `e2e-termo-novo-${sufixo}`, nomeExibicao: 'Consultório E2E Termo Novo', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date() })
+    .returning({ id: tenants.id });
+  const id = randomUUID();
+  const ator = randomUUID();
+  await db.insert(user).values({ id, name: cred.nome, email: cred.email, emailVerified: true, appRole: 'recepcao', tenantId: t.id, twoFactorEnabled: true, guia: TUDO_VISTO });
+  await db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(cred.password) });
+  await db.insert(twoFactor).values({
+    id: randomUUID(),
+    userId: id,
+    verified: true,
+    secret: await symmetricEncrypt({ key: chave, data: cred.totp }),
+    backupCodes: await symmetricEncrypt({ key: chave, data: JSON.stringify([]) }),
+  });
+  await withTenant(
+    { tenantId: t.id, role: 'nutri', actorUserId: ator },
+    (tx) => tx.insert(equipeMembros).values({ tenantId: t.id, userId: id, papel: 'recepcao', financeiro: false, convidadaPor: ator }),
+    db,
+  );
+  await db.insert(consents).values({ userId: id, tenantId: t.id, termoVersao: 'sigilo-equipe-0.9', ip: null });
+}
+
+// Plano 26 (T7, RE-D69): o primeiro acesso da recepção (e2e/equipe-primeiro-acesso.spec.ts) num consultório NOVO por
+// execução, com o DPA aceito e uma nutricionista sem senha (só o ator do convite), e o convite criado pelo módulo da Equipe
+// (`convidarRecepcao`, a mesma transação da tela) para um e-mail novo por execução: com um e-mail fixo, a 2ª execução cairia
+// em "Este e-mail já tem uma conta" (equipe_membros.user_id é NO ACTION, com o DELETE revogado), e o consultório principal
+// já tem E2E_RECEPCAO e E2E_RECEPCAO_FIN. O spec acha o convite pelo assunto (o nome do consultório é fixo; o mais novo é o
+// desta execução). Os consultórios das execuções anteriores ficam no banco, com as contas deles.
+export const E2E_EQUIPE_NOVA = { consultorio: 'Consultório Equipe Nova E2E', nome: 'Recepção Nova E2E' };
+{
+  const [t] = await db
+    .insert(tenants)
+    .values({ slug: `e2e-equipe-nova-${sufixo}`, nomeExibicao: E2E_EQUIPE_NOVA.consultorio, dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date() })
+    .returning({ id: tenants.id });
+  const ator = randomUUID();
+  await db.insert(user).values({ id: ator, name: 'Nutri Equipe Nova E2E', email: `e2e-equipe-nova-nutri-${sufixo}@nutridebby.test`, emailVerified: true, appRole: 'nutri', tenantId: t.id });
+  await convidarRecepcao(
+    { tenantId: t.id, role: 'nutri', actorUserId: ator, ip: null },
+    { nome: E2E_EQUIPE_NOVA.nome, email: `recepcao-nova-${sufixo}@nutridebby.test`, financeiro: false },
+    { db },
+  );
+}
 
 await stopBoss(); // a publicação do plano enfileira o PDF
 await closeDb();

@@ -22,7 +22,7 @@ export type Passo = { tipo: 'esperar'; ate: number } | { tipo: 'avisar'; ate: nu
 
 /**
  * O próximo passo da tela: esperar até a hora do aviso (ou do limite), mostrar o aviso até o fim, ou encerrar. O aviso
- * de 2 min é só da inatividade — o limite de 8 h não se renova com "Continuar conectada", então não há aviso para ele.
+ * de 2 min é só da inatividade — o limite de 8 h não se renova com "Continuar na sessão", então não há aviso para ele.
  */
 export function proximoPasso(r: Relogio, agora: number): Passo {
   const porLimite = r.limite <= r.prazo;

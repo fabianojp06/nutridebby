@@ -16,7 +16,7 @@ import { criarEEntrar, entrar } from '../../../../../../test/sessao';
  * Plano 26, T3 (US-487, RN-493, RN-494, RNF-482): a rota do CSV dos Relatórios com o banco e a sessão de verdade. Numa
  * navegação nunca há JSON: sem sessão → login com a volta para a seção; DPA pendente → /painel/dpa; período inválido → a
  * seção com `?erro=periodo`. O `exportar` (entidade `relatorios`) é gravado na transação da leitura: um sem paciente no
- * agregado, um por paciente no Ranking. Seção não permitida → 403 por enquanto (a T6 troca por /painel/sem-permissao).
+ * agregado, um por paciente no Ranking. Seção não permitida → 303 para /painel/sem-permissao com o motivo (T6).
  */
 const falha = vi.hoisted(() => ({ csv: false, semPermissao: false }));
 vi.mock('server-only', () => ({}));
@@ -158,12 +158,17 @@ describe('GET /api/painel/relatorios/csv (US-487, RN-494)', () => {
     expect(await exportacoes(C.ctx)).toEqual([]);
   });
 
-  it('seção não permitida (RN-480) → 403, sem exportar (a T6 troca pelo redirect a "Sem permissão")', async () => {
+  it('seção não permitida (RN-480) → 303 para "Sem permissão" com o motivo (T6, RE-D47), sem arquivo e sem exportar', async () => {
     const C = await cenario();
     falha.semPermissao = true;
-    const r = await pedir('secao=agenda&de=2026-01&ate=2026-06', C.cookie);
-    expect(r.status).toBe(403);
-    expect(r.headers.get('content-disposition')).toBeNull();
+    for (const [q, motivo] of [
+      ['secao=agenda&de=2026-01&ate=2026-06', 'nutri'],
+      ['secao=financeiro&de=2026-01&ate=2026-06', 'financeiro'],
+    ]) {
+      const r = await pedir(q, C.cookie);
+      expect([r.status, r.headers.get('location')], q).toEqual([303, `/painel/sem-permissao?motivo=${motivo}`]);
+      expect(r.headers.get('content-disposition')).toBeNull();
+    }
     expect(await exportacoes(C.ctx)).toEqual([]);
   });
 

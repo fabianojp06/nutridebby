@@ -126,9 +126,9 @@ Cenário: Tela que se atualiza sozinha não mantém a sessão (Plano 12, P12-14)
 
 Cenário: Aviso de inatividade (Plano 12, P12-14)
   Dado que estou no painel (ou no admin) sem usar a tela há 28 min, em qualquer aba
-  Então vejo o aviso "Sua sessão vai encerrar em 2 minutos por falta de uso." com o botão "Continuar conectada"
+  Então vejo o aviso "Sua sessão vai encerrar em 2 minutos por falta de uso." com o botão "Continuar na sessão"
   E Esc não fecha o aviso sem eu decidir
-  Quando clico em "Continuar conectada", a sessão é renovada e o aviso fecha em todas as abas
+  Quando clico em "Continuar na sessão", a sessão é renovada e o aviso fecha em todas as abas
   Quando não faço nada, a sessão é encerrada e vou para /entrar com "Sua sessão foi encerrada por falta de uso. Entre de novo."
 
 Cenário: Limite de 8 horas (Plano 12, P12-14)

@@ -1,15 +1,21 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireNutri } from '@/lib/tenant-session';
+import { requireEquipe, requireNutri } from '@/lib/tenant-session';
 import { GUIAS } from '@/modules/ajuda/conteudo';
 import { ehTema, ESTADOS_GUIA, gravarTema, marcarGuia, PreferenciaError, proximoTema, type EstadoGuia } from '@/modules/plataforma/preferencias';
 
 export type TemaState = { ok?: boolean; erro?: string };
 
+/**
+ * Contrato (Plano 26, RN-513): `alternarTemaAction` e `marcarGuiaAction` são do cabeçalho do painel e abrem para a equipe
+ * (a nutricionista e a recepção, `requireEquipe`; estão em ROTAS_DA_RECEPCAO) e gravam só na conta da própria sessão;
+ * `escolherTemaAction` é das Configurações e continua só da nutricionista.
+ */
+
 /** Botão do cabeçalho (funciona sem JavaScript: o formulário posta e a página volta com o tema novo). */
 export async function alternarTemaAction(formData: FormData): Promise<void> {
-  const { data } = await requireNutri('/painel', { permitirDpaPendente: true });
+  const { data } = await requireEquipe('/painel', { permitirDpaPendente: true });
   const atual = ehTema(data.user.tema) ? data.user.tema : 'sistema';
   await gravarTema(data.user.id, proximoTema(atual, formData.get('aparelhoEscuro') === '1'));
   revalidatePath('/painel', 'layout');
@@ -34,7 +40,7 @@ export async function escolherTemaAction(_prev: TemaState, formData: FormData): 
  * (T19) mantém o progresso em estado local, atualizado de forma otimista.
  */
 export async function marcarGuiaAction(id: string, versao: number, estado: EstadoGuia): Promise<void> {
-  const { data } = await requireNutri('/painel', { permitirDpaPendente: true });
+  const { data } = await requireEquipe('/painel', { permitirDpaPendente: true });
   // Só os guias que existem, até a versão atual: um id qualquer no formato (ou um array, que vira texto no regex) faria
   // user.guia crescer sem teto — e o Better Auth lê a linha inteira da user a cada requisição. Recusa calada: nenhuma tela
   // manda outra coisa, e um erro aqui só viraria ruído no Sentry. Pelo mesmo motivo, versão e estado são conferidos aqui

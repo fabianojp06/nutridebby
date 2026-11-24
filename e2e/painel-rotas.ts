@@ -103,4 +103,11 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/relatorios/financeiro': () => '/painel/relatorios/financeiro',
   '/painel/relatorios/ranking': () => '/painel/relatorios/ranking',
   '/painel/relatorios/imprimir': () => '/painel/relatorios/imprimir?secao=agenda',
+  // Plano 26 (T6, RE-D47, RN-501): telas de aviso da recepção; com a nutricionista, vão ao Início (o axe com a conta da
+  // recepção é o da T8)
+  '/painel/sem-permissao': () => '/painel/sem-permissao?motivo=nutri',
+  '/painel/contrato-pendente': () => '/painel/contrato-pendente',
+  // Plano 26 (T7, RE-D52): a Equipe nasce desligada — no PR 2 o axe vê o 404 (sem violação esperada); o axe de verdade, com a
+  // constante ligada, é o da T11b
+  '/painel/configuracoes/equipe': () => '/painel/configuracoes/equipe',
 };

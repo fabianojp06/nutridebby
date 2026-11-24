@@ -976,7 +976,7 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
     await expect(em(B.ctx, sql`update chat_conversas set tenant_id = ${A.tenantId}`)).rejects.toSatisfy(rlsDe('chat_conversas'));
   });
 
-  it('papel desconhecido (e a recepcao, sem o Plano 26 na main) recebe o 42501 do gatilho nas quatro tabelas (falha fechada)', async () => {
+  it('papel desconhecido recebe o 42501 do gatilho nas quatro tabelas (falha fechada); a recepcao cai na RLS (recepcao_negada do Plano 26, CH-D71)', async () => {
     const C = await cenario();
     const pX = (await novoPaciente(app.db, C.ctx)).id;
     const escritas: [string, SQL][] = [
@@ -985,14 +985,19 @@ describe('Plano 25 — gatilhos (T1b, spec §9.1–§9.5 v0.3, CH-D38, CH-D57, C
       ['chat_leituras', leitura(C, C.p1, 'consultorio')],
       ['recados', sql`insert into recados (tenant_id, texto, filtro, destinatarios, autor_nome, autor_crn, criado_por) values (${C.tenantId}, 'x', '{"tipo":"todos"}', 1, ${CARIMBO.nome}, ${CARIMBO.crn}, ${randomUUID()})`],
     ];
-    for (const papel of ['desconhecido', 'recepcao']) {
-      for (const [t, q] of escritas) await expect(comPapel(papel, C.tenantId, q, C.nutriId), `${papel} ${t}`).rejects.toSatisfy(doGatilho(`${t}: papel desconhecido`));
-    }
-    // e no UPDATE
+    for (const [t, q] of escritas) await expect(comPapel('desconhecido', C.tenantId, q, C.nutriId), `desconhecido ${t}`).rejects.toSatisfy(doGatilho(`${t}: papel desconhecido`));
+    // Plano 26 (CH-D71, CH-D33; RN-505 do 26): a recepcao está na lista (iii) dos quatro gatilhos — devolve NEW e a recusa vem
+    // da política da própria tabela (recepcao_negada), não do gatilho
+    for (const [t, q] of escritas) await expect(comPapel('recepcao', C.tenantId, q, C.nutriId), `recepcao ${t}`).rejects.toSatisfy(rlsDe(t));
+    // e no UPDATE: o desconhecido no gatilho; a recepcao não vê linha nenhuma (nada muda, nenhum erro do gatilho)
     await em(C.ctx, daNutri(C));
     await em(C.ctx, leitura(C, C.p1, 'consultorio'));
     for (const t of ['chat_conversas', 'chat_mensagens', 'chat_leituras']) {
       await expect(comPapel('desconhecido', C.tenantId, sql`update ${sql.identifier(t)} set updated_at = now()`), t).rejects.toSatisfy(doGatilho(`${t}: papel desconhecido`));
+      const r = await comPapel('recepcao', C.tenantId, sql`update ${sql.identifier(t)} set updated_at = now()`, C.nutriId);
+      expect(r.rowCount, `recepcao update ${t}`).toBe(0);
+      const lidas = await comPapel('recepcao', C.tenantId, sql`select 1 from ${sql.identifier(t)}`, C.nutriId);
+      expect(lidas.rows, `recepcao select ${t}`).toEqual([]);
     }
   });
 });

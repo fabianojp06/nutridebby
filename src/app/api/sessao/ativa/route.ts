@@ -5,8 +5,11 @@ import { estadoDaSessao, type AppRole } from '@/lib/session-rules';
 
 export const dynamic = 'force-dynamic';
 
-/** Só a equipe: o paciente (30 dias, PWA) não tem aviso de inatividade e recebe 403. */
-const EQUIPE: readonly AppRole[] = ['admin', 'nutri'];
+/**
+ * Só a equipe: o paciente (30 dias, PWA) não tem aviso de inatividade e recebe 403. Plano 26 (RE-D67, RN-501): a recepção
+ * tem os prazos da equipe, o aviso e a renovação pelo uso (a desativada recebe 403).
+ */
+const EQUIPE: readonly AppRole[] = ['admin', 'nutri', 'recepcao'];
 
 /** Quanto falta (ms relativos) e os prazos — nada de dado pessoal, sem cache. */
 function estado(req: Request, a: ApiAuth & { ok: true }): Response {
@@ -24,7 +27,7 @@ export async function GET(req: Request): Promise<Response> {
 
 /**
  * P12-14: uso real na tela (tecla, clique, rolagem, toque) em qualquer aba do painel ou do admin, e o botão "Continuar
- * conectada" do aviso. A tela chama no máximo 1 vez a cada 5 min (sincronizada entre as abas); aqui a renovação segue a
+ * na sessão" do aviso (RE-D70, Plano 26: o texto de toda a equipe). A tela chama no máximo 1 vez a cada 5 min (sincronizada entre as abas); aqui a renovação segue a
  * mesma cadência de requireUser. Sessão já expirada nunca é renovada (401).
  */
 export async function POST(req: Request): Promise<Response> {

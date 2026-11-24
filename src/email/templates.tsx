@@ -5,6 +5,7 @@ import { DESTINO_ROTULO, MSG_AUTORIZACAO, type UsoIA } from '@/modules/ia/consta
 import { NOME_IA_NUTRI, RETENCAO_DIAS, RISCO_REVOGADO_MAX_DIAS } from '@/modules/ia/nutri-paciente/constantes';
 import { DESCRICAO_DO_USO } from '@/modules/ia/textos-legais';
 import { MSG_REVISAO } from '@/modules/pacientes/exames-enviados-constantes';
+import { MSG_EQUIPE } from '@/modules/plataforma/equipe-textos';
 import type { EmailMessage, RenderedEmail } from './types';
 
 // Só o worker importa este arquivo (react-dom/server fora do grafo do Next).
@@ -391,7 +392,7 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
     case 'aviso_2fa_reiniciado':
       return simples('A verificação em duas etapas da sua conta foi desativada', [
         'A verificação em duas etapas da sua conta no NutriDebby foi desativada pelo suporte, e as sessões abertas foram encerradas.',
-        'Na próxima entrada, ative de novo em Conta > Segurança (para a administração, a ativação é obrigatória).',
+        'Na próxima entrada, ative de novo em Conta > Segurança (para a administração e para a recepção, a ativação é obrigatória).',
         'Se você não pediu isso, fale com o suporte agora.',
       ]);
     case 'cota_ia':
@@ -464,6 +465,14 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         'Exames enviados por pacientes',
         [MSG_REVISAO.avisoEmail, ...(msg.pendentesAntigos ? [MSG_REVISAO.lembrete30] : [])],
         { href: msg.link, rotulo: 'Ver exames recebidos' },
+      );
+    case 'convite_recepcao':
+      // Plano 26 (RN-499, §6.2): o convite da recepção, com o link de 72 h; nada de paciente
+      return simples(
+        MSG_EQUIPE.email.assunto(msg.consultorio),
+        [MSG_EQUIPE.email.corpo(msg.nome, msg.nutricionista, msg.consultorio)],
+        { href: msg.link, rotulo: MSG_EQUIPE.email.botao },
+        [MSG_EQUIPE.email.ignorar],
       );
     default: {
       const nunca: never = msg;

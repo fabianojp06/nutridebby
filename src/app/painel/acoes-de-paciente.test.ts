@@ -25,6 +25,9 @@ vi.mock('next/navigation', () => ({
     throw new Error('notFound');
   },
 }));
+// Plano 26 (RE-D52): com a Equipe desligada, as actions dela respondem notFound() antes de ler a sessão; ligada aqui, para
+// a guarda conferir o requireNutri delas como o das outras (o desligado é provado em configuracoes/equipe/actions.test.ts)
+vi.mock('@/modules/plataforma/equipe-textos', async (original) => ({ ...(await original<typeof import('@/modules/plataforma/equipe-textos')>()), EQUIPE_LIGADA: true }));
 
 const APP = join(process.cwd(), 'src/app');
 /** Toda `actions.ts` sob `src/app/<raiz>`, com o caminho a partir de `src/app`. */

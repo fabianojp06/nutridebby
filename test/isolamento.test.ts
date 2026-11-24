@@ -4,7 +4,7 @@ import { inject } from 'vitest';
 import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from './db';
 import { tenants } from '@/db/schema';
-import { listTenantTables, PACIENTE_ESCREVE, PUBLICO_LIBERADO, RLS_EXCEPTIONS, STAFF_ONLY } from '@/db/rls-guard';
+import { listTenantTables, PACIENTE_ESCREVE, PUBLICO_LIBERADO, RLS_EXCEPTIONS, STAFF_ONLY, RECEPCAO_LIBERADO } from '@/db/rls-guard';
 import { withConta, withTenant, type TenantRole } from '@/db/tenant';
 
 let seqConsulta = 0;
@@ -228,6 +228,14 @@ const FABRICAS: Record<string, (tenantId: string, patientId: string) => SQL> = {
   recados: (t) =>
     sql`insert into recados (tenant_id, texto, filtro, destinatarios, autor_nome, autor_crn, criado_por)
         values (${t}, 'Iso', '{"tipo":"todos"}', 1, ${CARIMBO.nome}, ${CARIMBO.crn}, coalesce(app_current_user(), gen_random_uuid()))`,
+  // Plano 26 (spec §9.1): user_id é UNIQUE e a fábrica roda duas vezes por tenant — cria a conta de recepção do mesmo consultório
+  // no mesmo comando (CTE). `user` não tem RLS: não entra em COM_MAE (a recusa dos negativos vem da política de equipe_membros).
+  // convidada_por: o gatilho equipe_membros_regras grava a usuária da sessão `nutri`; nos outros contextos a RLS recusa
+  equipe_membros: (t) =>
+    sql`with u as (insert into "user" (name, email, app_role, tenant_id)
+                   values ('Iso', 'iso-' || gen_random_uuid()::text || '@teste.dev', 'recepcao', ${t}) returning id)
+        insert into equipe_membros (tenant_id, user_id, papel, convidada_por)
+        select ${t}, u.id, 'recepcao', coalesce(app_current_user(), gen_random_uuid()) from u`,
 };
 /** Papel do beforeAll quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão). */
 const PAPEL_DA_FABRICA: Record<string, TenantRole> = { lembretes_rotina_envios: 'worker', chat_leituras: 'paciente' };
@@ -250,7 +258,8 @@ const SO_INSERE = new Set(['audit_log', 'signed_document_receipts', 'ia_autoriza
 // ou pela cascata do lembrete (apagado depois, em ULTIMAS)
 // Plano 25: chat_conversas e chat_leituras — DELETE revogado (0133; só app_chat_apagar_do_titular apaga); chat_avisos_nutri
 // (CH-D70) — DELETE revogado (a linha do consultório)
-const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro', 'lembretes_rotina_envios', 'chat_conversas', 'chat_leituras', 'chat_avisos_nutri']);
+// Plano 26: equipe_membros — a recepção é desativada, nunca apagada (RE-D28): DELETE e TRUNCATE revogados
+const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_geracoes_modelos', 'ia_nutri_mensagens', 'fin_lancamentos', 'fin_configuracoes', 'patient_cadastro', 'lembretes_rotina_envios', 'chat_conversas', 'chat_leituras', 'chat_avisos_nutri', 'equipe_membros']);
 /**
  * R4 do pre-flight (Plano 11): em ia_uso o DELETE é negado por permissão (REVOKE) antes da RLS, para qualquer contexto —
  * inclusive o publico, que não vê linha nenhuma. Em ia_tarefas o publico não vê linha: o gatilho (por linha) nem dispara.
@@ -258,7 +267,8 @@ const SEM_DELETE = new Set(['ia_tarefas', 'ia_uso', 'exam_submissions', 'ia_gera
 // Plano 14B: ia_geracoes_modelos também tem DELETE/TRUNCATE revogados (0112).
 // Plano 20: fin_lancamentos e fin_configuracoes também (0123).
 // Plano 25: chat_conversas, chat_leituras e chat_avisos_nutri também (0133).
-const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancamentos', 'fin_configuracoes', 'chat_conversas', 'chat_leituras', 'chat_avisos_nutri']);
+// Plano 26: equipe_membros também (rls_recepcao).
+const DELETE_REVOGADO = new Set(['ia_uso', 'ia_geracoes_modelos', 'fin_lancamentos', 'fin_configuracoes', 'chat_conversas', 'chat_leituras', 'chat_avisos_nutri', 'equipe_membros']);
 /**
  * D19 (Plano 10A): os gatilhos de imutabilidade (0091, T2) — app_documento_imutavel, o das notas e app_codigo_acesso_regras
  * (colunas do código do link, R1 do pre-flight) — recusam mudar tenant_id/patient_id com 42501 ANTES do WITH CHECK da RLS
@@ -288,6 +298,8 @@ const IMUTAVEIS = new Set([
   // Plano 25: chat_conversas_regras e chat_leituras_regras (T1b) recusam mudar tenant_id/patient_id (chaves fixas) com 42501
   'chat_conversas',
   'chat_leituras',
+  // Plano 26: equipe_membros_regras recusa mudar id/tenant_id/user_id/papel/convidada_por/created_at com 42501 antes da RLS
+  'equipe_membros',
 ]);
 /**
  * Em signed_documents, só o rascunho é apagado; os EMITIDOS de B ficam (gatilho), e os recibos também (SO_INSERE). Com a
@@ -339,6 +351,8 @@ let soEquipe = new Set<string>();
 let colunasConferidas = new Set<string>();
 /** B-6 (0085): paciente_sem_leitura — a sessão de paciente não lê a tabela, nem as próprias linhas (audit_log). */
 let semLeituraDoPaciente = new Set<string>();
+/** Plano 26 (RE-D55): a conta de recepção do tenant A que age nos casos genéricos — tem linha em equipe_membros (fábrica). */
+let RECEPCAO_A: string;
 
 const naOrdemDeCriacao = (ts: string[]) => [...ts.filter((t) => t === 'patients'), ...ts.filter((t) => t !== 'patients')];
 const naOrdemDeExclusao = (ts: string[]) => [...ts.filter((t) => !ULTIMAS.includes(t)), ...ULTIMAS.filter((t) => ts.includes(t))];
@@ -381,6 +395,11 @@ beforeAll(async () => {
   // paciente ter o que cancelar e o que tentar mover
   for (const tenantId of [A, B])
     await withTenant({ tenantId, role: 'worker' }, (tx) => tx.execute(sql`update exam_submissions set status = 'recebido' where status = 'processando'`), app.db);
+  RECEPCAO_A = (await owner.pool.query<{ u: string }>(`select user_id as u from equipe_membros where tenant_id = $1 order by created_at, id limit 1`, [A])).rows[0]?.u;
+  // Plano 26 (T5a, RE-D55): a recepção dos casos genéricos tem a permissão do Financeiro — sem ela, app_recepcao_tem_financeiro()
+  // daria falso, os negativos entre consultórios de fin_* passariam pela condição (não pelo isolamento) e os positivos falhariam.
+  // A outra conta de recepção de A fica sem a permissão (caso à parte). Gravado pela nutricionista (equipe_membros_regras).
+  await withTenant({ tenantId: A, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(sql`update equipe_membros set financeiro = true where user_id = ${RECEPCAO_A}`), app.db);
   SEM_DOCUMENTO = { [A]: randomUUID(), [B]: randomUUID() };
   for (const tenantId of [A, B]) {
     await withTenant({ tenantId, role: 'nutri', actorUserId: randomUUID() }, (tx) => tx.execute(FABRICAS.patients(tenantId, SEM_DOCUMENTO[tenantId])), app.db);
@@ -443,6 +462,16 @@ const COM_MAE = new Set([
   'exam_interpretacoes',
   'exam_versoes',
 ]);
+/**
+ * Plano 26 (spec §9.1): tabelas cujo gatilho recusa (42501, mensagem própria) a escrita da sessão `recepcao` antes da RLS —
+ * equipe_membros_regras: a recepção só lê a própria linha.
+ */
+const RECUSA_DA_RECEPCAO_NO_GATILHO = new Set(['equipe_membros']);
+/** 42501 do gatilho (mensagem própria): nem a RLS nem a permissão revogada (revisão da T4). */
+const doGatilho = (e: unknown) => {
+  const c = ((e as { cause?: unknown }).cause ?? e) as { code?: string; message?: string };
+  return c.code === '42501' && !/row-level security|permission denied/.test(c.message ?? '');
+};
 /** violaRls, e a recusa veio da política da própria tabela `t` (não da mãe criada no CTE da fábrica). */
 const violaRlsDe = (t: string) => (e: unknown) => {
   if (!violaRls(e)) return false;
@@ -564,6 +593,66 @@ describe('isolamento em todas as tabelas 🔒 (RNF-07, US-006)', () => {
       expect(vistas.rows.length, t).toBe(0);
       await expect(withConta(outra, (tx) => tx.execute(FABRICAS[t](A, P1)), app.db), t).rejects.toSatisfy(violaRlsDe(t));
     }
+  });
+
+  /**
+   * Plano 26 (RN-505, RE-D55): negação por padrão da sessão `recepcao` em toda tabela com tenant_id — `recepcao_negada`
+   * (app_enable_tenant_rls e o laço da rls_recepcao); só RECEPCAO_LIBERADO abre comandos. Roda ANTES dos testes que apagam as
+   * linhas de B (revisão da T4): a leitura e a escrita entre consultórios só provam algo enquanto B tem linhas.
+   */
+  it('recepcao (RN-505): só lê e grava o que RECEPCAO_LIBERADO declara; o resto dá 0 linhas e recusa a escrita', async () => {
+    expect(RECEPCAO_A).toBeDefined();
+    const comoRecepcao = (q: SQL) => withTenant({ tenantId: A, role: 'recepcao', actorUserId: RECEPCAO_A }, (tx) => tx.execute(q), app.db);
+    for (const t of tabelas) {
+      const id = sql.identifier(t);
+      const antesA = await contarTenant(t, A);
+      const antesB = await contarTenant(t, B);
+      expect(antesA, t).toBeGreaterThan(0); // as linhas existem: é a política que esconde
+      const pode = RECEPCAO_LIBERADO[t]?.comandos ?? [];
+      if (pode.includes('select') || pode.includes('update')) expect(await contarTenant(t, B), t).toBeGreaterThan(0); // há linha de B para (não) ver
+      const vistas = (await comoRecepcao(sql`select tenant_id from ${id}`)).rows;
+      if (pode.includes('select')) {
+        expect(vistas.length, t).toBeGreaterThan(0);
+        for (const row of vistas) expect(row.tenant_id, t).toBe(A); // nem a recepção atravessa tenants
+      } else expect(vistas.length, t).toBe(0);
+      if (pode.includes('insert')) await expect(comoRecepcao(FABRICAS[t](B, PAC[B][0])), t).rejects.toSatisfy(violaRlsDe(t));
+      else await expect(comoRecepcao(FABRICAS[t](A, P2)), t).rejects.toSatisfy(RECUSA_DA_RECEPCAO_NO_GATILHO.has(t) ? doGatilho : violaRlsDe(t));
+      if (!SO_INSERE.has(t)) {
+        if (pode.includes('update')) {
+          // o UPDATE sem filtro alcança exatamente as linhas que a recepção vê (nenhuma de B), e não as leva para B
+          expect((await comoRecepcao(sql`update ${id} set tenant_id = tenant_id`)).rowCount, t).toBe(vistas.length);
+          await expect(comoRecepcao(sql`update ${id} set tenant_id = ${B}`), t).rejects.toSatisfy(IMUTAVEIS.has(t) ? negado : violaRls);
+        } else expect((await comoRecepcao(sql`update ${id} set tenant_id = tenant_id`)).rowCount, t).toBe(0);
+        if (DELETE_REVOGADO.has(t)) await expect(comoRecepcao(sql`delete from ${id}`), t).rejects.toSatisfy(negado);
+        else if (!pode.includes('delete')) expect((await comoRecepcao(sql`delete from ${id}`)).rowCount, t).toBe(0);
+      }
+      expect(await contarTenant(t, A), t).toBe(antesA); // owner confirma: nada mudou em A
+      expect(await contarTenant(t, B), t).toBe(antesB); // nem em B
+    }
+  });
+
+  it('recepcao: em equipe_membros lê só a própria linha (recepcao_cond_propria_linha) e não grava nem a própria', async () => {
+    const comoRecepcao = (q: SQL) => withTenant({ tenantId: A, role: 'recepcao', actorUserId: RECEPCAO_A }, (tx) => tx.execute(q), app.db);
+    expect(await contarTenant('equipe_membros', A)).toBeGreaterThan(1); // há a linha de outra pessoa da recepção no mesmo tenant
+    expect((await comoRecepcao(sql`select user_id from equipe_membros`)).rows).toEqual([{ user_id: RECEPCAO_A }]);
+    expect((await comoRecepcao(sql`update equipe_membros set financeiro = false where user_id = ${RECEPCAO_A}`)).rowCount).toBe(0);
+    const { rows } = await owner.pool.query(`select financeiro from equipe_membros where user_id = $1`, [RECEPCAO_A]);
+    expect(rows).toEqual([{ financeiro: true }]);
+  });
+
+  it('recepcao sem a permissão do Financeiro (T5a, RN-506): 0 linhas em fin_* do próprio consultório e a escrita recusada', async () => {
+    const sem = (await owner.pool.query<{ u: string; f: boolean }>(`select user_id as u, financeiro as f from equipe_membros where tenant_id = $1 and user_id <> $2 limit 1`, [A, RECEPCAO_A])).rows[0];
+    expect(sem).toMatchObject({ f: false });
+    const comoSem = (q: SQL) => withTenant({ tenantId: A, role: 'recepcao', actorUserId: sem.u }, (tx) => tx.execute(q), app.db);
+    for (const t of ['fin_configuracoes', 'fin_categorias', 'fin_lancamentos']) {
+      expect(await contarTenant(t, A), t).toBeGreaterThan(0);
+      expect((await comoSem(sql`select 1 from ${sql.identifier(t)}`)).rows.length, t).toBe(0);
+      expect((await comoSem(sql`update ${sql.identifier(t)} set tenant_id = tenant_id`)).rowCount, t).toBe(0);
+    }
+    await expect(comoSem(sql`insert into fin_lancamentos (tenant_id, tipo, categoria_id, valor_centavos, vencimento, criado_por)
+        select ${A}, 'saida', id, 100, '2026-11-10', gen_random_uuid() from fin_categorias where tenant_id = ${A} and tipo = 'saida' limit 1`)).resolves.toMatchObject({ rowCount: 0 }); // nem vê a categoria
+    const cat = (await owner.pool.query<{ id: string }>(`select id from fin_categorias where tenant_id = $1 and tipo = 'saida' limit 1`, [A])).rows[0].id;
+    await expect(comoSem(sql`insert into fin_lancamentos (tenant_id, tipo, categoria_id, valor_centavos, vencimento, criado_por) values (${A}, 'saida', ${cat}, 100, '2026-11-10', gen_random_uuid())`)).rejects.toSatisfy(violaRlsDe('fin_lancamentos'));
   });
 
   it('o tenant B só vê e só altera as próprias linhas; as de A ficam intactas', async () => {

@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
+import { permissaoDoFinanceiro, recepcaoComLogin } from '../../test/equipe';
 import { novoTenant } from '../../test/pacientes';
 import { pacienteComConta } from '../../test/portal';
 import { criarEEntrar, entrar } from '../../test/sessao';
@@ -21,13 +22,19 @@ vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
   const real = await importOriginal<typeof import('@/modules/plataforma/tenant-status')>();
   return { ...real, buscarTenant: vi.fn(real.buscarTenant), getTenantStatus: vi.fn(real.getTenantStatus) };
 });
+// Plano 26 (RN-504): conta as leituras de equipe_membros (uma por requisição, junto com a sessão)
+vi.mock('@/modules/plataforma/membro-da-equipe', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/plataforma/membro-da-equipe')>();
+  return { ...real, lerMembroDaEquipe: vi.fn(real.lerMembroDaEquipe) };
+});
 vi.mock('next/navigation', () => ({
   redirect: (url: string) => {
     throw new Redirect(url);
   },
 }));
 
-const { requireApiNutri, requireNutri } = await import('./tenant-session');
+const { requireApiEquipe, requireApiNutri, requireEquipe, requireNutri } = await import('./tenant-session');
+const membroDaEquipe = await import('@/modules/plataforma/membro-da-equipe');
 const tenantStatus = await import('@/modules/plataforma/tenant-status');
 const { registrarAceiteDpa } = await import('@/modules/plataforma/dpa');
 
@@ -141,5 +148,107 @@ describe('requireApiNutri (F7)', () => {
     expect(await motivo(await entrar(getAuth(), email))).toEqual(['papel', 403]);
     const admin = await criarEEntrar(db, getAuth(), { appRole: 'admin', twoFactorEnabled: true });
     expect(await motivo(admin.cookie)).toEqual(['papel', 403]);
+  });
+});
+
+describe('Plano 26: sessão da recepção (RN-501, RN-503, RN-504, RE-D47)', () => {
+  /** Consultório com o DPA aceito pela nutricionista e uma conta de recepção ativa com 2FA (cookie na requisição). */
+  async function consultorioComRecepcao(o: Parameters<typeof recepcaoComLogin>[3] = {}, comDpa = true) {
+    const { tenant, nutri } = await nutriComTenant();
+    if (comDpa) await registrarAceiteDpa(db, { userId: nutri.id, tenantId: tenant.id, ip: null });
+    const r = await recepcaoComLogin(db, getAuth(), tenant.id, o);
+    req.headers = new Headers({ cookie: r.cookie, 'x-forwarded-for': '203.0.113.30' });
+    return { tenant, nutri, recepcao: r };
+  }
+  const api = (cookie: string) =>
+    new Request('http://localhost:3000/api/painel/relatorios/csv', { headers: { cookie, 'x-forwarded-for': '203.0.113.31' } });
+
+  it('requireNutri com a recepção → Sem permissão (?motivo=nutri), nunca o aviso de outro papel; requireApiNutri → 403', async () => {
+    const { recepcao } = await consultorioComRecepcao();
+    await expect(requireNutri('/painel/pacientes/x/antropometria')).rejects.toMatchObject({ url: '/painel/sem-permissao?motivo=nutri' });
+    const r = await requireApiNutri(api(recepcao.cookie));
+    expect(r.ok ? 'ok' : [r.motivo, r.response.status]).toEqual(['papel', 403]);
+  });
+
+  it('requireEquipe com a recepção ativa: papel, permissão e o contexto `recepcao` com ator e IP', async () => {
+    const { tenant, recepcao } = await consultorioComRecepcao();
+    const r = await requireEquipe('/painel');
+    expect([r.papel, r.financeiro, r.tenant.id]).toEqual(['recepcao', false, tenant.id]);
+    expect(r.ctx).toEqual({ tenantId: tenant.id, role: 'recepcao', actorUserId: recepcao.id, ip: '203.0.113.30' });
+  });
+
+  it('requireEquipe com a nutricionista: papel nutri, Financeiro sempre; o DPA pendente continua indo a /painel/dpa', async () => {
+    const { tenant, nutri } = await nutriComTenant();
+    await expect(requireEquipe('/painel')).rejects.toMatchObject({ url: '/painel/dpa' });
+    await registrarAceiteDpa(db, { userId: nutri.id, tenantId: tenant.id, ip: null });
+    const r = await requireEquipe('/painel', { financeiro: true, secao: 'ranking' });
+    expect([r.papel, r.financeiro, r.ctx.role, r.ctx.actorUserId]).toEqual(['nutri', true, 'nutri', nutri.id]);
+  });
+
+  it('desativada → /conta/acesso-desativado (também em requireNutri); API → 403', async () => {
+    const { recepcao } = await consultorioComRecepcao({ desativada: true });
+    await expect(requireEquipe('/painel')).rejects.toMatchObject({ url: '/conta/acesso-desativado' });
+    await expect(requireNutri('/painel/pacientes')).rejects.toMatchObject({ url: '/conta/acesso-desativado' });
+    const r = await requireApiEquipe(api(recepcao.cookie));
+    expect(r.ok ? 'ok' : [r.motivo, r.response.status]).toEqual(['papel', 403]);
+  });
+
+  it('revisão da P26-07 (RN-500): com senha e 2FA, mas sem o aceite do termo → /painel não abre (acesso-desativado); API → 403', async () => {
+    const { recepcao } = await consultorioComRecepcao({ semTermo: true });
+    await expect(requireEquipe('/painel')).rejects.toMatchObject({ url: '/conta/acesso-desativado' });
+    const r = await requireApiEquipe(api(recepcao.cookie));
+    expect(r.ok ? 'ok' : [r.motivo, r.response.status]).toEqual(['papel', 403]);
+  });
+
+  it('DPA do consultório pendente → /painel/contrato-pendente (a recepção não aceita o DPA, RE-D29); com permitirDpaPendente, entra', async () => {
+    const { tenant, recepcao } = await consultorioComRecepcao({}, false);
+    await expect(requireEquipe('/painel')).rejects.toMatchObject({ url: '/painel/contrato-pendente' });
+    await expect(requireEquipe('/painel', { permitirDpaPendente: true })).resolves.toMatchObject({ papel: 'recepcao', tenant: { id: tenant.id } });
+    const r = await requireApiEquipe(api(recepcao.cookie));
+    expect(r.ok ? 'ok' : [r.motivo, r.response.status]).toEqual(['dpa_pendente', 403]);
+  });
+
+  it('sem a permissão do Financeiro: { financeiro: true } → ?motivo=financeiro; com ela, entra (vale na próxima requisição, RN-502)', async () => {
+    const { tenant, recepcao } = await consultorioComRecepcao();
+    await expect(requireEquipe('/painel/financeiro', { financeiro: true })).rejects.toMatchObject({ url: '/painel/sem-permissao?motivo=financeiro' });
+    const sem = await requireApiEquipe(api(recepcao.cookie), { financeiro: true });
+    expect(sem.ok ? 'ok' : [sem.motivo, sem.response.status]).toEqual(['sem_permissao', 403]);
+    await permissaoDoFinanceiro(db, tenant.id, recepcao.id, true);
+    await expect(requireEquipe('/painel/financeiro', { financeiro: true })).resolves.toMatchObject({ papel: 'recepcao', financeiro: true });
+    const com = await requireApiEquipe(api(recepcao.cookie), { financeiro: true });
+    expect(com.ok ? [com.papel, com.financeiro, com.ctx.role, com.ctx.ip] : com.motivo).toEqual(['recepcao', true, 'recepcao', '203.0.113.31']);
+  });
+
+  it('seção dos Relatórios (RN-480): Atendimentos e Ranking → ?motivo=nutri; Financeiro sem a permissão → ?motivo=financeiro; Agenda entra', async () => {
+    await consultorioComRecepcao();
+    await expect(requireEquipe('/painel/relatorios/ranking', { secao: 'ranking' })).rejects.toMatchObject({ url: '/painel/sem-permissao?motivo=nutri' });
+    await expect(requireEquipe('/painel/relatorios/atendimentos', { secao: 'atendimentos' })).rejects.toMatchObject({ url: '/painel/sem-permissao?motivo=nutri' });
+    await expect(requireEquipe('/painel/relatorios/financeiro', { secao: 'financeiro' })).rejects.toMatchObject({ url: '/painel/sem-permissao?motivo=financeiro' });
+    await expect(requireEquipe('/painel/relatorios/agenda', { secao: 'agenda' })).resolves.toMatchObject({ papel: 'recepcao' });
+  });
+
+  it('sem 2FA → Segurança da conta (RE-D20), antes de qualquer tela do painel', async () => {
+    await consultorioComRecepcao({ twoFactorEnabled: false });
+    await expect(requireEquipe('/painel')).rejects.toMatchObject({ url: '/conta/seguranca' });
+  });
+
+  it('a linha de equipe_membros é lida uma vez por requisição (com a sessão), e nunca para a nutricionista', async () => {
+    await consultorioComRecepcao();
+    vi.mocked(membroDaEquipe.lerMembroDaEquipe).mockClear();
+    await requireEquipe('/painel', { financeiro: false, secao: 'agenda' });
+    expect(membroDaEquipe.lerMembroDaEquipe).toHaveBeenCalledTimes(1);
+    const { tenant, nutri } = await nutriComTenant();
+    await registrarAceiteDpa(db, { userId: nutri.id, tenantId: tenant.id, ip: null });
+    vi.mocked(membroDaEquipe.lerMembroDaEquipe).mockClear();
+    await requireEquipe('/painel');
+    expect(membroDaEquipe.lerMembroDaEquipe).not.toHaveBeenCalled();
+  });
+
+  it('requireApiEquipe: sem sessão → 401; paciente e admin → 403', async () => {
+    const r = await requireApiEquipe(new Request('http://localhost:3000/api/painel/relatorios/csv'));
+    expect(r.ok ? 'ok' : [r.motivo, r.response.status]).toEqual(['sem_sessao', 401]);
+    const { email } = await pacienteComConta(db, await novoTenant(db));
+    const p = await requireApiEquipe(api(await entrar(getAuth(), email)));
+    expect(p.ok ? 'ok' : [p.motivo, p.response.status]).toEqual(['papel', 403]);
   });
 });

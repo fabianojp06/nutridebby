@@ -61,7 +61,7 @@ describe('criarContaNutri (US-001)', () => {
     expect(links[0]).toMatch(/^http:\/\/localhost:3000\/convite\/[A-Za-z0-9_-]{43}$/);
     expect(c.tokenHash).toBe(sha256(tokenDe(links[0])));
     expect(await inspecionarConvite(app.db, tokenDe(links[0]), now)).toMatchObject({ estado: 'valido', email: `debby-${x}@exemplo.com`, nome: 'Debby Silva' });
-    expect(await inspecionarConvite(app.db, tokenDe(links[0]), new Date('2026-10-04T12:00:01Z'))).toEqual({ estado: 'expirado' });
+    expect(await inspecionarConvite(app.db, tokenDe(links[0]), new Date('2026-10-04T12:00:01Z'))).toEqual({ estado: 'expirado', tipo: 'nutri' });
     expect(await inspecionarConvite(app.db, 'A'.repeat(43), now)).toEqual({ estado: 'invalido' });
     expect(await inspecionarConvite(app.db, '../etc', now)).toEqual({ estado: 'invalido' });
   });

@@ -536,3 +536,87 @@ it('agendamento público não cria cadastro (US-260): a página pública não es
   const fonte = readFileSync('src/modules/agenda/agendamento-publico.ts', 'utf8');
   expect(fonte).not.toMatch(/patientCadastro|patient_cadastro|gravarCadastro|\/cadastro'/);
 });
+
+/**
+ * Portão do PR 2 do Plano 26 (RE-D71, regras 2 e 3 do CLAUDE.md): na sessão da recepção, a condição do paciente visível
+ * esconde o cadastro do paciente bloqueado; a conferência pela RLS não o acharia e o INSERT cairia no índice
+ * `patient_cadastro_cpf_unico` (o 23505 leva o CPF ao log do Postgres). `conferirCpf` pergunta então a `app_cpf_em_uso`
+ * (SECURITY DEFINER, só sim/não), sob a mesma trava consultiva. O espião de SQLSTATE (errosDoBanco) prova que nenhum 23505
+ * chegou ao banco, e a transação continua viva depois da recusa (um 23505 a deixaria abortada).
+ */
+describe('CPF repetido na sessão da recepção (RE-D71)', () => {
+  const contaDeRecepcao = async (T: TenantDeTeste) => {
+    const id = randomUUID();
+    await app.db.insert(schema.user).values({ id, name: 'Rec', email: `rec-${id.slice(0, 8)}@teste.dev`, appRole: 'recepcao', tenantId: T.tenantId });
+    return { tenantId: T.tenantId, role: 'recepcao' as const, actorUserId: id, ip: '203.0.113.36' };
+  };
+  /** gravarCadastro na sessão da recepção; depois da recusa, a mesma transação ainda responde (não houve erro do banco). */
+  const gravarComoRecepcao = (ctx: Awaited<ReturnType<typeof contaDeRecepcao>>, patientId: string, cpf: string) =>
+    withTenant(
+      ctx,
+      async (tx) => {
+        try {
+          await gravarCadastro(tx, { tenantId: ctx.tenantId, patientId, valor: { cpf }, now });
+          return { erro: null, viva: true };
+        } catch (e) {
+          const viva = await tx.execute(sql`select 1 as ok`).then(
+            () => true,
+            () => false,
+          );
+          return { erro: e, viva };
+        }
+      },
+      app.db,
+    );
+
+  it('o CPF do paciente BLOQUEADO (escondido da recepção) é recusado com a mensagem do módulo, sem o outro e sem 23505', async () => {
+    const T = await novoTenant(app.db);
+    const rec = await contaDeRecepcao(T);
+    await novoComCpf(T, { status: 'bloqueado', bloqueadoEm: now, anonimizarApos: '2046-01-01' });
+    // controle: pela RLS da recepção, o cadastro do bloqueado não existe
+    expect(await withTenant(rec, (tx) => tx.select({ id: patientCadastro.id }).from(patientCadastro).where(eq(patientCadastro.cpf, CPF_DIGITOS)), app.db)).toEqual([]);
+    const novo = await novoPaciente(app.db, T.ctx);
+    errosDoBanco.length = 0;
+    const r = await gravarComoRecepcao(rec, novo.id, CPF);
+    expect(r.erro).toBeInstanceOf(CpfRepetidoError);
+    expect((r.erro as CpfRepetidoError).erros).toEqual({ cpf: MSG_CADASTRO.cpfRepetido });
+    expect((r.erro as CpfRepetidoError).outroId).toBeNull();
+    expect(r.viva).toBe(true); // a recusa veio antes do INSERT: a transação não foi abortada por erro do banco
+    expect(errosDoBanco).toEqual([]); // nenhum 23505 (nem outro erro) chegou ao banco
+    expect(await cadastroDe(T, novo.id)).toEqual([]);
+  });
+
+  it('o CPF de paciente visível também é recusado (com o link para o outro), sem 23505; o próprio CPF e o de outro consultório passam', async () => {
+    const T = await novoTenant(app.db);
+    const rec = await contaDeRecepcao(T);
+    const ana1 = await novoComCpf(T);
+    const novo = await novoPaciente(app.db, T.ctx);
+    errosDoBanco.length = 0;
+    const r = await gravarComoRecepcao(rec, novo.id, CPF);
+    expect(r.erro).toBeInstanceOf(CpfRepetidoError);
+    // TODO(T9): decidir o outroId na sessão da recepção (o link "Abrir o cadastro existente" dela vai a /painel/cadastro/[id])
+    expect((r.erro as CpfRepetidoError).outroId).toBe(ana1.id);
+    expect(r.viva).toBe(true);
+    // o próprio CPF de novo não é repetição; outro consultório com o mesmo CPF passa
+    expect((await gravarComoRecepcao(rec, ana1.id, CPF)).erro).toBeNull();
+    const U = await novoTenant(app.db);
+    const recU = await contaDeRecepcao(U);
+    const deU = await novoPaciente(app.db, U.ctx);
+    expect((await gravarComoRecepcao(recU, deU.id, CPF)).erro).toBeNull();
+    expect(await cadastroDe(U, deU.id)).toMatchObject([{ cpf: CPF_DIGITOS }]);
+    expect(errosDoBanco.filter((c) => c === '23505')).toEqual([]);
+    expect(errosDoBanco).toEqual([]);
+  });
+
+  it('controle do espião: sem a conferência pela função, o mesmo INSERT da recepção cai no 23505 do índice', async () => {
+    const T = await novoTenant(app.db);
+    const rec = await contaDeRecepcao(T);
+    await novoComCpf(T, { status: 'bloqueado', bloqueadoEm: now, anonimizarApos: '2046-01-01' });
+    const novo = await novoPaciente(app.db, T.ctx);
+    errosDoBanco.length = 0;
+    await expect(
+      withTenant(rec, (tx) => tx.insert(patientCadastro).values({ tenantId: T.tenantId, patientId: novo.id, cpf: CPF_DIGITOS }), app.db),
+    ).rejects.toThrow();
+    expect(errosDoBanco).toContain('23505');
+  });
+});

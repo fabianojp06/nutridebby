@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import type { JSX } from 'react';
 import { classeDoBotao } from '@/components/ui/botao';
 import type { TenantContext } from '@/db/tenant';
@@ -11,7 +11,7 @@ import { opcoesDeMes } from '@/modules/relatorios/periodo';
 import { AbasDosRelatorios, CriterioDoRanking } from './abas';
 import { FiltrosDoPeriodo } from './filtros';
 import { ConteudoDaSecao, semDados } from './secoes';
-import { ACESSO_DA_NUTRI, filtroDaUrl, paraBusca, urlDaImpressao, urlDoCsv, type ParametrosDaUrl } from './url';
+import { ACESSO_DA_NUTRI, filtroDaUrl, paraBusca, semPermissaoDaSecao, urlDaImpressao, urlDoCsv, type ParametrosDaUrl } from './url';
 
 const M = MSG_RELATORIOS;
 export const ID_TITULO = 'titulo-relatorios';
@@ -28,8 +28,8 @@ export type TenantDaTela = { fuso: string; createdAt?: Date | null };
  */
 export async function telaDosRelatorios(secao: Secao, s: { ctx: TenantContext; tenant: TenantDaTela }, parametros: ParametrosDaUrl): Promise<JSX.Element> {
   const acesso = ACESSO_DA_NUTRI;
-  // RN-480: a T6 troca por "Sem permissão"; no PR 1 a nutricionista vê todas as seções
-  if (!podeVerSecao(acesso, secao)) notFound();
+  // RN-480 (RE-D47): a seção que o acesso não vê leva a "Sem permissão"; no PR 2 a nutricionista vê todas as seções
+  if (!podeVerSecao(acesso, secao)) redirect(semPermissaoDaSecao(secao));
   const agora = new Date();
   const filtro = filtroDaUrl(paraBusca(parametros), agora, s.tenant.fuso);
   const { periodo, por } = filtro;

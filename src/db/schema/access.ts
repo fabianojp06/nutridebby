@@ -8,6 +8,7 @@ import { tenants } from './platform';
  * Convites de primeiro acesso. Só o SHA-256 do token é guardado.
  * - `nutri` (US-001, 72 h): aponta para o usuário já criado sem senha.
  * - `paciente` (US-010, 7 dias): aponta para o prontuário (tenant + paciente); a conta só nasce no aceite.
+ * - `recepcao` (Plano 26, RN-499, 72 h): aponta para a conta da recepção já criada e para o consultório.
  */
 export const invites = pgTable(
   'invites',
@@ -23,10 +24,12 @@ export const invites = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    check('invites_tipo_valido', sql`${t.tipo} in ('nutri', 'paciente')`),
+    check('invites_tipo_valido', sql`${t.tipo} in ('nutri', 'paciente', 'recepcao')`),
+    // Plano 26 (RN-499): o convite da recepção aponta para a conta já criada e para o consultório
     check(
       'invites_alvo',
       sql`(${t.tipo} = 'nutri' and ${t.userId} is not null and ${t.patientId} is null)
+       or (${t.tipo} = 'recepcao' and ${t.userId} is not null and ${t.patientId} is null and ${t.tenantId} is not null)
        or (${t.tipo} = 'paciente' and ${t.userId} is null and ${t.tenantId} is not null and ${t.patientId} is not null)`,
     ),
     foreignKey({ columns: [t.tenantId, t.patientId], foreignColumns: [patients.tenantId, patients.id], name: 'invites_paciente_fk' }).onDelete('cascade'),

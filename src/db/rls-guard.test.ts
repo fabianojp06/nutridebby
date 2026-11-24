@@ -17,6 +17,11 @@ import {
   PUBLICO_LIBERADO,
   RLS_EXCEPTIONS,
   STAFF_ONLY,
+  findRecepcaoViolations,
+  RECEPCAO_CONDICOES,
+  RECEPCAO_LIBERADO,
+  findPapelEmFuncoesViolations,
+  FUNCOES_COM_PAPEL,
 } from './rls-guard';
 
 // SUS-100: os testes de "a guarda funciona" fazem DDL (drop/create policy, drop trigger) em tabela real; num banco
@@ -299,5 +304,199 @@ describe('teste de restauração (regra 10): a lista do script acompanha RLS_EXC
     const doScript = m![1].split(',').map((t) => t.trim().replace(/^'|'$/g, ''));
     // mudou a lista → o dono reinstala o script no host (regra 10 do CLAUDE.md, P02-11)
     expect(doScript.sort()).toEqual(Object.keys(RLS_EXCEPTIONS).sort());
+  });
+});
+
+describe('recepção (RN-505, Plano 26)', () => {
+  it('toda tabela com tenant_id nega a recepção ou bate com RECEPCAO_LIBERADO e RECEPCAO_CONDICOES; as listas não citam tabela inexistente', async () => {
+    expect(await findRecepcaoViolations(owner.pool)).toEqual([]);
+    expect(await findStaleExceptions(owner.pool, { RECEPCAO_LIBERADO, RECEPCAO_CONDICOES })).toEqual([]);
+  });
+  it('tabela nova nasce negada; perder a negada, liberar sem declarar, condição PERMISSIVE ou nome fora dos padrões quebram (a guarda funciona)', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('create table tmp_recepcao (id int primary key, tenant_id uuid not null)');
+      await client.query(`select app_enable_tenant_rls('tmp_recepcao')`);
+      await client.query('create table tmp_recepcao_sem (id int primary key, tenant_id uuid not null)');
+      await client.query(`select app_enable_tenant_rls('tmp_recepcao_sem')`);
+      await client.query('create table tmp_recepcao_liberada (id int primary key, tenant_id uuid not null)');
+      await client.query(`select app_enable_tenant_rls('tmp_recepcao_liberada')`);
+      await client.query(`select app_allow_recepcao('tmp_recepcao_liberada', 'select')`);
+      let v = await findRecepcaoViolations(client);
+      expect(v.map((x) => x.table)).not.toContain('tmp_recepcao');
+      expect(v).toContainEqual({ table: 'tmp_recepcao_liberada', problem: 'liberada à recepção sem entrada em RECEPCAO_LIBERADO' });
+      await client.query('drop policy recepcao_negada on tmp_recepcao_sem');
+      // uma condição PERMISSIVE somaria (OR) com tenant_isolation e abriria os outros consultórios
+      await client.query(`create policy recepcao_cond_x on anthropometry as permissive for select using (true)`);
+      // fora dos três padrões (recepcao_negada, recepcao_sem_<cmd>, recepcao_cond_<assunto>)
+      await client.query(
+        `create policy recepcao_sem_bloqueados on patients as restrictive for all using (app_current_role() is distinct from 'recepcao' or status <> 'bloqueado')`,
+      );
+      v = await findRecepcaoViolations(client);
+      expect(v).toContainEqual({ table: 'tmp_recepcao_sem', problem: 'sem política recepcao_negada (app_enable_tenant_rls/app_deny_recepcao)' });
+      expect(v).toContainEqual({ table: 'anthropometry', problem: 'condição recepcao_cond_x PERMISSIVE (toda condição da recepção é RESTRICTIVE)' });
+      expect(v).toContainEqual({ table: 'anthropometry', problem: 'condição recepcao_cond_x sem entrada em RECEPCAO_CONDICOES' });
+      expect(v).toContainEqual({ table: 'patients', problem: 'política recepcao_sem_bloqueados fora dos padrões (recepcao_negada, recepcao_sem_<cmd>, recepcao_cond_<assunto>)' });
+      await expect(client.query(`select app_allow_recepcao('tmp_recepcao', 'truncate')`)).rejects.toThrow(/comando inválido/);
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+  it('B-5 da recepção: nome certo com o comando errado, ou sem a negação na expressão, também quebra; a condição declarada exige os trechos', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('drop policy recepcao_negada on exams');
+      await client.query('create policy recepcao_negada on exams as restrictive for all using (true) with check (true)');
+      await client.query('drop policy recepcao_sem_update on equipe_membros');
+      await client.query(`create policy recepcao_sem_update on equipe_membros as restrictive for select using (app_current_role() is distinct from 'recepcao')`);
+      await client.query('drop policy recepcao_cond_propria_linha on equipe_membros');
+      await client.query(
+        `create policy recepcao_cond_propria_linha on equipe_membros as restrictive for select using (app_current_role() is distinct from 'recepcao' or true)`,
+      );
+      const v = await findRecepcaoViolations(client);
+      expect(v).toContainEqual({ table: 'exams', problem: 'sem política recepcao_negada (app_enable_tenant_rls/app_deny_recepcao)' });
+      expect(v.filter((x) => x.table === 'equipe_membros').map((x) => x.problem).sort()).toEqual([
+        'condição recepcao_cond_propria_linha sem o comando ou a expressão de RECEPCAO_CONDICOES',
+        'políticas da recepção diferentes de RECEPCAO_LIBERADO (esperado recepcao_sem_delete, recepcao_sem_insert, recepcao_sem_update)',
+      ]);
+      // revisão da T4: com o trecho exigido, mas invertido (OR NOT) ou anulado (OR true), também quebra — a expressão é comparada inteira
+      const semExpressaoCerta = { table: 'equipe_membros', problem: 'condição recepcao_cond_propria_linha sem o comando ou a expressão de RECEPCAO_CONDICOES' };
+      for (const using of [
+        `app_current_role() is distinct from 'recepcao' or not (user_id = app_current_user())`,
+        `app_current_role() is distinct from 'recepcao' or user_id = app_current_user() or true`,
+        `(app_current_role() is distinct from 'recepcao' or user_id = app_current_user()) or true`,
+      ]) {
+        await client.query('drop policy recepcao_cond_propria_linha on equipe_membros');
+        await client.query(`create policy recepcao_cond_propria_linha on equipe_membros as restrictive for select using (${using})`);
+        expect(await findRecepcaoViolations(client), using).toContainEqual(semExpressaoCerta);
+      }
+      // controle: a expressão certa (escrita de outro jeito) volta a passar
+      await client.query('drop policy recepcao_cond_propria_linha on equipe_membros');
+      await client.query(
+        `create policy recepcao_cond_propria_linha on equipe_membros as restrictive for select using (app_current_role() is distinct from 'recepcao' or user_id = app_current_user())`,
+      );
+      expect((await findRecepcaoViolations(client)).filter((x) => x.problem.startsWith('condição recepcao_cond_propria_linha'))).toEqual([]);
+      // o comando também conta: FOR ALL no lugar de FOR SELECT quebra
+      await client.query('drop policy recepcao_cond_propria_linha on equipe_membros');
+      await client.query(
+        `create policy recepcao_cond_propria_linha on equipe_membros as restrictive for all using (app_current_role() is distinct from 'recepcao' or user_id = app_current_user())`,
+      );
+      expect(await findRecepcaoViolations(client)).toContainEqual(semExpressaoCerta);
+      await client.query('drop policy recepcao_cond_propria_linha on equipe_membros');
+      expect(await findRecepcaoViolations(client)).toContainEqual({ table: 'equipe_membros', problem: 'sem a condição recepcao_cond_propria_linha (RECEPCAO_CONDICOES)' });
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+
+  it('T5a: a matriz da §4.3 está no banco e em RECEPCAO_LIBERADO; condição sem o SELECT em volta da função, ou sem o paciente visível, quebra', async () => {
+    // a matriz fechada (spec §4.3; locais_atendimento, do Plano 23, entrou na T5b)
+    expect(Object.fromEntries(Object.entries(RECEPCAO_LIBERADO).map(([t, v]) => [t, [...v.comandos].sort()]))).toEqual({
+      patients: ['insert', 'select', 'update'],
+      patient_cadastro: ['insert', 'select', 'update'],
+      appointments: ['insert', 'select', 'update'],
+      notifications: ['insert', 'select', 'update'],
+      availability_rules: ['select'],
+      availability_blocks: ['select'],
+      audit_log: ['insert'],
+      equipe_membros: ['select'],
+      fin_configuracoes: ['select'],
+      fin_categorias: ['select'],
+      fin_lancamentos: ['insert', 'select', 'update'],
+      locais_atendimento: ['select'], // T5b: Plano 23 (filtro e seletor de local; a sala não sai do módulo)
+    });
+    expect(RECEPCAO_LIBERADO.public_booking_requests).toBeUndefined(); // RE-D59: pedido de pessoa nova fica com a nutricionista
+    // toda tabela com paciente liberada tem a condição do paciente visível (RE-D40)
+    for (const t of ['patients', 'patient_cadastro', 'appointments', 'notifications', 'fin_lancamentos']) {
+      expect(RECEPCAO_CONDICOES[t]?.recepcao_cond_paciente_visivel, t).toBeDefined();
+    }
+    for (const t of ['fin_configuracoes', 'fin_categorias', 'fin_lancamentos']) expect(RECEPCAO_CONDICOES[t]?.recepcao_cond_financeiro, t).toBeDefined();
+    expect(RECEPCAO_CONDICOES.notifications?.recepcao_cond_notificacoes_da_agenda).toBeDefined();
+
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      // a função sem o (SELECT …) seria avaliada por linha: a expressão muda e a guarda quebra
+      await client.query('drop policy recepcao_cond_financeiro on fin_lancamentos');
+      await client.query(
+        `create policy recepcao_cond_financeiro on fin_lancamentos as restrictive for all
+           using (app_current_role() is distinct from 'recepcao' or app_recepcao_tem_financeiro())
+           with check (app_current_role() is distinct from 'recepcao' or app_recepcao_tem_financeiro())`,
+      );
+      // o EXISTS sem o filtro do bloqueado mostraria as consultas do paciente escondido
+      await client.query('drop policy recepcao_cond_paciente_visivel on appointments');
+      await client.query(
+        `create policy recepcao_cond_paciente_visivel on appointments as restrictive for all
+           using (app_current_role() is distinct from 'recepcao' or exists (select 1 from patients p where p.tenant_id = appointments.tenant_id and p.id = appointments.patient_id))
+           with check (app_current_role() is distinct from 'recepcao' or exists (select 1 from patients p where p.tenant_id = appointments.tenant_id and p.id = appointments.patient_id))`,
+      );
+      // sem a condição da agenda, a recepção leria as notificações clínicas
+      await client.query('drop policy recepcao_cond_notificacoes_da_agenda on notifications');
+      const v = await findRecepcaoViolations(client);
+      expect(v).toContainEqual({ table: 'fin_lancamentos', problem: 'condição recepcao_cond_financeiro sem o comando ou a expressão de RECEPCAO_CONDICOES' });
+      expect(v).toContainEqual({ table: 'appointments', problem: 'condição recepcao_cond_paciente_visivel sem o comando ou a expressão de RECEPCAO_CONDICOES' });
+      expect(v).toContainEqual({ table: 'notifications', problem: 'sem a condição recepcao_cond_notificacoes_da_agenda (RECEPCAO_CONDICOES)' });
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+});
+
+describe('funções que olham o papel (RN-511, Plano 26)', () => {
+  it('toda função que cita o papel, e todo gatilho de tabela liberada à recepção que lê patients, tem decisão em FUNCOES_COM_PAPEL; a lista não cita função inexistente', async () => {
+    expect(await findPapelEmFuncoesViolations(owner.pool)).toEqual([]);
+    // as decisões já tomadas na spec (§4.4) e as peças da T5b
+    expect(FUNCOES_COM_PAPEL.app_fin_lancamentos_regras?.decisao).toBe('como nutri');
+    expect(FUNCOES_COM_PAPEL.app_appointments_regras_pedido?.decisao).toBe('como nutri');
+    expect(FUNCOES_COM_PAPEL.app_paciente_colunas_patients?.decisao).toBe('não se aplica');
+    expect(FUNCOES_COM_PAPEL.app_patient_cadastro_titular_ativo?.decisao).toBe('sem mudança');
+    for (const f of ['app_patients_da_recepcao', 'app_patient_cadastro_da_recepcao', 'app_appointments_da_recepcao', 'app_tenants_so_nutri']) {
+      expect(FUNCOES_COM_PAPEL[f]?.decisao, f).toBe('só recepcao');
+    }
+    for (const f of ['app_retorno_das_consultas', 'app_previsoes_de_retorno', 'app_consulta_tem_atendimento', 'app_cpf_em_uso']) {
+      expect(FUNCOES_COM_PAPEL[f]?.decisao, f).toBe('como nutri');
+    }
+  });
+
+  it('função nova que cita o papel, ou gatilho novo de tabela liberada que lê patients, sem decisão quebra; nome esquecido na lista também (a guarda funciona)', async () => {
+    const client = await owner.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query(`create function tmp_olha_papel() returns boolean language sql as $$ select current_setting('app.role', true) = 'x' $$`);
+      await client.query(`create function tmp_olha_nutri() returns boolean language plpgsql as $$ begin return app_current_role() is not null; end $$`);
+      // não cita o papel, mas é gatilho de appointments (liberada) e lê patients: pela RLS de quem age, viria vazio para a recepção
+      await client.query(`create function tmp_le_paciente() returns trigger language plpgsql as $$
+        begin perform 1 from public.patients p where p.id = new.patient_id; return new; end $$`);
+      await client.query('create trigger tmp_le_paciente before insert on appointments for each row execute function tmp_le_paciente()');
+      // controle: lê patients, mas é gatilho de tabela negada à recepção — fica fora
+      await client.query(`create function tmp_le_paciente_negada() returns trigger language plpgsql as $$
+        begin perform 1 from public.patients p where p.id = new.patient_id; return new; end $$`);
+      await client.query('create trigger tmp_le_paciente_negada before insert on anthropometry for each row execute function tmp_le_paciente_negada()');
+      // revisão da T5b (classe da RE-D62): gatilho de tabela liberada que lê uma tabela negada à recepção (consultations), sem
+      // citar o papel nem patients — pela RLS dela a leitura volta vazia e a guarda passaria calada
+      await client.query(`create function tmp_le_negada() returns trigger language plpgsql as $$
+        begin perform 1 from public.consultations c where c.appointment_id = new.id; return new; end $$`);
+      await client.query('create trigger tmp_le_negada before update on appointments for each row execute function tmp_le_negada()');
+      // corpo BEGIN ATOMIC: prosrc vazio, o texto está em prosqlbody
+      await client.query(`create function tmp_atomica() returns text language sql begin atomic select app_current_role(); end`);
+      const v = await findPapelEmFuncoesViolations(client, { ...FUNCOES_COM_PAPEL, tmp_nao_existe: { decisao: 'recusa', motivo: 'rascunho' } });
+      expect(v).toContainEqual({ table: 'tmp_olha_papel', problem: 'função que olha o papel sem decisão em FUNCOES_COM_PAPEL' });
+      expect(v).toContainEqual({ table: 'tmp_olha_nutri', problem: 'função que olha o papel sem decisão em FUNCOES_COM_PAPEL' });
+      const semDecisao = 'gatilho de tabela liberada à recepção que lê patients ou tabela negada a ela sem decisão em FUNCOES_COM_PAPEL';
+      expect(v).toContainEqual({ table: 'tmp_le_paciente', problem: semDecisao });
+      expect(v).toContainEqual({ table: 'tmp_le_negada', problem: semDecisao });
+      expect(v).toContainEqual({ table: 'tmp_atomica', problem: 'função que olha o papel sem decisão em FUNCOES_COM_PAPEL' });
+      expect(v).toContainEqual({ table: 'tmp_nao_existe', problem: 'FUNCOES_COM_PAPEL cita função inexistente' });
+      expect(v.map((x) => x.table)).not.toContain('tmp_le_paciente_negada');
+      expect(v).toHaveLength(6);
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
   });
 });

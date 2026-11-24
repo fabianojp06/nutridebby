@@ -241,6 +241,8 @@ describe('aviso_2fa_reiniciado (P09-02 b)', () => {
     expect(r.text).toContain('Conta > Segurança');
     expect(r.text).toContain('Se você não pediu isso');
     expect(r.html).not.toContain('href=');
+    // Plano 26 (RE-D20): a recepção também tem o 2FA obrigatório
+    expect(r.text).toContain('(para a administração e para a recepção, a ativação é obrigatória)');
   });
 });
 
@@ -318,5 +320,20 @@ describe('Plano 14A — e-mails da autorização de IA', () => {
     expect(r.text).not.toContain('Destino dos dados'); // destino de teste: nada sai para fornecedor
     const so = renderEmail({ tipo: 'autorizacao_ia_confirmada', para: 'p@x.dev', consultorio: 'Consultório Debby', destino: 'Provedor de teste', versao: '1.0', usos: ['leitura_laudos'], link: 'https://app.test/autorizacao-ia/xyz' });
     expect(so.text).toContain('só para ler os laudos dos seus exames e sugerir os valores para o seu prontuário.');
+  });
+});
+
+describe('convite_recepcao (Plano 26, RN-499, §6.2)', () => {
+  it('assunto e corpo da spec, o botão "Criar minha senha" com o link e o aviso de ignorar; escapa o nome', () => {
+    const link = 'https://app.exemplo.com/convite/tok123';
+    const r = renderEmail({ tipo: 'convite_recepcao', para: 'carla@ex.com', nome: 'Carla Lima', nutricionista: 'Debby Silva', consultorio: 'Consultório Debby', link });
+    expect(r.subject).toBe('Convite para a equipe de Consultório Debby no NutriDebby');
+    expect(r.text).toContain('Olá, Carla Lima. Debby Silva convidou você para a equipe de recepção de Consultório Debby no NutriDebby. Crie sua senha pelo link abaixo em até 72 horas.');
+    expect(r.text).toContain(`Criar minha senha: ${link}`);
+    expect(r.text).toContain('Se você não esperava este convite, ignore este e-mail.');
+    expect(r.html).toContain(`href="${link}"`);
+    expect(r.html).toContain('Criar minha senha');
+    const x = renderEmail({ tipo: 'convite_recepcao', para: 'x@y.dev', nome: 'Ana <script>', nutricionista: 'D', consultorio: 'C', link });
+    expect(x.html).not.toContain('<script>');
   });
 });

@@ -1,5 +1,6 @@
 import { getDb } from '@/db/client';
 import type { TenantRow } from '@/db/schema';
+import { lerMembroDaEquipe, type MembroDaEquipe } from '@/modules/plataforma/membro-da-equipe';
 import { buscarTenant, statusDe } from '@/modules/plataforma/tenant-status';
 import { getAuth, slideSession } from './auth';
 import { ehConsultaAutomatica } from './consulta-automatica';
@@ -10,13 +11,16 @@ import { evaluateSession, MSG_SESSAO_EXPIRADA, type AppRole } from './session-ru
 
 /**
  * Por que a sessão foi recusada, sem ler a resposta: `sem_sessao` é o 401 (sem sessão ou expirada); `papel`, qualquer 403
- * (papel errado, conta suspensa, 2FA do admin). `requireApiNutri` repassa (o download do CSV responde com redirect).
+ * (papel errado, conta suspensa, 2FA do admin ou da recepção, recepção desativada). `requireApiNutri` repassa (o download do CSV responde com redirect).
  */
 export type MotivoDaSessaoRecusada = 'sem_sessao' | 'papel';
 
-/** `tenant`: a linha já lida para o RN-15 (null para admin). */
+/**
+ * `tenant`: a linha já lida para o RN-15 (null para admin). `membro` (Plano 26, RN-504): a linha da recepção em
+ * `equipe_membros`, lida junto (null para os outros papéis).
+ */
 export type ApiAuth =
-  | { ok: true; data: SessionData; tenant: TenantRow | null }
+  | { ok: true; data: SessionData; tenant: TenantRow | null; membro: MembroDaEquipe | null }
   | { ok: false; response: Response; motivo: MotivoDaSessaoRecusada };
 
 /** `extra`: campos além do `erro` (ex.: `motivo: 'escolher'` do portal, S-4) — nunca dado pessoal. */
@@ -50,6 +54,8 @@ async function autenticarApi(req: Request, allowed: readonly AppRole[], deslizar
   const prazos = prazosDaRequisicao(req.headers);
   const tenantId = (data?.user as { tenantId?: string | null } | undefined)?.tenantId;
   const tenant = tenantId ? await buscarTenant(getDb(), tenantId) : null;
+  // Plano 26 (RN-503): a recepção desativada (ou sem a linha) é recusada; uma leitura, só para a conta `recepcao`
+  const membro = data && data.user.appRole === 'recepcao' && tenantId ? await lerMembroDaEquipe(getDb(), tenantId, data.user.id) : null;
   const decision = evaluateSession({
     session: data?.session ?? null,
     user: data?.user ?? null,
@@ -58,10 +64,11 @@ async function autenticarApi(req: Request, allowed: readonly AppRole[], deslizar
     path: new URL(req.url).pathname,
     tenantStatus: statusDe(tenant),
     prazos,
+    equipe: membro,
   });
   switch (decision) {
     case 'ok':
-      if (!deslizar) return { ok: true, data: data!, tenant };
+      if (!deslizar) return { ok: true, data: data!, tenant, membro };
       // T7-R2b: atividade de API também conta para a janela da equipe (uploads, Tarefas 8/10; 30 min desde o P12-14)
       try {
         const gravada = await slideSession(getDb(), data!.session, data!.user.appRole as AppRole, now, prazos);
@@ -70,7 +77,7 @@ async function autenticarApi(req: Request, allowed: readonly AppRole[], deslizar
         // só o nome do erro (RNF-11), como em session.ts: a mensagem do erro de banco traz o SQL e os parâmetros
         logger.warn({ erro: nomeDoErro(err), userId: data!.user.id }, 'falha ao renovar a sessão');
       }
-      return { ok: true, data: data!, tenant };
+      return { ok: true, data: data!, tenant, membro };
     case 'login':
     case 'expired':
       return { ...recusaApi(401, MSG_SESSAO_EXPIRADA), motivo: 'sem_sessao' };
@@ -78,6 +85,7 @@ async function autenticarApi(req: Request, allowed: readonly AppRole[], deslizar
       return { ...recusaApi(403, 'Conta temporariamente indisponível'), motivo: 'papel' };
     case 'setup-2fa':
     case 'forbidden':
+    case 'desativada':
       return { ...recusaApi(403, 'Acesso negado'), motivo: 'papel' };
     default: {
       const nunca: never = decision;

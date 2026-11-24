@@ -41,10 +41,14 @@ export const user = pgTable(
       .$type<Record<string, { v: number; estado: "concluido" | "dispensado" | "visto" }>>()
       .default(sql`'{}'::jsonb`)
       .notNull(),
+    /** RN-516 / RE-D43 (Plano 26): último login da conta `recepcao` (tela Equipe); gravado no login por src/lib/auth.ts. */
+    ultimoAcessoEm: timestamp("ultimo_acesso_em", { withTimezone: true }),
   },
   (t) => [
-    check("user_app_role_valido", sql`${t.appRole} in ('admin','nutri','paciente')`),
+    // Plano 26 (RN-498): `recepcao` — a pessoa da recepção de um consultório (linha em equipe_membros)
+    check("user_app_role_valido", sql`${t.appRole} in ('admin','nutri','paciente','recepcao')`),
     check("user_tema_valido", sql`${t.tema} in ('sistema','claro','escuro')`),
+    check("user_recepcao_com_tenant", sql`${t.appRole} <> 'recepcao' or ${t.tenantId} is not null`),
   ],
 );
 

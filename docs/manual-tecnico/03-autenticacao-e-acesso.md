@@ -13,9 +13,9 @@ Fonte de verdade: o código. Cada afirmação cita o arquivo e a linha ou a fun�
 | Better Auth 1.7.6 | `package.json` (`"better-auth": "1.7.6"`), `src/lib/auth.ts` (`createAuth`) | Login por e-mail e senha, 2FA TOTP, sessões no Postgres, limite de tentativas, redefinição de senha |
 | Rota HTTP do Better Auth | `src/app/api/auth/[...all]/route.ts` | Expõe `GET`/`POST` de `/api/auth/*` via `toNextJsHandler(getAuth())` |
 | Proxy (Next 16) | `src/proxy.ts` | Filtro barato: sem cookie de sessão em área protegida → `/entrar` |
-| Regras puras de sessão | `src/lib/session-rules.ts` (`evaluateSession`) | Decide `ok`/`login`/`expired`/`setup-2fa`/`forbidden`/`suspended` |
-| Guardas de página e Server Action | `src/lib/session.ts` (`requireUser`), `src/lib/tenant-session.ts` (`requireNutri`), `src/lib/paciente-session.ts` (`requirePaciente`) | Redirecionam |
-| Guardas de Route Handler | `src/lib/api-auth.ts` (`requireApiUser`), `requireApiNutri`, `requireApiPaciente` | Respondem 401/403 em JSON |
+| Regras puras de sessão | `src/lib/session-rules.ts` (`evaluateSession`) | Decide `ok`/`login`/`expired`/`setup-2fa`/`forbidden`/`suspended` e, desde o Plano 26, `desativada` (a recepção sem linha ativa ou sem o termo aceito) |
+| Guardas de página e Server Action | `src/lib/session.ts` (`requireUser`), `src/lib/tenant-session.ts` (`requireNutri` e, desde o Plano 26, `requireEquipe`), `src/lib/paciente-session.ts` (`requirePaciente`) | Redirecionam |
+| Guardas de Route Handler | `src/lib/api-auth.ts` (`requireApiUser`), `requireApiNutri`, `requireApiEquipe` (Plano 26), `requireApiPaciente` | Respondem 401/403 em JSON |
 | Contexto do banco | `src/db/tenant.ts` (`withTenant`, `withConta`) | Aplica a RLS com tenant, papel, paciente, ator e IP |
 
 Princípio: o proxy só olha se **existe** um cookie. Quem decide o acesso é a guarda chamada **em cada página, Server Action e Route Handler**. O layout não é barreira: `src/app/admin/layout.tsx` (comentário das linhas 3–6) e `src/app/painel/layout.tsx` (comentário da linha 11) dizem isso de forma explícita.
@@ -35,50 +35,52 @@ flowchart LR
 
 ## 3.2 Papéis
 
-O papel fica em `user.app_role`, com três valores aceitos pela restrição `user_app_role_valido` (`src/db/schema/auth.ts`, tabela `user`): `admin`, `nutri`, `paciente`. O tipo TypeScript é `AppRole` (`src/lib/session-rules.ts:1`).
+O papel fica em `user.app_role`, com quatro valores aceitos pela restrição `user_app_role_valido` (`src/db/schema/auth.ts:49`, tabela `user`): `admin`, `nutri`, `paciente` e, desde o Plano 26 (PR 2, RN-498), `recepcao`. O tipo TypeScript é `AppRole` (`src/lib/session-rules.ts:2`).
 
-| Papel | `user.tenant_id` | Página inicial (`homeFor`, `session-rules.ts:15-17`) | 2FA | Sessão |
+| Papel | `user.tenant_id` | Página inicial (`homeFor`, `session-rules.ts:60-62`) | 2FA | Sessão |
 |---|---|---|---|---|
 | `admin` | nulo | `/admin` | **obrigatório** | 30 min sem uso (aviso 2 min antes), no máximo 8 h; termina ao fechar o navegador |
 | `nutri` | o tenant dela | `/painel` | opcional | 30 min sem uso (aviso 2 min antes), no máximo 8 h; termina ao fechar o navegador |
 | `paciente` | **nulo** (o vínculo é o prontuário) | `/p/inicio` | não oferecido | 30 dias |
+| `recepcao` (Plano 26) | o tenant do consultório, **obrigatório** (CHECK `user_recepcao_com_tenant`, `auth.ts:51`) e uma linha em `equipe_membros` | `/painel` | **obrigatório** (RE-D20) | a da equipe (`ehEquipe` = papel diferente de `paciente`, RN-501) |
 
 Pontos que importam:
 
 - **Um login, um papel.** O e-mail é global e único (`user.email` é `citext` com `unique()`, `src/db/schema/auth.ts`). A spec (§3, "Modelo de identidade") manda usar outro e-mail para ser nutricionista e paciente ao mesmo tempo. O convite de paciente recusa e-mail de conta da equipe (`MSG_CONVITE_PACIENTE.contaDeEquipe`, `src/modules/pacientes/convite-paciente.ts:26`, checado em `prepararAceite`, linha 176).
 - **A conta de paciente não tem tenant.** `aceitarConvitePaciente` grava o `user` sem `tenantId` (`convite-paciente.ts:263`). O vínculo com cada consultório é a linha `patients.user_id`. Por isso o paciente pode ser atendido por várias nutricionistas com o mesmo login (spec §3).
-- **O admin nunca consulta tabela com `tenant_id`.** `withTenant` aceita só `nutri`, `paciente`, `worker` e `publico` e lança erro para qualquer outro papel (`src/db/tenant.ts`, `ROLES` e `assertContext`). Plano 01, Global Constraints (§4.1 da spec).
-- `appRole`, `tenantId` e `tema` são `additionalFields` com `input: false` (`auth.ts:142-149`): nenhum endpoint do Better Auth deixa o cliente gravá-los.
+- **O admin nunca consulta tabela com `tenant_id`.** `withTenant` aceita só `nutri`, `paciente`, `worker`, `publico` e, desde o Plano 26, `recepcao` (sempre com o ator; `patientId` e `semConta` recusados) e lança erro para qualquer outro papel (`src/db/tenant.ts`, `ROLES` e `assertContext`). Plano 01, Global Constraints (§4.1 da spec).
+- **A recepção (Plano 26)** é a pessoa da recepção de um consultório: a conta nasce sem senha pelo convite da nutricionista (Equipe, [§4.1.1](04-modulos-clinicos.md#equipe-do-consultório-plano-26-rn-499-a-rn-503)) e entra com senha, 2FA obrigatório e o Termo de confidencialidade da equipe aceito. A sessão lê a linha dela em `equipe_membros` junto com a sessão (`lerMembroDaEquipe`, `src/modules/plataforma/membro-da-equipe.ts:22`, uma vez por requisição): sem linha, desativada ou sem o aceite do termo da versão em vigor → `desativada` em toda tela ([§3.6](#evaluatesession-linha-158)). No banco ela é negada por padrão ([§2.6.9](02-banco-de-dados.md#269-sessão-da-recepção-plano-26-pr-2)); no app, só as rotas de `ROTAS_DA_RECEPCAO` a aceitam (§3.7). Rótulo: `ROTULO_PAPEL.recepcao = 'recepção'` (`session-rules.ts:78`).
+- `appRole`, `tenantId` e `tema` são `additionalFields` com `input: false` (`auth.ts:172-177`): nenhum endpoint do Better Auth deixa o cliente gravá-los.
 
 ---
 
 ## 3.3 Configuração do Better Auth (`src/lib/auth.ts`)
 
-`createAuth(db, opts)` (linha 32) monta a instância. `getAuth()` (linhas 194-197) guarda uma instância única por processo.
+`createAuth(db, opts)` (linha 35) monta a instância. `getAuth()` (linhas 269-271) guarda uma instância única por processo.
 
 | Opção | Valor no código | Linha | Por quê |
 |---|---|---|---|
-| `baseURL`, `trustedOrigins` | `APP_URL` | 42, 53-55 | Só a própria origem chama os endpoints |
-| `secret` | variável `AUTH_SECRET` (mín. 32 caracteres, `src/env.ts:120`) | 54 | Assina cookies e cifra o segredo do TOTP |
-| `logger` | só nível e mensagem vão ao pino | 59 | O erro do Drizzle carrega SQL e parâmetros (token, senha). RNF-11, regra 3 do CLAUDE.md |
-| `database` | `drizzleAdapter(db, { provider: 'pg', schema: authSchema })` | 60 | Tabelas `user`, `session`, `account`, `verification`, `two_factor`, `rate_limit` (`src/db/schema/auth.ts`) |
-| `verification.storeIdentifier` | `'hashed'` | 64 | Tokens de redefinição e de 2FA ficam só como SHA-256. Plano 02, "Itens adiados do Plano 01", Tarefa 3 |
-| `emailAndPassword.disableSignUp` | `true` | 67 | Não existe cadastro público. Contas nascem por convite ou pelo CLI |
-| `minPasswordLength` / `maxPasswordLength` | 10 / 128 | 68-69 | US-002 |
-| `password.hash` / `verify` | argon2id próprio | 70-73 | Ver 3.4 |
-| `resetPasswordTokenExpiresIn` | `RESET_TOKEN_TTL_S` = 3600 s | 30, 74 | US-002: link de 1 h |
-| `revokeSessionsOnPasswordReset` | `true` | 75 | Trocar a senha derruba as outras sessões |
-| `sendResetPassword` | `deliverPasswordLink` | 77-80 | Ver 3.11 |
-| `session.expiresIn` | 30 dias (`PATIENT_SESSION_MS`) | 87 | Padrão; a equipe é cortada para 30 min (e para createdAt + 8 h) no hook |
-| `session.disableSessionRefresh` | `true` | 90 | O Better Auth nunca desliza a sessão; só `slideSession` desliza |
-| `databaseHooks.session.create.before` | bloqueia tenant suspenso, aplica `capSessionExpiry` e, na sessão que substitui a atual da mesma usuária, herda o `createdAt` | 97-114 | RN-15 e RNF-06 (P12-14: o limite de 8 h conta do login, não da troca de sessão que a ativação do 2FA faz) |
-| `databaseHooks.session.create.after` | rechecagem com `FOR SHARE` | 114-118 | Corrida login × suspensão (M8) |
-| `rateLimit` | `storage: 'database'`, 100/60 s geral, 5/15 min nas rotas sensíveis | 122-141 | RNF-06 |
-| `advanced.cookiePrefix` | `'nd'` | 151 | Cookies `nd.session_token` etc. (com `__Secure-` em https) |
-| `advanced.database.generateId` | `'uuid'` | 152 | PK uuid v4 (Plano 01, desvios) |
-| `advanced.ipAddress.trustedProxies` | `TRUSTED_PROXIES` | 153 | IP real atrás do Traefik |
-| `hooks.before` | login da equipe sem "lembrar de mim", Turnstile, 2FA da web e política de senha | 163-205 | P12-14, INT-06, RN-145 e US-002 |
-| `plugins` | `twoFactor({ issuer: 'NutriDebby' })`, `nextCookies()` | 172 | 2FA e cookies em Server Actions |
+| `baseURL`, `trustedOrigins` | `APP_URL` | 45, 56-58 | Só a própria origem chama os endpoints |
+| `secret` | variável `AUTH_SECRET` (mín. 32 caracteres, `src/env.ts:120`) | 57 | Assina cookies e cifra o segredo do TOTP |
+| `logger` | só nível e mensagem vão ao pino | 62 | O erro do Drizzle carrega SQL e parâmetros (token, senha). RNF-11, regra 3 do CLAUDE.md |
+| `database` | `drizzleAdapter(db, { provider: 'pg', schema: authSchema })` | 63 | Tabelas `user`, `session`, `account`, `verification`, `two_factor`, `rate_limit` (`src/db/schema/auth.ts`) |
+| `verification.storeIdentifier` | `'hashed'` | 67 | Tokens de redefinição e de 2FA ficam só como SHA-256. Plano 02, "Itens adiados do Plano 01", Tarefa 3 |
+| `emailAndPassword.disableSignUp` | `true` | 70 | Não existe cadastro público. Contas nascem por convite ou pelo CLI |
+| `minPasswordLength` / `maxPasswordLength` | 10 / 128 | 71-72 | US-002 |
+| `password.hash` / `verify` | argon2id próprio | 73-76 | Ver 3.4 |
+| `resetPasswordTokenExpiresIn` | `RESET_TOKEN_TTL_S` = 3600 s | 33, 77 | US-002: link de 1 h |
+| `revokeSessionsOnPasswordReset` | `true` | 78 | Trocar a senha derruba as outras sessões |
+| `sendResetPassword` | `deliverPasswordLink`; desde o Plano 26, a conta `recepcao` **sem senha** não recebe o link (`recepcaoTemSenha`, `:252`; falha da leitura = não sai, falha fechada): a senha dela só nasce pelo convite, que pede o termo de confidencialidade. A resposta do endpoint não muda (US-002) | 80-86 | Ver 3.11; revisão da P26-07 (RN-500) |
+| `session.expiresIn` | 30 dias (`PATIENT_SESSION_MS`) | 92 | Padrão; a equipe é cortada para 30 min (e para createdAt + 8 h) no hook |
+| `session.disableSessionRefresh` | `true` | 97 | O Better Auth nunca desliza a sessão; só `slideSession` desliza |
+| `databaseHooks.session.create.before` | bloqueia tenant suspenso, aplica `capSessionExpiry` e, na sessão que substitui a atual da mesma usuária, herda o `createdAt` | 102-119 | RN-15 e RNF-06 (P12-14: o limite de 8 h conta do login, não da troca de sessão que a ativação do 2FA faz) |
+| `databaseHooks.session.create.after` | rechecagem com `FOR SHARE`; desde o Plano 26, grava `user.ultimo_acesso_em` da conta `recepcao` com 2FA ativo, linha ativa em `equipe_membros` e termo aceito, fora do `/sign-in/email` (a sessão da senha é provisória quando há 2FA: o acesso conta no `verify-totp`); falha só vira `logger.warn` com o nome do erro e o id (a data é informativa) | 126-147 | Corrida login × suspensão (M8); "Último acesso" da Equipe (RN-516, RE-D43) |
+| `rateLimit` | `storage: 'database'`, 100/60 s geral, 5/15 min nas rotas sensíveis | 151-170 | RNF-06 |
+| `advanced.cookiePrefix` | `'nd'` | 180 | Cookies `nd.session_token` etc. (com `__Secure-` em https) |
+| `advanced.database.generateId` | `'uuid'` | 181 | PK uuid v4 (Plano 01, desvios) |
+| `advanced.ipAddress.trustedProxies` | `TRUSTED_PROXIES` | 182 | IP real atrás do Traefik |
+| `hooks.before` | login da equipe sem "lembrar de mim", Turnstile, 2FA da web e política de senha | 184-223 | P12-14, INT-06, RN-145 e US-002 |
+| `plugins` | `twoFactor({ issuer: 'NutriDebby' })`, `nextCookies()` | 224 | 2FA e cookies em Server Actions |
 
 `TRUSTED_PROXIES` é obrigatória quando `NODE_ENV=production`; sem ela o processo não sobe (`src/env.ts:174-179`), porque o limite de tentativas viraria um balde só para todo mundo.
 
@@ -86,7 +88,7 @@ Pontos que importam:
 
 ### Limite de tentativas
 
-`auth.ts:122-141`. Contagem no banco (tabela `rate_limit`), por IP + rota. O IPv6 é agrupado pelo /64 (padrão do Better Auth; comentário em `src/lib/ip.ts:8-10`).
+`auth.ts:151-170`. Contagem no banco (tabela `rate_limit`), por IP + rota. O IPv6 é agrupado pelo /64 (padrão do Better Auth; comentário em `src/lib/ip.ts:8-10`).
 
 | Rota | Janela | Máximo |
 |---|---|---|
@@ -102,7 +104,7 @@ As rotas da última linha conferem a senha com a sessão aberta. O limite impede
 
 ## 3.4 Senha
 
-**Hash.** Argon2id por `@node-rs/argon2` 2.2.1: `memoryCost: 19456` (19 MiB), `timeCost: 2`, `parallelism: 1` (`src/lib/password.server.ts:6-9`). O Better Auth recebe essas funções em `emailAndPassword.password` (`auth.ts:70-73`). Os convites usam o mesmo `hashPassword` (`src/modules/plataforma/convites.ts:85`, `convite-paciente.ts:253`).
+**Hash.** Argon2id por `@node-rs/argon2` 2.2.1: `memoryCost: 19456` (19 MiB), `timeCost: 2`, `parallelism: 1` (`src/lib/password.server.ts:6-9`). O Better Auth recebe essas funções em `emailAndPassword.password` (`auth.ts:73-76`). Os convites usam o mesmo `hashPassword` (`src/modules/plataforma/convites.ts:118`, `convite-paciente.ts:247`).
 
 **Política.** `validatePasswordPolicy` (`src/lib/password-policy.ts:1`):
 
@@ -115,17 +117,17 @@ As rotas da última linha conferem a senha com a sessão aberta. O limite impede
 
 Onde a política roda:
 
-- `hooks.before` do Better Auth, só em `/reset-password` e `/change-password` (`auth.ts:166-169`).
-- `aceitarConvite` (nutricionista, `convites.ts:66`; política na linha 73) e `aceitarConvitePaciente` (`convite-paciente.ts:247`), que não passam pelo Better Auth.
+- `hooks.before` do Better Auth, só em `/reset-password` e `/change-password` (`auth.ts:218-221`).
+- `aceitarConvite` (nutricionista e recepção, `convites.ts:98`; política na linha 115) e `aceitarConvitePaciente` (`convite-paciente.ts:234`), que não passam pelo Better Auth.
 - No navegador, como ajuda, sem a lista comum (`src/app/definir-senha/page.tsx:17`).
 
-**Custo do argon2 e convite inválido.** Antes do hash, os dois aceites de convite conferem o token sem trava. Um POST anônimo com token ruim nunca gasta os ~19 MB do argon2 (T6-R2a, `convites.ts:78-85`; `convite-paciente.ts:250-253`).
+**Custo do argon2 e convite inválido.** Antes do hash, os dois aceites de convite conferem o token sem trava. Um POST anônimo com token ruim nunca gasta os ~19 MB do argon2 (T6-R2a, `convites.ts:104-118`; `convite-paciente.ts:244-247`).
 
 ---
 
 ## 3.5 Verificação em duas etapas (2FA)
 
-**Quem é obrigado:** só o admin. `evaluateSession` devolve `setup-2fa` quando `role === 'admin' && !user.twoFactorEnabled` e a página não é `/conta/seguranca` (`session-rules.ts:57`). `requireUser` redireciona para `SECURITY_PATH` (`session.ts`, `case 'setup-2fa'`). `requireApiUser` responde 403 "Acesso negado". Para a nutricionista, o 2FA é opcional e fica em "Configurações > Segurança" (`/conta/seguranca`). O paciente não tem a tela: `src/app/conta/seguranca/page.tsx` chama `requireUser(['admin', 'nutri'], …)`. Decisão da spec §3 ("2FA: obrigatório para o admin; opcional (recomendado) para a nutricionista") e US-003.
+**Quem é obrigado:** o admin e, desde o Plano 26 (RE-D20, RN-500), a recepção. `evaluateSession` devolve `setup-2fa` quando o papel é `admin` ou `recepcao`, sem `twoFactorEnabled`, e a página não é `/conta/seguranca` (`session-rules.ts:189`). `requireUser` redireciona para `SECURITY_PATH` (`session.ts`, `case 'setup-2fa'`). `requireApiUser` responde 403 "Acesso negado". Para a nutricionista, o 2FA é opcional e fica em "Configurações > Segurança" (`/conta/seguranca`). O paciente não tem a tela: `src/app/conta/seguranca/page.tsx` chama `requireUser(['admin', 'nutri', 'recepcao'], …)` (a recepção desde o Plano 26). Sem o 2FA, a recepção vê ali o aviso `MSG_RECEPCAO.doisFatoresObrigatorio`, "A recepção precisa da verificação em duas etapas. Configure agora para continuar." (`Aviso` com `papel="alert"`, como o do admin), e a tela usa o tema da conta, como a da nutricionista; a recepção desativada não chega lá (vai a `/conta/acesso-desativado`). O reinício do 2FA pelo admin (`reiniciarPeloAdmin`) vale para a conta `recepcao` (`admin_actions.alvo_papel = 'recepcao'`); a confirmação diz que a configuração será obrigatória no próximo login (`mensagemDoReinicio` e `mensagemDoComando`, `src/modules/plataforma/reiniciar-2fa.ts:27-36`). Decisão da spec §3 ("2FA: obrigatório para o admin; opcional (recomendado) para a nutricionista") e US-003.
 
 **Ativação** (`src/app/conta/seguranca/enable-2fa.tsx`):
 
@@ -157,7 +159,7 @@ sessão) e a ativação (2FA ainda desligado) seguem, e a chamada interna (`auth
 
 **P12-14 (RNF-06, decisão do dono 07/10/2026; boa prática SBIS NGS1 — bloqueio de sessão por inatividade).** Depois de
 ver o login da nutricionista vivo 2 h depois e após reiniciar o computador, o dono decidiu: a equipe (nutricionista e
-admin) sai depois de **30 min sem uso**, com **aviso 2 min antes**; a sessão tem **limite absoluto de 8 h** desde o
+admin; desde o Plano 26, também a recepção, RN-501) sai depois de **30 min sem uso**, com **aviso 2 min antes**; a sessão tem **limite absoluto de 8 h** desde o
 login completo (depois do 2FA), mesmo com uso contínuo; e **fechar o navegador encerra o login**. Uso = qualquer
 requisição autenticada ao servidor **e** atividade real na tela (tecla, clique, rolagem, toque) em qualquer aba do painel
 ou do admin — **menos as consultas automáticas da tela** (o polling de estado, ver "Consultas automáticas não são uso"
@@ -167,47 +169,49 @@ abaixo). O paciente **não muda** (30 dias, PWA).
 
 | Constante | Valor | Linha |
 |---|---|---|
-| `STAFF_IDLE_MS` | 30 min | 9 |
-| `STAFF_WARNING_MS` | 2 min | 10 |
-| `STAFF_MAX_MS` | 8 h | 11 |
-| `STAFF_REFRESH_MS` | 5 min (cadência da renovação da equipe) | 13 |
-| `PATIENT_SESSION_MS` | 30 dias | 14 |
-| `PATIENT_REFRESH_MS` | 15 min (cadência do paciente, inalterada) | 16 |
-| `PRAZOS_DA_EQUIPE` | os quatro prazos da equipe numa estrutura (`inatividadeMs`, `avisoMs`, `cadenciaMs`, `limiteMs`) | 20 |
-| `MSG_FIM_DA_SESSAO` | "Sua sessão foi encerrada por falta de uso. Entre de novo." / "Sua sessão chegou ao limite de 8 horas. Entre de novo." | 41 |
-| `MSG_AVISO_INATIVIDADE`, `ROTULO_CONTINUAR` | "Sua sessão vai encerrar em 2 minutos por falta de uso." / "Continuar conectada" | 46-47 |
-| `SECURITY_PATH` | `/conta/seguranca` | 52 |
-| `SUSPENDED_PATH` | `/indisponivel` | 54 |
-| `MSG_SESSAO_EXPIRADA` | "Sessão expirada. Entre de novo." | 56 |
+| `STAFF_IDLE_MS` | 30 min | 11 |
+| `STAFF_WARNING_MS` | 2 min | 12 |
+| `STAFF_MAX_MS` | 8 h | 13 |
+| `STAFF_REFRESH_MS` | 5 min (cadência da renovação da equipe) | 15 |
+| `PATIENT_SESSION_MS` | 30 dias | 16 |
+| `PATIENT_REFRESH_MS` | 15 min (cadência do paciente, inalterada) | 18 |
+| `PRAZOS_DA_EQUIPE` | os quatro prazos da equipe numa estrutura (`inatividadeMs`, `avisoMs`, `cadenciaMs`, `limiteMs`) | 22 |
+| `MSG_FIM_DA_SESSAO` | "Sua sessão foi encerrada por falta de uso. Entre de novo." / "Sua sessão chegou ao limite de 8 horas. Entre de novo." | 43 |
+| `MSG_AVISO_INATIVIDADE`, `ROTULO_CONTINUAR` | "Sua sessão vai encerrar em 2 minutos por falta de uso." / "Continuar na sessão" (RE-D70: desde o Plano 26, o mesmo rótulo neutro para toda a equipe; antes, "Continuar conectada") | 48-49 |
+| `SECURITY_PATH` | `/conta/seguranca` | 54 |
+| `SUSPENDED_PATH` | `/indisponivel` | 56 |
+| `MSG_SESSAO_EXPIRADA` | "Sessão expirada. Entre de novo." | 58 |
+| `SEM_PERMISSAO_PATH`, `CONTRATO_PENDENTE_PATH`, `ACESSO_DESATIVADO_PATH` (Plano 26) | `/painel/sem-permissao` (com `?motivo=nutri\|financeiro`, `semPermissaoPath`), `/painel/contrato-pendente`, `/conta/acesso-desativado` | 69-74 |
 
-- `capSessionExpiry` (linha 98): no nascimento da sessão, tudo que não é `paciente` recebe no máximo agora + 30 min, sem passar de `createdAt` + 8 h. Papel desconhecido conta como equipe ("na dúvida, vale o limite menor").
-- `sessionExpiresAt` (87): agora + 30 dias (paciente) ou `min(agora + 30 min, createdAt + 8 h)` (equipe). Com o limite no `expiresAt`, o próprio Better Auth recusa a sessão de mais de 8 h em qualquer rota.
-- `isRefreshDue` (105): renova só se `updatedAt` tem 5 min (equipe) ou 15 min (paciente) ou mais. Evita uma escrita por requisição; os 5 min deixam a última atividade registrada no máximo 5 min atrás da real.
-- `fimDaSessao` (114): `limite` (mais de 8 h desde `createdAt`) ou `inatividade` (mais de 30 min desde `updatedAt`), ou `null`.
-- `estadoDaSessao` (129): o que a tela recebe — quanto falta, em ms relativos, para a inatividade (`min(updatedAt + 30 min, expiresAt)`) e para o limite, mais `avisoMs` e `cadenciaMs`. Relativo porque o relógio do aparelho pode estar errado. Nada de dado pessoal.
-- `prazosDeTeste(ms)` (31): só E2E — ver "Prazos de teste" abaixo.
+- `capSessionExpiry` (linha 112): no nascimento da sessão, tudo que não é `paciente` recebe no máximo agora + 30 min, sem passar de `createdAt` + 8 h. Papel desconhecido conta como equipe ("na dúvida, vale o limite menor").
+- `sessionExpiresAt` (101): agora + 30 dias (paciente) ou `min(agora + 30 min, createdAt + 8 h)` (equipe). Com o limite no `expiresAt`, o próprio Better Auth recusa a sessão de mais de 8 h em qualquer rota.
+- `isRefreshDue` (119): renova só se `updatedAt` tem 5 min (equipe) ou 15 min (paciente) ou mais. Evita uma escrita por requisição; os 5 min deixam a última atividade registrada no máximo 5 min atrás da real.
+- `fimDaSessao` (128): `limite` (mais de 8 h desde `createdAt`) ou `inatividade` (mais de 30 min desde `updatedAt`), ou `null`.
+- `estadoDaSessao` (143): o que a tela recebe — quanto falta, em ms relativos, para a inatividade (`min(updatedAt + 30 min, expiresAt)`) e para o limite, mais `avisoMs` e `cadenciaMs`. Relativo porque o relógio do aparelho pode estar errado. Nada de dado pessoal.
+- `prazosDeTeste(ms)` (33): só E2E — ver "Prazos de teste" abaixo.
 
-### `evaluateSession` (linha 144)
+### `evaluateSession` (linha 158)
 
 Ordem das checagens. A primeira que casar decide.
 
 | # | Condição | Decisão |
 |---|---|---|
 | 1 | sem sessão ou sem usuário | `expired` se veio cookie, senão `login` |
-| 2 | papel fora de `allowed` | `forbidden` |
+| 2 | papel fora de `allowed` (e não é a recepção desativada) | `forbidden` |
 | 3 | equipe e `fimDaSessao` (mais de 8 h desde `createdAt` ou mais de 30 min desde `updatedAt`) | `expired` |
-| 4 | `tenantStatus === 'suspensa'` | `suspended` |
-| 5 | admin sem 2FA e fora de `/conta/seguranca` | `setup-2fa` |
-| 6 | — | `ok` |
+| 4 | Plano 26: `recepcao` sem linha ativa em `equipe_membros` ou sem o termo de confidencialidade aceito (`equipe`, lida com a sessão) | `ok` só em `/conta/acesso-desativado` (com o papel na lista, e sem pedir o 2FA); em qualquer outra tela, `desativada` — inclusive nas de outro papel: o aviso dela vence o de outro papel |
+| 5 | `tenantStatus === 'suspensa'` | `suspended` |
+| 6 | admin **ou recepção** sem 2FA e fora de `/conta/seguranca` | `setup-2fa` |
+| 7 | — | `ok` |
 
 A checagem 3 é uma defesa a mais. O `expiresAt` já vale no máximo `min(última atividade + 30 min, createdAt + 8 h)`, e o Better Auth recusa a sessão vencida em qualquer rota. Ela exige que a sessão seja lida com `disableRefresh: true`, e vale também para as sessões abertas antes da regra (P12-14, item 6: a de 12 h acaba na próxima requisição se estiver ociosa há mais de 30 min ou com mais de 8 h). A migration **0103** (`drizzle/0103_sessao_equipe_30min.sql`, como a 0005 fez com as 12 h) corta o `expires_at` dessas sessões para `LEAST(updated_at + 30 min, created_at + 8 h)`, e `/api/auth/*` também as recusa nativamente.
 
 ### Como a sessão desliza
 
-`slideSession` (`auth.ts:236`) grava `updatedAt = agora` e o novo `expiresAt` (`sessionExpiresAt` com o `createdAt`: nunca passa das 8 h) direto no banco, com `WHERE expires_at > agora`, e devolve os valores gravados (ou `null`). Sessão vencida nunca volta. Quem chama:
+`slideSession` (`auth.ts:280`) grava `updatedAt = agora` e o novo `expiresAt` (`sessionExpiresAt` com o `createdAt`: nunca passa das 8 h) direto no banco, com `WHERE expires_at > agora`, e devolve os valores gravados (ou `null`). Sessão vencida nunca volta. Quem chama:
 
-- `requireUserComTenant` → `deslizarUmaVez` (`session.ts:34`), memoizado por `cache` do React (uma escrita por render, mesmo com layout e página).
-- `requireApiUser` (`api-auth.ts:23`, `case 'ok'`): atividade de API também conta (T7-R2b; uploads); `data.session` volta com os valores gravados. `lerSessaoApi` (`api-auth.ts:31`) faz a mesma conferência **sem** renovar — só para o `GET /api/sessao/ativa`.
+- `requireUserComTenant` → `deslizarUmaVez` (`session.ts:56`), memoizado por `cache` do React (uma escrita por render, mesmo com layout e página).
+- `requireApiUser` (`api-auth.ts:39`, `case 'ok'`): atividade de API também conta (T7-R2b; uploads); `data.session` volta com os valores gravados. `lerSessaoApi` (`api-auth.ts:47`) faz a mesma conferência **sem** renovar — só para o `GET /api/sessao/ativa`.
 
 Falha ao renovar só gera `logger.warn` com o nome do erro (nos dois caminhos). A requisição segue, porque já foi autenticada.
 
@@ -215,19 +219,19 @@ Falha ao renovar só gera `logger.warn` com o nome do erro (nos dois caminhos). 
 
 ### Fechar o navegador encerra o login da equipe (P12-14)
 
-O cookie de sessão da equipe é **cookie de sessão do navegador** (sem `Max-Age`/`Expires`). O `hooks.before` de `src/lib/auth.ts` (linha 168), no `/sign-in/email`, lê o papel guardado da conta pelo e-mail (`internalAdapter.findUserByEmail`) e, para tudo que não é `paciente` (inclusive e-mail desconhecido), troca o corpo para `rememberMe: false` — o que o navegador mande é ignorado. Com isso o Better Auth 1.7.6 (`node_modules/better-auth/dist/cookies/index.mjs`, `setSessionCookie`) grava o `nd.session_token` sem `maxAge` e o cookie assinado `nd.dont_remember` (também sem `maxAge`). Todo `setSessionCookie` seguinte que não recebe o valor explícito lê o `dont_remember`: o `verify-totp`/`verify-backup-code` do login com 2FA, a ativação do 2FA (que troca a sessão) e a troca de senha com revogação. O `nd.dont_remember` sai no "Sair" (`cookiesDeSessaoApagados`). O `createSession` do Better Auth dá 1 dia a uma sessão "sem lembrar"; o hook de criação corta para 30 min. O paciente segue com `Max-Age` de 30 dias e sem `dont_remember` (teste em `src/lib/auth.test.ts`, "cookie de sessão…"; o do 2FA em `two-factor.test.ts`). Navegador que restaura a sessão anterior ("Continuar de onde parei") pode manter cookies de sessão: os 30 min sem uso no servidor continuam valendo.
+O cookie de sessão da equipe é **cookie de sessão do navegador** (sem `Max-Age`/`Expires`). O `hooks.before` de `src/lib/auth.ts` (linha 190), no `/sign-in/email`, lê o papel guardado da conta pelo e-mail (`internalAdapter.findUserByEmail`) e, para tudo que não é `paciente` (inclusive e-mail desconhecido), troca o corpo para `rememberMe: false` — o que o navegador mande é ignorado. Com isso o Better Auth 1.7.6 (`node_modules/better-auth/dist/cookies/index.mjs`, `setSessionCookie`) grava o `nd.session_token` sem `maxAge` e o cookie assinado `nd.dont_remember` (também sem `maxAge`). Todo `setSessionCookie` seguinte que não recebe o valor explícito lê o `dont_remember`: o `verify-totp`/`verify-backup-code` do login com 2FA, a ativação do 2FA (que troca a sessão) e a troca de senha com revogação. O `nd.dont_remember` sai no "Sair" (`cookiesDeSessaoApagados`). O `createSession` do Better Auth dá 1 dia a uma sessão "sem lembrar"; o hook de criação corta para 30 min. O paciente segue com `Max-Age` de 30 dias e sem `dont_remember` (teste em `src/lib/auth.test.ts`, "cookie de sessão…"; o do 2FA em `two-factor.test.ts`). Navegador que restaura a sessão anterior ("Continuar de onde parei") pode manter cookies de sessão: os 30 min sem uso no servidor continuam valendo.
 
 ### O relógio da tela: aviso e saída automática (P12-14)
 
 `VigiaDeSessao` (`src/components/vigia-sessao.tsx`, client component) fica no layout do painel e no do admin. A lógica pura (passos, leitura das respostas e das mensagens) está em `src/lib/sessao-relogio.ts` (testes em `sessao-relogio.test.ts`). O servidor é a autoridade: o relógio só antecipa o aviso.
 
-- **Rota `/api/sessao/ativa`** (`src/app/api/sessao/ativa/route.ts`, só `admin` e `nutri`; paciente → 403): `GET` devolve `estadoDaSessao` **sem renovar** (perguntar não é uso, `lerSessaoApi`); `POST` (com `mesmaOrigem` antes da sessão) é o uso na tela: `requireApiUser` renova (mesma cadência de 5 min) e devolve o estado. Sessão ociosa, acima de 8 h ou vencida → 401 e nada é renovado.
+- **Rota `/api/sessao/ativa`** (`src/app/api/sessao/ativa/route.ts`, `EQUIPE` = `admin`, `nutri` e, desde o Plano 26, `recepcao` — `:12`, RE-D67, RN-501; paciente e recepção desativada → 403): `GET` devolve `estadoDaSessao` **sem renovar** (perguntar não é uso, `lerSessaoApi`); `POST` (com `mesmaOrigem` antes da sessão) é o uso na tela: `requireApiUser` renova (mesma cadência de 5 min) e devolve o estado. Sessão ociosa, acima de 8 h ou vencida → 401 e nada é renovado.
 - **Ao abrir** a tela, o `GET` dá o relógio (prazo da inatividade e do limite, em horas do aparelho).
 - **Uso real** (`keydown`, `pointerdown`, `touchstart`, `wheel`, `scroll`, na captura da `window`): `POST` se passou a cadência desde o último (desta aba ou de outra); senão, um `POST` no fim da cadência — o último uso nunca se perde. Com o aviso aberto, só o botão renova.
-- **2 min antes** do fim por inatividade, a tela pergunta (`GET`): se o servidor confirma, abre o aviso — `<dialog>` modal nativo com `role="alertdialog"`, foco no botão (`autoFocus`), fundo inerte, `onCancel` com `preventDefault` (Esc não fecha) e `onClose` que reabre se o navegador forçar o fechamento. Texto exato: "Sua sessão vai encerrar em 2 minutos por falta de uso." e o botão "Continuar conectada" (renova pelo `POST`).
+- **2 min antes** do fim por inatividade, a tela pergunta (`GET`): se o servidor confirma, abre o aviso — `<dialog>` modal nativo com `role="alertdialog"`, foco no botão (`autoFocus`), fundo inerte, `onCancel` com `preventDefault` (Esc não fecha) e `onClose` que reabre se o navegador forçar o fechamento. Texto exato: "Sua sessão vai encerrar em 2 minutos por falta de uso." e o botão "Continuar na sessão" (renova pelo `POST`).
 - **No fim**, a tela pergunta de novo e, com 401 (ou o prazo confirmado), envia um `<form method="post" action="/sair">` escondido com `motivo` — a mesma saída do botão "Sair" (sessão apagada, cookies, `Clear-Site-Data`). O `/sair` aceita `motivo` só da lista (`inatividade`, `limite`) e vai para `/entrar?motivo=…`; qualquer outro corpo vai para `/entrar`. `/entrar` mostra "Sua sessão foi encerrada por falta de uso. Entre de novo." ou "Sua sessão chegou ao limite de 8 horas. Entre de novo.".
 - **Limite de 8 h**: não há aviso (não se renova); na hora, a saída com `motivo=limite`.
-- **Abas**: `BroadcastChannel('nd-sessao')`, com o evento `storage` como alternativa. Mensagens só com horários e o motivo (`renovada` com `prazo`, `limite` e `ping`; `encerrar` com o motivo), conferidas por `lerMensagem` — nada de dado pessoal. "Continuar conectada" numa aba fecha o aviso nas outras; a saída numa aba tira todas.
+- **Abas**: `BroadcastChannel('nd-sessao')`, com o evento `storage` como alternativa. Mensagens só com horários e o motivo (`renovada` com `prazo`, `limite` e `ping`; `encerrar` com o motivo), conferidas por `lerMensagem` — nada de dado pessoal. "Continuar na sessão" numa aba fecha o aviso nas outras; a saída numa aba tira todas.
 - **Voltar à aba** (`visibilitychange`, também depois de o computador dormir): a tela pergunta de novo.
 
 ### Consultas automáticas não são uso (revisão da Tarefa 14)
@@ -259,20 +263,21 @@ da mesa com o "Preparando o PDF…" na tela e a sessão só cai nas 8 h). Duas c
 
 ### `requireUser` e `requireUserComTenant` (`src/lib/session.ts`)
 
-`lerSessaoDaRequisicao` (linha 17) lê a sessão com `disableRefresh: true` e, se o usuário tem tenant, a linha de `tenants` por PK. As duas leituras são memoizadas por requisição (T14, S-7). Depois de `evaluateSession`:
+`lerSessaoDaRequisicao` (linha 33) lê a sessão com `disableRefresh: true` e, se o usuário tem tenant, a linha de `tenants` por PK; desde o Plano 26, com a conta `recepcao`, também a linha dela em `equipe_membros` (`membroDaSessao`, `lerMembroDaEquipe`: ativa, permissão do Financeiro e termo aceito; `null` para os outros papéis). As leituras são memoizadas por requisição (T14, S-7): a desativação e a permissão valem na próxima requisição (RN-502, RN-504). Depois de `evaluateSession`:
 
 | Decisão | Ação |
 |---|---|
-| `ok` | desliza e devolve `{ data, tenant }` |
+| `ok` | desliza e devolve `{ data, tenant, membro }` (`requireUser` devolve só `data`) |
 | `login` | `redirect('/entrar?volta=…')` |
 | `expired` | `auth.api.signOut` e `redirect('/entrar?motivo=inatividade|limite&volta=…')` quando a linha da sessão ainda foi lida (o motivo vem de `fimDaSessao`); `redirect('/entrar?expirada=1&volta=…')` quando o Better Auth já a recusou pelo `expiresAt` |
 | `setup-2fa` | `redirect('/conta/seguranca')` |
 | `suspended` | `redirect('/indisponivel')` |
-| `forbidden` | `redirect(homeFor(papel))`, a página inicial do próprio papel |
+| `desativada` (Plano 26) | `redirect('/conta/acesso-desativado')` (RN-503, RE-D45) |
+| `forbidden` | a recepção numa tela que aceita `nutri` → `redirect('/painel/sem-permissao?motivo=nutri')` (Plano 26, RN-504); senão `redirect(caminhoOutroPapel(allowed))`, a tela "Conectado com outra conta" (`/conta/outro-papel?esperado=…`, P09-03) |
 
 O `volta` vem do cabeçalho `x-nd-caminho` (`CURRENT_PATH_HEADER`, `src/lib/safe-return.ts:32`), gravado pelo proxy com caminho + query. O proxy sempre sobrescreve o valor do cliente. Tudo passa por `safeReturnPath` (3.13).
 
-### `requireApiUser` (`src/lib/api-auth.ts:23`)
+### `requireApiUser` (`src/lib/api-auth.ts:39`)
 
 Mesma regra para Route Handlers, sem redirecionar:
 
@@ -280,15 +285,15 @@ Mesma regra para Route Handlers, sem redirecionar:
 |---|---|
 | `login`, `expired` | 401 `{ erro: "Sessão expirada. Entre de novo." }` |
 | `suspended` | 403 "Conta temporariamente indisponível" |
-| `setup-2fa`, `forbidden` | 403 "Acesso negado" |
+| `setup-2fa`, `forbidden`, `desativada` | 403 "Acesso negado" |
 
-Toda recusa sai com `cache-control: no-store` (`recusaApi`, linha 13). É assim que o admin recebe 403 em `/api/painel/*` e `/api/p/*` (US-004, cenário "Admin não vê prontuário").
+Toda recusa sai com `cache-control: no-store` (`recusaApi`, linha 27). Desde o Plano 26, `ApiAuth` devolve também `membro` (a linha da recepção, lida na mesma autenticação; `null` para os outros papéis). É assim que o admin recebe 403 em `/api/painel/*` e `/api/p/*` (US-004, cenário "Admin não vê prontuário").
 
 ---
 
 ## 3.7 Guardas por papel
 
-### `requireNutri` / `requireApiNutri` (`src/lib/tenant-session.ts:22`, `:46`)
+### `requireNutri` / `requireApiNutri` (`src/lib/tenant-session.ts:28`, `:53`)
 
 Toda página e Server Action da nutricionista começa por `requireNutri(path)`:
 
@@ -297,7 +302,44 @@ Toda página e Server Action da nutricionista começa por `requireNutri(path)`:
 3. `tenant.dpaVersao !== DPA_VERSAO` → `redirect('/painel/dpa')`, salvo com `permitirDpaPendente` (só o layout e a própria tela do DPA usam).
 4. Devolve `ctx = { tenantId, role: 'nutri', actorUserId, ip }`, pronto para `withTenant`.
 
-`requireApiNutri` faz o mesmo para Route Handlers: 403 "Acesso negado" sem tenant e 403 "Aceite o contrato de tratamento de dados para continuar." com o DPA pendente. O IP vem de `clientIp(req.headers, TRUSTED_PROXIES)`. Desde o Plano 20, a recusa (`ok: false`) traz também o `motivo` (`MotivoDaRecusa`, `tenant-session.ts:37`): `sem_sessao` (o 401), `dpa_pendente` (o 403 do DPA) ou `papel` (qualquer outro 403: papel errado, conta suspensa, 2FA do admin, conta sem consultório). Os dois da sessão vêm prontos de `requireApiUser` (`motivo` em `ApiAuth`, `src/lib/api-auth.ts`), que conhece a decisão; `requireApiNutri` só repassa, sem inferir do status. Status e corpo não mudaram; a rota que é navegação (o download do CSV do Financeiro) troca a resposta por um redirect lendo só o `motivo`, nunca o corpo ([§12.7](12-financeiro.md#127-csv-para-o-contador-us-306-rn-321)).
+`requireApiNutri` faz o mesmo para Route Handlers: 403 "Acesso negado" sem tenant e 403 "Aceite o contrato de tratamento de dados para continuar." com o DPA pendente. O IP vem de `clientIp(req.headers, TRUSTED_PROXIES)`. Desde o Plano 20, a recusa (`ok: false`) traz também o `motivo` (`MotivoDaRecusa`, `tenant-session.ts:43`): `sem_sessao` (o 401), `dpa_pendente` (o 403 do DPA) ou `papel` (qualquer outro 403: papel errado, conta suspensa, 2FA do admin, conta sem consultório). Os dois da sessão vêm prontos de `requireApiUser` (`motivo` em `ApiAuth`, `src/lib/api-auth.ts`), que conhece a decisão; `requireApiNutri` só repassa, sem inferir do status. Status e corpo não mudaram; a rota que é navegação (o download do CSV do Financeiro) troca a resposta por um redirect lendo só o `motivo`, nunca o corpo ([§12.7](12-financeiro.md#127-csv-para-o-contador-us-306-rn-321)).
+
+### `requireEquipe` / `requireApiEquipe` (Plano 26, `src/lib/tenant-session.ts:104`, `:125`)
+
+`requireNutri` e `requireApiNutri` **não mudaram** (RN-504, RE-D16): continuam só `nutri`, e a recepção que cai numa delas
+vai a "Sem permissão" (`?motivo=nutri`, em `requireUserComTenant`) ou recebe 403. As páginas e actions que a recepção
+também abre chamam `requireEquipe(path, { secao?, financeiro?, permitirDpaPendente? })`:
+
+1. `requireUserComTenant(['nutri', 'recepcao'], path)` — a recepção desativada já foi a `/conta/acesso-desativado`, e a sem
+   2FA à Segurança (`evaluateSession`).
+2. Papel e permissão (`papelEPermissao`): a nutricionista sempre com o Financeiro; a recepção com `membro.financeiro`.
+3. DPA do consultório numa versão antiga (salvo `permitirDpaPendente`): a nutricionista vai a `/painel/dpa`, a recepção a
+   `/painel/contrato-pendente` — quem aceita o DPA é a controladora (RN-501, RE-D29).
+4. Sem a permissão da tela (`financeiro: true` sem o Financeiro, ou `secao` dos Relatórios que o papel não vê,
+   `podeVerSecao`): `/painel/sem-permissao?motivo=financeiro` ou `?motivo=nutri` (RE-D47).
+5. Devolve `{ data, tenant, ctx, papel, financeiro }`, com `ctx.role` = o papel da sessão, o ator e o IP.
+
+`requireApiEquipe(req, opts)` faz o mesmo para Route Handlers: 401/403 da sessão (a recepção desativada recebe 403), 403
+`MSG_DPA_PENDENTE` (`dpa_pendente`) e 403 "Acesso negado" com `motivo: 'sem_permissao'` (a rota que é navegação troca por
+um redirect a "Sem permissão", como o CSV dos Relatórios, `src/app/api/painel/relatorios/csv/route.ts`).
+
+**Só as rotas de `ROTAS_DA_RECEPCAO` chamam `requireEquipe`** (`src/app/painel/rotas-da-recepcao.ts:15`; RN-513). No PR 2:
+`/painel` (o Início dela), `/painel/sem-permissao`, `/painel/contrato-pendente`, `/painel/ajuda` e as actions
+`alternarTemaAction` e `marcarGuiaAction` de `src/app/painel/preferencias/actions.ts` (o tema e o guia do cabeçalho; a
+`escolherTemaAction`, das Configurações, continua só da nutricionista). O layout do painel também chama `requireEquipe`
+(`permitirDpaPendente`), senão a recepção voltaria a "Sem permissão" sem fim; o layout não é barreira. O PR 3 acrescenta
+pacientes, cadastro, agenda, Financeiro e Relatórios. `FORA_DO_PAINEL` (`:29`) lista as rotas de fora do painel que
+aceitam a recepção pela lista de papéis de `requireUser`/`requireApiUser`/`lerSessaoApi` (RE-D67): `/conta/seguranca`,
+`/conta/acesso-desativado`, `/inicio`, `/conta/outro-papel` e `/api/sessao/ativa`. Guardas de fonte: `rotas-da-recepcao.test.ts`
+e `papeis-fora-do-painel.test.ts` ([§7.4.3](07-testes-qualidade-e-processo.md#743-guardas-de-código-leitura-do-fonte)).
+
+**Telas de aviso da recepção** (sem guia, em `SEM_AJUDA`; textos em `MSG_RECEPCAO`, `src/modules/plataforma/equipe-textos.ts:7-42`):
+
+| Tela | Guarda | Texto |
+|---|---|---|
+| "Sem permissão" (`/painel/sem-permissao`) | `requireEquipe`; a nutricionista vai ao Início | "Esta página é só da nutricionista." (`?motivo=nutri`, e qualquer motivo fora da lista) ou "Você não tem permissão para o Financeiro. Peça à nutricionista." (`?motivo=financeiro`), com o link "Voltar ao início" |
+| "Contrato do consultório pendente" (`/painel/contrato-pendente`) | `requireEquipe` com `permitirDpaPendente`; com o DPA em dia, o Início; a nutricionista vai ao aceite | "O contrato de tratamento de dados do consultório precisa ser aceito pela nutricionista. Peça para ela entrar no NutriDebby." (o "Sair" fica no cabeçalho mínimo do layout) |
+| "Acesso desativado" (`/conta/acesso-desativado`, fora do painel) | `requireUserComTenant` com os quatro papéis; quem não é a recepção desativada vai à própria home | "Seu acesso a este consultório foi desativado. Fale com a nutricionista." ou, com a linha ativa e sem o aceite do termo, "Seu acesso ainda não foi liberado: falta aceitar o Termo de confidencialidade da equipe. Fale com a nutricionista."; botão "Sair" |
 
 ### Admin
 
@@ -315,6 +357,8 @@ Ver 3.8.
 | `requireApiUser` | Route Handlers | lista passada | — | 401/403 |
 | `requireNutri` | painel | `nutri` | DPA atual; `ctx` | redirect |
 | `requireApiNutri` | `/api/painel/*` | `nutri` | DPA atual; `ctx` | 403 |
+| `requireEquipe` (Plano 26) | painel, só as rotas de `ROTAS_DA_RECEPCAO` | `nutri`, `recepcao` ativa | linha de `equipe_membros`; DPA atual (a recepção vai a "Contrato pendente"); permissão da tela; `ctx` com o papel | redirect |
+| `requireApiEquipe` (Plano 26) | `/api/painel/*` de `ROTAS_DA_RECEPCAO` | idem | idem | 403 (`motivo`) |
 | `requirePaciente` | portal `/p/*` | `paciente` | vínculo, consultório ativo, termo atual; `ctx` | redirect |
 | `requireApiPaciente` | `/api/p/*` | `paciente` | idem | 403 |
 
@@ -328,7 +372,7 @@ A conta de paciente não tem tenant. Para abrir o portal é preciso saber **qual
 
 ### Contexto `conta` (Plano 06, D2)
 
-`withConta(userId, fn)` (`src/db/tenant.ts:114`) abre a transação com `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id` vazio. No banco, a política `paciente_por_conta` (`drizzle/0073_conta_vinculos.sql`, linha 6) libera **só `SELECT`** em `patients` onde `user_id` é a própria conta. Toda outra tabela devolve 0 linhas, porque nenhuma `tenant_isolation` casa sem tenant. Nada é gravado.
+`withConta(userId, fn)` (`src/db/tenant.ts:121`) abre a transação com `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id` vazio. No banco, a política `paciente_por_conta` (`drizzle/0073_conta_vinculos.sql`, linha 6) libera **só `SELECT`** em `patients` onde `user_id` é a própria conta. Toda outra tabela devolve 0 linhas, porque nenhuma `tenant_isolation` casa sem tenant. Nada é gravado.
 
 Uso restrito (CLAUDE.md, regra 1): `src/modules/portal/vinculos.ts` e a função `app_conta_sem_outro_vinculo` (`drizzle/0079_paciente_titular.sql`), usada na anonimização.
 
@@ -414,7 +458,7 @@ Os casos estão em `src/lib/paciente-session.cache.test.ts`. No Vitest o `cache`
 **O contexto de paciente aberto pela nutricionista (Plano 18, D16, RN-281).** O "No app do paciente" do painel conta o que
 o app mostra **com a RLS do paciente**, em vez de reproduzir os filtros do portal na sessão `nutri` (a audiência do
 conteúdo e a etiqueta, `paciente_so_emitidos`, `paciente_sem_rascunho`). Por isso `src/modules/ficha/no-app.ts` é o
-sétimo arquivo de `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:39-47`). As travas:
+sétimo arquivo de `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:44-52`). As travas:
 
 - `noAppDoPaciente` (`no-app.ts:84`) só aceita `ctx.role === 'nutri'` (`:90`) e, antes de abrir o contexto do paciente,
   confere na sessão `nutri` que o paciente é do consultório; arquivado, bloqueado ou anonimizado não abre o contexto
@@ -438,7 +482,7 @@ Script: `scripts/admin-criar.ts`, ligado em `package.json` (`"admin:criar": "tsx
 1. Normaliza o e-mail (`normalizeEmail`) e valida com zod. Plano 01, Review Focus 4: `" Admin@Exemplo.com "` vira `admin@exemplo.com`.
 2. Recusa e-mail já usado. A corrida é decidida pela constraint `user_email_unique`.
 3. Insere `user` com `appRole: 'admin'`, `emailVerified: true`, **sem senha**.
-4. Troca o destino dos links por um que só captura a URL (`setPasswordLinkSink`, `src/lib/password-links.ts:44`) e chama `auth.api.requestPasswordReset` com `redirectTo: '/definir-senha'`. Chamada interna sem `ctx.request` não passa pelo Turnstile (`auth.ts:158-160`).
+4. Troca o destino dos links por um que só captura a URL (`setPasswordLinkSink`, `src/lib/password-links.ts:44`) e chama `auth.api.requestPasswordReset` com `redirectTo: '/definir-senha'`. Chamada interna sem `ctx.request` não passa pelo Turnstile (`auth.ts:197-199`).
 5. Sem link ou com erro, apaga o usuário criado.
 6. O script imprime o link no terminal (válido por `RESET_TOKEN_TTL_S`, 1 h, uso único) e avisa que o 2FA será obrigatório no primeiro acesso.
 
@@ -448,33 +492,59 @@ Não existe tela pública para criar admin (`disableSignUp: true`). Rodar o coma
 
 ## 3.10 Convites
 
-Tabela `invites` (`src/db/schema/access.ts`). Guarda só o SHA-256 do token (`token_hash`, único). O token é `randomToken()`: 32 bytes em base64url, 43 caracteres (`src/lib/crypto.ts:9-11`), e todo token recebido é validado contra `/^[A-Za-z0-9_-]{43}$/` antes de consultar o banco. A restrição `invites_alvo` separa os dois tipos. Índices únicos parciais deixam no máximo um convite pendente por usuário (`invites_user_pendente_idx`) e por paciente (`invites_paciente_pendente_idx`). A tabela fica fora da RLS (`RLS_EXCEPTIONS`, `src/db/rls-guard.ts`), porque é lida antes de existir sessão. Só três módulos a acessam (CLAUDE.md, regra 1).
+Tabela `invites` (`src/db/schema/access.ts`). Guarda só o SHA-256 do token (`token_hash`, único). O token é `randomToken()`: 32 bytes em base64url, 43 caracteres (`src/lib/crypto.ts:9-11`), e todo token recebido é validado contra `/^[A-Za-z0-9_-]{43}$/` antes de consultar o banco. A restrição `invites_alvo` separa os tipos (desde o Plano 26, três: `nutri`, `paciente` e `recepcao`, este com `user_id` e `tenant_id`, sem paciente). Índices únicos parciais deixam no máximo um convite pendente por usuário (`invites_user_pendente_idx`) e por paciente (`invites_paciente_pendente_idx`). A tabela fica fora da RLS (`RLS_EXCEPTIONS`, `src/db/rls-guard.ts`), porque é lida antes de existir sessão. Só quatro módulos a acessam (CLAUDE.md, regra 1; o quarto, `src/modules/plataforma/equipe.ts`, desde o Plano 26).
 
 | | Nutricionista | Paciente |
 |---|---|---|
 | História | US-001 / US-002 | US-010 / US-011 |
-| Validade | 72 h (`CONVITE_NUTRI_VALIDADE_MS`, `convites.ts:11`) | 7 dias (`CONVITE_PACIENTE_VALIDADE_MS`, `convite-paciente.ts:18`) |
+| Validade | 72 h (`CONVITE_NUTRI_VALIDADE_MS`, `convites.ts:13`) | 7 dias (`CONVITE_PACIENTE_VALIDADE_MS`, `convite-paciente.ts:18`) |
 | Aponta para | `user_id` (a conta já existe, sem senha) | `tenant_id` + `patient_id` (a conta nasce no aceite) |
 | Quem cria | admin: `criarContaNutri` / `reenviarConvite` (`src/modules/plataforma/contas.ts:59`, `:89`) | nutricionista: `enviarConvitePaciente` / `reenviarConvitePaciente` (`convite-paciente.ts:52`, `:102`) |
-| Link | `/convite/<token>` (montado por `urlDoApp(appUrl, …)`, `src/lib/url-do-app.ts`, `convites.ts:32`) | `/convite/paciente/<token>` |
+| Link | `/convite/<token>` (montado por `urlDoApp(appUrl, …)`, `src/lib/url-do-app.ts`, `convites.ts:52`) | `/convite/paciente/<token>` |
 | Canal | e-mail pela fila, na mesma transação | e-mail na mesma transação. O WhatsApp é só um aviso **sem link** (decisão do dono, US-010, nota do Plano 05) |
 | Aceite grava | senha (`account`), `emailVerified`, DPA | `user` de paciente, senha, termo, `patients.user_id`, escolha do WhatsApp |
 | Mensagens | "Convite expirado. Peça um novo ao suporte." / "Convite inválido ou já usado. Se você já definiu sua senha, entre com seu e-mail e senha." | `MSG_CONVITE_PACIENTE` (`convite-paciente.ts:20-28`) |
 
 ### Convite da nutricionista
 
-`criarContaNutri` cria, numa transação, o tenant, a usuária `nutri` sem senha, o convite e o e-mail (`contas.ts:59-87`). `reenviarConvite` trava a usuária (`FOR UPDATE`, T5-R3), recusa tenant suspenso ("Conta suspensa: reative antes de reenviar o convite.", PF-N6, RN-15) e recusa quem já tem senha. `criarConvite` apaga os pendentes antes de inserir (`convites.ts:23-29`).
+`criarContaNutri` cria, numa transação, o tenant, a usuária `nutri` sem senha, o convite e o e-mail (`contas.ts:59-87`). `reenviarConvite` trava a usuária (`FOR UPDATE`, T5-R3), recusa tenant suspenso ("Conta suspensa: reative antes de reenviar o convite.", PF-N6, RN-15) e recusa quem já tem senha. `criarConvite` apaga os pendentes antes de inserir (`convites.ts:37-49`).
 
-`aceitarConvite` (`convites.ts:66`):
+`aceitarConvite` (`convites.ts:98`):
 
-1. Valida DPA marcado, política de senha, confirmação e formato do token.
-2. `inspecionarConvite` sem trava; só então o argon2 (T6-R2a).
+1. Formato do token e `inspecionarConvite` sem trava (desde o Plano 26, antes da caixa de aceite: o tipo do convite decide
+   qual aceite é obrigatório); inválido ou vencido responde isso antes de qualquer caixa.
+2. Aceite do DPA marcado (ou, no convite da recepção, o do termo de confidencialidade), política de senha e confirmação;
+   só então o argon2 (T6-R2a).
 3. Na transação: trava a usuária (`FOR UPDATE`) **antes** do convite, a mesma ordem de `reenviarConvite`. A ordem invertida causava deadlock 40P01 (T6-R1).
 4. Recusa se já existe `account` `credential`.
 5. Consome o convite com `UPDATE … WHERE usado_em IS NULL AND expira_em > agora`. O segundo envio simultâneo vê 0 linhas.
-6. Grava a senha, `emailVerified = true` e o aceite do DPA (`registrarAceiteDpa`).
+6. Grava a senha, `emailVerified = true` e o aceite do DPA (`registrarAceiteDpa`) — no convite da recepção, o do termo (abaixo).
 
 A Server Action (`src/app/convite/[token]/actions.ts`) faz login automático com `signInEmail`. Se o tenant foi suspenso entre o aceite e o login, vai para `/indisponivel` (T7-R2a). Outra falha cai em `/entrar?volta=/painel`.
+
+### Convite da recepção (Plano 26, RN-499, RN-500)
+
+Criado pela nutricionista na Equipe (`convidarRecepcao`/`reenviarConviteRecepcao`, `src/modules/plataforma/equipe.ts`,
+[§4.1.1](04-modulos-clinicos.md#equipe-do-consultório-plano-26-rn-499-a-rn-503)): a conta `recepcao` nasce sem senha e o convite usa o mesmo `criarConvite`, agora com o alvo
+obrigatório (`{ tipo: 'nutri' }` ou `{ tipo: 'recepcao', tenantId }`, `convites.ts:37-49`), 72 h, e o e-mail
+`convite_recepcao` ("Convite para a equipe de {consultório} no NutriDebby", botão "Criar minha senha"). O link é o mesmo
+`/convite/<token>`; o **tipo do convite no banco** (nunca o formulário) decide a tela e o aceite:
+
+- `inspecionarConvite` aceita `nutri` e `recepcao`; o convite da recepção só vale para a conta `recepcao` do mesmo
+  consultório do convite, e o da nutricionista só para a conta `nutri` (senão, inválido); devolve o `tipo` e o nome do
+  consultório (`convites.ts:55-74`).
+- A página (`src/app/convite/[token]/page.tsx`) mostra, no convite da recepção, "Criar sua senha", "Você recebeu um convite
+  para a equipe de {consultório}.", o Termo de confidencialidade da equipe inteiro (`TextoLegalView`) e a caixa "Li e aceito
+  o Termo de confidencialidade da equipe" (obrigatória: "Para entrar na equipe, aceite o termo de confidencialidade.").
+- `aceitarConvite` recusa a caixa desmarcada (campo `sigilo`), confere na transação que a conta travada ainda é do papel do
+  convite, consome o convite pelo `tipo` dele e grava em `consents` o `sigilo-equipe-<versão>` com a conta, o consultório e
+  o IP — **sem** DPA (`convites.ts:145-150`).
+- A action confere a versão lida contra `SIGILO_EQUIPE_VERSAO` (ou `DPA_VERSAO`) antes de gravar (`MSG_TEXTO_ATUALIZADO`) e,
+  depois do login automático, leva a recepção a `/inicio`, que a manda configurar o 2FA e depois ao Início dela.
+- Convite vencido da recepção: "Convite expirado. Peça à nutricionista para reenviar o convite." (`avisoDeConviteExpirado`,
+  `convites.ts:16`); o da nutricionista continua "Convite expirado. Peça um novo ao suporte.".
+
+A recepção sem senha não recebe o link do "Esqueci minha senha" (§3.3): a senha dela nasce só pelo convite, com o termo.
 
 ### Convite do paciente
 
@@ -512,7 +582,7 @@ sequenceDiagram
   N->>App: abre o link (inspecionarConvite)
   N->>App: senha + aceite do DPA (aceitarConviteAction)
   App->>App: checa token sem trava, depois argon2id
-  App->>DB: tx: FOR UPDATE user → confere se já há account credential (convites.ts:93-97; se houver, convite inválido) → UPDATE invites usado_em (:99-103) → grava account → emailVerified → consents(dpa) → tenants.dpa_versao
+  App->>DB: tx: FOR UPDATE user → confere se já há account credential (convites.ts:128-132; se houver, convite inválido) → UPDATE invites usado_em (:134-138) → grava account → emailVerified → consents(dpa) → tenants.dpa_versao
   App->>App: signInEmail (hooks: tenant ativo? equipe sem "lembrar"; expira em 30 min)
   App-->>N: redirect /painel
 ```
@@ -548,7 +618,7 @@ sequenceDiagram
 | Etapa | Onde |
 |---|---|
 | Formulário "Esqueci minha senha" com Turnstile | `src/app/esqueci-senha/form.tsx` → `authClient.requestPasswordReset` com o cabeçalho `x-turnstile-token` |
-| Turnstile no servidor | `hooks.before` de `/request-password-reset` (`auth.ts:159-165`): 503 `TURNSTILE_INDISPONIVEL` ou 403 `TURNSTILE_INVALIDO`, **antes** de qualquer escrita (INT-06) |
+| Turnstile no servidor | `hooks.before` de `/request-password-reset` (`auth.ts:198-204`): 503 `TURNSTILE_INDISPONIVEL` ou 403 `TURNSTILE_INVALIDO`, **antes** de qualquer escrita (INT-06) |
 | Mesma resposta para qualquer e-mail | o formulário mostra sempre "Se o e-mail estiver cadastrado, você receberá um link" (`form.tsx:49`) |
 | Entrega fora do caminho da resposta | `emailPasswordLinkSink` dispara `enfileirarLinkDeSenha` sem `await` (`password-links.ts:37-39`). Nem a latência nem uma falha da fila revelam se o e-mail existe (F3) |
 | Tenant suspenso não recebe | `enfileirarLinkDeSenha` (linha 20) descarta se o tenant não está ativo (RN-15, F2) |
@@ -577,7 +647,7 @@ Tabela `consents` (`src/db/schema/access.ts`). É prova de aceite: sem `ON DELET
 | Marca extra | `tenants.dpa_aceito_em` e `tenants.dpa_versao` | — |
 | Onde é exigido | `requireNutri` compara `tenant.dpaVersao` com `DPA_VERSAO` | `requirePaciente` chama `termoAceito(userId, tenantId)` (`src/modules/portal/termo.ts:10`) |
 | Tela | `/painel/dpa` (`aceitarDpaAction`, `src/app/painel/actions.ts:12`); com uma versão anterior aceita (`tenant.dpaVersao` preenchido e diferente de `DPA_VERSAO`), mostra acima do texto, numa região `role="status"`, o aviso `DPA_MUDOU` — "O contrato de tratamento de dados mudou (versão 1.1, de 17/11/2026). Leia e aceite para continuar usando o painel." — e, desde o Plano 20 (US-309), `DPA_O_QUE_MUDOU` (`dpa.ts:34`): "O que mudou: o contrato passa a citar os registros financeiros do consultório, inclusive os pagamentos dos pacientes (Financeiro)." (literal em `dpa.ts`, não importado de `MSG_FINANCEIRO`: a IA alcança `dpa.ts` e não pode alcançar o Financeiro; a igualdade fica em `textos-legais.test.ts`) | `/p/termo` (`aceitarTermoAction`, `src/app/p/termo/actions.ts`) |
-| Primeiro aceite | no convite (`aceitarConvite`) | no convite (`registrarAceiteTermo`, `convite-paciente.ts:231`) |
+| Primeiro aceite | no convite (`aceitarConvite`) | no convite (`registrarAceiteTermo`, `convite-paciente.ts:225`) |
 | IP | gravado (`clientIp`) | gravado |
 
 `registrarAceiteDpa` (`src/modules/plataforma/dpa.ts`) só adianta `tenants.dpa_aceito_em` quando a linha de `consents` foi de fato inserida. Assim a marca no tenant nunca diverge da prova (T6-R2b). Se a linha da versão já existe e o tenant está noutra versão (volta atrás e novo avanço, #153), ele regrava `tenants.dpa_versao` com o `aceito_em` da prova, sem linha nova. A imagem anterior ao PR 2 do Plano 20 não tem essa regravação: quem aceitou a 1.1 e volta a uma imagem com `DPA_VERSAO = '1.0'` não destrava o painel, porque a linha `dpa-1.0` já existe e `tenants.dpa_versao` continua `'1.1'`; a saída é o SQL do runbook `financeiro.md` §6, com o OK do dono ([§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás); [§12.13](12-financeiro.md#1213-divergências-conhecidas), #12).
@@ -597,6 +667,33 @@ de inteligência artificial." com o aditivo e o botão "Aceitar a versão atual"
 laudo mostra o mesmo aviso no lugar de "Ler valores com IA" (`iaNoExame`, `exames/ia-exame.tsx:24`)
 (`IA_ADITIVO_VERSAO_MIN`). Detalhe no [cap. 10](10-ia.md).
 
+**Termo de confidencialidade da equipe (Plano 26, RN-500, PM-R3).** Quarto tipo de aceite em `consents`:
+`sigilo-equipe-<versão>` (`SIGILO_EQUIPE_TERMO`, `src/modules/plataforma/textos-versionados.ts`; versão `1.0`, de
+23/11/2026, texto sem a revisão do advogado, como o DPA 1.0), da pessoa da recepção, **com** o `tenant_id` do consultório e
+o IP, gravado só por `registrarAceiteDoSigilo` (`membro-da-equipe.ts`): no aceite do convite (`aceitarConvite`), no lugar
+do DPA, e no aceite da versão em vigor em `/conta/acesso-desativado` (`aceitarTermoPendente`, abaixo). O texto tem oito cláusulas (partes e aceite,
+o que é confidencial, finalidade, proibições e credenciais, incidentes, sigilo depois da desativação, os dados da própria
+pessoa e normas — Res. CFN 599/2018, art. 20, I; LGPD, art. 47) e fica também na página pública `/termos/sigilo-equipe`
+(fora de `PROTECTED`). A sessão exige o aceite da versão em vigor neste consultório (`lerMembroDaEquipe`, `termoAceito`):
+sem ele, a recepção cai em `/conta/acesso-desativado`. O merge do PR 2 espera o OK do dono ao texto 1.0 (RE-D72, texto legal novo; runbook `docs/operacao/recepcao.md`, "Deploy").
+
+**Novo aceite do termo (code review do PR 2; divergência #12, resolvida).** Em `/conta/acesso-desativado`
+(`src/app/conta/acesso-desativado/page.tsx`), a conta `recepcao` com a linha **ativa** em `equipe_membros`, o 2FA ativo e
+sem o aceite da versão em vigor vê "Aceite o termo para continuar", o termo inteiro (`TextoLegalView`), a caixa do convite
+("Li e aceito o Termo de confidencialidade da equipe") e o botão "Aceitar e continuar" (`aceite-do-termo.tsx`; textos
+RASCUNHO em `MSG_RECEPCAO.acessoDesativado.aceiteDoTermo`). A conta desativada de verdade (`desativada_em`, ou sem linha) vê
+só "Seu acesso a este consultório foi desativado. Fale com a nutricionista."; a ativa sem o 2FA, só o aviso do termo pendente
+(a página abre sem o 2FA, e o aceite pede a pessoa verificada). A action `aceitarTermoAction`
+(`src/app/conta/acesso-desativado/actions.ts`, em `FORA_DO_PAINEL` como `…/actions.ts#aceitarTermoAction`) confere tudo no
+servidor: `requireUserComTenant(['recepcao'], …)` (outro papel: a sessão recusa e redireciona); a conta desativada recebe o
+aviso de desativada; o aceite já feito vai direto a `/painel`; sem o 2FA, o aviso do termo pendente; a versão lida contra
+`SIGILO_EQUIPE_VERSAO` (`leuAVersaoEmVigor`, `MSG_TEXTO_ATUALIZADO`); a caixa desmarcada, "Para entrar na equipe, aceite o
+termo de confidencialidade." (a do convite). Então `aceitarTermoPendente` (`membro-da-equipe.ts`) relê a linha de
+`equipe_membros` na sessão `recepcao` e grava o aceite na mesma transação (a desativada no meio do caminho recebe
+`sem_acesso`, e nada é gravado); depois, `/painel`. Testes em `src/app/conta/recepcao.test.ts`; E2E (escrito) em
+`e2e/recepcao.spec.ts`, com a conta `E2E_RECEPCAO_TERMO_NOVO` da semente (conta nova a cada execução: `consents` não se
+apaga). Como subir a versão: runbook `docs/operacao/recepcao.md`, "Versão nova do termo de confidencialidade".
+
 **Como publicar uma versão nova** (P08-06; a 1.0 saiu assim em 15/10/2026 e a 1.1 do DPA no Plano 20, sem o advogado, na linha da A-D27): acrescentar a versão em `DPA_TEXTOS` ou `TERMO_PACIENTE_TEXTOS`, com a data, sem apagar as anteriores (mostram o que cada um leu), e trocar `DPA_VERSAO`/`DPA_VERSAO_DATA` ou `TERMO_PACIENTE_VERSAO`/`TERMO_PACIENTE_VERSAO_DATA`. **Congele a versão anterior** antes de trocar: a data e o último parágrafo dela viram literais e a chave do mapa uma constante própria (como `DPA_VERSAO_1_0` no Plano 20) — senão ela some do mapa ou muda de data junto com a nova. Na próxima requisição, toda nutricionista vai para `/painel/dpa` (API do painel: 403) e todo paciente para `/p/termo`, uma vez por consultório (API do portal: 403). As linhas antigas de `consents` ficam como prova. Não precisa de migration. A guarda `src/modules/plataforma/textos-legais.test.ts` confere a versão, o rodapé e os suboperadores citados, e que as telas de aceite (`/n/[slug]`, `/convite/paciente/[token]`, `/convite/[token]` e `/painel/dpa`) mostram o texto inteiro na página, sem caixa de altura fixa com rolagem própria (como `/p/termo`). A 1.0 diz que o servidor (Hostinger) fica no Brasil (Campinas/SP, conferido em 15/10/2026) e que a cópia de segurança (Backblaze B2, sem região no Brasil) fica fora, criptografada antes de sair. O canal de privacidade da operadora é `EMAIL_PRIVACIDADE` (`src/modules/plataforma/privacidade.ts`; o e-mail do dono, decisão de 16/10/2026 — trocá-lo pede versão nova dos dois textos), citado no termo (parágrafo da operadora) e no DPA (cláusulas 5 e 15). Em `/p/termo`, quem já aceitou outra versão do termo naquele consultório (`aceitouVersaoAnterior`, `src/modules/portal/termo.ts`) vê `TERMO_PACIENTE_MUDOU`, como o `DPA_MUDOU` de `/painel/dpa`.
 
 ---
@@ -610,7 +707,7 @@ laudo mostra o mesmo aviso no lugar de "Ler valores com IA" (`iaNoExame`, `exame
 - Também gera o `x-request-id`, o nonce e a CSP de cada página, e grava `x-nd-caminho`. Esses cabeçalhos estão em [§6.3.2 CSP com nonce](06-worker-seguranca-operacao.md#632-csp-com-nonce-d7-do-plano-08) e [§6.4.2 `request_id`](06-worker-seguranca-operacao.md#642-request_id-d2-do-plano-08).
 - `matcher` (linha 55): tudo menos `api/`, `serwist/`, `_next/static`, `_next/image`, `favicon.ico` e `manifest.webmanifest`. O `api/` fica fora porque o Next copiaria para a memória o corpo de toda requisição que passa pelo proxy, com corte silencioso em 10 MB, e o exame tem até 20 MB (comentário das linhas 51-53). **Consequência: toda rota `/api/*` precisa da própria guarda.**
 
-`safeReturnPath` (`src/lib/safe-return.ts:13`) aceita só caminho local e confere de novo **depois** da normalização WHATWG, que pode transformar `/.//evil.com` em `//evil.com`. Plano 01, Review Focus 3; E2E em `e2e/auth.spec.ts` ("?volta externo não redireciona para fora" e "?volta que a normalização vira //host…"). Sem `volta` válido, o login vai para `/inicio`, que redireciona pelo papel (`src/app/inicio/page.tsx`).
+`safeReturnPath` (`src/lib/safe-return.ts:13`) aceita só caminho local e confere de novo **depois** da normalização WHATWG, que pode transformar `/.//evil.com` em `//evil.com`. Plano 01, Review Focus 3; E2E em `e2e/auth.spec.ts` ("?volta externo não redireciona para fora" e "?volta que a normalização vira //host…"). Sem `volta` válido, o login vai para `/inicio`, que redireciona pelo papel (`src/app/inicio/page.tsx`; desde o Plano 26, a lista de papéis inclui `recepcao`, que vai a `/painel` — sem ela, a recepção cairia no aviso de outro papel, RE-D67). `/termos` fica fora de `PROTECTED`: `/termos/sigilo-equipe` abre sem login.
 
 No portal, `voltaDoPortal` (`src/lib/paciente-session.ts`) restringe ainda mais: só `/p/…`, nunca a própria escolha e sem o `?v=`.
 
@@ -633,14 +730,14 @@ Onde a suspensão barra:
 
 | Camada | Mecanismo |
 |---|---|
-| Login, 2FA, primeiro acesso | `session.create.before` lança `CONTA_SUSPENSA` (`auth.ts:103-105`). A tela de login leva para `/indisponivel` (`src/app/entrar/page.tsx:30`) |
-| Corrida login × suspensão | `session.create.after` relê o status com `FOR SHARE` em `tenants` (`statusDoTenantDaUsuaria`, `auth.ts:182-190`). Suspensa → apaga a sessão recém-criada e recusa (M8, G7) |
+| Login, 2FA, primeiro acesso | `session.create.before` lança `CONTA_SUSPENSA` (`auth.ts:109-111`). A tela de login leva para `/indisponivel` (`src/app/entrar/page.tsx:30`) |
+| Corrida login × suspensão | `session.create.after` relê o status com `FOR SHARE` em `tenants` (`statusDoTenantDaUsuaria`, `auth.ts:235-246`). Suspensa → apaga a sessão recém-criada e recusa (M8, G7) |
 | Sessão já aberta (equipe) | `evaluateSession` → `suspended` → `/indisponivel` ou 403 |
 | Paciente | por vínculo, em `acessoDaConta`. O consultório suspenso barra só aquele vínculo. Sem nenhum ativo → `/indisponivel`; com outro ativo → `/p/escolher` (o suspenso aparece desabilitado) |
 | Convites | `reenviarConvite` recusa; o convite de paciente manda para `/indisponivel` |
 | E-mails e jobs | `tenantIsActive` (`tenant-status.ts:49`) e `enfileirarLinkDeSenha` |
 
-As sessões de paciente **não** são apagadas pela suspensão: a conta de paciente não tem `tenant_id` e pode ter vínculos em outros consultórios.
+A conta `recepcao` tem o `tenant_id` do consultório: a suspensão apaga também as sessões dela, e a Equipe não convida nem reenvia convite com o consultório suspenso ("Conta suspensa: não é possível convidar agora.", Plano 26). As sessões de paciente **não** são apagadas pela suspensão: a conta de paciente não tem `tenant_id` e pode ter vínculos em outros consultórios.
 
 ---
 
@@ -684,19 +781,23 @@ sequenceDiagram
   E->>G: navega para ?volta (safeReturnPath) ou /inicio
   G->>DB: getSession(disableRefresh) + tenants por PK
   G->>G: evaluateSession
-  alt admin sem 2FA
+  alt admin ou recepção sem 2FA
     G-->>U: /conta/seguranca
+  else recepção desativada ou sem o termo (Plano 26)
+    G-->>U: /conta/acesso-desativado
   else ok
     G->>DB: slideSession (se passaram 5 min — equipe — ou 15 — paciente)
     G-->>U: página (ou homeFor do papel)
   end
 ```
 
+Plano 26 (RE-D67): o destino sem `volta` é `/inicio` (login, 2FA e o "Continuar" da Segurança), que aceita a recepção e a leva a `/painel` (`homeFor`). `/conta/outro-papel` também aceita a recepção (numa tela do portal ou do admin): o texto "Este aparelho está conectado como recepção. Saia e entre com a conta de …" e o link "Ir para o painel" (`VOLTAR.recepcao`), com o tema da conta. Na imagem anterior ao PR 2, a recepção entra em laço de redirecionamento entre essas telas (volta atrás: [§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás) e o runbook `docs/operacao/recepcao.md`). A guarda `src/app/papeis-fora-do-painel.test.ts` exige, para todo `requireUser(`/`requireApiUser(`/`lerSessaoApi(` de `src/app` fora do painel, a decisão explícita para a recepção (aceita ou recusa).
+
 ---
 
 ## 3.17 Como estender com segurança
 
-- **Página nova do painel:** primeira linha `await requireNutri('/painel/…')`; numa aba do prontuário, `carregarProntuario(id)` (`src/app/painel/pacientes/[id]/prontuario.ts:13`). Use o `ctx` devolvido em `withTenant`. Nunca monte o `TenantContext` à mão. Server Action só em `actions.ts`. Checklist completo: [§7.4.5](07-testes-qualidade-e-processo.md#745-checklist-tela-nova).
+- **Página nova do painel:** primeira linha `await requireNutri('/painel/…')` (a recepção vai a "Sem permissão"); se a recepção também a abre (Plano 26), `requireEquipe` **e** a entrada em `ROTAS_DA_RECEPCAO` — o teste de fonte quebra sem as duas, também por action exportada de todo arquivo `'use server'`; numa aba do prontuário, `carregarProntuario(id)` (`src/app/painel/pacientes/[id]/prontuario.ts:13`). Use o `ctx` devolvido em `withTenant`. Nunca monte o `TenantContext` à mão. Server Action só em `actions.ts`. Checklist completo: [§7.4.5](07-testes-qualidade-e-processo.md#745-checklist-tela-nova).
 - **Página nova do portal:** `await requirePaciente('/p/…')`. Nenhuma guarda do CI confere isso no portal (§7.4.5).
 - **Rota nova em `/api/painel/*`:** `requireApiNutri(req)`; em `/api/p/*`, `requireApiPaciente(req)`. Lembre: o proxy não protege `/api/*`.
 - **Página nova do admin:** `requireUser(['admin'], path)`. O admin não lê tabelas 🔒. Precisa de número agregado? Use função `SECURITY DEFINER` como `admin_tenant_metrics()`.
@@ -716,6 +817,7 @@ sequenceDiagram
 | Portal | `src/lib/paciente-session.test.ts`, `src/lib/paciente-session.cache.test.ts` (uma leitura por requisição, P08-13), `src/modules/portal/vinculos.test.ts`, `src/modules/portal/termo.test.ts` |
 | Convites, DPA, suspensão, admin | `src/modules/plataforma/primeiro-acesso.test.ts`, `dpa.test.ts`, `suspensao.test.ts`, `admin-bootstrap.test.ts`, `src/modules/pacientes/convite-paciente.test.ts` |
 | Redirecionamento | `src/lib/safe-return.test.ts` |
+| Recepção (Plano 26) | `src/lib/tenant-session.test.ts`, `src/app/painel/rotas-da-recepcao.test.ts`, `src/app/papeis-fora-do-painel.test.ts`, `src/app/conta/recepcao.test.ts`, `src/app/inicio/page.test.ts`, `src/app/painel/sem-permissao/page.test.ts`, `src/app/painel/contrato-pendente/page.test.ts`, `src/modules/plataforma/convites.test.ts`, `src/modules/plataforma/equipe.test.ts`, `e2e/recepcao.spec.ts`, `e2e/equipe-primeiro-acesso.spec.ts`, `e2e/sessao-equipe.spec.ts` (caso da recepção) |
 | E2E | `e2e/auth.spec.ts`, `e2e/recuperacao.spec.ts`, `e2e/sair.spec.ts`, `e2e/sessao-portal.spec.ts` |
 
 ---
@@ -740,8 +842,13 @@ Só os nomes. Os valores ficam no Easypanel.
 |---|---|---|---|
 | 1 | US-001, cenário "Primeiro admin": o admin "recebe o e-mail para definir a senha" | `createAdmin` captura o link com `setPasswordLinkSink` e o script **imprime** no terminal (`scripts/admin-criar.ts`). Nenhum e-mail sai | A §9.7 da design spec (linha 406, "Deploy e migrations") já diz "o link … sai só no terminal". A US-001 ficou com o texto antigo |
 | 2 | US-003, cenário "Segredo protegido": `users.totp_secret_enc` cifrado com AES-256-GCM | Tabela `two_factor` do Better Auth, cifra XChaCha20-Poly1305 com chave de `AUTH_SECRET` | Desvio consciente do Plano 01, aplicado à RNF-06 na v1.3; o cenário da US-003 não foi atualizado |
-| 3 | US-002, cenário "Bloqueio por tentativas": 5 erros "com o mesmo e-mail e IP" | Limite por IP + rota (`rateLimit.customRules`, `auth.ts:128`). Não considera o e-mail | Desvio consciente (Plano 01; RNF-06 v1.11, D11). Pacientes atrás do mesmo IP de operadora dividem o balde |
-| 4 | RNF-06 (design spec): "2FA TOTP para a nutricionista" | 2FA obrigatório só para o admin (`session-rules.ts:57`); opcional para a nutricionista | Coincide com a §3 e com a US-003 ("opcional para a nutricionista"). A frase da RNF-06 é ambígua |
+| 3 | US-002, cenário "Bloqueio por tentativas": 5 erros "com o mesmo e-mail e IP" | Limite por IP + rota (`rateLimit.customRules`, `auth.ts:156`). Não considera o e-mail | Desvio consciente (Plano 01; RNF-06 v1.11, D11). Pacientes atrás do mesmo IP de operadora dividem o balde |
+| 4 | RNF-06 (design spec): "2FA TOTP para a nutricionista" | 2FA obrigatório só para o admin (`session-rules.ts:189`); opcional para a nutricionista | Coincide com a §3 e com a US-003 ("opcional para a nutricionista"). A frase da RNF-06 é ambígua |
 | 5 | US-011, cenário "Aceite do convite": `consents` registra `termo_versao "1.0"` e o rótulo "(versão 1.0)" | **Resolvida (P08-06, 15/10/2026):** grava `termo-paciente-1.0`; o rótulo mostra "(versão 1.0)" (`termo-paciente.ts:7-12`) | O texto 1.0 foi publicado pelo dono sem o advogado. O valor gravado leva prefixo (`termo-paciente-`/`dpa-`), não só o número |
 | 6 | US-002, cenário "Login redireciona por perfil": o paciente vai para `/p` | `homeFor('paciente')` = `/p/inicio`; `/p` também redireciona para `/p/inicio` (`src/app/p/page.tsx`) | Efeito igual; o destino exato difere |
 | 7 | US-003, cenário "Ativar 2FA": "10 códigos de recuperação" | O código não fixa a quantidade: usa o padrão do Better Auth 1.7.6 (`amount ?? 10`) | Hoje bate. Uma atualização do Better Auth que mude o padrão muda o comportamento sem mudar o código |
+| 8 | Spec do Plano 26 (`docs/superpowers/specs/2026-11-17-nutridebby-26-relatorios-recepcionista-design.md`), RN-500 e RN-503: a recepção desativada recebe `forbidden` com destino `/conta/acesso-desativado` | Decisão própria `desativada` (`session-rules.ts:4`, `:186`), para não se confundir com o `forbidden` de outro papel; e a conta **ativa sem o aceite do termo** também cai nela (revisão da P26-07: a senha criada fora do convite pularia o termo), com o texto "Seu acesso ainda não foi liberado: falta aceitar o Termo de confidencialidade da equipe. Fale com a nutricionista." | Texto marcado como RASCUNHO em `equipe-textos.ts:21-25`, sem fonte na spec §6.2: entra na tabela de textos do plano na T12, como o "Convite expirado. Peça à nutricionista para reenviar o convite." (`:114-115`) |
+| 9 | Spec do Plano 26, §4.2: `membroAtivo(tx, userId)` em `equipe.ts` | `lerMembroDaEquipe(db, tenantId, userId)` em `src/modules/plataforma/membro-da-equipe.ts`, que a sessão importa sem o módulo da Equipe; devolve também `termoAceito` (lê `consents` na mesma transação) | — |
+| 10 | Spec do Plano 26, RN-500: o 2FA obrigatório e o termo; não fala do "Esqueci minha senha" | A conta `recepcao` sem senha não recebe o link de redefinição (`sendResetPassword`, revisão da P26-07): sem isso, o `/reset-password` criaria a senha sem o termo | A resposta do endpoint não muda (US-002) |
+| 11 | RE-D70 (decisão da orquestradora, fora da spec do Plano 26 §14): o botão do aviso de inatividade passa a "Continuar na sessão" para toda a equipe | **Resolvida (`bfe38520`):** código, comentário de `src/app/api/sessao/ativa/route.ts`, RNF-06 e US-003 dizem "Continuar na sessão" (`session-rules.ts:49`) | A RE-D70 entra na §14 da spec no fechamento (T12, README) |
+| 12 | Spec do Plano 26, RN-500: aceite "obrigatório" do termo `sigilo-equipe-1.0` no primeiro acesso; versão nova não está prevista | **Resolvida (code review do PR 2):** a sessão exige o aceite da versão **em vigor** (`SIGILO_EQUIPE_TERMO`); a recepção ativa, com o 2FA, sem esse aceite, aceita em `/conta/acesso-desativado` (`aceitarTermoAction` → `aceitarTermoPendente`, `membro-da-equipe.ts`), que grava como o convite (`registrarAceiteDoSigilo`) e leva ao painel; a desativada vê só o aviso dela (§3.12, "Novo aceite do termo") | Textos novos RASCUNHO (`MSG_RECEPCAO.acessoDesativado.aceiteDoTermo`), sem fonte na spec §6.2; como subir a versão no runbook `docs/operacao/recepcao.md` |

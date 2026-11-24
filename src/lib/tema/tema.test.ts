@@ -54,7 +54,7 @@ describe('tokens do visual V2 (D24, RNF-10)', () => {
     expect(apagam).toEqual([]);
   });
   it('botão na cor do consultório (bg-destaque text-white) não usa outline-current: o contorno fica fora, sobre o cartão branco', () => {
-    // revisão final do Plano 12: o "Continuar conectada" do aviso de sessão tinha foco branco sobre o diálogo branco
+    // revisão final do Plano 12: o "Continuar na sessão" do aviso de sessão tinha foco branco sobre o diálogo branco
     // (modo claro, e sempre no admin). O foco global (--nd-foco) tem ≥ 3:1 contra o cartão nos dois modos.
     const fontes = (readdirSync('src', { recursive: true }) as string[]).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f));
     const classes = fontes.flatMap((f) =>

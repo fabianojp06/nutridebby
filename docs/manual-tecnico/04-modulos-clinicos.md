@@ -49,9 +49,9 @@ Plano 22: `exames_catalogo` e `exames_modelos_solicitacao` também não (bibliot
 
 ### 4.1.1 Contas de nutricionista e convites (US-001, US-002, US-004)
 
-**Arquivos:** `src/modules/plataforma/contas.ts`, `convites.ts`, `dpa.ts`, `suspensao.ts`, `tenant-status.ts`, `admin-bootstrap.ts`.
+**Arquivos:** `src/modules/plataforma/contas.ts`, `convites.ts`, `dpa.ts`, `suspensao.ts`, `tenant-status.ts`, `admin-bootstrap.ts`; desde o Plano 26 (PR 2), `equipe.ts`, `equipe-textos.ts`, `membro-da-equipe.ts` e o termo em `textos-versionados.ts`.
 
-**Tabelas:** `tenants` (sem RLS, sem `tenant_id`), `user`/`account`/`session` (Better Auth, exceção de RLS), `invites` e `consents` (com `tenant_id`, mas em `RLS_EXCEPTIONS`).
+**Tabelas:** `tenants` (sem RLS, sem `tenant_id`), `user`/`account`/`session` (Better Auth, exceção de RLS), `invites` e `consents` (com `tenant_id`, mas em `RLS_EXCEPTIONS`); desde o Plano 26, `equipe_membros` (RLS, `staff_only`; [§2.5.14](02-banco-de-dados.md#2514-equipe-do-consultório-equipets-plano-26)).
 
 | Função | O que faz | Onde |
 |---|---|---|
@@ -60,9 +60,9 @@ Plano 22: `exames_catalogo` e `exames_modelos_solicitacao` também não (bibliot
 | `listarContas(db?, now?, { busca, depois, antes, limite })` | Lista do admin: só `tenants`, `user`, `account`, `invites`. Calcula o estado do convite (`aceito`/`pendente`/`expirado`/`sem_convite`). **P09-07 (Plano 13, T11):** devolve `PaginaDeContas` (`contas`, `anterior`, `proxima`, `busca`), 50 por página (`CONTAS_POR_PAGINA`); cursor = id de um consultório (`?depois=`/`?antes=`, validado como uuid; inválido ou sem linhas = primeira página, mantendo a busca), comparação `(created_at, id)` com a linha do cursor **no banco** (sem perder os microssegundos), ordem `created_at desc, id desc`; busca (`trim`, até 100, `BUSCA_CONTAS_MAX`) por `position(lower(busca) in lower(nome · slug))` ou `exists` de **qualquer** nutricionista do consultório com o e-mail — `%` e `_` literais, parâmetro ligado; **uma linha por consultório** (`left join lateral … limit 1`: o e-mail mostrado é o da primeira nutricionista). As quatro métricas `admin_metricas_*` continuam calculadas para todos os consultórios (D-P5); a página `/admin` só desenha as linhas da página, com o formulário GET `role="search"` ("Buscar por nome, endereço ou e-mail", "Buscar", "Limpar busca", em `GET_PERMITIDOS`), "Nenhuma conta encontrada." e a navegação "Anterior"/"Próxima". Depois de uma ação, o redirecionamento volta à primeira página sem a busca (desvio 8 do Plano 13). **Plano 16 (T17):** a lista ficou enxuta — conta, situação, convite, pacientes ativos, "Consultas no mês" e "Abrir" (o armazenamento fica só na página da conta) (tabela a partir de 640 px; cartões no celular); cotas, liberações, métricas e ações de cada conta foram para a página da conta (`/admin/contas/<id>`), e as ações dela voltam a essa página | `contas.ts:164` |
 | `contaPorId(tenantId, db?, now?)` (Plano 16, T17) | A mesma consulta da lista (`LINHA_DA_CONTA`, só `tenants`/`user`/`account`/`invites`), por id, para a página da conta; id que não é uuid ou não existe → `null` (a página responde 404) | `contas.ts:230` |
 | `resumoDasContas(db?, now?)` (Plano 16, T17) | `{ ativas, suspensas, convitesPendentes }` de **todas** as contas (não só da página ou da busca), com a mesma regra de convite pendente da lista; a linha de resumo do topo de `/admin` | `contas.ts:244` |
-| `criarConvite(q, userId)` | Apaga convites pendentes do usuário e grava um novo; guarda só o SHA-256 do token; devolve o token em claro só para o e-mail | `convites.ts:23` |
-| `inspecionarConvite(q, token)` | Estado do token (`valido`/`expirado`/`invalido`); token fora do formato (`/^[A-Za-z0-9_-]{43}$/`) nem chega ao banco | `convites.ts:35` |
-| `aceitarConvite(input)` | Primeiro acesso: aceite do DPA obrigatório, política de senha, checagem barata do token **antes** do argon2 (T6-R2a), depois transação: trava o usuário, consome o convite com `UPDATE … WHERE usado_em IS NULL`, grava a senha, marca e-mail verificado, registra o DPA | `convites.ts:66` |
+| `criarConvite(q, userId, now, alvo)` | Apaga convites pendentes do usuário e grava um novo; guarda só o SHA-256 do token; devolve o token em claro só para o e-mail. Desde o Plano 26, o alvo é obrigatório: `{ tipo: 'nutri' }` ou `{ tipo: 'recepcao', tenantId }` (72 h nos dois) | `convites.ts:37` |
+| `inspecionarConvite(q, token)` | Estado do token (`valido`/`expirado`/`invalido`); token fora do formato (`/^[A-Za-z0-9_-]{43}$/`) nem chega ao banco. Desde o Plano 26, aceita os tipos `nutri` e `recepcao`, devolve o `tipo` e o nome do consultório e só vale para a conta do papel do convite (a da recepção, do mesmo consultório) | `convites.ts:55` |
+| `aceitarConvite(input)` | Primeiro acesso: token conferido sem trava **antes** de tudo (desde o Plano 26: o tipo do convite decide o aceite), aceite obrigatório (o DPA ou, no convite da recepção, o termo de confidencialidade), política de senha, só então o argon2 (T6-R2a); depois a transação: trava o usuário (e confere que ainda é do papel do convite), consome o convite com `UPDATE … WHERE usado_em IS NULL`, grava a senha, marca e-mail verificado e registra o DPA — ou, na recepção, o `sigilo-equipe-<versão>` com o consultório e o IP, sem DPA | `convites.ts:98` |
 | `registrarAceiteDpa(q, …)` | `INSERT … ON CONFLICT DO NOTHING` em `consents`; só adianta `tenants.dpa_aceito_em` se a linha foi inserida (prova e marca nunca divergem); com a linha da versão já existente e o tenant noutra versão (volta atrás e novo avanço, #153), regrava `dpa_versao` com o `aceito_em` da prova | `dpa.ts:111` |
 | `definirIaLiberada(db, tenantId, liberar, adminId, { producao? })` (Plano 11) | Interruptor "IA" da admin (`tenants.ia_liberada`) com `liberar_ia`/`bloquear_ia` em `admin_actions`; em produção (`o.producao ?? emProducao(getEnv())`) recusa liberar (`IaProvisoriaError`) enquanto o aviso ou o aditivo forem `-provisorio` (D22). Só fora de `withTenant` (gatilho `tenants_interruptores_da_admin`) | `contas.ts:189` |
 | `registrarAceiteAditivoIa(…)` (Plano 11) | Aceite do aditivo de IA em `consents` (`ia-aditivo-<versão>`, com o `tenant_id`) e `tenants.ia_ativada_em` (a data da ativação em vigor: o `coalesce` só a mantém com a IA ativa — aceite de versão nova, clique repetido, `dpa.ts:150-155`; `desativarIa` a zera, `ativacao.ts:48`, e a reativação grava data nova; o primeiro aceite de cada versão fica em `consents.aceito_em`) e `ia_aditivo_versao`; devolve se a linha é nova. Chamada por `ativarIa` ([§10.2](10-ia.md#102-peças)) | `dpa.ts:144` |
@@ -71,14 +71,58 @@ Plano 22: `exames_catalogo` e `exames_modelos_solicitacao` também não (bibliot
 
 Regras e constantes:
 
-- Convite da nutricionista vale 72 h (`CONVITE_NUTRI_VALIDADE_MS`, `convites.ts:11`). Um convite pendente por usuário (índice único parcial em `invites`; spec §7).
+- Convite da nutricionista vale 72 h (`CONVITE_NUTRI_VALIDADE_MS`, `convites.ts:13`). Um convite pendente por usuário (índice único parcial em `invites`; spec §7).
 - CRN: `/^CRN-?\d{1,2}\s?\d{3,6}$/i`, gravado em maiúsculas (`contas.ts:14,29`).
 - Slug: `^[a-z0-9-]{3,40}$` (`contas.ts:35`).
-- Ordem de travas usuário → convite em `aceitarConvite` e `reenviarConvite` (T6-R1) para evitar deadlock 40P01 (`convites.ts:62-65`).
+- Ordem de travas usuário → convite em `aceitarConvite` e `reenviarConvite` (T6-R1) para evitar deadlock 40P01 (`convites.ts:94-97`).
 - DPA: `DPA_VERSAO = '1.1'` (`dpa.ts:16`, Plano 20, US-309: as cláusulas 2 e 5 citam o Financeiro; a 1.0, de 15/10/2026, e a 0.1 provisória ficam em `DPA_TEXTOS`). Mudar a versão obriga novo aceite (`requireNutri`); detalhe em [§3.12](03-autenticacao-e-acesso.md#312-aceites-dpa-e-termo-do-paciente-consents) e [§12.9](12-financeiro.md#129-lgpd-us-307-us-309-f-d16-f-d17-f-d22-f-d23).
 - RN-15 (tenant suspenso): sessões revogadas na hora; o worker consulta `tenantIsActive` antes de gerar exportação e PDF (`exportacao-job.ts`, `plano-pdf-job.ts:38`).
 
 Decisão (Plano 02, "Suspensão"): status + revogação das sessões + bloqueio no login + checagem por requisição, em vez de só um status lido no login.
+
+#### Equipe do consultório (Plano 26, RN-499 a RN-503)
+
+A nutricionista convida até 3 pessoas para a recepção (PD-101). **No PR 2 a Equipe nasce desligada** (`EQUIPE_LIGADA = false`,
+`src/modules/plataforma/equipe-textos.ts:50`; RE-D52): `/painel/configuracoes/equipe` responde `notFound()` depois da
+sessão, o cartão "Equipe" não entra em `CARTOES` do hub de Configurações e toda action da Equipe recusa **antes** de ler a
+sessão (`sessaoDaEquipe`, `src/app/painel/configuracoes/equipe/actions.ts`: um POST direto não grava nada). O módulo não olha
+a constante (os testes o exercitam desligado). A T11b (PR 3) liga a constante junto com as telas de trabalho da recepção:
+no PR 2 os links do Início dela ainda levariam a "Sem permissão".
+
+**Módulo** `src/modules/plataforma/equipe.ts`: só a sessão `nutri` (`exigirNutri`, antes da transação; o gatilho
+`equipe_membros_regras` recusa as outras), tudo num `withTenant` da nutricionista com ator e IP. Acessa `equipe_membros` pela
+RLS e `user`, `account`, `session` e `invites` (exceções de RLS, CLAUDE.md regra 1) sempre pelo consultório da sessão. Cada
+ação grava `recordAudit` da entidade `equipe` ("Equipe" em `ENTIDADE_ROTULO`), **sem paciente**: fica fora do Histórico do
+paciente (registro das operações, DPA cl. 12). O log leva só ids, nunca nome nem e-mail (regra 3, RNF-482).
+
+| Função | O que faz | Onde |
+|---|---|---|
+| `convidarRecepcao(ctx, { nome, email, financeiro })` | Valida (nome de 3 a 80: "Informe o nome (3 a 80 caracteres)"; e-mail normalizado); na transação, trava o consultório (`pg_advisory_xact_lock(hashtext('equipe-tenant'), hashtext(tenantId))`), lê o consultório `FOR SHARE` (suspenso → "Conta suspensa: não é possível convidar agora."), conta as ativas (3 → "O consultório pode ter até 3 pessoas ativas na recepção."), toma a trava global do e-mail (`hashtext('user-email')`) e procura o e-mail em **todas** as contas (achou → "Este e-mail já tem uma conta no NutriDebby. Use outro e-mail para a recepção.", sem dizer de quem, RE-D34); cria a conta `recepcao` sem senha, a linha de `equipe_membros`, o convite de 72 h e o e-mail `convite_recepcao`, e grava `criar`. O `23505` de `user_email_unique` vira a mesma mensagem | `equipe.ts:112` |
+| `reenviarConviteRecepcao(ctx, membroId)` | Trava a linha e a conta (nesta ordem, como `reenviarConvite`, T6-R1); desativada → não encontrada; consultório suspenso → recusa; já tem senha → "A senha já foi criada. Se a pessoa esqueceu, use \"Esqueci minha senha\"."; convite novo (o anterior deixa de valer) e o e-mail; grava `alterar` | `equipe.ts:172` |
+| `definirPermissaoFinanceiro(ctx, membroId, financeiro)` | Grava `equipe_membros.financeiro` e `alterar`; vale na próxima requisição da pessoa (a sessão relê a linha, RN-502) | `equipe.ts:198` |
+| `desativarRecepcao(ctx, membroId)` | Na mesma transação: `desativada_em`/`desativada_por` (o gatilho usa o relógio do banco e a usuária da sessão), apaga as linhas de `session` da conta e o convite pendente; a linha e a conta nunca são apagadas (RE-D28); já desativada, nada muda; grava `alterar` | `equipe.ts:216` |
+| `reativarRecepcao(ctx, membroId)` | Sob a mesma trava do consultório, respeitando o limite de 3; a senha e o 2FA continuam; já ativa, nada muda; grava `alterar` | `equipe.ts:237` |
+| `listarEquipe(ctx)` | A tela Equipe: cada pessoa na ordem do convite, com a situação — "Acesso desativado em {data}", "Ativo" (senha criada), "Convite enviado (vale até {dd/mm/aaaa} às {hh:mm})" ou "Convite vencido" —, a permissão e o "Último acesso: {data} às {hora}" (`user.ultimo_acesso_em`, gravado no login da recepção) ou "Ainda não entrou"; `limiteAtingido` esconde "Convidar recepcionista". Sem `auditRead` (não é dado de paciente) | `equipe.ts:274` |
+
+`lerMembroDaEquipe(db, tenantId, userId)` (`src/modules/plataforma/membro-da-equipe.ts:22`) é a leitura que a sessão faz da
+própria linha, na sessão `recepcao` (a RLS só mostra a dela): ativa, `financeiro` (falso se desativada) e `termoAceito`
+(o `sigilo-equipe-<versão>` em vigor em `consents`, para esta conta e este consultório); sem linha → `null`, que a
+sessão trata como desativada ([§3.6](03-autenticacao-e-acesso.md#evaluatesession-linha-158)).
+
+**Tela** (`src/app/painel/configuracoes/equipe/{page.tsx,actions.ts,convidar-form.tsx,linha.tsx}`, `requireNutri`, nunca
+`requireEquipe`; textos de `MSG_EQUIPE`, `equipe-textos.ts:56-117`, neutros em gênero): título "Equipe", a explicação do
+que a recepção vê, o formulário "Convidar recepcionista" (Nome, E-mail, "Permitir acesso ao Controle Financeiro", "Enviar
+convite") ou, no limite, o aviso; a tabela (Nome, E-mail, Situação, Financeiro, Último acesso, Ações) numa região focável,
+com "Reenviar convite", "Salvar permissão", "Desativar" e "Reativar" (`aria-label` "{ação} {nome}") e as confirmações
+"Desativar {nome}? …"/"Reativar {nome}? …". Resultado por `?ok=` (`convidada`, `reenviado`, `permissao`, `desativada`,
+`reativada`) com o marcador `r` numa região `role="status"` e o foco na linha, no aviso do limite, no erro (`?erro=`) ou no
+título. Guia `equipe` v1 em `src/modules/ajuda/conteudo.ts` (antes do `configuracoes`, cuja regex engoliria a rota), com os
+passos `convidar` e `permissao-financeiro`. A rota está em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts`): no PR 2 o axe vê o
+404; o axe de verdade é o da T11b. Convite e primeiro acesso da recepção: [§3.10](03-autenticacao-e-acesso.md#convite-da-recepção-plano-26-rn-499-rn-500);
+o termo: [§3.12](03-autenticacao-e-acesso.md#312-aceites-dpa-e-termo-do-paciente-consents). Testes:
+`src/modules/plataforma/equipe.test.ts` (convite, limite e corrida de dois convites, e-mail em uso, suspensão, reenvio,
+permissão, desativar e reativar, nada de nome ou e-mail no log), `src/app/painel/configuracoes/equipe/actions.test.ts`
+(com `EQUIPE_LIGADA = false`, cada action recusa e nada é gravado) e `page.test.ts`.
 
 ### 4.1.2 Perfil e marca (US-005)
 
@@ -246,12 +290,14 @@ Decisão (Plano 08, D15): denominador do CS-02 = ativos **com conta**, não todo
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `gravarTema(userId, tema)` | `user.tema` ∈ `sistema`/`claro`/`escuro` | `preferencias.ts:16` |
-| `lerGuia(userId)` | `user.guia` (`{id: {v, estado}}`) | `preferencias.ts:22` |
-| `marcarGuia(userId, id, versao, estado)` | Um `UPDATE` com `jsonb_set` atômico: duas abas não se apagam; versão menor nunca sobrescreve; "visto" não rebaixa um tour concluído ou dispensado da mesma versão | `preferencias.ts:32` |
+| `gravarTema(userId, tema)` | `user.tema` ∈ `sistema`/`claro`/`escuro` | `preferencias.ts:17` |
+| `lerGuia(userId)` | `user.guia` (`{id: {v, estado}}`) | `preferencias.ts:23` |
+| `marcarGuia(userId, id, versao, estado)` | Um `UPDATE` com `jsonb_set` atômico: duas abas não se apagam; versão menor nunca sobrescreve; "visto" não rebaixa um tour concluído ou dispensado da mesma versão | `preferencias.ts:33` |
 | `proximoTema(atual, aparelhoEscuro)` | O botão alterna o que a usuária vê | `preferencias-tipos.ts:7` |
 
-Decisão D17: colunas na `user` (não cookie, não `localStorage`, não tabela nova). O tema chega à sessão pelo `additionalFields` do Better Auth; o servidor desenha o tema sem piscar. O `userId` vem sempre de `requireNutri`.
+Decisão D17: colunas na `user` (não cookie, não `localStorage`, não tabela nova). O tema chega à sessão pelo `additionalFields` do Better Auth; o servidor desenha o tema sem piscar. O `userId` vem sempre da sessão: `requireNutri` nas Configurações e, desde o Plano 26, `requireEquipe` nas duas actions do cabeçalho (a nutricionista ou a recepção).
+
+**Plano 26 (T8, RE-D42): manual guiado por papel.** `Guia.papeis` (`src/modules/ajuda/conteudo.ts`) diz quem vê o guia — no tour, na gaveta e no manual completo; sem o campo, só a nutricionista (`PAPEIS_PADRAO = ['nutri']`, `papeisDoGuia`), e por isso guia novo de outro plano continua dela sem ninguém lembrar. `guiaDaRota(caminho, papel)` devolve o primeiro guia da lista que casa com o caminho **entre os do papel**; o padrão `'nutri'` do segundo parâmetro é só para os testes antigos — todo chamador fora dos testes passa o papel da sessão (guarda de fonte em `conteudo.test.ts`). `guiasDoPapel(papel)` é o manual completo de `/painel/ajuda` (`src/app/painel/ajuda/page.tsx`, com o papel de `requireEquipe`), sem o guia de tela desligada: o `equipe` fica fora do índice e das seções enquanto `EQUIPE_LIGADA` for falso (code review do PR 2; continua em `GUIAS` e em `guiaDaRota`). `ID_TOUR_DO_INICIO` decide o tour que abre sozinho no Início e o `?tour=` do "Rever o tour": `boas-vindas` para a nutricionista, `recepcao-inicio` para a recepção — o `GuiaDoPainel` (`src/app/painel/guia/guia-do-painel.tsx`) recebe o `papel` do layout pelo `CabecalhoPainel`, e o `MenuConta` da recepção leva a `/painel?tour=recepcao-inicio`. Os guias da recepção são próprios (`recepcao-*`, `papeis: ['recepcao']`), não variantes dos da nutricionista: progresso e versão separados, e nenhum cita Configurações, Realizada, Iniciar atendimento, Ver bloqueados, etiqueta nem arquivar (guarda em `conteudo.test.ts`). No PR 2 há o `recepcao-inicio` (v1, `padrao` `/^\/painel$/`, alvos `menu`, `agenda-hoje`, `presenca`, `tema`, `ajuda`, `conta`) e o `recepcao-seguranca` (abaixo), antes do `financeiro`, que continua o último da lista; os de pacientes, cadastro, agenda e financeiro chegam com as telas dela no PR 3. A Segurança tem dois guias com o mesmo `padrao` (`/^\/conta\/seguranca$/`): `seguranca` (v1, só da nutricionista, com o texto de produção; o admin vê este, como antes) e `recepcao-seguranca` (v1, `papeis: ['recepcao']`: o 2FA obrigatório, o código a cada login e os códigos de recuperação, sem a assinatura de documentos; sem o celular e sem códigos de recuperação, "fale com a nutricionista para pedir ao suporte que reinicie a verificação" — quem reinicia o 2FA é o admin, P09-02; texto RASCUNHO, vai à tabela de textos na T12); `AjudaSeguranca` (`src/app/conta/seguranca/ajuda-seguranca.tsx`) pede o guia do papel da sessão a `guiaDaRota`. `marcarGuiaAction` e `alternarTemaAction` usam `requireEquipe` (o `userId` é o da sessão, da nutricionista ou da recepção); `escolherTemaAction` (hub de Configurações) continua `requireNutri`.
 
 ---
 
@@ -272,7 +318,7 @@ Decisão D17: colunas na `user` (não cookie, não `localStorage`, não tabela n
 | `listarPacientes(ctx, filtro)` | Busca sem acento por nome, **nome social** ou e-mail (`unaccent … ilike`, curingas escapados), filtro por aba (`ativos`, `inativos`, `todos`, `bloqueados`) e etiqueta, até 500 linhas; ordem `nome`/`nome_desc` pelo nome exibido (`coalesce(nome_social, nome)` sem acento e sem maiúsculas), `recentes`/`antigos` por `created_at`, empate pelo id (Plano 18, RN-270–RN-272). Filtrar por etiqueta audita uma leitura de "etiquetas" por paciente devolvido | `pacientes.ts:291` |
 | `filtroDaUrl(searchParams)` | Plano 18: o filtro da lista a partir da URL; `?aba=` só aceita as três abas, `?situacao=bloqueados` (o "Ver bloqueados"), os links antigos `?status=arquivado` (→ `inativos`) e `?status=bloqueado`; valor desconhecido cai no padrão (`ativos`, `nome`) | `pacientes.ts:270` |
 | `situacoesDoAcesso(ctx, pacientes)` | Plano 18 (§8.1): a coluna "Acesso ao app" da lista numa consulta só (convite mais recente de cada paciente sem conta, as regras de `situacaoDoAcesso`); só lê `invites`, filtrando pelo tenant | `convite-paciente.ts:105` |
-| `gravarCadastro(tx, …)` / `cadastroDoPaciente(ctx, id)` | Plano 18: grava o cadastro complementar (pré-checagem do CPF sob trava) / devolve os valores à aba Perfil com `auditRead` (entidade `patients`) — [§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2) | `cadastro.ts:287`, `:321` |
+| `gravarCadastro(tx, …)` / `cadastroDoPaciente(ctx, id)` | Plano 18: grava o cadastro complementar (pré-checagem do CPF sob trava) / devolve os valores à aba Perfil com `auditRead` (entidade `patients`) — [§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2) | `cadastro.ts:305`, `:339` |
 
 Autorização de WhatsApp (`autorizacaoWhatsapp`, `pacientes.ts:113`): o formulário da nutricionista nunca desfaz uma escolha do paciente. Marcar só grava se não há opt-in nem opt-out; desmarcar só apaga opt-in de origem `nutri`.
 
@@ -856,12 +902,12 @@ pode receber na cópia dos dados), ficam numa tabela filha, uma linha por pacien
 
 | Peça | O que faz | Onde |
 |---|---|---|
-| `CAMPOS_DO_CADASTRO`, `CadastroComplementar` | Os 17 campos, na ordem do formulário (`telefoneFixo` ↔ `telefone_fixo_e164`) | `cadastro.ts:42`, `:67` |
-| `validarCadastro` / `formaDoCadastro` | As regras dos CHECKs da tabela, numa fonte só: o `pacienteSchema` usa `formaDoCadastro` (zod) e `gravarCadastro` passa os valores de novo por `validarCadastro` antes de gravar — o 23514 levaria a linha inteira ao log do Postgres. Listas fechadas e rótulos em `cadastro-textos.ts` (sem banco: o formulário cliente importa de lá) | `cadastro.ts:181`, `:210`; `cadastro-textos.ts:19` |
+| `CAMPOS_DO_CADASTRO`, `CadastroComplementar` | Os 17 campos, na ordem do formulário (`telefoneFixo` ↔ `telefone_fixo_e164`) | `cadastro.ts:43`, `:68` |
+| `validarCadastro` / `formaDoCadastro` | As regras dos CHECKs da tabela, numa fonte só: o `pacienteSchema` usa `formaDoCadastro` (zod) e `gravarCadastro` passa os valores de novo por `validarCadastro` antes de gravar — o 23514 levaria a linha inteira ao log do Postgres. Listas fechadas e rótulos em `cadastro-textos.ts` (sem banco: o formulário cliente importa de lá) | `cadastro.ts:185`, `:214`; `cadastro-textos.ts:19` |
 | `normalizarCpf`, `cpfValido`, `formatarCpf` | Só os 11 dígitos; dígitos verificadores (rejeita os 11 iguais); "000.000.000-00" | `cpf.ts:8`, `:21`, `:27` |
-| `gravarCadastro(tx, …)` | Na transação de `criarPaciente`/`atualizarPaciente` (o paciente já travado ou recém-criado). Só os campos **enviados** mudam: chave ausente mantém o gravado; `''`/`null` esvazia. A linha só nasce com algum campo preenchido (*upsert* em `(tenant_id, patient_id)`); depois, esvaziar tudo grava nulo | `cadastro.ts:287` |
-| `conferirCpf` (D23, RN-261) | Antes do INSERT, `pg_advisory_xact_lock(hashtext('patient_cadastro_cpf'), hashtext(tenant_id || ':' || cpf))` e a busca do outro paciente do consultório com o mesmo CPF: dois cadastros iguais ao mesmo tempo se enfileiram e o segundo acha o primeiro. Repetido → `CpfRepetidoError` com `outroId` (nulo quando o outro está bloqueado ou anonimizado: sem link). O índice único `patient_cadastro_cpf_unico` é só a última defesa (o 23505 levaria o CPF ao log) | `cadastro.ts:269-278`, `:214` |
-| `cadastroDoPaciente(ctx, id)` | **O único lugar que lê os valores** (D20): a aba Perfil. Grava `auditRead` (entidade `patients`, `entidade_id` = id da linha de `patient_cadastro`, "Cadastro do paciente"); sem linha, `null` sem auditar | `cadastro.ts:321` |
+| `gravarCadastro(tx, …)` | Na transação de `criarPaciente`/`atualizarPaciente` (o paciente já travado ou recém-criado). Só os campos **enviados** mudam: chave ausente mantém o gravado; `''`/`null` esvazia. A linha só nasce com algum campo preenchido (*upsert* em `(tenant_id, patient_id)`); depois, esvaziar tudo grava nulo | `cadastro.ts:305` |
+| `conferirCpf` (D23, RN-261) | Antes do INSERT, `pg_advisory_xact_lock(hashtext('patient_cadastro_cpf'), hashtext(tenant_id || ':' || cpf))` e a busca do outro paciente do consultório com o mesmo CPF: dois cadastros iguais ao mesmo tempo se enfileiram e o segundo acha o primeiro. Repetido → `CpfRepetidoError` com `outroId` (nulo quando o outro está bloqueado ou anonimizado: sem link). Plano 26 (RE-D71): na sessão da recepção, que não vê o cadastro do paciente bloqueado nem do anonimizado (RLS), sob a mesma trava ela também pergunta a `app_cpf_em_uso` (`SECURITY DEFINER`, só sim/não, qualquer paciente do consultório; o papel vem de `app_current_role()` da própria transação): sim **ou nulo** (falha fechada) vira `CpfRepetidoError(null)`, sem o link. O índice único `patient_cadastro_cpf_unico` é só a última defesa (o 23505 levaria o CPF ao log) | `cadastro.ts:268-297`, `:218` |
+| `cadastroDoPaciente(ctx, id)` | **O único lugar que lê os valores** (D20): a aba Perfil. Grava `auditRead` (entidade `patients`, `entidade_id` = id da linha de `patient_cadastro`, "Cadastro do paciente"); sem linha, `null` sem auditar | `cadastro.ts:339` |
 
 Regras de exibição (D4, RN-262): o CPF só aparece no campo do Perfil/Novo paciente e no `dados.json`. Nunca na lista, no
 cabeçalho, no Início, no "No app", no `prontuario.pdf`, em URL, em log (da aplicação e do Postgres), no Sentry, em
@@ -1459,7 +1505,7 @@ Plano 18, PR 1 (ficha: Início, Perfil, cabeçalho e registro de seções; confe
     o fuso do tenant converte os instantes no dia (`diaNoFuso`, `secoes/comum.ts:14`, RN-06).
 14. **Resolvida no PR 2 (Tarefa 9): o guia `inicio-paciente` foi à v2 com a frase do selo e o passo `no-app-cartao`.**
     Registro original — **Spec §8.3: o passo `secoes-inicio` do guia `inicio-paciente` termina com "O selo No app marca o que o paciente vê
-    no app."** A v1 sai sem essa frase (`src/modules/ajuda/conteudo.ts:170`), porque o selo só existe a partir da
+    no app."** A v1 sai sem essa frase (o passo hoje em `src/modules/ajuda/conteudo.ts:183`), porque o selo só existe a partir da
     Tarefa 9 (PR 2), que leva o guia à v2. O teste "Plano 18 (§8.3)…" de `conteudo.test.ts` garante que nenhum texto do
     guia cite "No app". Pendência do PR 2, não erro.
 15. **Resolvida no PR 2 (Tarefas 7b e 9; [§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)).**
@@ -1530,3 +1576,17 @@ Plano 22, PR 3 ("Mostrar no app", Tarefa 6; [§4.2.13](#4213-mostrar-no-app-plan
     chama direto `examesLiberadosDoPaciente`, que já só grava o `auditRead` com itens (uma consulta a menos, mesmo
     efeito). `temExameLiberado` fica com a moldura.
 30. **EP-D59.** A solicitação de exames (Tarefa 8) ainda não está na `main`: o cenário dela em `no-app.test.ts` entra na T8.
+
+Plano 26, PR 2 (Equipe; conferido no branch `plano-26-relatorios-recepcionista` em 24/11/2026, T4 a T8 prontas, `02c82ea7..bfe38520`):
+
+31. **Spec do Plano 26, §4.2: `membroAtivo(tx, userId)` em `equipe.ts`.** O código usa `lerMembroDaEquipe(db, tenantId,
+    userId)` em `src/modules/plataforma/membro-da-equipe.ts` (a sessão importa sem o módulo da Equipe), que também devolve
+    `termoAceito`.
+32. **Spec do Plano 26, RN-499: a busca do e-mail sob a trava do consultório.** O código toma também uma trava global do
+    e-mail (`hashtext('user-email')`, `equipe.ts:137`), depois da do consultório: dois consultórios convidando o mesmo
+    e-mail ao mesmo tempo não chegam ao `23505`, cujo texto levaria o e-mail ao log (revisão da P26-07).
+33. **Spec do Plano 26, §6.2: lista fechada dos textos.** Textos novos sem fonte na spec, marcados RASCUNHO no código:
+    `MSG_RECEPCAO.acessoDesativado.termoPendente` e `MSG_EQUIPE.convite.expirado` (`equipe-textos.ts:21-25`, `:114-115`),
+    `MSG_RECEPCAO.emailDaConta` ("E-mail da conta: {e-mail}.", `:36-37`), `MSG_INICIO_RECEPCAO`
+    (`src/modules/agenda/inicio.ts:39`) e o guia `recepcao-seguranca` (`src/modules/ajuda/conteudo.ts:559`); entram na
+    tabela de textos do plano na T12.

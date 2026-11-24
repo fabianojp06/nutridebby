@@ -125,6 +125,7 @@ export const STAFF_ONLY: Record<string, string> = {
   locais_atendimento: 'link da sala: fora do paciente e do público; projeções `app_locais_para_agendamento`/`app_local_da_consulta` (Plano 23, AG-D4)',
   recados: 'Plano 25 (RN-462): o recado do consultório e o filtro (etiquetas) — só a equipe; o paciente lê a cópia na própria conversa',
   chat_avisos_nutri: 'Plano 25 (CH-D70, RN-458): preferência e marca do último aviso por e-mail à nutricionista — pela data da marca, o paciente saberia que outro paciente escreveu nas últimas 2 h; a sessão de paciente só passa pela função app_chat_aviso_nutri_devido',
+  equipe_membros: 'Plano 26 (RN-502, RN-503): a equipe do consultório (contas da recepção, permissão do Financeiro, desativação) — só a equipe; a recepção lê só a própria linha',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
@@ -302,4 +303,325 @@ export async function findConteudoAudienciaViolations(db: Pool | PoolClient): Pr
     return [];
   });
   return [...leitura, ...escrita];
+}
+
+/**
+ * Plano 26 (RN-505, RE-D15): o que a sessão `recepcao` pode tocar, só com estes comandos (matriz da spec §4.3). Toda outra
+ * tabela com tenant_id tem `recepcao_negada` (app_enable_tenant_rls e o laço da rls_recepcao). Liberar =
+ * `SELECT app_allow_recepcao(...)` + entrada aqui; a condição extra (paciente visível, financeiro, notificação da agenda,
+ * própria linha) é uma política `recepcao_cond_<assunto>` em RECEPCAO_CONDICOES.
+ */
+export const RECEPCAO_LIBERADO: Record<string, { comandos: readonly ComandoPublico[]; motivo: string }> = {
+  equipe_membros: { comandos: ['select'], motivo: 'RN-502, RN-503: a própria linha (permissão do Financeiro e situação da conta), pela condição recepcao_cond_propria_linha' },
+  // T5a (bloco 3 da rls_recepcao; spec §4.3). A do Plano 23 (locais_atendimento) entrou na T5b.
+  // public_booking_requests fica de fora: pedido de pessoa nova é da nutricionista (RE-D59)
+  patients: { comandos: ['select', 'insert', 'update'], motivo: 'RE-D25, RN-508: cadastro; só paciente visível (recepcao_cond_paciente_visivel); colunas pelo gatilho patients_da_recepcao (T5b)' },
+  patient_cadastro: { comandos: ['select', 'insert', 'update'], motivo: 'RN-508, RE-D38: cadastro complementar sem observação nem identidade de gênero (gatilho, T5b); só de paciente visível' },
+  appointments: { comandos: ['select', 'insert', 'update'], motivo: 'RN-509: agenda; só de paciente visível; colunas e transições pelo gatilho appointments_da_recepcao (T5b)' },
+  notifications: { comandos: ['select', 'insert', 'update'], motivo: 'RN-507: lembretes e avisos da consulta — só TIPOS_DA_AGENDA, só de paciente visível' },
+  availability_rules: { comandos: ['select'], motivo: 'RN-509: horários livres e grade da agenda' },
+  availability_blocks: { comandos: ['select'], motivo: 'RN-509: grade da agenda; o motivo do bloqueio não sai do módulo' },
+  audit_log: { comandos: ['insert'], motivo: 'RN-516: o gatilho de auditoria e o auditRead gravam com o papel de quem age; a recepção não lê a trilha' },
+  fin_configuracoes: { comandos: ['select'], motivo: 'RN-506: valor da consulta nos formulários, com a permissão do Financeiro (recepcao_cond_financeiro)' },
+  fin_categorias: { comandos: ['select'], motivo: 'RN-506: categorias nos formulários, com a permissão do Financeiro (recepcao_cond_financeiro)' },
+  fin_lancamentos: { comandos: ['select', 'insert', 'update'], motivo: 'RN-506: Financeiro com a permissão; paciente visível ou sem paciente; fin_lancamentos_regras "como nutri, com falha fechada"' },
+  // T5b (Plano 23, spec §4.3)
+  locais_atendimento: { comandos: ['select'], motivo: 'filtro e seletor de local da agenda; a sala (link_sala) não sai do módulo' },
+};
+
+/** O texto que o Postgres guarda da negação de app_deny_recepcao/app_allow_recepcao, normalizado como o NEGA_PACIENTE. */
+const NEGA_RECEPCAO = normalizarExpressao("app_current_role() IS DISTINCT FROM 'recepcao'::text");
+
+/**
+ * Plano 26 (RN-505): as condições extras da recepção — política RESTRICTIVE `recepcao_cond_<assunto>`, com o comando declarado
+ * e a expressão INTEIRA esperada no USING e no WITH CHECK (`null` = sem a cláusula), escrita como o Postgres a guarda
+ * (`pg_policies.qual`/`with_check`, com os `::text`) e comparada por igualdade depois de normalizar (sem espaços nem
+ * parênteses), como a `recepcao_negada`: conferir por trecho deixaria passar `… OR NOT (…)` ou `… OR true` (revisão da T4).
+ * Toda expressão declarada começa pela negação `NEGA_RECEPCAO` seguida de OR (a condição só restringe a recepção).
+ * Tabela → política → regra.
+ */
+export type CondicaoDaRecepcao = {
+  comando: 'ALL' | 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
+  using: string | null;
+  withCheck: string | null;
+  motivo: string;
+};
+/**
+ * RN-508 / RE-D40 (T5a): a condição do paciente visível numa tabela filha — EXISTS no paciente do mesmo consultório, nem
+ * bloqueado nem anonimizado, com os filtros escritos (não só a RLS de `patients` dentro da subconsulta). `semPaciente`: a linha
+ * sem paciente também passa (lançamento do Financeiro sem paciente).
+ */
+const pacienteVisivelPor = (t: string, semPaciente = false): CondicaoDaRecepcao => {
+  const e =
+    `app_current_role() IS DISTINCT FROM 'recepcao'::text OR ${semPaciente ? 'patient_id IS NULL OR ' : ''}EXISTS (SELECT 1 FROM patients p ` +
+    `WHERE p.tenant_id = ${t}.tenant_id AND p.id = ${t}.patient_id AND p.status <> 'bloqueado'::text AND p.anonimizado_em IS NULL)`;
+  return { comando: 'ALL', using: e, withCheck: e, motivo: 'RN-508, RE-D40: só linha de paciente visível (nem bloqueado nem anonimizado); escondido = falha fechada' };
+};
+/** RN-506 (T5a): a permissão do Financeiro, dentro de `(SELECT …)` — um InitPlan por consulta, não uma chamada por linha. */
+const FINANCEIRO: CondicaoDaRecepcao = {
+  comando: 'ALL',
+  using: "app_current_role() IS DISTINCT FROM 'recepcao'::text OR (SELECT app_recepcao_tem_financeiro() AS app_recepcao_tem_financeiro)",
+  withCheck: "app_current_role() IS DISTINCT FROM 'recepcao'::text OR (SELECT app_recepcao_tem_financeiro() AS app_recepcao_tem_financeiro)",
+  motivo: 'RN-502, RN-506: só a recepção ativa com a permissão do Financeiro (app_recepcao_tem_financeiro)',
+};
+/** RN-507 (T5a): a lista é TIPOS_DA_AGENDA (src/modules/notificacoes/tipos.ts; tipos.test.ts compara as três). */
+const TIPOS_DA_AGENDA_NA_POLITICA =
+  "app_current_role() IS DISTINCT FROM 'recepcao'::text OR tipo = ANY (ARRAY['lembrete_24h'::text, 'lembrete_2h'::text, " +
+  "'consulta_marcada'::text, 'consulta_cancelada'::text, 'resposta_confirmacao'::text, 'resposta_remarcar'::text, " +
+  "'pedido_nao_confirmado'::text])";
+
+export const RECEPCAO_CONDICOES: Record<string, Record<string, CondicaoDaRecepcao>> = {
+  equipe_membros: {
+    recepcao_cond_propria_linha: {
+      comando: 'SELECT',
+      using: "app_current_role() IS DISTINCT FROM 'recepcao'::text OR user_id = app_current_user()",
+      withCheck: null,
+      motivo: 'RN-503: a recepção lê só a própria linha',
+    },
+  },
+  // T5a (bloco 3)
+  patients: {
+    recepcao_cond_paciente_visivel: {
+      comando: 'ALL',
+      using: "app_current_role() IS DISTINCT FROM 'recepcao'::text OR (status <> 'bloqueado'::text AND anonimizado_em IS NULL)",
+      withCheck: "app_current_role() IS DISTINCT FROM 'recepcao'::text OR (status <> 'bloqueado'::text AND anonimizado_em IS NULL)",
+      motivo: 'RN-508, RE-D35: a recepção não vê nem leva a bloqueado o paciente bloqueado ou anonimizado',
+    },
+  },
+  patient_cadastro: { recepcao_cond_paciente_visivel: pacienteVisivelPor('patient_cadastro') },
+  appointments: { recepcao_cond_paciente_visivel: pacienteVisivelPor('appointments') },
+  notifications: {
+    recepcao_cond_paciente_visivel: pacienteVisivelPor('notifications'),
+    recepcao_cond_notificacoes_da_agenda: {
+      comando: 'ALL',
+      using: TIPOS_DA_AGENDA_NA_POLITICA,
+      withCheck: TIPOS_DA_AGENDA_NA_POLITICA,
+      motivo: 'RN-507: só os tipos da agenda (sem convite_paciente, RE-D37; nada clínico)',
+    },
+  },
+  fin_configuracoes: { recepcao_cond_financeiro: FINANCEIRO },
+  fin_categorias: { recepcao_cond_financeiro: FINANCEIRO },
+  fin_lancamentos: { recepcao_cond_financeiro: FINANCEIRO, recepcao_cond_paciente_visivel: pacienteVisivelPor('fin_lancamentos', true) },
+};
+
+const NOME_DA_RECEPCAO = /^recepcao_(negada|sem_(select|insert|update|delete)|cond_[a-z0-9_]+)$/;
+
+/**
+ * Toda tabela com tenant_id (fora de RLS_EXCEPTIONS) nega a recepção (`recepcao_negada`), ou tem exatamente as `recepcao_sem_*`
+ * dos comandos que RECEPCAO_LIBERADO não libera — nome, comando, RESTRICTIVE e a expressão (como a B-5). Toda política
+ * `recepcao_*` do schema public segue um dos três padrões; toda `recepcao_cond_*` é RESTRICTIVE e bate com RECEPCAO_CONDICOES.
+ */
+export async function findRecepcaoViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
+  const { rows } = await db.query<{ t: string; pol: string; cmd: string; permissive: string; qual: string | null; with_check: string | null }>(
+    `select tablename as t, policyname as pol, cmd, permissive, qual, with_check from pg_policies
+      where schemaname = 'public' and policyname like 'recepcao%'`,
+  );
+  const out: RlsViolation[] = [];
+  const nega = (r: { qual: string | null; with_check: string | null }, comExpressao: 'qual' | 'with_check' | 'ambas') =>
+    comExpressao === 'ambas'
+      ? normalizarExpressao(r.qual) === NEGA_RECEPCAO && normalizarExpressao(r.with_check) === NEGA_RECEPCAO
+      : normalizarExpressao(r[comExpressao]) === NEGA_RECEPCAO;
+
+  for (const r of rows) {
+    if (!NOME_DA_RECEPCAO.test(r.pol)) {
+      out.push({ table: r.t, problem: `política ${r.pol} fora dos padrões (recepcao_negada, recepcao_sem_<cmd>, recepcao_cond_<assunto>)` });
+    }
+  }
+
+  const condicoes = rows.filter((r) => r.pol.startsWith('recepcao_cond_'));
+  for (const r of condicoes) {
+    if (r.permissive !== 'RESTRICTIVE') out.push({ table: r.t, problem: `condição ${r.pol} PERMISSIVE (toda condição da recepção é RESTRICTIVE)` });
+    const regra = RECEPCAO_CONDICOES[r.t]?.[r.pol];
+    if (!regra) {
+      out.push({ table: r.t, problem: `condição ${r.pol} sem entrada em RECEPCAO_CONDICOES` });
+      continue;
+    }
+    const declaradas = [regra.using, regra.withCheck].filter((e): e is string => e !== null);
+    if (declaradas.length === 0 || !declaradas.every((e) => normalizarExpressao(e).startsWith(`${NEGA_RECEPCAO}or`))) {
+      out.push({ table: r.t, problem: `condição ${r.pol} declarada em RECEPCAO_CONDICOES sem começar pela negação da recepção` });
+      continue;
+    }
+    const certa =
+      r.cmd === regra.comando &&
+      normalizarExpressao(r.qual) === normalizarExpressao(regra.using) &&
+      normalizarExpressao(r.with_check) === normalizarExpressao(regra.withCheck);
+    if (r.permissive === 'RESTRICTIVE' && !certa) out.push({ table: r.t, problem: `condição ${r.pol} sem o comando ou a expressão de RECEPCAO_CONDICOES` });
+  }
+  for (const [table, pols] of Object.entries(RECEPCAO_CONDICOES)) {
+    for (const pol of Object.keys(pols)) {
+      if (!condicoes.some((r) => r.t === table && r.pol === pol)) out.push({ table, problem: `sem a condição ${pol} (RECEPCAO_CONDICOES)` });
+    }
+  }
+
+  for (const table of await listTenantTables(db)) {
+    if (RLS_EXCEPTIONS[table]) continue;
+    const pols = rows.filter((r) => r.t === table && !r.pol.startsWith('recepcao_cond_'));
+    const liberado = RECEPCAO_LIBERADO[table];
+    if (!liberado) {
+      const negada = pols.length === 1 && pols[0].pol === 'recepcao_negada' && pols[0].cmd === 'ALL' && pols[0].permissive === 'RESTRICTIVE' && nega(pols[0], 'ambas');
+      if (!negada) {
+        out.push({
+          table,
+          problem: pols.some((p) => p.pol !== 'recepcao_negada')
+            ? 'liberada à recepção sem entrada em RECEPCAO_LIBERADO'
+            : 'sem política recepcao_negada (app_enable_tenant_rls/app_deny_recepcao)',
+        });
+      }
+      continue;
+    }
+    const negados = COMANDOS.filter((c) => !liberado.comandos.includes(c));
+    const esperadas = negados.map((c) => `recepcao_sem_${c}`).sort();
+    const certas = pols.filter(
+      (p) =>
+        p.permissive === 'RESTRICTIVE' &&
+        negados.some((c) => p.pol === `recepcao_sem_${c}` && p.cmd === c.toUpperCase() && nega(p, c === 'insert' ? 'with_check' : 'qual')),
+    );
+    if (pols.length !== certas.length || JSON.stringify(certas.map((p) => p.pol).sort()) !== JSON.stringify(esperadas)) {
+      out.push({ table, problem: `políticas da recepção diferentes de RECEPCAO_LIBERADO (esperado ${esperadas.join(', ') || 'nenhuma'})` });
+    }
+  }
+  return out;
+}
+
+/**
+ * Plano 26 (RN-511, spec §4.4): a decisão para a sessão `recepcao` de cada função do schema public que olha o papel — `prosrc`
+ * cita `'nutri'`, `app_current_role` ou `current_setting('app.role'` — e de cada gatilho de tabela de RECEPCAO_LIBERADO que lê
+ * `patients` (pela RLS de quem age, o paciente escondido da recepção volta vazio, e uma guarda `IF v_status = …`/`EXISTS`
+ * passaria calada, RE-D40). Decisões: **recusa** (o ramo dela cai no erro, no vazio ou na RLS), **como nutri** (o ramo da
+ * nutricionista vale para ela), **não se aplica** (tabela negada à recepção, ou helper de DDL), **sem mudança** (vale igual
+ * para todo papel) e **só recepcao** (peça nova deste plano, que só age na sessão dela). Função nova sem decisão quebra o CI
+ * (findPapelEmFuncoesViolations); nome que não existe mais também.
+ */
+export type DecisaoDaRecepcao = 'recusa' | 'como nutri' | 'não se aplica' | 'sem mudança' | 'só recepcao';
+const DDL = 'helper de DDL (cria ou troca políticas na migration); não decide nada em tempo de execução';
+const SO_WORKER = 'só o contexto `worker` (anonimização); a recepção recebe a exceção';
+export const FUNCOES_COM_PAPEL: Record<string, { decisao: DecisaoDaRecepcao; motivo: string }> = {
+  // helpers de DDL e de contexto
+  app_allow_publico: { decisao: 'não se aplica', motivo: DDL },
+  app_allow_recepcao: { decisao: 'não se aplica', motivo: DDL },
+  app_deny_publico: { decisao: 'não se aplica', motivo: DDL },
+  app_deny_paciente_escrita: { decisao: 'não se aplica', motivo: DDL },
+  app_deny_recepcao: { decisao: 'não se aplica', motivo: DDL },
+  app_enable_patient_rls: { decisao: 'não se aplica', motivo: DDL },
+  app_enable_staff_only: { decisao: 'não se aplica', motivo: DDL },
+  app_current_role: { decisao: 'não se aplica', motivo: 'lê o contexto da sessão; quem decide é quem a chama' },
+  // auditoria (spec §4.4)
+  app_audit_row_change: { decisao: 'sem mudança', motivo: 'grava o ator de app.user_id para qualquer papel (RN-516)' },
+  // anonimização e funções do worker
+  app_anonimizar_aceites: { decisao: 'recusa', motivo: SO_WORKER },
+  app_anonimizar_autorizacoes_aniversario: { decisao: 'recusa', motivo: SO_WORKER },
+  app_anonimizar_autorizacoes_ia: { decisao: 'recusa', motivo: SO_WORKER },
+  app_anonimizar_consentimentos_ia_nutri: { decisao: 'recusa', motivo: SO_WORKER },
+  app_anonimizar_documentos: { decisao: 'recusa', motivo: SO_WORKER },
+  app_anonimizar_exames_textos: { decisao: 'recusa', motivo: SO_WORKER },
+  app_anonimizar_financeiro: { decisao: 'recusa', motivo: SO_WORKER },
+  app_ia_autorizacao_soltar_termo: { decisao: 'recusa', motivo: SO_WORKER },
+  app_conta_sem_outro_vinculo: { decisao: 'recusa', motivo: SO_WORKER },
+  // portal, página pública e conta
+  app_conteudo_por_etiqueta: { decisao: 'recusa', motivo: 'só a sessão de paciente (false para a recepção); contents é negada a ela' },
+  app_soltar_endpoint_push: { decisao: 'recusa', motivo: 'só a sessão de paciente' },
+  app_ia_nutri_perguntar: { decisao: 'recusa', motivo: 'só a sessão de paciente' },
+  app_ia_nutri_enviar_a_nutri: { decisao: 'recusa', motivo: 'só a sessão de paciente' },
+  app_ia_nutri_revogar: { decisao: 'recusa', motivo: 'só o paciente ou a nutricionista (DP-17); outro papel recebe a exceção' },
+  app_ia_nutri_pausa_da_admin: { decisao: 'recusa', motivo: 'ia_nutri_pausa só muda fora de contexto (admin)' },
+  app_locais_para_agendamento: { decisao: 'recusa', motivo: 'Plano 23: só publico e paciente (vazio para a recepção, que lê locais_atendimento pela liberação)' },
+  app_local_da_consulta: { decisao: 'recusa', motivo: 'Plano 23: só a sessão de paciente (vazio para a recepção)' },
+  app_pedidos_aguardando: { decisao: 'não se aplica', motivo: 'Plano 23: public_booking_requests é negada à recepção (RE-D59)' },
+  app_pedido_aguardar: { decisao: 'não se aplica', motivo: 'Plano 23: public_booking_requests é negada à recepção (RE-D59)' },
+  app_pedido_publico_desistir: { decisao: 'não se aplica', motivo: 'Plano 23: public_booking_requests é negada à recepção (RE-D59)' },
+  // gatilhos de tabelas negadas à recepção (recepcao_negada recusa antes de importar o ramo dela)
+  app_aniversario_autorizacoes_regras: { decisao: 'não se aplica', motivo: 'Plano 23: aniversario_autorizacoes negada' },
+  app_documento_imutavel: { decisao: 'não se aplica', motivo: 'documentos assinados negados' },
+  app_exam_interpretacoes_regras: { decisao: 'não se aplica', motivo: 'Plano 22: exam_interpretacoes negada (`IF r <> nutri THEN RETURN NEW` cai na RLS)' },
+  app_exam_versoes_regras: { decisao: 'não se aplica', motivo: 'Plano 22: exam_versoes negada (`IF r <> nutri THEN RETURN NEW` cai na RLS)' },
+  app_exam_submissions_nasce: { decisao: 'não se aplica', motivo: 'Plano 12: exam_submissions negada' },
+  app_exam_submissions_regras: { decisao: 'não se aplica', motivo: 'Plano 12: exam_submissions negada' },
+  app_exam_submissions_sem_apagar: { decisao: 'não se aplica', motivo: 'Plano 12: exam_submissions negada' },
+  app_ia_autorizacoes_regras: { decisao: 'não se aplica', motivo: 'Plano 14A: ia_autorizacoes negada' },
+  app_ia_nutri_consentimentos_regras: { decisao: 'não se aplica', motivo: 'Plano 15: ia_nutri_consentimentos negada' },
+  app_ia_nutri_mensagens_regras: { decisao: 'não se aplica', motivo: 'Plano 15: ia_nutri_mensagens negada' },
+  app_ia_nutri_mensagens_sem_apagar: { decisao: 'não se aplica', motivo: 'Plano 15: ia_nutri_mensagens negada' },
+  app_ia_tarefas_imutavel: { decisao: 'não se aplica', motivo: 'Plano 11: ia_tarefas negada' },
+  app_ia_tarefas_sem_apagar: { decisao: 'não se aplica', motivo: 'Plano 11: ia_tarefas negada' },
+  app_lembretes_rotina_regras: { decisao: 'não se aplica', motivo: 'Plano 17: lembretes_rotina negada' },
+  app_lembretes_rotina_sem_apagar: { decisao: 'não se aplica', motivo: 'Plano 17: lembretes_rotina negada' },
+  app_lembretes_rotina_envios_do_worker: { decisao: 'não se aplica', motivo: 'Plano 17: lembretes_rotina_envios negada' },
+  app_lembretes_rotina_envios_sem_apagar: { decisao: 'não se aplica', motivo: 'Plano 17: lembretes_rotina_envios negada' },
+  app_modelo_ia_origem: { decisao: 'não se aplica', motivo: 'Plano 14B: meal_plans e anamnesis_templates negadas' },
+  app_paciente_colunas_exports: { decisao: 'não se aplica', motivo: 'data_exports negada; só a sessão de paciente' },
+  // Plano 25 (chat e recados; spec do 25: C-442, CH-D33, CH-D71 e §13; spec do 26: §2 e RN-505): as sete tabelas do 25 são
+  // negadas à recepção (conversa é prontuário; recado e configuração por simplicidade no v1). Os quatro gatilhos devolvem NEW
+  // para a `recepcao` (lista iii, refeitos no bloco 6 da rls_recepcao) e a recusa vem da recepcao_negada
+  app_chat_conversas_regras: { decisao: 'não se aplica', motivo: 'Plano 25: chat_conversas negada (a recepcao devolve NEW e a recepcao_negada recusa; CH-D71)' },
+  app_chat_mensagens_regras: { decisao: 'não se aplica', motivo: 'Plano 25: chat_mensagens negada (a recepcao devolve NEW e a recepcao_negada recusa; CH-D71)' },
+  app_chat_leituras_regras: { decisao: 'não se aplica', motivo: 'Plano 25: chat_leituras negada (a recepcao devolve NEW e a recepcao_negada recusa; CH-D71)' },
+  app_recados_regras: { decisao: 'não se aplica', motivo: 'Plano 25: recados negada (a recepcao devolve NEW e a recepcao_negada recusa; CH-D71)' },
+  app_chat_soltar_anexo: { decisao: 'recusa', motivo: 'Plano 25 (§13 da spec do 25): só o contexto `worker` (guarda própria, 42501)' },
+  app_chat_apagar_do_titular: { decisao: 'recusa', motivo: 'Plano 25 (§13 da spec do 25): só o contexto `worker` (guarda própria, 42501)' },
+  app_chat_aviso_nutri_devido: { decisao: 'recusa', motivo: 'Plano 25 (§13 da spec do 25, CH-D70): só a sessão de paciente com conta (guarda própria, 42501)' },
+  // tabelas liberadas à recepção
+  app_paciente_colunas_patients: { decisao: 'não se aplica', motivo: 'só a sessão de paciente; a recepção tem gatilho próprio (patients_da_recepcao, RN-508)' },
+  app_patients_ia_quem: { decisao: 'recusa', motivo: 'qualquer sessão com papel é recusada ao mudar a ciência/recusa de IA (RN-128)' },
+  app_patients_lembretes_do_paciente: { decisao: 'recusa', motivo: 'Plano 17: a pausa dos lembretes só pelo paciente (a recepção cai no RAISE; patients_da_recepcao já a fixa)' },
+  app_patient_cadastro_titular_ativo: { decisao: 'sem mudança', motivo: 'o EXISTS dá falso para o titular escondido e o gatilho deixa passar; quem recusa é a política recepcao_cond_paciente_visivel de patient_cadastro, depois, no WITH CHECK (spec §4.4)' },
+  app_patient_cadastro_sem_apagar: { decisao: 'recusa', motivo: 'DELETE só do worker com o titular anonimizado; a recepção nem tem DELETE (recepcao_sem_delete)' },
+  app_fin_lancamentos_regras: { decisao: 'como nutri', motivo: 'RN-506: as regras da nutricionista, com falha fechada (paciente não achado → 42501)' },
+  app_appointments_regras_pedido: { decisao: 'como nutri', motivo: 'RE-D59: refeita na rls_recepcao com a recepção no aceite e na recusa do pedido' },
+  app_appointments_link_da_sala: { decisao: 'sem mudança', motivo: 'Plano 23 (AG-D47): a cópia da sala vale para qualquer papel; recusa de local só para paciente e publico' },
+  app_recepcao_tem_financeiro: { decisao: 'só recepcao', motivo: 'RN-506: a permissão do Financeiro da própria conta' },
+  app_equipe_membros_regras: { decisao: 'recusa', motivo: 'RN-503: a recepção só lê a própria linha; qualquer escrita dela → 42501' },
+  // tenants (sem RLS; RN-512): tenants_so_nutri recusa todo UPDATE da recepção — os gatilhos abaixo deixariam passar o papel novo
+  app_tenants_agenda_da_equipe: { decisao: 'recusa', motivo: 'Plano 23 (RN-420): só nutri muda a chave dos pedidos; e tenants_so_nutri' },
+  app_tenants_ia_nutri_da_equipe: { decisao: 'recusa', motivo: 'o ramo da equipe deixa a recepção passar; tenants_so_nutri, que dispara depois (ordem alfabética), recusa o UPDATE' },
+  app_tenants_interruptores_da_admin: { decisao: 'recusa', motivo: 'só fora de contexto (admin)' },
+  app_tenants_por_sessao: { decisao: 'recusa', motivo: 'INSERT/DELETE recusados a toda sessão; o UPDATE da recepção, por tenants_so_nutri' },
+  // T5b (bloco 4 e 5 da rls_recepcao)
+  app_patients_da_recepcao: { decisao: 'só recepcao', motivo: 'RN-508, RE-D41: lista branca das colunas de patients' },
+  app_patient_cadastro_da_recepcao: { decisao: 'só recepcao', motivo: 'RN-508, RE-D38, RE-D41: lista branca das colunas do cadastro (sem observação nem identidade de gênero)' },
+  app_appointments_da_recepcao: { decisao: 'só recepcao', motivo: 'RN-509, RE-D41, RE-D59, RE-D62: lista branca de colunas e de passagens de situação' },
+  app_tenants_so_nutri: { decisao: 'só recepcao', motivo: 'RN-512: a recepção não muda o consultório' },
+  app_retorno_das_consultas: { decisao: 'como nutri', motivo: 'RN-510: SECURITY DEFINER (molde 0083), nutri e recepcao; só o selo de retorno de consulta visível' },
+  app_previsoes_de_retorno: { decisao: 'como nutri', motivo: 'RN-510: SECURITY DEFINER (molde 0083), nutri e recepcao; só a previsão de paciente visível' },
+  app_consulta_tem_atendimento: { decisao: 'como nutri', motivo: 'RE-D62: SECURITY DEFINER (molde 0083), nutri e recepcao; só o booleano' },
+  app_cpf_em_uso: { decisao: 'como nutri', motivo: 'RE-D71: SECURITY DEFINER (molde 0083), nutri e recepcao; só sim/não (o CPF do bloqueado sem 23505)' },
+};
+
+/** Regex do Postgres (ARE) do que conta como "olhar o papel" (RN-511). */
+const CITA_PAPEL = String.raw`'nutri'|app_current_role|current_setting\('app\.role'`;
+
+/**
+ * RN-511: função do schema public que olha o papel, ou gatilho de tabela de RECEPCAO_LIBERADO que lê `patients` ou uma tabela
+ * negada à recepção (com tenant_id, fora de RECEPCAO_LIBERADO e de RLS_EXCEPTIONS — a classe da RE-D62, como `consultations`:
+ * pela RLS dela a leitura volta vazia e a guarda passaria calada), sem decisão em `lista` → violação; nome em `lista` que não
+ * existe em pg_proc → violação. O corpo é `prosrc` e, nas funções `BEGIN ATOMIC`, o `prosqlbody` (pg_get_function_sqlbody).
+ * `table` traz o nome da função.
+ */
+export async function findPapelEmFuncoesViolations(
+  db: Pool | PoolClient,
+  lista: Record<string, { decisao: DecisaoDaRecepcao; motivo: string }> = FUNCOES_COM_PAPEL,
+): Promise<RlsViolation[]> {
+  const negadas = (await listTenantTables(db)).filter((t) => !RECEPCAO_LIBERADO[t] && !RLS_EXCEPTIONS[t]);
+  const leTabela = String.raw`\m(${['patients', ...negadas].join('|')})\M`;
+  const { rows } = await db.query<{ f: string; cita: boolean; gatilho: boolean }>(
+    `with fn as (
+       select p.oid, p.proname, p.prosrc || ' ' || coalesce(pg_get_function_sqlbody(p.oid), '') as corpo
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public')
+     select fn.proname as f, bool_or(fn.corpo ~ $1) as cita,
+            bool_or(fn.corpo ~ $3 and exists (
+              select 1 from pg_trigger t join pg_class c on c.oid = t.tgrelid
+                join pg_namespace cn on cn.oid = c.relnamespace and cn.nspname = 'public'
+               where t.tgfoid = fn.oid and not t.tgisinternal and c.relname = any($2))) as gatilho
+       from fn
+      group by fn.proname`,
+    [CITA_PAPEL, Object.keys(RECEPCAO_LIBERADO), leTabela],
+  );
+  const out: RlsViolation[] = [];
+  for (const r of rows) {
+    if (lista[r.f]) continue;
+    if (r.cita) out.push({ table: r.f, problem: 'função que olha o papel sem decisão em FUNCOES_COM_PAPEL' });
+    else if (r.gatilho) out.push({ table: r.f, problem: 'gatilho de tabela liberada à recepção que lê patients ou tabela negada a ela sem decisão em FUNCOES_COM_PAPEL' });
+  }
+  const existentes = new Set(rows.map((r) => r.f));
+  for (const f of Object.keys(lista)) if (!existentes.has(f)) out.push({ table: f, problem: 'FUNCOES_COM_PAPEL cita função inexistente' });
+  return out;
 }

@@ -1,7 +1,17 @@
+import { EQUIPE_LIGADA } from '@/modules/plataforma/equipe-textos';
+
 /** P08-10 (D26): o manual guiado. Texto RASCUNHO até o dono e a Debby aprovarem (P08-08); espelhado na spec (US-057). Nenhum dado de saúde nos exemplos. */
 export type Passo = { alvo?: string; titulo: string; texto: string };
+/** Plano 26 (RE-D42): os papéis do painel que têm manual guiado (a nutricionista e a recepção). */
+export type PapelDoGuia = 'nutri' | 'recepcao';
 export type Guia = {
   id: string;
+  /**
+   * Plano 26 (RE-D42): quem vê o guia (no tour, na gaveta e no manual completo). Sem o campo, só a nutricionista
+   * (`PAPEIS_PADRAO`): guia novo de outro plano continua dela sem ninguém lembrar. Os guias da recepção são próprios
+   * (`recepcao-*`), não variantes dos da nutricionista.
+   */
+  papeis?: readonly PapelDoGuia[];
   /** Sobe quando o texto muda de verdade: o aviso "Primeira vez aqui?" volta a aparecer (D27). */
   versao: number;
   /** Caminhos em que o guia vale (o primeiro guia da lista que casar). */
@@ -356,6 +366,39 @@ export const GUIAS: readonly Guia[] = [
       { titulo: 'Modelos sugeridos pela IA', texto: 'Modelos sugeridos pela IA chegam com a marca "Sugestão da IA — revise" e só podem ser usados com pacientes depois de "Aprovar modelo".' },
     ],
   },
+  // Plano 26 (US-488, §6.2): a Equipe, antes do guia de Configurações (o padrão `configuracoes(/.*)?` engoliria a rota)
+  {
+    id: 'equipe',
+    versao: 1,
+    padrao: /^\/painel\/configuracoes\/equipe$/,
+    titulo: 'Equipe',
+    ajuda: {
+      resumo: 'Convide a pessoa da recepção, dê ou tire a permissão do Financeiro e desative ou reative o acesso dela.',
+      secoes: [
+        {
+          titulo: 'O que a recepção vê',
+          itens: [
+            'A recepção cuida da agenda e do cadastro dos pacientes. Ela não vê anamnese, medidas, exames, planos, documentos, notas do atendimento, a observação do cadastro nem nada da IA.',
+            'Tudo o que ela cadastra ou altera, e cada cadastro que ela abre, fica no Histórico de acessos do paciente, com o nome dela.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'O consultório pode ter até 3 pessoas ativas na recepção. Quem foi desativado não conta.',
+            'No primeiro acesso, a pessoa cria a senha, aceita o termo de confidencialidade e configura a verificação em duas etapas, que é obrigatória para a recepção.',
+            'O convite vale por 72 horas. Se vencer antes de a pessoa criar a senha, reenvie o convite.',
+            'A permissão do Financeiro vale a partir da próxima tela que a pessoa abrir. As configurações do Financeiro continuam só suas.',
+            'Desativar encerra as sessões da pessoa na hora. O que ela fez continua no Histórico de acessos dos pacientes; reativar devolve o acesso com a mesma senha.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'convidar', titulo: 'Convidar', texto: 'Convide a pessoa da recepção. Ela cuida da agenda e do cadastro e não vê dados de saúde.' },
+      { alvo: 'permissao-financeiro', titulo: 'Financeiro', texto: 'Marque se ela também cuida do Financeiro.' },
+    ],
+  },
   {
     id: 'configuracoes',
     versao: 9, // Plano 22: o cartão "Exames" (+1 sobre a main); 8 = Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
@@ -412,6 +455,7 @@ export const GUIAS: readonly Guia[] = [
   {
     id: 'seguranca',
     versao: 1,
+    // Plano 26 (RE-D42): só da nutricionista (o admin vê esta, como antes: AjudaSeguranca); a recepção tem a `recepcao-seguranca`
     padrao: /^\/conta\/seguranca$/,
     titulo: 'Segurança da conta',
     ajuda: {
@@ -510,6 +554,81 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'exportar', titulo: 'Baixar ou imprimir', texto: 'Baixe em CSV para planilha ou imprima e salve em PDF.' },
     ],
   },
+  // Plano 26 (RE-D42, RN-514, spec §6.2): os guias da recepção são próprios (`recepcao-*`, `papeis: ['recepcao']`), antes do
+  // Financeiro, que continua o último da lista. O PR 2 traz o do Início; os de pacientes, cadastro, agenda e financeiro
+  // chegam com as telas dela no PR 3. Nunca citam Configurações, Realizada, Iniciar atendimento, Ver bloqueados, etiqueta nem
+  // arquivar (guarda em conteudo.test.ts): ela não tem essas telas nem esses botões.
+  {
+    id: 'recepcao-inicio',
+    versao: 1,
+    papeis: ['recepcao'],
+    padrao: /^\/painel$/,
+    titulo: 'Início da recepção',
+    ajuda: {
+      resumo: 'O Início mostra o trabalho do dia na recepção: a agenda de hoje, as consultas com presença a registrar e o que os pacientes fizeram na agenda.',
+      secoes: [
+        {
+          titulo: 'O que dá para fazer aqui',
+          itens: [
+            'Ver as consultas de hoje, com o horário, o paciente e a situação de cada uma.',
+            'Achar as consultas que já passaram e continuam sem registro de presença.',
+            'Acompanhar os pedidos de remarcação e as consultas marcadas ou canceladas pelos pacientes nos últimos 7 dias.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'A recepção registra a falta do paciente; o atendimento é registrado pela nutricionista.',
+            'Os números do mês, como a taxa de faltas, ficam em Relatórios, na aba Agenda.',
+            'Pedidos de pessoas ainda sem cadastro ficam com a nutricionista.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { titulo: 'Boas-vindas à recepção', texto: 'Um passeio rápido pelo painel da recepção. Você pode pular agora e rever depois no menu da sua conta.' },
+      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Início, Pacientes, Agenda e Relatórios ficam no topo. Com a permissão do Financeiro, o Financeiro aparece também.' },
+      { alvo: 'agenda-hoje', titulo: 'Agenda de hoje', texto: 'As consultas de hoje, com o horário, o paciente e a situação. Abra uma consulta para confirmar, remarcar ou cancelar.' },
+      { alvo: 'presenca', titulo: 'Presença a registrar', texto: 'Consultas que já passaram e continuam sem registro de presença. A recepção marca a falta; o atendimento é registrado pela nutricionista.' },
+      { alvo: 'tema', titulo: 'Claro ou escuro', texto: 'Este botão liga e desliga o modo escuro. A escolha fica salva na sua conta, em qualquer aparelho.' },
+      { alvo: 'ajuda', titulo: 'Ajuda em cada tela', texto: 'Em qualquer tela, este botão explica o que dá para fazer ali e abre o manual.' },
+      { alvo: 'conta', titulo: 'Sua conta', texto: 'Segurança, o manual, este tour e o Sair ficam aqui.' },
+    ],
+  },
+  // Plano 26 (RE-D20, RN-500, revisão da P26-08): a Segurança da conta da recepção, com o 2FA obrigatório e sem o que é da
+  // nutricionista (assinatura de documentos). RASCUNHO, sem fonte na spec (§6.2): vai à tabela de textos do Plano 26 na T12.
+  {
+    id: 'recepcao-seguranca',
+    versao: 1,
+    papeis: ['recepcao'],
+    padrao: /^\/conta\/seguranca$/,
+    titulo: 'Segurança da conta (recepção)',
+    ajuda: {
+      resumo: 'A verificação em duas etapas pede, além da senha, um código de 6 dígitos do aplicativo autenticador do celular. Na recepção ela é obrigatória: o painel só abre depois de ativá-la.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Instale um aplicativo autenticador no celular (Google Authenticator, Authy, 1Password…).',
+            'Clique em "Ativar verificação em duas etapas" e confirme a sua senha.',
+            'Leia o QR Code com o aplicativo e digite o código de 6 dígitos que ele mostra.',
+            'Guarde os códigos de recuperação num lugar seguro: cada um funciona uma vez, se você perder o celular.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'A cada entrada, depois da senha, o NutriDebby pede o código de 6 dígitos do aplicativo.',
+            // code review do PR 2: a nutricionista não reinicia o 2FA — quem reinicia é o suporte (o admin, P09-02). RASCUNHO
+            'Sem o celular, use um dos códigos de recuperação. Se não tiver mais nenhum, fale com a nutricionista para pedir ao suporte que reinicie a verificação.',
+            'Depois de 5 códigos errados, espere 15 minutos para tentar de novo.',
+            'Se o código não confere, confira se a hora do celular está automática.',
+          ],
+        },
+      ],
+    },
+    passos: [{ alvo: 'ativar-2fa', titulo: 'Ativar', texto: 'Confirme a senha, leia o QR Code com o aplicativo autenticador e digite o código de 6 dígitos.' }],
+  },
   {
     // Plano 20: no FIM da lista (o Plano 18 insere guias antes de 'prontuario'). Textos finais do revisor-interface
     // (17/11/2026). O tour mostra todos os passos em qualquer tela do Financeiro: o passo cujo alvo não está na tela abre
@@ -559,8 +678,26 @@ export const GUIAS: readonly Guia[] = [
   },
 ];
 
-export function guiaDaRota(caminho: string): Guia | null {
-  return GUIAS.find((g) => g.padrao.test(caminho)) ?? null;
+/** Plano 26 (RE-D42): sem `papeis`, o guia é só da nutricionista. */
+export const PAPEIS_PADRAO: readonly PapelDoGuia[] = ['nutri'];
+export const papeisDoGuia = (g: Guia): readonly PapelDoGuia[] => g.papeis ?? PAPEIS_PADRAO;
+/**
+ * Code review do PR 2 do Plano 26 (RE-D52): o guia de uma tela desligada fica fora do manual completo (o índice e as seções
+ * de `/painel/ajuda`) até a tela ligar. O guia continua em GUIAS e em `guiaDaRota` (a tela desligada dá 404 antes do guia).
+ */
+const desligado = (g: Guia): boolean => g.id === 'equipe' && !EQUIPE_LIGADA;
+/** Plano 26 (RE-D42): os guias que o papel vê, na ordem de GUIAS (o manual completo de `/painel/ajuda`), sem os de tela desligada. */
+export const guiasDoPapel = (papel: PapelDoGuia): Guia[] => GUIAS.filter((g) => !desligado(g) && papeisDoGuia(g).includes(papel));
+
+/**
+ * O guia da tela: o primeiro da lista que casar com o caminho, entre os do papel (Plano 26, RE-D42). Todo chamador passa o
+ * papel da sessão (guarda em conteudo.test.ts); o padrão `'nutri'` é só para os testes antigos, que leem os guias dela.
+ */
+export function guiaDaRota(caminho: string, papel: PapelDoGuia = 'nutri'): Guia | null {
+  return GUIAS.find((g) => papeisDoGuia(g).includes(papel) && g.padrao.test(caminho)) ?? null;
 }
+
+/** Plano 26 (RE-D42): o tour que abre sozinho no primeiro acesso ao Início (e pelo `?tour=` do "Rever o tour"), por papel. */
+export const ID_TOUR_DO_INICIO: Record<PapelDoGuia, string> = { nutri: ID_BOAS_VINDAS, recepcao: 'recepcao-inicio' };
 
 export { precisaDoGuia } from './precisa-do-guia';

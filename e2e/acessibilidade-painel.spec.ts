@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Browser, type Page } from '@playwright/test';
+import { Secret, TOTP } from 'otpauth';
 import { fichaPelaBusca, SEMENTE_COMPLETA, SEMENTE_INCOMPLETA } from './cadastro';
 import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
@@ -452,6 +453,211 @@ test('Plano 26: Relatórios (seções, erro do período e impressão) a 1280 e 3
   } finally {
     await nutri.setViewportSize({ width: 1280, height: 720 });
     await escolherTema(nutri, 'Igual ao aparelho');
+  }
+  expect(falhas).toEqual([]);
+});
+
+/**
+ * Plano 26 (RNF-481, T8): as telas da recepção com a conta DELA — o laço da nutricionista só veria o redirect. O Início da
+ * recepção e "Sem permissão" (os dois textos) com `E2E_RECEPCAO` (manual guiado todo visto pela semente: o tour não cobre a
+ * tela) e "Contrato do consultório pendente" com `E2E_RECEPCAO_CONTRATO` (consultório com o DPA antigo a cada execução), a
+ * 1280 e a 360 px, claro e escuro. A recepção não tem Configurações: o tema muda pelo botão do cabeçalho (`alternarTemaAction`),
+ * que só alterna entre claro e escuro — a conta fica no claro no fim. Contas copiadas da semente (importar o seed roda o
+ * seed); 2FA de teste com o segredo da E2E_DOCS (`Secret.fromUTF8`). IPs 10.9.36.15 e .16 (RE-D50).
+ */
+const RECEPCAO_AXE = { email: 'recepcao-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
+const RECEPCAO_CONTRATO_AXE = { email: 'recepcao-contrato-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
+
+async function entrarComoRecepcao(browser: Browser, cred: typeof RECEPCAO_AXE, ip: string, destino: RegExp): Promise<Page> {
+  const page = await entrarComo(browser, cred.email, cred.senha, ip, { viewport: { width: 1280, height: 720 } });
+  await expect(page).toHaveURL(/\/entrar\/2fa/);
+  await page.getByLabel('Código do app autenticador').fill(new TOTP({ secret: Secret.fromUTF8(cred.totp), digits: 6, period: 30 }).generate());
+  await page.getByRole('button', { name: 'Verificar' }).click();
+  await expect(page).toHaveURL(destino);
+  return page;
+}
+
+/** O botão "Modo escuro" do cabeçalho (aria-pressed): um clique alterna entre claro e escuro; espera o servidor gravar. */
+async function temaPeloCabecalho(page: Page, escuro: boolean): Promise<void> {
+  await page.goto(page.url());
+  const botao = page.getByRole('button', { name: 'Modo escuro' });
+  if ((await botao.getAttribute('aria-pressed')) === String(escuro)) return;
+  await botao.click();
+  await expect(botao).toHaveAttribute('aria-pressed', String(escuro));
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Modo escuro' })).toHaveAttribute('aria-pressed', String(escuro));
+}
+
+test('Plano 26: Início da recepção, "Sem permissão" e "Contrato pendente" com a conta dela, claro e escuro, 1280 e 360 px', async ({ browser }) => {
+  test.setTimeout(240_000);
+  // revisão da P26-08: o Início dela com conteúdo — a nutricionista marca uma consulta de hoje (no fuso do consultório) para
+  // um paciente desta execução; o horário varia por execução (o seed não apaga consultas: o mesmo horário daria conflito)
+  const sufixo = Date.now().toString(36);
+  const nomeHoje = `Paciente Recepção Axe ${sufixo}`;
+  await criarPacientePeloFormulario(nutri, { nome: nomeHoje, email: `rec-axe-${sufixo}@nutridebby.test` });
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  const minutos = Math.floor(Date.now() / 60_000);
+  const hora = `${String(19 + (minutos % 4)).padStart(2, '0')}:${String((Math.floor(minutos / 4) % 4) * 15).padStart(2, '0')}`;
+  await nutri.goto(`/painel/agenda/nova?data=${hoje}`);
+  await nutri.getByLabel('Paciente').selectOption({ label: `${nomeHoje} (rec-axe-${sufixo}@nutridebby.test)` });
+  await nutri.getByLabel('Hora').fill(hora);
+  await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  const rec = await entrarComoRecepcao(browser, RECEPCAO_AXE, '10.9.36.15', /\/painel$/);
+  const contrato = await entrarComoRecepcao(browser, RECEPCAO_CONTRATO_AXE, '10.9.36.16', /\/painel\/contrato-pendente$/);
+  // teclado (RN-514): o Tab percorre o menu dela, na ordem da tela, sem os itens da nutricionista (sem a permissão do Financeiro)
+  const menu = rec.getByRole('navigation', { name: 'Menu do painel' });
+  await expect(menu.getByRole('link', { name: 'Início', exact: true })).toHaveAttribute('aria-current', 'page');
+  await menu.getByRole('link', { name: 'Início', exact: true }).focus();
+  const rotulos: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    rotulos.push((await rec.evaluate(() => document.activeElement?.textContent ?? '')).trim());
+    await rec.keyboard.press('Tab');
+  }
+  expect(rotulos).toEqual(['Início', 'Pacientes', 'Agenda', 'Relatórios']);
+  expect(await rec.evaluate(() => !!document.activeElement?.closest('nav[aria-label="Menu do painel"]')), 'o 5º Tab já sai do menu').toBe(false);
+  const h1 = (nome: string | RegExp) => (p: Page) => expect(p.getByRole('heading', { level: 1, name: nome })).toBeVisible();
+  const estados: { page: Page; url: string; pronta: (p: Page) => Promise<void> }[] = [
+    { page: rec, url: '/painel', pronta: async (p) => {
+      await h1(/^Seu dia, /)(p);
+      await expect(p.locator('[data-guia="agenda-hoje"]').getByText(nomeHoje)).toBeVisible();
+    } },
+    { page: rec, url: '/painel/sem-permissao?motivo=nutri', pronta: h1('Sem permissão') },
+    { page: rec, url: '/painel/sem-permissao?motivo=financeiro', pronta: h1('Sem permissão') },
+    { page: contrato, url: '/painel/contrato-pendente', pronta: h1('Contrato do consultório pendente') },
+  ];
+  const falhas: string[] = [];
+  try {
+    for (const [modo, escuro] of [['claro', false], ['escuro', true]] as const) {
+      for (const p of [rec, contrato]) await temaPeloCabecalho(p, escuro);
+      for (const [largura, altura] of [[1280, 720], [360, 800]] as const) {
+        for (const t of estados) {
+          await t.page.setViewportSize({ width: largura, height: altura });
+          await t.page.goto(t.url);
+          await t.pronta(t.page);
+          await t.page.waitForLoadState('networkidle');
+          for (const v of await violacoes(t.page, undefined, { ignorarForaDaTela: largura < 1280 })) falhas.push(`${modo} ${largura} px ${t.url} — ${v}`);
+          if (largura === 360 && !(await t.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${modo} 360 px ${t.url} — rola na horizontal`);
+        }
+      }
+      for (const p of [rec, contrato]) await p.setViewportSize({ width: 1280, height: 720 });
+    }
+  } finally {
+    for (const p of [rec, contrato]) {
+      await p.setViewportSize({ width: 1280, height: 720 });
+      await temaPeloCabecalho(p, false);
+      await p.context().close();
+    }
+  }
+  expect(falhas).toEqual([]);
+});
+
+/**
+ * Revisão final do PR 2 do Plano 26 (RNF-481): o resto das telas da recepção, com a conta dela, a 1280 e a 360 px, claro e
+ * escuro — `/conta/seguranca` (o guia próprio, aberto e fechado, e o "Sair" de 44 px; a Segurança sem o 2FA, com o aviso,
+ * fica no equipe-primeiro-acesso.spec, a única conta da recepção sem o 2FA), `/painel/ajuda` (o índice só com os guias
+ * dela, nunca os clínicos), `/conta/outro-papel` vinda do portal (`/p/inicio`) e do admin (`/admin`) e
+ * `/conta/acesso-desativado` com os dois textos: `E2E_RECEPCAO_DESATIVADA` (linha desativada, RN-503) e
+ * `E2E_RECEPCAO_SEM_TERMO` (ativa, com o 2FA, sem o termo de confidencialidade, RN-500: desde o code review do PR 2, o termo
+ * inteiro, a caixa e o botão "Aceitar e continuar" — o axe não aceita). As duas não abrem o painel: o tema delas é o
+ * da semente ("Igual ao aparelho"), e o claro e o escuro vêm do aparelho (`emulateMedia`). IPs 10.9.36.17 a .19 (RE-D50).
+ */
+const RECEPCAO_DESATIVADA_AXE = { email: 'recepcao-desativada-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
+const RECEPCAO_SEM_TERMO_AXE = { email: 'recepcao-sem-termo-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
+
+test('Plano 26: Segurança, manual, "outra conta" e "Acesso desativado" com as contas da recepção, claro e escuro, 1280 e 360 px', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const rec = await entrarComoRecepcao(browser, RECEPCAO_AXE, '10.9.36.17', /\/painel$/);
+  const desativada = await entrarComoRecepcao(browser, RECEPCAO_DESATIVADA_AXE, '10.9.36.18', /\/conta\/acesso-desativado$/);
+  const semTermo = await entrarComoRecepcao(browser, RECEPCAO_SEM_TERMO_AXE, '10.9.36.19', /\/conta\/acesso-desativado$/);
+
+  // as contas sem acesso não abrem nenhuma outra tela: nem o painel, nem a Segurança (a página do aviso vence o 2FA)
+  for (const p of [desativada, semTermo]) {
+    for (const rota of ['/painel', '/painel/ajuda', '/conta/seguranca', '/p/inicio']) {
+      await p.goto(rota);
+      await expect(p, rota).toHaveURL(/\/conta\/acesso-desativado$/);
+    }
+  }
+  // o manual da recepção: o índice só com os guias dela (RN-513, RE-D42) — nenhum guia clínico nem da nutricionista
+  await rec.goto('/painel/ajuda');
+  const indice = rec.getByRole('navigation', { name: 'Nesta página' });
+  await expect(indice.getByRole('link')).toHaveText(['Início da recepção', 'Segurança da conta (recepção)']);
+  // e as seções do manual (cada uma rotulada pelo próprio título, `<id>-titulo`) são só essas duas
+  const secoesDoManual = await rec.evaluate(() =>
+    [...document.querySelectorAll('section[id][aria-labelledby]')].filter((s) => s.getAttribute('aria-labelledby') === `${s.id}-titulo`).map((s) => s.id),
+  );
+  expect(secoesDoManual).toEqual(['recepcao-inicio', 'recepcao-seguranca']);
+  // a tela de outra conta, vinda do portal e do admin (RE-D67): só os rótulos dos papéis
+  await rec.goto('/p/inicio');
+  await expect(rec).toHaveURL(/\/conta\/outro-papel\?esperado=paciente$/);
+  await expect(rec.getByRole('status')).toHaveText('Este aparelho está conectado como recepção. Saia e entre com a conta de paciente.');
+  await rec.goto('/admin');
+  await expect(rec).toHaveURL(/\/conta\/outro-papel\?esperado=admin$/);
+  await expect(rec.getByRole('status')).toHaveText('Este aparelho está conectado como recepção. Saia e entre com a conta de administrador.');
+  await expect(rec.getByRole('link', { name: 'Ir para o painel' })).toHaveAttribute('href', '/painel');
+
+  const h1 = (nome: string) => async (p: Page) => {
+    await expect(p.getByRole('heading', { level: 1, name: nome })).toBeVisible();
+  };
+  const sair44 = async (p: Page) => {
+    const caixa = await p.getByRole('button', { name: 'Sair' }).boundingBox();
+    expect(caixa?.height ?? 0, `${p.url()}: o "Sair" com 44 px`).toBeGreaterThanOrEqual(44);
+  };
+  const estados: { page: Page; url: string; pronta: (p: Page) => Promise<void> }[] = [
+    { page: rec, url: '/conta/seguranca', pronta: async (p) => {
+      await h1('Segurança da conta')(p);
+      await expect(p.getByText('A verificação em duas etapas está ativa.')).toBeVisible();
+      await sair44(p);
+    } },
+    { page: rec, url: '/conta/seguranca#guia-aberto', pronta: async (p) => {
+      await h1('Segurança da conta')(p);
+      await p.locator('summary', { hasText: 'Como funciona' }).click(); // o guia próprio da recepção, aberto
+      await expect(p.getByText('Na recepção ela é obrigatória: o painel só abre depois de ativá-la.')).toBeVisible();
+    } },
+    { page: rec, url: '/painel/ajuda', pronta: h1('Manual do NutriDebby') },
+    { page: rec, url: '/conta/outro-papel?esperado=paciente', pronta: async (p) => {
+      await h1('Conectado com outra conta')(p);
+      await sair44(p);
+    } },
+    { page: rec, url: '/conta/outro-papel?esperado=admin', pronta: h1('Conectado com outra conta') },
+    { page: desativada, url: '/conta/acesso-desativado', pronta: async (p) => {
+      await h1('Acesso desativado')(p);
+      await expect(p.getByText('Seu acesso a este consultório foi desativado. Fale com a nutricionista.')).toBeVisible();
+      await sair44(p);
+    } },
+    { page: semTermo, url: '/conta/acesso-desativado', pronta: async (p) => {
+      await h1('Aceite o termo para continuar')(p);
+      await expect(p.getByRole('heading', { level: 2, name: 'Termo de confidencialidade da equipe' })).toBeVisible();
+      await expect(p.getByLabel('Li e aceito o Termo de confidencialidade da equipe')).toBeVisible();
+      const aceitar = await p.getByRole('button', { name: 'Aceitar e continuar' }).boundingBox();
+      expect(aceitar?.height ?? 0, 'o "Aceitar e continuar" com 44 px').toBeGreaterThanOrEqual(44);
+      await sair44(p);
+    } },
+  ];
+  const falhas: string[] = [];
+  try {
+    for (const [modo, escuro] of [['claro', false], ['escuro', true]] as const) {
+      // a recepção ativa muda o tema da conta pelo botão do cabeçalho do painel; as sem acesso seguem o aparelho
+      await rec.goto('/painel');
+      await temaPeloCabecalho(rec, escuro);
+      for (const p of [desativada, semTermo]) await p.emulateMedia({ colorScheme: escuro ? 'dark' : 'light' });
+      for (const [largura, altura] of [[1280, 720], [360, 800]] as const) {
+        for (const t of estados) {
+          await t.page.setViewportSize({ width: largura, height: altura });
+          await t.page.goto(t.url);
+          await t.pronta(t.page);
+          await t.page.waitForLoadState('networkidle');
+          for (const v of await violacoes(t.page, undefined, { ignorarForaDaTela: largura < 1280 })) falhas.push(`${modo} ${largura} px ${t.url} — ${v}`);
+          if (largura === 360 && !(await t.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${modo} 360 px ${t.url} — rola na horizontal`);
+        }
+      }
+      for (const p of [rec, desativada, semTermo]) await p.setViewportSize({ width: 1280, height: 720 });
+    }
+  } finally {
+    await rec.setViewportSize({ width: 1280, height: 720 });
+    await rec.goto('/painel');
+    await temaPeloCabecalho(rec, false);
+    for (const p of [rec, desativada, semTermo]) await p.context().close();
   }
   expect(falhas).toEqual([]);
 });
