@@ -193,6 +193,27 @@ describe('/painel/configuracoes/mensagens (US-446)', () => {
     expect(f).not.toContain('mensagens-24h');
   });
 
+  it('P25-06c: os <select> das faixas são não controlados (defaultValue), para o reset automático do formulário depois da action manter o que foi escolhido', () => {
+    // O React 19 chama form.reset() depois de toda action do `<form action>`. Um `<select value>` montado no cliente não
+    // marca `defaultSelected` em nenhuma opção, e o reset leva todos ao primeiro valor ("00:00") — depois do erro de faixa e
+    // da rede caída, a nutricionista perdia o que tinha escolhido. Com `defaultValue`, a opção montada (a da configuração
+    // devolvida, depois da remontagem pela `marca`) é a `defaultSelected`, e o reset a mantém.
+    const f = readFileSync('src/app/painel/configuracoes/mensagens/horario-form.tsx', 'utf8');
+    const selects = f.match(/<select\n[\s\S]*?\n\s*>\n/g) ?? []; // a tag de abertura inteira (com o `=>` dos handlers)
+    expect(selects).toHaveLength(2);
+    for (const s of selects) {
+      expect(s).toMatch(/\bdefaultValue=\{/);
+      expect(s).not.toMatch(/\svalue=\{/);
+    }
+    // as chaves do topo também ficam não controladas
+    const chaves = f.match(/<input\b[^>]*type="checkbox"[^>]*>/g) ?? [];
+    expect(chaves).toHaveLength(2);
+    for (const c of chaves) {
+      expect(c).toMatch(/\bdefaultChecked=\{/);
+      expect(c).not.toMatch(/\schecked=\{/);
+    }
+  });
+
   it('re-revisão da T7 (minor): a região do "Configuração salva." vazia não ocupa espaço (sem margem quando vazia, junto ao h1)', () => {
     const f = readFileSync('src/app/painel/configuracoes/mensagens/horario-form.tsx', 'utf8');
     expect(f).toMatch(/<p ref=\{ref\} role="status" tabIndex=\{-1\} className="[^"]*\bmt-2\b[^"]*\bempty:mt-0\b/);

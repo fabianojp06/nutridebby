@@ -32,6 +32,11 @@ const useComJs = () => useSyncExternalStore(nada, () => true, () => false);
  * O formulário remontado a cada resposta (`marca`): começa com a configuração devolvida (ou a gravada) e o erro. Rodada da
  * T6c: com erro de faixa, o foco vai ao "Das" dela, rolada ao centro (I1); ao acrescentar, ao "Das" da nova; ao remover, à
  * faixa vizinha ou, sem nenhuma, ao "Acrescentar faixa" do dia (I2) — nunca o `body`.
+ *
+ * P25-06c: os campos são não controlados (`defaultValue`/`defaultChecked`; o estado guarda só quais faixas existem). O
+ * React 19 faz `form.reset()` depois de toda action do `<form action>`, e o reset leva cada campo ao valor padrão do nó: um
+ * `<select value>` montado no cliente não tem opção `defaultSelected` e voltava a "00:00". Com `defaultValue`, o padrão é a
+ * configuração devolvida (erro de faixa, falha no servidor ou rede caída), e o reset a mantém.
  */
 function Campos({ config, erro }: { config: ConfiguracaoDasMensagens; erro: EstadoDoHorario['erro'] }) {
   const [dias, setDias] = useState<Dias>(() => paraDias(config));
@@ -48,8 +53,6 @@ function Campos({ config, erro }: { config: ConfiguracaoDasMensagens; erro: Esta
     document.getElementById(focarDepois.current)?.focus();
     focarDepois.current = null;
   }, [dias]);
-  const mudar = (dia: number, i: number, campo: 'inicioMin' | 'fimMin', valor: number) =>
-    setDias((d) => d.map((fs, j) => (j === dia ? fs.map((f, k) => (k === i ? { ...f, [campo]: valor } : f)) : fs)));
   const acrescentar = (dia: number) => {
     focarDepois.current = `faixa-${dia}-${dias[dia].length + 1}-das`;
     setDias((d) => d.map((fs, j) => (j === dia ? [...fs, { chave: proxima++, ...NOVA }] : fs)));
@@ -101,8 +104,7 @@ function Campos({ config, erro }: { config: ConfiguracaoDasMensagens; erro: Esta
                         aria-label={C.rotuloDas(nomeDoDia, k)}
                         aria-describedby={idErro}
                         aria-invalid={comErro ? true : undefined}
-                        value={String(f.inicioMin)}
-                        onChange={(e) => mudar(dia, i, 'inicioMin', Number(e.target.value))}
+                        defaultValue={String(f.inicioMin)}
                         className={CAMPO}
                       >
                         {OPCOES.map((o) => (
@@ -122,8 +124,7 @@ function Campos({ config, erro }: { config: ConfiguracaoDasMensagens; erro: Esta
                         aria-label={C.rotuloAs(nomeDoDia, k)}
                         aria-describedby={idErro}
                         aria-invalid={comErro ? true : undefined}
-                        value={String(f.fimMin)}
-                        onChange={(e) => mudar(dia, i, 'fimMin', Number(e.target.value))}
+                        defaultValue={String(f.fimMin)}
                         className={CAMPO}
                       >
                         {OPCOES.map((o) => (

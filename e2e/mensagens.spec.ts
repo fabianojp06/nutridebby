@@ -347,7 +347,9 @@ test('T6c: "Atendimento por mensagens" pelo hub — erro de sobreposição junto
   await nutri.waitForLoadState('networkidle'); // "Acrescentar faixa" é do cliente
   await nutri.getByLabel('Mostrar horário de atendimento aos pacientes').check();
   const segunda = nutri.getByRole('group', { name: 'Segunda' });
-  // o próprio estado: tira as faixas da segunda que outra execução deixou
+  // o próprio estado: tira as faixas da segunda que outra execução deixou; num banco limpo, cria uma antes, para a
+  // remoção (e o foco no "Acrescentar faixa" que ela deixa) acontecer sempre
+  if ((await segunda.getByRole('button', { name: /^Remover faixa 1 de Segunda$/ }).count()) === 0) await segunda.getByRole('button', { name: 'Acrescentar faixa' }).click();
   while ((await segunda.getByRole('button', { name: /^Remover faixa 1 de Segunda$/ }).count()) > 0) await segunda.getByRole('button', { name: 'Remover faixa 1 de Segunda' }).click();
   await expect(segunda.getByRole('button', { name: 'Acrescentar faixa' })).toBeFocused(); // rodada da T6c (I2): sem faixa, o foco no botão
   await segunda.getByRole('button', { name: 'Acrescentar faixa' }).click();
@@ -375,6 +377,7 @@ test('T6c: "Atendimento por mensagens" pelo hub — erro de sobreposição junto
   await expect(nutri.getByLabel('Segunda, faixa 1, às')).toHaveValue('1080');
   // a paciente vê o resumo no app (/p/mensagens, T7)
   const paciente = await entrarComo(browser, CHAT_PACIENTE.email, CHAT_PACIENTE.senha, '10.9.25.16');
+  await expect(paciente).toHaveURL(/\/p\//); // o login termina antes do goto (sem isso o goto cai em /entrar)
   await paciente.goto('/p/mensagens');
   await expect(paciente.getByText(/^Horário de atendimento por mensagens: .*9h às 18h\.$/)).toBeVisible();
   await paciente.context().close();
