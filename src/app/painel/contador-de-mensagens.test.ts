@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CABECALHO_CONSULTA } from '@/lib/consulta-automatica';
 import { CONTADOR_INTERVALO_MS } from '@/modules/mensagens/constantes';
-import { acompanharContador, numeroDoMenu, URL_DO_CONTADOR } from './contador-de-mensagens';
+import { acompanharContador, consultaNaHora, numeroDoMenu, URL_DO_CONTADOR } from './contador-de-mensagens';
 
 // Plano 25 (RN-459, CH-D43): o contador do menu "Mensagens" consulta `GET /api/painel/mensagens/contador` a cada 60 s com a
 // aba visível e com rede; nenhuma consulta com a aba escondida ou sem rede; volta ao ficar visível ou ao reconectar. Um
@@ -190,6 +190,19 @@ describe('contador do menu "Mensagens" (RN-459)', () => {
     acompanharContador(vi.fn(), { ...B.opcoes, buscar: outra, imediata: true });
     await vi.advanceTimersByTimeAsync(120_000);
     expect(outra).not.toHaveBeenCalled();
+  });
+
+  it('/code-review do PR 2 (nit 5): na carga completa da conversa, a primeira consulta sai na hora (o layout contou antes de a página mover o marcador); na troca de rota, também', () => {
+    expect(consultaNaHora('/painel/mensagens/2f9a6d1e-1b2c-4d3e-8f4a-5b6c7d8e9f00', null)).toBe(true);
+    expect(consultaNaHora('/painel/mensagens', null)).toBe(false);
+    expect(consultaNaHora('/painel/mensagens/nova', null)).toBe(false);
+    expect(consultaNaHora('/painel/inicio', null)).toBe(false);
+    expect(consultaNaHora('/painel/pacientes/x', '/painel/inicio')).toBe(true); // troca de rota
+    expect(consultaNaHora('/painel/inicio', '/painel/inicio')).toBe(false); // o layout refez na mesma rota
+    expect(consultaNaHora('/painel/mensagens/abc', '/painel/mensagens/abc')).toBe(false);
+    const s = readFileSync('src/app/painel/contador-de-mensagens.tsx', 'utf8');
+    expect(s).toMatch(/const imediata = consultaNaHora\(caminho, anterior\.current\);\s*anterior\.current = caminho;/);
+    expect(s).toMatch(/const anterior = useRef<string \| null>\(null\);/);
   });
 
   it('o componente é cliente, usa o acompanhamento num efeito com limpeza e não tem região viva (só troca o texto do item)', () => {

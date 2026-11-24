@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { ProvedorDaLeitura } from '@/components/mensagens/leitura';
 import { CabecalhoDetalhe } from '@/components/portal/cabecalho-detalhe';
 import { requirePaciente } from '@/lib/paciente-session';
@@ -31,8 +32,11 @@ export default async function Mensagens({ searchParams }: PageProps<'/p/mensagen
   const { ctx, tenant } = await requirePaciente('/p/mensagens');
   const sp = await searchParams;
   const antes = typeof sp.antes === 'string' ? sp.antes : undefined;
-  const { estado, horario, mensagens, haAnteriores, ultimaLida } = await minhaConversa(ctx, { antes });
+  const { estado, horario, mensagens, haAnteriores, ultimaLida, temRecado } = await minhaConversa(ctx, { antes });
   const liberada = estado.liberadaEm !== null;
+  // /code-review do PR 2 (nit 3): a regra do link "Mensagens" da faixa (`mensagensNaFaixa`) — sem a conversa liberada e sem
+  // recado não há o que mostrar ("só recados" seria falso)
+  if (!liberada && !temRecado) redirect('/p/inicio');
   const podeEnviar = liberada && !estado.pausada && estado.titular === 'ativo';
   // §6.2 v0.3: o `?erro=` do envio sem JS (códigos fechados; fora da lista, nada) — junto ao campo ou, sem campo, na região
   const erroDaUrl = erroDoUpload('portal', sp.erro);
@@ -90,7 +94,8 @@ export default async function Mensagens({ searchParams }: PageProps<'/p/mensagen
           <div id="rodape-da-conversa" className="sticky bottom-0 space-y-3 border-t border-borda bg-fundo pt-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
             <SituacaoDoPortal depois={ultima} consultar={antes === undefined} abrirNoFim={antes === undefined} aviso={podeEnviar ? '' : (erroDaUrl ?? '')} />
             {/* rodada da T7 (I1): só recados ou pausada — o texto no lugar do campo (a tela abre no fim, nunca o esconde) */}
-            {podeEnviar ? <CampoDoPortal erroInicial={erroDaUrl} /> : !liberada ? <p>{P.soRecados}</p> : estado.pausada ? <p>{P.pausada}</p> : null}
+            {/* /code-review do PR 2 (I2): o envio a partir de `?antes=` leva à conversa sem `?antes=` (a mensagem nova aparece) */}
+            {podeEnviar ? <CampoDoPortal erroInicial={erroDaUrl} naAnterior={antes !== undefined} /> : !liberada ? <p>{P.soRecados}</p> : estado.pausada ? <p>{P.pausada}</p> : null}
           </div>
         </ProvedorDaLeitura>
       </main>

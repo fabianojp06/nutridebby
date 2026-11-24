@@ -87,22 +87,32 @@ export function numeroDoMenu<T extends { pendentes: number }>(doLayout: T, consu
   return consultado && consultado.de === doLayout ? consultado.n : doLayout.pendentes;
 }
 
+/** A conversa de um paciente (`/painel/mensagens/{id}`; "nova" é a tela do recado, que não lê mensagens). */
+const ehConversa = (caminho: string) => /^\/painel\/mensagens\/(?!nova$)[^/]+$/.test(caminho);
+
+/**
+ * A primeira consulta sai na hora? Na troca de rota, sim (a tela que abriu pode ter lido mensagens). Na carga completa,
+ * só na conversa (/code-review do PR 2, nit 5): o layout conta antes de a página mover o marcador, e o número errado
+ * ficaria até 60 s. `anterior` = o caminho da consulta anterior (nulo na primeira).
+ */
+export const consultaNaHora = (caminho: string, anterior: string | null): boolean => (anterior === null ? ehConversa(caminho) : caminho !== anterior);
+
 /**
  * O número do item "Mensagens" do menu: o do layout (render do servidor) até a primeira consulta. Revisão da T6a (I1): a
  * consulta fica amarrada à identidade do payload do layout (`doLayout`, um objeto novo a cada render do servidor), não ao
  * valor — quando o layout refaz (revalidatePath depois de ler, enviar ou marcar), o número dele volta a valer mesmo que
  * seja igual ao de antes. E a troca de rota consulta na hora (abrir a conversa pela navegação do cliente lê mensagens sem
- * refazer o layout). Sem região viva: só o texto do item muda (RN-459).
+ * refazer o layout), como a carga completa da conversa (`consultaNaHora`). Sem região viva: só o texto do item muda (RN-459).
  */
 export function useContadorDeMensagens<T extends { mostrar: boolean; pendentes: number }>(doLayout: T): number {
   const caminho = usePathname();
-  const primeiro = useRef(caminho);
+  const anterior = useRef<string | null>(null);
   const [consultado, setConsultado] = useState<{ de: T; n: number } | null>(null);
   const ativo = doLayout.mostrar;
   useEffect(() => {
     if (!ativo) return undefined;
-    const imediata = caminho !== primeiro.current;
-    primeiro.current = caminho;
+    const imediata = consultaNaHora(caminho, anterior.current);
+    anterior.current = caminho;
     return acompanharContador((n) => setConsultado({ de: doLayout, n }), { imediata });
   }, [ativo, doLayout, caminho]);
   return numeroDoMenu(doLayout, consultado);

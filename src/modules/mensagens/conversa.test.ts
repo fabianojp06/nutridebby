@@ -3,8 +3,10 @@ import { sql, type SQL } from 'drizzle-orm';
 import { makeDb } from '../../../test/db';
 import { stopBoss } from '@/jobs/boss';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { randomUUID } from 'node:crypto';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb, type Db } from '@/db/client';
+import { user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { arquivarPaciente, desarquivarPaciente } from '@/modules/pacientes/lgpd';
@@ -474,7 +476,7 @@ describe('Plano 25 — conversaNoPainel e minhaConversa (RN-446, RN-448, RN-453)
       ['paciente', false, 'Oi, Débora'],
       ['nutri', true, 'Oi, Ana'],
     ]);
-    expect(Object.keys(painel.mensagens[1]).sort()).toEqual(['anexo', 'autor', 'autorCrn', 'autorNome', 'criadaEm', 'duvidaEm', 'id', 'minha', 'recado', 'risco', 'texto']);
+    expect(Object.keys(painel.mensagens[1]).sort()).toEqual(['anexo', 'autor', 'autorCrn', 'autorNome', 'criadaEm', 'duvidaEm', 'id', 'lida', 'minha', 'recado', 'risco', 'texto']);
     expect(painel.mensagens[1]).toMatchObject({ autorNome: 'Débora Nutricionista', autorCrn: 'CRN-3 12345', recado: false, anexo: null, risco: null });
     expect(painel.haAnteriores).toBe(false);
     const portal = await minhaConversa(c.P, {}, app.db);
@@ -597,9 +599,11 @@ describe('Plano 25 — marcador e cursores pelo id (CH-D40)', () => {
     expect(await situacao(T.ctx, { patientId: c.p, depois: b.id }, app.db)).toEqual({ novas: 0, ultimaLida: b.id });
     // o paciente responde; a nutricionista ainda não abriu → "Enviada"; abriu → "Lida"
     const p1 = (await enviarComoPaciente(c.P, { texto: 'ok' }, app.db)) as { id: string };
-    expect((await situacao(c.P, { depois: b.id }, app.db)).ultimaLida).toBeNull();
+    expect((await situacao(c.P, { depois: p1.id }, app.db)).ultimaLida).toBeNull();
     await conversaNoPainel(T.ctx, c.p, {}, app.db);
-    expect((await situacao(c.P, { depois: b.id }, app.db)).ultimaLida).toBe(p1.id);
+    expect((await situacao(c.P, { depois: p1.id }, app.db)).ultimaLida).toBe(p1.id);
+    // /code-review do PR 2 (I1): a consulta só aponta mensagens da tela (até `depois`); p1 depois dela não conta
+    expect((await situacao(c.P, { depois: b.id }, app.db)).ultimaLida).toBeNull();
   });
 
   it('o marcador usa a última mensagem do OUTRO lado carregada, nunca a própria (CH-D72)', async () => {
@@ -726,5 +730,86 @@ describe('Plano 25, T7 — mensagensNaFaixa (o link "Mensagens" da faixa do port
       expect(await mensagensNaFaixa(ctx, db)).toBeNull();
       expect(transaction).not.toHaveBeenCalled();
     }
+  });
+});
+
+// /code-review do PR 2 (I1): o "Lida" pela ORDEM — a `criada_em` de cada mensagem própria contra o `lida_ate` do outro
+// lado, no SQL —, não por um id que precisa estar na lista `minhas` da tela
+describe('Plano 25 — /code-review do PR 2: "Lida" pela ordem (RN-448, CH-D40)', () => {
+  /** Outra nutricionista do mesmo consultório (a sessão dela). */
+  async function outraNutri(T: TenantDeTeste): Promise<TenantContext> {
+    const id = randomUUID();
+    await app.db.insert(user).values({ id, name: 'Bia Nutricionista', email: `nutri-${id.slice(0, 8)}@teste.dev`, appRole: 'nutri', tenantId: T.tenantId });
+    return { ...T.ctx, actorUserId: id };
+  }
+  /** `n` mensagens do `autor`, um minuto entre elas (a primeira é `m0`). */
+  async function muitas(T: TenantDeTeste, c: Awaited<ReturnType<typeof pacienteDoChat>>, autor: 'nutri' | 'paciente', n: number) {
+    const base = Date.parse('2026-11-20T12:00:00Z');
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) ids.push(await mensagemDoDono(owner.pool, T, c, { autor, texto: `m${i}`, criadaEm: new Date(base + i * 60_000).toISOString() }));
+    return ids;
+  }
+
+  it('(a) duas nutricionistas: o "Lida" de cada uma é o da última mensagem DELA que o paciente já passou — no render e na consulta', async () => {
+    const T = await chat();
+    const c = await pacienteDoChat(app.db, T);
+    const B = await outraNutri(T);
+    const daA = (await enviarComoNutri(T.ctx, c.p, { texto: 'da A' }, app.db)) as { id: string };
+    const daB = (await enviarComoNutri(B, c.p, { texto: 'da B' }, app.db)) as { id: string };
+    await minhaConversa(c.P, {}, app.db); // o paciente lê as duas
+    const r = await conversaNoPainel(T.ctx, c.p, {}, app.db);
+    expect(r.mensagens.map((m) => [m.texto, m.minha, m.lida])).toEqual([
+      ['da A', true, true],
+      ['da B', false, false],
+    ]);
+    expect(r.ultimaLida).toBe(daA.id); // antes: o id da mensagem da B, fora de `minhas` → "Enviada" na da A
+    expect(await situacao(T.ctx, { patientId: c.p, depois: daB.id }, app.db)).toEqual({ novas: 0, ultimaLida: daA.id });
+    expect((await conversaNoPainel(B, c.p, {}, app.db)).ultimaLida).toBe(daB.id);
+    expect(await situacao(B, { patientId: c.p, depois: daB.id }, app.db)).toEqual({ novas: 0, ultimaLida: daB.id });
+    // a A escreve de novo: a nova ainda não foi lida; o "Lida" continua na anterior
+    const nova = (await enviarComoNutri(T.ctx, c.p, { texto: 'mais' }, app.db)) as { id: string };
+    const depois = await conversaNoPainel(T.ctx, c.p, {}, app.db);
+    expect(depois.mensagens.find((m) => m.id === nova.id)?.lida).toBe(false);
+    expect(depois.ultimaLida).toBe(daA.id);
+    expect((await situacao(T.ctx, { patientId: c.p, depois: nova.id }, app.db)).ultimaLida).toBe(daA.id);
+  });
+
+  it('(b) painel, ?antes=: a última lida é mais nova que tudo na tela — as próprias da página são lidas, e o "Lida" fica na última delas', async () => {
+    const T = await chat();
+    const c = await pacienteDoChat(app.db, T);
+    const ids = await muitas(T, c, 'nutri', 55);
+    await minhaConversa(c.P, {}, app.db); // o paciente lê até a m54
+    const ultimas = await conversaNoPainel(T.ctx, c.p, {}, app.db);
+    expect(ultimas.ultimaLida).toBe(ids[54]);
+    const anterior = await conversaNoPainel(T.ctx, c.p, { antes: ultimas.mensagens[0].id }, app.db);
+    expect(anterior.mensagens.map((m) => m.texto)).toEqual(['m0', 'm1', 'm2', 'm3', 'm4']);
+    expect(anterior.mensagens.every((m) => m.minha && m.lida)).toBe(true);
+    expect(anterior.ultimaLida).toBe(ids[4]); // antes: ids[54], fora da tela → "Enviada" em todas
+  });
+
+  it('(b) portal, ?antes=: o mesmo para as mensagens do paciente', async () => {
+    const T = await chat();
+    const c = await pacienteDoChat(app.db, T);
+    const ids = await muitas(T, c, 'paciente', 55);
+    await conversaNoPainel(T.ctx, c.p, {}, app.db); // a nutricionista lê até a m54
+    const ultimas = await minhaConversa(c.P, {}, app.db);
+    expect(ultimas.ultimaLida).toBe(ids[54]);
+    const anterior = await minhaConversa(c.P, { antes: ultimas.mensagens[0].id }, app.db);
+    expect(anterior.mensagens.every((m) => m.minha && m.lida)).toBe(true);
+    expect(anterior.ultimaLida).toBe(ids[4]);
+    // sem marcador da nutricionista: nada lido
+    const d = await pacienteDoChat(app.db, T);
+    await muitas(T, d, 'paciente', 2);
+    const nada = await minhaConversa(d.P, {}, app.db);
+    expect(nada.mensagens.map((m) => m.lida)).toEqual([false, false]);
+    expect(nada.ultimaLida).toBeNull();
+  });
+
+  it('nit 3: minhaConversa diz se há recado (a regra do link da faixa)', async () => {
+    const T = await chat();
+    const sem = await pacienteDoChat(app.db, T, { liberar: false });
+    expect((await minhaConversa(sem.P, {}, app.db)).temRecado).toBe(false);
+    await recadoPara(app.db, T, [sem.p], 'Feriado');
+    expect((await minhaConversa(sem.P, {}, app.db)).temRecado).toBe(true);
   });
 });

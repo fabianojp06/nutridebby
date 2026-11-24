@@ -118,7 +118,8 @@ export default async function Conversa({ params, searchParams }: PageProps<'/pai
         </div>
         <div id="rodape-da-conversa" className="sticky bottom-0 space-y-3 border-t border-borda bg-fundo pt-3 pb-2">
           <SituacaoDaConversa patientId={patientId} depois={ultima} primeiroNome={primeiroNome} aviso={aviso} marcador={marcador} focarAviso={aviso !== ''} consultar={antes === undefined && ativo} abrirNoFim={antes === undefined} />
-          {podeEnviar && <CampoDaConversa patientId={patientId} />}
+          {/* /code-review do PR 2: o envio a partir de `?antes=` leva à conversa sem `?antes=` (I2) e tira o `?ok=` já mostrado (nit 4) */}
+          {podeEnviar && <CampoDaConversa patientId={patientId} naAnterior={antes !== undefined} limparRetorno={aviso !== ''} />}
           {ativo && liberada && !estado.pausada && !estado.carimbo && (
             <p>
               <ComLinkDoPerfil texto={M.erros.semCarimbo} />

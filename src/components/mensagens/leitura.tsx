@@ -5,7 +5,12 @@ import { lidaMaisAdiante } from './situacao';
 
 const C = MSG_MENSAGENS.conversa;
 
-/** O "Lida" do render e o atualizado pela consulta (RN-448): as próprias mensagens mostradas, em ordem, e a última lida. */
+/**
+ * O "Lida" do render e o atualizado pela consulta (RN-448): as próprias mensagens mostradas, em ordem, e a última lida. Desde o
+ * /code-review do PR 2 (I1), as duas posições vêm do servidor já pela ORDEM (a `criada_em` contra o marcador do outro lado, no
+ * SQL): a última própria da tela que o outro lado passou — com duas nutricionistas, só as da usuária; na página `?antes=`,
+ * também quando a última lida é mais nova que tudo na tela.
+ */
 type Leitura = { minhas: readonly string[]; ultimaLida: string | null; setConsultada: (id: string | null) => void };
 export const ContextoDaLeitura = createContext<Leitura>({ minhas: [], ultimaLida: null, setConsultada: () => undefined });
 
@@ -21,8 +26,8 @@ export function ProvedorDaLeitura({ minhas, ultimaLida, children }: { minhas: re
 }
 
 /**
- * RN-448: "Lida" na última mensagem própria que o paciente já passou; "Enviada" nas próprias depois dela (ou em todas,
- * quando a lida não está na página); nada nas anteriores à lida. O tamanho vem da linha da hora em que fica: `text-sm` no
+ * RN-448: "Lida" na última mensagem própria da tela que o outro lado já passou; "Enviada" nas próprias depois dela (ou em
+ * todas, quando nenhuma da tela foi lida); nada nas anteriores à lida. O tamanho vem da linha da hora em que fica: `text-sm` no
  * portal (nada no portal fica abaixo disso), `text-xs` no painel.
  */
 export function EstadoDaMinha({ id }: { id: string }) {

@@ -17,6 +17,8 @@ import {
   lerMensagem,
   mensagemDaPropriaOrigem,
   deveRecarregarAoVoltar,
+  SAINDO_SEM_DESCARREGAR_MS,
+  vigiarSaida,
   paginaSemConexao,
   recarregaAoVoltarARede,
   planoValido,
@@ -310,11 +312,57 @@ describe('Plano 25: o reload ao reconectar nunca atropela uma navegação em cur
     expect(deveRecarregarAoVoltar({ pathname: '/p/plano', saindo: false, online: false })).toBe(false); // evento sem rede de fato
     expect(deveRecarregarAoVoltar({ pathname: '/p/mensagens', saindo: false, online: true })).toBe(false);
   });
-  it('sw-provider.tsx: marca a saída no beforeunload e no pagehide (desmarca na volta do bfcache) e só então decide', () => {
+  it('sw-provider.tsx: a saída vigiada (beforeunload, pagehide e a volta do bfcache) decide antes do reload', () => {
     const f = readFileSync('src/app/p/sw-provider.tsx', 'utf8');
-    expect(f).toMatch(/addEventListener\('beforeunload', aoSair\)/);
-    expect(f).toMatch(/addEventListener\('pagehide', aoSair\)/);
-    expect(f).toMatch(/if \(e\.persisted\) saindo = false/);
-    expect(f).toMatch(/deveRecarregarAoVoltar\(\{ pathname: window\.location\.pathname, saindo, online: navigator\.onLine \}\)/);
+    expect(f).toMatch(/const saida = vigiarSaida\(window\)/);
+    expect(f).toMatch(/saida\.parar\(\)/);
+    expect(f).toMatch(/deveRecarregarAoVoltar\(\{ pathname: window\.location\.pathname, saindo: saida\.saindo\(\), online: navigator\.onLine \}\)/);
+  });
+});
+
+// /code-review do PR 2 (nit 6): um `beforeunload` que não descarrega a página (download, `tel:`, `mailto:`) deixava
+// `saindo` verdadeiro para sempre — a página nunca mais recarregava ao voltar a rede
+describe('Plano 25: vigiarSaida (o "saindo" do reload ao reconectar)', () => {
+  const janela = () => {
+    const t = new EventTarget();
+    const evento = (tipo: string, persisted?: boolean) => t.dispatchEvent(Object.assign(new Event(tipo), persisted === undefined ? {} : { persisted }));
+    return { t, evento };
+  };
+  afterEach(() => vi.useRealTimers());
+
+  it('beforeunload sem descarregar: "saindo" vence sozinho depois do prazo curto, e a página volta a recarregar ao reconectar', () => {
+    vi.useFakeTimers();
+    const j = janela();
+    const s = vigiarSaida(j.t, globalThis);
+    expect(s.saindo()).toBe(false);
+    j.evento('beforeunload');
+    expect(s.saindo()).toBe(true); // a troca de documento em curso (5d2e3b7) continua protegida
+    expect(deveRecarregarAoVoltar({ pathname: '/p/plano', saindo: s.saindo(), online: true })).toBe(false);
+    vi.advanceTimersByTime(SAINDO_SEM_DESCARREGAR_MS - 1);
+    expect(s.saindo()).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(s.saindo()).toBe(false); // o `tel:`/download não descarregou: a página ficou
+    expect(deveRecarregarAoVoltar({ pathname: '/p/plano', saindo: s.saindo(), online: true })).toBe(true);
+    expect(SAINDO_SEM_DESCARREGAR_MS).toBeLessThanOrEqual(10_000);
+    s.parar();
+  });
+
+  it('pagehide marca de vez (sem prazo); pageshow da volta do bfcache desmarca; parar tira os ouvintes e o temporizador', () => {
+    vi.useFakeTimers();
+    const j = janela();
+    const s = vigiarSaida(j.t, globalThis);
+    j.evento('beforeunload');
+    j.evento('pagehide');
+    vi.advanceTimersByTime(60_000);
+    expect(s.saindo()).toBe(true);
+    j.evento('pageshow', false);
+    expect(s.saindo()).toBe(true);
+    j.evento('pageshow', true);
+    expect(s.saindo()).toBe(false);
+    j.evento('beforeunload');
+    s.parar();
+    expect(vi.getTimerCount()).toBe(0);
+    j.evento('pageshow', true);
+    expect(s.saindo()).toBe(true); // sem ouvintes: nada mais o muda
   });
 });

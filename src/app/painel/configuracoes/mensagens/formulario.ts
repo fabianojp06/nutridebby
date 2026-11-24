@@ -52,3 +52,13 @@ export function estadoDeFalha(dados: FormData, naTela: ConfiguracaoDasMensagens)
   }
   return { marca: marcaNova(), erro: null, erroGeral: MSG_MENSAGENS.configuracao.falha, config };
 }
+
+/**
+ * /code-review do PR 2 (nit 4): o texto da região "Configuração salva." — some quando a gravação seguinte volta com erro
+ * (`oculto` = o marcador da gravação que estava na tela quando o erro chegou); uma gravação nova (outro marcador) volta a
+ * mostrá-lo. Puro.
+ */
+export const avisoDeSalvoNaTela = (texto: string, marcador: string, oculto: string | null): string => (oculto !== null && oculto === marcador ? '' : texto);
+
+/** Uma resposta do formulário com erro (junto à faixa ou geral). */
+export const respostaComErro = (e: EstadoDoHorario | null): boolean => !!e && (e.erro !== null || !!e.erroGeral);

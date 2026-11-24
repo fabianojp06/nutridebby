@@ -45,6 +45,59 @@ export function deveRecarregarAoVoltar(o: { pathname: string; saindo: boolean; o
   return o.online && !o.saindo && recarregaAoVoltarARede(o.pathname);
 }
 
+/**
+ * /code-review do PR 2 (nit 6): quanto o `beforeunload` vale como "saindo" sem a página descarregar. Um `beforeunload` que
+ * não descarrega (download, `tel:`, `mailto:`) deixava `saindo` verdadeiro para sempre, e a página nunca mais recarregava
+ * ao voltar a rede. A troca de documento que o 5d2e3b7 protege leva bem menos que isto (sem rede, o service worker responde).
+ */
+export const SAINDO_SEM_DESCARREGAR_MS = 5_000;
+
+type Relogio = { setTimeout: (f: () => void, ms: number) => unknown; clearTimeout: (t: never) => void };
+
+/**
+ * A página está saindo? `beforeunload` marca e, se a página não descarregar em `SAINDO_SEM_DESCARREGAR_MS`, desmarca;
+ * `pagehide` marca de vez (a página foi embora, ou para o bfcache); `pageshow` com `persisted` (a volta do bfcache)
+ * desmarca. Sem DOM: os eventos chegam por `janela` (a `window`; injetável nos testes). Devolve a leitura e o "parar".
+ */
+export function vigiarSaida(janela: EventTarget, relogio: Relogio = globalThis as unknown as Relogio): { saindo: () => boolean; parar: () => void } {
+  let saindo = false;
+  let timer: unknown;
+  const limpar = () => {
+    if (timer !== undefined) relogio.clearTimeout(timer as never);
+    timer = undefined;
+  };
+  const aoAvisarSaida = () => {
+    saindo = true;
+    limpar();
+    timer = relogio.setTimeout(() => {
+      timer = undefined;
+      saindo = false;
+    }, SAINDO_SEM_DESCARREGAR_MS);
+  };
+  const aoEsconder = () => {
+    limpar();
+    saindo = true;
+  };
+  const aoMostrar = (e: Event) => {
+    if ((e as Event & { persisted?: boolean }).persisted) {
+      limpar();
+      saindo = false; // de volta do bfcache: a página ficou
+    }
+  };
+  janela.addEventListener('beforeunload', aoAvisarSaida);
+  janela.addEventListener('pagehide', aoEsconder);
+  janela.addEventListener('pageshow', aoMostrar);
+  return {
+    saindo: () => saindo,
+    parar: () => {
+      limpar();
+      janela.removeEventListener('beforeunload', aoAvisarSaida);
+      janela.removeEventListener('pagehide', aoEsconder);
+      janela.removeEventListener('pageshow', aoMostrar);
+    },
+  };
+}
+
 /** A navegação para a conversa (/p/mensagens): só rede; sem rede, a página do aviso (paginaSemConexao), sem cache. */
 export function ehConversaDoPortal(url: URL, modo: RequestMode, origem: string): boolean {
   return modo === 'navigate' && url.origin === origem && ehDaConversa(url.pathname);

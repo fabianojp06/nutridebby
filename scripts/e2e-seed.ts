@@ -537,6 +537,12 @@ await db.delete(user).where(eq(user.email, E2E_CHAT_NUTRI.email));
 const chatNutriId = randomUUID();
 await db.insert(user).values({ id: chatNutriId, name: 'Nutri Chat E2E', email: E2E_CHAT_NUTRI.email, emailVerified: true, appRole: 'nutri', tenantId: consultorioChat.id, guia: TUDO_VISTO, tema: 'sistema' });
 await db.insert(account).values({ id: randomUUID(), userId: chatNutriId, accountId: chatNutriId, providerId: 'credential', password: await hashPassword(E2E_CHAT_NUTRI.password) });
+// /code-review do PR 2 (I1): a segunda nutricionista do consultório do chat — o "Lida" de cada uma é o da própria mensagem
+export const E2E_CHAT_NUTRI_2 = { email: 'chat-nutri-2-e2e@nutridebby.test', password: 'Nutri2026segura' };
+await db.delete(user).where(eq(user.email, E2E_CHAT_NUTRI_2.email));
+const chatNutri2Id = randomUUID();
+await db.insert(user).values({ id: chatNutri2Id, name: 'Nutri Chat Dois E2E', email: E2E_CHAT_NUTRI_2.email, emailVerified: true, appRole: 'nutri', tenantId: consultorioChat.id, guia: TUDO_VISTO, tema: 'sistema' });
+await db.insert(account).values({ id: randomUUID(), userId: chatNutri2Id, accountId: chatNutri2Id, providerId: 'credential', password: await hashPassword(E2E_CHAT_NUTRI_2.password) });
 const senhaChat = await hashPassword(E2E_CHAT_PACIENTE.password);
 const [jaChat] = await db.select({ id: user.id }).from(user).where(eq(user.email, E2E_CHAT_PACIENTE.email));
 const chatPacienteUserId = jaChat?.id ?? randomUUID();

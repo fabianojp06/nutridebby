@@ -2018,10 +2018,13 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
   vira filtro de `criada_em`.
 - **Cursores.** `?antes=` e `depois` são ids resolvidos como `(criada_em, id)` no SQL com `tenant_id` e `patient_id`;
   id que não é uuid ou de outra conversa → lista vazia ou contagem 0. "Ver mensagens anteriores" é um link sem prefetch.
-- **"Lida"** (`ultimaLidaPeloOutro`, `:302`): a última mensagem própria que o outro lado já passou, pelo marcador dele. A
-  tela mostra "Lida" nessa e "Enviada" nas próprias depois dela (`EstadoDaMinha`); o valor da consulta de situação só
-  avança o do render (`lidaMaisAdiante`).
-- **"Há novas?"** (`situacao`, `:381`): só `{ novas, ultimaLida }`, sem `auditRead`, sem texto, sem mexer no marcador;
+- **"Lida"** (pela ordem, /code-review do PR 2): cada mensagem da tela leva `lida` — própria (no painel, da usuária da
+  sessão; a de outra nutricionista não conta) e com `criada_em` até o `lida_ate` do outro lado, comparado no SQL. O render
+  manda a última própria lida **da tela** (`ultimaLidaNaTela`, `:309`), o que vale também na página `?antes=` quando a
+  última lida é mais nova que tudo nela; a consulta de situação manda a última própria lida até `depois` (`ultimaLidaAte`,
+  `:389`). A tela mostra "Lida" nessa e "Enviada" nas próprias depois dela (`EstadoDaMinha`); o valor da consulta só avança
+  o do render (`lidaMaisAdiante`).
+- **"Há novas?"** (`situacao`, `:409`): só `{ novas, ultimaLida }`, sem `auditRead`, sem texto, sem mexer no marcador;
   no portal o paciente vem da sessão e o `patientId` recebido é ignorado. Rotas `GET /api/painel/mensagens/situacao`
   (`requireApiNutri(req, { renovar: false })`) e `GET /api/p/mensagens/situacao` (`requireApiPaciente`), com
   `Cache-Control: no-store`. No navegador, `acompanharSituacao` (`src/components/mensagens/situacao.ts`) consulta a cada

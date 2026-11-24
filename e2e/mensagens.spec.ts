@@ -10,10 +10,13 @@ import { escolherTema } from './painel';
 // três modos (o laço de acessibilidade-painel.spec.ts vê a caixa vazia do consultório principal) e o menu que quebra linha
 // sem cobrir o conteúdo. Bloco de IP deste spec (o limite de login é por IP; bloco do Plano 25, CH-D50): 10.9.25.1 a
 // 10.9.25.5 na T6a — nutricionista .1; T6b: .6 a .15 — a segunda paciente do chat .6, o painel sem JS .7, a segunda
-// paciente na rodada da T6b .8. A T6c usa .16
+// paciente na rodada da T6b .8; /code-review do PR 2: a segunda paciente sem conversa nem recado .9 e a segunda
+// nutricionista .10. A T6c usa .16
 // em diante (T6c: .16 a .19 — a primeira paciente do chat no app .16). Credenciais copiadas (importar o seed roda o seed).
 const CHAT_NUTRI = { email: 'chat-nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const CHAT_PACIENTE = { nome: 'Paciente Chat E2E', email: 'chat-paciente-e2e@nutridebby.test', senha: 'Nutri2026segura' };
+// /code-review do PR 2 (I1): a segunda nutricionista do consultório do chat (scripts/e2e-seed.ts)
+const CHAT_NUTRI_2 = { email: 'chat-nutri-2-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 // T6b: a segunda paciente do chat, com conta e sem a conversa liberada (scripts/e2e-seed.ts)
 const CHAT_PACIENTE_2 = { email: 'chat-paciente-2-e2e@nutridebby.test', senha: 'Nutri2026segura', nome: 'Paciente Chat Dois E2E' };
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
@@ -152,6 +155,16 @@ test('T6b: axe da conversa com o "Sinal de risco" e a cópia do recado (o rótul
   await nutri.emulateMedia({ colorScheme: 'light' });
   await escolherTema(nutri, 'Igual ao aparelho');
   expect(falhas).toEqual([]);
+});
+
+// antes do "Liberar": a segunda paciente ainda não tem conversa liberada nem recado
+test('/code-review do PR 2 (nit 3): sem conversa liberada e sem recado, /p/mensagens volta para Hoje (a faixa também não tem o link)', async ({ browser }) => {
+  const paciente = await pacienteNoApp(browser, '10.9.25.9');
+  await paciente.goto('/p/mensagens');
+  await expect(paciente).toHaveURL(/\/p\/inicio$/);
+  await expect(paciente.getByText('Por enquanto, sua nutricionista só envia recados por aqui', { exact: false })).toHaveCount(0);
+  await expect(paciente.getByRole('link', { name: /^Mensagens/ })).toHaveCount(0);
+  await paciente.context().close();
 });
 
 test('T6b: liberar (erro junto ao campo, depois a forma e a confirmação) → enviar → a paciente abre o app → no painel, "Lida"', async ({ browser }) => {
@@ -442,7 +455,8 @@ test('T6c: a seção "Mensagens" no Início da ficha — "{n} não lidas", os it
 // ——— T7: a conversa no app (/p/mensagens). Bloco de IP: 10.9.25.20 a 10.9.25.39 — a primeira paciente do chat .20 (a
 // faixa, o envio e o "Lida"), .21 (sinal de risco), .22 (400 px e axe), .23 (sem rede), .24 (sem JavaScript), .25 (mensagem
 // nova com a tela aberta); rodada da T7: .26 (a nutricionista do consultório principal) e .27 (a paciente com plano
-// guardado); re-revisão: .28 (recusa com risco a 400×600) e .29 (?antes= no app); .30 (a rede volta sem recarregar) ———
+// guardado); re-revisão: .28 (recusa com risco a 400×600) e .29 (?antes= no app); .30 (a rede volta sem recarregar);
+// /code-review do PR 2: .31 (o "Lida" e o envio na página ?antes=) e .32 (duas nutricionistas) ———
 
 const NO_APP = { campo: 'Escreva sua mensagem', urgencia: 'Este canal não é para urgências. Em caso de urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo.' };
 const listaDoApp = (page: Page) => page.getByRole('list', { name: 'Mensagens' });
@@ -742,4 +756,86 @@ test('correção (I4 no app): a rede cai e volta com a conversa aberta — a pá
   await expect(campo).toHaveValue('');
   await expect(paciente.locator('textarea')).toHaveCount(1);
   await paciente.context().close();
+});
+
+// ——— /code-review do PR 2 (I1, I2): o "Lida" pela ordem e o envio a partir da página ?antes= ———
+
+test('/code-review do PR 2 (I1 b, I2): na página ?antes=, a própria lida mostra "Lida"; enviar dali leva à conversa sem ?antes=, com a nova à vista e o foco no campo (painel e app)', async ({ browser }) => {
+  test.setTimeout(120_000);
+  // a paciente lê tudo (o marcador dela passa de todas as mensagens da nutricionista; a re-revisão da T7 deixou mais de 50)
+  const paciente = await primeiraPacienteNoApp(browser, '10.9.25.31');
+  await paciente.goto('/p/mensagens');
+  await expect(listaDoApp(paciente).locator('li[data-mensagem]').last()).toBeVisible();
+  const url = await abrirConversa(nutri, CHAT_PACIENTE.nome);
+  await nutri.getByRole('link', { name: 'Ver mensagens anteriores' }).click();
+  await expect(nutri).toHaveURL(new RegExp(`${url}\\?antes=${UUID}$`));
+  const lista = listaDeMensagens(nutri);
+  // a última lida é mais nova que tudo na tela: as próprias desta página são lidas (antes: "Enviada" em todas)
+  await expect(lista.getByText('Lida', { exact: true })).toHaveCount(1);
+  await expect(lista.getByText('Enviada', { exact: true })).toHaveCount(0);
+  // enviar daqui: a conversa sem ?antes=, com a mensagem (uma só) à vista, o campo vazio e com o foco
+  await nutri.waitForLoadState('networkidle');
+  const texto = `Enviada da página das anteriores ${Date.now()}`;
+  await nutri.getByLabel('Mensagem').fill(texto);
+  await nutri.getByRole('button', { name: 'Enviar', exact: true }).click();
+  await expect(nutri).toHaveURL(new RegExp(`${url}$`));
+  const nova = lista.locator('li[data-mensagem]').filter({ hasText: texto });
+  await expect(nova).toHaveCount(1);
+  await expect(nova).toContainText('Enviada');
+  await expect(nova).toBeInViewport();
+  await expect(nutri.getByLabel('Mensagem')).toHaveValue('');
+  await expect(nutri.getByLabel('Mensagem')).toBeFocused();
+
+  // no app: a página das anteriores e o envio dali
+  await paciente.goto('/p/mensagens');
+  await paciente.getByRole('link', { name: 'Ver mensagens anteriores' }).click();
+  await expect(paciente).toHaveURL(new RegExp(`/p/mensagens\\?antes=${UUID}$`));
+  await expect(listaDoApp(paciente).getByText('Enviada', { exact: true })).toHaveCount(0);
+  await paciente.waitForLoadState('networkidle');
+  const doApp = `Respondendo da página das anteriores ${Date.now()}`;
+  const campo = paciente.getByLabel(NO_APP.campo);
+  await campo.fill(doApp);
+  await paciente.getByRole('button', { name: 'Enviar', exact: true }).click();
+  await expect(paciente).toHaveURL(/\/p\/mensagens$/);
+  const minha = listaDoApp(paciente).locator('li[data-mensagem]').filter({ hasText: doApp });
+  await expect(minha).toHaveCount(1);
+  await expect(minha).toContainText('Enviada');
+  await expect(minha).toBeInViewport();
+  await expect(campo).toHaveValue('');
+  await expect(campo).toBeFocused();
+  await paciente.context().close();
+});
+
+test('/code-review do PR 2 (I1 a): com duas nutricionistas, cada uma vê "Lida" na própria mensagem que a paciente leu', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const segunda = await entrarComo(browser, CHAT_NUTRI_2.email, CHAT_NUTRI_2.senha, '10.9.25.10', { viewport: { width: 1280, height: 900 } });
+  await expect(segunda).toHaveURL(/\/painel$/);
+  try {
+    const url = await abrirConversa(nutri, CHAT_PACIENTE.nome);
+    await nutri.waitForLoadState('networkidle');
+    const daPrimeira = `Da primeira nutricionista ${Date.now()}`;
+    await nutri.getByLabel('Mensagem').fill(daPrimeira);
+    await nutri.getByRole('button', { name: 'Enviar', exact: true }).click();
+    await expect(listaDeMensagens(nutri).getByText(daPrimeira)).toBeVisible();
+    await abrirConversa(segunda, CHAT_PACIENTE.nome);
+    await segunda.waitForLoadState('networkidle');
+    const daSegunda = `Da segunda nutricionista ${Date.now()}`;
+    await segunda.getByLabel('Mensagem').fill(daSegunda);
+    await segunda.getByRole('button', { name: 'Enviar', exact: true }).click();
+    await expect(listaDeMensagens(segunda).getByText(daSegunda)).toBeVisible();
+    // a paciente lê as duas
+    const paciente = await primeiraPacienteNoApp(browser, '10.9.25.32');
+    await paciente.goto('/p/mensagens');
+    await expect(listaDoApp(paciente).getByText(daSegunda)).toBeVisible();
+    await paciente.context().close();
+    // cada uma: "Lida" na própria (antes: "Enviada" na da primeira, porque a última lida era a da segunda)
+    await nutri.goto(url);
+    await expect(listaDeMensagens(nutri).locator('li[data-mensagem]').filter({ hasText: daPrimeira })).toContainText('Lida');
+    await expect(listaDeMensagens(nutri).getByText('Enviada', { exact: true })).toHaveCount(0);
+    await segunda.goto(url);
+    await expect(listaDeMensagens(segunda).locator('li[data-mensagem]').filter({ hasText: daSegunda })).toContainText('Lida');
+    await expect(listaDeMensagens(segunda).getByText('Enviada', { exact: true })).toHaveCount(0);
+  } finally {
+    await segunda.context().close();
+  }
 });

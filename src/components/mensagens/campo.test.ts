@@ -22,7 +22,7 @@ describe('aplicarResposta (o campo da conversa, painel e portal)', () => {
       expect(fonte, f).not.toMatch(/<Texto[^>]*\bkey=/);
       expect(fonte, f).toMatch(/<Texto estado=\{estado\}/);
       expect(fonte, f).toMatch(/aplicarResposta\(ref\.current, estado\)/);
-      expect(fonte, f).toMatch(/\}, \[estado\]\);/);
+      expect(fonte, f).toMatch(/\}, \[estado(, depois)?\]\);/);
     }
   });
 });

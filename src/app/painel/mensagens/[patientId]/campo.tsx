@@ -1,6 +1,7 @@
 'use client';
 import { useActionState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { aplicarResposta } from '@/components/mensagens/campo';
+import { useDepoisDoEnvio } from '@/components/mensagens/depois-do-envio';
 import { rolarAteOFim } from '@/components/mensagens/rolagem';
 import { Botao } from '@/components/ui/botao';
 import { MSG_MENSAGENS } from '@/modules/mensagens/constantes';
@@ -22,13 +23,16 @@ const marcaNova = () => `${Date.now().toString(36)}-${Math.random().toString(36)
  * envio seguinte deixava o `textarea` velho (com o rascunho) no formulário ao lado do novo (o reset automático do formulário
  * pelo React e a troca do nó no mesmo commit) — o campo "não limpava". `defaultValue` cobre o render sem JS (RNF-443).
  */
-function Texto({ estado, idErro }: { estado: EstadoDoEnvio | null; idErro: string | undefined }) {
+function Texto({ estado, idErro, depois }: { estado: EstadoDoEnvio | null; idErro: string | undefined; depois: (focar: () => void) => void }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (!aplicarResposta(ref.current, estado)) return;
-    ref.current?.focus({ preventScroll: true });
-    rolarAteOFim(); // rodada da T7 (I3): até o fim do documento, não até o rodapé sticky
-  }, [estado]);
+    // /code-review do PR 2 (I2): da página `?antes=`, o foco espera a conversa sem `?antes=` chegar (useDepoisDoEnvio)
+    depois(() => {
+      ref.current?.focus({ preventScroll: true });
+      rolarAteOFim(); // rodada da T7 (I3): até o fim do documento, não até o rodapé sticky
+    });
+  }, [estado, depois]); // `depois` é estável (useCallback): só a resposta da action dispara
   return (
     <textarea
       ref={ref}
@@ -48,9 +52,11 @@ function Texto({ estado, idErro }: { estado: EstadoDoEnvio | null; idErro: strin
  * (RNF-443), o formulário é a própria Server Action (`useActionState`, com o estado no erro e o redirect no sucesso). Com
  * JS, a mesma action embrulhada por `seguraFalhaDeRede` (rodada da T6b, I4): a rede caída vira "Não foi possível enviar.
  * Tente de novo." com o texto de volta, em vez de cair no error boundary. O erro fica junto ao campo (`role="alert"`,
- * reanunciado a cada resposta). O anexo entra na T8.
+ * reanunciado a cada resposta). O anexo entra na T8. /code-review do PR 2: enviou da página das anteriores (`naAnterior`) →
+ * a conversa sem `?antes=` (I2); com o retorno de um ato na URL (`limparRetorno`), a URL perde o `?ok=` (nit 4).
  */
-export function CampoDaConversa({ patientId }: { patientId: string }) {
+export function CampoDaConversa({ patientId, naAnterior = false, limparRetorno = false }: { patientId: string; naAnterior?: boolean; limparRetorno?: boolean }) {
+  const depois = useDepoisDoEnvio(`/painel/mensagens/${patientId}`, { naAnterior, limpar: limparRetorno });
   const doServidor = enviarAction.bind(null, patientId);
   const [estadoSemJs, acaoSemJs] = useActionState<EstadoDoEnvio | null, FormData>(doServidor, null);
   const [estadoComJs, acaoComJs, enviando] = useActionState<EstadoDoEnvio | null, FormData>(
@@ -67,7 +73,7 @@ export function CampoDaConversa({ patientId }: { patientId: string }) {
         {C.campo}
       </label>
       {/* sem `key`: o mesmo textarea a cada resposta (o texto devolvido entra pelo efeito do Texto) */}
-      <Texto estado={estado} idErro={idErro} />
+      <Texto estado={estado} idErro={idErro} depois={depois} />
       {estado?.erro && (
         <p key={estado.marca} id="erro-mensagem" role="alert" className="text-erro">
           {estado.erro}

@@ -328,6 +328,33 @@ describe('/painel/mensagens/[patientId] — a conversa (US-441)', () => {
     expect(await conversa(ana.p, { antes: primeira! })).toContain('>m0<');
   });
 
+  it('/code-review do PR 2 (I1, b): na página ?antes=, a própria mensagem lida mostra "Lida" (a última lida é mais nova que tudo na tela)', async () => {
+    const T = await consultorio();
+    const ana = await pacienteDoChat(db, T);
+    const base = Date.parse('2026-11-20T12:00:00Z');
+    for (let i = 0; i < 53; i++) await mensagemDoDono(owner.pool, T, ana, { autor: 'nutri', texto: `m${i}`, criadaEm: new Date(base + i * 60_000).toISOString() });
+    await minhaConversa(ana.P, {}, db); // o paciente lê até a m52
+    const primeira = /data-mensagem="([0-9a-f-]{36})"/.exec(await conversa(ana.p))?.[1];
+    const h = await conversa(ana.p, { antes: primeira! });
+    expect(h).toContain('>m2<');
+    expect(h).not.toContain(`>${M.conversa.enviada}<`);
+    expect(h.match(new RegExp(`>${M.conversa.lida}<`, 'g'))).toHaveLength(1);
+    expect(h.indexOf(`>${M.conversa.lida}<`)).toBeGreaterThan(h.indexOf('>m2<'));
+  });
+
+  it('/code-review do PR 2 (I2, nit 4): o campo sabe se está na página ?antes= (o envio leva à conversa sem ?antes=) e se a URL tem um retorno já mostrado; sem JS, o redirect volta sem ?antes=', async () => {
+    const T = await consultorio();
+    const ana = await pacienteDoChat(db, T);
+    const base = Date.parse('2026-11-20T12:00:00Z');
+    for (let i = 0; i < 51; i++) await mensagemDoDono(owner.pool, T, ana, { texto: `m${i}`, criadaEm: new Date(base + i * 60_000).toISOString() });
+    const primeira = /data-mensagem="([0-9a-f-]{36})"/.exec(await conversa(ana.p))?.[1];
+    const campoEm = async (busca: Record<string, string>) => propsDe(await Conversa({ params: Promise.resolve({ patientId: ana.p }), searchParams: Promise.resolve(busca) } as never), CampoDaConversa);
+    expect(await campoEm({ antes: primeira! })).toMatchObject({ patientId: ana.p, naAnterior: true, limparRetorno: false });
+    expect(await campoEm({})).toMatchObject({ naAnterior: false, limparRetorno: false });
+    expect(await campoEm({ ok: 'liberada', r: '0123abcd' })).toMatchObject({ naAnterior: false, limparRetorno: true });
+    expect(await erro(enviarAction(ana.p, null, form({ texto: 'Sem JS, de ?antes=' })))).toBe(`redirect /painel/mensagens/${ana.p}`);
+  });
+
   it('rodada da T6b: ?erro=retomar mostra "Não foi possível retomar a conversa. Tente de novo." na região; código fora da lista, nada', async () => {
     const T = await consultorio();
     const ana = await pacienteDoChat(db, T);
@@ -371,7 +398,7 @@ describe('/painel/mensagens/[patientId] — a conversa (US-441)', () => {
       createElement(ListaDeMensagens, {
         fuso: 'America/Sao_Paulo',
         primeiroNome: 'Ana',
-        mensagens: [{ id: crypto.randomUUID(), autor: 'nutri', minha: false, autorNome: null, autorCrn: null, texto: 'oi', recado: false, duvidaEm: null, risco: null, anexo: null, criadaEm: new Date() }],
+        mensagens: [{ id: crypto.randomUUID(), autor: 'nutri', minha: false, autorNome: null, autorCrn: null, texto: 'oi', recado: false, duvidaEm: null, risco: null, anexo: null, criadaEm: new Date(), lida: false }],
       }),
     );
     expect(semNome).not.toMatch(/<p class="text-sm font-semibold"><\/p>/);
@@ -414,4 +441,19 @@ function caminhoAte(raiz: unknown, alvo: unknown): string[] | null {
     return andar(no.props?.children, aqui, 0);
   };
   return andar(raiz, [], 0);
+}
+
+/** As props do primeiro elemento do tipo `alvo` na árvore devolvida pela página. */
+function propsDe(raiz: unknown, alvo: unknown): Record<string, unknown> | null {
+  if (Array.isArray(raiz)) {
+    for (const x of raiz) {
+      const r = propsDe(x, alvo);
+      if (r) return r;
+    }
+    return null;
+  }
+  if (!raiz || typeof raiz !== 'object') return null;
+  const no = raiz as { type?: unknown; props?: Record<string, unknown> & { children?: unknown } };
+  if (no.type === alvo) return no.props ?? {};
+  return propsDe(no.props?.children, alvo);
 }

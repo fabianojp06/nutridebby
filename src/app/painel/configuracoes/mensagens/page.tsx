@@ -1,7 +1,7 @@
 import { requireNutri } from '@/lib/tenant-session';
 import { MSG_MENSAGENS } from '@/modules/mensagens/constantes';
 import { lerConfiguracao } from '@/modules/mensagens/horario';
-import { AvisoDeSalvo, FormularioDoHorario } from './horario-form';
+import { AvisoDeSalvo, FormularioDoHorario, ProvedorDoAviso } from './horario-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,12 +21,15 @@ export default async function AtendimentoPorMensagens({ searchParams }: PageProp
   const config = await lerConfiguracao(ctx);
   return (
     <main className="mx-auto w-full max-w-3xl space-y-4 p-4 md:p-6">
-      {/* a região junto ao h1 (fora do space-y): vazia, não abre espaço */}
-      <div>
-        <h1 className="font-titulo text-2xl font-semibold">{C.titulo}</h1>
-        <AvisoDeSalvo texto={salva ? C.salva : ''} marcador={marcador} />
-      </div>
-      <FormularioDoHorario inicial={config} />
+      {/* /code-review do PR 2 (nit 4): o formulário que volta com erro tira o "Configuração salva." da tela */}
+      <ProvedorDoAviso marcador={marcador}>
+        {/* a região junto ao h1 (fora do space-y): vazia, não abre espaço */}
+        <div>
+          <h1 className="font-titulo text-2xl font-semibold">{C.titulo}</h1>
+          <AvisoDeSalvo texto={salva ? C.salva : ''} marcador={marcador} />
+        </div>
+        <FormularioDoHorario inicial={config} />
+      </ProvedorDoAviso>
     </main>
   );
 }

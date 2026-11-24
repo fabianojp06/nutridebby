@@ -5,7 +5,7 @@ import { type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { makeDb } from '../../../../../test/db';
-import { consultorioDoChat, naSessao, pacienteDoChat, recadoPara, type PacienteDoChat } from '../../../../../test/mensagens';
+import { consultorioDoChat, mensagemDoDono, naSessao, pacienteDoChat, recadoPara, type PacienteDoChat } from '../../../../../test/mensagens';
 import type { TenantDeTeste } from '../../../../../test/pacientes';
 import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
@@ -319,6 +319,41 @@ describe('/p/mensagens — a conversa no app (US-443)', () => {
     expect((await situacao({}))).toMatchObject({ consultar: true, abrirNoFim: true });
     // re-revisão da T7: a visão das anteriores não rola até o fim (nem consulta)
     expect((await situacao({ antes: m![1] }))).toMatchObject({ consultar: false, abrirNoFim: false });
+  });
+
+  it('/code-review do PR 2 (I1, b): na página ?antes=, a própria mensagem lida mostra "Lida" (a última lida é mais nova que tudo na tela)', async () => {
+    const T = await consultorio();
+    const ana = await pacienteDoChat(db, T);
+    const base = Date.parse('2026-11-20T12:00:00Z');
+    for (let i = 0; i < 53; i++) await mensagemDoDono(owner.pool, T, ana, { texto: `p${i}`, criadaEm: new Date(base + i * 60_000).toISOString() });
+    await conversaNoPainel(T.ctx, ana.p, {}, db); // a nutricionista lê até a última
+    await entrarComo(T, ana);
+    const m = /<a [^>]*href="\/p\/mensagens\?antes=([0-9a-f-]{36})"[^>]*>Ver mensagens anteriores<\/a>/.exec(await pagina());
+    const h = await pagina({ antes: m![1] });
+    expect(h).toContain('>p2<');
+    expect(h).not.toContain(`>${P.enviada}<`);
+    expect(h.match(new RegExp(`>${P.lida}<`, 'g'))).toHaveLength(1);
+    expect(itemCom(h, '>p2<')).toContain(`>${P.lida}<`);
+  });
+
+  it('/code-review do PR 2 (I2): o campo da página ?antes= sabe onde está (o envio leva à conversa sem ?antes=); sem JS, o redirect volta sem ?antes=', async () => {
+    const T = await consultorio();
+    const ana = await pacienteDoChat(db, T);
+    for (let i = 0; i < 52; i++) await enviarComoNutri(T.ctx, ana.p, { texto: `n${i}` }, db);
+    await entrarComo(T, ana);
+    const m = /<a [^>]*href="\/p\/mensagens\?antes=([0-9a-f-]{36})"[^>]*>Ver mensagens anteriores<\/a>/.exec(await pagina());
+    expect(await achar(arvore({ antes: m![1] }), CampoDoPortal)).toMatchObject({ naAnterior: true });
+    expect(await achar(arvore({}), CampoDoPortal)).toMatchObject({ naAnterior: false });
+    expect(await erro(enviarMensagemAction(null, form({ texto: 'Sem JS, de ?antes=' })))).toBe('redirect /p/mensagens');
+  });
+
+  it('/code-review do PR 2 (nit 3): sem a conversa liberada e sem recado → volta para Hoje (a regra do link da faixa); com recado, a tela', async () => {
+    const T = await consultorio();
+    const ana = await pacienteDoChat(db, T, { liberar: false });
+    await entrarComo(T, ana);
+    expect(await erro(pagina())).toBe('redirect /p/inicio');
+    await recadoPara(db, T, [ana.p], 'Feriado');
+    expect(await pagina()).toContain(P.soRecados);
   });
 
   it('R-450: a tela do push (/p/mensagens?v=<consultório>) com paciente de dois consultórios abre a conversa do consultório do ?v= (o vínculo que requirePaciente escolhe)', async () => {

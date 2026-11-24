@@ -29,7 +29,7 @@ vi.mock('next/navigation', () => ({
 const { default: Configuracao } = await import('./page');
 const { salvarHorarioAction } = await import('./actions');
 const { FormularioDoHorario } = await import('./horario-form');
-const { estadoDeFalha, configDoFormulario } = await import('./formulario');
+const { estadoDeFalha, configDoFormulario, avisoDeSalvoNaTela, respostaComErro } = await import('./formulario');
 
 const db = getDb();
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -219,5 +219,22 @@ describe('/painel/configuracoes/mensagens (US-446)', () => {
     expect(f).toMatch(/<p ref=\{ref\} role="status" tabIndex=\{-1\} className="[^"]*\bmt-2\b[^"]*\bempty:mt-0\b/);
     const pg = readFileSync('src/app/painel/configuracoes/mensagens/page.tsx', 'utf8');
     expect(pg).toMatch(/<div>\s*<h1[\s\S]*?<\/h1>\s*<AvisoDeSalvo[^>]*\/>\s*<\/div>/);
+  });
+
+  it('/code-review do PR 2 (nit 4): o "Configuração salva." sai quando a gravação seguinte volta com erro; uma gravação nova o mostra de novo', () => {
+    expect(avisoDeSalvoNaTela(C.salva, 'aaaa1111', null)).toBe(C.salva);
+    expect(avisoDeSalvoNaTela(C.salva, 'aaaa1111', 'aaaa1111')).toBe(''); // o erro chegou com esta gravação na tela
+    expect(avisoDeSalvoNaTela(C.salva, 'bbbb2222', 'aaaa1111')).toBe(C.salva); // gravou de novo (outro `r`)
+    expect(avisoDeSalvoNaTela('', 'aaaa1111', null)).toBe('');
+    const config = { horarioAtivo: false, avisoEmail: true, faixas: [] };
+    expect(respostaComErro(null)).toBe(false);
+    expect(respostaComErro({ marca: 'm', erro: null, config })).toBe(false);
+    expect(respostaComErro({ marca: 'm', erro: { dia: 1, k: 1, mensagem: 'x' }, config })).toBe(true);
+    expect(respostaComErro(estadoDeFalha(form([]), config))).toBe(true); // falha no servidor ou rede caída
+    const f = readFileSync('src/app/painel/configuracoes/mensagens/horario-form.tsx', 'utf8');
+    expect(f).toMatch(/useEffect\(\(\) => \{\s*if \(respostaComErro\(estado\)\) ocultar\(\);\s*\}, \[estado, ocultar\]\);/);
+    expect(f).toMatch(/\{avisoDeSalvoNaTela\(texto, marcador, oculto\)\}/);
+    const pg = readFileSync('src/app/painel/configuracoes/mensagens/page.tsx', 'utf8');
+    expect(pg).toMatch(/<ProvedorDoAviso marcador=\{marcador\}>[\s\S]*<AvisoDeSalvo[\s\S]*<FormularioDoHorario[\s\S]*<\/ProvedorDoAviso>/);
   });
 });

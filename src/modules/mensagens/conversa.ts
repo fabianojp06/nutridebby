@@ -209,6 +209,11 @@ export type MensagemNaTela = {
   risco: RiscoChat | null;
   anexo: AnexoNaTela | null;
   criadaEm: Date;
+  /**
+   * RN-448 (/code-review do PR 2, I1): a própria mensagem (`minha`) que o outro lado já passou — `criada_em` até o `lida_ate`
+   * do marcador dele, comparado no SQL (CH-D40, nunca um `Date` do JS). Falso nas mensagens que não são da sessão.
+   */
+  lida: boolean;
 };
 export type HorarioNoPortal = { horarioAtivo: boolean; faixas: Faixa[]; resumo: string; foraDoHorario: boolean };
 
@@ -238,8 +243,12 @@ export async function marcarLida(tx: Tx, lado: LadoLeitura, patientId: string, u
 const cursor = (patientId: string, id: string) =>
   sql`(select c.criada_em, c.id from chat_mensagens c where c.id = ${id} and c.tenant_id = app_current_tenant() and c.patient_id = ${patientId})`;
 
-/** As últimas 50 (ou as 50 antes de `antes`), em ordem de `(criada_em, id)`. `antes` que não é uuid → lista vazia. */
-async function pagina(tx: Tx, patientId: string, antes: string | undefined, minha: (m: { autor: string; autorUserId: string }) => boolean) {
+/**
+ * As últimas 50 (ou as 50 antes de `antes`), em ordem de `(criada_em, id)`. `antes` que não é uuid → lista vazia. `lida`:
+ * a `criada_em` até o `lida_ate` do outro lado (sem marcador, falso), no SQL — o "Lida" sai da ordem, não de um id que
+ * precisa estar na tela (/code-review do PR 2, I1: duas nutricionistas e a página `?antes=`).
+ */
+async function pagina(tx: Tx, lado: LadoLeitura, patientId: string, antes: string | undefined, minha: (m: { autor: string; autorUserId: string }) => boolean) {
   if (antes !== undefined && !idValido(antes)) return { mensagens: [] as MensagemNaTela[], haAnteriores: false };
   const linhas = await tx
     .select({
@@ -257,6 +266,8 @@ async function pagina(tx: Tx, patientId: string, antes: string | undefined, minh
       anexoNome: chatMensagens.anexoNome,
       anexoBytes: chatMensagens.anexoBytes,
       criadaEm: chatMensagens.criadaEm,
+      lida: sql<boolean>`coalesce(${chatMensagens.criadaEm} <= (select l.lida_ate from chat_leituras l
+        where l.tenant_id = ${chatMensagens.tenantId} and l.patient_id = ${chatMensagens.patientId} and l.lado = ${OUTRO_LADO[lado]}), false)`,
     })
     .from(chatMensagens)
     .where(
@@ -288,22 +299,14 @@ async function pagina(tx: Tx, patientId: string, antes: string | undefined, minh
             ? null
             : { tipo: m.anexoTipo as TipoAnexo, status: m.anexoStatus as AnexoNaTela['status'], nome: m.anexoNome, bytes: m.anexoBytes },
         criadaEm: m.criadaEm,
+        lida: minha(m) && m.lida === true,
       }),
     );
   return { mensagens, haAnteriores };
 }
 
-/** "Lida" (RN-448): a última mensagem do `lado` que o outro lado já passou — pelo marcador dele, no SQL. */
-async function ultimaLidaPeloOutro(tx: Tx, lado: LadoLeitura, patientId: string): Promise<string | null> {
-  const r = await tx.execute<{ id: string }>(sql`
-    select m.id from chat_mensagens m
-      join chat_leituras l on l.tenant_id = m.tenant_id and l.patient_id = m.patient_id and l.lado = ${OUTRO_LADO[lado]}
-     where m.tenant_id = app_current_tenant() and m.patient_id = ${patientId} and m.autor = ${OUTRO_AUTOR[OUTRO_LADO[lado]]}
-       and m.criada_em <= l.lida_ate
-     order by m.criada_em desc, m.id desc
-     limit 1`);
-  return r.rows[0]?.id ?? null;
-}
+/** "Lida" no render (RN-448): a última mensagem da sessão, entre as da tela, que o outro lado já passou (`lida`, no SQL). */
+const ultimaLidaNaTela = (mensagens: readonly MensagemNaTela[]): string | null => mensagens.findLast((m) => m.minha && m.lida)?.id ?? null;
 
 /**
  * Leitura auditada (uma por render) e, depois, o marcador até a última mensagem do outro lado que a tela carregou. Titular
@@ -333,9 +336,9 @@ export async function conversaNoPainel(
     ctx,
     async (tx) => {
       const lido = await lerEstado(tx, patientId);
-      const { mensagens, haAnteriores } = await pagina(tx, lido.patientId, o.antes, (m) => m.autor === 'nutri' && m.autorUserId === ctx.actorUserId);
+      const { mensagens, haAnteriores } = await pagina(tx, 'consultorio', lido.patientId, o.antes, (m) => m.autor === 'nutri' && m.autorUserId === ctx.actorUserId);
       await registrarLeitura(tx, 'consultorio', lido.estado, lido.patientId, mensagens);
-      return { nome: lido.nome, estado: lido.estado, mensagens, haAnteriores, ultimaLida: await ultimaLidaPeloOutro(tx, 'consultorio', lido.patientId) };
+      return { nome: lido.nome, estado: lido.estado, mensagens, haAnteriores, ultimaLida: ultimaLidaNaTela(mensagens) };
     },
     db,
   );
@@ -345,12 +348,14 @@ export async function conversaNoPainel(
  * US-443 (portal): a conversa do paciente da sessão — o estado, o horário (sem nada do aviso à nutricionista, CH-D70), as
  * mensagens (inclusive as cópias de recado, mesmo sem a conversa liberada) e o "Lida". Lê com auditRead e avança o marcador
  * do paciente até a última mensagem da nutricionista carregada (CH-D72). Só a sessão de paciente com conta (RN-440).
+ * `temRecado`: há cópia de recado na conversa (a tela, sem a conversa liberada e sem recado, volta para Hoje — a regra do
+ * link da faixa, `mensagensNaFaixa`).
  */
 export async function minhaConversa(
   ctx: TenantContext,
   o: { antes?: string },
   db: Db = getDb(),
-): Promise<{ estado: EstadoDaConversa; horario: HorarioNoPortal; mensagens: MensagemNaTela[]; haAnteriores: boolean; ultimaLida: string | null }> {
+): Promise<{ estado: EstadoDaConversa; horario: HorarioNoPortal; mensagens: MensagemNaTela[]; haAnteriores: boolean; ultimaLida: string | null; temRecado: boolean }> {
   exigirPacienteComConta(ctx);
   return withTenant(
     ctx,
@@ -363,19 +368,43 @@ export async function minhaConversa(
         resumo: resumoDoHorario(h.faixas),
         foraDoHorario: h.horarioAtivo && h.faixas.length > 0 && !dentroDoHorario(h.faixas, lido.fuso, new Date()),
       };
-      const { mensagens, haAnteriores } = await pagina(tx, lido.patientId, o.antes, (m) => m.autor === 'paciente');
+      const { mensagens, haAnteriores } = await pagina(tx, 'paciente', lido.patientId, o.antes, (m) => m.autor === 'paciente');
       await registrarLeitura(tx, 'paciente', lido.estado, lido.patientId, mensagens);
-      return { estado: lido.estado, horario, mensagens, haAnteriores, ultimaLida: await ultimaLidaPeloOutro(tx, 'paciente', lido.patientId) };
+      // a regra do link da faixa (`mensagensNaFaixa`): sem a conversa liberada e sem recado, a tela não tem o que mostrar
+      const rec = await tx.execute<{ tem: boolean }>(sql`
+        select exists (select 1 from chat_mensagens r
+                        where r.tenant_id = app_current_tenant() and r.patient_id = ${lido.patientId} and r.recado_id is not null) as tem`);
+      return { estado: lido.estado, horario, mensagens, haAnteriores, ultimaLida: ultimaLidaNaTela(mensagens), temRecado: rec.rows[0]?.tem === true };
     },
     db,
   );
 }
 
 /**
+ * "Lida" da consulta (RN-448; /code-review do PR 2, I1): a última mensagem DA SESSÃO (no painel, da própria usuária — com
+ * duas nutricionistas, a da outra não conta; no portal, do paciente) até `depois` (a última da tela, resolvida no SQL) que
+ * o outro lado já passou pelo marcador dele. Sempre uma mensagem da tela ou anterior a ela: o cliente fica com a mais
+ * adiante entre esta e a do render (`lidaMaisAdiante`), sem remontar nada. Tela vazia (`depois` nulo) → nenhuma.
+ */
+async function ultimaLidaAte(tx: Tx, ctx: TenantContext, lado: LadoLeitura, patientId: string, depois: string | null): Promise<string | null> {
+  if (depois === null) return null;
+  const r = await tx.execute<{ id: string }>(sql`
+    select m.id from chat_mensagens m
+      join chat_leituras l on l.tenant_id = m.tenant_id and l.patient_id = m.patient_id and l.lado = ${OUTRO_LADO[lado]}
+     where m.tenant_id = app_current_tenant() and m.patient_id = ${patientId} and m.autor = ${OUTRO_AUTOR[OUTRO_LADO[lado]]}
+       ${lado === 'consultorio' ? sql`and m.autor_user_id = ${ctx.actorUserId}` : sql``}
+       and m.criada_em <= l.lida_ate
+       and (m.criada_em, m.id) <= ${cursor(patientId, depois)}
+     order by m.criada_em desc, m.id desc
+     limit 1`);
+  return r.rows[0]?.id ?? null;
+}
+
+/**
  * RN-452 ("há novas?"): quantas mensagens do outro lado vieram depois de `depois` (o id da última mostrada, resolvido no SQL
- * com o tenant e o paciente; id de outra conversa ou que não é uuid → 0; `null` = a tela estava vazia) e o "Lida". Sem
- * auditRead, sem texto, sem mexer no marcador. Painel: sessão `nutri` com `patientId`; portal: o paciente vem da sessão
- * (o `patientId` recebido é ignorado).
+ * com o tenant e o paciente; id de outra conversa ou que não é uuid → 0; `null` = a tela estava vazia) e o "Lida"
+ * (`ultimaLidaAte`). Sem auditRead, sem texto, sem mexer no marcador. Painel: sessão `nutri` com `patientId`; portal: o
+ * paciente vem da sessão (o `patientId` recebido é ignorado).
  */
 export async function situacao(ctx: TenantContext, o: { patientId?: string; depois: string | null }, db: Db = getDb()): Promise<{ novas: number; ultimaLida: string | null }> {
   const lado: LadoLeitura | null = ctx.role === 'nutri' ? 'consultorio' : sessaoDePacienteComConta(ctx) ? 'paciente' : null;
@@ -389,7 +418,7 @@ export async function situacao(ctx: TenantContext, o: { patientId?: string; depo
         select count(*)::int as n from chat_mensagens m
          where m.tenant_id = app_current_tenant() and m.patient_id = ${patientId} and m.autor = ${OUTRO_AUTOR[lado]}
            ${o.depois === null ? sql`` : sql`and (m.criada_em, m.id) > ${cursor(patientId, o.depois)}`}`);
-      return { novas: r.rows[0].n, ultimaLida: await ultimaLidaPeloOutro(tx, lado, patientId) };
+      return { novas: r.rows[0].n, ultimaLida: await ultimaLidaAte(tx, ctx, lado, patientId, o.depois) };
     },
     db,
   );

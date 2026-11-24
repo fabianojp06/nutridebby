@@ -1,11 +1,11 @@
 'use client';
-import { useActionState, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createContext, useActionState, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { seguraFalhaDeRede } from '@/components/mensagens/rede';
 import { Botao } from '@/components/ui/botao';
 import { FIM_DO_DIA_MIN, MAX_FAIXAS_POR_DIA, MSG_MENSAGENS, PASSO_FAIXA_MIN } from '@/modules/mensagens/constantes';
 import type { ConfiguracaoDasMensagens } from '@/modules/mensagens/horario';
 import { salvarHorarioAction } from './actions';
-import { estadoDeFalha, type EstadoDoHorario } from './formulario';
+import { avisoDeSalvoNaTela, estadoDeFalha, respostaComErro, type EstadoDoHorario } from './formulario';
 
 const C = MSG_MENSAGENS.configuracao;
 const CAMPO = 'min-h-11 rounded-xl border border-campo bg-cartao p-2 text-texto';
@@ -25,6 +25,23 @@ const paraDias = (c: ConfiguracaoDasMensagens): Dias =>
   C.dias.map((_, dia) => c.faixas.filter((x) => x.diaSemana === dia).map((x) => ({ chave: proxima++, inicioMin: x.inicioMin, fimMin: x.fimMin })));
 
 const nada = () => () => undefined;
+
+/**
+ * /code-review do PR 2 (nit 4): a página (servidor) não vê o estado do formulário. O formulário avisa quando uma resposta
+ * volta com erro (`ocultar`) e o "Configuração salva." da gravação anterior sai da tela (`oculto` = o marcador dela).
+ */
+const ContextoDoAviso = createContext<{ oculto: string | null; ocultar: () => void }>({ oculto: null, ocultar: () => undefined });
+
+/** Envolve a região do "Configuração salva." e o formulário; `marcador` = o `r` da última gravação na URL. */
+export function ProvedorDoAviso({ marcador, children }: { marcador: string; children?: ReactNode }) {
+  const [oculto, setOculto] = useState<string | null>(null);
+  const atual = useRef(marcador);
+  useEffect(() => {
+    atual.current = marcador;
+  });
+  const ocultar = useCallback(() => setOculto(atual.current), []);
+  return <ContextoDoAviso.Provider value={{ oculto, ocultar }}>{children}</ContextoDoAviso.Provider>;
+}
 /** Verdadeiro só depois da hidratação (sem JS, o formulário é a própria Server Action). */
 const useComJs = () => useSyncExternalStore(nada, () => true, () => false);
 
@@ -174,6 +191,11 @@ export function FormularioDoHorario({ inicial, estadoInicial = null }: { inicial
   );
   const comJs = useComJs();
   const estado = estadoComJs ?? estadoSemJs;
+  // nit 4: resposta com erro → o "Configuração salva." da gravação anterior sai
+  const { ocultar } = useContext(ContextoDoAviso);
+  useEffect(() => {
+    if (respostaComErro(estado)) ocultar();
+  }, [estado, ocultar]);
   return (
     <form action={comJs ? acaoComJs : acaoSemJs} className="space-y-4" aria-busy={salvando || undefined}>
       <Campos key={estado?.marca ?? 'inicio'} config={estado?.config ?? inicial} erro={estado?.erro ?? null} />
@@ -198,17 +220,19 @@ export function FormularioDoHorario({ inicial, estadoInicial = null }: { inicial
 
 /**
  * Rodada da T6c (I3): "Configuração salva." numa região `role="status"` sempre montada (nunca remontada por `key`), que
- * recebe o foco (sem rolar) a cada gravação — o marcador `r` muda —, no molde da região viva da conversa.
+ * recebe o foco (sem rolar) a cada gravação — o marcador `r` muda —, no molde da região viva da conversa. /code-review do
+ * PR 2 (nit 4): vazia depois de uma resposta com erro do formulário (`ProvedorDoAviso`), até a gravação seguinte.
  */
 export function AvisoDeSalvo({ texto, marcador }: { texto: string; marcador: string }) {
   const ref = useRef<HTMLParagraphElement>(null);
+  const { oculto } = useContext(ContextoDoAviso);
   useEffect(() => {
     if (marcador) ref.current?.focus({ preventScroll: true });
   }, [marcador]);
   return (
     // re-revisão da T7: vazia, a região fica montada (região viva) sem ocupar espaço — a margem só com o aviso
     <p ref={ref} role="status" tabIndex={-1} className="mt-2 empty:mt-0 focus-visible:outline-offset-2">
-      {texto}
+      {avisoDeSalvoNaTela(texto, marcador, oculto)}
     </p>
   );
 }
