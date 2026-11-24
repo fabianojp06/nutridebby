@@ -202,7 +202,10 @@ describe('/p/perfil — Eu (US-197, molde D-Assuntos)', () => {
         expect(html).toMatch(/<section aria-labelledby="eu-aniversario"[^>]*><h2 id="eu-aniversario"[^>]*>Receber mensagem de aniversário da sua nutricionista<\/h2>/);
         expect(html).toContain(AJUDA);
         expect(html).toContain('Não autorizado');
+        // revisão final do PR 3 (I-3): a situação é região de status montada sempre (a troca de texto depois do envio é anunciada)
+        expect(html).toMatch(/<p id="eu-aniversario-situacao" role="status"[^>]*>Não autorizado<\/p>/);
         expect(html).toMatch(/<button[^>]*type="submit"[^>]*>Autorizar<\/button>/);
+        expect(html).not.toMatch(/<button[^>]*(aria-)?disabled=[^>]*>Autorizar<\/button>/); // fora do envio, nada
         expect(html).not.toMatch(/<input[^>]*type="checkbox"[^>]*checked/);
         const ordem = ['>Privacidade<', 'Receber mensagem de aniversário da sua nutricionista', 'Como usar o app'];
         const pos = ordem.map((t) => html.indexOf(t));
@@ -230,7 +233,9 @@ describe('/p/perfil — Eu (US-197, molde D-Assuntos)', () => {
       aniv.valor = { situacao: 'menor', autorizadoEm: null };
       try {
         const html = renderToStaticMarkup(await eu());
-        expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Autorizar<\/button>/);
+        // revisão final do PR 3 (I-3): aria-disabled (o foco fica no botão e lê "Menor de idade" pelo aria-describedby), nunca `disabled`
+        expect(html).toMatch(/<button[^>]*aria-disabled="true"[^>]*>Autorizar<\/button>/);
+        expect(html).not.toMatch(/<button[^>]*\sdisabled=""[^>]*>Autorizar<\/button>/);
         expect(html).toContain('Menor de idade');
         aniv.valor = null;
         expect(renderToStaticMarkup(await eu())).not.toContain('eu-aniversario');

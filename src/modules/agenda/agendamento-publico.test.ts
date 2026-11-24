@@ -28,6 +28,7 @@ import {
 import { agendarComoPaciente } from './agendamento-paciente';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError } from './consultas';
+import { recusarSolicitacao } from './solicitacoes';
 import { quandoComFuso, somarDias } from './fuso';
 
 // SUS-105: a limpeza diária passa só pelo tenant do próprio teste (varreduraSo; implementação real por baixo)
@@ -861,5 +862,42 @@ describe('Plano 23: pedido aguardando (RN-424, RN-424a, RN-425, RN-426, RN-429)'
     expect(await limparPedidosPublicos(app.db, agoraL)).toBeGreaterThanOrEqual(6);
     const restam = await withTenant(T.ctx, (tx) => tx.select({ email: publicBookingRequests.email }).from(publicBookingRequests), app.db);
     expect(restam.map((r) => r.email).sort()).toEqual([e.recusadoNovo, e.semCodigoNovo, e.aguardandoVelho, e.aguardandoRecente].sort());
+  });
+
+  it('revisão final do PR 3 (M-1 do banco): o pedido concluído de quem já é paciente fica enquanto a consulta ligada está `solicitada` (a origem "da página" na fila e no e-mail do não confirmado); resolvida, sai; o horário passado há mais de 24 h (rede), sai', async () => {
+    const T = await comChave();
+    const ana = await novoPaciente(app.db, T.ctx);
+    const bia = await novoPaciente(app.db, T.ctx);
+    const aberta = await pedidoDireto(app.db, T, ana.id, em(dia(5), '09:00'));
+    const resolvida = await pedidoDireto(app.db, T, bia.id, em(dia(6), '09:00'));
+    await recusarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'consulta', id: resolvida }, { db: app.db, agora: agoraReal });
+    const criado = new Date(agoraReal.getTime() - 30 * 3_600_000); // concluído na hora, há 30 h
+    const linha = (email: string, appointmentId: string, inicio: Date) => ({
+      id: randomUUID(),
+      tenantId: T.tenantId,
+      tokenHash: randomUUID(),
+      codigoHash: 'x',
+      email,
+      nome: 'Ana Souza',
+      inicio,
+      fim: new Date(inicio.getTime() + 3_600_000),
+      modalidade: 'presencial',
+      localId: T.localId,
+      termoVersao: TERMO_PACIENTE,
+      expiraEm: new Date(criado.getTime() + 10 * 60_000),
+      verificadoEm: criado,
+      concluidoEm: criado,
+      appointmentId,
+      createdAt: criado,
+    });
+    await withTenant(T.ctx, (tx) => tx.insert(publicBookingRequests).values([linha(ana.email, aberta, em(dia(5), '09:00')), linha(bia.email, resolvida, em(dia(6), '09:00'))]), app.db);
+    const restam = async () => (await withTenant(T.ctx, (tx) => tx.select({ c: publicBookingRequests.appointmentId }).from(publicBookingRequests), app.db)).map((r) => r.c);
+    varreduraSo(T);
+    expect(await limparPedidosPublicos(app.db, agoraReal)).toBe(1);
+    expect(await restam()).toEqual([aberta]);
+    // a rede: a consulta ainda `solicitada` (a varredura do vencimento falhou), com o horário passado há mais de 24 h
+    varreduraSo(T);
+    expect(await limparPedidosPublicos(app.db, em(dia(6), '10:00'))).toBe(1);
+    expect(await restam()).toEqual([]);
   });
 });

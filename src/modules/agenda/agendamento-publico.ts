@@ -466,6 +466,10 @@ export async function escolherOutroHorario(slug: string, input: Record<string, u
  * aceito, recusado, vencido ou desistido); o aguardando nunca pelas 24 h da criação. Rede (revisão da T7): o aguardando
  * nunca resolvido cujo horário passou há mais de 24 h também sai — a frase do ponto de coleta vale mesmo se o vencimento
  * (`vencerSolicitacoes`) falhar sempre.
+ * Revisão final do PR 3 (M-1 do banco): o pedido concluído de quem já é paciente, com a chave ligada, aponta para uma
+ * consulta `solicitada` que pode esperar dias pela resposta; enquanto ela está `solicitada` (e o horário não passou há
+ * mais de 24 h, a mesma rede), o pedido fica — é ele que dá a origem "da página" na fila (`daPagina`) e o link do e-mail
+ * do não confirmado (`pedidoDaPagina`). Resolvida a consulta, sai na limpeza seguinte (a criação já tem mais de 24 h).
  */
 export async function limparPedidosPublicos(db: Db, agora: Date): Promise<number> {
   const limite = new Date(agora.getTime() - 86_400_000);
@@ -477,10 +481,13 @@ export async function limparPedidosPublicos(db: Db, agora: Date): Promise<number
         tx
           .delete(publicBookingRequests)
           .where(
-            or(
-              and(isNull(publicBookingRequests.aguardandoDesde), lt(publicBookingRequests.createdAt, limite)),
-              and(isNotNull(publicBookingRequests.resolvidoEm), lt(publicBookingRequests.resolvidoEm, limite)),
-              and(isNotNull(publicBookingRequests.aguardandoDesde), isNull(publicBookingRequests.resolvidoEm), lt(publicBookingRequests.inicio, limite)),
+            and(
+              or(
+                and(isNull(publicBookingRequests.aguardandoDesde), lt(publicBookingRequests.createdAt, limite)),
+                and(isNotNull(publicBookingRequests.resolvidoEm), lt(publicBookingRequests.resolvidoEm, limite)),
+                and(isNotNull(publicBookingRequests.aguardandoDesde), isNull(publicBookingRequests.resolvidoEm), lt(publicBookingRequests.inicio, limite)),
+              ),
+              sql`not exists (select 1 from ${appointments} a where a.tenant_id = ${publicBookingRequests.tenantId} and a.id = ${publicBookingRequests.appointmentId} and a.status = 'solicitada' and a.inicio >= ${limite.toISOString()}::timestamptz)`,
             ),
           )
           .returning({ id: publicBookingRequests.id }),

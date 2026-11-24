@@ -19,7 +19,8 @@ describe('/p/agenda: ?ok=pedido-cancelado (US-408)', () => {
     expect(await pagina({ ok: 'pedido-mudou' })).toMatch(/<p role="status" tabindex="-1"[^>]*>Este pedido já foi respondido ou venceu\.<\/p>/);
   });
 
-  it('sem o parâmetro (ou com outro valor), a região fica montada e vazia', async () => {
-    for (const sp of [{}, { ok: 'outra-coisa' }] as Record<string, string>[]) expect(await pagina(sp)).toMatch(/<p role="status" tabindex="-1"><\/p>/);
+  it('sem o parâmetro (ou com outro valor), a região fica montada e vazia — sr-only, para não somar altura no topo (revisão final do PR 3, M-3)', async () => {
+    for (const sp of [{}, { ok: 'outra-coisa' }] as Record<string, string>[]) expect(await pagina(sp)).toMatch(/<p role="status" tabindex="-1" class="sr-only"><\/p>/);
+    expect(await pagina({ ok: 'pedido-cancelado' })).toMatch(/<p role="status" tabindex="-1" class="rounded bg-ok-fundo p-3">Pedido cancelado\.<\/p>/); // com texto, visível
   });
 });

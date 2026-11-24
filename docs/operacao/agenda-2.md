@@ -129,3 +129,21 @@ o `DETAIL` do erro leva a linha inteira de `consultations` (com `orientacoes_pac
 - Depois de um episódio: procurar `consultations_retorno_previsto_faixa` no log do `nutri_db` e tratar as linhas como
   dado de saúde no log (rotação/limpeza conforme `docs/operacao/`), sem copiá-las para fora.
 - A coluna e o CHECK ficam (expansão, RNF-407); nada a desfazer no banco.
+
+## PR 3 (aniversariantes) — Deploy e volta atrás (T10)
+
+O tipo `aniversario` de `notifications` nasce no PR 3: o app grava a linha ("Enviar mensagem" em Aniversariantes, para as
+9h do dia do aniversário) e o worker a envia. O worker do PR 2 não conhece o tipo: a linha que ele pega vira `falhou`
+(`sem_modelo`) e continua ocupando o ano do paciente no índice único `notifications_aniversario_unique` — a mensagem
+daquele ano não sai, e um novo "Enviar mensagem" para o mesmo paciente no mesmo ano não grava outra.
+
+- **Deploy:** publicar o `nutri_worker` do PR 3 **antes** do `nutri_app` (ou junto) e só usar "Enviar mensagem" em
+  Aniversariantes depois que o worker do PR 3 estiver no ar. Na janela em que o app novo convive com o worker antigo,
+  avisar a nutricionista para não enviar.
+- **Volta atrás:** antes de trocar as imagens pelas do PR 2, conferir com a nutricionista se há mensagens de aniversário
+  agendadas para os próximos dias ("Mensagens agendadas: {n}."): o worker do PR 2 as pegaria e as marcaria `falhou`. Com
+  alguma agendada, esperar o envio (às 9h do dia) ou aceitar que aquela mensagem do ano não sai. Voltar o `nutri_worker`
+  por último, depois do app, para nenhuma linha nova cair no worker antigo.
+- Depois de um episódio: a linha `falhou`/`sem_modelo` fica como está (o ano do paciente segue ocupado). Liberar o ano
+  exige mexer no banco de produção — só com a sua confirmação (regra 3), nunca como rotina deste runbook.
+- O tipo e o índice ficam (expansão, RNF-407); nada a desfazer no banco.

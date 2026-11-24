@@ -30,7 +30,11 @@ import { semResetAutomatico } from '@/lib/form-sem-reset';
  * string numa variável sem `method="get"` e o botão com `form={id}` fora do `<form>` ficam fora (backlog do SUS-108).
  */
 const RAIZES = ['src/app', 'src/components'];
-const EXCECOES: Record<string, string> = {};
+const EXCECOES: Record<string, string> = {
+  // Plano 23 (T10): a caixa de cada aniversariante fica na tabela, FORA de qualquer <form action> (os ids marcados vão ao
+  // envio pelo estado, num hidden do <form> do diálogo); controlada para "Selecionar todos"/"Limpar seleção" funcionarem
+  'src/app/painel/agenda/aniversariantes/selecao.tsx': 'caixa de seleção fora do <form action>; o estado é a fonte (Selecionar todos)',
+};
 
 type Achado = { arquivo: string; linha: number; motivo: string };
 

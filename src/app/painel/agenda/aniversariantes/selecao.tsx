@@ -55,9 +55,9 @@ function FormularioDoEnvio({ ids, enviar, aoCancelar, aoMudarPendente }: { ids: 
  * "Limpar seleção"; a região `role="status"` (sempre montada) anuncia "{n} marcados". "Enviar mensagem" abre a prévia no
  * `Dialogo` compartilhado: o texto fixo, "Texto padrão do NutriDebby, enviado em seu nome", "Vai para {n} pacientes…" e,
  * com aniversariante de hoje entre as 9h e as 21h, "{n} de hoje saem agora.". "Abrir no WhatsApp" é um link `wa.me`
- * montado aqui, no navegador (RN-435): nada é gravado nem enviado pelo sistema.
+ * montado aqui, no navegador (RN-435): nada é gravado nem enviado pelo sistema. `titulo` vai ao `caption` (sr-only, §7).
  */
-export function TabelaDosAniversariantes({ linhas, corrente, nutri, saemAgora, enviar }: { linhas: LinhaDoAniversario[]; corrente: boolean; nutri: string; saemAgora: boolean; enviar: Acao }) {
+export function TabelaDosAniversariantes({ titulo, linhas, corrente, nutri, saemAgora, enviar }: { titulo: string; linhas: LinhaDoAniversario[]; corrente: boolean; nutri: string; saemAgora: boolean; enviar: Acao }) {
   const [marcados, setMarcados] = useState<ReadonlySet<string>>(new Set());
   const [aberto, setAberto] = useState(false);
   const [ocupado, setOcupado] = useState(false);
@@ -90,6 +90,8 @@ export function TabelaDosAniversariantes({ linhas, corrente, nutri, saemAgora, e
           da rolagem e a página rola na horizontal a 360 px (E2E do axe do Plano 23) */}
       <div className="relative overflow-x-auto">
         <table className="w-full min-w-[640px] border-collapse text-left">
+          {/* §7: a tabela com `caption` — o título da lista (o mesmo do h1), lido ao entrar na tabela */}
+          <caption className="sr-only">{titulo}</caption>
           <thead>
             <tr className="border-b border-borda">
               {corrente && <th scope="col" className="w-12 p-2"><span className="sr-only">{M.colunaSelecao}</span></th>}

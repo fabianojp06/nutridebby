@@ -47,7 +47,7 @@ const EXCECOES: Record<string, { n: number; motivo: string }> = {
   'src/modules/agenda/inicio.ts': { n: 5, motivo: 'agenda de hoje: o pedido aparece com o selo e não conta no número nem é a próxima (STATUS_ATIVOS); nº da consulta pela lista literal (§4.3)' },
   'src/modules/agenda/cancelamento.ts': { n: 3, motivo: 'exclusão LGPD cancela também o pedido (STATUS_OCUPA, §4.3); cancelar, remarcar e confirmar só em STATUS_ATIVOS (AG-D70)' },
   'src/modules/agenda/agendamento-paciente.ts': { n: 2, motivo: 'teto de 3 futuras do portal conta o pedido (STATUS_OCUPA, §4.3); o status do RETURNING decide lembretes e avisos (AG-D53)' },
-  'src/modules/agenda/agendamento-publico.ts': { n: 2, motivo: 'teto de 3 futuras da página pública conta o pedido (STATUS_OCUPA, §4.3); o status do RETURNING decide entre "agendada" e "pedido" (RN-426, AG-D53)' },
+  'src/modules/agenda/agendamento-publico.ts': { n: 3, motivo: 'teto de 3 futuras da página pública conta o pedido (STATUS_OCUPA, §4.3); o status do RETURNING decide entre "agendada" e "pedido" (RN-426, AG-D53); a limpeza guarda o pedido da consulta ainda `solicitada` (revisão final do PR 3, M-1 do banco)' },
   'src/modules/agenda/acoes-link.ts': { n: 2, motivo: 'link da consulta: ações só em STATUS_ATIVOS e "confirmada" (o pedido não tem link, §4.3)' },
   'src/modules/agenda/solicitacoes.ts': { n: 5, motivo: 'a fila, o aceite, a recusa, a desistência e o vencimento agem só sobre `solicitada` (RN-422, RN-427a)' },
   'src/modules/agenda/visoes.ts': { n: 3, motivo: 'a grade mostra tudo menos cancelada (RN-413; o pedido aparece com o selo); presença a registrar só STATUS_ATIVOS; `realizada` da Primeira consulta/Retorno (RN-416)' },

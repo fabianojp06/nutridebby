@@ -81,7 +81,7 @@ export default async function AniversariantesPage({ searchParams }: PageProps<'/
       {linhas.length === 0 ? (
         <p>{M.vazio}</p>
       ) : (
-        <TabelaDosAniversariantes linhas={linhas} corrente={r.corrente} nutri={nutri} saemAgora={minutos >= 9 * 60 && minutos < 21 * 60} enviar={enviarAction.bind(null, r.mes)} />
+        <TabelaDosAniversariantes titulo={M.titulo(nomeDoMes)} linhas={linhas} corrente={r.corrente} nutri={nutri} saemAgora={minutos >= 9 * 60 && minutos < 21 * 60} enviar={enviarAction.bind(null, r.mes)} />
       )}
     </main>
   );

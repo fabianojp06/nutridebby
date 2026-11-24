@@ -9,11 +9,14 @@ import type { RecusaState } from './actions';
 
 type Recusar = (prev: RecusaState, fd: FormData) => Promise<RecusaState>;
 
-/** "Aceitar" com o envio em andamento: o botão fica desligado até a volta (o segundo clique daria "já respondido"). */
+/**
+ * "Aceitar" com o envio em andamento: o botão fica desligado até a volta (o segundo clique daria "já respondido") —
+ * `aria-disabled` com o envio barrado, nunca `disabled`: o foco não sai dele (revisão final do PR 3, M-4).
+ */
 function BotaoAceitar({ nome }: { nome: string }) {
   const { pending } = useFormStatus();
   return (
-    <Botao type="submit" disabled={pending} aria-label={M.aceitarDe(nome)}>
+    <Botao type="submit" aria-disabled={pending || undefined} className="aria-disabled:opacity-60" onClick={(e) => pending && e.preventDefault()} aria-label={M.aceitarDe(nome)}>
       {M.aceitar}
     </Botao>
   );
