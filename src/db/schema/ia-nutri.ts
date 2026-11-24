@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, check, foreignKey, index, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, foreignKey, index, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { jsonbSeguro } from '../jsonb-seguro';
 import { patients } from './pacientes';
 import { tenants } from './platform';
 
@@ -55,7 +56,7 @@ export const iaNutriMensagens = pgTable(
     status: text('status'),
     categoria: text('categoria'),
     /** Os índices citados (sem texto), ex.: ["#S2"]. */
-    fontes: jsonb('fontes').$type<string[]>(),
+    fontes: jsonbSeguro('fontes').$type<string[]>(),
     motivoTecnico: text('motivo_tecnico'),
     risco: text('risco'),
     encaminhadaEm: timestamp('encaminhada_em', { withTimezone: true }),

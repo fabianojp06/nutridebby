@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { check, index, jsonb, numeric, pgTable, smallint, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { check, index, numeric, pgTable, smallint, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { jsonbSeguro } from '../jsonb-seguro';
 import { GRUPOS_TACO } from '../../modules/alimentos/grupos'; // relativo: o drizzle-kit não resolve o alias @/
 import { tenants } from './platform';
 
@@ -25,8 +26,8 @@ export const foods = pgTable(
     carboidratoG: porCem('carboidrato_g'),
     lipidioG: porCem('lipidio_g'),
     fibraG: porCem('fibra_g'),
-    micros: jsonb('micros').$type<Record<string, number | null>>().notNull().default({}),
-    medidasCaseiras: jsonb('medidas_caseiras').$type<MedidaCaseira[]>().notNull().default([]),
+    micros: jsonbSeguro('micros').$type<Record<string, number | null>>().notNull().default({}),
+    medidasCaseiras: jsonbSeguro('medidas_caseiras').$type<MedidaCaseira[]>().notNull().default([]),
     /** "Duplicar como meu alimento": de qual alimento (TACO) veio a cópia. Sem FK: só informativo. */
     origemFoodId: uuid('origem_food_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

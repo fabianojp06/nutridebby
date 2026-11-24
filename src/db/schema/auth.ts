@@ -10,8 +10,8 @@ import {
   index,
   check,
   customType,
-  jsonb,
 } from "drizzle-orm/pg-core";
+import { jsonbSeguro } from "../jsonb-seguro";
 import { tenants } from "./platform";
 
 const citext = customType<{ data: string }>({ dataType: () => "citext" });
@@ -37,7 +37,7 @@ export const user = pgTable(
     /** D17 (Plano 08): tema do painel — 'sistema' segue o aparelho. Lido na sessão (additionalFields). */
     tema: text("tema").default("sistema").notNull(),
     /** D17/D27: progresso do manual guiado — { "<id do tour>": { v, estado } }; só preferencias.ts grava. */
-    guia: jsonb("guia")
+    guia: jsonbSeguro("guia")
       .$type<Record<string, { v: number; estado: "concluido" | "dispensado" | "visto" }>>()
       .default(sql`'{}'::jsonb`)
       .notNull(),

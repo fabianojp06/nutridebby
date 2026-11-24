@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { check, foreignKey, index, integer, jsonb, pgTable, smallint, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { check, foreignKey, index, integer, pgTable, smallint, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { jsonbSeguro } from '../jsonb-seguro';
 import { patients } from './pacientes';
 import { storedFiles, tenants } from './platform';
 
@@ -21,13 +22,13 @@ export const signedDocuments = pgTable(
     status: text('status').notNull().default('rascunho'),
     versao: smallint('versao').notNull().default(1),
     retificaId: uuid('retifica_id'),
-    conteudo: jsonb('conteudo').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    conteudo: jsonbSeguro('conteudo').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
     declaracaoEm: timestamp('declaracao_em', { withTimezone: true }),
     codigo: text('codigo').unique('signed_documents_codigo_unique'),
     basePdfPath: text('base_pdf_path').references(() => storedFiles.caminho),
     basePdfSha256: text('base_pdf_sha256'),
     basePdfBytes: integer('base_pdf_bytes'),
-    areaAssinatura: jsonb('area_assinatura').$type<{ x1: number; y1: number; x2: number; y2: number }>(),
+    areaAssinatura: jsonbSeguro('area_assinatura').$type<{ x1: number; y1: number; x2: number; y2: number }>(),
     pdfStatus: text('pdf_status'),
     pdfPedidoEm: timestamp('pdf_pedido_em', { withTimezone: true }),
     pdfPath: text('pdf_path').references(() => storedFiles.caminho),
@@ -46,7 +47,7 @@ export const signedDocuments = pgTable(
      * curso trava o documento: dois envios simultâneos não somam fotos), `pendente` (o worker monta) ou `falhou`;
      * `digitalizacao_em` = início do envio, para a varredura expirar `recebendo`/`pendente` esquecidos (D24, Minors).
      */
-    digitalizacao: jsonb('digitalizacao').$type<string[]>(),
+    digitalizacao: jsonbSeguro('digitalizacao').$type<string[]>(),
     digitalizacaoStatus: text('digitalizacao_status'),
     digitalizacaoEm: timestamp('digitalizacao_em', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

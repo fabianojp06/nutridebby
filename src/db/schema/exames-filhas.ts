@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { check, date, foreignKey, jsonb, pgTable, smallint, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { check, date, foreignKey, pgTable, smallint, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { jsonbSeguro } from '../jsonb-seguro';
 import { exams } from './pacientes';
 
 /**
@@ -50,7 +51,7 @@ export const examVersoes = pgTable(
     versao: smallint('versao').notNull(),
     titulo: text('titulo').notNull(),
     data: date('data', { mode: 'string' }).notNull(),
-    valores: jsonb('valores').$type<(typeof exams.$inferSelect)['valores']>().notNull(),
+    valores: jsonbSeguro('valores').$type<(typeof exams.$inferSelect)['valores']>().notNull(),
     justificativa: text('justificativa'),
     alteradoPor: uuid('alterado_por').notNull(),
     alteradoEm: timestamp('alterado_em', { withTimezone: true }).notNull(),

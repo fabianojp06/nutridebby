@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, customType, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, customType, date, foreignKey, index, integer, numeric, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { jsonbSeguro } from '../jsonb-seguro';
 import { user } from './auth';
 import { storedFiles, tenants } from './platform';
 import type { ModeloSchema, Resposta, SnapshotModelo } from '@/modules/pacientes/anamnese-tipos';
@@ -190,8 +191,8 @@ export const anthropometry = pgTable(
     pesoKg: numeric('peso_kg', { precision: 5, scale: 2, mode: 'number' }).notNull(),
     alturaCm: numeric('altura_cm', { precision: 5, scale: 1, mode: 'number' }).notNull(),
     imc: numeric('imc', { precision: 6, scale: 2, mode: 'number' }).generatedAlwaysAs(sql`round(peso_kg / ((altura_cm / 100) * (altura_cm / 100)), 2)`),
-    circunferencias: jsonb('circunferencias').$type<Record<string, number>>().notNull().default({}),
-    dobrasMm: jsonb('dobras_mm').$type<Record<string, number>>().notNull().default({}),
+    circunferencias: jsonbSeguro('circunferencias').$type<Record<string, number>>().notNull().default({}),
+    dobrasMm: jsonbSeguro('dobras_mm').$type<Record<string, number>>().notNull().default({}),
     protocolo: text('protocolo').notNull().default('nenhum'),
     densidade: numeric('densidade', { precision: 6, scale: 5, mode: 'number' }),
     percGordura: numeric('perc_gordura', { precision: 5, scale: 2, mode: 'number' }),
@@ -254,7 +255,7 @@ export const anamnesisTemplates = pgTable(
       .notNull()
       .references(() => tenants.id),
     nome: text('nome').notNull(),
-    schema: jsonb('schema').$type<ModeloSchema>().notNull(),
+    schema: jsonbSeguro('schema').$type<ModeloSchema>().notNull(),
     padrao: boolean('padrao').notNull().default(false),
     arquivadoEm: timestamp('arquivado_em', { withTimezone: true }),
     /**
@@ -286,8 +287,8 @@ export const anamneses = pgTable(
     tenantId: uuid('tenant_id').notNull(),
     patientId: uuid('patient_id').notNull(),
     templateId: uuid('template_id'),
-    templateSnapshot: jsonb('template_snapshot').$type<SnapshotModelo>().notNull(),
-    respostas: jsonb('respostas').$type<Record<string, Resposta>>().notNull().default({}),
+    templateSnapshot: jsonbSeguro('template_snapshot').$type<SnapshotModelo>().notNull(),
+    respostas: jsonbSeguro('respostas').$type<Record<string, Resposta>>().notNull().default({}),
     data: date('data', { mode: 'string' }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -312,7 +313,7 @@ export const exams = pgTable(
     data: date('data', { mode: 'string' }).notNull(),
     titulo: text('titulo').notNull(),
     arquivoPath: text('arquivo_path').references(() => storedFiles.caminho, { onDelete: 'set null' }),
-    valores: jsonb('valores')
+    valores: jsonbSeguro('valores')
       // Plano 22 (RN-376, C-378): refMin/refMax opcionais (faixa numérica do laudo)
       .$type<{ nome: string; valor: number; unidade: string | null; referencia: string | null; iaTarefaId?: string; refMin?: number; refMax?: number }[]>()
       .notNull()

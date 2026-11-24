@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, smallint, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, foreignKey, index, integer, pgTable, primaryKey, smallint, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { jsonbSeguro } from '../jsonb-seguro';
 import { patients } from './pacientes';
 import { storedFiles, tenants } from './platform';
 
@@ -77,7 +78,7 @@ export const recados = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     texto: text('texto').notNull(),
-    filtro: jsonb('filtro').notNull(),
+    filtro: jsonbSeguro('filtro').notNull(),
     filtroRotulo: text('filtro_rotulo'),
     destinatarios: integer('destinatarios').notNull(),
     autorNome: text('autor_nome').notNull(),

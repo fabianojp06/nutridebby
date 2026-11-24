@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { check, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { check, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { jsonbSeguro } from '../jsonb-seguro';
 import { tenants } from './platform';
 
 /**
@@ -39,9 +40,9 @@ export const examesCatalogo = pgTable(
       .references(() => tenants.id),
     nome: text('nome').notNull(),
     unidade: text('unidade'),
-    sinonimos: jsonb('sinonimos').$type<string[]>().notNull().default([]),
-    componentes: jsonb('componentes').$type<string[]>().notNull().default([]),
-    faixas: jsonb('faixas').$type<FaixaDoConsultorio[]>().notNull().default([]),
+    sinonimos: jsonbSeguro('sinonimos').$type<string[]>().notNull().default([]),
+    componentes: jsonbSeguro('componentes').$type<string[]>().notNull().default([]),
+    faixas: jsonbSeguro('faixas').$type<FaixaDoConsultorio[]>().notNull().default([]),
     modeloNotaAbaixo: text('modelo_nota_abaixo'),
     modeloNotaAcima: text('modelo_nota_acima'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -77,7 +78,7 @@ export const examesModelosSolicitacao = pgTable(
       .notNull()
       .references(() => tenants.id),
     nome: text('nome').notNull(),
-    exames: jsonb('exames').$type<ExameDaLista[]>().notNull(),
+    exames: jsonbSeguro('exames').$type<ExameDaLista[]>().notNull(),
     orientacoes: text('orientacoes').notNull().default(''),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { bigint, check, date, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, check, date, foreignKey, index, integer, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { jsonbSeguro } from '../jsonb-seguro';
 import { AREAS_MODELOS_IA, STATUS_GERACAO } from '../../modules/ia/constantes'; // relativo: o drizzle-kit não resolve o alias @/
 import type { ResultadoIa } from '@/modules/ia/tipos';
 import { patients } from './pacientes';
@@ -25,8 +26,8 @@ export const iaTarefas = pgTable(
     /** Quem pediu (ator da sessão). RN-103: conta os pedidos da última hora. */
     pedidoPor: uuid('pedido_por').notNull(),
     /** Plano 14 (opções do resumo e do rascunho); nulo na leitura. */
-    parametros: jsonb('parametros'),
-    resultado: jsonb('resultado').$type<ResultadoIa>(),
+    parametros: jsonbSeguro('parametros'),
+    resultado: jsonbSeguro('resultado').$type<ResultadoIa>(),
     /** Motivo da RN-112, só em `falhou`. */
     erro: text('erro'),
     modelo: text('modelo').notNull(),

@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, foreignKey, index, integer, jsonb, numeric, pgTable, smallint, text, time, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, foreignKey, index, integer, numeric, pgTable, smallint, text, time, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { jsonbSeguro } from '../jsonb-seguro';
 import { foods } from './alimentos';
 import { iaGeracoesModelos } from './ia';
 import { patients } from './pacientes';
@@ -118,12 +119,12 @@ export const mealItems = pgTable(
     mealId: uuid('meal_id').notNull(),
     foodId: uuid('food_id').notNull().references(() => foods.id, { onDelete: 'restrict' }),
     quantidadeG: numeric('quantidade_g', { precision: 7, scale: 2, mode: 'number' }).notNull(),
-    medida: jsonb('medida').$type<MedidaDoItem>(),
+    medida: jsonbSeguro('medida').$type<MedidaDoItem>(),
     medidaCaseiraTxt: text('medida_caseira_txt'),
     /** D9: item principal que esta substituição troca (mesma refeição). Nulo = item principal. */
     substituiItemId: uuid('substitui_item_id'),
     ordem: smallint('ordem').notNull(),
-    nutrientes: jsonb('nutrientes').$type<NutrientesCongelados>(),
+    nutrientes: jsonbSeguro('nutrientes').$type<NutrientesCongelados>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

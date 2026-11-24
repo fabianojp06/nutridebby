@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, foreignKey, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, foreignKey, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { jsonbSeguro } from '../jsonb-seguro';
 import { patients } from './pacientes';
 import { tenants } from './platform';
 
@@ -18,7 +19,7 @@ export const lembretesRotina = pgTable(
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
     patientId: uuid('patient_id').notNull(),
     tipo: text('tipo').notNull(),
-    config: jsonb('config').notNull(),
+    config: jsonbSeguro('config').notNull(),
     texto: text('texto'),
     ligado: boolean('ligado').notNull().default(true),
     /**
