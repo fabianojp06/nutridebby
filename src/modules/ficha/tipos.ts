@@ -24,8 +24,11 @@ export type TxDePaciente = Tx & { readonly [marca]: 'paciente' };
 /** Ações do Adicionar que não são link: as mesmas Server Actions dos botões da aba Documentos (RN-280). */
 export type ChaveDeAcao = 'criar-receita' | 'criar-parecer';
 
-/** `href` relativo à ficha (sem `/` inicial) ou absoluto em `/painel/`. */
-export type DestinoDoAdicionar = { href: string } | { acao: ChaveDeAcao };
+/**
+ * `href` relativo à ficha (sem `/` inicial) ou absoluto em `/painel/`. `hrefDoPaciente`: absoluto em `/painel/` montado com o
+ * paciente, para o destino fora da ficha que precisa dele (Plano 20: "Nova entrada" com o paciente escolhido no formulário).
+ */
+export type DestinoDoAdicionar = { href: string } | { hrefDoPaciente: (patientId: string) => string } | { acao: ChaveDeAcao };
 
 /** 'outros' só aparece no diálogo se alguma seção o usar (o Financeiro do Plano 20). */
 export type GrupoDoAdicionar = 'avaliacoes' | 'prescricoes' | 'outros';
@@ -49,8 +52,8 @@ export type SecaoDaFicha = {
    */
   disponivel(t: TenantDaSecao, p: PacienteDaSecao, total: number): boolean;
   /**
-   * Contador e os 3 últimos, numa consulta. `podeAdicionar: false` esconde o `adicionar` desta seção (ex.: Financeiro não
-   * configurado, Plano 20); padrão true.
+   * Contador e os 3 últimos, numa consulta. `podeAdicionar: false` esconde o `adicionar` desta seção (ex.: paciente
+   * bloqueado ou anonimizado, no Financeiro do Plano 20); padrão true.
    */
   resumo(tx: Tx, patientId: string, fuso: string): Promise<{ total: number; ultimos: Omit<ItemDaSecao, 'noApp'>[]; podeAdicionar?: boolean }>;
   /**

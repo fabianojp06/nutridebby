@@ -8,7 +8,7 @@ import * as schema from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { listarCategorias, salvarConfiguracoes } from './configuracoes';
 import { criarLancamento, diaMaisAntigoNaTransacao } from './lancamentos';
-import { entradasESaidas12Meses, fluxoDeCaixaDoAno, pagamentosPendentes, pendenciasDoPaciente, resumoDoMes } from './resumo';
+import { entradasESaidas12Meses, fluxoDeCaixaDoAno, pagamentosPendentes, pendenciasDoPaciente, resumoDoMes, resumoFinanceiroDoPaciente } from './resumo';
 
 /**
  * RNF-301 ("índices da §9"): toda consulta dos agregados a `fin_lancamentos` tem de chegar às linhas do consultório por um
@@ -125,5 +125,9 @@ describe('agregados do Financeiro — plano das consultas (RNF-301, índices da 
     semVarreduraSemTenant(await explicar((d) => entradasESaidas12Meses(T.ctx, T.tenant, d)), 1);
     semVarreduraSemTenant(await explicar((d) => pagamentosPendentes(T.ctx, T.tenant, d)), 1);
     semVarreduraSemTenant(await explicar((d) => pendenciasDoPaciente(T.ctx, T.tenant, paciente, d)), 1);
+  });
+
+  it('seção "Financeiro" do Início da ficha (US-308): uma consulta, pelo índice do consultório', async () => {
+    semVarreduraSemTenant(await explicar((d) => withTenant(T.ctx, (tx) => resumoFinanceiroDoPaciente(tx, paciente, T.tenant.fuso), d.db)), 1);
   });
 });

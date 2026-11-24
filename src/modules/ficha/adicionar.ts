@@ -44,6 +44,10 @@ export function montarAdicionar(
     titulo: MSG_FICHA.grupos[grupo],
     itens: entradas
       .filter((e) => e.grupo === grupo)
-      .map((e): ItemDoAdicionar => ('acao' in e.destino ? { rotulo: e.rotulo, acao: e.destino.acao } : { rotulo: e.rotulo, href: caminhoNaFicha(patientId, e.destino.href) })),
+      .map((e): ItemDoAdicionar => {
+        if ('acao' in e.destino) return { rotulo: e.rotulo, acao: e.destino.acao };
+        const href = 'hrefDoPaciente' in e.destino ? e.destino.hrefDoPaciente(patientId) : e.destino.href;
+        return { rotulo: e.rotulo, href: caminhoNaFicha(patientId, href) };
+      }),
   })).filter((g) => g.itens.length > 0);
 }

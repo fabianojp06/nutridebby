@@ -6,11 +6,13 @@ import { idValido } from '@/modules/pacientes/base';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { auditRead } from '@/modules/plataforma/audit';
 import { configuracaoNaTransacao, type Configuracao } from './configuracoes';
+import { MSG_FINANCEIRO } from './constantes';
 import { centavos } from './dinheiro';
 import { exigirNutri } from './erros';
 import { naTela, selecionarNaTela, situacaoDoPaciente } from './lancamentos';
 import { intervaloDoMes, mesDe, mesesDoAno, ultimos12Meses } from './meses';
 import { cadastroDoPaciente, nomeDeExibicao } from './nome';
+import { dataDeReferencia, ROTULO_SITUACAO, situacaoDoLancamento } from './situacao';
 import type { FluxoDoAno, LancamentoNaTela, LinhaFluxo } from './tipos';
 
 /**
@@ -289,6 +291,63 @@ export async function pendenciasDoPaciente(ctx: TenantContext, tenant: Tenant, p
     },
     deps.db ?? getDb(),
   );
+}
+
+/** Um item da seção "Financeiro" do Início da ficha: o formato do `ItemDaSecao` do Plano 18 (sem `noApp`). */
+export type ItemFinanceiroDaFicha = { id: string; rotulo: string; data: string; situacao: string; href: string };
+export type ResumoFinanceiroDoPaciente = { total: number; ultimos: ItemFinanceiroDaFicha[]; podeAdicionar: boolean };
+
+/** RN-277 do Plano 18: no máximo 3 itens por seção. */
+const NA_FICHA = 3;
+
+/**
+ * Seção "Financeiro" do Início da ficha (US-308, RN-329), na transação do Início (`secoesDoInicio`, sessão `nutri`), numa
+ * consulta: a partir do paciente (RLS), o total dos lançamentos dele — todas as situações, cancelados inclusive — e os 3
+ * mais recentes pela data de referência (RN-306), na ordem da lista filtrada por paciente. Cada item só com "Entrada —
+ * {categoria}", a data de referência e a situação (RN-305, "hoje" no fuso); nunca valor nem descrição. `podeAdicionar`:
+ * nem bloqueado nem anonimizado (RN-315; paciente fora do consultório também não). Sem `auditRead`: o "ler" (RN-318) é o de
+ * `inicio.ts`, pela `leitura` da seção. Recebe só `tx` e não confere o papel: só é chamada dentro de `secoesDoInicio`
+ * (`src/modules/ficha/inicio.ts`), que recusa a sessão que não é `nutri` antes da transação — como os outros `*NaTransacao`
+ * (regra 1 do CLAUDE.md: as tabelas `fin_*` são `staff_only`).
+ */
+export async function resumoFinanceiroDoPaciente(tx: Tx, patientId: string, fuso: string): Promise<ResumoFinanceiroDoPaciente> {
+  const hoje = hojeNoFuso(fuso);
+  const linhas = await tx
+    .select({
+      status: patients.status,
+      anonimizadoEm: patients.anonimizadoEm,
+      id: L.id,
+      tipo: L.tipo,
+      vencimento: L.vencimento,
+      pagoEm: L.pagoEm,
+      canceladoEm: L.canceladoEm,
+      categoria: finCategorias.nome,
+      // a janela conta antes do LIMIT; sem lançamento, a linha do paciente com L nulo conta 0
+      total: sql<number>`count(${L.id}) over ()`.mapWith(Number),
+    })
+    .from(patients)
+    // pelo fin_lancamentos_paciente_idx (tenant_id, patient_id, vencimento)
+    .leftJoin(L, and(eq(L.tenantId, patients.tenantId), eq(L.patientId, patients.id)))
+    .leftJoin(finCategorias, and(eq(finCategorias.tenantId, L.tenantId), eq(finCategorias.id, L.categoriaId)))
+    .where(eq(patients.id, patientId))
+    .orderBy(desc(sql`coalesce(${L.pagoEm}, ${L.vencimento})`), desc(L.createdAt), desc(L.id))
+    .limit(NA_FICHA);
+  const p = linhas[0];
+  if (!p) return { total: 0, ultimos: [], podeAdicionar: false };
+  const ultimos = linhas.flatMap((l) =>
+    l.id && l.tipo && l.vencimento && l.categoria !== null
+      ? [
+          {
+            id: l.id,
+            rotulo: `${MSG_FINANCEIRO.csv.tipos[l.tipo]} — ${l.categoria}`,
+            data: dataDeReferencia({ vencimento: l.vencimento, pagoEm: l.pagoEm }),
+            situacao: ROTULO_SITUACAO[situacaoDoLancamento({ tipo: l.tipo, vencimento: l.vencimento, pagoEm: l.pagoEm, canceladoEm: l.canceladoEm }, hoje)],
+            href: `/painel/financeiro/lancamentos/${l.id}`,
+          },
+        ]
+      : [],
+  );
+  return { total: p.total, ultimos, podeAdicionar: p.status !== 'bloqueado' && p.anonimizadoEm === null };
 }
 
 /**

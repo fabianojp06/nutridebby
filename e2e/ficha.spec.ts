@@ -43,7 +43,10 @@ test('abrir o diálogo põe o foco no título; Esc fecha e devolve o foco ao bot
   await abrirAdicionar();
   await expect(dialogo().getByRole('heading', { name: 'Adicionar ao prontuário' })).toBeFocused();
   await expect(dialogo().getByText('Antes do plano alimentar, registre a anamnese, a antropometria e o gasto energético.')).toBeVisible();
-  await expect(dialogo().getByRole('heading', { level: 3 })).toHaveText(['Avaliações', 'Prescrições']);
+  await expect(dialogo().getByRole('heading', { level: 3 })).toHaveText(['Avaliações', 'Prescrições', 'Outros']);
+  // Plano 20 (US-308): "Nova entrada" abre o formulário do Financeiro com o paciente escolhido
+  const id = prontuario.split('/').pop(); // prontuario = /painel/pacientes/{id}
+  await expect(dialogo().getByRole('link', { name: 'Nova entrada', exact: true })).toHaveAttribute('href', `/painel/financeiro/lancamentos/novo?tipo=entrada&paciente=${id}`);
   await nutri.keyboard.press('Escape');
   await expect(dialogo()).toBeHidden();
   await expect(botao()).toBeFocused();
@@ -81,6 +84,7 @@ test('seção → item (2 cliques): a seção com registro já vem aberta; o ite
   await expect(secoes.getByRole('heading', { name: 'Antropometria (1)', level: 3 })).toBeVisible();
   await expect(secoes.getByRole('heading', { name: 'Documentos (1)', level: 3 })).toBeVisible();
   await expect(secoes.getByRole('heading', { name: 'Anamneses (0)', level: 3 })).toBeVisible();
+  await expect(secoes.getByRole('heading', { name: 'Financeiro (0)', level: 3 })).toBeVisible(); // Plano 20 (US-308), no fim
   await expect(secoes.getByText('Nenhum registro ainda.').first()).toBeHidden(); // seção vazia vem fechada
   await expect(secoes.getByRole('link', { name: 'Ver todos: Antropometria' })).toHaveAttribute('href', `${prontuario}/antropometria`);
   await secoes.getByRole('link', { name: /^Receita · \d{2}\/\d{2}\/\d{4} · Rascunho$/ }).click();

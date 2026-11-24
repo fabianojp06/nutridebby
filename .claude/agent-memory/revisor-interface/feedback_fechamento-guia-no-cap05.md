@@ -16,3 +16,5 @@ Conferir também o título do capítulo no índice "Seções principais" do READ
 Na revisão final do Plano 13 (head `c63ea12`) a §5.8.1 continuava sem a linha: o fechamento não corrigiu.
 
 Plano 16 (T16, head `6aee56e`): de novo sem a linha. A P16-08 acrescentou perguntas comuns ao `prontuario` e ao `diarios` sem subir a versão, e a §5.8.1 não registrou; a linha do Plano 13 também continua faltando. No mesmo fechamento, o cap. 08 (M4) descrevia uma coluna da lista do `/admin` que a reorganização (T17) tinha tirado. Quando um plano reorganiza uma tela, conferir com `git show <head>:src/app/...` cada frase do manual do tipo "a lista mostra X".
+
+Plano 20 (T12, head `291baa2`): item novo na gaveta do `inicio-paciente` sem subir a versão e sem linha na §5.8.1, enquanto a T11 subiu `agenda` para v2 por um item só de gaveta (critério inconsistente dentro do mesmo plano). Conferir `versao` x precedente do próprio plano.

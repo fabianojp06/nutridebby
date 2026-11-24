@@ -1768,6 +1768,9 @@ Plano 20 (Financeiro, [§12.6](12-financeiro.md#126-telas-navegação-e-manual-g
 - **`agenda` na v2** (comentário "Plano 20: Realizada gera a cobrança"): item novo no "Passo a passo" — "Ao marcar
   "Realizada" (ou registrar o atendimento da consulta), a cobrança é criada no Financeiro com o valor da consulta; a seção
   "Cobrança" da consulta mostra o valor e o recebimento."; os passos do tour não mudaram.
+- **`inicio-paciente` continua na v2** (PR 3): item novo nas "Perguntas comuns" sobre a seção "Financeiro" do Início
+  ([§12.4.4](12-financeiro.md#1244-seção-financeiro-no-início-da-ficha-us-308-rn-329)); como os passos do tour não mudaram e
+  a mudança é só da gaveta, a versão não sobe (mesmo critério do item dos documentos; code review do #78).
 - **Teste do manual.** `src/modules/financeiro` entrou em `TSX_FORA` (os rótulos citados entre aspas moram em
   `MSG_FINANCEIRO`); o caso do Plano 15 passou a `versao ≥ 3` e casos novos fixam `boas-vindas` 4, `agenda` 2 e o guia
   `financeiro` (versão, posição, rotas e alvos).
