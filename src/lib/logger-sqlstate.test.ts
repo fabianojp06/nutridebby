@@ -22,6 +22,11 @@ describe('camposDoErro (SUS-110: o `error` do pg-boss sem o erro cru)', () => {
     });
     expect(camposDoErro(pg)).toEqual({ erro: 'Error', sqlstate: '22P02' });
     expect(camposDoErro('texto solto')).toEqual({ erro: 'string', sqlstate: undefined });
+    // erro de rede do pg-boss: o código de sistema fica (diagnóstico), a mensagem não
+    const rede = Object.assign(new Error('connect ECONNREFUSED 10.0.0.5:5432'), { code: 'ECONNREFUSED' });
+    expect(camposDoErro(rede)).toEqual({ erro: 'Error', sqlstate: undefined, codigo: 'ECONNREFUSED' });
+    // código fora do formato não entra
+    expect(camposDoErro(Object.assign(new Error('x'), { code: 'Ana Souza' }))).toEqual({ erro: 'Error', sqlstate: undefined });
     const linhas: string[] = [];
     const log = createLogger(new Writable({ write: (c: Buffer, _e, cb) => (linhas.push(c.toString()), cb()) }));
     log.error(camposDoErro(pg), 'pg-boss erro');

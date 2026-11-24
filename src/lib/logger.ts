@@ -88,6 +88,10 @@ export function sqlstateDoErro(err: unknown): string | undefined {
  * Os campos de log de um erro qualquer (regra 3): o nome e o SQLSTATE, nunca a mensagem nem os campos do erro do pg
  * (`detail`, `where`: o CONTEXT de um jsonb recusado cita o texto). Para quem receberia o erro cru (o `error` do pg-boss).
  */
-export function camposDoErro(err: unknown): { erro: string; sqlstate: string | undefined } {
-  return { erro: nomeDoErro(err), sqlstate: sqlstateDoErro(err) };
+export function camposDoErro(err: unknown): { erro: string; sqlstate: string | undefined; codigo?: string } {
+  const campos: { erro: string; sqlstate: string | undefined; codigo?: string } = { erro: nomeDoErro(err), sqlstate: sqlstateDoErro(err) };
+  // código de sistema do Node (ECONNREFUSED, ETIMEDOUT…): fixo, sem dado, e é a causa mais comum do `error` do pg-boss
+  const codigo = (err as { code?: unknown } | null)?.code;
+  if (typeof codigo === 'string' && /^E[A-Z]{2,30}$/.test(codigo)) campos.codigo = codigo;
+  return campos;
 }
