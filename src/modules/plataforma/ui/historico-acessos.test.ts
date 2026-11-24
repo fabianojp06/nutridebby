@@ -18,6 +18,10 @@ describe('HistoricoAcessosTabela', () => {
     }
     expect(html).not.toContain('Próxima');
   });
+  it('Plano 26 (RN-516): a pessoa da recepção aparece identificada', () => {
+    const html = render({ itens: [item(2, { nome: 'Ana Recepção', papel: 'recepcao' })], pagina: 1, totalPaginas: 1, total: 1 });
+    expect(html).toContain('Ana Recepção (recepção)');
+  });
   it('paginação com ?pagina=', () => {
     const html = render({ itens: [item(0, null)], pagina: 2, totalPaginas: 3, total: 120 });
     expect(html).toContain('href="/painel/pacientes/p?pagina=1"');

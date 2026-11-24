@@ -2,7 +2,7 @@ import type { TenantContext } from '@/db/tenant';
 import { formatarDataHora } from '@/modules/pacientes/datas';
 import { ENTIDADE_ROTULO, listAccessHistory, rotuloDaAcao, type AccessHistoryPage } from '../audit';
 
-const PAPEL: Record<string, string> = { nutri: 'nutricionista', paciente: 'paciente', admin: 'administração' };
+const PAPEL: Record<string, string> = { nutri: 'nutricionista', paciente: 'paciente', admin: 'administração', recepcao: 'recepção' }; // Plano 26 (RN-516): quem da recepção acessou aparece identificado
 
 // movida para o módulo puro de datas (Plano 18, revisão da P18-09); reexportada aqui para os usos antigos
 export { formatarDataHora };
