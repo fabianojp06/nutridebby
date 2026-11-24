@@ -1,4 +1,5 @@
 import { requireApiNutri } from '@/lib/tenant-session';
+import { textoDaBusca } from '@/lib/texto-da-requisicao';
 import { buscarAlimentos } from '@/modules/alimentos/busca';
 
 export const dynamic = 'force-dynamic';
@@ -8,7 +9,6 @@ const SEM_CACHE = { 'cache-control': 'no-store' };
 export async function GET(req: Request) {
   const acesso = await requireApiNutri(req);
   if (!acesso.ok) return acesso.response;
-  const q = new URL(req.url).searchParams.get('q');
-  const resultados = await buscarAlimentos(acesso.ctx, q ?? '');
+  const resultados = await buscarAlimentos(acesso.ctx, textoDaBusca(new URL(req.url).searchParams, 'q'));
   return Response.json({ resultados }, { headers: SEM_CACHE });
 }

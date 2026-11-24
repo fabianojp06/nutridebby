@@ -55,6 +55,11 @@ describe('lista de pacientes (Plano 18, §8.1)', () => {
     expect(pedidos).toEqual([{ aba: 'ativos', ordem: 'nome' }]);
   });
 
+  it('SUS-121: a busca chega ao filtro sem o NUL', async () => {
+    await render({ busca: 'an\u0000a' });
+    expect(pedidos.at(-1)).toEqual({ aba: 'ativos', busca: 'ana', ordem: 'nome' });
+  });
+
   it('a aba vem da URL; o link antigo ?status=arquivado marca Inativos (com a dica)', async () => {
     expect(abaMarcada(await render({ aba: 'todos' }))).toEqual(['Todos']);
     const html = await render({ status: 'arquivado' });

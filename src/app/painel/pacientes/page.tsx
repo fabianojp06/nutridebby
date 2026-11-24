@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Selo } from '@/components/ui/selo';
 import { requireNutri } from '@/lib/tenant-session';
+import { textoDaBusca } from '@/lib/texto-da-requisicao';
 import { situacoesDoAcesso } from '@/modules/pacientes/convite-paciente';
 import { formatarDataNoFuso, hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
 import { listarEtiquetas } from '@/modules/pacientes/etiquetas';
@@ -26,7 +27,7 @@ const CAMPO = 'min-h-11 rounded-xl border border-campo bg-cartao p-2 text-texto'
 export default async function PacientesPage({ searchParams }: PageProps<'/painel/pacientes'>) {
   const { ctx, tenant } = await requireNutri('/painel/pacientes');
   const sp = await searchParams;
-  const filtro = filtroDaUrl(sp);
+  const filtro = filtroDaUrl({ ...sp, busca: textoDaBusca(sp, 'busca') }); // SUS-121: a busca sem o NUL
   const aba = filtro.aba ?? 'ativos';
   const busca = filtro.busca ?? '';
   const etiquetaId = filtro.etiquetaId ?? '';

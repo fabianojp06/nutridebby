@@ -3,6 +3,7 @@ import { Aviso } from '@/components/ui/aviso';
 import { Botao, BotaoLink } from '@/components/ui/botao';
 import { Selo } from '@/components/ui/selo';
 import { requireUser } from '@/lib/session';
+import { textoDaBusca } from '@/lib/texto-da-requisicao';
 import { listarContas, resumoDasContas, type ContaResumo } from '@/modules/plataforma/contas';
 import { metricasPorTenant, type MetricasTenant } from '@/modules/plataforma/metricas';
 import { MSG_CONTA_NAO_ENCONTRADA } from '@/modules/plataforma/tenant-status';
@@ -44,7 +45,9 @@ function NomeDaConta({ c }: { c: ContaResumo }) {
  */
 export default async function AdminHome({ searchParams }: PageProps<'/admin'>) {
   const { user } = await requireUser(['admin'], '/admin');
-  const { aviso, busca, depois, antes } = await searchParams;
+  const sp = await searchParams;
+  const { aviso, depois, antes } = sp;
+  const busca = textoDaBusca(sp, 'busca'); // SUS-121: sem o NUL (22021, um 500 com o termo no erro)
   const a = typeof aviso === 'string' ? AVISOS[aviso] : undefined;
   // D-P5: as métricas continuam vindo de todos os consultórios (função SECURITY DEFINER sem parâmetro); a página só desenha os 50 dela.
   // O resumo conta todas as contas (R19 do pre-flight), não só as da página ou da busca.

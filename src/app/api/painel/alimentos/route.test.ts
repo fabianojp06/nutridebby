@@ -24,4 +24,11 @@ describe('GET /api/painel/alimentos (US-020)', () => {
     expect(await (await pedir(null, A.cookie)).json()).toEqual({ resultados: [] });
     expect((await pedir('feijao')).status).toBe(401);
   });
+
+  it('SUS-121: o NUL no termo sai antes da busca (sem ele, 22021: um 500 com o termo no erro)', async () => {
+    const A = await nutriComDpa(db, auth);
+    const r = await pedir('feij\u0000ao carioca', A.cookie);
+    expect(r.status).toBe(200);
+    expect((await r.json()).resultados.map((x: { nome: string }) => x.nome)).toContain('Feijão, carioca, cozido');
+  });
 });

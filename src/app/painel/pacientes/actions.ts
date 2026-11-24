@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 import { requireNutri } from '@/lib/tenant-session';
+import { textoDoForm } from '@/lib/texto-da-requisicao';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { CpfRepetidoError } from '@/modules/pacientes/cadastro';
 import { ConvitePacienteError, reenviarConvitePaciente } from '@/modules/pacientes/convite-paciente';
@@ -90,7 +91,7 @@ export async function salvarEtiquetasAction(patientId: string, _prev: EtiquetasS
 async function situacaoPelaLista(formData: FormData, ok: 'arquivado' | 'reativado', fn: typeof arquivarPaciente): Promise<never> {
   const { ctx } = await requireNutri('/painel/pacientes');
   const patientId = String(formData.get('id') ?? '');
-  const filtro = filtroDaUrl(Object.fromEntries(['aba', 'busca', 'etiqueta', 'ordem'].map((k) => [k, String(formData.get(k) ?? '')])));
+  const filtro = filtroDaUrl(Object.fromEntries(['aba', 'busca', 'etiqueta', 'ordem'].map((k) => [k, textoDoForm(formData, k)])));
   let feito = true;
   try {
     await fn(ctx, patientId);

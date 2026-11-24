@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { CapaDoConteudo } from '@/components/capa-conteudo';
 import { requirePaciente } from '@/lib/paciente-session';
+import { textoDaBusca } from '@/lib/texto-da-requisicao';
 import { ehTipoConteudo, FILTROS_DO_FEED, ROTULO_TIPO_CONTEUDO } from '@/modules/conteudo/constantes';
 import { feedDeConteudos, mensagemDoFeedVazio } from '@/modules/portal/conteudos';
 import { CabecalhoDetalhe } from '@/components/portal/cabecalho-detalhe';
@@ -15,7 +16,7 @@ export default async function Conteudos({ searchParams }: PageProps<'/p/conteudo
   const q = await searchParams;
   const t = um(q.tipo);
   const tipo = ehTipoConteudo(t) ? t : undefined;
-  const busca = (um(q.busca) ?? '').slice(0, 100);
+  const busca = textoDaBusca(q, 'busca', 100); // SUS-121: sem o NUL, e o corte não deixa meio emoji
   const etiqueta = um(q.etiqueta) || undefined;
   const favoritos = um(q.favoritos) === '1';
   const { itens, etiquetas } = await feedDeConteudos(ctx, { tipo, busca, etiqueta, favoritos });
