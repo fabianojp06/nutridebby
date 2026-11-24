@@ -229,6 +229,30 @@ describe('rascunho do plano (US-022, D7, D11)', () => {
     expect((await carregarPlano(T.ctx, id, app.db))?.refeicoes).toEqual([]);
   });
 
+  it('SUS-114: título, orientações, nome e observação da refeição contam caracteres (code points, como o CHECK)', async () => {
+    const T = await novoTenant(app.db);
+    const { id } = await comRascunho(T);
+    const c = conteudo(0);
+    const textos = { titulo: '🙂'.repeat(120), orientacoes: '💧'.repeat(2000), nome: '🍳'.repeat(60), observacao: '🥗'.repeat(2000) };
+    const comTextos = (t: typeof textos, revisao: number) => ({
+      ...conteudo(revisao),
+      titulo: t.titulo,
+      orientacoes: t.orientacoes,
+      refeicoes: [{ ...c.refeicoes[0], nome: t.nome, observacao: t.observacao }],
+    });
+    const mais = { titulo: `${textos.titulo}🙂`, orientacoes: `${textos.orientacoes}💧`, nome: `${textos.nome}🍳`, observacao: `${textos.observacao}🥗` };
+    expect(await erros(salvarRascunho(T.ctx, id, comTextos(mais, 0), deps))).toEqual({
+      titulo: MSG_PLANO.titulo,
+      orientacoes: MSG_PLANO.texto,
+      [`refeicao:${c.refeicoes[0].id}:nome`]: MSG_PLANO.refeicaoNome,
+      [`refeicao:${c.refeicoes[0].id}:observacao`]: MSG_PLANO.texto,
+    });
+    await salvarRascunho(T.ctx, id, comTextos(textos, 0), deps);
+    const plano = await carregarPlano(T.ctx, id, app.db);
+    expect(plano).toMatchObject({ titulo: textos.titulo, orientacoes: textos.orientacoes });
+    expect(plano?.refeicoes.map((r) => [r.nome, r.observacao])).toEqual([[textos.nome, textos.observacao]]);
+  });
+
   it('substituição só aponta para principal da mesma refeição; apagar o principal leva as substituições', async () => {
     const T = await novoTenant(app.db);
     const { id } = await comRascunho(T);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
+import { maxLengthPorCaracteres } from '@/lib/text';
 import type { Pergunta } from '@/modules/pacientes/anamnese-tipos';
 import type { AnamneseState } from './actions';
 
@@ -63,10 +64,10 @@ function Campo({ p, valor, erro }: { p: Pergunta; valor: string | string[]; erro
     <div className="space-y-1">
       <label htmlFor={nome} className="block font-medium">{rotulo}</label>
       {p.tipo === 'texto_longo' ? (
-        <textarea id={nome} name={nome} defaultValue={texto} rows={3} maxLength={5000} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...aria} />
+        <textarea id={nome} name={nome} defaultValue={texto} rows={3} maxLength={maxLengthPorCaracteres(5000)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...aria} />
       ) : (
         <input id={nome} name={nome} defaultValue={texto} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...aria}
-          {...(p.tipo === 'data' ? { type: 'date' } : p.tipo === 'numero' ? { inputMode: 'decimal' as const } : { maxLength: 200 })} />
+          {...(p.tipo === 'data' ? { type: 'date' } : p.tipo === 'numero' ? { inputMode: 'decimal' as const } : { maxLength: maxLengthPorCaracteres(200) })} />
       )}
       {mensagem}
     </div>

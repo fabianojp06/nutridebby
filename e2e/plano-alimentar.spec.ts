@@ -306,9 +306,10 @@ test('editor: limites de 15 refeições e 200 itens bloqueiam "Adicionar" com o 
   await nutri.getByRole('button', { name: 'Recarregar' }).click();
   await expect(nutri.getByLabel('Título')).toHaveValue('Plano com resposta perdida'); // nada foi gravado sem sessão
 
-  // O texto de observação tem teto de 2000 caracteres na própria caixa (o servidor recusaria acima disso)
-  await expect(nutri.getByLabel('Observação').first()).toHaveAttribute('maxlength', '2000');
-  await expect(nutri.getByLabel('Orientações gerais')).toHaveAttribute('maxlength', '2000');
+  // O texto de observação tem teto na própria caixa; o servidor confere os 2000 caracteres por code point e o maxlength do
+  // navegador conta UTF-16, então o teto é o dobro (SUS-114: 2000 emojis cabem)
+  await expect(nutri.getByLabel('Observação').first()).toHaveAttribute('maxlength', '4000');
+  await expect(nutri.getByLabel('Orientações gerais')).toHaveAttribute('maxlength', '4000');
 });
 
 test('substituições: ligadas ao principal, fora do total, com kcal própria e diferença (US-023)', async () => {

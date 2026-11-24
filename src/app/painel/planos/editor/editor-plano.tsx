@@ -12,6 +12,7 @@ import { MAX_TEXTO, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { ContextoPaciente } from '@/modules/plano-alimentar/meta';
 import type { PlanoDoCliente } from '@/modules/plano-alimentar/tipos';
 import { casasDecimais, formatarDecimal, lerDecimal } from '@/lib/numero';
+import { maxLengthPorCaracteres } from '@/lib/text';
 import { errosSemCampo, estadoInicial, gramasDoItem, medidaDaOpcao, opcaoDaMedida, opcoesDeMedida, paraEnvio, podeAdicionarItem, podeAdicionarRefeicao, reduzir, refeicoesParaCalculo, type Acao, type EstadoEditor, type ItemEstado, type RefeicaoEstado } from './estado';
 import { PainelTotais } from './painel-totais';
 import { SalvamentoContext } from './salvamento-contexto';
@@ -136,7 +137,7 @@ function Editor({ plano, contexto, somenteLeitura = false, acoes, receitas = [],
 
       <div className="space-y-1">
         <label htmlFor="orientacoes" className="block font-medium">Orientações gerais</label>
-        <textarea id="orientacoes" rows={4} maxLength={MAX_TEXTO} disabled={somenteLeitura} value={estado.orientacoes} onChange={(e) => despachar({ tipo: 'orientacoes', valor: e.target.value })} aria-invalid={erro('orientacoes') ? true : undefined} aria-describedby={erro('orientacoes') ? 'orientacoes-erro' : undefined} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
+        <textarea id="orientacoes" rows={4} maxLength={maxLengthPorCaracteres(MAX_TEXTO)} disabled={somenteLeitura} value={estado.orientacoes} onChange={(e) => despachar({ tipo: 'orientacoes', valor: e.target.value })} aria-invalid={erro('orientacoes') ? true : undefined} aria-describedby={erro('orientacoes') ? 'orientacoes-erro' : undefined} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
         {erro('orientacoes') && <p id="orientacoes-erro" role="alert" className="text-sm text-erro">{erro('orientacoes')}</p>}
       </div>
     </div>
@@ -206,7 +207,7 @@ function Refeicao({ r, k, despachar, somenteLeitura, erro, podeAdicionarItem, re
 
       <div className="space-y-1">
         <label htmlFor={`${r.id}-obs`} className="block font-medium">Observação</label>
-        <textarea id={`${r.id}-obs`} rows={2} maxLength={MAX_TEXTO} disabled={somenteLeitura} value={r.observacao} onChange={(e) => despachar({ tipo: 'refeicao', id: r.id, campo: 'observacao', valor: e.target.value })} aria-invalid={erro(`${chave}:observacao`) ? true : undefined} aria-describedby={erro(`${chave}:observacao`) ? `${r.id}-obs-erro` : undefined} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
+        <textarea id={`${r.id}-obs`} rows={2} maxLength={maxLengthPorCaracteres(MAX_TEXTO)} disabled={somenteLeitura} value={r.observacao} onChange={(e) => despachar({ tipo: 'refeicao', id: r.id, campo: 'observacao', valor: e.target.value })} aria-invalid={erro(`${chave}:observacao`) ? true : undefined} aria-describedby={erro(`${chave}:observacao`) ? `${r.id}-obs-erro` : undefined} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
         {erro(`${chave}:observacao`) && <p id={`${r.id}-obs-erro`} role="alert" className="text-sm text-erro">{erro(`${chave}:observacao`)}</p>}
       </div>
       {!somenteLeitura && (

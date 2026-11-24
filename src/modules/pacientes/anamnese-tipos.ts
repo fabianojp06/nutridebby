@@ -1,5 +1,5 @@
 import { lerDecimal } from '@/lib/numero';
-import { normalizarTexto } from '@/lib/text';
+import { caracteres, normalizarTexto } from '@/lib/text';
 import { dataValida } from './datas';
 
 /** US-012: os 7 tipos de pergunta. Arquivo puro: o editor de modelos e o formulário usam no navegador. */
@@ -68,7 +68,7 @@ export function validarModelo(input: { nome: unknown; perguntas: unknown }):
     }
     if (temOpcoes(tipo)) {
       const opcoes = [...new Set((Array.isArray(b.opcoes) ? b.opcoes : []).map((o) => texto(o)).filter(Boolean))];
-      if (opcoes.length > 30 || opcoes.some((o) => o.length > 100)) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.muitasOpcoes);
+      if (opcoes.length > 30 || opcoes.some((o) => caracteres(o) > 100)) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.muitasOpcoes);
       if (opcoes.length < 2) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.opcoes);
       p.opcoes = opcoes;
     }
@@ -106,7 +106,7 @@ function converter(p: Pergunta, v: unknown): Resposta | undefined {
       const limite = p.tipo === 'texto_curto' ? 200 : 5000;
       // PF3: o navegador envia quebra de linha como CRLF (o maxLength do textarea conta 1 por quebra)
       const t = v.replace(/\r\n?/g, '\n').trim();
-      return t.length <= limite ? t : undefined;
+      return caracteres(t) <= limite ? t : undefined;
     }
     case 'numero': {
       const n = lerDecimal(v);

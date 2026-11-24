@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
+import { maxLengthPorCaracteres } from '@/lib/text';
 import type { AtendimentoState } from './actions';
 
 type Props = {
@@ -31,14 +32,14 @@ export function AtendimentoForm({ acao, inicial, hoje, botao, somenteLeitura, co
         <div className="space-y-1">
           <label htmlFor="notasPrivadas" className="block font-medium">Notas privadas</label>
           <p id="notasPrivadas-dica" className="text-sm text-suave">Só você vê. O paciente nunca vê estas notas.</p>
-          <textarea id="notasPrivadas" name="notasPrivadas" rows={6} maxLength={20000} defaultValue={v.notasPrivadas} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto"
+          <textarea id="notasPrivadas" name="notasPrivadas" rows={6} maxLength={maxLengthPorCaracteres(20000)} defaultValue={v.notasPrivadas} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto"
             aria-invalid={e.notasPrivadas ? true : undefined} aria-describedby={e.notasPrivadas ? 'notasPrivadas-dica notasPrivadas-erro' : 'notasPrivadas-dica'} />
           {erro('notasPrivadas')}
         </div>
         <div className="space-y-1">
           <label htmlFor="orientacoes" className="block font-medium">Orientações ao paciente</label>
           <p id="orientacoes-dica" className="text-sm text-suave">O paciente vê estas orientações no portal.</p>
-          <textarea id="orientacoes" name="orientacoes" rows={4} maxLength={5000} defaultValue={v.orientacoes} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto"
+          <textarea id="orientacoes" name="orientacoes" rows={4} maxLength={maxLengthPorCaracteres(5000)} defaultValue={v.orientacoes} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto"
             aria-invalid={e.orientacoes ? true : undefined} aria-describedby={e.orientacoes ? 'orientacoes-dica orientacoes-erro' : 'orientacoes-dica'} />
           {erro('orientacoes')}
         </div>

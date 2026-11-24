@@ -56,6 +56,15 @@ describe('Diários da nutricionista (US-043)', () => {
     await expect(comentarRegistro(T.ctx, a1.id, 'x'.repeat(1001), { db: app.db })).rejects.toEqual(new ComentarioError({ comentario: MSG_COMENTARIO.tamanho }));
   });
 
+  it('SUS-114: o limite do comentário conta caracteres (code points, como o CHECK): 1000 emojis passam, 1001 não', async () => {
+    const { T, ana, a1 } = await cenario();
+    const noLimite = '🙂'.repeat(1000); // 2000 unidades UTF-16
+    await comentarRegistro(T.ctx, a1.id, noLimite, { db: app.db });
+    const visto = (await import('./diario')).diarioDoPaciente;
+    expect((await visto(ctxPaciente(T.tenantId, ana.id), { db: app.db })).find((r) => r.id === a1.id)?.comentario).toBe(noLimite);
+    await expect(comentarRegistro(T.ctx, a1.id, '🙂'.repeat(1001), { db: app.db })).rejects.toEqual(new ComentarioError({ comentario: MSG_COMENTARIO.tamanho }));
+  });
+
   it('id de outro tenant ou inválido → null / erro de não encontrado; o paciente não comenta (sem update)', async () => {
     const { T, ana, a1 } = await cenario();
     const outro = await novoTenant(app.db);

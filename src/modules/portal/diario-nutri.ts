@@ -1,5 +1,6 @@
 import { and, count, desc, eq, isNull, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
+import { caracteres } from '@/lib/text';
 import { diaryEntries, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
@@ -98,7 +99,7 @@ export async function comentarRegistro(ctx: TenantContext, id: string, texto: un
   soNutri(ctx);
   const comentario = typeof texto === 'string' ? texto.normalize('NFC').trim() : '';
   if (!comentario) throw new ComentarioError({ comentario: MSG_COMENTARIO.vazio });
-  if (comentario.length > COMENTARIO_MAX) throw new ComentarioError({ comentario: MSG_COMENTARIO.tamanho });
+  if (caracteres(comentario) > COMENTARIO_MAX) throw new ComentarioError({ comentario: MSG_COMENTARIO.tamanho });
   if (!idValido(id)) throw new ComentarioError({ comentario: MSG_COMENTARIO.naoEncontrado });
   const agora = o.agora ?? new Date();
   return withTenant(

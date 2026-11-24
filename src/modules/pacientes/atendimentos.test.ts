@@ -88,6 +88,17 @@ describe('atendimentos (US-016)', () => {
     expect(await listarAtendimentos(T.ctx, p.id, app.db)).toEqual([]);
   });
 
+  it('SUS-114: os limites contam caracteres (code points, como o CHECK): emojis no limite passam, um a mais não', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const notas = '🙂'.repeat(20000);
+    const orientacoes = '🥗'.repeat(5000);
+    const { id } = await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-10-01', notasPrivadas: notas, orientacoes }, deps);
+    expect(await buscarAtendimento(T.ctx, p.id, id, app.db)).toMatchObject({ notasPrivadas: notas, orientacoesPaciente: orientacoes });
+    const r = atualizarAtendimento(T.ctx, T.tenant, p.id, id, { data: '2026-10-01', notasPrivadas: `${notas}🙂`, orientacoes: `${orientacoes}🥗` }, deps);
+    await expect(r).rejects.toMatchObject({ erros: { notasPrivadas: MSG_ATENDIMENTO.notas, orientacoes: MSG_ATENDIMENTO.orientacoes } });
+  });
+
   it('paciente de outro tenant ou atendimento de outro paciente: recusado; e o banco barra nota cruzada (FK tripla)', async () => {
     const A = await novoTenant(app.db);
     const B = await novoTenant(app.db);
