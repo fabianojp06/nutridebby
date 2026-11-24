@@ -18,14 +18,19 @@ import { ContaNaoEncontradaError, getTenantStatus } from './tenant-status';
  * 11, um separador obrigatório (espaço, "/" ou "nº"/"n°"), o número de 1 a 7 dígitos e o sufixo opcional da inscrição
  * provisória (P) ou secundária (S). Sem separador ("CRN312345", "CRN-312345") é ambíguo e fica recusado.
  */
-const CRN_ENTRADA = /^CRN[-\s]?(1[01]|[1-9])(?:\s*(?:\/|n[º°])\s*|\s+)(\d{1,7})(?:\s*[-/]?\s*([PS]))?$/i;
+const CRN_ENTRADA = /^CRN[-\s]?(1[01]|[1-9])(?:\s?(?:\/|n[º°])\s?|\s{1,3})(\d{1,7})(?:\s?[-/]?\s?([PS]))?$/i;
+/** Code review do SUS-118: o maior CRN válido tem uns 20 caracteres; entrada maior nem chega à regex (sem ReDoS). */
+const CRN_MAX_ENTRADA = 40;
 
 /** SUS-118: o CRN no formato canônico ("CRN-3 12345", "CRN-3 12345-P"), ou `null` se não segue a regra. Única validação do CRN. */
 export function normalizarCrn(valor: string): string | null {
-  const m = CRN_ENTRADA.exec(valor.trim());
+  const texto = valor.trim();
+  if (texto.length > CRN_MAX_ENTRADA) return null;
+  const m = CRN_ENTRADA.exec(texto);
   if (!m) return null;
-  const [, regiao, numero, sufixo] = m;
-  if (/^0+$/.test(numero)) return null; // inscrição só com zeros não existe
+  const [, regiao, digitos, sufixo] = m;
+  const numero = digitos.replace(/^0+/, ''); // zero à esquerda não muda a inscrição: um canônico só
+  if (!numero) return null; // inscrição só com zeros não existe
   return `CRN-${regiao} ${numero}${sufixo ? `-${sufixo.toUpperCase()}` : ''}`;
 }
 

@@ -455,7 +455,7 @@ Tabela `invites` (`src/db/schema/access.ts`). Guarda só o SHA-256 do token (`to
 | História | US-001 / US-002 | US-010 / US-011 |
 | Validade | 72 h (`CONVITE_NUTRI_VALIDADE_MS`, `convites.ts:11`) | 7 dias (`CONVITE_PACIENTE_VALIDADE_MS`, `convite-paciente.ts:18`) |
 | Aponta para | `user_id` (a conta já existe, sem senha) | `tenant_id` + `patient_id` (a conta nasce no aceite) |
-| Quem cria | admin: `criarContaNutri` / `reenviarConvite` (`src/modules/plataforma/contas.ts:79`, `:89`) | nutricionista: `enviarConvitePaciente` / `reenviarConvitePaciente` (`convite-paciente.ts:52`, `:102`) |
+| Quem cria | admin: `criarContaNutri` / `reenviarConvite` (`src/modules/plataforma/contas.ts:87`, `:117`) | nutricionista: `enviarConvitePaciente` / `reenviarConvitePaciente` (`convite-paciente.ts:52`, `:102`) |
 | Link | `/convite/<token>` (montado por `urlDoApp(appUrl, …)`, `src/lib/url-do-app.ts`, `convites.ts:32`) | `/convite/paciente/<token>` |
 | Canal | e-mail pela fila, na mesma transação | e-mail na mesma transação. O WhatsApp é só um aviso **sem link** (decisão do dono, US-010, nota do Plano 05) |
 | Aceite grava | senha (`account`), `emailVerified`, DPA | `user` de paciente, senha, termo, `patients.user_id`, escolha do WhatsApp |
@@ -463,7 +463,7 @@ Tabela `invites` (`src/db/schema/access.ts`). Guarda só o SHA-256 do token (`to
 
 ### Convite da nutricionista
 
-`criarContaNutri` cria, numa transação, o tenant, a usuária `nutri` sem senha, o convite e o e-mail (`contas.ts:79-107`). `reenviarConvite` trava a usuária (`FOR UPDATE`, T5-R3), recusa tenant suspenso ("Conta suspensa: reative antes de reenviar o convite.", PF-N6, RN-15) e recusa quem já tem senha. `criarConvite` apaga os pendentes antes de inserir (`convites.ts:23-29`).
+`criarContaNutri` cria, numa transação, o tenant, a usuária `nutri` sem senha, o convite e o e-mail (`contas.ts:87-115`). `reenviarConvite` trava a usuária (`FOR UPDATE`, T5-R3), recusa tenant suspenso ("Conta suspensa: reative antes de reenviar o convite.", PF-N6, RN-15) e recusa quem já tem senha. `criarConvite` apaga os pendentes antes de inserir (`convites.ts:23-29`).
 
 `aceitarConvite` (`convites.ts:66`):
 

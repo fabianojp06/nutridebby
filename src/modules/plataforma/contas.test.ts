@@ -84,6 +84,15 @@ describe('normalizarCrn (SUS-118)', () => {
     expect(normalizarCrn(entrada)).toBeNull();
   });
 
+  it('code review do SUS-118: entrada longa com espaços recusa logo (sem ReDoS) e zero à esquerda vira o mesmo canônico', () => {
+    const inicio = performance.now();
+    expect(normalizarCrn('CRN-3 1' + ' '.repeat(50_000) + 'x')).toBeNull();
+    expect(normalizarCrn('CRN-3 1' + ' '.repeat(1_000_000) + 'x')).toBeNull();
+    expect(performance.now() - inicio).toBeLessThan(200);
+    expect(normalizarCrn('CRN-3 012345')).toBe('CRN-3 12345');
+    expect(normalizarCrn('CRN-3 0012345-p')).toBe('CRN-3 12345-P');
+  });
+
   it('o schema grava o canônico e recusa com a mensagem exata', () => {
     expect(crnSchema.parse('crn-4 nº 12345 p')).toBe('CRN-4 12345-P');
     const r = crnSchema.safeParse('CRN-312345');
