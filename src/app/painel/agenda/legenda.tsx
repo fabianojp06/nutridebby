@@ -29,7 +29,7 @@ const ITENS: { rotulo: string; marca: string }[] = [
 /** "Legenda" (título) com os mesmos rótulos, em texto, que os itens da grade mostram (US-405). */
 export function LegendaDaAgenda() {
   return (
-    <section aria-labelledby="titulo-legenda" className="space-y-2 text-sm">
+    <section aria-labelledby="titulo-legenda" data-guia="legenda-agenda" className="space-y-2 text-sm">
       <h2 id="titulo-legenda" className="font-semibold">{M.legenda}</h2>
       <ul className="flex flex-wrap gap-x-4 gap-y-2">
         {ITENS.map((i) => (

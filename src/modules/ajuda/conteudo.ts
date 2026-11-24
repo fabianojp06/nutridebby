@@ -17,8 +17,8 @@ const ID = '[0-9a-f-]{36}';
 export const GUIAS: readonly Guia[] = [
   {
     id: ID_BOAS_VINDAS,
-    versao: 5, // Plano 12: o passo do menu passou a citar "Exames recebidos"; 3 = Plano 15: o passo do menu cita "Dúvidas dos pacientes" (★ DO-6)
-    // 4 = Plano 20: o passo do menu cita "Financeiro" (sobe +1 sobre a da main no rebase); 5 = Plano 26: e "Relatórios" (idem)
+    versao: 4, // Plano 12: o passo do menu passou a citar "Exames recebidos"; 3 = Plano 15: o passo do menu cita "Dúvidas dos pacientes" (★ DO-6)
+    // 4 = Plano 20: o passo do menu cita "Financeiro" (sobe +1 sobre a da main no rebase)
     padrao: /^\/painel$/,
     titulo: 'Início',
     ajuda: {
@@ -30,7 +30,7 @@ export const GUIAS: readonly Guia[] = [
     },
     passos: [
       { titulo: 'Boas-vindas ao NutriDebby', texto: 'Um passeio rápido pelo painel. Você pode pular agora e rever depois no menu da sua conta.' },
-      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Conteúdos, Financeiro, Relatórios e Configurações ficam no topo. Com o recebimento de exames ligado, "Exames recebidos" aparece também, com o número dos que aguardam. Com a IA Nutri ativada, "Dúvidas dos pacientes" aparece também, com o número das abertas.' },
+      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Conteúdos, Financeiro e Configurações ficam no topo. Com o recebimento de exames ligado, "Exames recebidos" aparece também, com o número dos que aguardam. Quando você ativa a IA Nutri para pacientes, "Dúvidas dos pacientes" aparece também, com o número das abertas.' },
       { alvo: 'proxima-consulta', titulo: 'Próxima consulta', texto: 'A consulta mais próxima de hoje, com atalhos para o prontuário e para a chamada online.' },
       { alvo: 'atalhos', titulo: 'Atalhos', texto: 'Cadastre um paciente, marque uma consulta ou publique um conteúdo direto do Início.' },
       { alvo: 'tema', titulo: 'Claro ou escuro', texto: 'Este botão liga e desliga o modo escuro. A escolha fica salva na sua conta, em qualquer aparelho.' },
@@ -40,16 +40,16 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'pacientes',
-    versao: 2, // Plano 18: abas da lista, Ações e o cadastro em seções
+    versao: 3, // Plano 23 (T11, T12): o filtro "Local" na busca; 2 = Plano 18: abas da lista, Ações e o cadastro em seções
     padrao: /^\/painel\/pacientes(\/novo)?$/,
     titulo: 'Pacientes',
     ajuda: {
       resumo: 'A lista dos seus pacientes. Tudo começa aqui: cadastrar, convidar para o app e abrir o prontuário.',
-      secoes: [{ titulo: 'Passo a passo', itens: ['Clique em "Novo paciente" e preencha nome, data de nascimento, sexo e e-mail.', 'Ao salvar, o paciente recebe o convite para o app por e-mail (e por WhatsApp, se você marcar "Enviar convite por WhatsApp" com a autorização). Se o convite vencer, use "Reenviar convite" em "Acesso ao app", na aba Perfil da ficha.', 'Use a busca para achar pelo nome ou pelo e-mail; os arquivados ficam na aba Inativos.'] }],
+      secoes: [{ titulo: 'Passo a passo', itens: ['Clique em "Novo paciente" e preencha nome, data de nascimento, sexo e e-mail.', 'Ao salvar, o paciente recebe o convite para o app por e-mail (e por WhatsApp, se você marcar "Enviar convite por WhatsApp" com a autorização). Se o convite vencer, use "Reenviar convite" em "Acesso ao app", na aba Perfil da ficha.', 'Use a busca para achar pelo nome ou pelo e-mail; os arquivados ficam na aba Inativos.', 'Em "Local", veja só os pacientes com consulta naquele local; os locais arquivados com consulta aparecem em "Arquivados".'] }],
     },
     passos: [
       { alvo: 'novo-paciente', titulo: 'Novo paciente', texto: 'Comece cadastrando o paciente. O convite para o app sai por e-mail ao salvar.' },
-      { alvo: 'busca-pacientes', titulo: 'Busca', texto: 'Ache um paciente pelo nome ou pelo e-mail. As abas separam ativos e arquivados; os bloqueados ficam em Ver bloqueados.' },
+      { alvo: 'busca-pacientes', titulo: 'Busca', texto: 'Ache um paciente pelo nome ou pelo e-mail, ou pelo local das consultas. As abas separam ativos e arquivados; os bloqueados ficam em Ver bloqueados.' },
       // Plano 18 (§8.1): o alvo é a coluna "Ações" da tabela (sem paciente na lista, o passo aparece centralizado)
       { alvo: 'acoes-paciente', titulo: 'Ações', texto: 'Em Ações você abre a ficha, edita o cadastro, arquiva ou reativa o paciente sem sair da lista.' },
       // Plano 18 (§8.4): o alvo está em "Novo paciente" (na lista, o passo aparece centralizado)
@@ -213,13 +213,14 @@ export const GUIAS: readonly Guia[] = [
     // Plano 14B-2: item da IA sem subir a versão (depende da liberação, como no Plano 11)
     // Plano 22 (T4, EP-D52): 4 = a aba Exames ganha "Adicionar do catálogo" e "Editar" (passo novo no "Passo a passo"); T5b
     // acrescenta o "Comparar" no mesmo passo, sem subir de novo (um +1 por PR que muda a tela)
-    versao: 4, // Plano 14A: a autorização de IA na aba Privacidade (item novo nas perguntas comuns); 3 = Plano 18: abas Início e Perfil
+    // Plano 23 (T9, T12): 5 = "Retorno previsto (opcional)" no atendimento e a seção "Consultas" do Início (passo a passo)
+    versao: 5, // 4 = Plano 22 (acima); Plano 14A: a autorização de IA na aba Privacidade (item novo nas perguntas comuns); 3 = Plano 18: abas Início e Perfil
     padrao: new RegExp(`^/painel/pacientes/${ID}(/.*)?$`),
     titulo: 'Prontuário',
     ajuda: {
       resumo: 'Tudo do paciente em abas: o Início reúne o que já foi feito, o Perfil guarda o cadastro, e as outras trazem anamnese, antropometria, gasto energético, atendimentos, exames, evolução, plano alimentar e privacidade.',
       secoes: [
-        { titulo: 'Passo a passo', itens: ['No Início, veja o que já foi feito; no Perfil, confira o cadastro. Depois, comece pela anamnese (use um modelo para ganhar tempo).', 'Registre as medidas em Antropometria; a Evolução mostra os gráficos.', 'Em Privacidade ficam a cópia dos dados e o pedido de exclusão do paciente.', 'Na aba Exames, "Adicionar do catálogo" monta as linhas com os exames do seu catálogo; copie a faixa impressa no laudo para ver a classificação. "Editar" corrige um exame já lançado e guarda a versão anterior, com a justificativa. Para ver a evolução entre datas, marque "Comparar" em 2 a 6 exames.'] },
+        { titulo: 'Passo a passo', itens: ['No Início, veja o que já foi feito; no Perfil, confira o cadastro. Depois, comece pela anamnese (use um modelo para ganhar tempo).', 'Registre as medidas em Antropometria; a Evolução mostra os gráficos.', 'Ao registrar o atendimento, use "Retorno previsto (opcional)" para a data do retorno (ou em quantas semanas). Ela aparece na agenda com "Previsões de retorno" e na seção "Consultas" do Início, que traz as consultas do paciente.', 'Em Privacidade ficam a cópia dos dados e o pedido de exclusão do paciente.', 'Na aba Exames, "Adicionar do catálogo" monta as linhas com os exames do seu catálogo; copie a faixa impressa no laudo para ver a classificação. "Editar" corrige um exame já lançado e guarda a versão anterior, com a justificativa. Para ver a evolução entre datas, marque "Comparar" em 2 a 6 exames.'] },
         { titulo: 'Perguntas comuns', itens: ['Cada acesso ao prontuário fica registrado no "Histórico de acessos" (LGPD).', 'Paciente arquivado sai da agenda e dos conteúdos, mas o prontuário continua guardado.', 'Na aba Exames, "Ler valores com IA" lê o laudo anexado e mostra os valores para você conferir; só as linhas marcadas são salvas.', 'Em Privacidade, "Uso de IA" mostra se o paciente autorizou o uso de IA e os registros; o pedido vai por "Enviar pedido de autorização por e-mail" ou pelo "Registrar termo em papel" (imprimir pelo Chrome ou Edge, para sair o rodapé com o código e o número da página; o paciente assina; fotografar todas as páginas; ao salvar, digitar o código de referência do rodapé do papel; guardar o original na pasta do paciente e entregar uma via a ele).', 'Na aba Evolução, "Não mostrar peso no app" tira o peso e o IMC do app do paciente; o prontuário e a cópia dos dados não mudam.', '"Resumo do histórico (IA)": um resumo do prontuário antes da consulta, com cada frase ligada ao registro de onde veio. Só com a autorização do paciente; as notas privadas só vão se você marcar "Incluir notas privadas".'] },
       ],
     },
@@ -230,25 +231,49 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'agenda',
-    versao: 3, // Plano 20: Realizada gera a cobrança; 3 no Plano 23 (a visão Mês)
+    // Plano 23: 3 = a visão Mês (PR 2); 4 (T12) = locais, visões, filtros, legenda, impressão, Solicitações e Aniversariantes.
+    // O tour mostra todos os passos em qualquer tela da agenda: o passo cujo alvo não está na tela abre no centro.
+    versao: 4, // 2 = Plano 20: Realizada gera a cobrança
     padrao: /^\/painel\/agenda(\/(nova|pendencias|locais|solicitacoes|aniversariantes|consultas\/.+))?$/,
     titulo: 'Agenda',
     ajuda: {
-      resumo: 'As consultas do dia e da semana, marcadas por você, pelo paciente no app ou pela sua página pública.',
+      resumo: 'As consultas do dia, da semana e do mês, em cada local de atendimento, marcadas por você, pelo paciente no app ou pela sua página pública.',
       secoes: [
-        { titulo: 'Passo a passo', itens: ['Use "Nova consulta" para marcar; o paciente recebe a confirmação e os lembretes.', 'Abra a consulta para remarcar, cancelar, registrar a presença ou iniciar o atendimento.', 'Ao marcar "Realizada" (ou registrar o atendimento ligado à consulta), a cobrança é criada no Financeiro com o valor da consulta, se ele estiver configurado. A seção "Cobrança" da consulta mostra o valor e o recebimento.', 'Consultas sem registro de presença aparecem em "Pendências".'] },
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Use "Nova consulta" para marcar: escolha o paciente, o local e o horário; o paciente recebe a confirmação e os lembretes.',
+            'Abra a consulta para remarcar, cancelar, registrar a presença ou iniciar o atendimento.',
+            'Ao marcar "Realizada" (ou registrar o atendimento ligado à consulta), a cobrança é criada no Financeiro com o valor da consulta, se ele estiver configurado. A seção "Cobrança" da consulta mostra o valor e o recebimento.',
+            'Consultas sem registro de presença aparecem em "Pendências".',
+            'Troque entre "Dia", "Semana", "Mês" e "Lista". Filtre por "Local" e "Paciente" e marque "Aniversários" ou "Previsões de retorno" para vê-los na agenda. A "Legenda" explica cada marca.',
+            '"Imprimir ou salvar em PDF" abre o período da tela pronto para imprimir, com o local escolhido. A folha tem dados pessoais dos pacientes: guarde-a com cuidado.',
+            'Em "Locais", cadastre os consultórios e as salas de videoconferência. O local arquivado sai da marcação, mas as consultas antigas continuam com ele.',
+            'Se você ligar "Confirmar os pedidos antes de marcar" em Horários, aparece a aba "Solicitações": os pedidos feitos pelo app e pela página de agendamento esperam ali o seu "Aceitar" ou "Recusar".',
+            'Em "Aniversariantes", veja quem faz aniversário no mês, use "Registrar autorização" quando o paciente autorizar e depois "Enviar mensagem" (por e-mail, às 9h do dia) ou "Abrir no WhatsApp".',
+          ],
+        },
         {
           titulo: 'Perguntas comuns',
           itens: [
             'Os lembretes saem 24 h e 2 h antes, por e-mail, notificação no app e WhatsApp (se conectado e autorizado).',
             'Marcar "Faltou" não cria cobrança. Se a consulta já tinha uma, o aviso na tela diz o que fazer no Financeiro.',
+            'O pedido sem resposta vence na antecedência mínima da consulta, e a pessoa recebe um e-mail avisando que o horário não foi confirmado. O motivo da recusa fica só com você.',
+            'A mensagem de aniversário é um texto padrão do NutriDebby, enviado em seu nome, uma vez por ano. Só recebe o paciente ativo, maior de idade e com a autorização registrada.',
           ],
         },
       ],
     },
     passos: [
-      { alvo: 'periodo-agenda', titulo: 'Dia, semana, mês ou lista', texto: 'Troque a visão e navegue entre os dias. "Hoje" volta para o dia atual.' },
-      { alvo: 'nova-consulta', titulo: 'Nova consulta', texto: 'Marque uma consulta presencial ou online; o horário respeita os seus horários de atendimento.' },
+      { alvo: 'periodo-agenda', titulo: 'Dia, semana, mês ou lista', texto: 'Troque a visão e navegue entre os períodos. "Hoje" volta para o dia atual; "Imprimir ou salvar em PDF" leva o período da tela para o papel.' },
+      { alvo: 'nova-consulta', titulo: 'Nova consulta', texto: 'Escolha o paciente, o local (consultório ou videoconferência) e o horário. O horário respeita os seus horários de atendimento naquele local.' },
+      // Plano 23 (T12): os alvos novos estão nas telas da agenda (filtros e legenda na Agenda; abas em todas; a fila, a lista e os locais nas próprias abas)
+      { alvo: 'filtros-agenda', titulo: 'Filtros', texto: 'Mostre só um local ou um paciente e marque "Aniversários" ou "Previsões de retorno" para vê-los na agenda. Clique em "Filtrar"; "Limpar filtros" volta ao padrão.' },
+      { alvo: 'legenda-agenda', titulo: 'Legenda', texto: 'Cada consulta diz em texto se é "Primeira consulta" ou "Retorno" e se falta registrar a presença. A cor só reforça.' },
+      { alvo: 'abas-agenda', titulo: 'Abas da agenda', texto: 'Aniversariantes, Pendências, Horários e Locais ficam nas abas. Se você ligar "Confirmar os pedidos antes de marcar" em Horários, aparece também a aba "Solicitações".' },
+      { alvo: 'fila-solicitacoes', titulo: 'Solicitações', texto: 'Se você ligar "Confirmar os pedidos antes de marcar" em Horários, os pedidos do app e da página de agendamento esperam aqui. "Aceitar" marca a consulta; "Recusar" avisa a pessoa por e-mail.' },
+      { alvo: 'lista-aniversariantes', titulo: 'Aniversariantes', texto: 'Os aniversariantes do mês. Registre a autorização do paciente; com ela, "Enviar mensagem" manda o e-mail às 9h do dia do aniversário.' },
+      { alvo: 'locais-agenda', titulo: 'Locais', texto: 'Cadastre os consultórios e as salas de videoconferência. Cada consulta e cada horário pertencem a um local.' },
       // Plano 20: sem alvo (não há `data-guia` na lista nem no "Realizada"): abre no centro em qualquer tela da agenda
       {
         titulo: 'Cobrança da consulta',
@@ -258,12 +283,34 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'horarios',
-    versao: 2, // Plano 23: a regra tem local (não mais a modalidade)
+    versao: 3, // Plano 23: 2 = o local de cada regra (PR 2); 3 (T12) = a confirmação dos pedidos e as perguntas comuns
     padrao: /^\/painel\/agenda\/horarios$/,
     titulo: 'Horários de atendimento',
-    ajuda: { resumo: 'Os dias e horários em que os pacientes podem marcar consulta, e os bloqueios (férias, feriados).', secoes: [{ titulo: 'Passo a passo', itens: ['Crie uma regra por dia da semana, com início, fim, duração e local.', 'Use os bloqueios para tirar um período da agenda sem apagar as regras.'] }] },
+    ajuda: {
+      resumo: 'Os dias e horários em que os pacientes podem marcar consulta em cada local, os bloqueios (férias, feriados) e a confirmação dos pedidos.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Escolha o local e crie uma regra por dia da semana, com início, fim e duração.',
+            'Num local presencial, marque "Também atender por videoconferência nestes horários" para oferecer os mesmos horários online.',
+            'Use os bloqueios para tirar um período da agenda sem apagar as regras.',
+            'Em "Pedidos de consulta", ligue "Confirmar os pedidos antes de marcar" para responder a cada pedido do app e da página de agendamento em "Solicitações" antes de a consulta ser marcada.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'O consultório tem até 60 horários; o horário de videoconferência criado junto conta como mais um.',
+            'Com a confirmação ligada, o app e a página de agendamento só oferecem horários que dão pelo menos 12 horas para você responder.',
+            'Desligar a confirmação não apaga os pedidos que já estão em "Solicitações": responda a eles normalmente.',
+          ],
+        },
+      ],
+    },
     passos: [
-      { alvo: 'regras-horario', titulo: 'Regras', texto: 'Cada regra diz o dia, o horário e a duração das consultas.' },
+      { alvo: 'regras-horario', titulo: 'Regras', texto: 'Cada regra diz o local, o dia, o horário e a duração das consultas. Só os locais que aceitam agendamento aparecem para os pacientes.' },
+      { alvo: 'pedidos-consulta', titulo: 'Pedidos de consulta', texto: 'Ligue "Confirmar os pedidos antes de marcar" para responder a cada pedido do app e da página de agendamento antes de a consulta ser marcada.' },
       { alvo: 'bloqueios-horario', titulo: 'Bloqueios', texto: 'Férias e feriados: o período bloqueado some da agenda dos pacientes.' },
     ],
   },
@@ -358,13 +405,22 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'configuracoes',
-    versao: 9, // Plano 22: o cartão "Exames" (+1 sobre a main); 8 = Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
+    // Plano 23 (T12, AG-D55): 10 = o cartão "Locais de atendimento" (resumo, passo dos cartões e o endereço do Perfil; +1 sobre a main)
+    versao: 10, // 9 = Plano 22: o cartão "Exames"; 8 = Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
-      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança, exames do consultório e o tema do painel.',
+      resumo: 'Perfil e marca, dados para documentos, horários, locais de atendimento, WhatsApp, alimentos, modelos, segurança, exames do consultório e o tema do painel.',
       secoes: [
-        { titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'A cor da marca aparece no painel, no app do paciente e no PDF do plano.',
+            'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.',
+            // Plano 23 (AG-D7): o Perfil guarda só o endereço dos documentos; o link da videoconferência foi para os locais
+            'O "Endereço profissional (documentos)" do Perfil vai no cabeçalho dos documentos assinados. O endereço e a sala de videoconferência de cada local ficam em "Locais de atendimento".',
+          ],
+        },
         {
           titulo: 'Dados para documentos',
           itens: [
@@ -389,7 +445,8 @@ export const GUIAS: readonly Guia[] = [
     },
     passos: [
       // Plano 22: o cartão "Exames" (catálogo e modelos de solicitação)
-      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório. Em "Exames" ficam o catálogo de exames, as suas faixas e os modelos de solicitação.' },
+      // Plano 23: o cartão "Locais de atendimento" (no fim, depois de "Exames")
+      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório. Em "Exames" ficam o catálogo de exames, as suas faixas e os modelos de solicitação; em "Locais de atendimento", os consultórios e as salas de videoconferência.' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
       { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas e dos pareceres. Mudar depois não altera documento já preparado.' },
       // Plano 14B: a seção só aparece com a IA ativa no consultório; sem ela, o passo abre no centro, sem destaque (como o de cima)
@@ -476,46 +533,11 @@ export const GUIAS: readonly Guia[] = [
     ],
   },
   {
-    // Plano 26 (PR 1, spec §6.2): só da nutricionista na v1; a v2 (PR 3, T11a) traz a recepção e a frase do local. Antes
-    // do Financeiro, que continua o último da lista (as rotas não se cruzam). A impressão fica em SEM_AJUDA.
-    id: 'relatorios',
-    versao: 1,
-    padrao: /^\/painel\/relatorios(\/(atendimentos|planos|agenda|financeiro|ranking))?$/,
-    titulo: 'Relatórios',
-    ajuda: {
-      resumo: 'Os números do consultório por período: pacientes, atendimentos, planos alimentares, agenda, financeiro e o ranking de pacientes. Nenhum prontuário é aberto para montar os relatórios.',
-      secoes: [
-        {
-          titulo: 'O que dá para fazer aqui',
-          itens: [
-            'Escolha os meses em "De" e "Até" (até 12 meses) e clique em "Aplicar". Sem escolher, os relatórios mostram o mês atual e os 11 anteriores.',
-            'Ao trocar de aba, o período escolhido continua o mesmo.',
-            'Use "Baixar CSV" para abrir os números numa planilha ou "Ver versão para imprimir" para imprimir ou salvar em PDF.',
-          ],
-        },
-        {
-          titulo: 'Perguntas comuns',
-          itens: [
-            'Pacientes anonimizados não entram nos números de pacientes; os novos pacientes de cada mês contam todos os cadastros feitos no mês.',
-            'A taxa de faltas usa a mesma conta do Início.',
-            'O Financeiro conta só os lançamentos recebidos ou pagos no mês, pela data do pagamento.',
-            'O Ranking mostra nomes de pacientes: ao baixar o CSV ou imprimir o Ranking, cada paciente da lista registra "Exportou — Relatórios" no Histórico de acessos.',
-          ],
-        },
-      ],
-    },
-    passos: [
-      { alvo: 'abas-relatorios', titulo: 'Seções dos relatórios', texto: 'Cada aba mostra um assunto. Os números são do consultório inteiro, sem abrir nenhum prontuário.' },
-      { alvo: 'filtro-periodo', titulo: 'Período', texto: 'Escolha até 12 meses.' },
-      { alvo: 'exportar', titulo: 'Baixar ou imprimir', texto: 'Baixe em CSV para planilha ou imprima e salve em PDF.' },
-    ],
-  },
-  {
     // Plano 20: no FIM da lista (o Plano 18 insere guias antes de 'prontuario'). Textos finais do revisor-interface
     // (17/11/2026). O tour mostra todos os passos em qualquer tela do Financeiro: o passo cujo alvo não está na tela abre
     // no centro, e por isso o título dos passos de outras telas começa pelo nome da tela.
     id: 'financeiro',
-    versao: 1,
+    versao: 2, // Plano 23 (T11, T12): o filtro de local em Lançamentos, Relatórios e no CSV
     padrao: /^\/painel\/financeiro(\/.*)?$/,
     titulo: 'Financeiro',
     ajuda: {
@@ -538,6 +560,8 @@ export const GUIAS: readonly Guia[] = [
             'A categoria Consultas pode mudar de nome, mas não pode ser arquivada nem excluída.',
             'Um lançamento recebido ou pago conta no mês do pagamento; em aberto, no mês do vencimento.',
             'Se você incluir o nome dos pacientes no CSV, o download fica registrado no Histórico de acessos de cada paciente.',
+            // Plano 23 (US-416, RN-437, AG-D79)
+            'O filtro de local vale para os lançamentos ligados a uma consulta: "Sem local" reúne os outros. O saldo, o Resumo e o fluxo de caixa são do consultório inteiro. Os locais arquivados com lançamento aparecem em "Arquivados".',
           ],
         },
       ],
@@ -548,13 +572,13 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'financeiro-saldo', titulo: 'Configurações: saldo do caixa', texto: 'Em "Configurações", informe quanto havia no caixa numa data. O saldo atual soma a esse valor tudo o que foi recebido e pago a partir dela.' },
       { alvo: 'financeiro-valor-consulta', titulo: 'Configurações: valor da consulta', texto: 'Em "Configurações", o valor é sugerido em toda cobrança criada ao marcar a consulta como Realizada, e você pode mudá-lo em cada cobrança. Sem o valor, a consulta não gera cobrança.' },
       { alvo: 'financeiro-categorias', titulo: 'Configurações: categorias', texto: 'Crie, renomeie ou arquive as categorias das entradas e das saídas. A categoria Consultas é a das cobranças das consultas: pode mudar de nome, mas não pode ser arquivada.' },
-      { alvo: 'financeiro-filtros', titulo: 'Lançamentos: filtros', texto: 'Escolha o mês, o tipo, a categoria, a situação ou a forma de pagamento e clique em "Filtrar". Os totais acima da lista seguem o filtro e não contam os cancelados.' },
+      { alvo: 'financeiro-filtros', titulo: 'Lançamentos: filtros', texto: 'Escolha o mês, o tipo, a categoria, a situação, a forma de pagamento ou o local e clique em "Filtrar". "Sem local" mostra os lançamentos sem consulta. Os totais acima da lista seguem o filtro e não contam os cancelados.' },
       { alvo: 'financeiro-novo', titulo: 'Novo lançamento', texto: 'Informe valor, categoria e vencimento. Marque "Já foi recebido" (ou "Já foi pago") se o dinheiro já entrou ou saiu. Na entrada, você pode ligar o lançamento a um paciente. Não escreva informações de saúde na descrição.' },
       { alvo: 'financeiro-receber', titulo: 'Receber ou pagar', texto: 'Use "Marcar como recebido" (ou "Marcar como pago") e informe a data e a forma de pagamento. Foi engano? "Desfazer recebimento" volta o lançamento para em aberto.' },
       { alvo: 'financeiro-cancelar', titulo: 'Cancelar', texto: 'Lançamento não se apaga: "Cancelar lançamento" pede o motivo e não tem volta. Ele continua na lista, como Cancelado, e sai dos totais e do saldo.' },
       { alvo: 'financeiro-pendentes', titulo: 'Pagamentos pendentes', texto: 'As cobranças que os pacientes ainda não pagaram, uma linha por paciente, começando pela mais antiga. Clique em "Ver" para receber cada uma. Esta lista é só sua: nada é enviado ao paciente.' },
-      { alvo: 'financeiro-relatorios', titulo: 'Relatórios', texto: 'O fluxo de caixa do ano, mês a mês, e as entradas e saídas dos últimos 12 meses. Só entram os lançamentos recebidos ou pagos. Troque o ano em "Ano".' },
-      { alvo: 'financeiro-csv', titulo: 'CSV para o contador', texto: 'Escolha o período (até 12 meses) e clique em "Baixar CSV". Sem marcar "Incluir o nome dos pacientes", o arquivo sai sem os nomes e sem a descrição das entradas de pacientes.' },
+      { alvo: 'financeiro-relatorios', titulo: 'Relatórios', texto: 'O fluxo de caixa do ano, mês a mês, e as entradas e saídas dos últimos 12 meses, que dá para ver por local. Só entram os lançamentos recebidos ou pagos. Troque o ano em "Ano".' },
+      { alvo: 'financeiro-csv', titulo: 'CSV para o contador', texto: 'Escolha o período (até 12 meses) e, se quiser, o "Local dos lançamentos", e clique em "Baixar CSV". Sem marcar "Incluir o nome dos pacientes", o arquivo sai sem os nomes e sem a descrição das entradas de pacientes.' },
     ],
   },
 ];

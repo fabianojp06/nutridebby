@@ -39,9 +39,9 @@ export default async function SolicitacoesPage({ searchParams }: PageProps<'/pai
       <AbasDaAgenda atual="solicitacoes" solicitacoes={fila.length} />
       <Mensagens texto={retorno?.texto ?? ''} tipo={retorno?.tipo ?? 'ok'} focar={retorno !== null} marcador={marcadorDoEnvio(sp.envio)} alvos={[ID_TITULO_AGENDA]} />
       {fila.length === 0 ? (
-        <p>{M.vazio}</p>
+        <p data-guia="fila-solicitacoes">{M.vazio}</p>
       ) : (
-        <ul className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr))]">
+        <ul data-guia="fila-solicitacoes" className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr))]">
           {fila.map((p) => {
             const nome = nomeNaFila(p);
             return (

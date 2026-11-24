@@ -175,7 +175,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 20 (T7): o guia da Agenda cita a cobrança criada ao marcar "Realizada" e a versão sobe para 2 (3 desde o Plano 23, a visão Mês)', () => {
     const g = GUIAS.find((x) => x.id === 'agenda')!;
-    expect(g.versao).toBeGreaterThanOrEqual(2); // 3 desde o Plano 23 (acima)
+    expect(g.versao).toBeGreaterThanOrEqualGreaterThanOrEqual(2); // 3 desde o Plano 23 (acima) // 3 desde o Plano 23 (abaixo)
     const passos = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens.join(' ');
     expect(passos).toContain('Realizada');
     expect(passos).toContain('cobrança');
@@ -183,7 +183,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 20: o Financeiro tem guia próprio (versão 1, último da lista), com os alvos do Resumo, das Configurações, dos Lançamentos, dos Pagamentos pendentes e dos Relatórios', () => {
     const g = GUIAS.find((x) => x.id === 'financeiro')!;
-    expect(g.versao).toBe(1);
+    expect(g.versao).toBeGreaterThanOrEqual(1); // 2 desde o Plano 23 (o filtro de local, abaixo)
     expect(GUIAS.at(-1)?.id).toBe('financeiro');
     for (const rota of ['/painel/financeiro', '/painel/financeiro/configuracoes', '/painel/financeiro/lancamentos/novo', `/painel/financeiro/lancamentos/${UUID}`, `/painel/financeiro/pendencias/${UUID}`, '/painel/financeiro/pendencias', '/painel/financeiro/relatorios'])
       expect(guiaDaRota(rota)?.id, rota).toBe('financeiro');
@@ -220,10 +220,11 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 18 (§8.1): o guia de Pacientes na versão 2 — busca com as abas, o passo novo "Ações" e as ajudas que ficariam falsas', () => {
     const g = GUIAS.find((x) => x.id === 'pacientes')!;
-    expect(g.versao).toBe(2);
+    expect(g.versao).toBeGreaterThanOrEqual(2); // 3 desde o Plano 23 (o filtro "Local", abaixo)
     expect(g.passos.map((p) => p.alvo)).toEqual(['novo-paciente', 'busca-pacientes', 'acoes-paciente', 'cadastro-paciente']);
+    // Plano 23 (T12): o passo da busca ganhou o local das consultas; as abas e o "Ver bloqueados" continuam
     expect(g.passos.find((p) => p.alvo === 'busca-pacientes')?.texto).toBe(
-      'Ache um paciente pelo nome ou pelo e-mail. As abas separam ativos e arquivados; os bloqueados ficam em Ver bloqueados.',
+      'Ache um paciente pelo nome ou pelo e-mail, ou pelo local das consultas. As abas separam ativos e arquivados; os bloqueados ficam em Ver bloqueados.',
     );
     expect(g.passos.find((p) => p.alvo === 'acoes-paciente')?.texto).toBe('Em Ações você abre a ficha, edita o cadastro, arquiva ou reativa o paciente sem sair da lista.');
     const itens = g.ajuda.secoes.flatMap((s) => s.itens);
@@ -309,17 +310,65 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota('/painel/exames-recebidos')?.id).toBe('exames-recebidos');
     expect(g.passos.map((p) => p.alvo)).toEqual(['secoes-exames', 'nomes-para-comecar', 'novo-exame-catalogo', 'faixas-consultorio', 'modelos-nota']);
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
-    expect(config.versao).toBe(9); // Plano 22: o cartão "Exames" (+1 sobre a main)
+    expect(config.versao).toBeGreaterThanOrEqual(9); // Plano 22: o cartão "Exames" (+1 sobre a main); 10 desde o Plano 23 (abaixo)
     expect(config.passos.find((p) => p.alvo === 'cartoes-configuracoes')?.texto).toContain('"Exames"');
   });
 
   it('Plano 22 (T4, EP-D52): o guia do prontuário cita "Adicionar do catálogo" e "Editar" na aba Exames e sobe para a versão 4; editar e versões ficam no guia do prontuário', () => {
     const g = GUIAS.find((x) => x.id === 'prontuario')!;
-    expect(g.versao).toBe(4);
+    expect(g.versao).toBeGreaterThanOrEqual(4); // 5 desde o Plano 23 (o retorno previsto, abaixo)
     const passo = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens.join(' ');
     expect(passo).toContain('"Adicionar do catálogo"');
     expect(passo).toContain('"Editar"');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/editar`)?.id).toBe('prontuario');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/versoes`)?.id).toBe('prontuario');
+  });
+
+  // Plano 23 (T12): cada guia sobe UMA vez no plano, sobre a versão da main (96d6f94): agenda 2→3, horarios 1→2,
+  // configuracoes 9→10 (AG-D55), financeiro 1→2, pacientes 2→3 (filtro de local, T11) e prontuario 4→5 (retorno previsto, T9)
+  it('Plano 23: as versões sobem uma vez sobre a main', () => {
+    const versao = (id: string) => GUIAS.find((x) => x.id === id)!.versao;
+    expect({ agenda: versao('agenda'), horarios: versao('horarios'), configuracoes: versao('configuracoes'), financeiro: versao('financeiro'), pacientes: versao('pacientes'), prontuario: versao('prontuario') }).toEqual({
+      agenda: 3,
+      horarios: 2,
+      configuracoes: 10,
+      financeiro: 2,
+      pacientes: 3,
+      prontuario: 5,
+    });
+  });
+  it('Plano 23: o guia da Agenda — local na Nova consulta, filtros, legenda, abas, Solicitações com a ressalva da chave, Aniversariantes e Locais', () => {
+    const g = GUIAS.find((x) => x.id === 'agenda')!;
+    for (const r of ['/painel/agenda', '/painel/agenda/nova', '/painel/agenda/locais', '/painel/agenda/solicitacoes', '/painel/agenda/aniversariantes', '/painel/agenda/pendencias', `/painel/agenda/consultas/${UUID}`]) {
+      expect(guiaDaRota(r)?.id, r).toBe('agenda');
+    }
+    expect(guiaDaRota('/painel/agenda/imprimir')).toBeNull(); // SEM_AJUDA
+    expect(g.passos.map((p) => p.alvo)).toEqual(['periodo-agenda', 'nova-consulta', 'filtros-agenda', 'legenda-agenda', 'abas-agenda', 'fila-solicitacoes', 'lista-aniversariantes', 'locais-agenda', undefined]);
+    expect(g.passos.find((p) => p.alvo === 'nova-consulta')?.texto).toContain('local');
+    expect(g.passos.find((p) => p.alvo === 'nova-consulta')?.texto).not.toMatch(/presencial ou online/);
+    // a aba "Solicitações" só aparece com a chave ligada (ou pedido pendente): todo texto que a cita traz a ressalva
+    const RESSALVA = 'Se você ligar "Confirmar os pedidos antes de marcar" em Horários';
+    for (const id of ['abas-agenda', 'fila-solicitacoes']) expect(g.passos.find((p) => p.alvo === id)?.texto, id).toContain(RESSALVA);
+    const passoAPasso = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens;
+    expect(passoAPasso.find((i) => i.includes('"Solicitações"'))).toMatch(/^Se você ligar "Confirmar os pedidos antes de marcar" em Horários/);
+    expect(passoAPasso.join(' ')).toContain('"Imprimir ou salvar em PDF"');
+    expect(passoAPasso.join(' ')).toContain('"Aniversariantes"');
+  });
+  it('Plano 23: o guia de Horários fala do local (não mais da modalidade) e da chave dos pedidos, com o alvo novo', () => {
+    const g = GUIAS.find((x) => x.id === 'horarios')!;
+    expect(JSON.stringify(g)).not.toMatch(/modalidade/i);
+    expect(g.passos.map((p) => p.alvo)).toEqual(['regras-horario', 'pedidos-consulta', 'bloqueios-horario']);
+    expect(g.ajuda.secoes.flatMap((s) => s.itens).join(' ')).toContain('"Confirmar os pedidos antes de marcar"');
+  });
+  it('Plano 23: Configurações cita os locais de atendimento (resumo e cartões); Financeiro e Pacientes, o filtro de local; o prontuário, o retorno previsto', () => {
+    const config = GUIAS.find((x) => x.id === 'configuracoes')!;
+    expect(config.ajuda.resumo).toContain('locais de atendimento');
+    expect(config.passos.find((p) => p.alvo === 'cartoes-configuracoes')?.texto).toContain('"Locais de atendimento"');
+    const fin = GUIAS.find((x) => x.id === 'financeiro')!;
+    expect(fin.passos.find((p) => p.alvo === 'financeiro-filtros')?.texto).toContain('local');
+    expect(fin.passos.find((p) => p.alvo === 'financeiro-relatorios')?.texto).toContain('local');
+    expect(fin.passos.find((p) => p.alvo === 'financeiro-csv')?.texto).toContain('"Local dos lançamentos"');
+    expect(GUIAS.find((x) => x.id === 'pacientes')!.ajuda.secoes.flatMap((s) => s.itens).join(' ')).toContain('"Local"');
+    expect(GUIAS.find((x) => x.id === 'prontuario')!.ajuda.secoes.flatMap((s) => s.itens).join(' ')).toContain('"Retorno previsto (opcional)"');
   });
 });

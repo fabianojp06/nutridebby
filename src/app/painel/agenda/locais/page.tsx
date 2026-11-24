@@ -49,7 +49,7 @@ export default async function LocaisPage({ searchParams }: PageProps<'/painel/ag
           <LocalForm key={editando?.id ?? 'novo'} acao={salvarLocalAction.bind(null, editando?.id ?? null)} local={editando} />
         </section>
       )}
-      <section aria-labelledby="titulo-lista-locais" className="space-y-3">
+      <section aria-labelledby="titulo-lista-locais" data-guia="locais-agenda" className="space-y-3">
         <h2 id="titulo-lista-locais" className="text-lg font-semibold">{arquivados ? 'Locais arquivados' : 'Locais ativos'}</h2>
         {locais.length === 0 ? (
           <p>{arquivados ? 'Nenhum local arquivado.' : MSG_LOCAIS.vazio}</p>

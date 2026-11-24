@@ -36,7 +36,7 @@ export function FiltrosDaAgendaForm({ f, opcoes, hoje }: { f: FiltrosDaAgenda; o
   // filtros" é um Link, e a navegação do cliente manteria o que estava escolhido na tela)
   const chave = hrefDaAgenda(f);
   return (
-    <div className="space-y-3 text-sm">
+    <div data-guia="filtros-agenda" className="space-y-3 text-sm">
       <form key={`filtros-${chave}`} method="get" action="/painel/agenda" aria-label={M.formularioFiltros} className="flex flex-wrap items-end gap-3">
         <Ocultos
           campos={[

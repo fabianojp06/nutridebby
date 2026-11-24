@@ -80,7 +80,7 @@ export default async function HorariosPage() {
           )}
         </section>
         {/* Plano 23 (US-407, RN-420): a chave dos pedidos; desligar não mexe nos pendentes (continuam em Solicitações) */}
-        <section aria-labelledby="pedidos-de-consulta" className="space-y-3">
+        <section data-guia="pedidos-consulta" aria-labelledby="pedidos-de-consulta" className="space-y-3">
           <h2 id="pedidos-de-consulta" className="text-lg font-semibold">{MSG_SOLICITACOES.chave.titulo}</h2>
           <ChaveDosPedidosForm ligada={tenant.agendaConfirmarPedidos} />
         </section>
