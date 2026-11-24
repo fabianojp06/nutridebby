@@ -8,10 +8,10 @@ tabelas novas, a coluna `exams.mostrar_no_app_em`, a política `paciente_exame_l
 da anonimização ([§2.5.13](#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)); `drizzle/meta/_journal.json` com 128 entradas. Os números não são reservados e mudam
 no rebase (spec do Plano 22, §9; `docs/operacao/sessoes-paralelas.md`, §5).
 
-Plano 22 (PR 4, documentos; conferido no branch `plano-22-exames-prescricao` na T12, 23/11/2026, e no rebase sobre a `main` `123b78e`, 24/11/2026): a `0132` (gerada,
-`prescricao_modelos`) e a `0133` (custom, `rls_prescricao_modelos`), com `prescricao_itens_salvos` e `prescricao_modelos`
+Plano 22 (PR 4, documentos; conferido no branch `plano-22-exames-prescricao` na T12, 23/11/2026, e nos rebases sobre a `main` `123b78e` e `c5a4050`, 24/11/2026): a `0134` (gerada,
+`prescricao_modelos`) e a `0135` (custom, `rls_prescricao_modelos`), com `prescricao_itens_salvos` e `prescricao_modelos`
 ([§2.5.14](#2514-itens-salvos-e-modelos-de-prescrição-prescricao-modelosts-plano-22-pr-4)); `drizzle/meta/_journal.json`
-com 134 entradas. Números do branch, como os do PR 1 (mudam se outra migration entrar antes na `main`).
+com 136 entradas. Números do branch, como os do PR 1 (mudam se outra migration entrar antes na `main`).
 
 Convenção de citação: `arquivo:linha` aponta para o código; "Plano NN, Dx" aponta para a tabela de decisões do plano em `docs/superpowers/plans/`; "spec §n" aponta para `docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md`.
 
@@ -239,8 +239,8 @@ Legenda da coluna "Proteção":
 | `exames_modelos_solicitacao` (Plano 22) | T, S (sem `patient_id`, fora da auditoria) | 0128 (tabela na 0127) |
 | `exam_interpretacoes` (Plano 22) | T, P, S, A `exames_nota`; `REVOKE UPDATE, DELETE, TRUNCATE` (só de inclusão, EP-D41); gatilho `exam_interpretacoes_regras` (BEFORE INSERT: contexto vazio e `worker` recusados; autor e hora da sessão `nutri` pelo banco; titular bloqueado ou anonimizado recusado); FK tripla para `exams` `ON DELETE CASCADE` | 0128 (tabela na 0127) |
 | `exam_versoes` (Plano 22) | T, P, S, A `exames_versoes`; `REVOKE UPDATE, DELETE, TRUNCATE`; gatilho `exam_versoes_regras` (a mesma ordem); FK tripla para `exams` `ON DELETE CASCADE` | 0128 (tabela na 0127) |
-| `prescricao_itens_salvos` (Plano 22, PR 4) | T, S (sem `patient_id`, fora da auditoria); nada em `Pub` nem `PE` (RN-393) | 0133 (tabela na 0132) |
-| `prescricao_modelos` (Plano 22, PR 4) | T, S (sem `patient_id`, fora da auditoria) (RN-394) | 0133 (tabela na 0132) |
+| `prescricao_itens_salvos` (Plano 22, PR 4) | T, S (sem `patient_id`, fora da auditoria); nada em `Pub` nem `PE` (RN-393) | 0135 (tabela na 0134) |
+| `prescricao_modelos` (Plano 22, PR 4) | T, S (sem `patient_id`, fora da auditoria) (RN-394) | 0135 (tabela na 0134) |
 
 Toda tabela da matriz tem também `publico_negado` (ou `publico_sem_<cmd>` nos comandos não liberados) e `paciente_sem_<cmd>` nos comandos de escrita não liberados (§2.6.4).
 
@@ -510,10 +510,10 @@ com texto. Não há filtro para elas em `visivelNoHistorico` (`src/modules/plata
 
 | Tabela | Colunas principais | Chaves e restrições | Fonte |
 |---|---|---|---|
-| `prescricao_itens_salvos` | `nome`, `tipo` (o grupo da lista: `suplemento` em "Suplementos", os quatro vegetais em "Fitoterápicos"), `item` (jsonb `ItemPrescricao`, validado pelo mesmo Zod do item da receita, `validarItem`), `created_at`, `updated_at` | Sem `patient_id`; FK `tenant_id` → `tenants`; índice único `prescricao_itens_salvos_nome_unico` (`tenant_id`, `lower(nome)`); CHECKs `nome` 1–80, `tipo` nos cinco tipos de item, `item` objeto e `prescricao_itens_salvos_tipo_coerente` (`item->>'tipo' is not distinct from tipo`: sem a chave, o `=` daria NULL e passaria; M11 da revisão do plano) | `drizzle/0128_prescricao_modelos.sql` |
+| `prescricao_itens_salvos` | `nome`, `tipo` (o grupo da lista: `suplemento` em "Suplementos", os quatro vegetais em "Fitoterápicos"), `item` (jsonb `ItemPrescricao`, validado pelo mesmo Zod do item da receita, `validarItem`), `created_at`, `updated_at` | Sem `patient_id`; FK `tenant_id` → `tenants`; índice único `prescricao_itens_salvos_nome_unico` (`tenant_id`, `lower(nome)`); CHECKs `nome` 1–80, `tipo` nos cinco tipos de item, `item` objeto e `prescricao_itens_salvos_tipo_coerente` (`item->>'tipo' is not distinct from tipo`: sem a chave, o `=` daria NULL e passaria; M11 da revisão do plano) | `drizzle/0134_prescricao_modelos.sql` |
 | `prescricao_modelos` | `nome`, `itens` (jsonb `ItemPrescricao[]`, 1 a 20, `validarItensDoModelo`), `orientacoes` (até 2000, marcação; padrão `''`), `created_at`, `updated_at` | Sem `patient_id`; índice único `prescricao_modelos_nome_unico` (`tenant_id`, `lower(nome)`); CHECK de array com `case … else false` (um objeto dá 23514, não o 22023 de `jsonb_array_length`); **sem** justificativa de uso nem dado do paciente | idem |
 
-A `0133` (`drizzle/0133_rls_prescricao_modelos.sql`, custom): `app_enable_tenant_rls` + `app_enable_staff_only` nas duas;
+A `0135` (`drizzle/0135_rls_prescricao_modelos.sql`, custom): `app_enable_tenant_rls` + `app_enable_staff_only` nas duas;
 nenhuma em `PUBLICO_LIBERADO`, `PACIENTE_ESCREVE` ou `AUDIT_EXCEPTIONS` (sem `patient_id`, sem auditoria). Listas: as duas em
 `STAFF_ONLY` (`src/db/rls-guard.ts`) e em `FABRICAS` de `test/isolamento.test.ts` (o item salvo da fábrica é um suplemento
 válido, por causa do CHECK de coerência). Os tetos (300 itens e 100 modelos por consultório) e a unicidade são conferidos

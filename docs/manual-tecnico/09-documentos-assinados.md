@@ -12,7 +12,7 @@
 | Conferido contra | `main` em `3991c7d` (merge do PR #19), 06/10/2026; a §9.11 e as atualizações do Plano 13 contra o branch `plano-13-parecer` em `2d4b84c` (Tarefas 1–11 integradas, antes do merge), 08/10/2026 |
 | Spec | `docs/superpowers/specs/2026-10-03-nutridebby-documentos-assinados-design.md` **v0.6** (abreviada "spec B"; "§10" = modelo de dados dela; a parte do Plano 13 na seção "Plano 13 — preparação (v0.5)") |
 | Plano | `docs/superpowers/plans/2026-10-05-nutridebby-10a-receita.md` ("Plano 10A, Dx") e `docs/superpowers/plans/2026-10-08-nutridebby-13-parecer.md` ("Plano 13", decisões D-P1 a D-P8, Q13-1 a Q13-6, desvios 1–11) |
-| Migrations | `0089`–`0093` (Plano 10A) e `0104_parecer` (gerada) / `0105_parecer_regras` (custom) (Plano 13); Plano 22: o CHECK de tipo com `solicitacao_exames` na `0127_exames_catalogo` (PR 1, EP-D49) e `0132_prescricao_modelos` (gerada) / `0133_rls_prescricao_modelos` (custom) (PR 4) — números do branch, gerados de novo sobre a `main` `123b78e`; o §5 de `sessoes-paralelas.md` renumera se outra migration entrar antes |
+| Migrations | `0089`–`0093` (Plano 10A) e `0104_parecer` (gerada) / `0105_parecer_regras` (custom) (Plano 13); Plano 22: o CHECK de tipo com `solicitacao_exames` na `0127_exames_catalogo` (PR 1, EP-D49) e `0134_prescricao_modelos` (gerada) / `0135_rls_prescricao_modelos` (custom) (PR 4) — números do branch, gerados de novo sobre a `main` `c5a4050`; o §5 de `sessoes-paralelas.md` renumera se outra migration entrar antes |
 | Plano 22 | Spec `docs/superpowers/specs/2026-11-17-nutridebby-22-exames-prescricao-design.md` v0.3; plano `docs/superpowers/plans/2026-11-17-nutridebby-22-exames-prescricao.md` (EP-D1 a EP-D64); §9.12 conferida contra o branch `plano-22-exames-prescricao` (T7 a T12), 23/11/2026 |
 | Segredos | Só nomes de variáveis. Nenhuma variável nova: as chaves do link derivam de `ENCRYPTION_KEY` por HKDF; o Plano 13 não criou variável nem interruptor |
 
@@ -667,7 +667,7 @@ automática). Textos em `MSG_COMPARTILHAR`.
 1. **Não voltar a imagem abaixo do PR 4 depois da primeira solicitação ou fórmula.** O app e o worker antigos não
    conhecem o tipo `solicitacao_exames` nem o item `formula_fitoterapica`: o PDF sairia com o corpo da receita (ou falharia),
    o editor antigo abriria a solicitação como receita e a exportação antiga perderia os campos novos. A migration
-   (`0132`/`0133`) é só aditiva e não precisa voltar.
+   (`0134`/`0135`) é só aditiva e não precisa voltar.
 2. **Se a volta for inevitável:** antes, no `/admin`, desligar "Documentos" (`documentos_liberados`) dos consultórios
    que usam (nenhuma tela de documento abre e nenhuma fila nova é alimentada); voltar a imagem; depois de subir de novo
    o PR 4, religar. As exportações (`exportacao`) concluídas pelo worker antigo nesse intervalo saem sem as solicitações e
