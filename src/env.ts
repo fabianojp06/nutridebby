@@ -2,6 +2,7 @@ import { createECDH } from 'node:crypto';
 import { isIP } from 'node:net';
 import path from 'node:path';
 import { z } from 'zod';
+import { lerE2eAgora, MENSAGEM_E2E_AGORA } from '@/lib/agora';
 import { GEOS_IA, MODELOS_BEDROCK_EU, MODELOS_DA_NUTRICIONISTA, MODELOS_IA, PROVEDORES_IA, REGIOES_BEDROCK_EU } from '@/modules/ia/constantes';
 
 /*
@@ -137,6 +138,18 @@ function conferirIa(e: { NODE_ENV: string; APP_URL: string; IA_PROVEDOR?: string
   // C5 (Plano 14A): a região us vale para a API direta; no Bedrock a região vem do perfil eu.
   if (e.IA_PROVEDOR === 'anthropic' && e.IA_INFERENCE_GEO !== 'us') ctx.addIssue({ code: 'custom', path: ['IA_INFERENCE_GEO'], message: 'IA_INFERENCE_GEO deve ser us em produção (A-D5)' });
 }
+/**
+ * SUS-119: só E2E — desloca o relógio do app (`agora()`, `src/lib/agora.ts`): só deslocamento (`+36h`, `-2d`, `+90m`,
+ * `+45s`), igual em todo processo; para começar num instante, o lançador usa `deslocamentoAte()` uma vez.
+ * App e worker (os dois decidem pelo `agora()`); recusada em produção (`conferirE2eAgora`), como o `SESSAO_TESTE_MS`.
+ */
+const e2eAgora = opcional(z.string().refine((v) => lerE2eAgora(v) !== null, { message: MENSAGEM_E2E_AGORA }).optional());
+/** A recusa em produção de verdade, igual no app e no worker (o E2E roda `next start` como produção em localhost). */
+function conferirE2eAgora(e: { NODE_ENV: string; APP_URL: string; E2E_AGORA?: string }, ctx: z.RefinementCtx): void {
+  if (e.E2E_AGORA !== undefined && emProducao(e)) {
+    ctx.addIssue({ code: 'custom', path: ['E2E_AGORA'], message: 'só fora de produção (desloca o relógio do app; é só do E2E)' });
+  }
+}
 const ehLocal = (appUrl: string) => URL.canParse(appUrl) && ['localhost', '127.0.0.1'].includes(new URL(appUrl).hostname);
 /**
  * Produção de verdade: NODE_ENV=production fora de localhost (o E2E com `next start` roda como produção em localhost).
@@ -213,9 +226,11 @@ const appSchema = serverSchema
         .max(1_800_000, { message: 'SESSAO_TESTE_MS deve ser de 6000 a 1800000 ms' })
         .optional(),
     ),
+    E2E_AGORA: e2eAgora,
   })
   .superRefine((e, ctx) => {
     conferirIa(e, ctx);
+    conferirE2eAgora(e, ctx);
     if (e.SESSAO_TESTE_MS !== undefined && emProducao(e)) {
       ctx.addIssue({ code: 'custom', path: ['SESSAO_TESTE_MS'], message: 'SESSAO_TESTE_MS só fora de produção (encurta a sessão; é só do E2E)' });
     }
@@ -322,6 +337,7 @@ const workerSchema = serverSchema
         .refine((v) => /^(mailto:|https:\/\/)/.test(v) && URL.canParse(v), { message: 'VAPID_SUBJECT deve começar com mailto: ou https://' })
         .optional(),
     ),
+    E2E_AGORA: e2eAgora,
   })
   .transform((e) => ({
     ...e,
@@ -330,6 +346,7 @@ const workerSchema = serverSchema
   }))
   .superRefine((e, ctx) => {
     conferirIa(e, ctx);
+    conferirE2eAgora(e, ctx);
     if (Boolean(e.AWS_ACCESS_KEY_ID) !== Boolean(e.AWS_SECRET_ACCESS_KEY)) {
       ctx.addIssue({ code: 'custom', path: ['AWS_ACCESS_KEY_ID'], message: 'Configure AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY juntas (ou nenhuma)' });
     }
