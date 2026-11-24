@@ -10,3 +10,4 @@ A revisão final da 14B-1 (10/10/2026) sugeriu acrescentar: o plano do paciente 
 
 **Why:** a decisão do selo foi do dono, mas a norma nova pode exigir a informação ao paciente.
 **How to apply:** ao revisar textos da IA ou o rascunho da consulta, conferir se esta pergunta entrou; não reabrir a decisão A-D13 sem a resposta do CRN-3. Ver [[fontes-cfn-ia-prontuario]].
+- Plano 23 T10, para o E-09 junto do AG-P1: (a) a autorização de aniversário dada 'por e-mail' cobre o WhatsApp manual da nutricionista?; (b) vale a autorização 'verbal' registrada pela nutricionista?; (c) o consentimento do adolescente de 16 a 17 anos, à luz do Enunciado ANPD 1/2023 e da capacidade civil.

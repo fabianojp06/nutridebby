@@ -600,3 +600,11 @@ Plano 23, T9 (previsão de retorno e seção Consultas, 24/11/2026): sem Critica
   `consultations`): a coluna entra na memória do módulo da IA sem o nome no fonte. Pedir prova pelo payload montado.
 - CHECK entre duas colunas editáveis (previsão × data) protegido só no módulo novo: na volta atrás, a imagem antiga edita
   a data sem conhecer a previsão → 23514 com a linha (orientações) no log do Postgres. Pedir registro no §6.8.1.
+Plano 23, T10 (aniversariantes, 24/11/2026): sem Critical/Important na lente banco (semConta só no link, helper não
+exportado, trava do paciente nos três canais, ON CONFLICT idêntico ao índice, anonimização com controle positivo).
+- Índice "um por ano" com o ano em UTC (`timezone('UTC', agendada_para)`) × ano do consultório: a linha "sai agora" com
+  `agendada_para = agora` à noite de 31/12 num fuso a oeste de -3 (Manaus, Rio Branco) cai no balde do ano seguinte e
+  bloqueia a mensagem do ano que vem; a nova tentativa (agora + espera) também pode cruzar. Conferir todo valor gravado na
+  coluna da expressão do índice, não só o agendamento das 9h. Correção barata: gravar o instante das 9h locais (já vencido).
+- Frase do CLAUDE.md "semConta só para gravar X" enquanto o módulo também LÊ no semConta (GET da página do link): pedir o
+  ajuste do texto no fechamento.
