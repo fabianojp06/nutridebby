@@ -48,4 +48,11 @@ describe('busca de alimentos (US-020, D6)', () => {
     expect(palavrasDaBusca('  Feijão,  carioca ')).toEqual(['feijão', 'carioca']);
     expect(palavrasDaBusca('x'.repeat(200))[0]).toHaveLength(60);
   });
+
+  it('SUS-115: "％", "＿" e "＼" de largura cheia são literais depois do app_unaccent (não listam a tabela inteira)', async () => {
+    const T = await novoTenant(app.db);
+    for (const t of ['％％', '＿＿', '＼＼', 'feijão ％％']) expect(await buscarAlimentos(T.ctx, t, app.db), t).toEqual([]);
+    await withTenant(T.ctx, (tx) => tx.execute(proprio(T.tenantId, 'Mix 50% cacau sus115')), app.db);
+    expect((await buscarAlimentos(T.ctx, '50％ sus115', app.db)).map((a) => a.nome)).toEqual(['Mix 50% cacau sus115']);
+  });
 });

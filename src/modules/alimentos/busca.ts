@@ -20,8 +20,13 @@ export function palavrasDaBusca(termo: unknown): string[] {
     .slice(0, 6);
 }
 
-/** Curingas do LIKE viram texto literal ("%" não lista a tabela inteira). */
-const literal = (w: string) => w.replace(/[\\%_]/g, (c) => `\\${c}`);
+/**
+ * Curingas do LIKE viram texto literal ("%" não lista a tabela inteira). SUS-115: o escape vem depois do `app_unaccent`,
+ * que leva "％", "＿" e "＼" de largura cheia a "%", "_" e "\\" (mesma classe e troca de `listarPacientes`).
+ */
+const CURINGAS_DO_LIKE = '([\\\\%_])';
+const CURINGA_ESCAPADO = '\\\\\\1';
+const literal = (w: string) => sql`regexp_replace(app_unaccent(${w}), ${CURINGAS_DO_LIKE}, ${CURINGA_ESCAPADO}, 'g')`;
 
 /**
  * US-020 (D6): cada palavra precisa aparecer no nome (sem acento, sem maiúsculas — índice GIN de trigramas
@@ -35,7 +40,7 @@ export async function buscarAlimentos(ctx: TenantContext, termo: unknown, db: Db
     ctx,
     async (tx) => {
       const nome = sql`app_unaccent(lower(${foods.nome}))`;
-      const filtros = palavras.map((w) => sql`${nome} like '%' || app_unaccent(${literal(w)}) || '%'`);
+      const filtros = palavras.map((w) => sql`${nome} like '%' || ${literal(w)} || '%'`);
       const rows = await tx
         .select({
           id: foods.id,
@@ -51,7 +56,7 @@ export async function buscarAlimentos(ctx: TenantContext, termo: unknown, db: Db
         .from(foods)
         .where(sql.join(filtros, sql` and `))
         .orderBy(
-          sql`(${nome} like app_unaccent(${literal(palavras[0])}) || '%') desc`,
+          sql`(${nome} like ${literal(palavras[0])} || '%') desc`,
           sql`similarity(${nome}, app_unaccent(${palavras.join(' ')})) desc`,
           sql`char_length(${foods.nome})`,
           foods.nome,
