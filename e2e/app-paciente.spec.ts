@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { entrarComo } from './helpers';
+import { entrarComo, ESPERA_DO_SERVIDOR } from './helpers';
 import { avaliar, entradasDoPlano, pacienteNoPortal, publicarPlanoDoDia } from './portal';
 
 // Plano 16 (US-191 a US-195). IPs (bloco da execução do Plano 16, 10.9.19.76 a 10.9.19.80; o limite de login é por IP):
@@ -40,7 +40,8 @@ test('Hoje: a refeição que vem aí; "Comi assim" com "Desfazer"; depois do pra
   await item.getByRole('button', { name: 'Comi assim' }).click();
   await p.page.mouse.move(0, 0); // o ponteiro sobre o aviso pausa o prazo (WCAG 2.2.1): sai de cima dele
   await expect(item.getByRole('button', { name: 'Desfazer' })).toBeHidden({ timeout: 15_000 }); // 10 s e envia
-  await expect(p.page.getByRole('listitem').filter({ hasText: 'Comi assim' }).filter({ hasText: `Almoço · ${horario}` })).toBeVisible();
+  // SUS-125: o registro aparece depois do POST e da página refeita pelo servidor (flaky no CI com o padrão de 5 s)
+  await expect(p.page.getByRole('listitem').filter({ hasText: 'Comi assim' }).filter({ hasText: `Almoço · ${horario}` })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   await expect(item.getByRole('button', { name: 'Comi assim' })).toHaveCount(0); // RN-197: some depois da resposta
 
   await nutri.goto('/painel/diarios');

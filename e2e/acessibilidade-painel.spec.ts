@@ -4,7 +4,9 @@ import { fichaPelaBusca, SEMENTE_COMPLETA, SEMENTE_INCOMPLETA } from './cadastro
 import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
 import { criarPacientePeloFormulario } from './pacientes-form';
-import { contrasteIncerto as incertosDoContraste, escolherTema, prepararTelasComId } from './painel';
+import { escolherTema, garantirTema, TAGS, violacoes } from './acessibilidade-painel';
+import { ESPERA_DO_SERVIDOR } from './helpers';
+import { prepararTelasComId } from './painel';
 import { ROTAS_DO_PAINEL, type IdsDoPainel } from './painel-rotas';
 import { avaliar, pacienteNoPortal } from './portal';
 
@@ -15,7 +17,9 @@ import { avaliar, pacienteNoPortal } from './portal';
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 // Plano 20: consultório novo a cada `pnpm e2e:seed`, nunca configurado (copiada: importar o seed roda o seed)
 const FIN_AXE = { email: 'fin-axe-e2e@nutridebby.test', senha: 'Nutri2026segura' };
-const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+// SUS-125: os laços de todas as telas nos três modos e os estados abertos estão no acessibilidade-painel-base.spec, que
+// o outro worker roda ao mesmo tempo (o que os dois dividem — o axe, o tema garantido em cada tela, os IPs — está em
+// e2e/acessibilidade-painel.ts); aqui, do Plano 20 em diante, na ordem de sempre. Caso novo entra no fim deste arquivo.
 test.describe.configure({ mode: 'serial', timeout: 360_000 }); // cada teste visita todas as telas do painel (mais de 60 desde o Plano 22, que acrescentou o catálogo, os exames e a prescrição)
 let nutri: Page;
 let finAxe: Page | undefined;
@@ -26,116 +30,24 @@ let errosCsp: string[] = []; // D7: a CSP vale direto porque o E2E abre todas as
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(180_000); // o preparo cria uma linha de cada tela com id
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.13.84');
-  await expect(nutri).toHaveURL(/\/painel$/);
+  await expect(nutri).toHaveURL(/\/painel$/, { timeout: ESPERA_DO_SERVIDOR });
   errosCsp = vigiarCsp(nutri);
-  ids = await prepararTelasComId(browser, nutri, '10.9.13.83', '10.9.29.51');
+  ids = await prepararTelasComId(browser, nutri, '10.9.13.83', '10.9.29.51', 1);
   // a Segurança da conta fica fora do /painel, mas segue o tema da conta (D17, achado 9 do /code-review do PR #12)
   rotas = [...Object.values(ROTAS_DO_PAINEL).map((f) => f(ids)), '/conta/seguranca'];
 });
 test.afterAll(async () => {
-  await escolherTema(nutri, 'Igual ao aparelho'); // o seed e as outras specs esperam o padrão
-  await nutri?.context().close();
-  if (finAxe) await escolherTema(finAxe, 'Igual ao aparelho');
-  await finAxe?.context().close();
-});
-
-async function violacoes(page: Page, incluir?: string, opcoes: { ignorarForaDaTela?: boolean } = {}): Promise<string[]> {
-  const axe = new AxeBuilder({ page }).withTags(TAGS);
-  const r = await (incluir ? axe.include(incluir) : axe).analyze();
-  expect(r.passes.length, 'o axe rodou regras na página').toBeGreaterThan(0);
-  // fundos com transparência caem em "incomplete" no color-contrast: não podem passar calados
-  // Três filtros, nesta ordem (rebase do Plano 22 sobre o Plano 20): `contrasteIncerto` tira o texto de diálogo modal e de
-  // gráfico (svg role=img), conferidos à parte; a rolagem dos contêineres dá veredito ao que puder; do que continua sem
-  // veredito, com `ignorarForaDaTela`, sai só o que não cabe inteiro na tela.
-  let incertos = await incertosDoContraste(page, r.incomplete);
-  let doContraste: string[] = [];
-  if (incertos.length) ({ incertos, violacoes: doContraste } = await contrasteNasTabelasRolaveis(page, incertos, incluir));
-  if (opcoes.ignorarForaDaTela) {
-    // Plano 18: a 360 px a faixa de abas da ficha e a tabela da lista rolam na horizontal; o axe não calcula o contraste do
-    // que não cabe inteiro na largura da tela (fora dela ou cortado na borda do contêiner que rola: "incomplete"). Só esses
-    // saem; o que aparece inteiro na tela continua conferido, e a 1280 px (tudo cabe) nada sai.
-    const fora = await page.evaluate((alvos) => alvos.map((a) => {
-      const el = document.querySelector(a);
-      if (!el) return false;
-      const r = el.getBoundingClientRect();
-      return r.left < 0 || r.right > window.innerWidth;
-    }), incertos);
-    incertos = incertos.filter((_, i) => !fora[i]);
-  }
-  return [
-    ...r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`),
-    ...doContraste,
-    ...incertos.map((t) => `incompleto color-contrast: ${t}`),
-  ];
-}
-
-/**
- * Tabela larga num contêiner com rolagem própria (`role="region"` focável, padrão do repositório: a página não rola, a
- * tabela rola — o Fluxo de caixa do Plano 20 a 1280 px e as tabelas a 360 px): o axe não calcula o contraste da célula
- * cortada pela borda do contêiner ("partially obscured" → "incomplete"). Rola cada contêiner em passos de meia largura e
- * roda o color-contrast de novo: a célula incerta só sai da lista se, em algum passo, o axe der veredito (passou ou
- * violou — a violação entra nas falhas). O que nunca teve veredito continua "incompleto".
- */
-async function contrasteNasTabelasRolaveis(page: Page, incertos: string[], incluir?: string): Promise<{ incertos: string[]; violacoes: string[] }> {
-  const passos = await page.evaluate(() => {
-    const largas = [...document.querySelectorAll<HTMLElement>('[role="region"][tabindex="0"]')].filter((el) => el.scrollWidth > el.clientWidth);
-    return Math.max(0, ...largas.map((el) => Math.ceil((el.scrollWidth - el.clientWidth) / Math.max(1, Math.floor(el.clientWidth / 2)))));
-  });
-  if (!passos) return { incertos, violacoes: [] };
-  const resolvidos = new Set<string>();
-  const violacoes = new Set<string>();
-  for (let passo = 1; passo <= passos; passo++) {
-    await page.evaluate((k) => {
-      for (const el of document.querySelectorAll<HTMLElement>('[role="region"][tabindex="0"]')) {
-        if (el.scrollWidth > el.clientWidth) el.scrollLeft = Math.min(k * Math.floor(el.clientWidth / 2), el.scrollWidth - el.clientWidth);
-      }
-    }, passo);
-    const so = new AxeBuilder({ page }).withRules(['color-contrast']);
-    const r = await (incluir ? so.include(incluir) : so).analyze();
-    for (const n of r.passes.flatMap((p) => p.nodes)) resolvidos.add(n.target.join(' '));
-    for (const n of r.violations.flatMap((v) => v.nodes)) {
-      resolvidos.add(n.target.join(' '));
-      violacoes.add(`color-contrast (rolando a tabela): ${n.target.join(' ')}`);
+  // o seed e as outras specs esperam o padrão; cada página fecha mesmo se a volta do tema falhar
+  try {
+    if (nutri) await escolherTema(nutri, 'Igual ao aparelho');
+  } finally {
+    await nutri?.context().close();
+    try {
+      if (finAxe) await escolherTema(finAxe, 'Igual ao aparelho');
+    } finally {
+      await finAxe?.context().close();
     }
   }
-  await page.evaluate(() => {
-    for (const el of document.querySelectorAll<HTMLElement>('[role="region"][tabindex="0"]')) el.scrollLeft = 0;
-  });
-  return { incertos: incertos.filter((t) => !resolvidos.has(t)), violacoes: [...violacoes] };
-}
-
-for (const [modo, tema, aparelho] of [
-  ['claro', 'Claro', 'light'],
-  ['escuro', 'Escuro', 'light'],
-  ['igual ao aparelho (aparelho escuro)', 'Igual ao aparelho', 'dark'],
-] as const) {
-  test(`axe sem violações em todas as telas do painel — modo ${modo}`, async () => {
-    await escolherTema(nutri, tema);
-    await nutri.emulateMedia({ colorScheme: aparelho });
-    const falhas: string[] = [];
-    for (const url of rotas) {
-      await nutri.goto(url);
-      await nutri.waitForLoadState('networkidle');
-      for (const v of await violacoes(nutri)) falhas.push(`${url} — ${v}`);
-    }
-    await nutri.emulateMedia({ colorScheme: 'light' });
-    expect(falhas).toEqual([]);
-    expect(errosCsp, 'violação de CSP em alguma tela do painel (D7)').toEqual([]);
-  });
-}
-
-test('estados abertos também passam: menu da conta, aviso de erro de formulário', async () => {
-  await escolherTema(nutri, 'Escuro');
-  await nutri.goto('/painel');
-  await nutri.getByLabel(/^Conta de /).click();
-  // só o menu aberto: o resto da tela fica sob ele, e o axe não calcula contraste de texto coberto ("incomplete" por
-  // sobreposição parcial). A linha "Conectado como …" (text-suave sobre bg-cartao, os mesmos tokens que o axe confere
-  // em todas as telas acima) cai nesse caso: é a única tolerância.
-  const doMenu = (await violacoes(nutri, '[data-guia="conta"]')).filter((v) => v !== 'incompleto color-contrast: .py-2');
-  expect(doMenu).toEqual([]);
-  await nutri.goto('/painel/pacientes/novo');
-  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click(); // vazio: erros por campo (role="alert")
-  expect(await violacoes(nutri)).toEqual([]);
 });
 
 /**
@@ -150,7 +62,7 @@ test('Plano 20: Financeiro não configurado, pagamentos pendentes vazios e lanç
   test.setTimeout(240_000);
   const fa = await entrarComo(browser, FIN_AXE.email, FIN_AXE.senha, '10.9.20.2');
   finAxe = fa; // o afterAll volta o tema desta conta também
-  await expect(fa).toHaveURL(/\/painel$/);
+  await expect(fa).toHaveURL(/\/painel$/, { timeout: ESPERA_DO_SERVIDOR });
   const sufixo = Date.now().toString(36);
   const nome = `Paciente Fin Axe ${sufixo}`;
   const semCobranca = (await criarPacientePeloFormulario(fa, { nome, email: `fin-axe-${sufixo}@nutridebby.test` })).split('/').pop()!;
@@ -214,6 +126,7 @@ test('Plano 18: a faixa de abas da ficha cabe a 1280 px sem "incomplete"; o cada
     await expect(faixa.getByRole('link').last()).toHaveText('Histórico');
     await expect(faixa.getByRole('link').last()).toHaveAccessibleName('Histórico de acessos');
     expect(await faixa.locator('ul').evaluate((ul) => ul.scrollWidth <= ul.clientWidth), 'a faixa de abas rola a 1280 px').toBe(true);
+    await garantirTema(nutri, 'Claro');
     const r = await new AxeBuilder({ page: nutri }).withTags(TAGS).include('nav[aria-label="Seções do prontuário"]').analyze();
     expect(r.violations.map((v) => v.id)).toEqual([]);
     expect(r.incomplete.map((i) => `${i.id}: ${i.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
@@ -383,22 +296,31 @@ test('768 px: nenhuma tela do painel rola na horizontal', async () => {
   } finally {
     await nutri.setViewportSize({ width: 1280, height: 720 });
   }
+  expect(errosCsp, 'violação de CSP em alguma tela do painel (D7)').toEqual([]);
 });
 
+// SUS-125: com a conta E2E_FIN_AXE, a do Plano 20 (acima, em série com este teste). Com a nutri-e2e, o tema é trocado ao
+// mesmo tempo pelas specs do outro worker (cadastro, ficha, lembretes), e o recarregar daria o tema de outra spec.
 test('D17: o botão de tema alterna, persiste depois de recarregar e em outro aparelho (está na conta, não no navegador)', async ({ browser }) => {
-  await escolherTema(nutri, 'Claro');
-  await nutri.goto('/painel');
-  const botao = nutri.getByRole('button', { name: 'Modo escuro' });
+  if (!finAxe) {
+    // só sem o Plano 20 (--grep)
+    finAxe = await entrarComo(browser, FIN_AXE.email, FIN_AXE.senha, '10.9.20.2');
+    await expect(finAxe).toHaveURL(/\/painel$/, { timeout: ESPERA_DO_SERVIDOR });
+  }
+  const fa = finAxe;
+  await escolherTema(fa, 'Claro');
+  await fa.goto('/painel');
+  const botao = fa.getByRole('button', { name: 'Modo escuro' });
   await expect(botao).toHaveAttribute('aria-pressed', 'false');
   await botao.focus();
-  await nutri.keyboard.press('Enter');
-  await expect(nutri.locator('[data-tema="escuro"]')).toBeAttached();
-  await nutri.reload();
-  await expect(nutri.getByRole('button', { name: 'Modo escuro' })).toHaveAttribute('aria-pressed', 'true');
-  await nutri.goto('/conta/seguranca'); // fora do /painel, o mesmo tema da conta (D17)
-  await expect(nutri.locator('[data-tema="escuro"]')).toBeAttached();
-  const outro = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.13.85');
-  await expect(outro.locator('[data-tema="escuro"]')).toBeAttached();
+  await fa.keyboard.press('Enter');
+  await expect(fa.locator('[data-tema="escuro"]')).toBeAttached();
+  await fa.reload();
+  await expect(fa.getByRole('button', { name: 'Modo escuro' })).toHaveAttribute('aria-pressed', 'true');
+  await fa.goto('/conta/seguranca'); // fora do /painel, o mesmo tema da conta (D17)
+  await expect(fa.locator('[data-tema="escuro"]')).toBeAttached();
+  const outro = await entrarComo(browser, FIN_AXE.email, FIN_AXE.senha, '10.9.13.85');
+  await expect(outro.locator('[data-tema="escuro"]')).toBeAttached({ timeout: ESPERA_DO_SERVIDOR }); // logo depois do login
   await outro.context().close();
 });
 

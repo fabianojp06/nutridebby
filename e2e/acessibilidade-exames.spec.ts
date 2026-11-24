@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type Request } from '@playwright/test';
-import { entrarComo } from './helpers';
+import { entrarComo, ESPERA_DO_SERVIDOR } from './helpers';
 import { bibliotecasDeExames, contrasteIncerto, escolherTema } from './painel';
 import { criarPacientePeloFormulario } from './pacientes-form';
 
@@ -18,7 +18,7 @@ let nomeExame: string;
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(120_000);
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.22.10');
-  await expect(nutri).toHaveURL(/\/painel$/);
+  await expect(nutri).toHaveURL(/\/painel$/, { timeout: ESPERA_DO_SERVIDOR }); // SUS-125: o login (estourou os 5 s no CI)
   const sufixo = `ax${Date.now().toString(36)}`;
   await bibliotecasDeExames(nutri, sufixo);
   nomeExame = `Ferritina axe ${sufixo}`;

@@ -28,3 +28,5 @@
 - [Filtro da lista e Perfil em grid](feedback_filtro-da-lista-e-perfil-grid.md) — PR2 Plano 18: CAMPO local sem min-h-11; Cadastro salvo montado com o texto; ordem visual do Perfil
 - [sr-only em região rolável e rollback do DPA](feedback_sr-only-em-regiao-rolavel.md) — sr-only sem relative estica a página a 360 px; subir versão do DPA prende o painel na volta de imagem
 - [Comportamento prometido ao E2E](feedback_comportamento-prometido-ao-e2e.md) — unitário delega ao E2E que não cobre; autoFocus em dialog só vale no HTML do servidor
+- [Spec com painel dentro de form e consentimento sem tela](feedback_spec-painel-dentro-de-form-e-consentimento-sem-tela.md) — 21B: botões submit, file no corpo da action, aditivo sem tela de aceite, guia v+1 opt-in
+- [Axe do painel dividido (SUS-125)](feedback_axe-dividido-tema-forcado.md) — duas partes na mesma conta; garantirTema força data-tema e só anota; IPs por parte

@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { corDaFaixa } from '@/lib/tema/marca-tema';
-import { entrarComo } from './helpers';
+import { entrarComo, ESPERA_DO_SERVIDOR } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 import { avaliar, entradasDoPlano, marcarParaPaciente, mostrarPercGordura, pacienteNoPortal, publicarPlanoSimples } from './portal';
 
@@ -9,6 +9,16 @@ const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const MULTI = { email: 'multi-e2e@nutridebby.test', senha: 'Multi2026segura' }; // scripts/e2e-seed.ts: 3 consultórios
 test.describe.configure({ mode: 'serial' });
 let nutri: Page;
+
+// SUS-125: os testes do plano guardado no aparelho (offline, sessão vencida e acesso que acaba) estouraram os 30 s por teste
+// e os 5 s do `expect.poll` na medição do SUS-97 (steal de 37% a 50%). Não é a sessão curta: o SESSAO_TESTE_MS do
+// playwright.config.ts só vale para a sessão da equipe com o cookie nd_sessao_teste (src/lib/sessao-prazos.ts, só no
+// sessao-equipe.spec); a do paciente e a da nutricionista daqui são as de 30 dias e 30 min, e a "sessão vencida" do teste
+// é o clearCookies. O que demora é o servidor: cadastrar e publicar o plano antes, e o service worker buscar e guardar a
+// página. Por isso: prazo de 90 s só nesses três testes e a espera pelo cache com ESPERA_DO_SERVIDOR (a condição, por
+// polling, nunca um tempo fixo).
+const PRAZO_DO_PLANO_GUARDADO = 90_000;
+const noCache = { timeout: ESPERA_DO_SERVIDOR };
 
 test.beforeAll(async ({ browser }) => {
   // O limite de login é por IP: cada spec usa o seu bloco (R6: portal.spec = 10.9.10.x — nutri em 10.9.10.1 e cada
@@ -126,6 +136,7 @@ test('"Comi assim" (US-192, RN-198, WCAG 2.2.1): no toque o prazo de 10 s corre 
 });
 
 test('offline: "Plano" aberto pelo menu fica guardado; sem rede aparece com o selo; outra página do portal cai no plano; "Sair" apaga o cache (US-040, D6)', async ({ browser }) => {
+  test.setTimeout(PRAZO_DO_PLANO_GUARDADO);
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.4');
   await publicarPlanoSimples(nutri, p.prontuario);
   await p.page.goto('/p/inicio');
@@ -134,7 +145,7 @@ test('offline: "Plano" aberto pelo menu fica guardado; sem rede aparece com o se
   await p.page.getByRole('navigation', { name: 'Seções' }).getByRole('link', { name: 'Plano' }).click();
   await expect(p.page).toHaveURL(/\/p\/plano$/);
   await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
-  await expect.poll(() => entradasDoPlano(p.page)).toBe(1);
+  await expect.poll(() => entradasDoPlano(p.page), noCache).toBe(1);
   await p.page.context().setOffline(true);
   await p.page.goto('/p/plano');
   await expect(p.page.getByRole('heading', { name: /Almoço · 12:00/ })).toBeVisible();
@@ -167,29 +178,31 @@ test('selo offline com "lie-fi" (rede que não responde): o ping estoura em 5 s 
 });
 
 test('plano guardado é da conta: sessão vencida (sem "Sair") leva ao /entrar, que apaga a cópia antes de outra pessoa entrar (Review Focus 4)', async ({ browser }) => {
+  test.setTimeout(PRAZO_DO_PLANO_GUARDADO);
   const a = await pacienteNoPortal(browser, nutri, '10.9.10.5');
   await publicarPlanoSimples(nutri, a.prontuario);
   await a.page.goto('/p/plano');
-  await expect.poll(() => entradasDoPlano(a.page)).toBe(1);
+  await expect.poll(() => entradasDoPlano(a.page), noCache).toBe(1);
   await a.page.context().clearCookies(); // a sessão de A "vence" no aparelho
   await a.page.goto('/p/inicio');
   await expect(a.page).toHaveURL(/\/entrar/);
-  await expect.poll(() => entradasDoPlano(a.page)).toBe(0);
+  await expect.poll(() => entradasDoPlano(a.page), noCache).toBe(0);
   await a.page.context().close();
 });
 
 test('acesso acaba com a sessão ainda válida (arquivado → /p/sem-acesso): o plano guardado sai do aparelho (RN-08, LGPD)', async ({ browser }) => {
+  test.setTimeout(PRAZO_DO_PLANO_GUARDADO);
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.10');
   await publicarPlanoSimples(nutri, p.prontuario);
   await p.page.goto('/p/plano');
-  await expect.poll(() => entradasDoPlano(p.page)).toBe(1);
+  await expect.poll(() => entradasDoPlano(p.page), noCache).toBe(1);
   await nutri.goto(`${p.prontuario}/privacidade`);
   nutri.once('dialog', (d) => d.accept());
   await nutri.getByRole('button', { name: 'Arquivar paciente' }).click();
-  await expect(nutri.getByRole('button', { name: 'Desarquivar paciente' })).toBeVisible();
+  await expect(nutri.getByRole('button', { name: 'Desarquivar paciente' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   await p.page.goto('/p/plano');
   await expect(p.page).toHaveURL(/\/p\/sem-acesso$/);
-  await expect.poll(() => entradasDoPlano(p.page)).toBe(0);
+  await expect.poll(() => entradasDoPlano(p.page), noCache).toBe(0);
   await p.page.context().close();
 });
 

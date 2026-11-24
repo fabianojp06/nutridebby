@@ -395,7 +395,7 @@ for (const tema of ['Claro', 'Escuro'] as const) {
     const botao = nutri.getByRole('button', { name: `Ações de ${BIA.nome}`, exact: true });
     await botao.click();
     await expect(botao).toHaveAttribute('aria-expanded', 'true');
-    // só o painel aberto, como o menu da conta no acessibilidade-painel.spec: o texto coberto por ele cai em "incomplete"
+    // só o painel aberto, como o menu da conta no acessibilidade-painel-base.spec: o texto coberto por ele cai em "incomplete"
     expect(await violacoes(nutri, `[id="${await botao.getAttribute('aria-controls')}"]`)).toEqual([]);
     await nutri.keyboard.press('Escape');
 

@@ -70,6 +70,12 @@ export const E2E_IA_NUTRI_2 = { email: 'ia-nutri-2-e2e@nutridebby.test', passwor
 export const E2E_FIN_NOVO = { email: 'fin-novo-e2e@nutridebby.test', password: 'Nutri2026segura' };
 export const E2E_FIN_AXE = { email: 'fin-axe-e2e@nutridebby.test', password: 'Nutri2026segura' };
 /**
+ * SUS-125 (re-revisão): a nutricionista da parte "base" do axe do painel (e2e/acessibilidade-painel-base.spec.ts), no
+ * consultório do E2E. O tema é da conta (D17): com a `E2E_NUTRI`, que o acessibilidade-painel.spec usa ao mesmo tempo, as
+ * duas partes regravariam o tema uma da outra a cada tela. A spec copia a credencial (importar este arquivo roda o seed).
+ */
+export const E2E_NUTRI_BASE_AXE = { email: 'nutri-base-axe-e2e@nutridebby.test', password: 'Nutri2026segura' };
+/**
  * Plano 18 (T12a): as duas pacientes do cadastro complementar (cadastro.spec e o axe do Início, do Perfil e do "No app" no
  * acessibilidade-painel.spec). A COMPLETA tem conta (o "No app" só conta com o acesso ativo), o cadastro inteiro com nome
  * social, o CPF fixo (o "CPF repetido" do cadastro.spec; válido pelo dígito verificador, fictício) e uma avaliação (o selo
@@ -184,6 +190,11 @@ const nutriId = randomUUID();
 await db.insert(user).values({ id: nutriId, name: 'Nutri E2E', email: E2E_NUTRI.email, emailVerified: true, appRole: 'nutri', tenantId: consultorio.id });
 await db.insert(account).values({ id: randomUUID(), userId: nutriId, accountId: nutriId, providerId: 'credential', password: await hashPassword(E2E_NUTRI.password) });
 
+await db.delete(user).where(eq(user.email, E2E_NUTRI_BASE_AXE.email));
+const nutriBaseAxeId = randomUUID();
+await db.insert(user).values({ id: nutriBaseAxeId, name: 'Nutri Base Axe E2E', email: E2E_NUTRI_BASE_AXE.email, emailVerified: true, appRole: 'nutri', tenantId: consultorio.id });
+await db.insert(account).values({ id: randomUUID(), userId: nutriBaseAxeId, accountId: nutriBaseAxeId, providerId: 'credential', password: await hashPassword(E2E_NUTRI_BASE_AXE.password) });
+
 await db.delete(user).where(eq(user.email, E2E_RECUPERA.email));
 const recuperaId = randomUUID();
 await db.insert(user).values({ id: recuperaId, name: 'Recupera E2E', email: E2E_RECUPERA.email, emailVerified: true, appRole: 'nutri', tenantId: consultorio.id });
@@ -209,7 +220,7 @@ for (const ip of ['10.9.14.77', '10.9.14.78', '10.9.14.79', '10.9.14.80', '10.9.
 
 // P08-10 (D27): as contas do E2E não esbarram no tour nem no aviso "Primeira vez aqui?"; a conta do manual.spec começa zerada
 const TUDO_VISTO = Object.fromEntries(GUIAS.map((g) => [g.id, { v: g.versao, estado: 'concluido' as const }]));
-await db.update(user).set({ guia: TUDO_VISTO, tema: 'sistema' }).where(inArray(user.email, [E2E_NUTRI.email, E2E_RECUPERA.email, E2E_DOCS.email]));
+await db.update(user).set({ guia: TUDO_VISTO, tema: 'sistema' }).where(inArray(user.email, [E2E_NUTRI.email, E2E_RECUPERA.email, E2E_DOCS.email, E2E_NUTRI_BASE_AXE.email]));
 await db.delete(user).where(eq(user.email, E2E_MANUAL.email));
 const manualId = randomUUID();
 await db.insert(user).values({ id: manualId, name: 'Manual E2E', email: E2E_MANUAL.email, emailVerified: true, appRole: 'nutri', tenantId: consultorio.id });

@@ -1,4 +1,5 @@
 import { expect, type Browser, type BrowserContextOptions, type Page } from '@playwright/test';
+import { ESPERA_DO_SERVIDOR } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 import { criarPacientePeloFormulario } from './pacientes-form';
 
@@ -14,7 +15,8 @@ export async function pacienteNoPortal(
   aoAbrir?: (page: Page) => void,
   opcoes: BrowserContextOptions = {}, // ex.: { hasTouch: true } para o toque do Chrome no celular (revisão da T11 do Plano 16)
 ): Promise<{ page: Page; nome: string; email: string; senha: string; prontuario: string }> {
-  const sufixo = `${Date.now().toString(36)}${++seq}`;
+  // SUS-125: com o índice do worker — o `seq` recomeça em cada worker, e dois no mesmo ms dariam o mesmo e-mail
+  const sufixo = `${Date.now().toString(36)}w${process.env.TEST_WORKER_INDEX ?? 0}s${++seq}`;
   const nome = `Paula Portal ${sufixo}`;
   const email = `paula-${sufixo}@nutridebby.test`;
   const senha = `Paula${sufixo}2026`;
@@ -29,7 +31,7 @@ export async function pacienteNoPortal(
   await page.getByLabel('Repita a senha').fill(senha);
   await page.getByLabel(/^Li e aceito o Termo de Uso e Privacidade \(versão /).check();
   await page.getByRole('button', { name: 'Continuar' }).click();
-  await expect(page).toHaveURL(/\/p\/inicio$/);
+  await expect(page).toHaveURL(/\/p\/inicio$/, { timeout: ESPERA_DO_SERVIDOR });
   return { page, nome, email, senha, prontuario };
 }
 
@@ -120,7 +122,7 @@ export async function marcarParaPaciente(nutri: Page, nome: string, email: strin
   await nutri.getByLabel('Paciente').selectOption({ label: `${nome} (${email})` });
   await nutri.getByLabel('Hora').fill(hora);
   await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
-  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
 }
 
 /** Quantas páginas há no cache do "Meu plano" no aparelho (0 se o cache nem existe). */

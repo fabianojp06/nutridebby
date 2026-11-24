@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { entrarComo } from './helpers';
+import { entrarComo, ESPERA_DO_SERVIDOR } from './helpers';
 import { criarPacientePeloFormulario } from './pacientes-form';
 import { escolherTema, irPeloMenu } from './painel';
 
@@ -90,7 +90,7 @@ test('da consulta realizada ao recebido na mesma tela, sem digitar o valor; sai 
   await nutri.getByLabel('Paciente').selectOption({ label: `${paciente.nome} (${paciente.email})` });
   await nutri.getByLabel('Hora').fill(inicio.hora);
   await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
-  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   const consulta = new URL(nutri.url()).pathname;
 
   await nutri.getByRole('button', { name: 'Realizada' }).click();
@@ -122,7 +122,7 @@ test('da consulta realizada ao recebido na mesma tela, sem digitar o valor; sai 
   await nutri.getByLabel('Paciente').selectOption({ label: `${paciente.nome} (${paciente.email})` });
   await nutri.getByLabel('Hora').fill(segunda.hora);
   await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
-  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   const consultaAberta = new URL(nutri.url()).pathname;
   await nutri.getByRole('button', { name: 'Realizada' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Presença registrada. Cobrança de R$ 250,00 criada no Financeiro.' })).toBeVisible();

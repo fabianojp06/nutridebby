@@ -374,9 +374,9 @@ que o CI cobra; "nenhuma" quer dizer que só a revisão pega o esquecimento.
 | 3 | Server Action só num arquivo `actions.ts`, e toda função exportada começa pela guarda (`requireNutri`; no admin, `requireUser(['admin'])`). Não declare `'use server'` dentro de `page.tsx` nem em outro arquivo | `actions.ts` | `acoes-de-paciente.test.ts` (só lê arquivos `actions.ts`) |
 | 4 | Rota em `/api/painel/*`: `requireApiNutri(req)` (`tenant-session.ts:46`); escrita: `mesmaOrigem(req)` antes da sessão (`src/lib/mesma-origem.ts:9`) | `route.ts` | `src/app/api/painel/acesso-negado.test.ts` (sessão), `src/app/api/mesma-origem-rotas.test.ts` (origem) |
 | 5 | Entrada em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts:14`) | `e2e/painel-rotas.ts` | `rotas-axe.test.ts:8` |
-| 6 | Tela com `[id]`: campo novo em `IdsDoPainel` (`e2e/painel-rotas.ts:2`) e a criação do registro pela UI em `prepararTelasComId` (`e2e/painel.ts:74`) | `e2e/` | `pnpm typecheck` (o `tsconfig.json` inclui `e2e/`): campo usado em `ROTAS_DO_PAINEL` e não devolvido por `prepararTelasComId` não compila |
+| 6 | Tela com `[id]`: campo novo em `IdsDoPainel` (`e2e/painel-rotas.ts:2`) e a criação do registro pela UI em `prepararTelasComId` (`e2e/painel.ts:126`) | `e2e/` | `pnpm typecheck` (o `tsconfig.json` inclui `e2e/`): campo usado em `ROTAS_DO_PAINEL` e não devolvido por `prepararTelasComId` não compila |
 | 7 | Cores só por token (sem `bg-white`, `text-gray-…`); sem cabeçalho próprio (o layout desenha) | `.tsx` | `cores.test.ts`, `cabecalho.test.ts` |
-| 8 | Se a tela é um destino: item em `ITENS_DO_MENU` (8 itens fixos desde o Plano 26 — 7 no Plano 20 —, `src/app/painel/navegacao.ts:6`) ou cartão no hub de Configurações (`DO_HUB`, `navegacao.ts:35`) | `navegacao.ts` | `navegacao.test.ts:10` fixa os 8 itens e o teste do teclado de `e2e/acessibilidade-painel.spec.ts` os 10 com os condicionais (`:414`): item novo no menu exige decisão (P08 D20; o "Financeiro" foi decisão do dono, RN-327; o "Relatórios", da spec do Plano 26, §4.1) |
+| 8 | Se a tela é um destino: item em `ITENS_DO_MENU` (8 itens fixos desde o Plano 26 — 7 no Plano 20 —, `src/app/painel/navegacao.ts:6`) ou cartão no hub de Configurações (`DO_HUB`, `navegacao.ts:35`) | `navegacao.ts` | `navegacao.test.ts:10` fixa os 8 itens e o teste do teclado de `e2e/acessibilidade-painel.spec.ts` os 10 com os condicionais (`:331`): item novo no menu exige decisão (P08 D20; o "Financeiro" foi decisão do dono, RN-327; o "Relatórios", da spec do Plano 26, §4.1) |
 | 9 | Guia do manual, se couber: entrada em `GUIAS` (`src/modules/ajuda/conteudo.ts:17`) | `conteudo.ts` | `conteudo.test.ts:54` (nomes de botão) |
 | 10 | Dado de saúde devolvido: `auditRead(tx, …)` na mesma transação (`src/modules/plataforma/audit.ts:28`, regra 8) | módulo | nenhuma |
 
@@ -406,6 +406,7 @@ por tela (ex.: `src/app/p/(portal)/plano/page.test.ts`), não como varredura. O 
 | `retries` | 1 no CI, 0 local | Absorve uma oscilação de rede sem esconder falha repetida |
 | `workers` (`:12`) | 2 no CI; local, o padrão do Playwright | No runner próprio, o contêiner do job enxerga 8 núcleos numa cota de 4: o padrão (metade dos núcleos vistos) daria 4 workers e estouraria prazos. 2, como no runner hospedado de 4 vCPU |
 | `trace` | `retain-on-failure` | O CI sobe `playwright-report` quando falha (`ci.yml`, último passo do job `e2e`) |
+| `expect.timeout` e prazo por teste | Os padrões (5 s e 30 s) | SUS-125: sob carga a VPS perde de 20% a 50% da CPU para o hipervisor (SUS-97). Os `expect` que esperam o servidor (resposta de server action, gravação, navegação depois de salvar, o service worker guardando a página) usam `ESPERA_DO_SERVIDOR` (15 s, `e2e/helpers.ts`) só neles; os testes que estouraram os 30 s ganham `test.setTimeout` próprio. O padrão global não muda, para a espera da tela não esconder lentidão |
 | `webServer[0]` | `next start` na porta da `baseURL` | E2E roda o **build de produção**, não o `next dev` |
 | `webServer[1]` | `pnpm worker`, espera `worker iniciado` no stdout (`src/worker/index.ts:218`) | E-mails e lembretes são enviados pelo worker |
 
@@ -413,9 +414,9 @@ por tela (ex.: `src/app/p/(portal)/plano/page.test.ts`), não como varredura. O 
 
 | Projeto | Dispositivo | Specs |
 |---|---|---|
-| `chromium` | Desktop Chrome | Todos, menos os dois de acessibilidade |
+| `chromium` | Desktop Chrome | Todos, menos os de acessibilidade do portal e do painel |
 | `celular` | Pixel 7 | `acessibilidade.spec.ts` (PWA no tamanho de Android; RNF-09, RNF-10) |
-| `painel` | Desktop Chrome | `acessibilidade-painel.spec.ts` (Plano 08, D25) |
+| `painel` | Desktop Chrome | `acessibilidade-painel-base.spec.ts` e `acessibilidade-painel.spec.ts` (Plano 08, D25; em duas partes desde o SUS-125, que os 2 workers rodam juntas) |
 
 O Safari do iOS fica no teste manual do runbook (comentário em `playwright.config.ts:16`; checklist
 `docs/operacao/go-live.md`, "Produto e acessibilidade").
@@ -448,7 +449,7 @@ apontado para produção.
 
 - **Um bloco de IP por spec.** O login tem limite de 5 tentativas a cada 15 min por IP. Cada spec declara a sua
   faixa no topo (ex.: `e2e/acessibilidade.spec.ts:11`, `10.9.10.21` a `.30`) e o `entrarComo` manda o IP no
-  `x-forwarded-for` (`e2e/helpers.ts:7`). No CI, `TRUSTED_PROXIES` aponta para a TEST-NET-1, que satisfaz a
+  `x-forwarded-for` (`e2e/helpers.ts:16`). No CI, `TRUSTED_PROXIES` aponta para a TEST-NET-1, que satisfaz a
   validação de produção sem confiar em nenhum proxy real (comentário no job `e2e` do `ci.yml`).
 - **E-mail pelo Mailpit.** `esperarEmail` (`e2e/mailpit.ts`) consulta a API do Mailpit em laço, com prazo. Falha do
   Mailpit falha na hora com o status (M4). Com `CI` definida e sem `MAILPIT_URL`, o módulo lança erro em vez de cair no
@@ -464,8 +465,8 @@ apontado para produção.
   (`e2e/portal.ts`) já o usa. Spec novo (Planos 19, 20…) cadastra paciente só por ele. O `agenda.spec.ts` ainda preenche o
   formulário direto (`novoPaciente` e o teste do convite por WhatsApp); no PR 2 do Plano 18, que trocou os rótulos ("Nome"
   virou "Nome completo", ao lado de "Nome social (opcional)"; o telefone virou "Celular / WhatsApp (opcional)"), o
-  `novoPaciente` passou ao helper (`agenda.spec.ts:68`) e o teste do convite por WhatsApp, que precisa de outros campos,
-  usa os rótulos novos com `exact: true` (`:313`; o `getByLabel` casa por trecho e "Nome" pegaria "Nome social"). A
+  `novoPaciente` passou ao helper (`agenda.spec.ts:76`) e o teste do convite por WhatsApp, que precisa de outros campos,
+  usa os rótulos novos com `exact: true` (`:326`; o `getByLabel` casa por trecho e "Nome" pegaria "Nome social"). A
   semente do E2E (`scripts/e2e-seed.ts`) ganhou duas pacientes com cadastro (`SEMENTE_COMPLETA`, com nome social e CPF
   fixo, e `SEMENTE_INCOMPLETA`, `e2e/cadastro.ts`), por *upsert* em `(tenant_id, patient_id)`, sem DELETE.
 
@@ -474,7 +475,7 @@ apontado para produção.
 | Spec | Projeto | Tags do axe | Cobertura |
 |---|---|---|---|
 | `e2e/acessibilidade.spec.ts` | `celular` | `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` | 10 rotas do portal, cada uma num teste; modo escuro do aparelho no portal e no painel; foco sobre a cor do consultório (contraste ≥ 3:1); 360 px e 320 px sem rolagem horizontal; alvo de toque ≥ 44 px; telas avulsas (consulta, exportação, sem acesso, escolher consultório, termo); paciente não alcança o painel |
-| `e2e/acessibilidade-painel.spec.ts` | `painel` | as mesmas + `wcag22aa` (alvo de toque) | **Todas** as telas do painel (`ROTAS_DO_PAINEL` + `/conta/seguranca`) nos modos **claro**, **escuro** e **"igual ao aparelho" com o aparelho escuro**; menu da conta aberto e erros de formulário; 768 px sem rolagem horizontal |
+| `e2e/acessibilidade-painel-base.spec.ts` e `e2e/acessibilidade-painel.spec.ts` | `painel` | as mesmas + `wcag22aa` (alvo de toque) | **Todas** as telas do painel (`ROTAS_DO_PAINEL` + `/conta/seguranca`) nos modos **claro**, **escuro** e **"igual ao aparelho" com o aparelho escuro**; menu da conta aberto e erros de formulário (os dois no `-base`); 768 px sem rolagem horizontal e os casos de cada plano (no `acessibilidade-painel.spec.ts`) |
 
 Detalhes que evitam falso verde:
 
@@ -482,7 +483,23 @@ Detalhes que evitam falso verde:
 - No painel, os `incomplete` de `color-contrast` contam como falha (fundo com transparência cai em "incompleto"). A
   única tolerância é a linha "Conectado como …" do menu aberto, documentada no próprio teste.
 - `prepararTelasComId` (`e2e/painel.ts`) cria pela interface real uma linha de cada tela com id (paciente, consulta,
-  plano, conteúdo…) antes do laço.
+  plano, conteúdo…) antes do laço. SUS-125: cada parte prepara as próprias linhas (`parte` 0 no `-base`, 1 no
+  `acessibilidade-painel.spec.ts`: outro paciente, a consulta noutro bloco de semanas) com os próprios IPs (lista no topo
+  de `e2e/acessibilidade-painel.ts`); a dúvida da
+  segunda paciente da IA Nutri é reaproveitada se a fila já tem uma dela (no máximo 3 abertas por paciente), e só a
+  parte 1 envia (a base espera até 90 s a dela; rodando sozinha, envia).
+- **Tema garantido em cada tela (SUS-125).** O tema é da conta (D17). As duas partes usam contas diferentes do
+  consultório do E2E — a base, a `E2E_NUTRI_BASE_AXE` (`scripts/e2e-seed.ts`); a outra, a `nutri-e2e` —, para não
+  regravarem o tema uma da outra; mas as specs do outro worker (cadastro, ficha, lembretes) trocam o tema da `nutri-e2e`. `garantirTema` (`e2e/acessibilidade-painel.ts`)
+  confere o `data-tema` da tela antes do axe e, se outra spec trocou o tema da conta no meio, escolhe de novo o tema do
+  modo do teste na conta e abre a tela de novo (o estado aberto, como o menu da conta ou os erros do formulário, é refeito
+  pelo `refazer` do `violacoes`), até 3 vezes; a tela nunca é mexida por fora, e um tema que não pega falha. Cada nova
+  escolha fica anotada no relatório do teste. O `escolherTema` de `e2e/acessibilidade-painel.ts` guarda o modo escolhido em cada página, e o
+  `violacoes` garante esse modo sem o teste repeti-lo. O D17 usa a conta `E2E_FIN_AXE`, que só o
+  `acessibilidade-painel.spec.ts` usa (o Plano 20, antes dele, em série).
+- **Divisão (SUS-125).** O `-base` é o começo do antigo arquivo único (os laços de todas as telas nos três modos e os
+  estados abertos); o `acessibilidade-painel.spec.ts` continua com o resto, na ordem de sempre, para os casos novos de cada
+  plano entrarem no fim dele sem conflito com os PRs abertos.
 
 ### Specs
 
@@ -495,7 +512,7 @@ Detalhes que evitam falso verde:
 | `plataforma.spec.ts` | 6 | Admin cria nutricionista, convite, DPA, marca |
 | `pacientes.spec.ts` | 9 | Cadastro, convite, prontuário (desde o Plano 18, os rótulos novos do formulário em seções) |
 | `plano-alimentar.spec.ts` | 18 | Criar, calcular e publicar plano |
-| `agenda.spec.ts` | 12 | Horários, consultas, lembretes, link da consulta, página pública, WhatsApp sandbox, presença |
+| `agenda.spec.ts` | 12 | Horários, consultas, lembretes, link da consulta, página pública, WhatsApp sandbox, presença. Roda uma vez por `pnpm e2e:seed` (a semente esvazia a agenda): com `--repeat-each`, as repetições são puladas (SUS-125; na medição do SUS-97 a segunda repetição esbarrava nas consultas da primeira, e o "Fora do seu horário de atendimento" virava conflito — não era a hora do dia) |
 | `portal.spec.ts` | 20 | Portal do paciente |
 | `conteudos.spec.ts` | 3 | Conteúdo visível só para a audiência certa (§9.7) |
 | `inicio.spec.ts` | 2 | Início em bento |
@@ -504,7 +521,8 @@ Detalhes que evitam falso verde:
 | `csp.spec.ts` | 3 | CSP e cabeçalhos |
 | `health.spec.ts` | 1 | `/api/health` (o que o monitor externo confere) |
 | `acessibilidade.spec.ts` | 11 (+ laço) | Portal |
-| `acessibilidade-painel.spec.ts` | 10 (+ laço) | Painel; desde o Plano 18, a faixa de 13 abas da ficha a 1280 px sem rolar e sem "incomplete", com o cadastro no Perfil, e (PR 2) Início, Perfil, lista e "No app do paciente" a 1280 e 360 px, claro e escuro; desde o Plano 20, o Financeiro não configurado (conta `E2E_FIN_AXE`, `10.9.20.2`), o detalhe de pendências vazio e o lançamento com erro, claro e escuro, 1280 e 360 px, as telas do Financeiro também a 360 px e o menu com 9 itens no teclado (10 desde o Plano 26, com "Relatórios") |
+| `acessibilidade-painel-base.spec.ts` | 1 (+ laço de 3 modos) | Painel: todas as telas nos modos claro, escuro e "igual ao aparelho" (aparelho escuro) e os estados abertos (menu da conta e erros de formulário). SUS-125: o começo do antigo arquivo único (de 11 a 15 min em série), que o outro worker roda junto com o `acessibilidade-painel.spec.ts` |
+| `acessibilidade-painel.spec.ts` | 9 | Painel, do Plano 20 em diante (o começo foi para o `-base`, SUS-125); desde o Plano 18, a faixa de 13 abas da ficha a 1280 px sem rolar e sem "incomplete", com o cadastro no Perfil, e (PR 2) Início, Perfil, lista e "No app do paciente" a 1280 e 360 px, claro e escuro; desde o Plano 20, o Financeiro não configurado (conta `E2E_FIN_AXE`, `10.9.20.2`), o detalhe de pendências vazio e o lançamento com erro, claro e escuro, 1280 e 360 px, e as telas do Financeiro também a 360 px; os modelos sugeridos pela IA (Plano 14B-1) e o resumo e o rascunho da IA com a tarefa pronta (Plano 14B-2); 768 px; o D17 (tema na conta, com a `E2E_FIN_AXE`); o menu com 9 itens no teclado (10 desde o Plano 26, com "Relatórios"); os Relatórios a 1280 e 360 px (Plano 26) |
 | `documentos.spec.ts` (Plano 10A) | 1 | Receita de ponta a ponta pela digitalizada (rascunho → preparar → fotos + 2FA → portal: abrir e confirmar → situação no painel → verificação pública sem dado do paciente), com axe nos cartões "Aguardando assinatura" e "Documento assinado"; `acessibilidade.spec.ts` ganhou o axe de `/p/documentos`, `/v/<código>` e `/documento/<token>` (claro, escuro, 360 px) |
 
 | `painel-pwa.spec.ts` (Plano 09) | 1 | Painel instalável: manifest próprio, nenhum service worker, HTML sem cache (P09-05) |
