@@ -137,11 +137,11 @@ describe('editarExame (US-371 "Editar exame", RN-378)', () => {
     expect((await versoes(T, exameId)).map((x) => [x.versao, x.titulo])).toEqual([[1, 'Rotina'], [2, 'Rotina anual']]);
   });
 
-  it('sem justificativa (ou com menos de 5 caracteres, ou com NUL) → a mensagem e nada é gravado', async () => {
+  it('sem justificativa (ou com menos de 5 caracteres, também depois de tirar o NUL e o surrogate sem par) → a mensagem e nada é gravado', async () => {
     const { T, p, exameId, aberto } = await cenario();
     const linhas = doGravado(aberto.valores);
     linhas[0].valor = '105';
-    for (const justificativa of ['', '   ', 'abc', '🙂🙂🙂', '🙂🙂🙂🙂', `Valor\u0000errado`, 'x'.repeat(501), null]) {
+    for (const justificativa of ['', '   ', 'abc', '🙂🙂🙂', '🙂🙂🙂🙂', `ab\u0000\ud800c\udc00 `, 'x'.repeat(501), null]) {
       expect(await erros(editarExame(T.ctx, fuso, p.id, exameId, { titulo: 'Rotina', data: '2026-09-01', linhas, justificativa, lidoEm: aberto.updatedAt }, deps)), String(justificativa)).toEqual({
         justificativa: E.justificativa,
       });

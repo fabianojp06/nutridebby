@@ -2,6 +2,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { examInterpretacoes, exams } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { auditRead, nomesDosAtores, recordAudit } from '@/modules/plataforma/audit';
 import { exigirNutri } from './catalogo';
@@ -32,9 +33,9 @@ const NAO_ENCONTRADO = MSG_EXAMES.erros.naoEncontrado;
 /** O mesmo texto do Histórico de acessos (`listAccessHistory`) para quem não tem mais conta. */
 const USUARIO_REMOVIDO = 'Usuário removido';
 
-/** O texto da nota: sem espaços nas pontas, sem NUL (o Postgres não guarda), de 1 a 2000 code points (o CHECK conta assim). */
+/** O texto da nota: sem espaços nas pontas, sem NUL nem surrogate sem par (o Postgres não guarda, SUS-109), de 1 a 2000 code points (o CHECK conta assim). */
 function lerTexto(v: unknown): string {
-  const t = typeof v === 'string' ? v.replaceAll('\u0000', '').trim() : '';
+  const t = typeof v === 'string' ? semInvalidosNoBanco(v).trim() : '';
   if (!t) throw new NotaError({ texto: N.vazia });
   if ([...t].length > NOTA_MAX) throw new NotaError({ texto: N.max });
   return t;

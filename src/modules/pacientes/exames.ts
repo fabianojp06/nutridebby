@@ -4,6 +4,7 @@ import { examSubmissions, exams, type ExamRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { lerDecimal } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { referenciaDaFaixa } from '@/modules/exames/classificacao';
 import { MSG_EXAMES } from '@/modules/exames/constantes';
 import { cancelarTarefas } from '@/modules/ia/cancelar';
@@ -30,8 +31,11 @@ export class ExameError extends Error {
 
 const MAX_LINHAS = 50;
 const MAX_VALOR = 1e15; // acima disso o número perde precisão / viraria notação exponencial na tela
-const texto = (v: unknown, max: number) => normalizarTexto(v).slice(0, max);
-const passaDoLimite = (v: unknown, max: number) => normalizarTexto(v).length > max;
+/** SUS-109: sem NUL nem surrogate sem par antes de normalizar (o jsonb `exams.valores` e o text do título recusariam com o texto no log). */
+const limpo = (v: unknown): unknown => (typeof v === 'string' ? semInvalidosNoBanco(v) : v);
+/** De novo depois do corte: o `.slice` pode deixar meio emoji (surrogate sem par) no fim. */
+const texto = (v: unknown, max: number) => semInvalidosNoBanco(normalizarTexto(limpo(v)).slice(0, max));
+const passaDoLimite = (v: unknown, max: number) => normalizarTexto(limpo(v)).length > max;
 const F = MSG_EXAMES.lancamentoErros;
 
 /** Um limite da faixa do laudo (RN-376, RNF-374: só por `lerDecimal`): vazio → null; lixo, não finito ou |x| ≥ 1e15 → 'invalido'. */

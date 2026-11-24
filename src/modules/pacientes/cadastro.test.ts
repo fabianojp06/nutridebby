@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterAll, afterEach, describe, expect, inject, it, vi } from 'vitest';
 import { and, eq, getTableColumns, sql } from 'drizzle-orm';
-import type { PoolClient } from 'pg';
 import { makeDb } from '../../../test/db';
+import { espiarErrosDoBanco } from '../../../test/erros-do-banco';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import * as schema from '@/db/schema';
@@ -35,25 +35,7 @@ import { atualizarPaciente, buscarPaciente, criarPaciente, PacienteError } from 
  * cheguem ao banco como 23505/23514 (o Postgres registraria o CPF ou a linha inteira no log do `nutri_db`).
  */
 const app = makeDb(inject('appDatabaseUrl'));
-const errosDoBanco: string[] = [];
-app.pool.on('connect', (client: PoolClient) => {
-  const original = client.query.bind(client) as (...a: unknown[]) => unknown;
-  (client as unknown as { query: (...a: unknown[]) => unknown }).query = (...a: unknown[]) => {
-    // forma com callback (o `pool.query` do pg chama assim): o erro passa pela callback, não pela promessa
-    const cb = a.at(-1);
-    if (typeof cb === 'function') {
-      a[a.length - 1] = (e: { code?: string } | null, ...resto: unknown[]) => {
-        if (e) errosDoBanco.push(e.code ?? '?');
-        return (cb as (...x: unknown[]) => unknown)(e, ...resto);
-      };
-    }
-    const r = original(...a);
-    if (r && typeof (r as Promise<unknown>).then === 'function') {
-      (r as Promise<unknown>).catch((e: { code?: string }) => void errosDoBanco.push(e?.code ?? '?'));
-    }
-    return r;
-  };
-});
+const errosDoBanco = espiarErrosDoBanco(app.pool);
 const now = new Date('2026-11-17T15:00:00Z');
 const deps = { db: app.db, now, appUrl: 'http://localhost:3104' };
 afterEach(() => vi.restoreAllMocks());
