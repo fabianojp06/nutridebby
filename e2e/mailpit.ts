@@ -48,14 +48,18 @@ export function primeiroLink(texto: string, trecho: string): string {
 /**
  * Plano 26 (T7, RE-D69): o destinatário do e-mail mais recente com este assunto (o Mailpit lista do mais novo para o mais
  * antigo) — para o convite que a semente manda a um e-mail novo por execução, que o spec não conhece.
+ * Só conta o e-mail enviado depois de `depoisDe`: a semente só enfileira o convite, quem o envia é o worker desta execução
+ * (webServer do playwright.config.ts), e o Mailpit é compartilhado — sem o filtro, o spec que começa antes do envio pega o
+ * convite de uma execução anterior (de outro banco ou já usado) e cai em "Convite inválido ou já usado".
  */
-export async function destinatarioDoUltimo(assunto: string, timeoutMs = 30_000): Promise<string> {
+export async function destinatarioDoUltimo(assunto: string, opts: { depoisDe?: Date; timeoutMs?: number } = {}): Promise<string> {
+  const timeoutMs = opts.timeoutMs ?? 30_000;
   const fim = Date.now() + timeoutMs;
   while (Date.now() < fim) {
     const r = await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`subject:"${assunto}"`)}&limit=5`);
     if (!r.ok) throw new Error(`Mailpit respondeu ${r.status} na busca`);
     const { messages } = (await r.json()) as { messages: (Resumo & { To: { Address: string }[] })[] };
-    const m = messages.find((x) => x.Subject === assunto);
+    const m = messages.find((x) => x.Subject === assunto && (!opts.depoisDe || new Date(x.Created).getTime() >= opts.depoisDe.getTime() - 1000));
     if (m?.To[0]?.Address) return m.To[0].Address;
     await new Promise((res) => setTimeout(res, 500));
   }

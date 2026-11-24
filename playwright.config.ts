@@ -14,6 +14,11 @@ if (!process.env.CI && existsSync(ENV_LOCAL)) {
   for (const nome of DO_ENV_LOCAL) if (process.env[nome] === undefined && arquivo[nome] !== undefined) process.env[nome] = arquivo[nome];
 }
 
+// O início da execução, antes dos webServers: o e-mail que o worker desta execução envia nasce depois dele (o convite da
+// recepção da semente, e2e/equipe-primeiro-acesso.spec.ts). O processo principal define; os workers do Playwright herdam o
+// ambiente e o `??=` não sobrescreve ao recarregar o config.
+process.env.E2E_INICIO ??= new Date().toISOString();
+
 // PF-N16: 3000 é o painel do Easypanel na VPS; 3100 em dev/E2E local, 3000 em CI/containers.
 const baseURL = process.env.APP_URL ?? (process.env.CI ? 'http://localhost:3000' : 'http://localhost:3100');
 
@@ -39,14 +44,16 @@ export default defineConfig({
       // P12-14: prazos curtos da sessão da equipe (30 s) só para o contexto com o cookie nd_sessao_teste
       // (e2e/sessao-equipe.spec.ts); as outras specs seguem com os 30 min. Recusada em produção (src/env.ts).
       // Plano 14A (A-D4): retenção zero só no E2E/dev, com o sandbox (também no worker, abaixo: app e worker iguais)
-      env: { SESSAO_TESTE_MS: '30000', IA_RETENCAO_ZERO: '1' },
+      // IA_PROVEDOR=sandbox aqui também (R9, manual técnico 10.10): fora do CI, o .env.local não traz a IA — sem ela, a IA Nutri
+      // fica `ausente` e /p/plano/ia/autorizar volta ao plano (o beforeAll do acessibilidade e do acessibilidade-painel)
+      env: { SESSAO_TESTE_MS: '30000', IA_PROVEDOR: 'sandbox', IA_RETENCAO_ZERO: '1' },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
     {
       // e-mails (Mailpit) são enviados pelo worker
       command: 'pnpm worker',
-      env: { IA_RETENCAO_ZERO: '1' },
+      env: { IA_PROVEDOR: 'sandbox', IA_RETENCAO_ZERO: '1' },
       wait: { stdout: /worker iniciado/ },
       reuseExistingServer: false,
       timeout: 60_000,

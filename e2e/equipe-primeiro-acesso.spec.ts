@@ -29,7 +29,8 @@ async function semViolacoes(page: import('@playwright/test').Page, rotulo: strin
 }
 
 test('a pessoa da recepção abre o convite, aceita o termo, cria a senha, configura o 2FA e chega ao Início dela (US-489)', async ({ browser }) => {
-  const para = await destinatarioDoUltimo(ASSUNTO);
+  // só o convite enviado pelo worker desta execução (E2E_INICIO: playwright.config.ts), não o de uma execução anterior
+  const para = await destinatarioDoUltimo(ASSUNTO, { depoisDe: new Date(process.env.E2E_INICIO!) });
   const email = await esperarEmail(para, { assunto: ASSUNTO });
   expect(email.texto).toContain(`convidou você para a equipe de recepção de ${CONSULTORIO} no NutriDebby. Crie sua senha pelo link abaixo em até 72 horas.`);
   const link = new URL(primeiroLink(email.texto, '/convite/'));
