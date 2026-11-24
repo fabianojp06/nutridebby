@@ -421,10 +421,15 @@ O Safari do iOS fica no teste manual do runbook (comentário em `playwright.conf
 `docs/operacao/go-live.md`, "Produto e acessibilidade").
 
 **Relógio do E2E (`E2E_AGORA`, SUS-119).** `agora()` (`src/lib/agora.ts`) é o "agora" do app: `new Date()`, salvo com `E2E_AGORA`
-(app e worker) — um instante ISO 8601 com fuso (o relógio começa nele no primeiro uso e segue andando) ou um deslocamento
-(`+36h`, `-2d`, `+90m`). O banco (`now()`, `clock_timestamp()`, `app_hoje_do_tenant()`) não é deslocado: o spec escolhe
-instantes coerentes com o relógio real dele. `src/env.ts` valida o formato e recusa a variável em produção (`emProducao`,
-o mesmo critério do `SESSAO_TESTE_MS`, [§3.6](03-autenticacao-e-acesso.md#36-sessão-inatividade-e-renovação)); testes em `src/lib/agora.test.ts` e `src/env.test.ts`.
+(app e worker) — só um deslocamento do relógio real (`+36h`, `-2d`, `+90m`, `+45s`), que segue andando e é igual em todo
+processo. Para começar num instante, quem lança o app e o worker chama `deslocamentoAte('2026-12-01T08:00:00-03:00')` **uma
+vez** (ISO com fuso; devolve `+NNNs`) e passa o mesmo valor aos dois — um instante medido por processo daria relógios
+diferentes no app, no worker e nas camadas do Next. O banco não é deslocado: `now()`, `clock_timestamp()` e os gatilhos de
+prazo (ex.: `appointments_regras_pedido`, 0131, prazo do pedido) seguem no relógio real, e o spec escolhe deslocamentos
+coerentes com isso. No navegador `agora()` é sempre o relógio real: componente cliente não o chama no render, recebe o "agora"
+do servidor por prop. Por enquanto nada chama `agora()`: a adoção nos caminhos do aniversário e do "não confirmado" vem com o
+Plano 23 PR 3 (Sessão C), e o E2E (com o `playwright.config.ts`), na parte 2 do SUS-119. `src/env.ts` valida o formato e
+recusa a variável em produção (`emProducao`, o mesmo critério do `SESSAO_TESTE_MS`, [§3.6](03-autenticacao-e-acesso.md#36-sessão-inatividade-e-renovação)); testes em `src/lib/agora.test.ts` e `src/env.test.ts`.
 
 ### Dados do E2E: `scripts/e2e-seed.ts`
 

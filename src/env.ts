@@ -139,14 +139,15 @@ function conferirIa(e: { NODE_ENV: string; APP_URL: string; IA_PROVEDOR?: string
   if (e.IA_PROVEDOR === 'anthropic' && e.IA_INFERENCE_GEO !== 'us') ctx.addIssue({ code: 'custom', path: ['IA_INFERENCE_GEO'], message: 'IA_INFERENCE_GEO deve ser us em produção (A-D5)' });
 }
 /**
- * SUS-119: só E2E — desloca o relógio do app (`agora()`, `src/lib/agora.ts`: instante ISO com fuso ou `+36h`/`-2d`/`+90m`).
+ * SUS-119: só E2E — desloca o relógio do app (`agora()`, `src/lib/agora.ts`): só deslocamento (`+36h`, `-2d`, `+90m`,
+ * `+45s`), igual em todo processo; para começar num instante, o lançador usa `deslocamentoAte()` uma vez.
  * App e worker (os dois decidem pelo `agora()`); recusada em produção (`conferirE2eAgora`), como o `SESSAO_TESTE_MS`.
  */
 const e2eAgora = opcional(z.string().refine((v) => lerE2eAgora(v) !== null, { message: MENSAGEM_E2E_AGORA }).optional());
 /** A recusa em produção de verdade, igual no app e no worker (o E2E roda `next start` como produção em localhost). */
 function conferirE2eAgora(e: { NODE_ENV: string; APP_URL: string; E2E_AGORA?: string }, ctx: z.RefinementCtx): void {
   if (e.E2E_AGORA !== undefined && emProducao(e)) {
-    ctx.addIssue({ code: 'custom', path: ['E2E_AGORA'], message: 'E2E_AGORA só fora de produção (desloca o relógio do app; é só do E2E)' });
+    ctx.addIssue({ code: 'custom', path: ['E2E_AGORA'], message: 'só fora de produção (desloca o relógio do app; é só do E2E)' });
   }
 }
 const ehLocal = (appUrl: string) => URL.canParse(appUrl) && ['localhost', '127.0.0.1'].includes(new URL(appUrl).hostname);
