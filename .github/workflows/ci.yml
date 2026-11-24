@@ -223,7 +223,6 @@ jobs:
       DATABASE_URL: postgres://nutri_app:ci-app@postgres:5432/nutri
       DATABASE_URL_MIGRATOR: postgres://owner:owner@postgres:5432/nutri
       AUTH_SECRET: ci-secret-with-at-least-32-characters-long
-      ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       # TEST-NET-1: validação de produção satisfeita sem confiar em nenhum IP; o E2E manda um único X-Forwarded-For
       TRUSTED_PROXIES: 192.0.2.0/24
       EMAIL_FROM: 'NutriDebby <nao-responda@nutridebby.test>'
@@ -242,6 +241,9 @@ jobs:
       IA_RETENCAO_ZERO: '1'
       CI: 'true'
     steps:
+      # ENCRYPTION_KEY gerada a cada execução (32 bytes aleatórios): só cifra o banco descartável deste job, e assim
+      # não fica nenhuma chave literal no arquivo (o GitGuardian acusava a cópia da chave fictícia do job `e2e`).
+      - run: echo "ENCRYPTION_KEY=$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64"))')" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
@@ -276,7 +278,7 @@ jobs:
           set -euo pipefail
           titulo='E2E WebKit noturno falhou'
           corpo="O job e2e-webkit do agendado da noite falhou: ${EXECUCAO}"
-          n="$(gh issue list --state open --label ci --limit 100 --json number,title --jq ".[] | select(.title == \"${titulo}\") | .number" | head -1)"
+          n="$(gh issue list --state open --limit 200 --json number,title --jq ".[] | select(.title == \"${titulo}\") | .number" | head -1)"
           if [[ -n "$n" ]]; then
             gh issue comment "$n" --body "$corpo"
           else
