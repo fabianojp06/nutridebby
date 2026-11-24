@@ -36,6 +36,10 @@ const nextConfig: NextConfig = {
     // nunca como Referer)
     { source: '/n/:slug/pedido/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'Cache-Control', value: 'no-store' }] },
     { source: '/api/n/:slug/pedido/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'Cache-Control', value: 'no-store' }] },
+    // Plano 23 (AG-D71, RN-434): o token do link de saída das mensagens de aniversário está na URL (a página e a rota de um
+    // clique do List-Unsubscribe): nada em cache, nunca como Referer
+    { source: '/aniversario/sair/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'Cache-Control', value: 'no-store' }] },
+    { source: '/api/aniversario/sair/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'Cache-Control', value: 'no-store' }] },
   ],
 };
 

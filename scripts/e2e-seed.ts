@@ -724,6 +724,95 @@ export const E2E_PEDIDOS_AXE_PACIENTE = { email: 'pedidos-axe-paciente-e2e@nutri
   }
 }
 
+// Plano 23 (T10, US-412 a US-414): os aniversariantes no E2E, em consultórios PRÓPRIOS (a lista e o Início contam todo o
+// consultório). `e2e-aniversario` (o agenda-2.spec: a paciente com conta autoriza no portal, a nutricionista manda, o e-mail
+// chega ao Mailpit e a paciente sai pelo link): "Ana Aniversário Semente", com conta, faz aniversário HOJE (no fuso de São
+// Paulo), sem mensagem do ano — a autorização fica como a execução anterior deixou (a tabela é só de inclusão; a spec
+// retira antes, se precisar). `e2e-aniversario-axe` (só leitura: o axe da lista com a prévia aberta e o da página de saída):
+// "Lara Saída Semente" (hoje, autorizada, com a mensagem do ano agendada para agora — o worker a manda e o axe abre o link do
+// e-mail), "Caio Prévia Semente" (último dia do mês, autorizado, com telefone: "Pode receber" e "Abrir no WhatsApp"), "Duda
+// Menor Semente" (hoje, 11 anos) e "Eva Sem Autorização Semente" (hoje). A cada execução: as mensagens apagadas e os
+// pacientes de antes arquivados. IPs do bloco 10.9.23.30–.39 com os limites zerados; o balde de saída dos tokens também.
+export const E2E_ANIVERSARIO = { email: 'aniversario-e2e@nutridebby.test', password: 'Nutri2026segura', slug: 'e2e-aniversario' };
+export const E2E_ANIVERSARIO_PACIENTE = { email: 'aniversario-paciente-e2e@nutridebby.test', password: 'Paciente2026segura', nome: 'Ana Aniversário Semente' };
+export const E2E_ANIVERSARIO_AXE = { email: 'aniversario-axe-e2e@nutridebby.test', password: 'Nutri2026segura', slug: 'e2e-aniversario-axe' };
+export const E2E_ANIVERSARIO_AXE_SAIDA = { email: 'aniversario-saida-axe-e2e@nutridebby.test', nome: 'Lara Saída Semente' };
+{
+  const { aniversarioAutorizacoes, notifications } = await import('@/db/schema');
+  const { assinarLinkDeSaida } = await import('@/modules/agenda/aniversario-link');
+  const { hojeNoFuso: hojeSP } = await import('@/modules/pacientes/datas');
+  const SP = 'America/Sao_Paulo';
+  const hoje = hojeSP(SP);
+  const md = hoje.slice(5);
+  const [ano, mes] = hoje.split('-').map(Number);
+  const fimDoMes = new Date(Date.UTC(ano, mes, 0)).toISOString().slice(0, 10);
+  // 29/02 só existe em ano bissexto: o nascimento de quem faz aniversário hoje (ou no último dia de fevereiro) também
+  const nascido = (anoBase: number, diaMes: string) => `${diaMes === '02-29' ? anoBase - (anoBase % 4) : anoBase}-${diaMes}`;
+  for (const [cred, nomeExibicao, axe] of [
+    [E2E_ANIVERSARIO, 'Consultório Aniversário E2E', false],
+    [E2E_ANIVERSARIO_AXE, 'Consultório Aniversário Axe E2E', true],
+  ] as const) {
+    const perfil = { dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), enderecoConsultorio: 'Rua dos Aniversários E2E, 23', crn: 'CRN-3 23010', nomeProfissional: `Débora ${axe ? 'Axe' : 'Aniversário'} E2E` };
+    const [t] = await db
+      .insert(tenants)
+      .values({ slug: cred.slug, nomeExibicao, ...perfil })
+      .onConflictDoUpdate({ target: tenants.slug, set: { status: 'ativa', nomeExibicao, ...perfil } })
+      .returning({ id: tenants.id });
+    await db.delete(user).where(eq(user.email, cred.email));
+    const nutriId = randomUUID();
+    await db.insert(user).values({ id: nutriId, name: `Nutri ${nomeExibicao}`, email: cred.email, emailVerified: true, appRole: 'nutri', tenantId: t.id, guia: TUDO_VISTO, tema: 'sistema' });
+    await db.insert(account).values({ id: randomUUID(), userId: nutriId, accountId: nutriId, providerId: 'credential', password: await hashPassword(cred.password) });
+    const ctxAniv: TenantContext = { tenantId: t.id, role: 'nutri', actorUserId: nutriId };
+    // as mensagens apagadas (o ano livre de novo) e os pacientes das execuções anteriores arquivados
+    await withTenant({ tenantId: t.id, role: 'worker' }, async (tx) => {
+      await tx.delete(notifications);
+      await tx.execute(sql`update patients set status = 'arquivado', updated_at = now() where status = 'ativo'`);
+    }, db);
+    const paciente = async (p: { nome: string; email: string; dataNascimento: string; telefoneE164?: string; userId?: string }) => {
+      const [linha] = await withTenant({ tenantId: t.id, role: 'worker' }, (tx) =>
+        tx
+          .insert(patients)
+          .values({ tenantId: t.id, sexo: 'F', ...p })
+          .onConflictDoUpdate({ target: [patients.tenantId, patients.email], set: { nome: p.nome, dataNascimento: p.dataNascimento, telefoneE164: p.telefoneE164 ?? null, userId: p.userId ?? null, status: 'ativo', updatedAt: new Date() } })
+          .returning({ id: patients.id }),
+      db);
+      return linha.id;
+    };
+    /** A autorização da nutricionista, se o último evento não for `autorizou` (a tabela é só de inclusão). */
+    const autorizar = async (patientId: string) =>
+      withTenant(ctxAniv, async (tx) => {
+        const [ultimo] = await tx.select({ evento: aniversarioAutorizacoes.evento }).from(aniversarioAutorizacoes).where(eq(aniversarioAutorizacoes.patientId, patientId)).orderBy(sql`${aniversarioAutorizacoes.registradoEm} desc`).limit(1);
+        if (ultimo?.evento !== 'autorizou') await tx.insert(aniversarioAutorizacoes).values({ tenantId: t.id, patientId, evento: 'autorizou', origem: 'nutri', forma: 'escrito', registradoPor: nutriId });
+      }, db);
+    const liberarSaida = (patientId: string) => liberarLimite(db, chaveDoLimite('aniversario-sair', assinarLinkDeSaida({ tenantId: t.id, patientId })));
+    if (!axe) {
+      // a paciente com conta (o termo do app aceito), como a dos pedidos
+      const paci = E2E_ANIVERSARIO_PACIENTE;
+      const senha = await hashPassword(paci.password);
+      const [existe] = await db.select({ id: user.id }).from(user).where(eq(user.email, paci.email));
+      const userId = existe?.id ?? randomUUID();
+      if (existe) await db.update(account).set({ password: senha }).where(eq(account.userId, userId));
+      else {
+        await db.insert(user).values({ id: userId, name: paci.nome, email: paci.email, emailVerified: true, appRole: 'paciente' });
+        await db.insert(account).values({ id: randomUUID(), userId, accountId: userId, providerId: 'credential', password: senha });
+      }
+      const ana = await paciente({ nome: paci.nome, email: paci.email, dataNascimento: nascido(1990, md), userId });
+      await db.insert(consents).values({ userId, tenantId: t.id, termoVersao: TERMO_PACIENTE, ip: null }).onConflictDoNothing();
+      await liberarSaida(ana);
+      continue;
+    }
+    const lara = await paciente({ nome: E2E_ANIVERSARIO_AXE_SAIDA.nome, email: E2E_ANIVERSARIO_AXE_SAIDA.email, dataNascimento: nascido(1985, md) });
+    const caio = await paciente({ nome: 'Caio Prévia Semente', email: 'caio-previa-axe-e2e@nutridebby.test', dataNascimento: nascido(1988, fimDoMes.slice(5)), telefoneE164: '+5581988887777' });
+    await paciente({ nome: 'Duda Menor Semente', email: 'duda-menor-axe-e2e@nutridebby.test', dataNascimento: nascido(ano - 11, md) });
+    await paciente({ nome: 'Eva Sem Autorização Semente', email: 'eva-sem-axe-e2e@nutridebby.test', dataNascimento: nascido(1979, md) });
+    for (const id of [lara, caio]) await autorizar(id);
+    // a mensagem do ano da Lara, para agora: o worker a manda (RN-431 reconferida no envio) e o axe abre o link do e-mail
+    await withTenant(ctxAniv, (tx) => tx.insert(notifications).values({ tenantId: t.id, patientId: lara, tipo: 'aniversario', canal: 'email', agendadaPara: new Date() }), db);
+    await liberarSaida(lara);
+  }
+  for (let i = 30; i <= 39; i++) await liberarLimite(db, chaveDoLimite('ip', `10.9.23.${i}`));
+}
+
 await stopBoss(); // a publicação do plano enfileira o PDF
 await closeDb();
 console.log('Seed E2E pronto.');

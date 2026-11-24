@@ -477,3 +477,121 @@ test.describe('Plano 23 (T8): Solicitações — chave, portal, fila, pessoa nov
     await expect(painel.getByText('Nenhum pedido aguardando resposta.')).toBeVisible();
   });
 });
+
+/**
+ * Plano 23 (T10, US-412 a US-414, RN-432, RN-434): os aniversariantes de ponta a ponta, num consultório PRÓPRIO da semente
+ * (`e2e-aniversario`: a lista e o Início contam o consultório inteiro). "Ana Aniversário Semente", com conta, faz aniversário
+ * hoje (São Paulo) e começa sem a mensagem do ano; a autorização fica como a execução anterior deixou (só de inclusão). A
+ * paciente autoriza no portal; a nutricionista marca e manda ("{n} de hoje saem agora", só entre 9h e 21h — fora disso, o
+ * envio e a saída ficam para a próxima execução); o worker manda o e-mail (Mailpit) com List-Unsubscribe e
+ * List-Unsubscribe-Post; a paciente sai pelo link (a página não grava no GET) e o POST de um clique responde 200 sem corpo.
+ * Bloco de IP: 10.9.23.30 (nutricionista), .31 (paciente), .32 (o link, sem login).
+ */
+test.describe('Plano 23 (T10): Aniversariantes — autorização no portal, envio, e-mail e saída pelo link', () => {
+  // copiados da semente (importar scripts/e2e-seed.ts roda o seed)
+  const ANIV = { email: 'aniversario-e2e@nutridebby.test', senha: 'Nutri2026segura', nutri: 'Débora Aniversário E2E' };
+  const ANA = { email: 'aniversario-paciente-e2e@nutridebby.test', senha: 'Paciente2026segura', nome: 'Ana Aniversário Semente' };
+  const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:8025';
+  const hojeSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  const mesDoAno = `${MESES[Number(hojeSP.slice(5, 7)) - 1]} de ${hojeSP.slice(0, 4)}`;
+  /** RN-432: o aniversariante de hoje sai "agora" só entre 9h e 21h (São Paulo). */
+  const noHorario = () => {
+    const h = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
+    return h >= 9 && h < 21;
+  };
+  let painel: Page;
+  let ana: Page;
+  let linkDeSaida = '';
+  let umClique = '';
+
+  test.beforeAll(async ({ browser }) => {
+    painel = await entrarComo(browser, ANIV.email, ANIV.senha, '10.9.23.30');
+    await expect(painel).toHaveURL(/\/painel$/);
+    ana = await entrarComo(browser, ANA.email, ANA.senha, '10.9.23.31');
+    await expect(ana).toHaveURL(/\/p\/inicio$/);
+  });
+  test.afterAll(async () => {
+    await painel?.context().close();
+    await ana?.context().close();
+  });
+
+  /** O bloco do aniversário em Eu (US-414). */
+  const bloco = () => ana.getByRole('region', { name: 'Receber mensagem de aniversário da sua nutricionista' });
+
+  test('portal: o bloco com a ajuda fixa e o botão explícito; "Autorizar" → "Autorizado em {hoje}" e "Retirar autorização" (US-414)', async () => {
+    await ana.goto('/p/perfil');
+    await expect(bloco()).toBeVisible();
+    await expect(bloco().getByText('Uma mensagem por ano, por e-mail, no dia do seu aniversário. Usamos seu nome, sua data de nascimento e seu e-mail. Você pode desligar quando quiser, aqui ou pelo link no próprio e-mail.')).toBeVisible();
+    // a execução anterior pode ter deixado autorizado: a retirada no app primeiro (a tabela é só de inclusão)
+    if (await bloco().getByRole('button', { name: 'Retirar autorização' }).isVisible()) {
+      await bloco().getByRole('button', { name: 'Retirar autorização' }).click();
+      await expect(bloco().getByText('Não autorizado')).toBeVisible();
+    }
+    await expect(bloco().getByText('Não autorizado')).toBeVisible();
+    await bloco().getByRole('button', { name: 'Autorizar' }).click();
+    await expect(bloco().getByText(`Autorizado em ${br(hojeSP)}`)).toBeVisible();
+    await expect(bloco().getByRole('button', { name: 'Retirar autorização' })).toBeVisible();
+  });
+
+  test('painel: "Aniversariantes de hoje (1)" no Início; a lista do mês sem trilha; "Selecionar todos", a prévia e "Mensagens agendadas: 1." (US-412, US-413)', async () => {
+    test.skip(!noHorario(), 'o aniversariante de hoje só sai "agora" entre 9h e 21h (RN-432)');
+    await painel.goto('/painel');
+    await expect(painel.getByRole('heading', { name: 'Aniversariantes de hoje (1)' })).toBeVisible();
+    await painel.goto('/painel/agenda/aniversariantes');
+    await expect(painel.getByRole('heading', { level: 1, name: `Aniversariantes de ${mesDoAno}` })).toBeVisible();
+    await expect(painel.getByRole('link', { name: 'Aniversariantes', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(painel.getByText('Pacientes sem data de nascimento não aparecem nesta lista.')).toBeVisible();
+    const linha = painel.getByRole('row', { name: new RegExp(ANA.nome) });
+    await expect(linha.getByRole('cell', { name: 'Pode receber' })).toBeVisible();
+    await painel.getByRole('button', { name: 'Selecionar todos' }).click();
+    await expect(painel.getByRole('status').filter({ hasText: '1 marcado' })).toBeVisible();
+    await expect(painel.getByRole('button', { name: 'Limpar seleção' })).toBeVisible();
+    await painel.getByRole('button', { name: 'Enviar mensagem' }).click();
+    const previa = painel.getByRole('dialog', { name: 'Enviar mensagem' });
+    await expect(previa).toBeVisible();
+    await expect(previa.getByText('Texto padrão do NutriDebby, enviado em seu nome')).toBeVisible();
+    await expect(previa.getByText(`Feliz aniversário, {primeiro nome}! ${ANIV.nutri} deseja a você um novo ano com muita saúde.`)).toBeVisible();
+    await expect(previa.getByText('Vai para 1 paciente por e-mail, às 9h do dia do aniversário.')).toBeVisible();
+    await expect(previa.getByText('1 de hoje saem agora.')).toBeVisible();
+    const depoisDe = new Date();
+    await previa.getByRole('button', { name: 'Enviar mensagem' }).click();
+    await expect(painel.getByRole('status').filter({ hasText: 'Mensagens agendadas: 1.' })).toBeVisible();
+    await expect(painel.getByRole('heading', { level: 1 })).toBeFocused();
+    await expect(painel.getByRole('row', { name: new RegExp(ANA.nome) }).getByRole('cell', { name: 'Já enviada este ano' })).toBeVisible();
+    // o worker manda na próxima volta (cron de 1 min): o e-mail com o texto fixo, o rodapé e o link de saída
+    const m = await esperarEmail(ANA.email, { assunto: 'Uma mensagem da sua nutricionista', depoisDe, timeoutMs: 150_000 });
+    expect(m.texto).toContain(`Feliz aniversário, Ana! ${ANIV.nutri} deseja a você um novo ano com muita saúde.`);
+    expect(m.texto).toContain(`Mensagem enviada pelo NutriDebby a pedido de ${ANIV.nutri}.`);
+    linkDeSaida = primeiroLink(m.texto, '/aniversario/sair/');
+    // RFC 8058: os cabeçalhos do e-mail (a API do Mailpit, pelo id da mensagem mais recente)
+    const busca = (await (await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:"${ANA.email}" subject:"Uma mensagem da sua nutricionista"`)}&limit=1`)).json()) as { messages: { ID: string }[] };
+    const cab = (await (await fetch(`${MAILPIT}/api/v1/message/${busca.messages[0].ID}/headers`)).json()) as Record<string, string[]>;
+    expect(cab['List-Unsubscribe-Post']).toEqual(['List-Unsubscribe=One-Click']);
+    umClique = /^<(.+)>$/.exec(cab['List-Unsubscribe'][0])![1];
+    expect(new URL(umClique).pathname).toBe(new URL(linkDeSaida).pathname.replace('/aniversario/', '/api/aniversario/'));
+  });
+
+  test('saída pelo link do e-mail: o GET não grava; "Confirmar" → "Pronto."; o portal volta a "Não autorizado"; o POST de um clique → 200 sem corpo (RN-434)', async ({ browser }) => {
+    test.skip(!linkDeSaida, 'sem o e-mail desta execução (fora do horário do envio)');
+    const visitante = await (await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.23.32' } })).newPage();
+    try {
+      await visitante.goto(linkDeSaida);
+      await expect(visitante.getByRole('heading', { level: 1, name: 'Mensagens de aniversário' })).toBeVisible();
+      await expect(visitante.getByText(`Você não quer mais receber mensagens de aniversário de ${ANIV.nutri}?`)).toBeVisible();
+      // leitores de link abrem a URL: abrir de novo continua sem gravar
+      await visitante.reload();
+      await ana.goto('/p/perfil');
+      await expect(bloco().getByText(`Autorizado em ${br(hojeSP)}`)).toBeVisible();
+      await visitante.getByRole('button', { name: 'Confirmar' }).click();
+      await expect(visitante.getByRole('status').filter({ hasText: 'Pronto. Você não vai mais receber mensagens de aniversário.' })).toBeVisible();
+      await ana.goto('/p/perfil');
+      await expect(bloco().getByText('Não autorizado')).toBeVisible();
+      // o provedor de e-mail: POST de um clique, sem cookie, de outra origem — 200 sem corpo, também na repetição
+      const r = await visitante.request.post(umClique, { form: { 'List-Unsubscribe': 'One-Click' }, headers: { origin: 'https://mail.provedor.example' }, maxRedirects: 0 });
+      expect(r.status()).toBe(200);
+      expect(await r.text()).toBe('');
+    } finally {
+      await visitante.context().close();
+    }
+  });
+});

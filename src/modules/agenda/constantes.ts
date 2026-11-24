@@ -273,3 +273,98 @@ export const MSG_SOLICITACOES = {
   },
   atendimento: 'Aceite o pedido antes de registrar o atendimento.',
 } as const;
+
+/** Plano 23 (RN-431): a situação de um aniversariante na lista (US-412). */
+export type SituacaoAniversario = 'pode_receber' | 'sem_autorizacao' | 'menor' | 'ja_enviada' | 'ja_passou' | 'passou_do_horario';
+
+/**
+ * Plano 23 (RN-432, RN-434, RN-435): `{nutricionista}` do e-mail, da página de saída e do WhatsApp — o nome profissional
+ * (Perfil), ou o de exibição quando ele não estiver preenchido; nunca da tabela `user` (regra 1).
+ */
+export const nomeDaNutricionista = (t: { nomeExibicao: string; nomeProfissional: string | null }): string => t.nomeProfissional?.trim() || t.nomeExibicao;
+
+const pluralPacientes = (n: number) => (n === 1 ? '1 paciente' : `${n} pacientes`);
+
+/**
+ * Plano 23 (US-412 a US-414, spec §6.2 "Aniversariantes", "E-mail de aniversário", "Portal: Perfil" e "Saída do
+ * aniversário"): textos do aniversário. Os marcados como "fora da §6.2" vão à tabela na T12. "{n} pacientes" e "{n}
+ * marcados" no singular quando n = 1 (variação de número do texto da §6.2).
+ */
+export const MSG_ANIVERSARIO = {
+  titulo: (mes: string) => `Aniversariantes de ${mes}`,
+  aba: 'Aniversariantes',
+  mesAnterior: 'Mês anterior',
+  proximoMes: 'Próximo mês',
+  colunas: { paciente: 'Paciente', dia: 'Dia', faz: 'Faz', situacao: 'Situação' },
+  situacao: {
+    pode_receber: 'Pode receber',
+    sem_autorizacao: 'Sem autorização',
+    menor: 'Menor de idade',
+    ja_enviada: 'Já enviada este ano',
+    ja_passou: 'Aniversário já passou',
+    passou_do_horario: 'Passou do horário de hoje',
+  } satisfies Record<SituacaoAniversario, string>,
+  envioAbre: (mes: string) => `O envio abre no dia 1º de ${mes}.`,
+  semNascimento: 'Pacientes sem data de nascimento não aparecem nesta lista.',
+  selecionarTodos: 'Selecionar todos',
+  limparSelecao: 'Limpar seleção',
+  marcados: (n: number) => (n === 1 ? '1 marcado' : `${n} marcados`),
+  enviar: 'Enviar mensagem',
+  abrirWhatsapp: 'Abrir no WhatsApp',
+  registrar: 'Registrar autorização',
+  retirar: 'Retirar autorização',
+  comoAutorizou: 'Como o paciente autorizou?',
+  formas: { escrito: 'Por escrito', mensagem: 'Por mensagem', verbal: 'Verbalmente' },
+  confirmacao: 'O paciente autorizou receber mensagens de aniversário. Guarde o comprovante.',
+  textoPadrao: 'Texto padrão do NutriDebby, enviado em seu nome',
+  vaiPara: (n: number) => `Vai para ${pluralPacientes(n)} por e-mail, às 9h do dia do aniversário.`,
+  saemAgora: (n: number) => `${n} de hoje saem agora.`,
+  agendadas: (n: number) => `Mensagens agendadas: ${n}.`,
+  vazio: 'Nenhum aniversariante neste mês.',
+  menor: 'Menor de idade',
+  /** Início do painel (US-412). */
+  inicio: (n: number) => `Aniversariantes de hoje (${n})`,
+  /** Fora da §6.2: o link do cartão do Início (como "Abrir Diários"). */
+  abrir: 'Abrir Aniversariantes',
+  /** E-mail (RN-432): o nome do paciente só no corpo. */
+  assunto: 'Uma mensagem da sua nutricionista',
+  /** O texto fixo do e-mail e do WhatsApp (RN-432, RN-435). */
+  mensagem: (primeiroNome: string, nutri: string) => `Feliz aniversário, ${primeiroNome}! ${nutri} deseja a você um novo ano com muita saúde.`,
+  rodape: (nutri: string) => `Mensagem enviada pelo NutriDebby a pedido de ${nutri}.`,
+  naoQueroMais: 'Não quero mais receber mensagens de aniversário',
+  portal: {
+    titulo: 'Receber mensagem de aniversário da sua nutricionista',
+    ajuda: 'Uma mensagem por ano, por e-mail, no dia do seu aniversário. Usamos seu nome, sua data de nascimento e seu e-mail. Você pode desligar quando quiser, aqui ou pelo link no próprio e-mail.',
+    autorizar: 'Autorizar',
+    retirar: 'Retirar autorização',
+    autorizadoEm: (data: string) => `Autorizado em ${data}`,
+    naoAutorizado: 'Não autorizado',
+    menor: 'Menor de idade',
+    erro: 'Não foi possível salvar. Tente de novo.',
+  },
+  saida: {
+    titulo: 'Mensagens de aniversário',
+    pergunta: (nutri: string) => `Você não quer mais receber mensagens de aniversário de ${nutri}?`,
+    confirmar: 'Confirmar',
+    pronto: 'Pronto. Você não vai mais receber mensagens de aniversário.',
+    invalido: 'Este link não é válido.',
+  },
+  /** Fora da §6.2: erros do registro da autorização (o diálogo mostra junto dos campos). */
+  formaObrigatoria: 'Escolha como o paciente autorizou.',
+  confirmeAutorizacao: 'Confirme que o paciente autorizou.',
+  naoPodeAutorizar: 'Só paciente ativo pode autorizar mensagens de aniversário.',
+  /** Fora da §6.2: a volta das ações da linha (região de status da tela). */
+  autorizacaoRegistrada: 'Autorização registrada.',
+  autorizacaoRetirada: 'Autorização retirada.',
+  /** Fora da §6.2: nomes acessíveis (botões repetidos com o nome; colunas sem título visível; navegação e prévia). */
+  selecionar: (nome: string) => `Selecionar ${nome}`,
+  registrarDe: (nome: string) => `Registrar autorização de ${nome}`,
+  retirarDe: (nome: string) => `Retirar autorização de ${nome}`,
+  whatsappDe: (nome: string) => `Abrir no WhatsApp: ${nome}`,
+  colunaSelecao: 'Selecionar',
+  colunaAcoes: 'Ações',
+  navegacaoDoMes: 'Meses',
+  previa: 'Prévia da mensagem',
+  /** Fora da §6.2: na prévia, o lugar do primeiro nome de cada paciente. */
+  primeiroNomeNaPrevia: '{primeiro nome}',
+} as const;

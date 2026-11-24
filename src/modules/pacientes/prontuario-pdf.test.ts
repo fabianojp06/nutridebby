@@ -55,6 +55,7 @@ function dados(atendimentos: number, exames: number): DadosExportacao {
     examesEnviados: [],
     iaNutri: { consentimentos: [], mensagens: [] },
     financeiro: [],
+    aniversario: [],
     laudosForaDoZip: false,
   };
 }

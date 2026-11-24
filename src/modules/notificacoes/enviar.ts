@@ -1,11 +1,14 @@
-import { and, asc, count, eq, gt, inArray, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { Db, Tx } from '@/db/client';
-import { appointments, locaisAtendimento, notifications, patients, publicBookingRequests, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow, type TipoDeLocal } from '@/db/schema';
+import { aniversarioAutorizacoes, appointments, locaisAtendimento, notifications, patientCadastro, patients, publicBookingRequests, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow, type TipoDeLocal } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { renderEmail } from '@/email/templates';
 import type { EmailTransport } from '@/email/transport';
 import { logger, nomeDoErro, sqlstateDoErro } from '@/lib/logger';
 import { vencerSolicitacoes } from '@/modules/agenda/solicitacoes';
+import { elegivel } from '@/modules/agenda/aniversarios';
+import { diaDoAniversario } from '@/modules/agenda/calendario';
+import { partesNoFuso } from '@/modules/agenda/fuso';
 import { buscarTenant, getTenantStatus, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { adiarLembrete, ANTECEDENCIA_MS, emHorarioSilencioso, fallbackPorEmail, ignorarPendentesDoTenant, lembreteFazSentido } from './agendar';
 import { emailDaNotificacao, pushDaNotificacao, textoWhatsapp } from './mensagens';
@@ -23,7 +26,20 @@ export type LocalDoEnvio = { nome: string; tipo: TipoDeLocal; endereco: string |
  * `pedidoDaPagina` (Plano 23, RN-428): só no `pedido_nao_confirmado` — o pedido veio da página pública (há um pedido em
  * `public_booking_requests` que aponta para a consulta), não do portal: decide o link "Escolha outro horário".
  */
-export type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date; local?: LocalDoEnvio | null; pedidoDaPagina?: boolean };
+export type ContextoEnvio = {
+  n: NotificationRow;
+  paciente: PatientRow;
+  consulta: AppointmentRow | null;
+  tenant: TenantRow;
+  agora: Date;
+  local?: LocalDoEnvio | null;
+  pedidoDaPagina?: boolean;
+  /**
+   * Plano 23 (RN-431, AG-D35): só na mensagem de aniversário — o último evento da autorização (reconferida no envio) e o
+   * nome social (a saudação usa o primeiro nome dele, quando houver).
+   */
+  aniversario?: { autorizacao: { evento: string; registradoEm: Date } | null; nomeSocial: string | null };
+};
 export type Resultado =
   | { status: 'enviada'; providerMsgId?: string; providerJid?: string }
   | { status: 'ignorada'; motivo: MotivoIgnorada }
@@ -59,6 +75,8 @@ export function motivoParaIgnorar(c: ContextoEnvio): Resultado | null {
   if (c.n.tipo === 'convite_paciente' && c.paciente.userId) return ignorar('convite_aceito');
   // Plano 23 (§4.3, RN-428): o "pedido não confirmado" só sai com a consulta cancelada (recusa ou vencimento)
   if (c.n.tipo === 'pedido_nao_confirmado') return c.consulta?.status === 'cancelada' ? null : ignorar('consulta_nao_aceita');
+  // Plano 23 (RN-431): o aniversário é reconferido na hora do envio (a autorização retirada depois do agendamento não sai)
+  if (c.n.tipo === 'aniversario') return motivoDoAniversario(c);
   // lembretes, "Consulta marcada" e a resposta a "1"/"2" (T12) falam de uma consulta num horário: conferidos aqui
   if (!c.consulta || !(ehLembrete(c.n.tipo) || c.n.tipo === 'consulta_marcada' || c.n.tipo === 'resposta_confirmacao' || c.n.tipo === 'resposta_remarcar')) return null;
   // Plano 23 (§4.3): de uma consulta que ainda é pedido (`solicitada`) nada sai — só depois do aceite
@@ -71,6 +89,29 @@ export function motivoParaIgnorar(c: ContextoEnvio): Resultado | null {
   return null;
 }
 
+/**
+ * Plano 23 (RN-431, RN-432): a mensagem de aniversário na hora do envio — sem data de nascimento → `paciente_inativo`;
+ * menor de 18 no dia ou sem a autorização que conta (retirada depois do agendamento, ou registrada antes dos 18) →
+ * `sem_autorizacao`; o dia já passou (o worker parou) → `prazo_passado`; a partir das 21h no fuso → `horario_silencioso`.
+ */
+function motivoDoAniversario(c: ContextoEnvio): Resultado | null {
+  const nascimento = c.paciente.dataNascimento;
+  if (!nascimento) return ignorar('paciente_inativo');
+  const fuso = c.tenant.fuso;
+  const agora = partesNoFuso(c.agora, fuso);
+  const dia = diaDoAniversario(nascimento, Number(partesNoFuso(c.n.agendadaPara, fuso).data.slice(0, 4)));
+  switch (elegivel(c.paciente, c.aniversario?.autorizacao ?? null, dia, agora.data, { hora: Math.floor(agora.minutos / 60), fuso })) {
+    case 'pode_receber':
+      return null;
+    case 'ja_passou':
+      return ignorar('prazo_passado');
+    case 'passou_do_horario':
+      return ignorar('horario_silencioso');
+    default:
+      return ignorar('sem_autorizacao');
+  }
+}
+
 async function enviarEmail(c: ContextoEnvio, deps: DepsEnvio): Promise<Resultado> {
   const msg = emailDaNotificacao(c, deps);
   if (!msg) return { status: 'falhou', erro: 'sem_modelo' };
@@ -78,7 +119,7 @@ async function enviarEmail(c: ContextoEnvio, deps: DepsEnvio): Promise<Resultado
   try {
     // D6: a mesma linha para o mesmo início de consulta tem a mesma chave → o Resend não duplica numa repetição
     const chave = `notificacao:${c.n.id}:${c.consulta?.inicio.toISOString() ?? 'sem-consulta'}`;
-    await deps.email.transport.send({ from: deps.email.from, to: msg.para, subject: r.subject, html: r.html, text: r.text, idempotencyKey: chave });
+    await deps.email.transport.send({ from: deps.email.from, to: msg.para, subject: r.subject, html: r.html, text: r.text, idempotencyKey: chave, ...(r.headers ? { headers: r.headers } : {}) });
     return { status: 'enviada' };
   } catch (err) {
     // RNF-11: só o nome do erro — a mensagem do provedor pode trazer o destinatário
@@ -293,7 +334,23 @@ async function carregarContexto(ctx: TenantContext, tenant: TenantRow, n: Notifi
         n.tipo === 'pedido_nao_confirmado' && consulta
           ? await tx.select({ id: publicBookingRequests.id }).from(publicBookingRequests).where(eq(publicBookingRequests.appointmentId, consulta.id)).limit(1)
           : [];
-      return { n, paciente, consulta: consulta ?? null, tenant, agora: deps.agora(), local: local ? { nome: local.nome, tipo: local.tipo as TipoDeLocal, endereco: local.endereco } : null, pedidoDaPagina: !!daPagina };
+      // Plano 23 (RN-431, AG-D35): na mensagem de aniversário, o último evento da autorização e o nome social (só a projeção)
+      const aniversario =
+        n.tipo === 'aniversario'
+          ? {
+              autorizacao:
+                (
+                  await tx
+                    .select({ evento: aniversarioAutorizacoes.evento, registradoEm: aniversarioAutorizacoes.registradoEm })
+                    .from(aniversarioAutorizacoes)
+                    .where(eq(aniversarioAutorizacoes.patientId, n.patientId))
+                    .orderBy(desc(aniversarioAutorizacoes.registradoEm), desc(aniversarioAutorizacoes.id))
+                    .limit(1)
+                )[0] ?? null,
+              nomeSocial: (await tx.select({ nomeSocial: patientCadastro.nomeSocial }).from(patientCadastro).where(eq(patientCadastro.patientId, n.patientId)))[0]?.nomeSocial ?? null,
+            }
+          : undefined;
+      return { n, paciente, consulta: consulta ?? null, tenant, agora: deps.agora(), local: local ? { nome: local.nome, tipo: local.tipo as TipoDeLocal, endereco: local.endereco } : null, pedidoDaPagina: !!daPagina, aniversario };
     },
     deps.db,
   );

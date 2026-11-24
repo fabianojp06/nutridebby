@@ -29,7 +29,10 @@ vi.mock('@/modules/ia/nutri-paciente/estado', () => ({ blocoIaNutriDoApp: async 
 // Plano 17 (Tarefa 6, revisão T6-01): a seção Lembretes com algum lembrete ligado pela equipe (temLembretesNaTela) — também
 // quando o paciente desligou todos; temLembretes (ligado pelas duas partes) é do cartão de Hoje e não decide nada aqui
 vi.mock('@/modules/lembretes/paciente', () => ({ temLembretesNaTela: async () => estado.lembretes, temLembretes: async () => false }));
-vi.mock('./actions', () => ({ meusDadosAction: async () => ({}), exclusaoAction: async () => ({}), whatsappAction: async () => ({}), retirarIaAction: async () => ({}), desativarIaNutriAction: async () => ({}) }));
+vi.mock('./actions', () => ({ meusDadosAction: async () => ({}), exclusaoAction: async () => ({}), whatsappAction: async () => ({}), retirarIaAction: async () => ({}), desativarIaNutriAction: async () => ({}), autorizarAniversarioAction: async () => ({}), retirarAniversarioAction: async () => ({}) }));
+// Plano 23 (T10, US-414): o bloco do aniversário — nulo por padrão (sem data de nascimento: sem bloco), para os testes de antes não mudarem
+const aniv = vi.hoisted(() => ({ valor: null as null | { situacao: 'autorizado' | 'nao_autorizado' | 'menor'; autorizadoEm: Date | null } }));
+vi.mock('@/modules/agenda/aniversarios', () => ({ aniversarioNoApp: async () => aniv.valor }));
 // no servidor o Instalar não renderiza nada (o estado vem do navegador): o marcador deixa a posição da seção conferida
 vi.mock('./instalar-no-eu', () => ({ InstalarNoEu: () => 'Instalar o app' }));
 const { default: Eu } = await import('./page');
@@ -187,5 +190,53 @@ describe('/p/perfil — Eu (US-197, molde D-Assuntos)', () => {
       'Pedir a exclusão? Sua nutricionista tem até 15 dias para responder. O prontuário clínico e os registros de pagamento das consultas são guardados pelo prazo legal.',
     );
     expect(CONFIRMAR_EXCLUSAO).toBe(MSG_FINANCEIRO.lgpd.confirmarExclusaoPortal);
+  });
+
+  describe('Plano 23 (T10, US-414, §6.2): "Receber mensagem de aniversário da sua nutricionista"', () => {
+    const AJUDA = 'Uma mensagem por ano, por e-mail, no dia do seu aniversário. Usamos seu nome, sua data de nascimento e seu e-mail. Você pode desligar quando quiser, aqui ou pelo link no próprio e-mail.';
+    it('não autorizado: o h2, a ajuda fixa, "Não autorizado" e o botão explícito "Autorizar" (nada marcado por padrão); depois de Privacidade e antes de "Como usar o app"', async () => {
+      blocoIa.valor = null;
+      aniv.valor = { situacao: 'nao_autorizado', autorizadoEm: null };
+      try {
+        const html = renderToStaticMarkup(await eu());
+        expect(html).toMatch(/<section aria-labelledby="eu-aniversario"[^>]*><h2 id="eu-aniversario"[^>]*>Receber mensagem de aniversário da sua nutricionista<\/h2>/);
+        expect(html).toContain(AJUDA);
+        expect(html).toContain('Não autorizado');
+        expect(html).toMatch(/<button[^>]*type="submit"[^>]*>Autorizar<\/button>/);
+        expect(html).not.toMatch(/<input[^>]*type="checkbox"[^>]*checked/);
+        const ordem = ['>Privacidade<', 'Receber mensagem de aniversário da sua nutricionista', 'Como usar o app'];
+        const pos = ordem.map((t) => html.indexOf(t));
+        expect([...pos].sort((a, b) => a - b)).toEqual(pos);
+      } finally {
+        aniv.valor = null;
+      }
+    });
+
+    it('autorizado: "Autorizado em {dd/mm/aaaa}" no fuso do consultório e "Retirar autorização"', async () => {
+      blocoIa.valor = null;
+      aniv.valor = { situacao: 'autorizado', autorizadoEm: new Date('2026-11-21T01:30:00Z') }; // 20/11 às 22h30 em São Paulo
+      try {
+        const html = renderToStaticMarkup(await eu());
+        expect(html).toContain('Autorizado em 20/11/2026');
+        expect(html).toMatch(/<button[^>]*>Retirar autorização<\/button>/);
+        expect(html).not.toMatch(/<button[^>]*>Autorizar<\/button>/);
+      } finally {
+        aniv.valor = null;
+      }
+    });
+
+    it('menor de 18: "Autorizar" desabilitado, com "Menor de idade"; sem data de nascimento: sem bloco', async () => {
+      blocoIa.valor = null;
+      aniv.valor = { situacao: 'menor', autorizadoEm: null };
+      try {
+        const html = renderToStaticMarkup(await eu());
+        expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Autorizar<\/button>/);
+        expect(html).toContain('Menor de idade');
+        aniv.valor = null;
+        expect(renderToStaticMarkup(await eu())).not.toContain('eu-aniversario');
+      } finally {
+        aniv.valor = null;
+      }
+    });
   });
 });

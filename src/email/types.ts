@@ -101,9 +101,21 @@ export type EmailMessage =
    * Plano 23 (RN-428, AG-D23): o pedido da pessoa nova foi recusado ou venceu. `link` = a página pública (/n/<slug>) só
    * ligada; senão nulo. Nunca motivo (a recusa da pessoa nova nem tem campo de motivo).
    */
-  | { tipo: 'pedido_nao_confirmado_publico'; para: string; quando: string; link: string | null };
+  | { tipo: 'pedido_nao_confirmado_publico'; para: string; quando: string; link: string | null }
+  /**
+   * Plano 23 (RN-432, RN-434, AG-D35): a mensagem de aniversário — `nome` = primeiro nome (o social, quando houver);
+   * `nutricionista` = o nome profissional, ou o de exibição; `link` = a página de saída (/aniversario/sair/<token>) e
+   * `umClique` = a rota do List-Unsubscribe (RFC 8058). Texto fixo, sem dado de saúde.
+   */
+  | { tipo: 'aniversario'; para: string; nome: string; nutricionista: string; link: string; umClique: string };
 
 /** Payload do job `email` no pg-boss: nada legível além do tenant (RN-15). */
 export type EmailJobData = { tenantId: string | null; selado: string };
 
-export type RenderedEmail = { subject: string; html: string; text: string };
+export type RenderedEmail = {
+  subject: string;
+  html: string;
+  text: string;
+  /** Plano 23 (RN-434): cabeçalhos do e-mail (List-Unsubscribe e List-Unsubscribe-Post), só no aniversário. */
+  headers?: Record<string, string>;
+};

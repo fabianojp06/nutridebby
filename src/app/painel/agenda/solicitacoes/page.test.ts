@@ -206,6 +206,6 @@ describe('a chave em Horários e a aba nas telas da agenda (US-407, AG-D72)', ()
     await chaveDosPedidos(app.db, T, false); // desligou com um pendente: a aba fica até a resposta
     const h = await agenda();
     const abas = /<nav aria-label="Seções da agenda">[\s\S]*?<\/nav>/.exec(h)?.[0] ?? '';
-    expect(texto(abas).trim().split(/\s{1,}(?=[A-ZÁÉÍÓÚ])/)).toEqual(['Agenda', 'Solicitações (1)', 'Pendências', 'Horários', 'Locais']);
+    expect(texto(abas).trim().split(/\s{1,}(?=[A-ZÁÉÍÓÚ])/)).toEqual(['Agenda', 'Solicitações (1)', 'Aniversariantes', 'Pendências', 'Horários', 'Locais']);
   });
 });

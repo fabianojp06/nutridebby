@@ -59,3 +59,24 @@ describe('resendTransport (produção)', () => {
     expect(err.message).not.toContain('debby@exemplo.com');
   });
 });
+
+describe('Plano 23 (RN-434): cabeçalhos do e-mail (List-Unsubscribe)', () => {
+  const headers = { 'List-Unsubscribe': '<https://app.exemplo.com/api/aniversario/sair/abc>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' };
+  it('chegam ao Resend (`headers`) e ao Mailpit (`Headers`)', async () => {
+    const send = vi.fn(async () => ({ data: { id: 'r1' }, error: null, headers: null }));
+    await resendTransport('re_x', { emails: { send } } as unknown as Pick<Resend, 'emails'>).send({ ...email, headers });
+    expect(send).toHaveBeenCalledWith({ from: email.from, to: 'debby@exemplo.com', subject: 'Assunto', html: '<p>oi</p>', text: 'oi', headers }, { idempotencyKey: 'job-1' });
+    const fetchImpl = vi.fn(async () => new Response('{"ID":"x"}', { status: 200 }));
+    await mailpitTransport('http://localhost:8025', fetchImpl).send({ ...email, headers });
+    const body = JSON.parse((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(body.Headers).toEqual(headers);
+  });
+  it('sem `headers`, nada muda para os chamadores de hoje (nem a chave aparece)', async () => {
+    const send = vi.fn(async () => ({ data: { id: 'r1' }, error: null, headers: null }));
+    await resendTransport('re_x', { emails: { send } } as unknown as Pick<Resend, 'emails'>).send(email);
+    expect(Object.keys((send.mock.calls[0] as unknown as [Record<string, unknown>])[0])).not.toContain('headers');
+    const fetchImpl = vi.fn(async () => new Response('{"ID":"x"}', { status: 200 }));
+    await mailpitTransport('http://localhost:8025', fetchImpl).send(email);
+    expect(Object.keys(JSON.parse((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body as string))).not.toContain('Headers');
+  });
+});

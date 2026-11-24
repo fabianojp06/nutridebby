@@ -44,6 +44,7 @@ export const SEM_CONTA_PERMITIDOS: readonly string[] = [
   'src/modules/notificacoes/whatsapp/webhook.ts',
   'src/modules/pacientes/convite-paciente.ts',
   'src/modules/ficha/no-app.ts',
+  'src/modules/agenda/aniversarios.ts',
 ];
 
 export class TenantContextError extends Error {

@@ -366,3 +366,32 @@ describe('Plano 23 (T7, §6.2): pedido da página pública', () => {
     for (const r of [com, sem]) expect(`${r.subject} ${r.text}`).not.toMatch(/motivo/i);
   });
 });
+
+describe('Plano 23 (T10, RN-432, RN-434, §6.2): mensagem de aniversário', () => {
+  const msg = {
+    tipo: 'aniversario' as const,
+    para: 'ana@x',
+    nome: 'Ana',
+    nutricionista: 'Débora Silva',
+    link: 'https://x.dev/aniversario/sair/tok',
+    umClique: 'https://x.dev/api/aniversario/sair/tok',
+  };
+  it('assunto sem o nome; corpo, rodapé e o link de saída com o texto fixo; sem oferta nem dado de saúde', () => {
+    const r = renderEmail(msg);
+    expect(r.subject).toBe('Uma mensagem da sua nutricionista');
+    expect(r.text).toBe(
+      'Feliz aniversário, Ana! Débora Silva deseja a você um novo ano com muita saúde.\n\nMensagem enviada pelo NutriDebby a pedido de Débora Silva.\n\nNão quero mais receber mensagens de aniversário: https://x.dev/aniversario/sair/tok',
+    );
+    expect(r.html).toContain('Feliz aniversário, Ana! Débora Silva deseja a você um novo ano com muita saúde.');
+    expect(r.html).toContain('Mensagem enviada pelo NutriDebby a pedido de Débora Silva.');
+    expect(r.html).toMatch(/<a href="https:\/\/x\.dev\/aniversario\/sair\/tok"[^>]*>Não quero mais receber mensagens de aniversário<\/a>/);
+    expect(`${r.subject} ${r.text}`).not.toMatch(/desconto|promo|preço|sorteio|peso|consulta/i);
+  });
+  it('cabeçalhos RFC 8058: List-Unsubscribe com a URL da rota de um clique e List-Unsubscribe-Post; os outros e-mails sem cabeçalho', () => {
+    expect(renderEmail(msg).headers).toEqual({ 'List-Unsubscribe': '<https://x.dev/api/aniversario/sair/tok>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' });
+    expect(renderEmail({ tipo: 'redefinir_senha', para: 'a@b.dev', link: 'https://x.dev/r/1' }).headers).toBeUndefined();
+  });
+  it('escapa o nome vindo do cadastro', () => {
+    expect(renderEmail({ ...msg, nome: 'Ana <b>x</b>' }).html).not.toContain('<b>x</b>');
+  });
+});

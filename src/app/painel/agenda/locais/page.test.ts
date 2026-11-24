@@ -121,18 +121,19 @@ describe('Locais de atendimento (US-400)', () => {
     expect(textoDe(await html())).toContain('O link do Perfil mudou depois da atualização: confira a sala deste local.');
   });
 
-  it('abas do PR 2: Agenda · Pendências · Horários · Locais, sem link para página que ainda não existe (AG-D72)', async () => {
+  it('abas: Agenda · Aniversariantes (T10) · Pendências · Horários · Locais, sem link para página que não existe (AG-D72; Solicitações só com a chave ou pedido)', async () => {
     const h = await html();
     const nav = h.match(/<nav[^>]*aria-label="Seções da agenda"[^>]*>([\s\S]*?)<\/nav>/)![1];
     const links = [...nav.matchAll(/<a [^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/g)].map((m) => [m[1], m[2]]);
     expect(links).toEqual([
       ['/painel/agenda', 'Agenda'],
+      ['/painel/agenda/aniversariantes', 'Aniversariantes'],
       ['/painel/agenda/pendencias', 'Pendências'],
       ['/painel/agenda/horarios', 'Horários'],
       ['/painel/agenda/locais', 'Locais'],
     ]);
     expect([...nav.matchAll(/<a [^>]*aria-current="page"[^>]*>([^<]*)<\/a>/g)].map((m) => m[1])).toEqual(['Locais']);
-    expect(nav).not.toMatch(/Solicitações|Aniversariantes/);
+    expect(nav).not.toMatch(/Solicitações/);
   });
 
   it('foco (RNF-401): o h1 recebe o foco depois das ações — FocoNoTitulo só com ok/erro, com key pelo marcador `r`', async () => {

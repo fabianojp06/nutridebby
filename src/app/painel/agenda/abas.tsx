@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { MSG_SOLICITACOES } from '@/modules/agenda/constantes';
+import { MSG_ANIVERSARIO, MSG_SOLICITACOES } from '@/modules/agenda/constantes';
 
-export type AbaDaAgenda = 'agenda' | 'solicitacoes' | 'pendencias' | 'horarios' | 'locais';
+export type AbaDaAgenda = 'agenda' | 'solicitacoes' | 'pendencias' | 'horarios' | 'locais' | 'aniversariantes';
 
 /**
  * Plano 23 (spec §4.1): abas das telas da agenda, como links com `aria-current="page"` (não `role=tablist`, como a navegação
@@ -18,10 +18,11 @@ const ABAS: readonly { id: AbaDaAgenda; href: string; rotulo: string }[] = [
   { id: 'locais', href: '/painel/agenda/locais', rotulo: 'Locais' },
 ];
 
-export function AbasDaAgenda({ atual, solicitacoes = null }: { atual: AbaDaAgenda; solicitacoes?: number | null; comAniversariantes?: boolean }) {
+export function AbasDaAgenda({ atual, solicitacoes = null, comAniversariantes = true }: { atual: AbaDaAgenda; solicitacoes?: number | null; comAniversariantes?: boolean }) {
   const abas = [
     ABAS[0],
     ...(solicitacoes === null ? [] : [{ id: 'solicitacoes' as const, href: '/painel/agenda/solicitacoes', rotulo: MSG_SOLICITACOES.aba(solicitacoes) }]),
+    ...(comAniversariantes ? [{ id: 'aniversariantes' as const, href: '/painel/agenda/aniversariantes', rotulo: MSG_ANIVERSARIO.aba }] : []),
     ...ABAS.slice(1),
   ];
   return (

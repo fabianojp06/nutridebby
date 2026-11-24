@@ -5,7 +5,7 @@ import { makeDb } from '../../../test/db';
 import { documentoNoBanco } from '../../../test/documentos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import type { Db } from '@/db/client';
-import { accessEvents, auditLog, diaryEntries, locaisAtendimento, privacyRequests, tenants } from '@/db/schema';
+import { accessEvents, auditLog, diaryEntries, locaisAtendimento, patients, privacyRequests, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { situacaoDoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
 import { situacaoDaCota } from '@/modules/notificacoes/whatsapp/cota';
@@ -13,6 +13,7 @@ import { pedidosDoTitularAbertos } from '@/modules/pacientes/lgpd';
 import { metricasDeSucesso } from '@/modules/plataforma/metricas-sucesso';
 import { contarDiariosNaoVistos } from '@/modules/portal/diario-nutri';
 import { lerInicio, MSG_INICIO, resumoDoDia, resumoDoDiaNaTransacao, textoSemProxima } from './inicio';
+import { MSG_ANIVERSARIO } from './constantes';
 import { contarPendenciasDePresenca, indicadoresDaAgenda, novidadesDaAgenda } from './presenca';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -180,6 +181,7 @@ describe('Início em bento (D22)', () => {
       metricas: await metricasDeSucesso(T.ctx, tenant, agora, app.db),
       documentosAguardando: null, // D20: sem a liberação, nem conta
       solicitacoes: 0, // Plano 23 (US-409): nenhum pedido
+      aniversariantesHoje: 0, // Plano 23 (US-412): nenhum aniversariante hoje
     });
     expect(r.pendentes).toBe(1);
     expect(r.pedidos).toHaveLength(1);
@@ -224,5 +226,21 @@ describe('Início em bento (D22)', () => {
   it('sem consulta hoje: proxima null e totais zerados', async () => {
     const T = await novoTenant(app.db);
     expect(await resumoDoDia(T.ctx, fuso, agora, app.db)).toEqual({ proxima: null, hoje: { total: 0, confirmadas: 0, pedidosRemarcacao: 0 }, agenda: [] });
+  });
+
+  it('Plano 23 (US-412, T10): "Aniversariantes de hoje (2)" — ativos com aniversário hoje no fuso, na mesma transação; sem nenhum, 0', async () => {
+    const T = await novoTenant(app.db);
+    const [antes] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+    expect((await lerInicio(T.ctx, antes, agora, { whatsappLigado: false }, app.db)).aniversariantesHoje).toBe(0);
+    await novoPaciente(app.db, T.ctx, { nome: 'Ana Hoje', dataNascimento: '1990-10-20' });
+    await novoPaciente(app.db, T.ctx, { nome: 'Bia Hoje', dataNascimento: '2012-10-20' }); // menor também conta (o Início só avisa)
+    await novoPaciente(app.db, T.ctx, { nome: 'Caio Amanhã', dataNascimento: '1990-10-21' });
+    const duda = await novoPaciente(app.db, T.ctx, { nome: 'Duda Arquivada', dataNascimento: '1990-10-20' });
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, duda.id)), app.db);
+    const c = contandoTransacoes(app.db);
+    const r = await lerInicio(T.ctx, antes, agora, { whatsappLigado: false }, c.db);
+    expect(r.aniversariantesHoje).toBe(2);
+    expect(c.n()).toBe(1);
+    expect(MSG_ANIVERSARIO.inicio(r.aniversariantesHoje)).toBe('Aniversariantes de hoje (2)');
   });
 });

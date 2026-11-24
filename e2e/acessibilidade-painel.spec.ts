@@ -579,3 +579,70 @@ test('Plano 23: Início com "Solicitações (2)", a fila (com as voltas), a cons
   }
   expect(falhas).toEqual([]);
 });
+
+/**
+ * Plano 23 (T10, US-412 a US-414, RNF-401): "Aniversariantes de {mês}" num consultório próprio da semente
+ * (`e2e-aniversario-axe`, só leitura: a prévia e o registro da autorização são abertos e fechados com Esc, nunca
+ * confirmados) — a lista com as situações (Já enviada, Pode receber com "Abrir no WhatsApp", Menor de idade com o botão
+ * desabilitado, Sem autorização), a prévia do envio aberta e o diálogo "Como o paciente autorizou?", nos três modos, a 1280
+ * e a 360 px. A prévia precisa de um "Pode receber" (o "Caio Prévia Semente" faz aniversário no último dia do mês): no
+ * último dia, depois das 21h, não há — essa parte fica para a próxima execução. IP: 10.9.23.33 (bloco do Plano 23, AG-D56).
+ */
+test('Plano 23: Aniversariantes com a prévia aberta e o registro da autorização, nos três modos, 1280 e 360 px', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const AXE = { email: 'aniversario-axe-e2e@nutridebby.test', senha: 'Nutri2026segura' }; // copiada da semente
+  const pagina = await entrarComo(browser, AXE.email, AXE.senha, '10.9.23.33');
+  await expect(pagina).toHaveURL(/\/painel$/);
+  const falhas: string[] = [];
+  try {
+    for (const [modo, tema, aparelho] of [
+      ['claro', 'Claro', 'light'],
+      ['escuro', 'Escuro', 'light'],
+      ['igual ao aparelho (aparelho escuro)', 'Igual ao aparelho', 'dark'],
+    ] as const) {
+      await escolherTema(pagina, tema);
+      await pagina.emulateMedia({ colorScheme: aparelho });
+      for (const [largura, altura] of [[1280, 720], [360, 780]] as const) {
+        await pagina.setViewportSize({ width: largura, height: altura });
+        for (const url of ['/painel', '/painel/agenda/aniversariantes', '/painel/agenda/aniversariantes?ok=agendadas&n=2&envio=1']) {
+          await pagina.goto(url);
+          await pagina.waitForLoadState('networkidle');
+          if (url === '/painel') await expect(pagina.getByRole('heading', { name: /^Aniversariantes de hoje \(\d+\)$/ })).toBeVisible();
+          else await expect(pagina.getByRole('row', { name: /Duda Menor Semente/ }).getByText('Menor de idade').first()).toBeVisible();
+          for (const v of await violacoes(pagina, undefined, { ignorarForaDaTela: largura === 360 })) falhas.push(`${modo} ${largura} px ${url} — ${v}`);
+          if (largura === 360 && !(await pagina.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${modo} 360 px ${url} — rola na horizontal`);
+        }
+        await pagina.goto('/painel/agenda/aniversariantes');
+        await pagina.waitForLoadState('networkidle');
+        // a prévia aberta (só com algum "Pode receber"); Esc fecha e o foco volta a "Enviar mensagem"
+        if (await pagina.getByRole('button', { name: 'Selecionar todos' }).isEnabled()) {
+          await pagina.getByRole('button', { name: 'Selecionar todos' }).click();
+          await pagina.getByRole('button', { name: 'Enviar mensagem' }).click();
+          const previa = pagina.getByRole('dialog', { name: 'Enviar mensagem' });
+          await expect(previa.getByText('Texto padrão do NutriDebby, enviado em seu nome')).toBeVisible();
+          await expect(previa.getByRole('button', { name: 'Enviar mensagem' })).toBeFocused();
+          for (const v of await violacoes(pagina)) falhas.push(`${modo} ${largura} px prévia aberta — ${v}`);
+          await pagina.keyboard.press('Escape');
+          await expect(previa).toBeHidden();
+          await expect(pagina.getByRole('button', { name: 'Enviar mensagem' })).toBeFocused();
+        }
+        // "Registrar autorização" aberto (a forma em rádios, a confirmação obrigatória); Esc fecha sem gravar
+        const registrar = pagina.getByRole('button', { name: 'Registrar autorização de Eva Sem Autorização Semente' });
+        await registrar.click();
+        const dialogo = pagina.getByRole('dialog', { name: 'Registrar autorização de Eva Sem Autorização Semente' });
+        await expect(dialogo.getByRole('group', { name: 'Como o paciente autorizou?' })).toBeVisible();
+        await expect(dialogo.getByRole('radio', { name: 'Por escrito' })).toBeFocused();
+        for (const v of await violacoes(pagina)) falhas.push(`${modo} ${largura} px registrar autorização aberto — ${v}`);
+        await pagina.keyboard.press('Escape');
+        await expect(dialogo).toBeHidden();
+        await expect(registrar).toBeFocused();
+      }
+    }
+  } finally {
+    await pagina.setViewportSize({ width: 1280, height: 720 });
+    await pagina.emulateMedia({ colorScheme: 'light' });
+    await escolherTema(pagina, 'Igual ao aparelho');
+    await pagina.context().close();
+  }
+  expect(falhas).toEqual([]);
+});

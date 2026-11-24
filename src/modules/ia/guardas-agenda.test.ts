@@ -45,7 +45,7 @@ describe('RN-439: a agenda nova fica fora da IA', () => {
   });
 
   it('os quatro módulos proibidos existem (a guarda não passa por um nome errado)', () => {
-    // aniversarios.ts chega na T10; até lá, a guarda vale para o nome
+    // desde a T10, os quatro existem
     const existentes = PROIBIDOS.filter((p) => {
       try {
         readFileSync(p);
@@ -54,7 +54,7 @@ describe('RN-439: a agenda nova fica fora da IA', () => {
         return false;
       }
     });
-    expect(existentes).toEqual(expect.arrayContaining(['src/modules/agenda/locais.ts', 'src/modules/agenda/retorno.ts', 'src/modules/agenda/solicitacoes.ts']));
+    expect(existentes).toEqual(PROIBIDOS);
   });
 });
 

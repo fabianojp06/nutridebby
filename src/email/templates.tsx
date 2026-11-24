@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
+import { MSG_ANIVERSARIO } from '@/modules/agenda/constantes';
 import { DESTINO_ROTULO, MSG_AUTORIZACAO, type UsoIA } from '@/modules/ia/constantes';
 import { NOME_IA_NUTRI, RETENCAO_DIAS, RISCO_REVOGADO_MAX_DIAS } from '@/modules/ia/nutri-paciente/constantes';
 import { DESCRICAO_DO_USO } from '@/modules/ia/textos-legais';
@@ -481,6 +482,28 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
     case 'pedido_nao_confirmado_publico':
       // Plano 23 (RN-428, AG-D23): o mesmo texto do paciente; o link só com a página pública ligada
       return simples('Seu pedido de consulta não foi confirmado', [`O horário de ${msg.quando} não foi confirmado.`], msg.link ? { href: msg.link, rotulo: 'Escolha outro horário' } : undefined);
+    case 'aniversario': {
+      // Plano 23 (RN-432, RN-434, §6.2): texto fixo, sem oferta, preço nem dado de saúde; o nome do paciente só no corpo; o
+      // rodapé diz que o envio é automático, a pedido da nutricionista; o link de saída na página e, no cabeçalho, a rota
+      // de um clique (RFC 8058)
+      const subject = MSG_ANIVERSARIO.assunto;
+      const corpo = MSG_ANIVERSARIO.mensagem(msg.nome, msg.nutricionista);
+      const rodape = MSG_ANIVERSARIO.rodape(msg.nutricionista);
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            <P>{corpo}</P>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#52525b' }}>{rodape}</p>
+            <p style={{ margin: 0, fontSize: 13 }}>
+              <a href={msg.link} style={{ color: COR }}>{MSG_ANIVERSARIO.naoQueroMais}</a>
+            </p>
+          </Layout>,
+        ),
+        text: [corpo, rodape, `${MSG_ANIVERSARIO.naoQueroMais}: ${msg.link}`].join('\n\n'),
+        headers: { 'List-Unsubscribe': `<${msg.umClique}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+      };
+    }
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);

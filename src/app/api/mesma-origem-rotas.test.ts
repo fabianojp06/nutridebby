@@ -26,6 +26,7 @@ const EXCLUIDAS: Record<string, string> = {
   'erro-cliente': 'erro do navegador para o Sentry: sem sessão',
   health: 'só GET, sem sessão',
   arquivos: 'só GET; vale a URL assinada (signFileUrl), não o cookie',
+  aniversario: 'POST de um clique (RFC 8058) vindo do provedor de e-mail: sem cookie; vale o token HMAC',
 };
 const METODOS = ['POST', 'PUT', 'PATCH', 'DELETE'] as const;
 const ID = '00000000-0000-4000-8000-000000000000';

@@ -15,7 +15,7 @@ const chaveDosLimites = () => (chave ??= Buffer.from(hkdfSync('sha256', encrypti
 
 /** RN-16 / LGPD: a linha guarda o HMAC do IP, do e-mail ou do pedido do webhook (JWT + corpo), nunca o valor. */
 export function chaveDoLimite(
-  tipo: 'ip' | 'email-hora' | 'webhook' | 'verificacao-ip' | 'documento-ip' | 'documento-envio' | 'documento-codigo-ip' | 'totp-erro' | 'totp-usado' | 'autorizacao-ia-ip' | 'pedido-link-ip',
+  tipo: 'ip' | 'email-hora' | 'webhook' | 'verificacao-ip' | 'documento-ip' | 'documento-envio' | 'documento-codigo-ip' | 'totp-erro' | 'totp-usado' | 'autorizacao-ia-ip' | 'pedido-link-ip' | 'aniversario-sair',
   valor: string,
 ): string {
   return `${tipo}:${createHmac('sha256', chaveDosLimites()).update(valor).digest('base64url')}`;

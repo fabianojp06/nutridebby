@@ -6,16 +6,18 @@ import { transporteFalso, type TransporteFalso } from '../../../test/email';
 import { depsDeEnvio } from '../../../test/notificacoes';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, locaisAtendimento, notifications, patients, pushSubscriptions, tenants } from '@/db/schema';
+import { aniversarioAutorizacoes, appointments, locaisAtendimento, notifications, patientCadastro, patients, pushSubscriptions, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { encryptionKey } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
 import { agendarPelaNutri, moverConsulta } from '@/modules/agenda/consultas';
+import { lerLinkDeSaida } from '@/modules/agenda/aniversario-link';
 import { chaveDosLinks, lerLinkConsulta } from '@/modules/agenda/link-consulta';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { partesNoFuso } from '@/modules/agenda/fuso';
 import { LOTE_POR_EXECUCAO, ordemDaRodada, processarNotificacoes, TRAVADA_MS } from './enviar';
+import { textoWhatsapp } from './mensagens';
 import type { ProvedorPush } from './push';
 
 // R14 e a corrida da suspensão: conta as listagens de tenants e devolve uma leitura antiga (implementação real por baixo)
@@ -417,5 +419,72 @@ describe('Plano 23 (T6b): o pedido no envio e o vencimento na varredura (§4.3, 
     await processarNotificacoes(d);
     expect(d.transport.enviados.map((e) => e.to)).toEqual([ana.email]);
     expect((await withTenant(A.ctx, (tx) => tx.select({ s: appointments.status }).from(appointments).where(eq(appointments.id, pedido)), app.db))[0].s).toBe('solicitada');
+  });
+});
+
+describe('Plano 23 (T10): a mensagem de aniversário no envio (RN-431, RN-432, RN-434, AG-D35, C-405)', () => {
+  const aniversario = async (T: TenantDeTeste, patientId: string, agendadaPara: Date) =>
+    (await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId, tipo: 'aniversario', canal: 'email', agendadaPara }).returning(), app.db))[0];
+  const autorizou = (T: TenantDeTeste, patientId: string) =>
+    withTenant(T.ctx, (tx) => tx.insert(aniversarioAutorizacoes).values({ tenantId: T.tenantId, patientId, evento: 'autorizou', origem: 'nutri', forma: 'escrito', registradoPor: T.nutriId }), app.db);
+  const linha = async (T: TenantDeTeste, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.id, id)), app.db))[0];
+  // o relógio do banco grava a autorização "agora"; o envio do teste é no próximo aniversário (no futuro), já com 18 anos
+  const ano = new Date().getUTCFullYear() + 1;
+
+  it('às 9h sai o e-mail com a saudação pelo primeiro nome social, o nome profissional da nutricionista, o link de saída e os cabeçalhos do RFC 8058', async () => {
+    const T = await novoTenant(app.db, 'Consultório Debby');
+    await app.db.update(tenants).set({ nomeProfissional: 'Débora Silva' }).where(eq(tenants.id, T.tenantId));
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Maria Souza', dataNascimento: '1990-03-15' });
+    await withTenant(T.ctx, (tx) => tx.insert(patientCadastro).values({ tenantId: T.tenantId, patientId: ana.id, nomeSocial: 'Bia Souza' }), app.db);
+    await autorizou(T, ana.id);
+    const n = await aniversario(T, ana.id, em(`${ano}-03-15`, '09:00'));
+    const d = deps(em(`${ano}-03-15`, '09:00'));
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    expect(await linha(T, n.id)).toMatchObject({ status: 'enviada' });
+    const [e] = d.transport.enviados;
+    expect(e).toMatchObject({ to: ana.email, subject: 'Uma mensagem da sua nutricionista', idempotencyKey: `notificacao:${n.id}:sem-consulta` });
+    expect(e.text.split('\n\n').slice(0, 2)).toEqual(['Feliz aniversário, Bia! Débora Silva deseja a você um novo ano com muita saúde.', 'Mensagem enviada pelo NutriDebby a pedido de Débora Silva.']);
+    const token = /\/aniversario\/sair\/([A-Za-z0-9_-]{66})$/.exec(e.text)![1];
+    expect(lerLinkDeSaida(token)).toEqual({ tenantId: T.tenantId, patientId: ana.id });
+    expect(e.headers).toEqual({ 'List-Unsubscribe': `<http://localhost:3000/api/aniversario/sair/${token}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' });
+    expect(e.text).not.toContain('Ana');
+  });
+
+  it('sem nome profissional e sem nome social: o nome de exibição e o primeiro nome de registro', async () => {
+    const T = await novoTenant(app.db, 'Consultório Debby');
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Maria Souza', dataNascimento: '1990-03-15' });
+    await autorizou(T, ana.id);
+    await aniversario(T, ana.id, em(`${ano}-03-15`, '09:00'));
+    const d = deps(em(`${ano}-03-15`, '09:00'));
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    expect(d.transport.enviados[0].text.split('\n\n')[0]).toBe('Feliz aniversário, Ana! Consultório Debby deseja a você um novo ano com muita saúde.');
+  });
+
+  it('reconferência no envio (RN-431): arquivado → paciente_inativo; sem autorização → sem_autorizacao; o dia já passou → prazo_passado; nada sai', async () => {
+    const T = await novoTenant(app.db);
+    const arquivada = await novoPaciente(app.db, T.ctx, { dataNascimento: '1990-03-15' });
+    const semAut = await novoPaciente(app.db, T.ctx, { dataNascimento: '1990-03-15' });
+    const atrasada = await novoPaciente(app.db, T.ctx, { dataNascimento: '1990-03-14' });
+    for (const p of [arquivada, atrasada]) await autorizou(T, p.id);
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, arquivada.id)), app.db);
+    const ids = {
+      arquivada: (await aniversario(T, arquivada.id, em(`${ano}-03-15`, '09:00'))).id,
+      semAut: (await aniversario(T, semAut.id, em(`${ano}-03-15`, '09:00'))).id,
+      atrasada: (await aniversario(T, atrasada.id, em(`${ano}-03-14`, '09:00'))).id, // o worker parou: só roda no dia seguinte
+    };
+    const d = deps(em(`${ano}-03-15`, '09:00'));
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    expect(await linha(T, ids.arquivada)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'paciente_inativo' });
+    expect(await linha(T, ids.semAut)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'sem_autorizacao' });
+    expect(await linha(T, ids.atrasada)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'prazo_passado' });
+    expect(d.transport.enviados).toEqual([]);
+  });
+
+  it('C-405: nada por WhatsApp — textoWhatsapp devolve null para o aniversário', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx, { dataNascimento: '1990-03-15' });
+    const n = await aniversario(T, ana.id, em(`${ano}-03-15`, '09:00'));
+    const tenant = (await buscarTenant(app.db, T.tenantId))!;
+    expect(textoWhatsapp({ n, paciente: ana, consulta: null, tenant, agora: em(`${ano}-03-15`, '09:00') })).toBeNull();
   });
 });

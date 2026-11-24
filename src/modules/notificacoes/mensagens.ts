@@ -2,6 +2,8 @@ import type { AppointmentRow, PatientRow, TenantRow } from '@/db/schema';
 import type { EmailMessage } from '@/email/types';
 import { openSecret } from '@/lib/crypto';
 import { urlDoApp } from '@/lib/url-do-app';
+import { assinarLinkDeSaida } from '@/modules/agenda/aniversario-link';
+import { nomeDaNutricionista } from '@/modules/agenda/constantes';
 import { partesNoFuso, quandoComFuso, rotuloDoFuso } from '@/modules/agenda/fuso';
 import { assinarLinkConsulta, urlDaConsulta } from '@/modules/agenda/link-consulta';
 import { linkDeOutroHorario } from '@/modules/agenda/link-outro-horario';
@@ -46,6 +48,19 @@ export function linkDaConsulta(c: { consulta: AppointmentRow; tenant: TenantRow;
  */
 export function emailDaNotificacao(c: ContextoEnvio, deps: { appUrl: string; chaveLinks: Buffer }): EmailMessage | null {
   const evento = c.n.tipo;
+  // Plano 23 (RN-432, RN-434, AG-D35): a mensagem de aniversário — o primeiro nome social (ou o de registro), o nome
+  // profissional (ou o de exibição) e o link de saída: a página (corpo) e a rota de um clique (List-Unsubscribe)
+  if (evento === 'aniversario') {
+    const token = assinarLinkDeSaida({ tenantId: c.tenant.id, patientId: c.paciente.id });
+    return {
+      tipo: 'aniversario',
+      para: c.paciente.email,
+      nome: primeiroNome(c.aniversario?.nomeSocial ?? c.paciente.nome),
+      nutricionista: nomeDaNutricionista(c.tenant),
+      link: urlDoApp(deps.appUrl, `/aniversario/sair/${token}`),
+      umClique: urlDoApp(deps.appUrl, `/api/aniversario/sair/${token}`),
+    };
+  }
   // Plano 23 (RN-428, AG-D23): texto fixo com o horário e "Escolha outro horário" — nunca o motivo da recusa
   if (evento === 'pedido_nao_confirmado' && c.consulta) {
     return { tipo: 'pedido_nao_confirmado', para: c.paciente.email, quando: quandoComFuso(c.consulta.inicio, c.tenant.fuso), link: linkDeOutroHorario({ daPagina: !!c.pedidoDaPagina, tenant: c.tenant }, deps.appUrl) };

@@ -762,3 +762,38 @@ test('Plano 23: portal com pedido, a desistência aberta e o link da pessoa nova
   }
   expect(falhas).toEqual([]);
 });
+
+// Plano 23 (T10, RN-434, RNF-401): a página de saída das mensagens de aniversário (`/aniversario/sair/[token]`, sem login;
+// abrir não grava), com o link do e-mail que o worker mandou à "Lara Saída Semente" (a semente agenda a mensagem do ano dela
+// para agora, no consultório `e2e-aniversario-axe`), e a do link inválido — claro e escuro, a 360 px, sem rolagem lateral.
+// Depois das 21h (São Paulo) o worker não manda (horário silencioso): a parte do link válido fica para a próxima execução.
+// IP: 10.9.23.34 (bloco do Plano 23, AG-D56).
+test('Plano 23: página de saída das mensagens de aniversário (link do e-mail e link inválido), claro e escuro, a 360 px', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const LARA = 'aniversario-saida-axe-e2e@nutridebby.test'; // copiado da semente
+  const h = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
+  const link = h < 21 ? primeiroLink((await esperarEmail(LARA, { assunto: 'Uma mensagem da sua nutricionista', timeoutMs: 150_000 })).texto, '/aniversario/sair/') : null;
+  const anonimo = await (await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.23.34' } })).newPage();
+  const falhas: string[] = [];
+  try {
+    await anonimo.setViewportSize({ width: 360, height: 780 });
+    for (const modo of ['light', 'dark'] as const) {
+      await anonimo.emulateMedia({ colorScheme: modo });
+      for (const [url, esperado] of [
+        ...(link ? [[new URL(link).pathname, 'Confirmar'] as const] : []),
+        [`/aniversario/sair/${'x'.repeat(66)}`, null] as const,
+      ]) {
+        await anonimo.goto(url);
+        await anonimo.waitForLoadState('load');
+        await expect(anonimo.getByRole('heading', { level: 1, name: 'Mensagens de aniversário' })).toBeVisible();
+        if (esperado) await expect(anonimo.getByRole('button', { name: esperado })).toBeVisible(); // a abertura não grava
+        else await expect(anonimo.getByRole('alert').filter({ hasText: 'Este link não é válido.' })).toBeVisible();
+        for (const v of await violacoes(anonimo)) falhas.push(`${modo} ${url.replace(/[^/]+$/, '[token]')} — ${v}`);
+        if (!(await anonimo.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${modo} ${url} — rola na horizontal`);
+      }
+    }
+  } finally {
+    await anonimo.context().close();
+  }
+  expect(falhas).toEqual([]);
+});

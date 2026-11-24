@@ -10,6 +10,7 @@ import { pedidosDoTitularAbertosNaTransacao, type PedidoDoTitularAberto } from '
 import { auditRead } from '@/modules/plataforma/audit';
 import { metricasDeSucessoNaTransacao, type MetricasSucesso } from '@/modules/plataforma/metricas-sucesso';
 import { contarDiariosNaoVistosNaTransacao } from '@/modules/portal/diario-nutri';
+import { contarAniversariantesDeHojeNaTransacao } from './aniversarios';
 import { listarAgendaNaTransacao, STATUS_ATIVOS, type Consulta } from './consultas';
 import { inicioDoDia } from './fuso';
 import { garantirLocaisIniciais } from './locais';
@@ -97,6 +98,8 @@ export type Inicio = {
   documentosAguardando: number | null;
   /** Plano 23 (US-409, §4.1): pedidos no prazo de resposta — o cartão "Solicitações ({n})" só aparece com algum. */
   solicitacoes: number;
+  /** Plano 23 (US-412): pacientes ativos com aniversário hoje — o cartão "Aniversariantes de hoje ({n})" só aparece com algum. */
+  aniversariantesHoje: number;
 };
 
 /**
@@ -129,6 +132,7 @@ export async function lerInicio(
         metricas: await metricasDeSucessoNaTransacao(tx, tenant, agora), // P08-07 / D15
         documentosAguardando: tenant.documentosLiberados ? await contarAguardandoAssinatura(tx) : null, // P-B8 / D20
         solicitacoes: await contarSolicitacoesNaTransacao(tx, tenant, agora), // Plano 23 (US-409): cartão "Solicitações ({n})"
+        aniversariantesHoje: await contarAniversariantesDeHojeNaTransacao(tx, tenant.fuso, agora), // Plano 23 (US-412)
       };
     },
     db,
