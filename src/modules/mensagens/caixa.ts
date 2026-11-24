@@ -23,7 +23,7 @@ export const ITENS_DA_CAIXA_POR_PAGINA = 50;
  */
 const MARCADOR_DO_CONSULTORIO = sql`cross join lateral (
             select coalesce((select l.lida_ate from chat_leituras l
-                              where l.tenant_id = c.tenant_id and l.patient_id = c.patient_id and l.lado = 'consultorio'),
+                              where l.tenant_id = c.tenant_id and l.patient_id = c.patient_id and l.lado = 'consultorio' limit 1),
                             '-infinity'::timestamptz) as ate
             offset 0) lida`;
 

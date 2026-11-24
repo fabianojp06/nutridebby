@@ -33,7 +33,7 @@ export const secaoMensagens: SecaoDaFicha = {
         -- "criada_em > lida.ate" entra no índice da conversa em vez de ler todas as mensagens (revisão final do PR 2)
         cross join lateral (
           select coalesce((select l.lida_ate from chat_leituras l
-                            where l.tenant_id = p.tenant_id and l.patient_id = p.id and l.lado = 'consultorio'),
+                            where l.tenant_id = p.tenant_id and l.patient_id = p.id and l.lado = 'consultorio' limit 1),
                           '-infinity'::timestamptz) as ate
           offset 0) lida
         cross join lateral (

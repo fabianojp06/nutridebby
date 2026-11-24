@@ -288,7 +288,7 @@ export async function carregarContexto(ctx: TenantContext, tenant: TenantRow, n:
             select exists (
               select 1
                 from (select coalesce((select l.lida_ate from chat_leituras l
-                                        where l.tenant_id = ${n.tenantId} and l.patient_id = ${n.patientId} and l.lado = 'paciente'),
+                                        where l.tenant_id = ${n.tenantId} and l.patient_id = ${n.patientId} and l.lado = 'paciente' limit 1),
                                       '-infinity'::timestamptz) as ate
                       offset 0) lida
                 join chat_mensagens m on m.criada_em > lida.ate

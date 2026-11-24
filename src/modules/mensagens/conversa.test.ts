@@ -805,6 +805,34 @@ describe('Plano 25 — /code-review do PR 2: "Lida" pela ordem (RN-448, CH-D40)'
     expect(nada.ultimaLida).toBeNull();
   });
 
+  it('regressão (E2E T7, 21000): duas conversas do consultório com os DOIS marcadores e mensagens dos dois lados — cada `lida` compara só com o marcador da própria conversa', async () => {
+    const T = await chat();
+    const c = await pacienteDoChat(app.db, T);
+    const d = await pacienteDoChat(app.db, T);
+    for (const x of [c, d]) {
+      await enviarComoPaciente(x.P, { texto: 'do paciente' }, app.db);
+      await enviarComoNutri(T.ctx, x.p, { texto: 'da nutricionista' }, app.db);
+      await conversaNoPainel(T.ctx, x.p, {}, app.db); // marcador do consultório
+      await minhaConversa(x.P, {}, app.db); // marcador do paciente
+    }
+    expect((await leiturasDe(T, c.p)).map((l) => l.lado).sort()).toEqual(['consultorio', 'paciente']);
+    const painel = await conversaNoPainel(T.ctx, c.p, {}, app.db);
+    expect(painel.mensagens.map((m) => [m.texto, m.lida])).toEqual([
+      ['do paciente', false],
+      ['da nutricionista', true],
+    ]);
+    const portal = await minhaConversa(c.P, {}, app.db);
+    expect(portal.mensagens.map((m) => [m.texto, m.lida])).toEqual([
+      ['do paciente', true],
+      ['da nutricionista', false],
+    ]);
+    // a mensagem nova de c não pode ficar "lida" pelo marcador de d (mais novo)
+    const nova = (await enviarComoNutri(T.ctx, c.p, { texto: 'nova' }, app.db)) as { id: string };
+    await enviarComoNutri(T.ctx, d.p, { texto: 'para d' }, app.db);
+    await minhaConversa(d.P, {}, app.db);
+    expect((await conversaNoPainel(T.ctx, c.p, {}, app.db)).mensagens.find((m) => m.id === nova.id)?.lida).toBe(false);
+  });
+
   it('nit 3: minhaConversa diz se há recado (a regra do link da faixa)', async () => {
     const T = await chat();
     const sem = await pacienteDoChat(app.db, T, { liberar: false });

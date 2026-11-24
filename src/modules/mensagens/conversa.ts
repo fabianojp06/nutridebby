@@ -241,7 +241,7 @@ export async function marcarLida(tx: Tx, lado: LadoLeitura, patientId: string, u
 
 /** A mensagem `id` desta conversa como cursor `(criada_em, id)`, resolvida no SQL; id de outra conversa → NULL (nada passa). */
 const cursor = (patientId: string, id: string) =>
-  sql`(select c.criada_em, c.id from chat_mensagens c where c.id = ${id} and c.tenant_id = app_current_tenant() and c.patient_id = ${patientId})`;
+  sql`(select c.criada_em, c.id from chat_mensagens c where c.id = ${id} and c.tenant_id = app_current_tenant() and c.patient_id = ${patientId} limit 1)`;
 
 /**
  * As últimas 50 (ou as 50 antes de `antes`), em ordem de `(criada_em, id)`. `antes` que não é uuid → lista vazia. `lida`:
@@ -266,8 +266,12 @@ async function pagina(tx: Tx, lado: LadoLeitura, patientId: string, antes: strin
       anexoNome: chatMensagens.anexoNome,
       anexoBytes: chatMensagens.anexoBytes,
       criadaEm: chatMensagens.criadaEm,
-      lida: sql<boolean>`coalesce(${chatMensagens.criadaEm} <= (select l.lida_ate from chat_leituras l
-        where l.tenant_id = ${chatMensagens.tenantId} and l.patient_id = ${chatMensagens.patientId} and l.lado = ${OUTRO_LADO[lado]}), false)`,
+      // regressão do E2E (21000): numa consulta de uma tabela só, o Drizzle escreve `${coluna}` SEM o nome da tabela
+      // ("tenant_id"), e dentro da subconsulta o nome cai na coluna de `l` — `l.tenant_id = l.tenant_id`, o marcador de
+      // TODAS as conversas do consultório. Aqui as colunas de fora vão qualificadas à mão; `limit 1` como cinto
+      lida: sql<boolean>`coalesce(chat_mensagens.criada_em <= (select l.lida_ate from chat_leituras l
+        where l.tenant_id = chat_mensagens.tenant_id and l.patient_id = chat_mensagens.patient_id and l.lado = ${OUTRO_LADO[lado]}
+        limit 1), false)`,
     })
     .from(chatMensagens)
     .where(
@@ -446,7 +450,7 @@ export async function mensagensNaFaixa(ctx: TenantContext, db: Db = getDb()): Pr
           from chat_conversas c
           cross join lateral (
             select coalesce((select l.lida_ate from chat_leituras l
-                              where l.tenant_id = c.tenant_id and l.patient_id = c.patient_id and l.lado = 'paciente'),
+                              where l.tenant_id = c.tenant_id and l.patient_id = c.patient_id and l.lado = 'paciente' limit 1),
                             '-infinity'::timestamptz) as ate
             offset 0) lida
          where c.tenant_id = app_current_tenant() and c.patient_id = ${ctx.patientId}
