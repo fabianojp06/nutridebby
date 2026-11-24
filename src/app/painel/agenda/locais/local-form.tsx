@@ -32,7 +32,7 @@ export function LocalForm({ acao, local }: { acao: (prev: LocalFormState, fd: Fo
           <div className="flex flex-wrap gap-x-6">
             {(['presencial', 'online'] as const).map((t) => (
               <label key={t} className="inline-flex min-h-11 items-center gap-2">
-                <input type="radio" name="tipo" value={t} checked={tipo === t} onChange={() => setTipo(t)} />
+                <input type="radio" name="tipo" value={t} defaultChecked={tipo === t} onChange={() => setTipo(t)} />
                 {ROTULO_TIPO_LOCAL[t]}
               </label>
             ))}

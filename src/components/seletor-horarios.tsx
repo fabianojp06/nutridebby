@@ -30,7 +30,7 @@ export function SeletorHorarios({
         <legend className="font-medium">{MSG_PUBLICO.ondeAtender}</legend>
         {locais.map((l) => (
           <label key={l.id} className="flex min-h-11 items-start gap-2 rounded-xl border border-campo bg-cartao p-2 text-texto">
-            <input type="radio" name="localId" value={l.id} checked={local === l.id} onChange={() => aoTrocarLocal(l.id)} className="mt-1" />
+            <input type="radio" name="localId" value={l.id} defaultChecked={local === l.id} onChange={() => aoTrocarLocal(l.id)} className="mt-1" />
             <span className="block">
               <span className="block">{l.cidade ? `${l.nome} · ${l.cidade}` : l.nome}</span>
               {l.endereco && <span className="block text-sm">{l.endereco}</span>}
