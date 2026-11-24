@@ -122,11 +122,6 @@ export const MSG_LOCAIS = {
    * e `moverConsulta`).
    */
   salaFixaDoLocal: 'Sala fixa do local',
-  /**
-   * Fora da §6.2 (AG-D82): no "Alterar" da consulta marcada pelo paciente num local online com sala fixa, o "Link da
-   * chamada" fica só leitura com este texto — o gatilho `appointments_link_da_sala` grava a sala do local nesse caso.
-   */
-  salaFixaDoLocal: 'Sala fixa do local',
   salvo: 'Local salvo.',
   arquivado: 'Local arquivado.',
   reativado: 'Local reativado.',

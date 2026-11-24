@@ -23,11 +23,6 @@ type Props = {
    * fixa do local".
    */
   doPaciente?: boolean;
-  /**
-   * AG-D82: a consulta foi marcada pelo paciente (origem `paciente`). Num local online com sala fixa, o banco grava a sala
-   * do local (gatilho `appointments_link_da_sala`), então o "Link da chamada" fica só leitura com "Sala fixa do local".
-   */
-  doPaciente?: boolean;
   botao: string;
 };
 
