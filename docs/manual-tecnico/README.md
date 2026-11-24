@@ -802,7 +802,7 @@ detalhe nas divergências 28–44 do [cap. 5](05-agenda-portal-conteudo.md#5118-
 | 167 | Plano, Tarefa 4 | Guarda do `publico` só no mesmo arquivo | Segue também os imports de `./`, `../` e `@/modules/…` e acusa alias, namespace, `returning()`, SQL cru e contexto em constante | Doc | 5 #41 |
 | 168 | Spec RN-406; tela da consulta | "Vazio = a sala fixa do local.": o link digitado vale | Consulta de origem `paciente` movida pela nutricionista para local online com sala: o gatilho `appointments_link_da_sala` troca o link digitado pela sala | Comp. | 5 #42 |
 | 169 | Spec §6.2 | "Horário excluído." | Definido em `MSG_AGENDA` e sem uso (a exclusão de regra não devolve mensagem) | Doc | 5 #43 |
-| 170 | Plano, Tarefa 12 | Guias `agenda` e `horarios` com locais, visões e impressão | Ainda `agenda` v2 ("Dia, semana ou lista") e `horarios` v1 ("modalidade") | Pend. | 5 #44 |
+| 170 | Plano, Tarefa 12 | Guias `agenda` e `horarios` com locais, visões e impressão | `agenda` v3 (com o Mês) e `horarios` v2 ("local") desde a revisão final do PR 2; falta o texto da Nova consulta e os passos de Locais | Pend. | 5 #44 |
 
 ### CI no runner próprio (12/10/2026)
 

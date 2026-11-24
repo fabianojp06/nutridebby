@@ -2468,6 +2468,6 @@ Spec e plano × código, conferido em `02fb478`:
     entender que o digitado vale. Comp. (Minor M2 da T3; decidir no gatilho do PR 1 ou documentar).
 43. **`horarioExcluido`** ("Horário excluído.", §6.2) está em `MSG_AGENDA` sem uso: a exclusão de regra não devolve
     mensagem.
-44. **Manual guiado sem a Agenda 2.** O guia `agenda` (v2) cobre `/painel/agenda/locais` pelo `padrao`, mas ainda fala em
-    "Dia, semana ou lista" e "consulta presencial ou online", e o `horarios` (v1) em "modalidade". Pend.: Tarefa 12 (sobe
-    as versões).
+44. **Manual guiado sem a Agenda 2.** O guia `agenda` (v3 desde a revisão final do PR 2: "Dia, semana, mês ou lista") cobre
+    `/painel/agenda/locais` pelo `padrao`, mas ainda fala em "consulta presencial ou online"; o `horarios` (v2) já fala em
+    "local". Pend.: Tarefa 12 (passos de Locais e o texto da Nova consulta, com nova versão).
