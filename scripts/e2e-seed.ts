@@ -627,6 +627,7 @@ await withTenant(
   },
   db,
 );
+
 // Plano 26 (PM-R10, RE-D46, RE-D69): as duas contas da recepção do consultório do E2E — `E2E_RECEPCAO` (sem a permissão do
 // Financeiro) e `E2E_RECEPCAO_FIN` (com ela) —, criadas UMA vez e reaproveitadas: nunca `delete user` (equipe_membros tem o
 // DELETE revogado e a FK NO ACTION para `user`; consents também aponta para a conta). A cada execução: a senha e o 2FA de

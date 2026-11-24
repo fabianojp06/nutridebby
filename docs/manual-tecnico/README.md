@@ -793,16 +793,16 @@ no README, 13–14 no cap. 2 e 20–25 no cap. 4).
 | 164 | §9.3, RN-510 | Três peças `SECURITY DEFINER` | Quatro, com `app_cpf_em_uso` (RE-D71); RE-D70 e RE-D71 ainda fora da spec §14 (entram na T12) | Doc | 2 #18 |
 | 165 | RN-509 | INSERT da recepção "agendada (ou o estado de pedido que o 23 decidir)" | Só `agendada`; consulta encerrada imutável, relógio do banco e `confirmada_via` só a nulo (revisão da T5b) | Doc | 2 #19 |
 | 166 | RN-500, RN-503 | A recepção desativada recebe `forbidden` | Decisão própria `desativada`; também a conta ativa sem o termo aceito, com texto RASCUNHO | Doc | 3 #8 |
-| 167 | §4.2 | `membroAtivo(tx, userId)` em `equipe.ts` | `lerMembroDaEquipe` em `membro-da-equipe.ts`, com `termoAceito` | Doc | 3 #9, 4 #26 |
+| 167 | §4.2 | `membroAtivo(tx, userId)` em `equipe.ts` | `lerMembroDaEquipe` em `membro-da-equipe.ts`, com `termoAceito` | Doc | 3 #9, 4 #31 |
 | 168 | RN-500 | — ("Esqueci minha senha" não citado) | A recepção sem senha não recebe o link de redefinição (o termo só pelo convite) | Doc | 3 #10 |
 | 169 | RE-D70 | Fora da spec §14 | **Resolvida (`bfe38520`):** "Continuar na sessão" no código e no comentário do `POST /api/sessao/ativa`; falta só a §14 da spec (T12) | — | 3 #11 |
 | 170 | RN-500 | Aceite do `sigilo-equipe-1.0` no primeiro acesso | **Resolvida (code review do PR 2):** a recepção ativa, com o 2FA, sem o aceite da versão em vigor, aceita em `/conta/acesso-desativado` (`aceitarTermoAction`) e volta ao painel; a desativada vê só o aviso | — | 3 #12 |
-| 171 | RN-499 | Busca do e-mail sob a trava do consultório | Também a trava global do e-mail (sem `23505` com o e-mail no log) | Doc | 4 #27 |
-| 172 | Spec §6.2 | Lista fechada dos textos | Textos RASCUNHO: o do termo pendente, o do aceite da versão em vigor do termo (`aceiteDoTermo`: título, texto e botão), o do convite vencido da recepção, o "E-mail da conta: {e-mail}.", `MSG_INICIO_RECEPCAO` e o guia `recepcao-seguranca` | Pend. | 4 #28 |
+| 171 | RN-499 | Busca do e-mail sob a trava do consultório | Também a trava global do e-mail (sem `23505` com o e-mail no log) | Doc | 4 #32 |
+| 172 | Spec §6.2 | Lista fechada dos textos | Textos RASCUNHO: o do termo pendente, o do aceite da versão em vigor do termo (`aceiteDoTermo`: título, texto e botão), o do convite vencido da recepção, o "E-mail da conta: {e-mail}.", `MSG_INICIO_RECEPCAO` e o guia `recepcao-seguranca` | Pend. | 4 #33 |
 | 173 | Spec §14 | Decisões RE-D1 a RE-D48 e RE-D59 a RE-D69 | Também RE-D72 (o merge do PR 2 espera o OK do dono ao texto do termo `sigilo-equipe-1.0`) e RE-D73 (`pedido_nao_confirmado` em `TIPOS_DA_AGENDA`, `aniversario` em `TIPOS_FORA_DA_RECEPCAO`), só no plano (`…/plans/2026-11-17-nutridebby-26-relatorios-recepcionista.md:557-558`); com RE-D70 e RE-D71 (#164, #169), entram na §14 na T12 | Doc | — |
 | 174 | Spec R-498 | `lock_timeout` "para a execução inteira"; o laço pega "~100 tabelas" | Por espera de trava (as esperas somam; a trava de `user` fica até o fim); o laço pega 59 tabelas e a 60ª nasce negada | Doc | 2 #20 |
 | 175 | Spec §18.5, "Banco Minor 7" (linha 1302) | Na volta atrás, "a imagem antiga já recusa a recepção em `requireUser`/`requireNutri`" | Recusa sem mostrar dado, mas em **laço de redirecionamento**: o `forbidden` leva a `/conta/outro-papel`, que na imagem antiga também recusa `recepcao` (e o `/inicio`, destino do login, idem). Sem efeito no PR 2 (nenhuma conta `recepcao` em produção); depois do PR 3, a recepção fica fora até a imagem nova voltar | Comp. | 6 §6.8.1 |
-| 176 | Spec RNF-486 | "O CHECK de `user` só ganha um valor" | A `0132` também cria `user_recepcao_com_tenant` e `user.ultimo_acesso_em` e troca os CHECKs de `invites`; tudo expansão | Doc | 2 #21 |
+| 176 | Spec RNF-486 | "O CHECK de `user` só ganha um valor" | A `0134` também cria `user_recepcao_com_tenant` e `user.ultimo_acesso_em` e troca os CHECKs de `invites`; tudo expansão | Doc | 2 #21 |
 
 Pendências do Plano 26 para a T12 (registradas só aqui): o escopo do README e o glossário da numeração nova (M9 da revisão do PR 2) e a §14 da spec com RE-D49 a RE-D58 e RE-D70 a RE-D73.
 

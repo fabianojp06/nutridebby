@@ -825,3 +825,307 @@ END $$;
 REVOKE ALL ON FUNCTION app_cpf_em_uso(text, uuid) FROM PUBLIC;
 --> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_cpf_em_uso(text, uuid) TO nutri_app_role;
+--> statement-breakpoint
+-- ===== 6. Plano 25 (chat e recados) diante da recepção — CH-D71 e CH-D33 da spec do 25, RN-505 e §2 ("A recepção no chat e
+-- nos recados do Plano 25") da spec do 26 =====
+-- A recepção não vê conversa, recado nem a configuração do chat (conversa é prontuário; recado e configuração por
+-- simplicidade no v1): as sete tabelas do 25 ficam com a recepcao_negada pelo laço do bloco 1 (já existem quando esta
+-- migration roda) e nenhuma entra em RECEPCAO_LIBERADO. Os quatro gatilhos do 25 passam a devolver NEW para a `recepcao` na
+-- lista (iii) dos papéis que a RLS nega — a recusa vem da política da própria tabela (recepcao_negada), como para `publico` e
+-- `conta`; papel desconhecido continua no 42501 do gatilho (falha fechada). CREATE OR REPLACE com o corpo da 0133 da `main`
+-- (rls_mensagens), mudando só essa linha. As três funções SECURITY DEFINER do 25 (app_chat_soltar_anexo,
+-- app_chat_apagar_do_titular: só `worker`; app_chat_aviso_nutri_devido: só a sessão de paciente) recusam a recepção pela
+-- própria guarda e ficam como estão.
+CREATE OR REPLACE FUNCTION app_chat_conversas_regras() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public, pg_temp AS $$
+DECLARE
+  r text := coalesce(current_setting('app.role', true), '');
+  libera boolean;
+  pausa_antes timestamptz;
+  pausa_por_antes uuid;
+  pausa_nome_antes text;
+  pausa_crn_antes text;
+  nome text;
+  crn text;
+BEGIN
+  IF r = '' THEN RETURN NEW; END IF;
+  IF NEW.tenant_id IS DISTINCT FROM app_current_tenant() THEN RETURN NEW; END IF;
+  IF r IN ('publico', 'conta', 'recepcao') THEN RETURN NEW; END IF;
+  IF r NOT IN ('nutri', 'paciente', 'worker') THEN
+    RAISE EXCEPTION 'chat_conversas: papel desconhecido' USING ERRCODE = '42501';
+  END IF;
+  -- (ii) e (iv): a RLS recusa a sessão de paciente em todo comando (fora de PACIENTE_ESCREVE)
+  IF r = 'paciente' THEN RETURN NEW; END IF;
+  IF TG_OP = 'INSERT' THEN
+    IF r <> 'nutri' THEN
+      RAISE EXCEPTION 'a conversa só é criada pela sessão da nutricionista' USING ERRCODE = '42501';
+    END IF;
+    libera := NEW.liberada_em IS NOT NULL;
+    pausa_antes := NULL;
+    pausa_por_antes := NULL;
+    pausa_nome_antes := NULL;
+    pausa_crn_antes := NULL;
+    -- sem liberação, nada de carimbo da liberação (o CHECK também recusa; aqui o 42501 vem antes)
+    IF NOT libera AND (NEW.liberada_nome IS NOT NULL OR NEW.liberada_crn IS NOT NULL) THEN
+      RAISE EXCEPTION 'o nome e o CRN da liberação só são gravados na liberação' USING ERRCODE = '42501';
+    END IF;
+  ELSE
+    IF (NEW.id, NEW.tenant_id, NEW.patient_id, NEW.created_at) IS DISTINCT FROM (OLD.id, OLD.tenant_id, OLD.patient_id, OLD.created_at) THEN
+      RAISE EXCEPTION 'coluna fixa da conversa' USING ERRCODE = '42501';
+    END IF;
+    IF OLD.liberada_em IS NOT NULL
+       AND (NEW.liberada_em, NEW.liberada_por, NEW.tcle_forma, NEW.liberada_nome, NEW.liberada_crn)
+           IS DISTINCT FROM (OLD.liberada_em, OLD.liberada_por, OLD.tcle_forma, OLD.liberada_nome, OLD.liberada_crn) THEN
+      RAISE EXCEPTION 'a liberação da conversa não muda depois de gravada' USING ERRCODE = '42501';
+    END IF;
+    libera := OLD.liberada_em IS NULL AND NEW.liberada_em IS NOT NULL;
+    IF NOT libera AND (NEW.liberada_nome, NEW.liberada_crn) IS DISTINCT FROM (OLD.liberada_nome, OLD.liberada_crn) THEN
+      RAISE EXCEPTION 'o nome e o CRN da liberação só são gravados na liberação' USING ERRCODE = '42501';
+    END IF;
+    pausa_antes := OLD.pausada_em;
+    pausa_por_antes := OLD.pausada_por;
+    pausa_nome_antes := OLD.pausada_nome;
+    pausa_crn_antes := OLD.pausada_crn;
+  END IF;
+  IF libera THEN
+    IF r <> 'nutri' THEN
+      RAISE EXCEPTION 'só a sessão da nutricionista libera a conversa' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.liberada_por IS DISTINCT FROM app_current_user() THEN
+      RAISE EXCEPTION 'a liberação é gravada em nome de quem libera' USING ERRCODE = '42501';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.patients p WHERE p.tenant_id = NEW.tenant_id AND p.id = NEW.patient_id
+                     AND p.status = 'ativo' AND p.anonimizado_em IS NULL) THEN
+      RAISE EXCEPTION 'só se libera a conversa de titular ativo' USING ERRCODE = '42501';
+    END IF;
+    SELECT t.nome_profissional, t.crn INTO nome, crn FROM public.tenants t WHERE t.id = NEW.tenant_id;
+    IF nome IS NULL OR crn IS NULL THEN
+      RAISE EXCEPTION 'o consultório ainda não tem nome profissional e CRN' USING ERRCODE = '42501';
+    END IF;
+    NEW.liberada_em := clock_timestamp();
+    NEW.liberada_nome := nome;
+    NEW.liberada_crn := crn;
+  END IF;
+  IF (NEW.pausada_em, NEW.pausada_por) IS DISTINCT FROM (pausa_antes, pausa_por_antes) THEN
+    IF r <> 'nutri' THEN
+      RAISE EXCEPTION 'só a sessão da nutricionista pausa e retoma a conversa' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.pausada_em IS NOT NULL THEN
+      IF pausa_antes IS NOT NULL THEN
+        RAISE EXCEPTION 'a conversa já está pausada' USING ERRCODE = '42501';
+      END IF;
+      IF NEW.pausada_por IS DISTINCT FROM app_current_user() THEN
+        RAISE EXCEPTION 'a pausa é gravada em nome de quem pausa' USING ERRCODE = '42501';
+      END IF;
+      SELECT t.nome_profissional, t.crn INTO nome, crn FROM public.tenants t WHERE t.id = NEW.tenant_id;
+      IF nome IS NULL OR crn IS NULL THEN
+        RAISE EXCEPTION 'o consultório ainda não tem nome profissional e CRN' USING ERRCODE = '42501';
+      END IF;
+      NEW.pausada_em := clock_timestamp();
+      NEW.pausada_nome := nome;
+      NEW.pausada_crn := crn;
+    ELSE
+      -- retomada: o carimbo da pausa sai junto
+      NEW.pausada_nome := NULL;
+      NEW.pausada_crn := NULL;
+    END IF;
+  ELSIF (NEW.pausada_nome, NEW.pausada_crn) IS DISTINCT FROM (pausa_nome_antes, pausa_crn_antes) THEN
+    RAISE EXCEPTION 'o nome e o CRN da pausa só mudam na pausa e na retomada' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION app_chat_mensagens_regras() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public, pg_temp AS $$
+DECLARE
+  r text := coalesce(current_setting('app.role', true), '');
+  soltando boolean := coalesce(current_setting('app.chat_soltando', true), '') = 'on';
+  livres text[] := ARRAY['anexo_status', 'anexo_path', 'anexo_original_path', 'updated_at'];
+  titular_saindo boolean;
+  nome text;
+  crn text;
+BEGIN
+  IF r = '' THEN RETURN NEW; END IF;
+  IF NEW.tenant_id IS DISTINCT FROM app_current_tenant() THEN RETURN NEW; END IF;
+  IF r IN ('publico', 'conta', 'recepcao') THEN RETURN NEW; END IF;
+  IF r NOT IN ('nutri', 'paciente', 'worker') THEN
+    RAISE EXCEPTION 'chat_mensagens: papel desconhecido' USING ERRCODE = '42501';
+  END IF;
+  IF r = 'paciente' AND NEW.patient_id IS DISTINCT FROM app_current_patient() THEN RETURN NEW; END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    NEW.criada_em := clock_timestamp();
+    -- (iv): a política paciente_chat_envio confere todas as regras do envio do paciente
+    IF r = 'paciente' THEN RETURN NEW; END IF;
+    IF r = 'worker' THEN
+      RAISE EXCEPTION 'o worker não grava mensagem' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.autor IS DISTINCT FROM 'nutri' THEN
+      RAISE EXCEPTION 'a sessão da nutricionista só grava mensagem da nutricionista' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.autor_user_id IS DISTINCT FROM app_current_user() THEN
+      RAISE EXCEPTION 'a mensagem é gravada em nome de quem envia' USING ERRCODE = '42501';
+    END IF;
+    SELECT t.nome_profissional, t.crn INTO nome, crn FROM public.tenants t WHERE t.id = NEW.tenant_id;
+    IF nome IS NULL OR crn IS NULL THEN
+      RAISE EXCEPTION 'o consultório ainda não tem nome profissional e CRN' USING ERRCODE = '42501';
+    END IF;
+    NEW.autor_nome := nome;
+    NEW.autor_crn := crn;
+    IF NOT EXISTS (SELECT 1 FROM public.patients p WHERE p.tenant_id = NEW.tenant_id AND p.id = NEW.patient_id
+                     AND p.status = 'ativo' AND p.anonimizado_em IS NULL) THEN
+      RAISE EXCEPTION 'mensagem só para titular ativo' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.recado_id IS NULL THEN
+      IF NOT EXISTS (SELECT 1 FROM public.chat_conversas c WHERE c.tenant_id = NEW.tenant_id AND c.patient_id = NEW.patient_id
+                       AND c.liberada_em IS NOT NULL AND c.pausada_em IS NULL) THEN
+        RAISE EXCEPTION 'a conversa não está liberada ou está pausada' USING ERRCODE = '42501';
+      END IF;
+    -- revisão, M2: a cópia de recado dispensa a conversa liberada (RN-462), então tem de ser o texto do próprio recado — sem
+    -- isto, um recado_id qualquer abriria a conversa não liberada para qualquer texto
+    ELSIF NOT EXISTS (SELECT 1 FROM public.recados r WHERE r.tenant_id = NEW.tenant_id AND r.id = NEW.recado_id AND r.texto = NEW.texto) THEN
+      RAISE EXCEPTION 'a cópia do recado repete o texto do recado' USING ERRCODE = '42501';
+    END IF;
+    -- code review do PR 1: a máquina de estados do anexo também vale no INSERT — a nutricionista só cria a mensagem sem
+    -- anexo, em processamento (a imagem da T8a; o CHECK processando_com_original admite o PDF sem caminho) ou com o PDF
+    -- dela já pronto (RN-454); `falhou` e `removido` só pelo worker, e imagem só fica `pronto` pela conversão
+    IF NOT (NEW.anexo_status IN ('sem_anexo', 'processando')
+            OR (NEW.anexo_status = 'pronto' AND NEW.anexo_tipo = 'pdf')) THEN
+      RAISE EXCEPTION 'a mensagem nasce sem anexo, em processamento ou com o PDF pronto' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.anexo_path IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM public.stored_files f WHERE f.tenant_id = NEW.tenant_id AND f.patient_id = NEW.patient_id
+            AND f.tipo = 'chat_anexo' AND f.caminho = NEW.anexo_path) THEN
+      RAISE EXCEPTION 'o anexo não é um chat_anexo deste paciente' USING ERRCODE = '42501';
+    END IF;
+    IF NEW.anexo_original_path IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM public.stored_files f WHERE f.tenant_id = NEW.tenant_id AND f.patient_id = NEW.patient_id
+            AND f.tipo = 'chat_anexo_original' AND f.caminho = NEW.anexo_original_path) THEN
+      RAISE EXCEPTION 'o original não é um chat_anexo_original deste paciente' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE. (iv): a sessão de paciente não tem UPDATE (paciente_sem_update esconde as linhas)
+  IF r = 'paciente' THEN RETURN NEW; END IF;
+  IF (to_jsonb(NEW) - livres) IS DISTINCT FROM (to_jsonb(OLD) - livres) THEN
+    RAISE EXCEPTION 'coluna fixa da mensagem' USING ERRCODE = '42501';
+  END IF;
+  -- revisão, M3 (molde 0123): o anexo convertido só sai (a nulo ou `removido`) com o titular na anonimização (RN-466) — o
+  -- marcador não basta, porque qualquer sessão o liga; o original continua saindo só com o marcador (fim da conversão)
+  -- code review do PR 1: a mesma condição de app_chat_soltar_anexo (RN-466) — `bloqueado` dura todo o prazo de guarda, então
+  -- só com anonimizar_apos já vencido no fuso do consultório, ou com o titular anonimizado
+  titular_saindo := (NEW.anexo_path IS DISTINCT FROM OLD.anexo_path OR NEW.anexo_status IS DISTINCT FROM OLD.anexo_status)
+    AND EXISTS (SELECT 1 FROM public.patients p JOIN public.tenants t ON t.id = p.tenant_id
+                  WHERE p.tenant_id = NEW.tenant_id AND p.id = NEW.patient_id
+                    AND (p.anonimizado_em IS NOT NULL
+                         OR (p.status = 'bloqueado' AND p.anonimizar_apos < (now() AT TIME ZONE t.fuso)::date)));
+  IF NEW.anexo_status IS DISTINCT FROM OLD.anexo_status THEN
+    IF OLD.anexo_status = 'processando' AND NEW.anexo_status IN ('pronto', 'falhou') THEN
+      IF r <> 'worker' THEN
+        RAISE EXCEPTION 'só o worker conclui o anexo' USING ERRCODE = '42501';
+      END IF;
+    ELSIF OLD.anexo_status IN ('pronto', 'falhou') AND NEW.anexo_status = 'removido' THEN
+      IF r <> 'worker' OR NOT soltando THEN
+        RAISE EXCEPTION 'o anexo só é removido por app_chat_soltar_anexo' USING ERRCODE = '42501';
+      END IF;
+      IF NOT titular_saindo THEN
+        RAISE EXCEPTION 'o anexo só sai com o titular na anonimização' USING ERRCODE = '42501';
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'transição do anexo inválida' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  IF NEW.anexo_path IS DISTINCT FROM OLD.anexo_path THEN
+    IF OLD.anexo_path IS NULL THEN
+      IF NOT (OLD.anexo_status = 'processando' AND NEW.anexo_status = 'pronto') THEN
+        RAISE EXCEPTION 'o anexo convertido só entra na conclusão (processando → pronto)' USING ERRCODE = '42501';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM public.stored_files f WHERE f.tenant_id = NEW.tenant_id AND f.patient_id = NEW.patient_id
+                       AND f.tipo = 'chat_anexo' AND f.caminho = NEW.anexo_path) THEN
+        RAISE EXCEPTION 'o anexo não é um chat_anexo deste paciente' USING ERRCODE = '42501';
+      END IF;
+    ELSIF NEW.anexo_path IS NOT NULL THEN
+      RAISE EXCEPTION 'o caminho do anexo não troca por outro' USING ERRCODE = '42501';
+    ELSIF r <> 'worker' OR NOT soltando THEN
+      RAISE EXCEPTION 'o caminho do anexo só sai por app_chat_soltar_anexo' USING ERRCODE = '42501';
+    ELSIF NOT titular_saindo THEN
+      RAISE EXCEPTION 'o anexo só sai com o titular na anonimização' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  IF NEW.anexo_original_path IS DISTINCT FROM OLD.anexo_original_path THEN
+    IF NEW.anexo_original_path IS NOT NULL THEN
+      RAISE EXCEPTION 'o original não entra nem troca depois do envio' USING ERRCODE = '42501';
+    ELSIF r <> 'worker' OR NOT soltando THEN
+      RAISE EXCEPTION 'o original só sai por app_chat_soltar_anexo' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION app_chat_leituras_regras() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public, pg_temp AS $$
+DECLARE
+  r text := coalesce(current_setting('app.role', true), '');
+BEGIN
+  IF r = '' THEN RETURN NEW; END IF;
+  IF NEW.tenant_id IS DISTINCT FROM app_current_tenant() THEN RETURN NEW; END IF;
+  IF r IN ('publico', 'conta', 'recepcao') THEN RETURN NEW; END IF;
+  IF r NOT IN ('nutri', 'paciente', 'worker') THEN
+    RAISE EXCEPTION 'chat_leituras: papel desconhecido' USING ERRCODE = '42501';
+  END IF;
+  -- (ii) e (iv): outro paciente, o lado do consultório ou a sessão sem conta — a RLS recusa
+  IF r = 'paciente' AND (NEW.patient_id IS DISTINCT FROM app_current_patient() OR NEW.lado IS DISTINCT FROM 'paciente'
+                         OR app_current_user() IS NULL) THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND (NEW.tenant_id, NEW.patient_id, NEW.lado) IS DISTINCT FROM (OLD.tenant_id, OLD.patient_id, OLD.lado) THEN
+    RAISE EXCEPTION 'coluna fixa do marcador de leitura' USING ERRCODE = '42501';
+  END IF;
+  IF TG_OP = 'INSERT' OR NEW.lida_ate IS DISTINCT FROM OLD.lida_ate THEN
+    IF NOT ((NEW.lado = 'consultorio' AND r = 'nutri') OR (NEW.lado = 'paciente' AND r = 'paciente')) THEN
+      RAISE EXCEPTION 'cada lado só grava o próprio marcador de leitura' USING ERRCODE = '42501';
+    END IF;
+    -- comparações explícitas (revisão, M1): least/greatest ignoram NULL e trocariam um lida_ate nulo pelo relógio, escondendo
+    -- o NOT NULL; com IF, o nulo segue e o 23502 aparece
+    IF NEW.lida_ate > clock_timestamp() THEN
+      NEW.lida_ate := clock_timestamp();
+    END IF;
+    IF TG_OP = 'UPDATE' AND NEW.lida_ate < OLD.lida_ate THEN
+      NEW.lida_ate := OLD.lida_ate;
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION app_recados_regras() RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public, pg_temp AS $$
+DECLARE
+  r text := coalesce(current_setting('app.role', true), '');
+  nome text;
+  crn text;
+BEGIN
+  IF r = '' THEN RETURN NEW; END IF;
+  IF NEW.tenant_id IS DISTINCT FROM app_current_tenant() THEN RETURN NEW; END IF;
+  IF r IN ('publico', 'conta', 'recepcao') THEN RETURN NEW; END IF;
+  IF r NOT IN ('nutri', 'paciente', 'worker') THEN
+    RAISE EXCEPTION 'recados: papel desconhecido' USING ERRCODE = '42501';
+  END IF;
+  IF r = 'paciente' THEN RETURN NEW; END IF;
+  IF r <> 'nutri' THEN
+    RAISE EXCEPTION 'só a sessão da nutricionista grava recado' USING ERRCODE = '42501';
+  END IF;
+  SELECT t.nome_profissional, t.crn INTO nome, crn FROM public.tenants t WHERE t.id = NEW.tenant_id;
+  IF nome IS NULL OR crn IS NULL THEN
+    RAISE EXCEPTION 'o consultório ainda não tem nome profissional e CRN' USING ERRCODE = '42501';
+  END IF;
+  NEW.autor_nome := nome;
+  NEW.autor_crn := crn;
+  NEW.criado_por := app_current_user();
+  NEW.criado_em := clock_timestamp();
+  RETURN NEW;
+END $$;

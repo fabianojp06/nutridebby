@@ -916,7 +916,7 @@ expansão), mas a imagem anterior tem dois efeitos ([§12.11](12-financeiro.md#1
   lançamentos dele. Risco prático nulo hoje (o primeiro vencimento é bloqueio + 20 anos, nenhum antes de 2046); se
   acontecer, anonimizar à mão, com o dono (P20-16). Runbook: `docs/operacao/financeiro.md`, §6.
 
-**Voltar atrás depois do Plano 26, PR 2 (recepção).** As migrations `0132_recepcao` e `0133_rls_recepcao` só
+**Voltar atrás depois do Plano 26, PR 2 (recepção).** As migrations `0134_recepcao` e `0135_rls_recepcao` só
 **acrescentam** (RNF-486: tabela nova, coluna anulável, CHECKs com um valor a mais, políticas que só pegam o papel
 `recepcao`, gatilhos que só agem na sessão dela, funções novas): a imagem anterior sobe contra o schema novo. Antes do
 merge, o OK do dono ao texto do termo `sigilo-equipe-1.0` (RE-D72, texto legal novo). O que muda:

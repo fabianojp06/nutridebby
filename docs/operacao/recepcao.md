@@ -7,22 +7,40 @@ completado na T11b (telas, `EQUIPE_LIGADA`, E2E). Spec: `docs/superpowers/specs/
 ## O que o PR 2 muda no banco
 
 Duas migrations (números dados pelo `pnpm db:generate` sobre a `main` do momento; nada reservado, `sessoes-paralelas.md` §5).
-No rebase sobre a `main` `16f944a` (Planos 22 e 23, PR 1 de cada) ficaram `0132_recepcao` e `0133_rls_recepcao`; se outra
-migration entrar antes do merge, elas são geradas de novo e os números mudam:
+No rebase sobre a `main` `c5a4050` (Plano 25 PR 1, com a `0132_mensagens` e a `0133_rls_mensagens`, e Plano 22 PR 3) ficaram
+`0134_recepcao` e `0135_rls_recepcao` — numeração **provisória** (seção "Antes do merge", abaixo):
 
-- **gerada `0132_recepcao`** — tabela `equipe_membros`; `user.ultimo_acesso_em` (anulável); CHECK `user_app_role_valido`
+- **gerada `0134_recepcao`** — tabela `equipe_membros`; `user.ultimo_acesso_em` (anulável); CHECK `user_app_role_valido`
   com `recepcao` e o novo `user_recepcao_com_tenant`; `invites_tipo_valido` e `invites_alvo` com o convite `recepcao`.
   Só expansão (RNF-486): nenhum valor antigo deixa de valer, nenhuma coluna obrigatória nova.
-- **custom `0133_rls_recepcao`** — `app_deny_recepcao`, `app_allow_recepcao`, `app_enable_tenant_rls` (corpo da 0070 +
+- **custom `0135_rls_recepcao`** — `app_deny_recepcao`, `app_allow_recepcao`, `app_enable_tenant_rls` (corpo da 0070 +
   `recepcao_negada`), o laço que põe `recepcao_negada` em toda tabela do `public` com `tenant_isolation`, a RLS e o gatilho
   `equipe_membros_regras` de `equipe_membros`; depois (T5a/T5b) as liberações, as condições, os gatilhos de colunas
   (`patients_da_recepcao`, `patient_cadastro_da_recepcao`, `appointments_da_recepcao`, `tenants_so_nutri`), as funções
   refeitas (`fin_lancamentos_regras`, `app_appointments_regras_pedido`) e as quatro `SECURITY DEFINER`
-  (`app_retorno_das_consultas`, `app_previsoes_de_retorno`, `app_consulta_tem_atendimento`, `app_cpf_em_uso`). Detalhe no
-  manual técnico, §2.6.9.
+  (`app_retorno_das_consultas`, `app_previsoes_de_retorno`, `app_consulta_tem_atendimento`, `app_cpf_em_uso`); no bloco 6
+  (rebase sobre o Plano 25), o `CREATE OR REPLACE` dos quatro gatilhos do chat (`app_chat_conversas_regras`,
+  `app_chat_mensagens_regras`, `app_chat_leituras_regras`, `app_recados_regras`, corpo da `0133_rls_mensagens`) com a
+  `recepcao` na lista dos papéis que a RLS nega (CH-D71 da spec do 25): as sete tabelas do chat ficam negadas à recepção
+  pelo laço (CH-D33). Detalhe no manual técnico, §2.6.9.
 
 As políticas novas só pegam a sessão `recepcao` (RESTRICTIVE com `app_current_role() IS DISTINCT FROM 'recepcao'`): para
 `nutri`, `paciente`, `worker`, `publico` e `conta` nada muda.
+
+## Antes do merge
+
+- **Numeração das migrations provisória.** A `0134_recepcao` e a `0135_rls_recepcao` foram geradas sobre a `0133` do Plano 25
+  só para o branch ficar consistente. A numeração é refeita **uma vez só, na vez do merge**, pelo §5 de
+  `docs/operacao/sessoes-paralelas.md` (gerada de novo com `pnpm drizzle-kit generate --name recepcao`, custom de novo com
+  `--custom --name rls_recepcao` e o SQL de hoje, `prevId` encadeado, `drizzle-kit check`, referências renumeradas em docs,
+  testes, `CLAUDE.md` e comentários). Ordem do trem definida pela orquestradora (24/11/2026): o #81 (Plano 22 PR 4) com
+  `0134`/`0135`, depois o #68 com `0136`/`0137`, …, e **este PR por último**.
+- No §5 da vez do merge, conferir de novo as tabelas e funções que entraram na `main` depois do Plano 25: tabela nova com
+  `tenant_id` nasce negada (laço da custom e `app_enable_tenant_rls`); função nova que olha o papel entra em
+  `FUNCOES_COM_PAPEL` com a decisão (`findPapelEmFuncoesViolations`); gatilho novo com lista fechada de papéis ganha a
+  `recepcao` na lista dos que a RLS nega, como os do chat no bloco 6; tipo novo de notificação entra em `TIPOS_DA_AGENDA`
+  ou em `TIPOS_FORA_DA_RECEPCAO`; rota nova do painel decidida nas guardas `ROTAS_DA_RECEPCAO`/`FORA_DO_PAINEL`.
+- Recriar o banco de dev da sessão, `pnpm db:migrate`, `pnpm e2e:seed` duas vezes e a suíte completa.
 
 ## Deploy
 

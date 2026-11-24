@@ -266,7 +266,7 @@ a chamada SQL (`app_allow_publico`, `drizzle/0051_rls_consultas.sql:19`; `app_al
 `drizzle/0070_paciente_sem_escrita.sql:25`) e a entrada na lista TypeScript com o motivo. Esquecer qualquer um dos
 dois quebra o CI. A lista vira documentação viva de tudo o que o paciente e o visitante podem fazer.
 
-**A recepção (Plano 26) também nasce negada** (`recepcao_negada`, desde a `0133`), e o plano levou a ideia mais longe em
+**A recepção (Plano 26) também nasce negada** (`recepcao_negada`, desde a `0135`), e o plano levou a ideia mais longe em
 três pontos ([§2.6.9](02-banco-de-dados.md#269-sessão-da-recepção-plano-26-pr-2)): `RECEPCAO_CONDICOES` guarda a **expressão inteira** de cada condição
 `recepcao_cond_*`, comparada por igualdade (por trecho, `… OR true` passaria); `findPapelEmFuncoesViolations` lê o corpo de
 toda função do `public` e exige uma decisão para a recepção de cada função que olha o papel e de cada gatilho de tabela

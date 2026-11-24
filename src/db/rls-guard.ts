@@ -549,6 +549,16 @@ export const FUNCOES_COM_PAPEL: Record<string, { decisao: DecisaoDaRecepcao; mot
   app_lembretes_rotina_envios_sem_apagar: { decisao: 'não se aplica', motivo: 'Plano 17: lembretes_rotina_envios negada' },
   app_modelo_ia_origem: { decisao: 'não se aplica', motivo: 'Plano 14B: meal_plans e anamnesis_templates negadas' },
   app_paciente_colunas_exports: { decisao: 'não se aplica', motivo: 'data_exports negada; só a sessão de paciente' },
+  // Plano 25 (chat e recados; spec do 25: C-442, CH-D33, CH-D71 e §13; spec do 26: §2 e RN-505): as sete tabelas do 25 são
+  // negadas à recepção (conversa é prontuário; recado e configuração por simplicidade no v1). Os quatro gatilhos devolvem NEW
+  // para a `recepcao` (lista iii, refeitos no bloco 6 da rls_recepcao) e a recusa vem da recepcao_negada
+  app_chat_conversas_regras: { decisao: 'não se aplica', motivo: 'Plano 25: chat_conversas negada (a recepcao devolve NEW e a recepcao_negada recusa; CH-D71)' },
+  app_chat_mensagens_regras: { decisao: 'não se aplica', motivo: 'Plano 25: chat_mensagens negada (a recepcao devolve NEW e a recepcao_negada recusa; CH-D71)' },
+  app_chat_leituras_regras: { decisao: 'não se aplica', motivo: 'Plano 25: chat_leituras negada (a recepcao devolve NEW e a recepcao_negada recusa; CH-D71)' },
+  app_recados_regras: { decisao: 'não se aplica', motivo: 'Plano 25: recados negada (a recepcao devolve NEW e a recepcao_negada recusa; CH-D71)' },
+  app_chat_soltar_anexo: { decisao: 'recusa', motivo: 'Plano 25 (§13 da spec do 25): só o contexto `worker` (guarda própria, 42501)' },
+  app_chat_apagar_do_titular: { decisao: 'recusa', motivo: 'Plano 25 (§13 da spec do 25): só o contexto `worker` (guarda própria, 42501)' },
+  app_chat_aviso_nutri_devido: { decisao: 'recusa', motivo: 'Plano 25 (§13 da spec do 25, CH-D70): só a sessão de paciente com conta (guarda própria, 42501)' },
   // tabelas liberadas à recepção
   app_paciente_colunas_patients: { decisao: 'não se aplica', motivo: 'só a sessão de paciente; a recepção tem gatilho próprio (patients_da_recepcao, RN-508)' },
   app_patients_ia_quem: { decisao: 'recusa', motivo: 'qualquer sessão com papel é recusada ao mudar a ciência/recusa de IA (RN-128)' },

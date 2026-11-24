@@ -80,9 +80,10 @@ export function situacaoDaNotificacao(n: Pick<NotificationRow, 'status' | 'motiv
 
 /**
  * Plano 26 (RN-507): os tipos do CHECK `notifications_tipo_valido`. `aniversario` e `pedido_nao_confirmado` (Plano 23, 0130)
- * ainda não estão em TipoNotificacao (sem rótulo nem envio até o 23 PR 2); quando entrarem, este tipo volta a ser TipoNotificacao.
+ * ainda não estão em TipoNotificacao (sem rótulo nem envio até o 23 PR 2); `chat_mensagem` e `recado` (Plano 25, 0132) também
+ * não (o envio do chat é do PR 2 do 25); quando entrarem, este tipo volta a ser TipoNotificacao.
  */
-type TipoDoCheck = TipoNotificacao | 'aniversario' | 'pedido_nao_confirmado';
+type TipoDoCheck = TipoNotificacao | 'aniversario' | 'pedido_nao_confirmado' | 'chat_mensagem' | 'recado';
 
 /**
  * Plano 26 (RN-507, RE-D57): os tipos que a sessão `recepcao` lê e grava — os da agenda —, iguais à lista da condição
@@ -105,6 +106,7 @@ export const TIPOS_DA_AGENDA = [
  * Plano 26 (RN-507): os tipos que a recepção não lê nem grava — convite do app (RE-D37), avisos clínicos e do portal.
  * Plano 23 (0130): `aniversario` fica fora (RN-432: mensagem da nutricionista, com a autorização de `aniversario_autorizacoes`,
  * negada à recepção; não é aviso da consulta).
+ * Plano 25 (0132): `chat_mensagem` e `recado` ficam fora (spec do 25, §13 e CH-D33: a recepção não vê conversa nem recado).
  */
 export const TIPOS_FORA_DA_RECEPCAO = [
   'convite_paciente',
@@ -118,4 +120,6 @@ export const TIPOS_FORA_DA_RECEPCAO = [
   'exame_expirado',
   'duvida_vista',
   'aniversario',
+  'chat_mensagem',
+  'recado',
 ] as const satisfies readonly TipoDoCheck[];
