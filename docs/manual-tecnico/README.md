@@ -384,15 +384,15 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | `semConta` | Paciente agindo sem sessão de login (link da consulta, WhatsApp, convite, link do documento, link da autorização de IA; desde o Plano 15, o contexto da IA Nutri lido pelo worker; desde o Plano 18, a contagem do "No app do paciente" pela nutricionista, em `no-app.ts`). Lista fechada em `SEM_CONTA_PERMITIDOS`; não lê `patient_cadastro` | `src/db/tenant.ts:44` |
 | `tenant_isolation` / `patient_isolation` | Políticas base: linha do tenant do contexto; na sessão de paciente, só as linhas do próprio `patient_id` | `drizzle/0000_base_roles_e_rls.sql:30-50` |
 | `STAFF_ONLY` | Lista de tabelas que o paciente nunca vê, nem as próprias linhas (notas privadas, etiquetas, regras da agenda…). Política RESTRICTIVE `staff_only` por `app_enable_staff_only` | `src/db/rls-guard.ts:105`; `drizzle/0020_rls_etiquetas.sql:3` |
-| `PUBLICO_LIBERADO` | Tabelas e comandos que o contexto `publico` pode usar, cada um com o motivo. `app_allow_publico` no SQL | `src/db/rls-guard.ts:141`; `drizzle/0051_rls_consultas.sql:19` |
-| `PACIENTE_ESCREVE` | Tabelas e comandos que a sessão de paciente pode gravar. O resto nega por `paciente_sem_<cmd>`. `app_allow_paciente_escrita` no SQL | `src/db/rls-guard.ts:188`; `drizzle/0070_paciente_sem_escrita.sql:25` |
-| `CONTEUDO_POR_AUDIENCIA` | Tabelas de conteúdo sem `patient_id` que o paciente lê pela audiência (política `paciente_conteudo_visivel`) | `src/db/rls-guard.ts:245`; `drizzle/0083_audiencia_conteudos.sql:42` |
+| `PUBLICO_LIBERADO` | Tabelas e comandos que o contexto `publico` pode usar, cada um com o motivo. `app_allow_publico` no SQL | `src/db/rls-guard.ts:147`; `drizzle/0051_rls_consultas.sql:19` |
+| `PACIENTE_ESCREVE` | Tabelas e comandos que a sessão de paciente pode gravar. O resto nega por `paciente_sem_<cmd>`. `app_allow_paciente_escrita` no SQL | `src/db/rls-guard.ts:194`; `drizzle/0070_paciente_sem_escrita.sql:25` |
+| `CONTEUDO_POR_AUDIENCIA` | Tabelas de conteúdo sem `patient_id` que o paciente lê pela audiência (política `paciente_conteudo_visivel`) | `src/db/rls-guard.ts:252`; `drizzle/0083_audiencia_conteudos.sql:42` |
 | `RLS_EXCEPTIONS` | Tabelas com `tenant_id` fora da RLS: `user`, `consents`, `invites`, `document_verifications`, cada uma com quem pode acessá-la | `src/db/rls-guard.ts:9`; [§2.9](02-banco-de-dados.md#29-tabelas-fora-da-rls-e-quem-as-acessa) |
 | `AUDIT_EXCEPTIONS` | Tabelas com `patient_id` sem gatilho de auditoria, com justificativa | `src/db/audit-guard.ts:4` |
 | `RECEPCAO_LIBERADO` / `RECEPCAO_CONDICOES` / `FUNCOES_COM_PAPEL` (Plano 26) | O que a sessão `recepcao` pode tocar (tabela → comandos; o resto tem `recepcao_negada`), as condições `recepcao_cond_*` com a expressão inteira, e a decisão para a recepção de cada função que olha o papel | `src/db/rls-guard.ts:310`, `:369`, `:494`; [§2.6.9](02-banco-de-dados.md#269-sessão-da-recepção-plano-26-pr-2) |
 | `liberarReceitasDoPlano` | Exceção da RN-12: libera, na transação, as receitas sugeridas no plano publicado do próprio paciente | `src/modules/conteudo/audiencia.ts:45` |
 | Guarda | Teste que confere uma regra do projeto (não uma função) e quebra o CI se alguém a esquecer | [§7.4](07-testes-qualidade-e-processo.md#74-guardas-do-ci) |
-| `FABRICAS` / `ULTIMAS` | Fábricas de linha por tabela na matriz de isolamento; `ULTIMAS` = tabelas-mãe apagadas por último | `test/isolamento.test.ts:24`, `:113` |
+| `FABRICAS` / `ULTIMAS` | Fábricas de linha por tabela na matriz de isolamento; `ULTIMAS` = tabelas-mãe apagadas por último | `test/isolamento.test.ts:24`, `:300` |
 | Gatilho `audit_row_change` | Grava `audit_log` em toda escrita de tabela de dado de saúde (`app_enable_audit`) | `drizzle/0007_auditoria_funcoes.sql:36`; [§2.8](02-banco-de-dados.md#28-auditoria) |
 | `auditRead` | Registra a leitura de dado de saúde, na mesma transação (regra 8) | `src/modules/plataforma/audit.ts:28` |
 | Migrator / `nutri_app_role` | Migrator = role dono do schema (`DATABASE_URL_MIGRATOR`), só nas migrations. `nutri_app_role` = grupo sem login que recebe os privilégios; o role de `DATABASE_URL` é membro dele, sem `BYPASSRLS` | `drizzle/0000_base_roles_e_rls.sql:10-19`; [§2.2](02-banco-de-dados.md#22-roles-e-credenciais) |
@@ -505,7 +505,7 @@ Seções de origem: [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encon
 |---|---|---|---|---|---|
 | 22 | US-001 | Primeiro admin recebe e-mail | `pnpm admin:criar` imprime o link no terminal (a spec §9.7 já diz isso) | Doc | 3 #1 |
 | 23 | US-003 | `users.totp_secret_enc` em AES-256-GCM | Tabela `two_factor` do Better Auth, XChaCha20-Poly1305 com chave de `AUTH_SECRET` | Reg. | 3 #2 |
-| 24 | US-002 | Bloqueio por e-mail + IP | Limite por IP + rota (`auth.ts:128`), 5 / 15 min | Reg. | 3 #3, 6 #8 |
+| 24 | US-002 | Bloqueio por e-mail + IP | Limite por IP + rota (`auth.ts:156`), 5 / 15 min | Reg. | 3 #3, 6 #8 |
 | 25 | RNF-06 | "2FA TOTP para a nutricionista" | 2FA obrigatório só para o admin; opcional para a nutricionista (como a US-003) | Doc | 3 #4 |
 | 26 | US-011; Plano 08, D14 | Termo e DPA na versão `1.0` | **Resolvida (P08-06, 15/10/2026):** `1.0` (`termo-paciente.ts:7`, `dpa.ts:16`; o DPA está na 1.1 desde o Plano 20), publicada pelo dono sem o advogado; a 0.1 provisória fica no mapa por versão | — | 3 #5, 4 #10 |
 | 27 | US-002 | Paciente vai para `/p` | Vai para `/p/inicio` (`/p` redireciona) | Doc | 3 #6 |
@@ -778,9 +778,9 @@ Os números abaixo foram renumerados no rebase sobre o Plano 20 (que ocupou 142�
 
 ### Recepção — fundação (Plano 26, PR 2)
 
-Conferido no branch `plano-26-relatorios-recepcionista` em 24/11/2026 (T4 a T7 e as correções das revisões, `02c82ea7..e8da1ef7`;
-a T8 em execução), contra a spec `docs/superpowers/specs/2026-11-17-nutridebby-26-relatorios-recepcionista-design.md` (v0.3)
-e o plano do Plano 26; detalhe nas divergências 13–17 do [cap. 2](02-banco-de-dados.md#divergências-encontradas), 8–12 do
+Conferido no branch `plano-26-relatorios-recepcionista` em 24/11/2026 (T4 a T8 prontas e as correções das revisões,
+`02c82ea7..bfe38520`), contra a spec `docs/superpowers/specs/2026-11-17-nutridebby-26-relatorios-recepcionista-design.md` (v0.3)
+e o plano do Plano 26; detalhe nas divergências 13–19 do [cap. 2](02-banco-de-dados.md#divergências-encontradas), 8–12 do
 [cap. 3](03-autenticacao-e-acesso.md#divergências-encontradas) e 20–22 do [cap. 4](04-modulos-clinicos.md#divergências-encontradas).
 Planos em paralelo numeram a partir do mesmo número: quem rebaseia renumera.
 
@@ -794,10 +794,16 @@ Planos em paralelo numeram a partir do mesmo número: quem rebaseia renumera.
 | 159 | RN-500, RN-503 | A recepção desativada recebe `forbidden` | Decisão própria `desativada`; também a conta ativa sem o termo aceito, com texto RASCUNHO | Doc | 3 #8 |
 | 160 | §4.2 | `membroAtivo(tx, userId)` em `equipe.ts` | `lerMembroDaEquipe` em `membro-da-equipe.ts`, com `termoAceito` | Doc | 3 #9, 4 #20 |
 | 161 | RN-500 | — ("Esqueci minha senha" não citado) | A recepção sem senha não recebe o link de redefinição (o termo só pelo convite) | Doc | 3 #10 |
-| 162 | RE-D70 | Fora da spec §14 | "Continuar na sessão" para toda a equipe; o comentário do `POST /api/sessao/ativa` ainda diz "Continuar conectada" | Doc | 3 #11 |
+| 162 | RE-D70 | Fora da spec §14 | **Resolvida (`bfe38520`):** "Continuar na sessão" no código e no comentário do `POST /api/sessao/ativa`; falta só a §14 da spec (T12) | — | 3 #11 |
 | 163 | RN-500 | Aceite do `sigilo-equipe-1.0` no primeiro acesso | A sessão exige a versão em vigor, mas não há tela de novo aceite e o reenvio recusa quem tem senha: subir a versão trancaria a recepção | Pend. | 3 #12 |
 | 164 | RN-499 | Busca do e-mail sob a trava do consultório | Também a trava global do e-mail (sem `23505` com o e-mail no log) | Doc | 4 #21 |
-| 165 | Spec §6.2 | Lista fechada dos textos | Dois textos RASCUNHO: o do termo pendente e o do convite vencido da recepção | Pend. | 4 #22 |
+| 165 | Spec §6.2 | Lista fechada dos textos | Textos RASCUNHO: o do termo pendente, o do convite vencido da recepção, o "E-mail da conta: {e-mail}.", `MSG_INICIO_RECEPCAO` e o guia `recepcao-seguranca` | Pend. | 4 #22 |
+| 166 | Spec §14 | Decisões RE-D1 a RE-D48 e RE-D59 a RE-D69 | Também RE-D72 (o merge do PR 2 espera o OK do dono ao texto do termo `sigilo-equipe-1.0`) e RE-D73 (`pedido_nao_confirmado` em `TIPOS_DA_AGENDA`, `aniversario` em `TIPOS_FORA_DA_RECEPCAO`), só no plano (`…/plans/2026-11-17-nutridebby-26-relatorios-recepcionista.md:557-558`); com RE-D70 e RE-D71 (#157, #162), entram na §14 na T12 | Doc | — |
+| 167 | Spec R-498 | `lock_timeout` "para a execução inteira"; o laço pega "~100 tabelas" | Por espera de trava (as esperas somam; a trava de `user` fica até o fim); o laço pega 59 tabelas e a 60ª nasce negada | Doc | 2 #18 |
+| 168 | Spec §18.5, "Banco Minor 7" (linha 1302) | Na volta atrás, "a imagem antiga já recusa a recepção em `requireUser`/`requireNutri`" | Recusa sem mostrar dado, mas em **laço de redirecionamento**: o `forbidden` leva a `/conta/outro-papel`, que na imagem antiga também recusa `recepcao` (e o `/inicio`, destino do login, idem). Sem efeito no PR 2 (nenhuma conta `recepcao` em produção); depois do PR 3, a recepção fica fora até a imagem nova voltar | Comp. | 6 §6.8.1 |
+| 169 | Spec RNF-486 | "O CHECK de `user` só ganha um valor" | A `0132` também cria `user_recepcao_com_tenant` e `user.ultimo_acesso_em` e troca os CHECKs de `invites`; tudo expansão | Doc | 2 #19 |
+
+Pendências do Plano 26 para a T12 (registradas só aqui): o escopo do README e o glossário da numeração nova (M9 da revisão do PR 2) e a §14 da spec com RE-D49 a RE-D58 e RE-D70 a RE-D73.
 
 ### CI no runner próprio (12/10/2026)
 
@@ -808,6 +814,6 @@ Conferido no branch `runner-proprio` em `bbd7728` (antes do merge; mergeado no P
 |---|---|---|---|---|---|
 | 102 | Spec §9.7 ("Merge na `main`") e RNF-03 | Build da imagem no GitHub Actions, não na VPS, para não consumir CPU e memória do CRM | O CI roda na VPS, no runner próprio, inclusive o build de prova do job `image` (sem push), dentro da `user-1500.slice` (4 de 8 vCPU, 12 GB, sem swap); a imagem publicada segue montada no `publish` hospedado | Doc | 1 #13, 7 #11 |
 
-**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68, #74 e #153. As de tipo Doc entram na
+**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68, #74, #153 e #168. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.
 Plano 22, PR 2: #145 (Comp.).

@@ -28,6 +28,9 @@ As políticas novas só pegam a sessão `recepcao` (RESTRICTIVE com `app_current
 
 - Merge só com OK do dono (merge = deploy; a migration roda no boot do `nutri_app`), **fora das 03h–07h30 BRT** e fora do
   horário de uso.
+- **OK do dono ao texto do termo `sigilo-equipe-1.0`** antes do merge (RE-D72: texto legal novo, revisado pelo
+  `normas-cfn-lgpd`, com as perguntas no pacote do advogado, E-09). Mudar o texto depois do merge sobe a versão e, sem tela
+  de novo aceite, tranca a recepção já ativa (manual técnico, cap. 3, divergência #12).
 - **Sem snapshot da Hostinger** (congela a VPS, `CLAUDE.md` do servidor, regra 5): a migration é aditiva e o backup restic
   diário cobre a volta. Conferir antes, em `/var/log/backup.log`, que o último backup do `nutri_db` saiu bem.
 
@@ -36,7 +39,8 @@ As políticas novas só pegam a sessão `recepcao` (RESTRICTIVE com `app_current
 O migrador do Drizzle aplica todas as migrations pendentes **numa transação só**. A conexão dele (`poolDoMigrador`,
 `src/db/migrate.ts`) abre com `-c lock_timeout=10s`. O limite vale **para cada espera de trava**, em todos os comandos da
 execução — a gerada (que trava `user`, lida em toda requisição) e o laço da custom (que trava, uma a uma, cada tabela com
-`tenant_id`, umas 100) —, **não para a execução inteira**:
+`tenant_id`: as 59 que já existiam; a 60ª, `equipe_membros`, nasce negada pelo `app_enable_tenant_rls`) —, **não para a
+execução inteira**:
 
 - as esperas **podem somar**: cada tabela pode esperar até 10 s sem estourar, e a migração inteira levar bem mais;
 - a trava exclusiva de `user`, tomada pela gerada no começo, **fica presa até o fim da transação**, inclusive durante o laço;

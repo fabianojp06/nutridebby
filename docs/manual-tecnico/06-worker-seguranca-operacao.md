@@ -377,7 +377,7 @@ Pontos de atenção:
 
 O proxy só confere a **presença** do cookie de sessão (`nd`) em `/admin`, `/painel`, `/p`, `/conta` e `/inicio`; sem
 cookie, redireciona para `/entrar?volta=<caminho>` (`src/proxy.ts:7,22-27`). A decisão de acesso real é de
-`requireUser`/`requirePaciente` em cada página (`src/lib/session.ts:66`): ver
+`requireUser`/`requirePaciente` em cada página (`src/lib/session.ts:67`): ver
 [§3.13 Proxy e redirecionamento seguro](03-autenticacao-e-acesso.md#313-proxy-e-redirecionamento-seguro) e
 [§3.7 Guardas por papel](03-autenticacao-e-acesso.md#37-guardas-por-papel).
 
@@ -385,8 +385,8 @@ cookie, redireciona para `/entrar?volta=<caminho>` (`src/proxy.ts:7,22-27`). A d
 
 | Onde | Limite | Chave | Armazenamento | Fonte |
 |---|---|---|---|---|
-| Better Auth, padrão | 100 / 60 s | IP + rota | Banco (`rate_limit`) | `src/lib/auth.ts:122-126` |
-| Login, 2FA, recuperação de senha, troca de senha, `verify-password`, ativar/desativar 2FA, `/two-factor/get-totp-uri` (`auth.ts:137`), códigos de backup, `delete-user` | 5 / 15 min | IP + rota | Banco | `src/lib/auth.ts:127-140` |
+| Better Auth, padrão | 100 / 60 s | IP + rota | Banco (`rate_limit`) | `src/lib/auth.ts:151-155` |
+| Login, 2FA, recuperação de senha, troca de senha, `verify-password`, ativar/desativar 2FA, `/two-factor/get-totp-uri` (`auth.ts:166`), códigos de backup, `delete-user` | 5 / 15 min | IP + rota | Banco | `src/lib/auth.ts:156-169` |
 | Página pública de agendamento: pedido | 10 / h | HMAC do IP (IPv6 pelo /64) | `public_rate_limits` | `src/modules/agenda/agendamento-publico.ts:60,122-123` |
 | Página pública: código por e-mail | 5 / h | HMAC de tenant + e-mail | `public_rate_limits` | `agendamento-publico.ts:61,158` |
 | Webhook do WhatsApp (anti-repetição) | 1 por janela de aceite | HMAC do JWT + corpo | `public_rate_limits`, na transação do evento | `src/modules/notificacoes/whatsapp/webhook.ts:138` |
@@ -404,7 +404,7 @@ As rotas do Better Auth com limite de 5/15 min, uma a uma, estão em [§3.3 Limi
 Detalhes:
 
 - **IP real:** `TRUSTED_PROXIES` (CIDRs do Traefik/Swarm) tira os saltos do proxy da direita para a esquerda
-  (`src/lib/ip.ts:3-22`, `src/lib/auth.ts:153`). Sem a variável em produção, o app não sobe (Plano 02, "Itens
+  (`src/lib/ip.ts:3-22`, `src/lib/auth.ts:182`). Sem a variável em produção, o app não sobe (Plano 02, "Itens
   adiados do Plano 01"). `clientIp` devolve o IPv6 completo (auditoria, Turnstile); `clientIpDoLimite` usa o /64.
 - **`public_rate_limits` guarda HMAC, nunca o IP ou o e-mail** (chave derivada por HKDF de `ENCRYPTION_KEY`,
   `src/modules/agenda/limite-ip.ts:12-18`). O contador é atômico (`INSERT … ON CONFLICT`, `consumirLimite`) e o
@@ -425,7 +425,7 @@ escrita**. Resultado em três estados:
 | `invalido` | Token ausente, > 2048 caracteres, vencido, repetido ou de outro domínio | "Confirme que você não é um robô." |
 | `indisponivel` | Rede, timeout (5 s), 5xx, corpo não-JSON, segredo errado (`config`) | "Tente novamente em alguns minutos" — **nunca** segue sem verificar |
 
-Usado em: "Esqueci minha senha" (`src/lib/auth.ts:157-161`, cabeçalho `x-turnstile-token`) e página pública de
+Usado em: "Esqueci minha senha" (`src/lib/auth.ts:198-204`, cabeçalho `x-turnstile-token`) e página pública de
 agendamento (`src/app/api/n/[slug]/resposta.ts:41`). Falhas vão ao log só com motivo, status e até 5 códigos
 (`src/lib/turnstile-log.ts:9-12`), nunca token, segredo ou IP.
 
@@ -916,6 +916,25 @@ expansão), mas a imagem anterior tem dois efeitos ([§12.11](12-financeiro.md#1
   lançamentos dele. Risco prático nulo hoje (o primeiro vencimento é bloqueio + 20 anos, nenhum antes de 2046); se
   acontecer, anonimizar à mão, com o dono (P20-16). Runbook: `docs/operacao/financeiro.md`, §6.
 
+**Voltar atrás depois do Plano 26, PR 2 (recepção).** As migrations `0132_recepcao` e `0133_rls_recepcao` só
+**acrescentam** (RNF-486: tabela nova, coluna anulável, CHECKs com um valor a mais, políticas que só pegam o papel
+`recepcao`, gatilhos que só agem na sessão dela, funções novas): a imagem anterior sobe contra o schema novo. Antes do
+merge, o OK do dono ao texto do termo `sigilo-equipe-1.0` (RE-D72, texto legal novo). O que muda:
+
+- **Boot da imagem nova** (RE-D64): o migrador tem `lock_timeout` de 10 s **por espera de trava**
+  ([§2.3](02-banco-de-dados.md#23-rodar-as-migrations)). Estourou: a transação volta inteira, o processo sai, o Swarm
+  reinicia o container e tenta de novo, com a imagem anterior servindo. Em laço (o log repete `canceling statement due to
+  lock timeout`): ver quem segura a trava em `pg_stat_activity`, **sem matar nada sem o OK do dono**, e tentar de novo num
+  horário calmo.
+- **A recepção na imagem anterior** entra em **laço de redirecionamento**: o `forbidden` leva a `/conta/outro-papel`, que
+  nela também recusa `recepcao` (o `/inicio`, destino do login, também); nenhum dado aparece e as APIs respondem 403. No
+  PR 2 não há conta `recepcao` em produção (a Equipe nasce desligada, RE-D52); depois do PR 3, avisar a nutricionista de
+  que a recepção fica fora até a imagem nova voltar (README, divergência #168).
+- **Desativar pela Equipe** só existe na imagem nova; as linhas de `equipe_membros` seguem como estavam.
+- **Não desfazer as migrations**: nada nelas quebra a imagem anterior; se for preciso, migration nova, com o dono.
+
+Runbook: `docs/operacao/recepcao.md` ("Deploy", "Volta atrás", "Depois do deploy do PR 2").
+
 ---
 
 ## 6.9 Rotina de incidentes
@@ -968,7 +987,7 @@ antes de trocar. Só os nomes aparecem aqui; os valores ficam no Easypanel e no 
 
 | Variável | Efeito da troca (no código) | O que refazer |
 |---|---|---|
-| `AUTH_SECRET` | Assina os cookies de sessão (`src/lib/auth.ts:54`): **todas as sessões caem**. É também a chave do segredo TOTP e dos códigos de recuperação em `two_factor` (cifrados pelo Better Auth, `storeBackupCodes: "encrypted"` por padrão; §3.5): **toda conta com 2FA fica sem conseguir entrar**, inclusive o admin, para quem o 2FA é obrigatório (`src/lib/session-rules.ts:189`; desde o Plano 26, também a recepção) | Plano para o 2FA abaixo. Depois, todos entram de novo |
+| `AUTH_SECRET` | Assina os cookies de sessão (`src/lib/auth.ts:57`): **todas as sessões caem**. É também a chave do segredo TOTP e dos códigos de recuperação em `two_factor` (cifrados pelo Better Auth, `storeBackupCodes: "encrypted"` por padrão; §3.5): **toda conta com 2FA fica sem conseguir entrar**, inclusive o admin, para quem o 2FA é obrigatório (`src/lib/session-rules.ts:189`; desde o Plano 26, também a recepção) | Plano para o 2FA abaixo. Depois, todos entram de novo |
 | `ENCRYPTION_KEY` | (1) Jobs já na fila `email` e `whatsapp-evento` estão selados com a chave antiga e falham com `SealError` (`src/email/job.ts:17`, `src/worker/index.ts:107`, `src/lib/crypto.ts:58`), assim como o convite com conteúdo selado ainda pendente em `notifications` (`src/modules/notificacoes/mensagens.ts:86`). (2) Todo link de consulta já enviado por e-mail deixa de abrir (chave derivada, `src/modules/agenda/link-consulta.ts:14`). (3) Os códigos de agendamento público em andamento deixam de conferir (`src/modules/agenda/agendamento-publico.ts:69`). (4) Os contadores de limite e as marcas anti-repetição do webhook zeram (`src/modules/agenda/limite-ip.ts:13`), inclusive os do 2FA ao assinar e da verificação pública. (5) Plano 10A: todo link de documento já enviado deixa de abrir (`chaveDoLinkDocumento`, `src/modules/documentos/link-documento.ts:26`) e os códigos de 6 dígitos pendentes deixam de conferir | Reenviar os e-mails e convites que falharam; avisar que links de consulta antigos não abrem (o paciente usa o portal ou pede outro); para cada receita entregue por link a paciente sem app, usar "Reenviar link por e-mail" no documento. Trocar no app **e** no worker ao mesmo tempo |
 | `EVOLUTION_WEBHOOK_SECRET` | A chave do JWT do webhook de cada consultório é derivada dele (`src/modules/notificacoes/whatsapp/jwt.ts:8`): os eventos das instâncias atuais passam a ser recusados | Cada consultório reconecta em "Conectar WhatsApp", que reconfigura o webhook (comentário em `jwt.ts:6`) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | As inscrições de push foram criadas com a chave pública antiga (`src/app/p/notificacoes.tsx:78`); o serviço de push recusa os envios (4xx definitivo, `src/modules/notificacoes/push.ts:44`) | Pacientes reativam as notificações no portal. A pública tem de ser igual no app e no worker (§6.7) |

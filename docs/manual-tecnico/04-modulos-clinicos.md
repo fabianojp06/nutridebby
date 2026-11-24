@@ -83,7 +83,7 @@ Decisão (Plano 02, "Suspensão"): status + revogação das sessões + bloqueio 
 #### Equipe do consultório (Plano 26, RN-499 a RN-503)
 
 A nutricionista convida até 3 pessoas para a recepção (PD-101). **No PR 2 a Equipe nasce desligada** (`EQUIPE_LIGADA = false`,
-`src/modules/plataforma/equipe-textos.ts:42`; RE-D52): `/painel/configuracoes/equipe` responde `notFound()` depois da
+`src/modules/plataforma/equipe-textos.ts:50`; RE-D52): `/painel/configuracoes/equipe` responde `notFound()` depois da
 sessão, o cartão "Equipe" não entra em `CARTOES` do hub de Configurações e toda action da Equipe recusa **antes** de ler a
 sessão (`sessaoDaEquipe`, `src/app/painel/configuracoes/equipe/actions.ts`: um POST direto não grava nada). O módulo não olha
 a constante (os testes o exercitam desligado). A T11b (PR 3) liga a constante junto com as telas de trabalho da recepção:
@@ -110,7 +110,7 @@ própria linha, na sessão `recepcao` (a RLS só mostra a dela): ativa, `finance
 sessão trata como desativada ([§3.6](03-autenticacao-e-acesso.md#evaluatesession-linha-158)).
 
 **Tela** (`src/app/painel/configuracoes/equipe/{page.tsx,actions.ts,convidar-form.tsx,linha.tsx}`, `requireNutri`, nunca
-`requireEquipe`; textos de `MSG_EQUIPE`, `equipe-textos.ts:48-109`, neutros em gênero): título "Equipe", a explicação do
+`requireEquipe`; textos de `MSG_EQUIPE`, `equipe-textos.ts:56-117`, neutros em gênero): título "Equipe", a explicação do
 que a recepção vê, o formulário "Convidar recepcionista" (Nome, E-mail, "Permitir acesso ao Controle Financeiro", "Enviar
 convite") ou, no limite, o aviso; a tabela (Nome, E-mail, Situação, Financeiro, Último acesso, Ações) numa região focável,
 com "Reenviar convite", "Salvar permissão", "Desativar" e "Reativar" (`aria-label` "{ação} {nome}") e as confirmações
@@ -290,14 +290,14 @@ Decisão (Plano 08, D15): denominador do CS-02 = ativos **com conta**, não todo
 
 | Função | O que faz | Onde |
 |---|---|---|
-| `gravarTema(userId, tema)` | `user.tema` ∈ `sistema`/`claro`/`escuro` | `preferencias.ts:16` |
-| `lerGuia(userId)` | `user.guia` (`{id: {v, estado}}`) | `preferencias.ts:22` |
-| `marcarGuia(userId, id, versao, estado)` | Um `UPDATE` com `jsonb_set` atômico: duas abas não se apagam; versão menor nunca sobrescreve; "visto" não rebaixa um tour concluído ou dispensado da mesma versão | `preferencias.ts:32` |
+| `gravarTema(userId, tema)` | `user.tema` ∈ `sistema`/`claro`/`escuro` | `preferencias.ts:17` |
+| `lerGuia(userId)` | `user.guia` (`{id: {v, estado}}`) | `preferencias.ts:23` |
+| `marcarGuia(userId, id, versao, estado)` | Um `UPDATE` com `jsonb_set` atômico: duas abas não se apagam; versão menor nunca sobrescreve; "visto" não rebaixa um tour concluído ou dispensado da mesma versão | `preferencias.ts:33` |
 | `proximoTema(atual, aparelhoEscuro)` | O botão alterna o que a usuária vê | `preferencias-tipos.ts:7` |
 
 Decisão D17: colunas na `user` (não cookie, não `localStorage`, não tabela nova). O tema chega à sessão pelo `additionalFields` do Better Auth; o servidor desenha o tema sem piscar. O `userId` vem sempre da sessão: `requireNutri` nas Configurações e, desde o Plano 26, `requireEquipe` nas duas actions do cabeçalho (a nutricionista ou a recepção).
 
-**Plano 26 (T8, RE-D42): manual guiado por papel.** `Guia.papeis` (`src/modules/ajuda/conteudo.ts`) diz quem vê o guia — no tour, na gaveta e no manual completo; sem o campo, só a nutricionista (`PAPEIS_PADRAO = ['nutri']`, `papeisDoGuia`), e por isso guia novo de outro plano continua dela sem ninguém lembrar. `guiaDaRota(caminho, papel)` devolve o primeiro guia da lista que casa com o caminho **entre os do papel**; o padrão `'nutri'` do segundo parâmetro é só para os testes antigos — todo chamador fora dos testes passa o papel da sessão (guarda de fonte em `conteudo.test.ts`). `guiasDoPapel(papel)` é o manual completo de `/painel/ajuda` (`src/app/painel/ajuda/page.tsx`, com o papel de `requireEquipe`). `ID_TOUR_DO_INICIO` decide o tour que abre sozinho no Início e o `?tour=` do "Rever o tour": `boas-vindas` para a nutricionista, `recepcao-inicio` para a recepção — o `GuiaDoPainel` (`src/app/painel/guia/guia-do-painel.tsx`) recebe o `papel` do layout pelo `CabecalhoPainel`, e o `MenuConta` da recepção leva a `/painel?tour=recepcao-inicio`. Os guias da recepção são próprios (`recepcao-*`, `papeis: ['recepcao']`), não variantes dos da nutricionista: progresso e versão separados, e nenhum cita Configurações, Realizada, Iniciar atendimento, Ver bloqueados, etiqueta nem arquivar (guarda em `conteudo.test.ts`). No PR 2 há só o `recepcao-inicio` (v1, `padrao` `/^\/painel$/`, alvos `menu`, `agenda-hoje`, `presenca`, `tema`, `ajuda`, `conta`), antes do `financeiro`, que continua o último da lista; os de pacientes, cadastro, agenda e financeiro chegam com as telas dela no PR 3. A Segurança (`seguranca`) tem `papeis: ['nutri', 'recepcao']`; o admin vê a da nutricionista (`AjudaSeguranca`, `src/app/conta/seguranca/ajuda-seguranca.tsx`). `marcarGuiaAction` e `alternarTemaAction` usam `requireEquipe` (o `userId` é o da sessão, da nutricionista ou da recepção); `escolherTemaAction` (hub de Configurações) continua `requireNutri`.
+**Plano 26 (T8, RE-D42): manual guiado por papel.** `Guia.papeis` (`src/modules/ajuda/conteudo.ts`) diz quem vê o guia — no tour, na gaveta e no manual completo; sem o campo, só a nutricionista (`PAPEIS_PADRAO = ['nutri']`, `papeisDoGuia`), e por isso guia novo de outro plano continua dela sem ninguém lembrar. `guiaDaRota(caminho, papel)` devolve o primeiro guia da lista que casa com o caminho **entre os do papel**; o padrão `'nutri'` do segundo parâmetro é só para os testes antigos — todo chamador fora dos testes passa o papel da sessão (guarda de fonte em `conteudo.test.ts`). `guiasDoPapel(papel)` é o manual completo de `/painel/ajuda` (`src/app/painel/ajuda/page.tsx`, com o papel de `requireEquipe`). `ID_TOUR_DO_INICIO` decide o tour que abre sozinho no Início e o `?tour=` do "Rever o tour": `boas-vindas` para a nutricionista, `recepcao-inicio` para a recepção — o `GuiaDoPainel` (`src/app/painel/guia/guia-do-painel.tsx`) recebe o `papel` do layout pelo `CabecalhoPainel`, e o `MenuConta` da recepção leva a `/painel?tour=recepcao-inicio`. Os guias da recepção são próprios (`recepcao-*`, `papeis: ['recepcao']`), não variantes dos da nutricionista: progresso e versão separados, e nenhum cita Configurações, Realizada, Iniciar atendimento, Ver bloqueados, etiqueta nem arquivar (guarda em `conteudo.test.ts`). No PR 2 há o `recepcao-inicio` (v1, `padrao` `/^\/painel$/`, alvos `menu`, `agenda-hoje`, `presenca`, `tema`, `ajuda`, `conta`) e o `recepcao-seguranca` (abaixo), antes do `financeiro`, que continua o último da lista; os de pacientes, cadastro, agenda e financeiro chegam com as telas dela no PR 3. A Segurança tem dois guias com o mesmo `padrao` (`/^\/conta\/seguranca$/`): `seguranca` (v1, só da nutricionista, com o texto de produção; o admin vê este, como antes) e `recepcao-seguranca` (v1, `papeis: ['recepcao']`: o 2FA obrigatório, o código a cada login e os códigos de recuperação, sem a assinatura de documentos; texto RASCUNHO, vai à tabela de textos na T12); `AjudaSeguranca` (`src/app/conta/seguranca/ajuda-seguranca.tsx`) pede o guia do papel da sessão a `guiaDaRota`. `marcarGuiaAction` e `alternarTemaAction` usam `requireEquipe` (o `userId` é o da sessão, da nutricionista ou da recepção); `escolherTemaAction` (hub de Configurações) continua `requireNutri`.
 
 ---
 
@@ -318,7 +318,7 @@ Decisão D17: colunas na `user` (não cookie, não `localStorage`, não tabela n
 | `listarPacientes(ctx, filtro)` | Busca sem acento por nome, **nome social** ou e-mail (`unaccent … ilike`, curingas escapados), filtro por aba (`ativos`, `inativos`, `todos`, `bloqueados`) e etiqueta, até 500 linhas; ordem `nome`/`nome_desc` pelo nome exibido (`coalesce(nome_social, nome)` sem acento e sem maiúsculas), `recentes`/`antigos` por `created_at`, empate pelo id (Plano 18, RN-270–RN-272). Filtrar por etiqueta audita uma leitura de "etiquetas" por paciente devolvido | `pacientes.ts:291` |
 | `filtroDaUrl(searchParams)` | Plano 18: o filtro da lista a partir da URL; `?aba=` só aceita as três abas, `?situacao=bloqueados` (o "Ver bloqueados"), os links antigos `?status=arquivado` (→ `inativos`) e `?status=bloqueado`; valor desconhecido cai no padrão (`ativos`, `nome`) | `pacientes.ts:270` |
 | `situacoesDoAcesso(ctx, pacientes)` | Plano 18 (§8.1): a coluna "Acesso ao app" da lista numa consulta só (convite mais recente de cada paciente sem conta, as regras de `situacaoDoAcesso`); só lê `invites`, filtrando pelo tenant | `convite-paciente.ts:105` |
-| `gravarCadastro(tx, …)` / `cadastroDoPaciente(ctx, id)` | Plano 18: grava o cadastro complementar (pré-checagem do CPF sob trava) / devolve os valores à aba Perfil com `auditRead` (entidade `patients`) — [§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2) | `cadastro.ts:287`, `:321` |
+| `gravarCadastro(tx, …)` / `cadastroDoPaciente(ctx, id)` | Plano 18: grava o cadastro complementar (pré-checagem do CPF sob trava) / devolve os valores à aba Perfil com `auditRead` (entidade `patients`) — [§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2) | `cadastro.ts:305`, `:339` |
 
 Autorização de WhatsApp (`autorizacaoWhatsapp`, `pacientes.ts:113`): o formulário da nutricionista nunca desfaz uma escolha do paciente. Marcar só grava se não há opt-in nem opt-out; desmarcar só apaga opt-in de origem `nutri`.
 
@@ -902,12 +902,12 @@ pode receber na cópia dos dados), ficam numa tabela filha, uma linha por pacien
 
 | Peça | O que faz | Onde |
 |---|---|---|
-| `CAMPOS_DO_CADASTRO`, `CadastroComplementar` | Os 17 campos, na ordem do formulário (`telefoneFixo` ↔ `telefone_fixo_e164`) | `cadastro.ts:42`, `:67` |
-| `validarCadastro` / `formaDoCadastro` | As regras dos CHECKs da tabela, numa fonte só: o `pacienteSchema` usa `formaDoCadastro` (zod) e `gravarCadastro` passa os valores de novo por `validarCadastro` antes de gravar — o 23514 levaria a linha inteira ao log do Postgres. Listas fechadas e rótulos em `cadastro-textos.ts` (sem banco: o formulário cliente importa de lá) | `cadastro.ts:181`, `:210`; `cadastro-textos.ts:19` |
+| `CAMPOS_DO_CADASTRO`, `CadastroComplementar` | Os 17 campos, na ordem do formulário (`telefoneFixo` ↔ `telefone_fixo_e164`) | `cadastro.ts:43`, `:68` |
+| `validarCadastro` / `formaDoCadastro` | As regras dos CHECKs da tabela, numa fonte só: o `pacienteSchema` usa `formaDoCadastro` (zod) e `gravarCadastro` passa os valores de novo por `validarCadastro` antes de gravar — o 23514 levaria a linha inteira ao log do Postgres. Listas fechadas e rótulos em `cadastro-textos.ts` (sem banco: o formulário cliente importa de lá) | `cadastro.ts:185`, `:214`; `cadastro-textos.ts:19` |
 | `normalizarCpf`, `cpfValido`, `formatarCpf` | Só os 11 dígitos; dígitos verificadores (rejeita os 11 iguais); "000.000.000-00" | `cpf.ts:8`, `:21`, `:27` |
-| `gravarCadastro(tx, …)` | Na transação de `criarPaciente`/`atualizarPaciente` (o paciente já travado ou recém-criado). Só os campos **enviados** mudam: chave ausente mantém o gravado; `''`/`null` esvazia. A linha só nasce com algum campo preenchido (*upsert* em `(tenant_id, patient_id)`); depois, esvaziar tudo grava nulo | `cadastro.ts:287` |
-| `conferirCpf` (D23, RN-261) | Antes do INSERT, `pg_advisory_xact_lock(hashtext('patient_cadastro_cpf'), hashtext(tenant_id || ':' || cpf))` e a busca do outro paciente do consultório com o mesmo CPF: dois cadastros iguais ao mesmo tempo se enfileiram e o segundo acha o primeiro. Repetido → `CpfRepetidoError` com `outroId` (nulo quando o outro está bloqueado ou anonimizado: sem link). O índice único `patient_cadastro_cpf_unico` é só a última defesa (o 23505 levaria o CPF ao log) | `cadastro.ts:269-278`, `:214` |
-| `cadastroDoPaciente(ctx, id)` | **O único lugar que lê os valores** (D20): a aba Perfil. Grava `auditRead` (entidade `patients`, `entidade_id` = id da linha de `patient_cadastro`, "Cadastro do paciente"); sem linha, `null` sem auditar | `cadastro.ts:321` |
+| `gravarCadastro(tx, …)` | Na transação de `criarPaciente`/`atualizarPaciente` (o paciente já travado ou recém-criado). Só os campos **enviados** mudam: chave ausente mantém o gravado; `''`/`null` esvazia. A linha só nasce com algum campo preenchido (*upsert* em `(tenant_id, patient_id)`); depois, esvaziar tudo grava nulo | `cadastro.ts:305` |
+| `conferirCpf` (D23, RN-261) | Antes do INSERT, `pg_advisory_xact_lock(hashtext('patient_cadastro_cpf'), hashtext(tenant_id || ':' || cpf))` e a busca do outro paciente do consultório com o mesmo CPF: dois cadastros iguais ao mesmo tempo se enfileiram e o segundo acha o primeiro. Repetido → `CpfRepetidoError` com `outroId` (nulo quando o outro está bloqueado ou anonimizado: sem link). Plano 26 (RE-D71): na sessão da recepção, que não vê o cadastro do paciente bloqueado nem do anonimizado (RLS), sob a mesma trava ela também pergunta a `app_cpf_em_uso` (`SECURITY DEFINER`, só sim/não, qualquer paciente do consultório; o papel vem de `app_current_role()` da própria transação): sim **ou nulo** (falha fechada) vira `CpfRepetidoError(null)`, sem o link. O índice único `patient_cadastro_cpf_unico` é só a última defesa (o 23505 levaria o CPF ao log) | `cadastro.ts:268-297`, `:218` |
+| `cadastroDoPaciente(ctx, id)` | **O único lugar que lê os valores** (D20): a aba Perfil. Grava `auditRead` (entidade `patients`, `entidade_id` = id da linha de `patient_cadastro`, "Cadastro do paciente"); sem linha, `null` sem auditar | `cadastro.ts:339` |
 
 Regras de exibição (D4, RN-262): o CPF só aparece no campo do Perfil/Novo paciente e no `dados.json`. Nunca na lista, no
 cabeçalho, no Início, no "No app", no `prontuario.pdf`, em URL, em log (da aplicação e do Postgres), no Sentry, em
@@ -1505,7 +1505,7 @@ Plano 18, PR 1 (ficha: Início, Perfil, cabeçalho e registro de seções; confe
     o fuso do tenant converte os instantes no dia (`diaNoFuso`, `secoes/comum.ts:14`, RN-06).
 14. **Resolvida no PR 2 (Tarefa 9): o guia `inicio-paciente` foi à v2 com a frase do selo e o passo `no-app-cartao`.**
     Registro original — **Spec §8.3: o passo `secoes-inicio` do guia `inicio-paciente` termina com "O selo No app marca o que o paciente vê
-    no app."** A v1 sai sem essa frase (`src/modules/ajuda/conteudo.ts:170`), porque o selo só existe a partir da
+    no app."** A v1 sai sem essa frase (o passo hoje em `src/modules/ajuda/conteudo.ts:183`), porque o selo só existe a partir da
     Tarefa 9 (PR 2), que leva o guia à v2. O teste "Plano 18 (§8.3)…" de `conteudo.test.ts` garante que nenhum texto do
     guia cite "No app". Pendência do PR 2, não erro.
 15. **Resolvida no PR 2 (Tarefas 7b e 9; [§4.2.11](#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2)).**
@@ -1576,7 +1576,8 @@ Plano 22, PR 3 ("Mostrar no app", Tarefa 6; [§4.2.13](#4213-mostrar-no-app-plan
     chama direto `examesLiberadosDoPaciente`, que já só grava o `auditRead` com itens (uma consulta a menos, mesmo
     efeito). `temExameLiberado` fica com a moldura.
 30. **EP-D59.** A solicitação de exames (Tarefa 8) ainda não está na `main`: o cenário dela em `no-app.test.ts` entra na T8.
-Plano 26, PR 2 (Equipe; conferido no branch `plano-26-relatorios-recepcionista` em 24/11/2026, antes da T8):
+
+Plano 26, PR 2 (Equipe; conferido no branch `plano-26-relatorios-recepcionista` em 24/11/2026, T4 a T8 prontas, `02c82ea7..bfe38520`):
 
 20. **Spec do Plano 26, §4.2: `membroAtivo(tx, userId)` em `equipe.ts`.** O código usa `lerMembroDaEquipe(db, tenantId,
     userId)` em `src/modules/plataforma/membro-da-equipe.ts` (a sessão importa sem o módulo da Equipe), que também devolve
@@ -1584,6 +1585,8 @@ Plano 26, PR 2 (Equipe; conferido no branch `plano-26-relatorios-recepcionista` 
 21. **Spec do Plano 26, RN-499: a busca do e-mail sob a trava do consultório.** O código toma também uma trava global do
     e-mail (`hashtext('user-email')`, `equipe.ts:137`), depois da do consultório: dois consultórios convidando o mesmo
     e-mail ao mesmo tempo não chegam ao `23505`, cujo texto levaria o e-mail ao log (revisão da P26-07).
-22. **Spec do Plano 26, §6.2: lista fechada dos textos.** Dois textos novos sem fonte na spec, marcados RASCUNHO no código:
-    `MSG_RECEPCAO.acessoDesativado.termoPendente` e `MSG_EQUIPE.convite.expirado` (`equipe-textos.ts:21-25`, `:106-107`);
-    entram na tabela de textos do plano na T12.
+22. **Spec do Plano 26, §6.2: lista fechada dos textos.** Textos novos sem fonte na spec, marcados RASCUNHO no código:
+    `MSG_RECEPCAO.acessoDesativado.termoPendente` e `MSG_EQUIPE.convite.expirado` (`equipe-textos.ts:21-25`, `:114-115`),
+    `MSG_RECEPCAO.emailDaConta` ("E-mail da conta: {e-mail}.", `:36-37`), `MSG_INICIO_RECEPCAO`
+    (`src/modules/agenda/inicio.ts:39`) e o guia `recepcao-seguranca` (`src/modules/ajuda/conteudo.ts:559`); entram na
+    tabela de textos do plano na T12.
