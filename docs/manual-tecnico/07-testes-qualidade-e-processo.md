@@ -434,18 +434,24 @@ Ficam de fora os do painel e os mistos em que o lado do paciente não se separa 
   Playwright não emula o app instalado, `display-mode: standalone`). Os testes de offline e do service worker não usam
   `context.serviceWorkers()` nem o evento `serviceworker` (só Chromium): rodam no WebKit.
 - **Quando o `e2e-webkit` roda** (pedido da orquestradora, 24/11/2026: um runner só, e 7 a 10 min a mais em todo PR
-  atrasariam o trem): no PR que toca o portal (saída `portal` do job `mudancas`: `src/app/p/`, `src/app/n/`, `src/app/sw*`,
-  `src/components/portal/`, os specs do projeto `webkit`, `e2e/helpers.ts`, `e2e/portal.ts`, a config do Playwright, o
-  `ci.yml` e as dependências; na dúvida, roda), toda noite na main (`schedule`, 05h30 UTC) e à mão (`workflow_dispatch`).
-  Nunca no deploy (`workflow_call`). No `schedule` e no `workflow_dispatch` os outros jobs (`quality`, `test`, `e2e`,
-  `image`) ficam de fora pela condição `github.event_name`.
+  atrasariam o trem): no PR que toca o que o portal usa (saída `portal` do job `mudancas`: telas, API e módulo do portal,
+  avisos, service worker e manifesto, login e convite, layout raiz e CSS, `src/components/`, `src/lib/`, `src/proxy.ts`,
+  `next.config.ts`, `public/`, a semente e os helpers do E2E, os specs do projeto `webkit`, a config e as dependências do
+  Playwright e o `ci.yml`; os módulos só do painel ficam de fora; na dúvida, roda), toda noite na main (`schedule`, 09h UTC
+  = 06h de Brasília, longe do backup das 03h) e à mão (`workflow_dispatch`). Nunca no deploy (`workflow_call`). No
+  `schedule` e no `workflow_dispatch` os outros jobs (`quality`, `test`, `e2e`, `image`) ficam de fora pela condição
+  `github.event_name`. Falha do agendado abre (ou comenta) a issue fixa "E2E WebKit noturno falhou" (label `ci`) pelo job
+  `avisar-webkit`, no runner **hospedado** e só depois da falha: o runner próprio nunca recebe permissão de escrita nem o
+  token (guarda em `test/runner-proprio.test.ts`).
+- **O projeto `webkit` só existe com `E2E_WEBKIT=1`** (o job `e2e-webkit` a define no passo do teste): o job `e2e` e o
+  `pnpm test:e2e` local seguem sem lista de projetos.
 - **Job próprio no CI (`e2e-webkit`).** Estimativa do SUS-117: os 54 testes que rodam (55 com o pulado), pela média do
   Chromium na última execução verde do CI (272 testes em 22,5 min com 2 workers) e com o peso dos specs do portal (cada
   teste cria um paciente pelo painel e aceita o convite pelo Mailpit), dão 7 a 10 min no WebKit, mais o build: acima dos
   5 min combinados. O job tem o banco e o Mailpit dele, então os mesmos specs não rodam duas vezes, ao mesmo tempo,
   contra as contas fixas do seed e os IPs do limite de login. O tempo medido sai do CI do PR do SUS-117.
 - **O host da VPS não abre o WebKit** (faltam as bibliotecas do sistema; instalar é com o dono): o projeto `webkit` só
-  existe com `CI` ou `E2E_WEBKIT=1` (`playwright.config.ts`), então o E2E local das sessões (`pnpm test:e2e`, com ou sem
+  existe com `E2E_WEBKIT=1` (`playwright.config.ts`), então o E2E local das sessões (`pnpm test:e2e`, com ou sem
   spec) segue como antes, sem ele; local, só `E2E_WEBKIT=1 pnpm exec playwright test --list --project=webkit`. A imagem do
   CI (`mcr.microsoft.com/playwright:v1.63.0-noble`) já
   traz o navegador e as dependências.

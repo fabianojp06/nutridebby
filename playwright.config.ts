@@ -30,13 +30,8 @@ const SPECS_DO_PORTAL = [
   'nada-some.spec.ts',
   'sus-112-recarregar-ao-voltar.spec.ts',
   'fontes-portal.spec.ts',
-  // Entram quando chegarem à main (o padrão não acha arquivo que não existe): questionário e metas (Plano 27, PRs 2 e
-  // 3), mensagens (Plano 25) e o Enter do editor do site (Plano 28, PR 2). Ao chegar, a nutricionista desses specs
-  // também entra com `painelNoComputador`.
-  'questionario.spec.ts',
-  'metas.spec.ts',
-  'mensagens*.spec.ts',
-  'site-opinioes.spec.ts',
+  // Os próximos (questionário e metas do Plano 27, mensagens do Plano 25) entram aqui no PR que os traz, com a
+  // nutricionista por `painelNoComputador` — nunca antes, para não rodarem no WebKit sem esse ajuste.
 ];
 
 export default defineConfig({
@@ -56,9 +51,9 @@ export default defineConfig({
     // SUS-117 (RNF-09): o portal do paciente no WebKit do Playwright, como o Safari do iPhone (o mais novo da 1.63). O que
     // o Playwright não faz no WebKit (CDP, app instalado) sai por `test.skip(browserName === 'webkit', …)` só no teste.
     // O aparelho de verdade continua no runbook para instalar, push, VoiceOver e foto HEIC (docs/operacao/go-live.md).
-    // Só no CI ou com E2E_WEBKIT=1: o host da VPS não tem as dependências de sistema do WebKit (a imagem do Playwright do CI
-    // tem), e um `pnpm test:e2e e2e/portal.spec.ts` local das sessões pegaria este projeto e falharia ao abrir o navegador.
-    ...(process.env.CI || process.env.E2E_WEBKIT ? [{ name: 'webkit', use: { ...devices['iPhone 17'] }, testMatch: SPECS_DO_PORTAL }] : []),
+    // Só com E2E_WEBKIT=1 (o job `e2e-webkit` do ci.yml a define): o host da VPS não tem as dependências de sistema do
+    // WebKit, e assim nem o `pnpm test:e2e` local das sessões nem o job `e2e` precisam de lista de projetos.
+    ...(process.env.E2E_WEBKIT ? [{ name: 'webkit', use: { ...devices['iPhone 17'] }, testMatch: SPECS_DO_PORTAL }] : []),
   ],
   webServer: [
     {

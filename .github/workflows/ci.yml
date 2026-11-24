@@ -7,11 +7,11 @@ run-name: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}-{1}', git
 
 on:
   pull_request:
-  # SUS-117: o portal no WebKit (job `e2e-webkit`) toda noite na main, às 05h30 UTC (02h30 de Brasília, antes do backup das
-  # 03h e fora da janela de merge), e à mão. Nesses dois eventos só o `mudancas` e o `e2e-webkit` rodam (os outros jobs
+  # SUS-117: o portal no WebKit (job `e2e-webkit`) toda noite na main, às 09h UTC (06h de Brasília, longe do backup das 03h
+  # e antes do expediente), e à mão. Nesses dois eventos só o `mudancas` e o `e2e-webkit` rodam (os outros jobs
   # ficam de fora pela condição `github.event_name` de cada um).
   schedule:
-    - cron: '30 5 * * *'
+    - cron: '0 9 * * *'
   workflow_dispatch:
   workflow_call:
     outputs:
@@ -63,9 +63,12 @@ jobs:
             if [[ -n "$arquivos" ]] && ! grep -qEv '^(docs/|\.claude/agents/)|\.md$' <<<"$arquivos"; then
               codigo=false
             fi
-            # SUS-117: o `e2e-webkit` só roda no PR que toca o portal do paciente (telas, service worker, avisos, os specs
-            # do projeto `webkit`, a config e as dependências do Playwright). Na dúvida (base ausente, diff vazio), roda.
-            if [[ -n "$arquivos" ]] && ! grep -qE '^(src/app/p/|src/app/n/|src/app/sw|src/components/portal/|e2e/(portal|sessao-portal|app-paciente|sus-112-recarregar-ao-voltar|fontes-portal|nada-some|questionario|metas|mensagens[^/]*|site[^/]*)\.spec\.ts$|e2e/(helpers|portal)\.ts$|playwright\.config\.ts$|\.github/workflows/ci\.yml$|package\.json$|pnpm-lock\.yaml$)' <<<"$arquivos"; then
+            # SUS-117: o `e2e-webkit` roda no PR que toca o que o portal usa: as telas, a API e o módulo do portal, os avisos,
+            # o service worker e o manifesto, o login e o convite (todo teste do webkit passa por eles), o layout raiz e o
+            # CSS, os componentes e o lib comuns, o proxy e o next.config (CSP), o public, a semente e os helpers do E2E, os
+            # specs do projeto `webkit`, a config e as dependências do Playwright e o ci.yml. Os módulos só do painel ficam
+            # de fora (o runner é um só). Na dúvida (base ausente, diff vazio), roda.
+            if [[ -n "$arquivos" ]] && ! grep -qE '^(src/app/p/|src/app/n/|src/app/sw|src/app/api/p/|src/modules/portal/|src/app/entrar/|src/app/convite/|src/app/serwist|src/app/manifest|src/app/layout\.tsx$|src/app/globals\.css$|src/components/|src/lib/|src/proxy\.ts$|next\.config\.ts$|public/|scripts/e2e-seed\.ts$|e2e/[^/]+\.ts$|playwright\.config\.ts$|\.github/workflows/ci\.yml$|package\.json$|pnpm-lock\.yaml$)' <<<"$(grep -vE '^e2e/[^/]+\.spec\.ts$' <<<"$arquivos"; grep -E '^e2e/(portal|sessao-portal|app-paciente|nada-some|sus-112-recarregar-ao-voltar|fontes-portal)\.spec\.ts$' <<<"$arquivos")"; then
               portal=false
             fi
           fi
@@ -186,7 +189,7 @@ jobs:
       - run: pnpm db:migrate
       - run: pnpm e2e:seed
       - run: pnpm build
-      - run: pnpm test:e2e --project=chromium --project=celular --project=painel   # o webkit roda no e2e-webkit
+      - run: pnpm test:e2e   # o projeto webkit só existe com E2E_WEBKIT (job e2e-webkit)
       - if: failure()
         uses: actions/upload-artifact@v4
         with: { name: playwright-report, path: playwright-report }
@@ -249,9 +252,36 @@ jobs:
       - run: pnpm e2e:seed
       - run: pnpm build
       - run: pnpm test:e2e --project=webkit
+        env: { E2E_WEBKIT: '1' }
       - if: failure()
         uses: actions/upload-artifact@v4
         with: { name: playwright-report-webkit, path: playwright-report }
+
+  # SUS-117: falha no agendado da noite não passa em silêncio. Abre (ou comenta, se já aberta) a issue fixa "E2E WebKit
+  # noturno falhou" (label ci) com o link da execução. No runner HOSPEDADO, e só depois de falhar: o runner próprio nunca
+  # recebe permissão de escrita nem o token (guarda em test/runner-proprio.test.ts); aqui, segundos de Actions por falha.
+  avisar-webkit:
+    needs: e2e-webkit
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EXECUCAO: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          titulo='E2E WebKit noturno falhou'
+          corpo="O job e2e-webkit do agendado da noite falhou: ${EXECUCAO}"
+          n="$(gh issue list --state open --label ci --limit 100 --json number,title --jq ".[] | select(.title == \"${titulo}\") | .number" | head -1)"
+          if [[ -n "$n" ]]; then
+            gh issue comment "$n" --body "$corpo"
+          else
+            gh issue create --title "$titulo" --body "$corpo" --label ci || gh issue create --title "$titulo" --body "$corpo"
+          fi
 
   image:
     needs: mudancas

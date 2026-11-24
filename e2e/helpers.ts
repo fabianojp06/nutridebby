@@ -10,7 +10,7 @@ const segredos = new Map<string, string>();
  */
 export function painelNoComputador(browser: Browser): BrowserContextOptions {
   const d = browser.browserType().name() === 'webkit' ? devices['Desktop Safari'] : devices['Desktop Chrome'];
-  return { userAgent: d.userAgent, viewport: d.viewport, deviceScaleFactor: d.deviceScaleFactor, isMobile: d.isMobile, hasTouch: d.hasTouch };
+  return { userAgent: d.userAgent, viewport: d.viewport, screen: d.viewport, deviceScaleFactor: d.deviceScaleFactor, isMobile: d.isMobile, hasTouch: d.hasTouch };
 }
 
 /** `opcoes`: o contexto herda o dispositivo do projeto (celular); o painel da nutricionista pede o desktop. */
