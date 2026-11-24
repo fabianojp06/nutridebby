@@ -3,6 +3,7 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { novoTenant } from '../../../test/pacientes';
 import { withTenant } from '@/db/tenant';
+import { buscaDoTenant } from '@/modules/ia/ferramentas-alimentos';
 import { buscarAlimentos, palavrasDaBusca } from './busca';
 import { idTaco } from './taco';
 
@@ -47,5 +48,18 @@ describe('busca de alimentos (US-020, D6)', () => {
     for (const t of ['', ' ', 'a', null, 42, '%%', '__', '\\\\']) expect(await buscarAlimentos(T.ctx, t, app.db), String(t)).toEqual([]);
     expect(palavrasDaBusca('  Feijão,  carioca ')).toEqual(['feijão', 'carioca']);
     expect(palavrasDaBusca('x'.repeat(200))[0]).toHaveLength(60);
+  });
+
+  it('SUS-121 (regra 3): NUL e surrogate sem par saem do termo, também o da ferramenta da IA (o termo vem do modelo)', async () => {
+    expect(palavrasDaBusca('Fei\u0000jão \ud800carioca\udc00 🙂')).toEqual(['feijão', 'carioca', '🙂']);
+    expect(palavrasDaBusca('\u0000 \ud800')).toEqual([]);
+    // o corte em 60 no meio do emoji não deixa o surrogate alto sozinho
+    expect(palavrasDaBusca(`${'x'.repeat(59)}🙂`)).toEqual(['x'.repeat(59)]);
+    const T = await novoTenant(app.db);
+    const limpo = (await buscarAlimentos(T.ctx, 'feijao carioca', app.db)).map((a) => a.id);
+    expect(limpo.length).toBeGreaterThan(0);
+    expect((await buscarAlimentos(T.ctx, 'fei\u0000jao\ud800 carioca\udfff', app.db)).map((a) => a.id)).toEqual(limpo);
+    const daIa = buscaDoTenant(T.tenantId, app.db);
+    expect((await daIa('fei\u0000jao\ud800 carioca')).map((a) => a.id)).toEqual(limpo);
   });
 });

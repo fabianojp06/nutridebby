@@ -11,16 +11,22 @@ import { customType } from 'drizzle-orm/pg-core';
 
 /** `JSON.stringify` escreve o NUL como `\u0000` e o surrogate sem par como `\udXXX` (os pares válidos saem literais). */
 const ESCAPE_SUSPEITO = /\\u(?:0000|d[89a-f])/i;
-/** Os escapes do texto JSON, um a um, da esquerda para a direita (`\\` consumido inteiro: `\\u0000` é texto). */
+/**
+ * Os escapes do texto JSON, um a um, da esquerda para a direita (`\\` consumido inteiro: `\\u0000` é texto). Com a flag
+ * `i`, o `[^u]` (aqui e em `ESCAPE_SURROGATE`) também deixa de fora o `U`: inofensivo, o `JSON.stringify` só escreve
+ * `\u` minúsculo e nunca `\U`.
+ */
 const ESCAPE_NUL = /\\(?:u0000|u[0-9a-f]{4}|[^u])/gi;
 /** Par escapado (fica), surrogate escapado sozinho (sai) ou outro escape (fica). */
 const ESCAPE_SURROGATE = /\\u(?:d[89ab][0-9a-f]{2}\\ud[c-f][0-9a-f]{2}|(d[89a-f][0-9a-f]{2})|[0-9a-f]{4})|\\[^u]/gi;
 
 /**
  * O texto JSON que vai para uma coluna jsonb, sem NUL e sem surrogate sem par em nenhuma string nem chave — o mesmo
- * resultado de aplicar `semInvalidosNoBanco` a cada string e chave do valor e serializar (prova por amostragem em
- * `jsonb-seguro.test.ts`). Mesma semântica do `JSON.stringify` (o `toDriver` do jsonb do Drizzle): `toJSON` (Date),
- * `undefined` some dos objetos e vira `null` nos arrays.
+ * resultado de aplicar `semInvalidosNoBanco` a cada string e chave do valor e serializar (teste de propriedade em
+ * `jsonb-seguro.test.ts`: 3000 valores de um PRNG inteiro de semente fixa, com piso de cobertura dos casos difíceis —
+ * NUL entre as metades de um par, alto + alto, NUL e surrogate na chave, `\\u0000` digitado — e a saída conferida por um
+ * lexer como o do jsonb do Postgres). Mesma semântica do `JSON.stringify` (o `toDriver` do jsonb do Drizzle): `toJSON`
+ * (Date), `undefined` some dos objetos e vira `null` nos arrays.
  *
  * Saída rápida: sem escape suspeito no texto, ele vai como está (custo do `JSON.stringify` mais um teste de regex).
  * Com escape, os escapes saem do próprio texto JSON em duas passadas, como em `semInvalidosNoBanco`: primeiro o NUL,

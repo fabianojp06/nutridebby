@@ -58,11 +58,15 @@ function leiturasCruas(fonte: string): string[] {
   };
   const getDireto = new RegExp(String.raw`\.get(?:All)?\(\s*['"\`]${CHAVES}['"\`]\s*\)`);
   achar(new RegExp(getDireto.source, 'g'));
-  achar(new RegExp(String.raw`\{[^}]*\b${CHAVES}\b[^}]*\}\s*=\s*await\s+(?:\w+\.)?searchParams\b`, 'g'));
-  // o objeto da URL lido inteiro: `sp.busca`, `sp['q']`, e o filtro da lista de pacientes recebendo `sp` cru
-  for (const m of fonte.matchAll(/\b(?:const|let)\s+(\w+)\s*=\s*await\s+(?:\w+\.)?searchParams\b/g)) {
+  achar(new RegExp(String.raw`\{[^}]*\b${CHAVES}\b[^}]*\}\s*=\s*\(?\s*await\s+(?:\w+\.)?searchParams\b`, 'g'));
+  // sem variável: `(await searchParams).busca`, `(await props.searchParams)['q']`
+  achar(new RegExp(String.raw`\(\s*await\s+(?:\w+\.)?searchParams\s*\)\s*(?:\?\.|\.)\s*${CHAVES}\b|\(\s*await\s+(?:\w+\.)?searchParams\s*\)\s*(?:\?\.)?\[\s*['"]${CHAVES}['"]\s*\]`, 'g'));
+  // o objeto da URL lido inteiro: `sp.busca`, `sp?.q`, `sp['q']`, `const { busca } = sp`, e o filtro da lista de
+  // pacientes recebendo `sp` cru
+  for (const m of fonte.matchAll(/\b(?:const|let)\s+(\w+)\s*=\s*\(?\s*await\s+(?:\w+\.)?searchParams\b/g)) {
     const v = m[1];
-    achar(new RegExp(String.raw`\b${v}\.${CHAVES}\b|\b${v}\[\s*['"]${CHAVES}['"]\s*\]`, 'g'));
+    achar(new RegExp(String.raw`\b${v}\s*(?:\?\.|\.)\s*${CHAVES}\b|\b${v}\s*(?:\?\.)?\[\s*['"]${CHAVES}['"]\s*\]`, 'g'));
+    achar(new RegExp(String.raw`\{[^}]*\b${CHAVES}\b[^}]*\}\s*=\s*${v}\b(?!\s*[.[(])`, 'g'));
     achar(new RegExp(String.raw`\bfiltroDaUrl\(\s*${v}\s*\)`, 'g'));
   }
   // lista de chaves lidas do formulário numa linha (`['aba', 'busca'].map((k) => formData.get(k))`)
@@ -79,12 +83,18 @@ describe('guarda: busca lida da URL e do formulário só por textoDaBusca/textoD
     expect(leiturasCruas(`const { aviso, busca } = await searchParams;`)).toHaveLength(1);
     expect(leiturasCruas(`const sp = await props.searchParams;\nconst b = sp.busca;\nconst c = sp['q'];`)).toHaveLength(2);
     expect(leiturasCruas(`const sp = await searchParams;\nconst f = filtroDaUrl(sp);`)).toHaveLength(1);
+    expect(leiturasCruas(`const sp = await searchParams;\nconst { busca } = sp;`)).toHaveLength(1);
+    expect(leiturasCruas(`const sp = await props.searchParams;\nconst {\n  aviso,\n  q = '',\n} = sp;`)).toHaveLength(1);
+    expect(leiturasCruas(`const b = (await searchParams).busca;`)).toHaveLength(1);
+    expect(leiturasCruas(`const b = (await props.searchParams)['q'];`)).toHaveLength(1);
+    expect(leiturasCruas(`const { busca } = (await searchParams);`)).toHaveLength(1);
+    expect(leiturasCruas(`const sp = (await searchParams);\nconst b = sp?.busca;`)).toHaveLength(1);
     expect(leiturasCruas(`const f = x(['aba', 'busca'].map((k) => [k, String(formData.get(k) ?? '')]));`)).toHaveLength(1);
     expect(leiturasCruas(`const busca = String(formData.get('busca') ?? '');`)).toHaveLength(1);
     // negativos
     expect(
       leiturasCruas(
-        `const sp = await searchParams;\nconst f = filtroDaUrl({ ...sp, busca: textoDaBusca(sp, 'busca') });\nconst q = textoDaBusca(new URL(req.url).searchParams, 'q');\nconst g = x(['aba', 'busca'].map((k) => [k, textoDoForm(formData, k)]));\nconst t = sp.tipo; const pagina = { busca: 1 };`,
+        `const sp = await searchParams;\nconst f = filtroDaUrl({ ...sp, busca: textoDaBusca(sp, 'busca') });\nconst q = textoDaBusca(new URL(req.url).searchParams, 'q');\nconst g = x(['aba', 'busca'].map((k) => [k, textoDoForm(formData, k)]));\nconst t = sp.tipo; const pagina = { busca: 1 };\nconst { tipo, aba } = sp;\nconst x = (await searchParams).tipo;\nconst { busca: b2 } = spOutro;`,
       ),
     ).toEqual([]);
   });
