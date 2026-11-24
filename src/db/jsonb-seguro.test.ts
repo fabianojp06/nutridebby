@@ -215,3 +215,33 @@ describe('medição do paraJsonbSeguro', () => {
     expect(r.grande.mediaMs).toBeLessThan(50);
   });
 });
+
+/**
+ * Guarda estática das escritas cruas: todo parâmetro com `::jsonb`/`::json` num `sql` (o `set` por `sql`, o
+ * `jsonb_to_recordset`, as comparações) passa por `paraJsonbSeguro(...)` — o tipo da coluna não vê esse texto.
+ */
+const CAST_CRU = /\$\{(?!paraJsonbSeguro\()[^}]*\}::jsonb?\b/g;
+/** Arquivos fora de teste com `${…}::jsonb` cru permitido, com o motivo. Nenhum hoje. */
+const CAST_CRU_PERMITIDO: Record<string, string> = {};
+
+function arquivosFonte(pasta: string): string[] {
+  return readdirSync(path.join(RAIZ, pasta), { recursive: true, encoding: 'utf8' })
+    .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
+    .map((f) => path.join(pasta, f));
+}
+
+describe('guarda: nenhum ${…}::jsonb cru em src/ e scripts/ (SUS-121)', () => {
+  it('controle positivo: a guarda pega o JSON.stringify e a variável; deixa o paraJsonbSeguro e o texto', () => {
+    const achar = (s: string) => [...s.matchAll(CAST_CRU)].map((m) => m[0]);
+    expect(achar('sql`jsonb_set(${c}, ${JSON.stringify(v)}::jsonb)`')).toEqual(['${JSON.stringify(v)}::jsonb']);
+    expect(achar('sql`select ${valor}::json as v`')).toEqual(['${valor}::json']);
+    expect(achar('sql`${paraJsonbSeguro(v)}::jsonb and ${c}::text and coalesce(${col}, \'[]\'::jsonb)`')).toEqual([]);
+  });
+
+  it('src/ e scripts/', () => {
+    const violacoes = [...arquivosFonte('src'), ...arquivosFonte('scripts')]
+      .filter((f) => !(f in CAST_CRU_PERMITIDO))
+      .flatMap((f) => [...readFileSync(path.join(RAIZ, f), 'utf8').matchAll(CAST_CRU)].map((m) => `${f}: ${m[0]}`));
+    expect(violacoes).toEqual([]);
+  });
+});

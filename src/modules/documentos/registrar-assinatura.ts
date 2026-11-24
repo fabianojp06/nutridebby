@@ -1,5 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 import type { Db, Tx } from '@/db/client';
+import { paraJsonbSeguro } from '@/db/jsonb-seguro';
 import { signedDocuments, type TenantRow } from '@/db/schema';
 import type { TenantContext } from '@/db/tenant';
 import type { TipoAssinatura, TipoDocumento } from './constantes';
@@ -40,7 +41,7 @@ export type AssinaturaAceita = {
 };
 
 /** As fotos do envio que o worker leu, na mesma ordem (jsonb: igualdade exata do array). */
-export const fotosLidas = (fotos: readonly string[]) => sql`${signedDocuments.digitalizacao} = ${JSON.stringify(fotos)}::jsonb`;
+export const fotosLidas = (fotos: readonly string[]) => sql`${signedDocuments.digitalizacao} = ${paraJsonbSeguro(fotos)}::jsonb`;
 
 /**
  * Minor 9 da revisão de segurança: a habilitação em Fitoterapia é conferida ao salvar e ao preparar (T5) e de novo AO

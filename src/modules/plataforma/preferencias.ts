@@ -1,5 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
+import { paraJsonbSeguro } from '@/db/jsonb-seguro';
 import { user } from '@/db/schema';
 import { ehTema, ESTADOS_GUIA, ID_GUIA, type EstadoGuia, type ProgressoGuia, type Tema } from './preferencias-tipos';
 
@@ -33,8 +34,8 @@ export async function marcarGuia(userId: string, id: string, versao: number, est
   if (!ID_GUIA.test(id) || !Number.isInteger(versao) || versao < 1 || versao > 1000 || !ESTADOS_GUIA.includes(estado)) {
     throw new PreferenciaError('progresso do manual inválido');
   }
-  const valor = JSON.stringify({ v: versao, estado });
-  const novo = sql`jsonb_set(${user.guia}, array[${id}]::text[], ${valor}::jsonb, true)`;
+  // SUS-121: o `set` por `sql` não passa pelo jsonbSeguro da coluna (guarda do `::jsonb` cru em jsonb-seguro.test.ts)
+  const novo = sql`jsonb_set(${user.guia}, array[${id}]::text[], ${paraJsonbSeguro({ v: versao, estado })}::jsonb, true)`;
   const versaoGravada = sql`(${user.guia} -> ${id} ->> 'v')::int`; // null quando o tour ainda não tem marca
   const manter =
     estado === 'visto'

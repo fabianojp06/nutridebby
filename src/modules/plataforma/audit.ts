@@ -1,6 +1,7 @@
 import { count, desc, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db, type Tx } from '@/db/client';
+import { paraJsonbSeguro } from '@/db/jsonb-seguro';
 import { auditLog, iaTarefas, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 
@@ -14,14 +15,12 @@ export type AuditEntry = { acao: AuditAction; entidade: string; entidadeId: stri
 export async function recordAudit(tx: Tx, entries: AuditEntry | AuditEntry[]): Promise<void> {
   const lista = Array.isArray(entries) ? entries : [entries];
   if (!lista.length) return;
-  const json = JSON.stringify(
-    lista.map((e) => ({ acao: e.acao, entidade: e.entidade, entidade_id: e.entidadeId, patient_id: e.patientId })),
-  );
+  const linhas = lista.map((e) => ({ acao: e.acao, entidade: e.entidade, entidade_id: e.entidadeId, patient_id: e.patientId }));
   await tx.execute(sql`
     insert into public.audit_log (tenant_id, actor_user_id, acao, entidade, entidade_id, patient_id, ip, criado_em)
     select app_current_tenant(), app_current_user(), x.acao, x.entidade, x.entidade_id, x.patient_id,
            app_current_ip(), clock_timestamp()
-      from jsonb_to_recordset(${json}::jsonb) as x(acao text, entidade text, entidade_id text, patient_id uuid)`);
+      from jsonb_to_recordset(${paraJsonbSeguro(linhas)}::jsonb) as x(acao text, entidade text, entidade_id text, patient_id uuid)`);
 }
 
 /** Leitura de dado de saúde (US-007 "Leitura auditada"): chamar na transação que leu. */
