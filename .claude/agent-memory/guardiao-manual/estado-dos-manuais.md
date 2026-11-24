@@ -1,36 +1,34 @@
 ---
 name: estado-dos-manuais
-description: Data e commit da última atualização de cada manual (técnico, usuário, guiado) e o que ficou pendente; último = Plano 23 PR 2 (Agenda 2: locais, visões, impressão) em 23/11/2026
+description: Data e commit da última atualização de cada manual (técnico, usuário, guiado) e o que ficou pendente; último = Plano 23 PR 3 (solicitações, retorno, aniversariantes) em 24/11/2026
 metadata:
   type: project
 ---
 
-**Último: Plano 23, PR 2 (Agenda 2), 23/11/2026.** Branch `plano-23-agenda-2` (worktree `nutridebby-c`), conferido em
-`02fb478`, sobre a `main` `67dfad4` (#55, Plano 20 PR 2). Commit `docs(manual): Plano 23 PR 2 — locais, visões e impressão
-(P23-05)`. **§5.11 nova no fim do cap. 5** (5.11.1–5.11.8; divergências cap. 5 #28–#44 = README #154–#170, seção
-"Agenda 2 (Plano 23, PR 2)"; #168 é Comp.). Linhas velhas refeitas por símbolo em caps. 1, 2, 4, 6, 7, 8, 10 e 12
-(exportacao-job, marca.ts, enviar.ts, mensagens.ts, agendamento-publico.ts, test/agenda.ts, conteudo.test.ts).
-Cronologia: 18 PR 2 = #56 `07756c4`; 20 PR 2 = #55 `67dfad4`; 20 PR 3 no branch `plano-20-ficha` (`291baa2`); linha
-nova do Plano 23.
+**Último: Plano 23, PR 3 (T6–T10), 24/11/2026.** Branch `plano-23-agenda-2` (worktree `nutridebby-c`), conferido em
+`f0122aa`; commit `d4d522c` `docs(manual): Plano 23 PR 3 — solicitações, retorno e aniversariantes (P23-10)`. Seções novas **no fim**:
+§2.12 (banco do PR 1 + PR 3: tabelas, gatilhos, funções SECURITY DEFINER, `STATUS_OCUPA`, status-guarda; divergências
+cap. 2 #15–#21, começando em 15 porque a `main` tem #13–#14 do Plano 22), §5.12 (5.12.1–5.12.13; cap. 5 #45–#62), §6.12
+(6.12.1–6.12.6; cap. 6 #11–#14). README: seção "Agenda 2 (Plano 23, PR 3)" #171–#199; #166 resolvida; "Para decidir" +#191,
+#192. §5.11 teve as citações de linha refeitas (0126/0127 → 0130/0131, base `669f7490`). Cap. 1: linhas do Plano 23
+(cronologia, módulos, páginas, 2 rotas POST novas).
 
-**PR 1 do Plano 23 (fundação no banco, 0126/0127) NÃO tem parte no manual** (a orquestradora achava que tinha): §5.11 só
-traz uma tabela-resumo do banco. Caps. 2 e 6 (tabelas `locais_atendimento`, `aniversario_autorizacoes`, gatilhos, funções
-SECURITY DEFINER, `aguardando_fora_do_publico`, contagem de tabelas/migrations) ficam para a T12 — avisar de novo.
+**Rebase pendente sobre a `main`:** a `main` usa README #154–#160 (Plano 22 PR 2) → os do Plano 23 (#154–#199) andam 7
+casas; cap. 2 já começa em 15. Linhas velhas por causa do PR 3 nos trechos **compartilhados** com a `main` (não mexi, regra
+"só acrescentar no fim"): ~60 citações (`tenant.ts` +1 depois da linha 47, `enviar.ts` +50, `agendar.ts` +10,
+`agendamento-publico.ts` +23..+25, `exportacao-job.ts` +8..+15, `mensagens.ts` +23, `transport.ts` +2/+3, `queue.ts` +1,
+`atendimentos.ts` +32) nos caps. 1, 2, 3, 4, 5, 6, 7, 10, 12 e README: refazer depois do rebase com o remapeador (base
+`cccb8cb2^`).
 
-Próximo fechamento (PR 3 do Plano 23, T6–T10): seções no fim do cap. 5 (§5.11.9+), caps. 2 e 6; retirar #166 (Pedido a
-responder) quando `PEDIDOS_NA_AGENDA` ligar, #170 quando os guias `agenda`/`horarios` subirem; renumerar se outro plano
-ocupar #154+ no README antes do rebase.
+Matriz §2.5.1 e listas §2.7 do cap. 2 ainda sem `locais_atendimento`/`aniversario_autorizacoes` (texto comum com a main).
+PR 2 do 23 = branch local `plano-23-pr2` (`95f0f97`), sem PR em 24/11. PR 4 (filtro de local fora da agenda) por fazer;
+em 24/11 havia trabalho não commitado de outra sessão no mesmo worktree (financeiro, pacientes, e2e) — não é meu.
 
-Pendências anteriores: Plano 20 #151–#152 (textos, seção Financeiro no Início = `plano-20-ficha`); cap. 6 `index.ts:N`
-velhos; cap. 7 tabela "Specs" sem os specs dos Planos 12–16; `acessibilidade.spec.ts` "11 (+ laço)" já errado (21 `test(`).
-Contagens: 68 tabelas no Plano 20 (o 23 PR 1 soma 2), 37 specs E2E no branch do 23.
+Manual do usuário: sem acesso ao Docs; propostas do PR 3 entregues no relatório (lista A–I). Manual guiado: `agenda` v2
+cobre `solicitacoes` e `aniversariantes` só pelo `padrao`; passos/versão na T12.
 
-Manual do usuário: sem acesso ao Docs na sessão; propostas entregues no relatório ao orquestrador (não aplicadas).
-Manual guiado: `agenda` v2 cobre `/painel/agenda/locais` pelo `padrao`, texto velho (T12 sobe); `/painel/agenda/imprimir`
-em `SEM_AJUDA`.
-
-Histórico: Plano 20 PR 2 em 17/11 (`f6cd00a`); Plano 18 PR 1 em 17/11 (`d2d69be`); Plano 17 em 17/11 (`59cbf0c`);
-Plano 15 em 15/10 (`4f8fade`).
+Histórico: 23 PR 2 em 23/11 (`669f7490`, era `02fb478`/`013582c` antes do rebase); 20 PR 2 em 17/11 (`f6cd00a`); 18 PR 1
+em 17/11 (`d2d69be`); 17 em 17/11 (`59cbf0c`); 15 em 15/10 (`4f8fade`).
 
 **Revisão final do PR 1 do Plano 27 (23/11/2026, worktree `nutridebby-27`, base `8e91ecb`, HEAD `0c51a1e`):** o PR 1 (só banco)
 não mexeu no manual; entreguei como achado Important a lista do que entra (cap. 02 §2.5.13 nova, matriz, §2.7, §2.8.2,
