@@ -11,6 +11,24 @@ export function lerDecimal(v: unknown): number | null {
   return Number.isFinite(n) ? n : Number.NaN;
 }
 
+/**
+ * O número como texto de campo, com vírgula decimal, **todas** as casas e nunca em notação exponencial: `String(1e-7)` é
+ * "1e-7", que `lerDecimal` recusa (um valor gravado que volta ao formulário e trava a edição). Expande os dígitos do
+ * `String(n)` (a menor representação que volta ao mesmo número), sem arredondar: `lerDecimal(numeroParaCampo(n)) === n`.
+ */
+export function numeroParaCampo(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) return '';
+  const s = String(n);
+  const m = /^(-?)(\d+)(?:\.(\d+))?e([+-]\d+)$/.exec(s);
+  if (!m) return s.replace('.', ',');
+  const [, sinal, inteira, fracao = '', expoente] = m;
+  const digitos = inteira + fracao;
+  const ponto = inteira.length + Number(expoente); // onde a vírgula cai nos dígitos
+  if (ponto <= 0) return `${sinal}0,${'0'.repeat(-ponto)}${digitos}`;
+  if (ponto >= digitos.length) return `${sinal}${digitos}${'0'.repeat(ponto - digitos.length)}`;
+  return `${sinal}${digitos.slice(0, ponto)},${digitos.slice(ponto)}`;
+}
+
 /** Meio para cima em `casas` decimais (RN-14). Pela notação exponencial: 1.005 → 1.01 (e não 1.00). */
 export function arredondar(v: number, casas = 0): number {
   if (!Number.isFinite(v) || String(v).includes('e')) return Math.round(v * 10 ** casas) / 10 ** casas;

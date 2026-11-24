@@ -4,7 +4,7 @@ import { fichaPelaBusca, SEMENTE_COMPLETA, SEMENTE_INCOMPLETA } from './cadastro
 import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
 import { criarPacientePeloFormulario } from './pacientes-form';
-import { escolherTema, prepararTelasComId } from './painel';
+import { contrasteIncerto as incertosDoContraste, escolherTema, prepararTelasComId } from './painel';
 import { ROTAS_DO_PAINEL, type IdsDoPainel } from './painel-rotas';
 import { avaliar, pacienteNoPortal } from './portal';
 
@@ -16,7 +16,7 @@ const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 // Plano 20: consultório novo a cada `pnpm e2e:seed`, nunca configurado (copiada: importar o seed roda o seed)
 const FIN_AXE = { email: 'fin-axe-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
-test.describe.configure({ mode: 'serial', timeout: 240_000 }); // cada teste visita as ~44 telas do painel
+test.describe.configure({ mode: 'serial', timeout: 360_000 }); // cada teste visita todas as telas do painel (mais de 60 desde o Plano 22, que acrescentou o catálogo, os exames e a prescrição)
 let nutri: Page;
 let finAxe: Page | undefined;
 let rotas: string[] = [];
@@ -44,11 +44,12 @@ async function violacoes(page: Page, incluir?: string, opcoes: { ignorarForaDaTe
   const r = await (incluir ? axe.include(incluir) : axe).analyze();
   expect(r.passes.length, 'o axe rodou regras na página').toBeGreaterThan(0);
   // fundos com transparência caem em "incomplete" no color-contrast: não podem passar calados
-  let incertos = r.incomplete.filter((i) => i.id === 'color-contrast').flatMap((i) => i.nodes.map((n) => n.target.join(' ')));
+  // Três filtros, nesta ordem (rebase do Plano 22 sobre o Plano 20): `contrasteIncerto` tira o texto de diálogo modal e de
+  // gráfico (svg role=img), conferidos à parte; a rolagem dos contêineres dá veredito ao que puder; do que continua sem
+  // veredito, com `ignorarForaDaTela`, sai só o que não cabe inteiro na tela.
+  let incertos = await incertosDoContraste(page, r.incomplete);
   let doContraste: string[] = [];
   if (incertos.length) ({ incertos, violacoes: doContraste } = await contrasteNasTabelasRolaveis(page, incertos, incluir));
-  // Os dois filtros juntos (rebase do Plano 20 sobre o PR 2 do Plano 18): primeiro a rolagem dos contêineres dá veredito ao
-  // que puder; do que continua sem veredito, com `ignorarForaDaTela`, sai só o que não cabe inteiro na tela.
   if (opcoes.ignorarForaDaTela) {
     // Plano 18: a 360 px a faixa de abas da ficha e a tabela da lista rolam na horizontal; o axe não calcula o contraste do
     // que não cabe inteiro na largura da tela (fora dela ou cortado na borda do contêiner que rola: "incomplete"). Só esses

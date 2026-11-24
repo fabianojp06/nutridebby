@@ -1736,6 +1736,29 @@ Plano 20 (Financeiro, [§12.6](12-financeiro.md#126-telas-navegação-e-manual-g
 
 O texto é **rascunho** até o dono e a Debby aprovarem (P08-08), sem dado de saúde nos exemplos (comentário no arquivo).
 
+Plano 22, PR 2 (exames do consultório, [§4.2.12](04-modulos-clinicos.md#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2)):
+
+- **Guia novo `exames-do-consultorio`** (o 20º de `GUIAS`, no fim da lista), na versão 1 (`conteudo.ts:431`), título "Exames do consultório", `padrao`
+  `^/painel/exames(/.*)?$`: as seis telas do hub (catálogo, exame do catálogo, modelos de solicitação). O
+  `/painel/exames-recebidos` continua no guia `exames-recebidos` (o padrão exige `/` ou o fim depois de `exames`). Cinco
+  passos, com os alvos `secoes-exames` (`src/app/painel/exames/secoes.tsx`), `nomes-para-comecar`
+  (`catalogo/nomes-para-comecar.tsx`), `novo-exame-catalogo` (`catalogo/page.tsx`), `faixas-consultorio` e `modelos-nota`
+  (`catalogo/exame-catalogo-form.tsx`; os dois últimos só no formulário do exame). Resumo: "O catálogo com os exames que
+  você pede e lê, com as suas faixas e os modelos de nota, e os modelos de solicitação. Nada daqui aparece para o
+  paciente." Rascunho para o `revisor-interface` e a Debby (PM-E12).
+- **`configuracoes` na v9** (`conteudo.ts:349`, +1 sobre a `main`, EP-D52): o resumo cita "exames do consultório", e o
+  passo `cartoes-configuracoes` termina com "Em "Exames" ficam o catálogo de exames, as suas faixas e os modelos de
+  solicitação.".
+- **`prontuario` na v4** (`conteudo.ts:215`): o quarto item do "Passo a passo", "Na aba Exames, "Adicionar do catálogo"
+  monta as linhas com os exames do seu catálogo; copie a faixa impressa no laudo para ver a classificação. "Editar"
+  corrige um exame já lançado e guarda a versão anterior, com a justificativa. Para ver a evolução entre datas, marque
+  "Comparar" em 2 a 6 exames." A Tarefa 5b acrescentou o "Comparar" no mesmo item sem subir de novo (um +1 por PR que
+  muda a tela). As telas novas da ficha (detalhe, editar, versões e comparativo) ficam no `prontuario`, cujo padrão casa
+  qualquer aba; nada em `SEM_AJUDA`.
+- **Teste do manual** (`conteudo.test.ts`): `TSX_FORA` passou a ler `src/modules/exames` (os textos de `MSG_EXAMES`); os
+  pins antigos de `prontuario` e `configuracoes` viraram `toBeGreaterThanOrEqual`, e os casos novos do Plano 22 fixam
+  `exames-do-consultorio` na v1, `configuracoes` na v9 e `prontuario` na v4.
+
 ### 5.8.2 Componentes
 
 | Peça | Arquivo | Comportamento |

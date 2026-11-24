@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Dialogo, DialogoConfirmar } from './dialogo';
-import { aoFecharPeloNavegador, devolveFocoAoDesmontar } from './dialogo-fechar';
+import { alvoDoFocoAoFechar, aoFecharPeloNavegador, devolveFocoAoDesmontar } from './dialogo-fechar';
 
 const nada = () => undefined;
 /** Um <button type="button"> com o texto dado (e, se pedido, um atributo), em qualquer ordem de atributos. */
@@ -149,5 +149,33 @@ describe('Dialogo — fechamento pelo navegador e desmontagem (src/components/di
     expect(devolveFocoAoDesmontar({ aberto: true, conectado: false })).toBe(true);
     expect(devolveFocoAoDesmontar({ aberto: false, conectado: false })).toBe(false);
     expect(devolveFocoAoDesmontar({ aberto: true, conectado: true })).toBe(false);
+  });
+  it('Plano 22 (T3): o foco já voltou nesta abertura (close → aoFechar → o pai desmonta) — a desmontagem não devolve de novo', () => {
+    expect(devolveFocoAoDesmontar({ aberto: true, conectado: false, devolvido: true })).toBe(false);
+    expect(devolveFocoAoDesmontar({ aberto: true, conectado: false, devolvido: false })).toBe(true);
+  });
+});
+
+/** Plano 22 (T3): o alvo do foco ao fechar, sem DOM (objetos com `isConnected`). */
+describe('Dialogo — alvo do foco ao fechar (alvoDoFocoAoFechar)', () => {
+  const no = (conectado: boolean) => ({ isConnected: conectado });
+  it('o elemento que abriu, se ainda está no DOM; focoAoFechar nem é chamado', () => {
+    const volta = no(true);
+    let chamado = false;
+    expect(alvoDoFocoAoFechar(volta, () => ((chamado = true), no(true)))).toBe(volta);
+    expect(chamado).toBe(false);
+  });
+  it('quem abriu saiu do DOM (ou não havia): o de focoAoFechar, só se estiver no DOM', () => {
+    const alvo = no(true);
+    expect(alvoDoFocoAoFechar(no(false), () => alvo)).toBe(alvo);
+    expect(alvoDoFocoAoFechar(null, () => alvo)).toBe(alvo);
+    expect(alvoDoFocoAoFechar(null, () => no(false))).toBeNull();
+    expect(alvoDoFocoAoFechar(null)).toBeNull();
+  });
+  it('focoAoFechar depois de o pai desmontar (refs nulas): null ou exceção viram null, sem erro na limpeza', () => {
+    expect(alvoDoFocoAoFechar(null, () => null)).toBeNull();
+    expect(alvoDoFocoAoFechar(null, () => undefined)).toBeNull();
+    const refNula = { current: null as { querySelector: () => { isConnected: boolean } } | null };
+    expect(alvoDoFocoAoFechar(null, () => refNula.current!.querySelector())).toBeNull();
   });
 });

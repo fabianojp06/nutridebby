@@ -79,8 +79,9 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   // Plano 20 (RN-319): escritas de fin_lancamentos (gatilho), leituras de um paciente (RN-318) e o CSV (RN-321). A entidade
   // `financeiro_configuracoes` (RN-320) não tem paciente e fica fora do Histórico do paciente: sem rótulo
   financeiro: 'Financeiro',
-  // Plano 22 (RN-378, RN-383, EP-D61): versões anteriores do exame e nota de interpretação (gatilhos de exam_versoes e
-  // exam_interpretacoes, rls_exames_catalogo); a nota tem entidade própria para não se confundir com o exame no Histórico
+  // Plano 22 (RN-378, RN-383, EP-D61): versões anteriores do exame e nota de interpretação (gatilhos das duas tabelas
+  // filhas do exame, migration rls_exames_catalogo); a nota tem entidade própria para não se confundir com o exame no
+  // Histórico. Sem o nome das tabelas aqui: este arquivo é alcançável pela IA (guarda da RN-399, exames/guardas.test.ts)
   exames_versoes: 'Versões do exame',
   exames_nota: 'Nota de interpretação do exame',
 };
@@ -216,4 +217,17 @@ export async function listAccessHistory(
       patientId,
     })),
   };
+}
+
+/**
+ * Plano 22 (T4, EP-D53) e Plano 21 (AF-D63): o nome e o papel de quem gravou ("Versões anteriores" do exame e da nota),
+ * pelo mesmo `select` de `listAccessHistory` (que não é tocada; unificar fica para o backlog). Chamada FORA de
+ * `withTenant`, como o Histórico de acessos (a tabela `user` é exceção de RLS, regra 1). Id que não é uuid é ignorado; id
+ * sem conta fica fora do mapa (quem chama mostra "Usuário removido").
+ */
+export async function nomesDosAtores(db: Db, ids: string[]): Promise<Map<string, { nome: string; papel: string }>> {
+  const unicos = [...new Set(ids)].filter((id) => z.guid().safeParse(id).success);
+  if (!unicos.length) return new Map();
+  const atores = await db.select({ id: user.id, nome: user.name, papel: user.appRole }).from(user).where(inArray(user.id, unicos));
+  return new Map(atores.map((a) => [a.id, { nome: a.nome, papel: a.papel }]));
 }

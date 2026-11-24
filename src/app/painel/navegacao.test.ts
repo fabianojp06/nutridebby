@@ -63,4 +63,12 @@ describe('menu do painel (D20)', () => {
       }
     expect(itensDoMenu({ exames: true, duvidas: true })).toHaveLength(9); // R-310: o máximo do menu
   });
+
+  it('Plano 22 (EP-D51): as telas de /painel/exames moram no hub e marcam "Configurações"; "Exames recebidos" continua com o próprio item', () => {
+    expect(itemAtual('/painel/exames/catalogo')).toBe('/painel/configuracoes');
+    expect(itemAtual('/painel/exames/catalogo/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b')).toBe('/painel/configuracoes');
+    expect(itemAtual('/painel/exames/modelos/novo')).toBe('/painel/configuracoes');
+    expect(itemAtual('/painel/exames-recebidos')).toBe('/painel/exames-recebidos');
+    expect(itemAtual('/painel/exames-recebidos/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b')).toBe('/painel/exames-recebidos');
+  });
 });
