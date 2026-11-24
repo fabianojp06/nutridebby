@@ -3,6 +3,7 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
 import { examesModelosSolicitacao, type ExameDaLista, type ModeloSolicitacaoRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { DocumentoError } from '@/modules/documentos/erros';
 import { ORIENTACOES_SOLICITACAO_MAX, textoLivre, validarListaDeExames } from '@/modules/documentos/solicitacao';
 import { idValido } from '@/modules/pacientes/base';
@@ -30,7 +31,7 @@ export class ModeloSolicitacaoError extends Error {
   }
 }
 
-const umaLinha = (s: string) => s.replace(/\u0000/g, '').trim().replace(/\s+/g, ' ');
+const umaLinha = (s: string) => semInvalidosNoBanco(s).trim().replace(/\s+/g, ' '); // SUS-109
 
 /** RN-391: nome, exames e orientações; qualquer outra chave (a indicação clínica) é ignorada. */
 function validar(input: unknown): { nome: string; exames: ExameDaLista[]; orientacoes: string } {

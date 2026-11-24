@@ -27,6 +27,7 @@ Convenções do capítulo:
 | Conteúdo | `src/modules/conteudo/` | Vídeo, oEmbed, capa, markdown, receitas, audiência, aviso, métricas, LGPD do titular | P07 |
 | Ajuda | `src/modules/ajuda/conteudo.ts`, `src/modules/ajuda/portal.ts`, `src/modules/ajuda/precisa-do-guia.ts` (P08-13) | Texto dos tours e do manual do painel (`GUIAS`) e o guia do portal (`GUIA_PORTAL`, `AVISO_PORTAL`) | P08 (P16 para o portal) |
 | Tema | `src/lib/tema/`, `src/app/globals.css`, `src/components/ui/` | Tokens de cor, contraste, cor da marca no escuro, cor da faixa do portal, componentes base | P08 (P16 para o portal) |
+| Relatórios | `src/modules/relatorios/` + `src/app/painel/relatorios/`, `src/app/api/painel/relatorios/csv/` | Seis seções agregadas no SQL (pacientes, atendimentos, planos, agenda, financeiro, ranking), período, quem vê cada seção, CSV, impressão e o `exportar` na transação da leitura (§5.11) | P26 (PR 1) |
 
 A spec registra a divisão em dois módulos (`agenda` e `notificacoes`) porque o motor de envio também serve o convite do
 paciente (US-010) — desvio do §4.1 listado no Plano 05 ("Desvios conscientes da spec").
@@ -1612,9 +1613,11 @@ Guardas: `src/app/painel/cores.test.ts` (sem cor fixa, sem `dark:` espalhado, bo
 
 - `src/app/painel/layout.tsx` monta o cabeçalho de todas as telas. **Não é barreira de segurança**: cada página chama
   `requireNutri` (guarda em `cabecalho.test.ts`). Com o DPA pendente, o cabeçalho mostra só marca, tema e "Sair".
-- Menu de 7 itens fixos (`ITENS_DO_MENU`): Início, Pacientes, Agenda, Diários, Conteúdos, Financeiro (Plano 20, RN-327:
-  para toda nutricionista, sem contador) e Configurações; "Exames recebidos" (Plano 12) e "Dúvidas dos pacientes" (Plano 15)
-  entram quando ligados, e o menu chega a 9 itens (o cabeçalho quebra a linha, R-310 do Plano 20). "Configurações" é um
+- Menu de 8 itens fixos (`ITENS_DO_MENU`): Início, Pacientes, Agenda, Diários, Conteúdos, Financeiro (Plano 20, RN-327:
+  para toda nutricionista, sem contador), Relatórios (Plano 26, §4.1: entre "Financeiro" e "Configurações"; marca também
+  a impressão, `/painel/relatorios/imprimir`) e Configurações; "Exames recebidos" (Plano 12) e "Dúvidas dos pacientes"
+  (Plano 15) entram quando ligados, e o menu chega a 10 itens (o cabeçalho quebra a linha, R-310 do Plano 20; aceito na
+  spec do Plano 26, §4.1). "Configurações" é um
   hub de cartões e fica marcado também em WhatsApp, Alimentos e modelos (`DO_HUB`).
 - Menu da conta no avatar (`<details>`, `src/app/painel/menu-conta.tsx`): "Perfil e marca", "Segurança", "Manual",
   "Rever o tour de boas-vindas", "Sair".
@@ -1771,6 +1774,19 @@ Plano 20 (Financeiro, [§12.6](12-financeiro.md#126-telas-navegação-e-manual-g
 - **Teste do manual.** `src/modules/financeiro` entrou em `TSX_FORA` (os rótulos citados entre aspas moram em
   `MSG_FINANCEIRO`); o caso do Plano 15 passou a `versao ≥ 3` e casos novos fixam `boas-vindas` 4, `agenda` 2 e o guia
   `financeiro` (versão, posição, rotas e alvos).
+
+Plano 26 (Relatórios, PR 1, [§5.11](#511-relatórios-plano-26)):
+
+- **Guia novo `relatorios`**, versão 1, logo **antes** do `financeiro` (que continua o último; as rotas não se cruzam),
+  título "Relatórios", `padrao` `^/painel/relatorios(/(atendimentos|planos|agenda|financeiro|ranking))?$`: as seis
+  seções. Passos da spec §6.2 com os alvos `abas-relatorios`, `filtro-periodo` ("Escolha até 12 meses.", sem o local — a
+  frase do local entra na v2, com o Plano 23) e `exportar`. A impressão fica em `SEM_AJUDA` ("página de impressão, sem
+  menu"). Texto da ajuda em rascunho até a aprovação do dono e da Debby.
+- **`boas-vindas` na v5** (comentário "5 = Plano 26"): o passo do menu passa a "Pacientes, Agenda, Diários, Conteúdos,
+  Financeiro, Relatórios e Configurações ficam no topo. …"; para caber nos 300 caracteres, a frase da IA Nutri ficou "Com a
+  IA Nutri ativada, "Dúvidas dos pacientes" aparece também, com o número das abertas.".
+- **Teste do manual.** `src/modules/relatorios` entrou em `TSX_FORA` (os rótulos citados moram em `MSG_RELATORIOS`); o
+  caso do Plano 20 passou a `versao ≥ 4` e casos novos fixam `boas-vindas` 5 e o guia `relatorios` (versão, rotas, passos).
 
 | Campo | Papel |
 |---|---|
@@ -1954,6 +1970,86 @@ tentativas e payload de cada uma: [§6.2.3 Filas](06-worker-seguranca-operacao.m
   nome da refeição.
 - Na tela da consulta do painel, `listarNotificacoesDaConsulta` mostra cada lembrete com a situação em texto
   (`situacaoDaNotificacao`: "Agendado para…", "Não enviado: {motivo}").
+
+---
+
+## 5.11 Relatórios (Plano 26)
+
+PR 1 (US-480 a US-487, PD-100): a área **Relatórios** da nutricionista. Spec
+`docs/superpowers/specs/2026-11-17-nutridebby-26-relatorios-recepcionista-design.md` (RN-480 a RN-497); plano
+`docs/superpowers/plans/2026-11-17-nutridebby-26-relatorios-recepcionista.md` (T1 a T3). Sem migration: só leitura das
+tabelas que já existem e o `exportar` no `audit_log`.
+
+### 5.11.1 Módulo (`src/modules/relatorios/`)
+
+| Arquivo | Papel |
+|---|---|
+| `constantes.ts` | `SECOES` (a ordem das abas), `RANKING_LIMITE = 20`, `MESES_MAX = 12`, `FAIXAS_ETARIAS`, `MSG_RELATORIOS` (os textos da §6.2) |
+| `periodo.ts` | `periodoDaUrl` (meses inteiros 'AAAA-MM' no fuso, no máximo 12, "De" ≤ "Até", sem mês futuro; erro → os números do padrão), `opcoesDeMes` (RE-D48: do mais antigo entre o primeiro cadastro e o mês atual − 11), `limitesDoMes` (só **importa** de `agenda/fuso.ts`, C-483) |
+| `acesso.ts` | `secoesPermitidas`/`podeVerSecao` (RN-480: um lugar só para abas, página, CSV e impressão; a recepção já está na tabela, para a T11b) e `exigirSecao`, chamada por cada leitura **antes** de abrir a transação |
+| `pacientes.ts`, `atendimentos.ts`, `planos.ts`, `agenda.ts`, `financeiro.ts`, `ranking.ts` | Uma função por seção, **uma transação**, agregação no SQL (`count(*) filter`, mês no fuso). Nenhuma coluna de conteúdo; Financeiro e Ranking por receita só pelas funções de `src/modules/financeiro/resumo.ts` (RN-491); Ranking com `limit 20` e empate por `app_unaccent(lower(nome exibido))` (RE-D68) |
+| `leitura.ts` | `lerSecao(secao, …)`: a tela, a impressão e o CSV leem por aqui |
+| `comum.ts` | `prepararSecao` (seção, local e período antes da transação) e `fecharLeitura` (chama o `naMesmaTransacao` dentro da transação, com os dados que vão sair) |
+| `csv.ts` | `linhasCsv`, `montarCsv`, `nomeDoArquivo` (RN-494: `;`, BOM, CRLF, meses mm/aaaa, vírgula decimal, escape de fórmula do Financeiro) |
+| `registro.ts` | `registrarExportacao` e `exportacaoNaLeitura` (RN-493) |
+
+O filtro de **local** (RN-482) é da Fase B, com o Plano 23 na `main` (T11a): até lá `prepararSecao` recusa `localId`
+preenchido e a tela não mostra o campo.
+
+### 5.11.2 Telas (`src/app/painel/relatorios/`)
+
+| Rota | Arquivo | O que faz |
+|---|---|---|
+| `/painel/relatorios` (Pacientes), `/atendimentos`, `/planos`, `/agenda`, `/financeiro`, `/ranking[?por=receita]` | `page.tsx` de cada seção → `telaDosRelatorios` (`tela.tsx`) | h1 "Relatórios", abas (`abas.tsx`: `nav` "Seções dos relatórios", links com `aria-current`, levando `de`/`ate`), período (`filtros.tsx`, formulário GET), h2 da seção com "Baixar CSV" e "Ver versão para imprimir" (`prefetch={false}`), conteúdo (`secoes.tsx`) |
+| `/painel/relatorios/imprimir?secao=…&de=…&ate=…[&por=…]` | `imprimir/page.tsx` | Cabeçalho (consultório, "Relatório de {seção}", período, "Local: Todos", "Gerado em"), as mesmas tabelas sem barras, rodapé da §6.2, "Imprimir ou salvar em PDF" (`window.print`) e "Voltar aos relatórios" (`print:hidden`); `<title>` "Relatório de {seção} — {consultório}" (`generateMetadata`) |
+| `GET /api/painel/relatorios/csv?secao=…&de=…&ate=…[&por=…]` | `src/app/api/painel/relatorios/csv/route.ts` | O arquivo `relatorio-{secao}-{de}-a-{ate}.csv` (`relatorio-ranking-consultas-…`/`-receita-…`); `HEAD` → 405 |
+
+- **Sessão (RE-D51):** no PR 1 todas as páginas e a rota chamam `requireNutri`/`requireApiNutri`, com o acesso
+  `ACESSO_DA_NUTRI` (`url.ts`: todas as seções). A T11b troca por `requireEquipe` e entra em `ROTAS_DA_RECEPCAO`.
+- **Período (RN-481):** `filtroDaUrl` (`url.ts`) lê `de`/`ate`; com erro, os números são os do padrão, os `<select>` ficam
+  com o que veio (quando o mês está nas opções), o erro fica junto do campo com `aria-invalid` + `aria-describedby` (o
+  aviso e "Mostrando {mês de ano} a {mês de ano}."), sem `role="alert"`, e o foco vai ao aviso na montagem
+  (`foco.tsx`, `FocoNoAviso`). `?erro=periodo` (a volta do CSV) vale como "Período inválido. Mostrando os últimos 12
+  meses.". As abas e o critério do Ranking levam o período só quando ele veio na URL e é válido.
+- **Tabelas (RNF-481):** `tabela.tsx` — `caption` (sr-only; o título visível é o h3 do bloco) e `th scope`; a tabela por
+  mês fica num `role="region"` focável com `focus-visible:outline-offset-[-3px]`. Barras (`barras.tsx`, Agenda e
+  Financeiro): `aria-hidden`, cor por classe de token (`fill-ok`, `fill-erro`), legenda em texto, `print:hidden`.
+- **Estados:** "Ainda não há dados neste período." quando a seção não tem nada a contar (`semDados`; o Ranking diz isso
+  dentro do próprio bloco); Financeiro não configurado → "O Financeiro ainda não foi configurado." + "Configurar o
+  Financeiro". Ranking: o aviso da §6.2, "Mais consultas"/"Maior receita" como links com `aria-current`, o **nome
+  exibido** com link para a ficha (`prefetch={false}`); na impressão e no CSV, o **nome de registro** (coluna "Paciente
+  (nome de registro)").
+- **Seção não permitida:** na página, `notFound()`; na rota, 403 — inalcançáveis para a nutricionista; a T6 troca pela
+  página "Sem permissão" (303 no CSV).
+
+### 5.11.3 Auditoria e origem do pedido (RN-493)
+
+- A tela **não** grava nada no `audit_log`: agregado sem `auditRead`; o Ranking é lista nominal como a lista de pacientes
+  (P05 D10), também sem `auditRead`.
+- O CSV e a impressão gravam `exportar` (entidade `relatorios`, "Relatórios" em `ENTIDADE_ROTULO`; `entidade_id`
+  `{secao}|{de}..{ate}|{local ou todos}`) **na transação da leitura**, pelo `naMesmaTransacao` = `exportacaoNaLeitura`:
+  agregado, uma linha sem paciente; Ranking, uma por paciente da lista devolvida ("Exportou — Relatórios" no Histórico de
+  acessos). No CSV, a montagem do arquivo também fica dentro da transação: se ela falhar, o registro volta junto.
+- **Origem do pedido** (molde do `recusaDeOrigem` do Plano 20, RN-321): o `exportar` sai em nome da nutricionista, e o
+  cookie (SameSite=Lax) vai junto numa navegação vinda de outro site. `navegacaoDaPropriaOrigem` (`url.ts`) só aceita
+  `Sec-Fetch-Site` `same-origin` ou `none` e, sem o cabeçalho, `Origin` (ou `Referer`) da origem do `APP_URL`; fora
+  disso a rota e a impressão voltam para a seção (303/redirect) sem ler nem gravar.
+- **Navegação, nunca JSON (RN-494):** sem sessão → `/entrar?volta=<seção>`; DPA pendente → `/painel/dpa`; período
+  inválido → a seção com `?erro=periodo`; seção desconhecida → `/painel/relatorios`; papel errado (paciente, admin) → o
+  403 JSON de sempre (`acesso-negado.test.ts`).
+- **Log (RN-497, RNF-482):** a falha do CSV loga só `{ codigo: 'relatorios_csv_falhou', secao, motivo }` (o nome do erro)
+  e responde 500 sem corpo; nenhum número, nome, valor, categoria ou local.
+- **Cache:** `Cache-Control: no-store` para `/painel/relatorios/imprimir` e `/api/painel/relatorios/csv` em
+  `next.config.ts` (a rota também manda o cabeçalho).
+
+### 5.11.4 Testes
+
+`src/modules/relatorios/*.test.ts` (núcleo, seções no SQL com cenário fixo, CS-482: mês atual = Início e Resumo do
+Financeiro), `src/app/painel/relatorios/page.test.ts` (abas, filtros, erro do período, estados, Ranking, nenhuma linha no
+`audit_log` com controle positivo), `src/app/painel/relatorios/imprimir/page.test.ts` (o `exportar` do render, título,
+origem), `src/app/api/painel/relatorios/csv/route.test.ts` (cabeçalhos, BOM, exportações, redirects, origem, log da
+falha), `e2e/relatorios.spec.ts` (IPs `10.9.36.1`–`.9`) e o laço do `e2e/acessibilidade-painel.spec.ts` (as sete rotas em
+`ROTAS_DO_PAINEL`, a 1280 e a 360 px, claro e escuro).
 
 ---
 

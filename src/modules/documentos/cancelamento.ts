@@ -4,6 +4,7 @@ import { notifications, signedDocumentNotes, signedDocuments, tenants } from '@/
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getEnv } from '@/env';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { urlDoApp } from '@/lib/url-do-app';
 import { dispararEnvio } from '@/modules/notificacoes/agendar';
 import { primeiroNome } from '@/modules/notificacoes/mensagens';
@@ -27,7 +28,7 @@ export const MSG_CANCELAMENTO = {
  * único (que mostra "não está mais disponível"). Plano 13 (RN-147): com a original travada, uma retificação em andamento recusa (o gatilho também, 0105).
  */
 export async function cancelarDocumento(ctx: TenantContext, patientId: string, docId: string, motivo: unknown, deps: { db?: Db; appUrl?: string; agora?: Date } = {}): Promise<void> {
-  const m = typeof motivo === 'string' ? motivo.trim() : '';
+  const m = typeof motivo === 'string' ? semInvalidosNoBanco(motivo).trim() : ''; // SUS-109: sem NUL (22021) nem surrogate sem par
   if (!m || m.length > 500) throw new DocumentoError({ motivo: MSG_CANCELAMENTO.motivo });
   const agora = deps.agora ?? new Date();
   const appUrl = deps.appUrl ?? getEnv().APP_URL;

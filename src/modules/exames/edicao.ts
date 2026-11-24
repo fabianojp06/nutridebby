@@ -3,6 +3,7 @@ import { getDb, type Db } from '@/db/client';
 import { examVersoes, exams } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { normalizarTexto } from '@/lib/text';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { dataValida, hojeNoFuso } from '@/modules/pacientes/datas';
 import { ExameError, lerLinhasComErros, MSG_EXAME, type ValorExame } from '@/modules/pacientes/exames';
@@ -63,12 +64,14 @@ export type LinhaEditada = { origem: number | null; nome: unknown; valor: unknow
 /** A linha como o banco a compara: as chaves opcionais ausentes valem `null` (a ordem das chaves do jsonb não conta). */
 const chaveDaLinha = (v: ValorExame) => JSON.stringify([v.nome, v.valor, v.unidade, v.referencia, v.iaTarefaId ?? null, v.refMin ?? null, v.refMax ?? null]);
 
-/** Justificativa (RN-378): 5 a 500 caracteres (code points), sem NUL; vazia → `null`; inválida → `undefined`. */
+/**
+ * Justificativa (RN-378): 5 a 500 caracteres (code points), contados depois de tirar o NUL e o surrogate sem par em
+ * silêncio (SUS-109: o `text` recusaria o NUL com 22021 e trocaria o surrogate por U+FFFD); vazia → `null`; inválida → `undefined`.
+ */
 function lerJustificativa(v: unknown): string | null | undefined {
   if (v === undefined || v === null) return null;
   if (typeof v !== 'string') return undefined;
-  if (v.includes('\u0000')) return undefined;
-  const t = v.trim();
+  const t = semInvalidosNoBanco(v).trim();
   if (!t) return null;
   // por code point, como o CHECK `char_length` (0127): "🙂🙂🙂" tem 3, não 6 (a recusa nunca chega ao banco nem ao log)
   const tamanho = [...t].length;
@@ -97,7 +100,8 @@ export async function editarExame(
   if (!idValido(exameId)) throw new ExameError({ geral: NAO_ENCONTRADO });
   const agora = deps.agora ?? new Date();
   const erros: Record<string, string> = {};
-  const titulo = normalizarTexto(input.titulo).slice(0, 120);
+  // SUS-109: sem NUL (22021 com o título no log) nem surrogate sem par, também o que o corte em 120 deixar sozinho
+  const titulo = semInvalidosNoBanco(normalizarTexto(typeof input.titulo === 'string' ? semInvalidosNoBanco(input.titulo) : input.titulo).slice(0, 120));
   if (!titulo) erros.titulo = MSG_EXAME.titulo;
   const data = typeof input.data === 'string' ? input.data.trim() : '';
   if (!dataValida(data)) erros.data = MSG_EXAME.data;

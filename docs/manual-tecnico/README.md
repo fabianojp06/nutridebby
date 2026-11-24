@@ -141,7 +141,8 @@ flowchart LR
 [5.6 Conteúdos](05-agenda-portal-conteudo.md#56-conteúdos-plano-07) ·
 [5.7 Interface do painel](05-agenda-portal-conteudo.md#57-interface-do-painel-plano-08) ·
 [5.8 Manual guiado](05-agenda-portal-conteudo.md#58-manual-guiado-p08-10-p08-d26-d27) ·
-[5.9 Como estender](05-agenda-portal-conteudo.md#59-como-estender-com-segurança)
+[5.9 Como estender](05-agenda-portal-conteudo.md#59-como-estender-com-segurança) ·
+[5.11 Relatórios (Plano 26)](05-agenda-portal-conteudo.md#511-relatórios-plano-26)
 
 **6. Worker, segurança e operação** — [6.2 Worker pg-boss](06-worker-seguranca-operacao.md#62-worker-pg-boss) ·
 [6.3 Segurança](06-worker-seguranca-operacao.md#63-segurança) ·

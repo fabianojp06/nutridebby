@@ -310,6 +310,13 @@ describe('Plano 22 (T4, EP-D53) — nomesDosAtores', () => {
   });
 });
 
+describe('Plano 26 (RN-493) — os Relatórios no Histórico de acessos', () => {
+  it('a entidade relatorios aparece como "Relatórios"; o download é "Exportou"', () => {
+    expect(ENTIDADE_ROTULO.relatorios).toBe('Relatórios');
+    expect(rotuloDaAcao({ acao: 'exportar', entidade: 'relatorios' })).toBe('Exportou');
+  });
+});
+
 describe('Plano 22 (T6, RN-385, EP-D45) — "Mostrar no app" no Histórico de acessos', () => {
   it('a ação sai na coluna Ação ("Liberou exame no app"/"Retirou exame do app") e a entidade é "Exames"', () => {
     expect(ENTIDADE_ROTULO.exame_no_app_liberado).toBe('Exames');

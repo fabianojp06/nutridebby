@@ -96,4 +96,11 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/pacientes/[id]/exames/[exameId]': (i) => `/painel/pacientes/${i.paciente}/exames/${i.exame}`,
   // Plano 22 (T5b): o comparativo com os dois exames do paciente (a tabela marcador × datas)
   '/painel/pacientes/[id]/exames/comparativo': (i) => `/painel/pacientes/${i.paciente}/exames/comparativo?ids=${i.exame}&ids=${i.exameComparar}`,
+  '/painel/relatorios': () => '/painel/relatorios', // Plano 26 (US-480 a US-487): as seis seções e a impressão
+  '/painel/relatorios/atendimentos': () => '/painel/relatorios/atendimentos',
+  '/painel/relatorios/planos': () => '/painel/relatorios/planos',
+  '/painel/relatorios/agenda': () => '/painel/relatorios/agenda',
+  '/painel/relatorios/financeiro': () => '/painel/relatorios/financeiro',
+  '/painel/relatorios/ranking': () => '/painel/relatorios/ranking',
+  '/painel/relatorios/imprimir': () => '/painel/relatorios/imprimir?secao=agenda',
 };
