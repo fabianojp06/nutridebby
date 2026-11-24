@@ -40,6 +40,8 @@ import { gravarCadastro } from './cadastro';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
 import { registrarAtendimento } from './atendimentos';
 import { salvarEtiquetasDoPaciente } from './etiquetas';
+import { editarExame, exameParaEditar } from '@/modules/exames/edicao';
+import { apagarNota, salvarNota } from '@/modules/exames/interpretacao';
 import { criarExame } from './exames';
 import {
   estadoDaExportacao,
@@ -642,7 +644,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         anamneses: [{ data: '2026-09-01', modelo: 'Longa', respostas }],
         antropometria: [],
         gastoEnergetico: [],
-        exames: [{ data: '2026-09-01', titulo: 'Painel', temLaudo: false, laudo: null, valores }],
+        exames: [{ data: '2026-09-01', titulo: 'Painel', temLaudo: false, laudo: null, valores, versoesAnteriores: [], notaDeInterpretacao: null }],
         atendimentos: [],
         planos: [],
         pedidosLgpd: [],
@@ -1087,6 +1089,8 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
             temLaudo: false,
             laudo: null,
             valores: [{ nome: 'Marcador', valor: 0.0000001, unidade: 'mg/L', referencia: null }],
+            versoesAnteriores: [],
+            notaDeInterpretacao: null,
           },
         ],
         atendimentos: [],
@@ -1430,6 +1434,78 @@ describe('Plano 18 (§10, D7, D18, RN-262, RN-266) — o cadastro complementar n
     expect(texto).toContain('Nome social: Joana Silva');
     expect(texto).not.toContain('529.982.247-25');
     expect(texto).not.toContain(CPF);
+  });
+});
+
+describe('Plano 22 (T4, RN-376, RN-378, EP-D41; Review Focus 6) — faixa do laudo e versões anteriores no dados.json', () => {
+  it('as linhas trazem refMin/refMax; versoesAnteriores (inclusão explícita de exam_versoes, staff_only) sai sem a justificativa e sem o autor, nos dois escopos', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const exameId = await criarExame(
+      T.ctx,
+      T.tenant,
+      p.id,
+      { titulo: 'Rotina', data: '2026-09-01', valores: [{ nome: 'Glicemia de jejum', valor: '95', unidade: 'mg/dL', referencia: '', refMin: '70', refMax: '99' }], arquivo: null },
+      deps,
+    );
+    const semVersao = await criarExame(T.ctx, T.tenant, p.id, { titulo: 'Sem edição', data: '2026-08-01', valores: [], arquivo: null }, deps);
+    const aberto = (await exameParaEditar(T.ctx, p.id, exameId, { db: app.db }))!;
+    const linhas = aberto.valores.map((v, i) => ({ origem: i, nome: v.nome, valor: '105', unidade: v.unidade, referencia: v.referencia, refMin: '70', refMax: '99' }));
+    const JUSTIFICATIVA = 'Valor digitado errado na consulta';
+    await editarExame(T.ctx, T.tenant, p.id, exameId, { titulo: 'Rotina anual', data: '2026-09-01', linhas, justificativa: JUSTIFICATIVA, lidoEm: aberto.updatedAt }, { db: app.db });
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
+      const editado = dados.exames.find((e) => e.titulo === 'Rotina anual')!;
+      expect(editado.valores, escopo).toEqual([{ nome: 'Glicemia de jejum', valor: 105, unidade: 'mg/dL', referencia: '70 a 99', refMin: 70, refMax: 99 }]);
+      expect(editado.versoesAnteriores, escopo).toEqual([
+        { versao: 1, titulo: 'Rotina', data: '2026-09-01', valores: [{ nome: 'Glicemia de jejum', valor: 95, unidade: 'mg/dL', referencia: '70 a 99', refMin: 70, refMax: 99 }], alteradoEm: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) },
+      ]);
+      expect(Object.keys(editado.versoesAnteriores[0]).sort(), escopo).toEqual(['alteradoEm', 'data', 'titulo', 'valores', 'versao']);
+      expect(dados.exames.find((e) => e.titulo === 'Sem edição')!.versoesAnteriores, escopo).toEqual([]);
+      const json = JSON.stringify(dados);
+      expect(json, escopo).not.toContain(JUSTIFICATIVA);
+      expect(json, escopo).not.toContain(T.nutriId);
+    }
+    expect(semVersao).toBeDefined();
+  });
+});
+
+describe('Plano 22 (T5a, RN-383, RN-399, EP-D19; Review Focus 6) — nota de interpretação no dados.json', () => {
+  it('titular: a nota em vigor (notaDeInterpretacao) e sem notasAnteriores; equipe: as duas; exame sem nota → null; nunca no prontuario.pdf', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const comNota = await criarExame(T.ctx, T.tenant, p.id, { titulo: 'Com nota', data: '2026-09-01', valores: [], arquivo: null }, deps);
+    const apagada = await criarExame(T.ctx, T.tenant, p.id, { titulo: 'Nota apagada', data: '2026-08-15', valores: [], arquivo: null }, deps);
+    await criarExame(T.ctx, T.tenant, p.id, { titulo: 'Sem nota', data: '2026-08-01', valores: [], arquivo: null }, deps);
+    const ANTIGA = 'Investigar a ingestão de ferro heme.';
+    const ATUAL = 'Rever a ingestão de ferro e de vitamina C.';
+    await salvarNota(T.ctx, p.id, comNota, ANTIGA, { db: app.db });
+    await salvarNota(T.ctx, p.id, comNota, ATUAL, { db: app.db });
+    await salvarNota(T.ctx, p.id, apagada, 'Texto que foi apagado depois.', { db: app.db });
+    await apagarNota(T.ctx, p.id, apagada, { db: app.db });
+
+    const titular = (await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'titular'), app.db)).dados;
+    const doTitular = (titulo: string) => titular.exames.find((e) => e.titulo === titulo)!;
+    expect(doTitular('Com nota').notaDeInterpretacao).toBe(ATUAL);
+    expect(doTitular('Nota apagada').notaDeInterpretacao).toBeNull();
+    expect(doTitular('Sem nota').notaDeInterpretacao).toBeNull();
+    for (const e of titular.exames) expect(Object.keys(e), e.titulo).not.toContain('notasAnteriores');
+    expect(JSON.stringify(titular)).not.toContain(ANTIGA);
+    expect(JSON.stringify(titular)).not.toContain(T.nutriId);
+
+    const { dados: equipe } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', 'equipe'), app.db);
+    const daEquipe = (titulo: string) => equipe.exames.find((e) => e.titulo === titulo)!;
+    expect(daEquipe('Com nota').notaDeInterpretacao).toBe(ATUAL);
+    expect(daEquipe('Com nota').notasAnteriores).toEqual([{ versao: 1, texto: ANTIGA, criadoEm: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) }]);
+    expect(daEquipe('Nota apagada').notaDeInterpretacao).toBeNull();
+    expect(daEquipe('Nota apagada').notasAnteriores).toEqual([{ versao: 1, texto: 'Texto que foi apagado depois.', criadoEm: expect.any(String) }]);
+    expect(daEquipe('Sem nota')).toMatchObject({ notaDeInterpretacao: null, notasAnteriores: [] });
+    expect(JSON.stringify(equipe)).not.toContain(T.nutriId);
+
+    // a nota nunca vai ao PDF do prontuário (EP-D19: só o dados.json)
+    const pdf = textoDoPdf(await renderizarProntuario(equipe, 'Debby Silva'));
+    expect(pdf).not.toContain('Rever a ingest');
+    expect(pdf).not.toContain('Investigar a ingest');
   });
 });
 

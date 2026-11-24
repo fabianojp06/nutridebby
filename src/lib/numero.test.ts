@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { arredondar, decimalEntre, decimalOpcionalEntre, formatarDecimal, lerDecimal } from './numero';
+import { arredondar, decimalEntre, decimalOpcionalEntre, formatarDecimal, lerDecimal, numeroParaCampo } from './numero';
 
 describe('números digitados em pt-BR (RNF-12, Review Focus 2)', () => {
   it('vírgula ou ponto decimal, espaços ignorados; vazio é null; lixo é NaN', () => {
@@ -37,5 +37,28 @@ describe('números digitados em pt-BR (RNF-12, Review Focus 2)', () => {
 describe('lerDecimal: resultado não finito (endurecimento P03-06)', () => {
   it("'9' repetido 400 vezes vira NaN, nunca Infinity", () => {
     expect(lerDecimal('9'.repeat(400))).toBeNaN();
+  });
+});
+
+describe('numeroParaCampo (Plano 22, T4: o valor gravado de volta ao formulário de edição)', () => {
+  it('vírgula decimal, todas as casas e nunca notação exponencial', () => {
+    const casos: [number, string][] = [
+      [95, '95'],
+      [4.5, '4,5'],
+      [-0.25, '-0,25'],
+      [1e-7, '0,0000001'],
+      [5e-7, '0,0000005'],
+      [1.25e-8, '0,0000000125'],
+      [-3.5e-7, '-0,00000035'],
+      [1e21, '1000000000000000000000'],
+      [1.5e22, '15000000000000000000000'],
+      [0.1, '0,1'],
+    ];
+    for (const [n, texto] of casos) expect(numeroParaCampo(n), String(n)).toBe(texto);
+    expect(numeroParaCampo(undefined)).toBe('');
+    expect(numeroParaCampo(null)).toBe('');
+  });
+  it('ida e volta: lerDecimal(numeroParaCampo(n)) === n', () => {
+    for (const n of [1e-7, 5e-7, 0.0000005, 1.23456789e-9, -2e-10, 0.1 + 0.2, 123.456, 7, 1e21]) expect(lerDecimal(numeroParaCampo(n)), String(n)).toBe(n);
   });
 });

@@ -6,6 +6,13 @@ export type IdsDoPainel = {
   duvida: string;
   /** Plano 20 (US-301): a entrada do paciente lançada pela tela "Nova entrada". */
   lancamento: string;
+  /** Plano 22 (T3): um exame do catálogo e um modelo de solicitação, criados pela UI. */
+  exameCatalogo: string;
+  modeloSolicitacao: string;
+  /** Plano 22 (T4): um exame do paciente, lançado e editado pela UI (a tela de versões com uma versão). */
+  exame: string;
+  /** Plano 22 (T5b): um segundo exame do mesmo paciente, lançado pela UI (o comparativo com dois exames). */
+  exameComparar: string;
 };
 
 /**
@@ -75,6 +82,20 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/planos/modelos': () => '/painel/planos/modelos',
   '/painel/planos/modelos/[id]': (i) => `/painel/planos/modelos/${i.modeloPlano}`,
   '/painel/whatsapp': () => '/painel/whatsapp',
+  // Plano 22 (T3): catálogo de exames e modelos de solicitação (hub Configurações)
+  '/painel/exames/catalogo': () => '/painel/exames/catalogo',
+  '/painel/exames/catalogo/novo': () => '/painel/exames/catalogo/novo',
+  '/painel/exames/catalogo/[id]': (i) => `/painel/exames/catalogo/${i.exameCatalogo}`,
+  '/painel/exames/modelos': () => '/painel/exames/modelos',
+  '/painel/exames/modelos/novo': () => '/painel/exames/modelos/novo',
+  '/painel/exames/modelos/[id]': (i) => `/painel/exames/modelos/${i.modeloSolicitacao}`,
+  // Plano 22 (T4): editar exame e "Versões anteriores"
+  '/painel/pacientes/[id]/exames/[exameId]/editar': (i) => `/painel/pacientes/${i.paciente}/exames/${i.exame}/editar`,
+  '/painel/pacientes/[id]/exames/[exameId]/versoes': (i) => `/painel/pacientes/${i.paciente}/exames/${i.exame}/versoes`,
+  // Plano 22 (T5a): o detalhe do exame (classificação, "Ver referência" e a nota de interpretação)
+  '/painel/pacientes/[id]/exames/[exameId]': (i) => `/painel/pacientes/${i.paciente}/exames/${i.exame}`,
+  // Plano 22 (T5b): o comparativo com os dois exames do paciente (a tabela marcador × datas)
+  '/painel/pacientes/[id]/exames/comparativo': (i) => `/painel/pacientes/${i.paciente}/exames/comparativo?ids=${i.exame}&ids=${i.exameComparar}`,
   '/painel/mensagens': () => '/painel/mensagens', // Plano 25 (T6a): a caixa
   '/painel/mensagens/nova': () => '/painel/mensagens/nova',
   '/painel/mensagens/[patientId]': (i) => `/painel/mensagens/${i.paciente}`, // Plano 25 (T6b): a conversa (não liberada no consultório principal)

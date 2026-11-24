@@ -335,7 +335,7 @@ As páginas, as Server Actions e as rotas de Mensagens usam as guardas acima (`r
    a sessão de paciente **sem login** (`semConta`: link da consulta, WhatsApp, contexto da IA Nutri, "No app do paciente"),
    nem as próprias linhas (CH-D47); `recados` e `chat_avisos_nutri` são `staff_only`; a sessão de paciente com conta só
    grava o que `PACIENTE_ESCREVE` libera — `chat_mensagens` (`insert`, com a `paciente_chat_envio`) e `chat_leituras`
-   (`insert`, `update`, só o lado `paciente`) — ([§2.5.13](02-banco-de-dados.md#2513-mensagens-e-recados-mensagensts-plano-25)).
+   (`insert`, `update`, só o lado `paciente`) — ([§2.5.14](02-banco-de-dados.md#2514-mensagens-e-recados-mensagensts-plano-25)).
 3. **Nos gatilhos:** lista fechada de papéis (CH-D57). Devolvem `NEW` onde a RLS já recusa (outro tenant, outro paciente,
    `publico`, `conta`, a sessão de paciente onde a política a nega); `nutri`, `paciente` e `worker` seguem as regras;
    qualquer outro valor de `app.role` recebe `42501` — inclusive a `recepcao` do Plano 26, que sem o 26 na `main` nenhuma

@@ -11,7 +11,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { provedorFake } from '@/modules/ia/provedor-fake';
 import { perguntar } from '@/modules/ia/nutri-paciente/conversa';
 import { processarPerguntaIaNutri } from '@/modules/ia/nutri-paciente/job';
-import { auditRead, ENTIDADE_ROTULO, HISTORICO_POR_PAGINA, listAccessHistory, recordAudit, rotuloDaAcao } from './audit';
+import { auditRead, ENTIDADE_ROTULO, HISTORICO_POR_PAGINA, listAccessHistory, nomesDosAtores, recordAudit, rotuloDaAcao } from './audit';
 
 const app = makeDb(inject('appDatabaseUrl'));
 let A: string;
@@ -282,6 +282,31 @@ describe('Plano 22 (RN-378, RN-383, EP-D61) — versões e nota do exame no Hist
     expect(ENTIDADE_ROTULO.exames_nota).toBe('Nota de interpretação do exame');
     expect(rotuloDaAcao({ acao: 'criar', entidade: 'exames_nota' })).toBe('Criou');
     expect(rotuloDaAcao({ acao: 'criar', entidade: 'exames_versoes' })).toBe('Criou');
+  });
+});
+
+describe('Plano 22 (T4, EP-D53) — nomesDosAtores', () => {
+  it('nomesDosAtores devolve nome e papel e ignora ids inexistentes', async () => {
+    const paciente = randomUUID();
+    await app.db.insert(user).values({ id: paciente, name: 'Ana Souza', email: `aud-p-${paciente.slice(0, 8)}@teste.dev`, appRole: 'paciente' });
+    const sumido = randomUUID();
+    const m = await nomesDosAtores(app.db, [nutriId, paciente, nutriId, sumido, 'nao-uuid']);
+    expect([...m.entries()].sort(([a], [b]) => a.localeCompare(b))).toEqual(
+      [
+        [nutriId, { nome: 'Debby Silva', papel: 'nutri' }],
+        [paciente, { nome: 'Ana Souza', papel: 'paciente' }],
+      ].sort(([a], [b]) => (a as string).localeCompare(b as string)),
+    );
+    expect(m.has(sumido)).toBe(false);
+    expect(await nomesDosAtores(app.db, [])).toEqual(new Map());
+    expect(await nomesDosAtores(app.db, ['nao-uuid'])).toEqual(new Map());
+  });
+
+  it('listAccessHistory continua com ator.papel (sem mudança)', async () => {
+    const pac = randomUUID();
+    await withTenant(ctxA(), (tx) => auditRead(tx, { entidade: 'exames', entidadeId: null, patientId: pac }), app.db);
+    const h = await listAccessHistory(ctxA(), pac, 1, app.db);
+    expect(h.itens.map((i) => i.ator)).toEqual([{ nome: 'Debby Silva', papel: 'nutri' }]);
   });
 });
 

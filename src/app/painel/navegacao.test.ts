@@ -100,4 +100,12 @@ describe('Plano 25 (RN-459): o item "Mensagens" do menu', () => {
     expect(linkDeMensagens(menu(0, '/painel/mensagens/nova'))).toContain('aria-current="page"');
     expect(linkDeMensagens(menu(0, '/painel/agenda'))).not.toContain('aria-current');
   });
+
+  it('Plano 22 (EP-D51): as telas de /painel/exames moram no hub e marcam "Configurações"; "Exames recebidos" continua com o próprio item', () => {
+    expect(itemAtual('/painel/exames/catalogo')).toBe('/painel/configuracoes');
+    expect(itemAtual('/painel/exames/catalogo/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b')).toBe('/painel/configuracoes');
+    expect(itemAtual('/painel/exames/modelos/novo')).toBe('/painel/configuracoes');
+    expect(itemAtual('/painel/exames-recebidos')).toBe('/painel/exames-recebidos');
+    expect(itemAtual('/painel/exames-recebidos/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b')).toBe('/painel/exames-recebidos');
+  });
 });

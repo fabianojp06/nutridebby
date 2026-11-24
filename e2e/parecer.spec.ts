@@ -14,8 +14,8 @@ test('parecer: exame → rascunho → preparar → digitalizada → portal → v
   await page.goto(`${paciente.prontuario}/exames`);
   await page.getByLabel('Título do exame').fill('Hemograma');
   await page.getByLabel('Data do exame').fill('2026-09-01');
-  if ((await page.getByLabel('Marcador 1', { exact: true }).count()) === 0) await page.getByRole('button', { name: 'Adicionar valor' }).click();
-  // exact: o botão "Remover o valor 1" (aria-label) também casaria com "Valor 1"
+  if ((await page.getByLabel('Marcador 1', { exact: true }).count()) === 0) await page.getByRole('button', { name: 'Adicionar linha' }).click();
+  // exact: o rótulo "Valor 1" não pode casar com outros nomes da linha
   await page.getByLabel('Marcador 1', { exact: true }).fill('Hemoglobina');
   await page.getByLabel('Valor 1', { exact: true }).fill('13,5');
   await page.getByLabel('Unidade 1', { exact: true }).fill('g/dL');

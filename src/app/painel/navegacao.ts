@@ -33,7 +33,8 @@ export function itensDoMenu(o: { exames: boolean; mensagens: boolean }): { href:
 export const rotuloDoItem = (rotulo: string, contador: number): string => (contador > 0 ? `${rotulo} (${contador})` : rotulo);
 
 /** Telas que moram no hub "Configurações" (o item fica marcado nelas). */
-const DO_HUB = ['/painel/configuracoes', '/painel/whatsapp', '/painel/alimentos', '/painel/planos/modelos', '/painel/anamnese/modelos'];
+/** Plano 22 (EP-D51): `/painel/exames` (catálogo e modelos de solicitação) no fim; `/painel/exames-recebidos` não casa (`dentro`). */
+const DO_HUB = ['/painel/configuracoes', '/painel/whatsapp', '/painel/alimentos', '/painel/planos/modelos', '/painel/anamnese/modelos', '/painel/exames'];
 const dentro = (caminho: string, base: string) => caminho === base || caminho.startsWith(`${base}/`);
 
 export function itemAtual(caminho: string): string | null {

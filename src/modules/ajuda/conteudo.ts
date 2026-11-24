@@ -211,13 +211,15 @@ export const GUIAS: readonly Guia[] = [
     // D20 (Plano 10A): sem "documentos" e sem subir a versão — a aba só aparece com o consultório liberado; ela fica descrita no guia `documentos`.
     // Plano 11: o item da IA entra nas perguntas comuns sem subir a versão, pelo mesmo motivo (a IA depende da liberação; os passos não mudam).
     // Plano 14B-2: item da IA sem subir a versão (depende da liberação, como no Plano 11)
-    versao: 3, // Plano 14A: a autorização de IA na aba Privacidade (item novo nas perguntas comuns); 3 = Plano 18: abas Início e Perfil
+    // Plano 22 (T4, EP-D52): 4 = a aba Exames ganha "Adicionar do catálogo" e "Editar" (passo novo no "Passo a passo"); T5b
+    // acrescenta o "Comparar" no mesmo passo, sem subir de novo (um +1 por PR que muda a tela)
+    versao: 4, // Plano 14A: a autorização de IA na aba Privacidade (item novo nas perguntas comuns); 3 = Plano 18: abas Início e Perfil
     padrao: new RegExp(`^/painel/pacientes/${ID}(/.*)?$`),
     titulo: 'Prontuário',
     ajuda: {
       resumo: 'Tudo do paciente em abas: o Início reúne o que já foi feito, o Perfil guarda o cadastro, e as outras trazem anamnese, antropometria, gasto energético, atendimentos, exames, evolução, plano alimentar e privacidade.',
       secoes: [
-        { titulo: 'Passo a passo', itens: ['No Início, veja o que já foi feito; no Perfil, confira o cadastro. Depois, comece pela anamnese (use um modelo para ganhar tempo).', 'Registre as medidas em Antropometria; a Evolução mostra os gráficos.', 'Em Privacidade ficam a cópia dos dados e o pedido de exclusão do paciente.'] },
+        { titulo: 'Passo a passo', itens: ['No Início, veja o que já foi feito; no Perfil, confira o cadastro. Depois, comece pela anamnese (use um modelo para ganhar tempo).', 'Registre as medidas em Antropometria; a Evolução mostra os gráficos.', 'Em Privacidade ficam a cópia dos dados e o pedido de exclusão do paciente.', 'Na aba Exames, "Adicionar do catálogo" monta as linhas com os exames do seu catálogo; copie a faixa impressa no laudo para ver a classificação. "Editar" corrige um exame já lançado e guarda a versão anterior, com a justificativa. Para ver a evolução entre datas, marque "Comparar" em 2 a 6 exames.'] },
         { titulo: 'Perguntas comuns', itens: ['Cada acesso ao prontuário fica registrado no "Histórico de acessos" (LGPD).', 'Paciente arquivado sai da agenda e dos conteúdos, mas o prontuário continua guardado.', 'Na aba Exames, "Ler valores com IA" lê o laudo anexado e mostra os valores para você conferir; só as linhas marcadas são salvas.', 'Em Privacidade, "Uso de IA" mostra se o paciente autorizou o uso de IA e os registros; o pedido vai por "Enviar pedido de autorização por e-mail" ou pelo "Registrar termo em papel" (imprimir pelo Chrome ou Edge, para sair o rodapé com o código e o número da página; o paciente assina; fotografar todas as páginas; ao salvar, digitar o código de referência do rodapé do papel; guardar o original na pasta do paciente e entregar uma via a ele).', 'Na aba Evolução, "Não mostrar peso no app" tira o peso e o IMC do app do paciente; o prontuário e a cópia dos dados não mudam.', '"Resumo do histórico (IA)": um resumo do prontuário antes da consulta, com cada frase ligada ao registro de onde veio. Só com a autorização do paciente; as notas privadas só vão se você marcar "Incluir notas privadas".'] },
       ],
     },
@@ -422,13 +424,14 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'configuracoes',
-    // 9 = Plano 25: o cartão "Atendimento por mensagens" e a fila "Dúvidas da IA Nutri" (sobe +1 sobre a da main no rebase);
-    // 8 = Plano 15: o aditivo 1.2 e a IA Nutri; 7 = o aditivo 1.1 (Plano 14B-2); 6 = os modelos sugeridos pela IA (Plano 14B-1)
-    versao: 9,
+    // 10 = Plano 25: o cartão "Atendimento por mensagens" e a fila "Dúvidas da IA Nutri" (sobe +1 sobre a da main no rebase);
+    // 9 = Plano 22: o cartão "Exames"; 8 = Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); 7 = o aditivo 1.1 (Plano 14B-2);
+    // 6 = os modelos sugeridos pela IA (Plano 14B-1)
+    versao: 10,
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
-      resumo: 'Perfil e marca, dados para documentos, horários, atendimento por mensagens, WhatsApp, alimentos, modelos, segurança e o tema do painel. As dúvidas da IA Nutri para pacientes chegam à fila "Dúvidas da IA Nutri", em Mensagens.',
+      resumo: 'Perfil e marca, dados para documentos, horários, atendimento por mensagens, WhatsApp, alimentos, modelos, segurança, exames do consultório e o tema do painel. As dúvidas da IA Nutri para pacientes chegam à fila "Dúvidas da IA Nutri", em Mensagens.',
       secoes: [
         { titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] },
         {
@@ -454,7 +457,8 @@ export const GUIAS: readonly Guia[] = [
       ],
     },
     passos: [
-      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório, como o horário e os avisos das mensagens em "Atendimento por mensagens".' },
+      // Plano 22: o cartão "Exames" (catálogo e modelos de solicitação); Plano 25: o cartão "Atendimento por mensagens"
+      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório. Em "Exames" ficam o catálogo de exames, as suas faixas e os modelos de solicitação; em "Atendimento por mensagens", o horário e os avisos das mensagens.' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
       { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas e dos pareceres. Mudar depois não altera documento já preparado.' },
       // Plano 14B: a seção só aparece com a IA ativa no consultório; sem ela, o passo abre no centro, sem destaque (como o de cima)
@@ -502,6 +506,43 @@ export const GUIAS: readonly Guia[] = [
       ],
     },
     passos: [{ alvo: 'ativar-2fa', titulo: 'Ativar', texto: 'Confirme a senha, leia o QR Code com o aplicativo autenticador e digite o código de 6 dígitos.' }],
+  },
+  {
+    // Plano 22 (T3, US-370, US-376): rascunho para o revisor-interface e a Debby (PM-E12)
+    id: 'exames-do-consultorio',
+    versao: 1,
+    padrao: /^\/painel\/exames(\/.*)?$/,
+    titulo: 'Exames do consultório',
+    ajuda: {
+      resumo: 'O catálogo com os exames que você pede e lê, com as suas faixas e os modelos de nota, e os modelos de solicitação. As faixas e os modelos de nota são só seus; os exames de um modelo de solicitação aparecem na solicitação que o paciente recebe.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Comece por "Nomes de exames para começar": marque os que você usa e toque em "Adicionar ao catálogo". Só o nome e os outros nomes entram; nenhuma unidade, faixa ou valor de referência vem junto.',
+            'Em "Novo exame", informe o nome, a unidade e os outros nomes (como o exame aparece em laudos diferentes).',
+            'Para pedidos como Hemograma completo, preencha "Exames que compõem este": ao lançar o resultado, cada exame da lista vira uma linha.',
+            'Em "Faixas do consultório", cadastre as faixas que você usa, sempre com a fonte. A categoria aparece ao lado do resultado, só no painel.',
+            'Em "Modelos de solicitação", monte listas de exames para pedir ou lançar de uma vez.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Excluir um exame do catálogo não muda exames lançados, modelos nem documentos: todos guardam uma cópia do nome.',
+            'Com faixas cadastradas, a unidade do exame não muda: remova as faixas antes de trocar a unidade.',
+            'Os modelos de nota e os modelos de solicitação são do consultório: retire dados do paciente antes de salvar.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'secoes-exames', titulo: 'Catálogo e modelos', texto: 'O Catálogo guarda os exames do consultório; os Modelos de solicitação, listas de exames para pedir de uma vez.' },
+      { alvo: 'nomes-para-comecar', titulo: 'Nomes para começar', texto: 'Marque os nomes que você usa e toque em "Adicionar ao catálogo". Só o nome entra; unidade e faixas são suas.' },
+      { alvo: 'novo-exame-catalogo', titulo: 'Novo exame', texto: 'Nome, unidade e outros nomes. Para um painel, preencha "Exames que compõem este".' },
+      { alvo: 'faixas-consultorio', titulo: 'Faixas do consultório', texto: 'Faixas que você define, com a fonte. Servem para mostrar uma categoria ao lado do resultado, só no painel.' },
+      { alvo: 'modelos-nota', titulo: 'Modelos de nota', texto: 'Textos seus para quando o resultado está abaixo ou acima da referência. Escreva fatores a investigar e encaminhamentos; não afirme doença.' },
+    ],
   },
   {
     // Plano 20: no FIM da lista (o Plano 18 insere guias antes de 'prontuario'). Textos finais do revisor-interface

@@ -1,8 +1,52 @@
+import type AxeBuilder from '@axe-core/playwright';
 import { expect, type Browser, type Page } from '@playwright/test';
 import { PDFDocument } from 'pdf-lib';
 import type { IdsDoPainel } from './painel-rotas';
 import { entrarComo } from './helpers';
 import { avaliar, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
+
+type IncompletoDoAxe = Awaited<ReturnType<AxeBuilder['analyze']>>['incomplete'][number];
+
+/**
+ * Plano 22: os "incomplete" do color-contrast que continuam valendo como falha (alvo do axe de cada um). Saem só dois
+ * casos que o axe não sabe resolver e que aqui são conferidos de outro jeito:
+ * - `elmPartiallyObscuring` dentro de `dialog[open]`: o axe não entende a camada de cima (top layer) do diálogo modal e
+ *   acha que a página por baixo encobre o texto. Sai só se `elementsFromPoint` achar o próprio elemento (ou um filho)
+ *   por cima perto dos quatro cantos e no centro.
+ * - `imgNode` em `text` de `svg[role="img"]` (gráfico da evolução, que aparece com os exames lançados na preparação):
+ *   o axe não mede texto dentro de imagem. Sai só se o texto pinta com a cor do texto em volta do gráfico (`fill`
+ *   calculado igual ao `color` do pai do svg, texto que o axe confere no mesmo fundo) e o svg não tem fundo próprio.
+ * Com `ignorarForaDaTela` (telas a menos de 1280 px, como no axe do painel do Plano 18): sai também o que não cabe inteiro
+ * na largura da tela (abas da ficha e tabelas que rolam na horizontal); o que aparece inteiro continua conferido.
+ */
+export async function contrasteIncerto(page: Page, incompletos: IncompletoDoAxe[], opcoes: { ignorarForaDaTela?: boolean } = {}): Promise<string[]> {
+  const nos = incompletos
+    .filter((i) => i.id === 'color-contrast')
+    .flatMap((i) => i.nodes.map((n) => ({ alvo: n.target.join(' '), motivo: String((n.any[0]?.data as { messageKey?: string } | undefined)?.messageKey ?? '') })));
+  const conferidos = await page.evaluate(({ lista, foraDaTela }) => lista.map(({ alvo, motivo }) => {
+    const el = document.querySelector(alvo);
+    if (!el) return false;
+    if (foraDaTela) {
+      const r = el.getBoundingClientRect();
+      if (r.left < 0 || r.right > window.innerWidth) return true;
+    }
+    if (motivo === 'elmPartiallyObscuring' && el.closest('dialog[open]')) {
+      const r = el.getBoundingClientRect();
+      // 8 px para dentro (ou até o meio): o canto exato de um aviso `rounded-2xl` fica fora da borda arredondada
+      const dx = Math.min(8, r.width / 2);
+      const dy = Math.min(8, r.height / 2);
+      const pontos = [[r.left + dx, r.top + dy], [r.right - dx, r.top + dy], [r.left + dx, r.bottom - dy], [r.right - dx, r.bottom - dy], [r.left + r.width / 2, r.top + r.height / 2]];
+      return r.width > 0 && pontos.every(([x, y]) => { const topo = document.elementFromPoint(x, y); return !!topo && (topo === el || el.contains(topo)); });
+    }
+    const svg = el.closest('svg[role="img"]');
+    if (motivo === 'imgNode' && el.tagName.toLowerCase() === 'text' && svg?.parentElement) {
+      const fundo = getComputedStyle(svg).backgroundColor;
+      return getComputedStyle(el).fill === getComputedStyle(svg.parentElement).color && (fundo === 'rgba(0, 0, 0, 0)' || fundo === 'transparent');
+    }
+    return false;
+  }), { lista: nos, foraDaTela: !!opcoes.ignorarForaDaTela });
+  return nos.filter((_, i) => !conferidos[i]).map((n) => n.alvo);
+}
 
 /** D17: grava o tema pela tela de Configurações (o caminho real da usuária). */
 export async function escolherTema(page: Page, rotulo: 'Claro' | 'Escuro' | 'Igual ao aparelho'): Promise<void> {
@@ -171,6 +215,12 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   const hrefLancamento = await nutri.getByRole('link', { name: new RegExp(`^Editar Entrada, ${paciente.nome}, `) }).first().getAttribute('href');
   const lancamento = new RegExp(`^/painel/financeiro/lancamentos/(${UUID})$`).exec(hrefLancamento ?? '');
   expect(lancamento, `link "Editar" do lançamento de ${paciente.nome}: ${hrefLancamento}`).not.toBeNull();
+  // Plano 22 (T3): um exame do catálogo e um modelo de solicitação, pelo caminho real da UI
+  const { exameCatalogo, modeloSolicitacao } = await bibliotecasDeExames(nutri, sufixo);
+  // Plano 22 (T4): um exame lançado e editado pela aba Exames (a tela "Versões anteriores" com uma versão)
+  const exame = await exameEditado(nutri, p, sufixo);
+  // Plano 22 (T5b): um segundo exame, para o comparativo
+  const exameComparar = await exameLancado(nutri, p, `Retorno axe ${sufixo}`);
 
   return {
     paciente: p.split('/').pop()!,
@@ -196,5 +246,102 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
         .toBeGreaterThan(0);
       return idDoLink(nutri, '/painel/exames-recebidos', new RegExp(`/painel/exames-recebidos/(${UUID})$`));
     })(),
+    exameCatalogo,
+    modeloSolicitacao,
+    exame,
+    exameComparar,
   };
+}
+
+/** O id do link com este nome na tela atual (a lista que acabou de abrir). */
+async function idPeloNome(page: Page, nome: string, padrao: RegExp): Promise<string> {
+  const href = (await page.getByRole('link', { name: nome, exact: true }).getAttribute('href')) ?? '';
+  const m = padrao.exec(href.split('?')[0]);
+  expect(m, `o link "${nome}" (${href}) não casa com ${padrao}`).not.toBeNull();
+  return m![1];
+}
+
+/**
+ * Plano 22 (T3): um exame do catálogo (com uma faixa) e um modelo de solicitação com ele, pelas telas de
+ * /painel/exames. Nomes com o sufixo da execução: o seed não apaga o catálogo, e o nome é único no consultório.
+ */
+export async function bibliotecasDeExames(nutri: Page, sufixo: string): Promise<{ exameCatalogo: string; modeloSolicitacao: string }> {
+  const nomeExame = `Ferritina axe ${sufixo}`;
+  await nutri.goto('/painel/exames/catalogo/novo');
+  await nutri.getByLabel('Nome', { exact: true }).fill(nomeExame);
+  await nutri.getByLabel('Unidade (opcional)').fill('ng/mL');
+  await nutri.getByRole('button', { name: 'Acrescentar faixa' }).click();
+  await nutri.getByLabel('Abaixo de').fill('15');
+  await nutri.getByLabel('Categoria').selectOption('Baixo');
+  await nutri.getByLabel('Fonte').fill('Laboratório X, 2026');
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri).toHaveURL(/\/painel\/exames\/catalogo\?ok=salvo/);
+  await expect(nutri.getByRole('status').filter({ hasText: 'Exame salvo.' })).toBeVisible();
+  const exameCatalogo = await idPeloNome(nutri, nomeExame, new RegExp(`/painel/exames/catalogo/(${UUID})$`));
+
+  await nutri.goto('/painel/exames/modelos/novo');
+  await nutri.getByLabel('Nome do modelo').fill(`Check-up axe ${sufixo}`);
+  await nutri.getByRole('button', { name: 'Adicionar do catálogo' }).click();
+  const dialogo = nutri.getByRole('dialog', { name: 'Buscar no catálogo' });
+  await dialogo.getByRole('searchbox', { name: 'Buscar no catálogo' }).fill(nomeExame);
+  await dialogo.getByLabel(nomeExame).check();
+  await dialogo.getByRole('button', { name: 'Adicionar 1 exame' }).click();
+  await expect(dialogo).toBeHidden();
+  await nutri.getByLabel('Adicionar exame fora do catálogo').fill('Ferro sérico');
+  await nutri.getByRole('button', { name: 'Adicionar', exact: true }).click();
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri).toHaveURL(/\/painel\/exames\/modelos\?ok=salvo/);
+  await expect(nutri.getByRole('status').filter({ hasText: 'Modelo salvo.' })).toBeVisible();
+  const modeloSolicitacao = await idPeloNome(nutri, `Check-up axe ${sufixo}`, new RegExp(`/painel/exames/modelos/(${UUID})$`));
+  return { exameCatalogo, modeloSolicitacao };
+}
+
+/**
+ * Plano 22 (T4, US-371): lança um exame com uma linha (com a faixa do laudo) na aba Exames e o edita pela tela "Editar
+ * exame" (o valor muda, com a justificativa), pelo caminho real da UI; devolve o id do exame.
+ */
+export async function exameEditado(nutri: Page, prontuario: string, sufixo: string): Promise<string> {
+  const titulo = `Rotina axe ${sufixo}`;
+  await nutri.goto(`${prontuario}/exames`);
+  await nutri.getByLabel('Título do exame').fill(titulo);
+  await nutri.getByLabel('Marcador 1', { exact: true }).fill('Glicemia de jejum');
+  await nutri.getByLabel('Valor 1', { exact: true }).fill('105');
+  await nutri.getByLabel('Unidade 1', { exact: true }).fill('mg/dL');
+  await nutri.getByLabel('Faixa do laudo: de 1', { exact: true }).fill('70');
+  await nutri.getByLabel('até 1', { exact: true }).fill('99');
+  await expect(nutri.getByRole('group', { name: 'Linha 1: Glicemia de jejum' })).toContainText('Acima da referência');
+  await nutri.getByRole('button', { name: 'Salvar exame' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Exame salvo.' })).toBeVisible();
+  const exame = await idDoLink(nutri, `${prontuario}/exames`, new RegExp(`/exames/(${UUID})/editar$`));
+
+  await nutri.goto(`${prontuario}/exames/${exame}/editar`);
+  await nutri.getByLabel('Valor 1', { exact: true }).fill('98');
+  await nutri.getByLabel('Justificativa da alteração').fill('Valor digitado errado');
+  await nutri.getByRole('button', { name: 'Salvar', exact: true }).click();
+  await expect(nutri).toHaveURL(new RegExp(`/exames\\?editado=${exame}#exame-salvo$`));
+  // a confirmação fica no exame editado, recebe o foco (a âncora) e está à vista (revisão da T4)
+  const salvo = nutri.getByRole('article', { name: new RegExp(`^${titulo}`) }).getByRole('status').filter({ hasText: 'Exame salvo.' });
+  await expect(salvo).toBeFocused();
+  await expect(salvo).toBeInViewport();
+  return exame;
+}
+
+/**
+ * Plano 22 (T5b, US-374): lança um exame com uma linha de glicemia (com a faixa do laudo) na aba Exames, pelo caminho real
+ * da UI; devolve o id pelo link "Abrir {título} de {data}".
+ */
+export async function exameLancado(nutri: Page, prontuario: string, titulo: string): Promise<string> {
+  await nutri.goto(`${prontuario}/exames`);
+  await nutri.getByLabel('Título do exame').fill(titulo);
+  await nutri.getByLabel('Marcador 1', { exact: true }).fill('Glicemia de jejum');
+  await nutri.getByLabel('Valor 1', { exact: true }).fill('92');
+  await nutri.getByLabel('Unidade 1', { exact: true }).fill('mg/dL');
+  await nutri.getByLabel('Faixa do laudo: de 1', { exact: true }).fill('70');
+  await nutri.getByLabel('até 1', { exact: true }).fill('99');
+  await nutri.getByRole('button', { name: 'Salvar exame' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Exame salvo.' })).toBeVisible();
+  const href = (await nutri.getByRole('link', { name: new RegExp(`^Abrir ${titulo} de `) }).getAttribute('href')) ?? '';
+  const m = new RegExp(`/exames/(${UUID})$`).exec(href.split('?')[0]);
+  expect(m, `o link "Abrir ${titulo}" (${href})`).not.toBeNull();
+  return m![1];
 }
