@@ -1779,7 +1779,8 @@ Plano 22 (exames e prescrição; cada PR que muda a tela sobe +1 sobre a versão
   título "Documentos: receita, parecer e solicitação de exames"; os passos `nova-solicitacao` e `editor-solicitacao` antes
   de `preparar-documento`, T12).
 - Plano 22: guia `configuracoes` na v10 (PR 4, o cartão "Prescrição", só com os documentos liberados).
-- Plano 22: guia `prescricao` na v1 (PR 4, `/painel/prescricao/*`: itens salvos e modelos de prescrição).
+- Plano 22: guia `prescricao` na v1 (PR 4, `/painel/prescricao/*`: itens salvos e modelos de prescrição), logo depois de
+  `exames-do-consultorio` e antes do `financeiro`, que continua o último de `GUIAS` (Plano 20).
 - Plano 22: guia `portal-novidades` na v5 (PR 4, "Compartilhar" em Eu › Meus documentos, [cap. 9, §9.12.6](09-documentos-assinados.md#9126-compartilhar-o-pdf-assinado-t11-us-380-rn-396-ep-d24-ep-d25-ep-d43)).
 
 | Campo | Papel |

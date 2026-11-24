@@ -494,6 +494,38 @@ export const GUIAS: readonly Guia[] = [
     ],
   },
   {
+    // Plano 22 (T10b, US-379, RN-393, RN-394): rascunho para o revisor-interface e a Debby
+    id: 'prescricao',
+    versao: 1,
+    padrao: /^\/painel\/prescricao(\/.*)?$/,
+    titulo: 'Prescrição',
+    ajuda: {
+      resumo: 'Os itens salvos (suplementos e fitoterápicos) e os modelos de prescrição do consultório, para montar receitas mais rápido. A receita guarda uma cópia: mudar ou excluir um item salvo ou um modelo não muda as receitas já feitas.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Em "Novo item salvo", dê um nome e preencha o item como na receita. Também dá para salvar um item direto da receita, com "Salvar item".',
+            'Os modelos de prescrição nascem da receita: monte os itens e as orientações e clique em "Salvar como modelo". Aqui você muda o nome, os itens e as orientações, ou exclui o modelo.',
+            'Na receita, use "Adicionar item salvo" ou "Carregar modelo".',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'A justificativa de uso nunca vai para o modelo: ela é de cada paciente e fica no prontuário.',
+            'Sem a habilitação em Fitoterapia, os fitoterápicos formulados ficam desabilitados, também nos itens salvos e nos modelos.',
+            'Os itens salvos e os modelos são do consultório: retire dados do paciente antes de salvar.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'secoes-prescricao', titulo: 'Itens e modelos', texto: 'Suplementos e Fitoterápicos guardam os itens salvos; Modelos de prescrição, receitas prontas para começar.' },
+      { alvo: 'novo-item-salvo', titulo: 'Novo item salvo', texto: 'Dê um nome e preencha o item como na receita. Na receita, "Adicionar item salvo" copia o item.' },
+    ],
+  },
+  {
     // Plano 20: no FIM da lista (o Plano 18 insere guias antes de 'prontuario'). Textos finais do revisor-interface
     // (17/11/2026). O tour mostra todos os passos em qualquer tela do Financeiro: o passo cujo alvo não está na tela abre
     // no centro, e por isso o título dos passos de outras telas começa pelo nome da tela.
@@ -538,38 +570,6 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'financeiro-pendentes', titulo: 'Pagamentos pendentes', texto: 'As cobranças que os pacientes ainda não pagaram, uma linha por paciente, começando pela mais antiga. Clique em "Ver" para receber cada uma. Esta lista é só sua: nada é enviado ao paciente.' },
       { alvo: 'financeiro-relatorios', titulo: 'Relatórios', texto: 'O fluxo de caixa do ano, mês a mês, e as entradas e saídas dos últimos 12 meses. Só entram os lançamentos recebidos ou pagos. Troque o ano em "Ano".' },
       { alvo: 'financeiro-csv', titulo: 'CSV para o contador', texto: 'Escolha o período (até 12 meses) e clique em "Baixar CSV". Sem marcar "Incluir o nome dos pacientes", o arquivo sai sem os nomes e sem a descrição das entradas de pacientes.' },
-    ],
-  },
-  {
-    // Plano 22 (T10b, US-379, RN-393, RN-394): rascunho para o revisor-interface e a Debby
-    id: 'prescricao',
-    versao: 1,
-    padrao: /^\/painel\/prescricao(\/.*)?$/,
-    titulo: 'Prescrição',
-    ajuda: {
-      resumo: 'Os itens salvos (suplementos e fitoterápicos) e os modelos de prescrição do consultório, para montar receitas mais rápido. A receita guarda uma cópia: mudar ou excluir um item salvo ou um modelo não muda as receitas já feitas.',
-      secoes: [
-        {
-          titulo: 'Passo a passo',
-          itens: [
-            'Em "Novo item salvo", dê um nome e preencha o item como na receita. Também dá para salvar um item direto da receita, com "Salvar item".',
-            'Os modelos de prescrição nascem da receita: monte os itens e as orientações e clique em "Salvar como modelo". Aqui você muda o nome, os itens e as orientações, ou exclui o modelo.',
-            'Na receita, use "Adicionar item salvo" ou "Carregar modelo".',
-          ],
-        },
-        {
-          titulo: 'Perguntas comuns',
-          itens: [
-            'A justificativa de uso nunca vai para o modelo: ela é de cada paciente e fica no prontuário.',
-            'Sem a habilitação em Fitoterapia, os fitoterápicos formulados ficam desabilitados, também nos itens salvos e nos modelos.',
-            'Os itens salvos e os modelos são do consultório: retire dados do paciente antes de salvar.',
-          ],
-        },
-      ],
-    },
-    passos: [
-      { alvo: 'secoes-prescricao', titulo: 'Itens e modelos', texto: 'Suplementos e Fitoterápicos guardam os itens salvos; Modelos de prescrição, receitas prontas para começar.' },
-      { alvo: 'novo-item-salvo', titulo: 'Novo item salvo', texto: 'Dê um nome e preencha o item como na receita. Na receita, "Adicionar item salvo" copia o item.' },
     ],
   },
 ];
