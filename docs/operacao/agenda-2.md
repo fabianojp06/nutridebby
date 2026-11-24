@@ -170,7 +170,7 @@ O PR 3 não tem migration: o tipo `aniversario` e o `pedido_nao_confirmado` de `
    ficam no banco (prova só de inclusão) e voltam a valer com o PR 3; a imagem do PR 2 não agenda mensagem nova.
 
 Conferência no banco (só leitura, com o OK do dono, regra 3 do servidor), antes de voltar: `select tipo, count(*) from
-notifications where tipo in ('aniversario', 'pedido_nao_confirmado') and status = 'agendada' group by tipo` mostra o que
+notifications where tipo in ('aniversario', 'pedido_nao_confirmado') and status in ('pendente', 'enviando') group by tipo` mostra o que
 vai virar `falhou`/`sem_modelo`.
 
 ## PR 4 (filtro de local em Pacientes e no Financeiro) — Volta atrás (T11)
@@ -181,14 +181,14 @@ trocar a imagem pela do **PR 3**. Somem os seletores; um link salvo com `?local=
 Mas o PR 4 também traz as correções da AG-D81, e a imagem do PR 3 volta ao comportamento anterior:
 
 1. **Aviso de pedido não confirmado para horário passado (AG-D81).** As notificações `pedido_nao_confirmado` já criadas
-   para um horário que passou e ainda `agendada`s seriam enviadas pela imagem do PR 3: a pessoa receberia "escolha outro
+   para um horário que passou e ainda pendentes (`pendente` ou `enviando`) seriam enviadas pela imagem do PR 3: a pessoa receberia "escolha outro
    horário" para um horário que já passou.
 2. **Vencimento de pedidos de horário passado (AG-D81).** A imagem do PR 3 volta a avisar (e-mail) os pedidos que vencem
    com o horário já passado, inclusive o da pessoa nova quando o horário passa antes das 08h.
 3. **Link da sala (AG-D82).** Chegou no PR 2 (correção do `/code-review` do #86) e fica na imagem do PR 3; o PR 4 só
    acrescenta a dica visual do campo só leitura (fundo `read-only:bg-linha`), que some na volta. Nada muda no dado.
 Conferência no banco (só leitura, com o OK do dono, regra 3 do servidor), antes de voltar: `select count(*) from
-notifications where tipo = 'pedido_nao_confirmado' and status = 'agendada'` e, entre elas, as de consulta com `inicio`
+notifications where tipo = 'pedido_nao_confirmado' and status in ('pendente', 'enviando')` e, entre elas, as de consulta com `inicio`
 já passado (vão sair com a imagem do PR 3); combinar com o dono se essas são canceladas antes ou se a volta espera o
 horário delas.
 
