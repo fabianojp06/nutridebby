@@ -2,11 +2,14 @@ import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from '@
 import QRCode from 'qrcode';
 import { paraWinAnsi as w } from '@/modules/pacientes/prontuario-pdf';
 import { formatarCodigo } from './codigo';
-import { AREA_ASSINATURA as A, linhaDaVersao, RESSALVA_PARECER, TIPO_DOCUMENTO_ROTULO } from './constantes';
+import { AREA_ASSINATURA as A, linhaDaVersao, RESSALVA_PARECER } from './constantes';
+import { lerMarcacao, type Trecho } from './marcacao';
 import { CABECALHO_VALORES, linhaDoValor, MSG_PARECER, rotuloDoExame, type ConteudoDocumento, type ConteudoParecer } from './parecer';
 import { descreverItem, type ConteudoReceita } from './prescricao';
+import type { ConteudoSolicitacao } from './solicitacao';
+import { assertNever, rotuloDoTipo } from './tipos-de-documento';
 
-/** Só o worker importa este arquivo (guarda de grafo em exportacao.test.ts). Plano 13: a receita e o parecer. */
+/** Só o worker importa este arquivo (guarda de grafo em exportacao.test.ts). Plano 13: a receita e o parecer. Plano 22: a solicitação. */
 export type DadosPdfDocumento = { conteudo: ConteudoDocumento; codigo: string; urlVerificacao: string; data: string; cor: string; logo: Buffer | null; nomeConsultorio: string };
 
 const ALTURA_RODAPE = 150; // o quadro (y1 62 → y2 132) + a faixa do código; o conteúdo nunca passa por baixo
@@ -20,10 +23,48 @@ const s = StyleSheet.create({
   secao: { marginTop: 12, fontFamily: 'Helvetica-Bold' },
   cabecalho: { fontSize: 8, color: '#666666' },
   ressalva: { marginTop: 14, fontSize: 9, fontFamily: 'Helvetica-Oblique' },
+  negrito: { fontFamily: 'Helvetica-Bold' },
+  bloco: { marginTop: 4 },
   carimbo: { marginTop: 18, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#999999' },
   quadro: { position: 'absolute', left: A.x1, bottom: A.y1, width: A.x2 - A.x1, height: A.y2 - A.y1, borderWidth: 1, borderColor: '#999999', borderStyle: 'dashed' },
   rodape: { position: 'absolute', left: 36, right: 36, bottom: 16, flexDirection: 'row', alignItems: 'center' },
 });
+
+/** Um trecho da marcação: o negrito na Helvetica-Bold; o texto passa por `paraWinAnsi` como todo o resto. */
+const trecho = (t: Trecho, i: number) => (
+  <Text key={i} style={t.negrito ? s.negrito : undefined}>
+    {w(t.texto)}
+  </Text>
+);
+
+/**
+ * Plano 22 (RN-395, EP-D31, RNF-374): as orientações em marcação mínima viram `<Text>` (parágrafo; lista com "•"; negrito
+ * em trecho) a partir dos blocos de `lerMarcacao` — nada de link, imagem ou HTML: `<`, `>` e `&` são texto. Sem
+ * `orientacoesFormato` (conteúdo de antes do Plano 22), o texto puro de sempre.
+ */
+function Orientacoes({ texto, formato }: { texto: string; formato?: 'marcacao' }) {
+  if (formato !== 'marcacao') return <Text>{w(texto)}</Text>;
+  return (
+    <>
+      {lerMarcacao(texto).map((b, i) =>
+        b.tipo === 'paragrafo' ? (
+          <Text key={i} style={s.bloco}>
+            {b.trechos.map(trecho)}
+          </Text>
+        ) : (
+          <View key={i} style={s.bloco}>
+            {b.itens.map((item, j) => (
+              <Text key={j} wrap={false}>
+                {'• '}
+                {item.map(trecho)}
+              </Text>
+            ))}
+          </View>
+        ),
+      )}
+    </>
+  );
+}
 
 function CorpoReceita({ c }: { c: ConteudoReceita }) {
   return (
@@ -37,7 +78,14 @@ function CorpoReceita({ c }: { c: ConteudoReceita }) {
           </View>
         );
       })}
-      {c.orientacoes ? <Text style={{ marginTop: 12 }}>{w(`Orientações gerais: ${c.orientacoes}`)}</Text> : null}
+      {/* Plano 22 (RN-395): a receita antiga (sem a chave) sai como antes, numa linha; a nova, pela marcação */}
+      {c.orientacoes && c.orientacoesFormato !== 'marcacao' ? <Text style={{ marginTop: 12 }}>{w(`Orientações gerais: ${c.orientacoes}`)}</Text> : null}
+      {c.orientacoes && c.orientacoesFormato === 'marcacao' ? (
+        <>
+          <Text style={s.secao} minPresenceAhead={14}>Orientações gerais</Text>
+          <Orientacoes texto={c.orientacoes} formato="marcacao" />
+        </>
+      ) : null}
     </>
   );
 }
@@ -87,10 +135,49 @@ function CorpoParecer({ c }: { c: ConteudoParecer }) {
   );
 }
 
+/**
+ * Plano 22 (RN-389, EP-D2, US-377): título fixo (o do tipo, no `Documento`), os exames — um painel com o nome dele —, a
+ * indicação clínica só se preenchida e as orientações, pela marcação mínima (`lerMarcacao`, T9); nenhum campo de laboratório.
+ */
+function CorpoSolicitacao({ c }: { c: ConteudoSolicitacao }) {
+  return (
+    <>
+      <Text style={s.secao} minPresenceAhead={14}>Exames solicitados</Text>
+      {c.exames.map((e, i) => <Text key={i} wrap={false}>{w(`${i + 1}. ${e.nome}`)}</Text>)}
+      {c.indicacaoClinica ? (
+        <>
+          <Text style={s.secao} minPresenceAhead={14}>Indicação clínica</Text>
+          <Text>{w(c.indicacaoClinica)}</Text>
+        </>
+      ) : null}
+      {c.orientacoes ? (
+        <>
+          <Text style={s.secao} minPresenceAhead={14}>Orientações</Text>
+          <Orientacoes texto={c.orientacoes} formato={c.orientacoesFormato} />
+        </>
+      ) : null}
+    </>
+  );
+}
+
+/** DEP-E7: o corpo por `switch` (nunca "o que não é parecer é receita"). */
+function Corpo({ c }: { c: ConteudoDocumento }) {
+  switch (c.tipo) {
+    case 'receita':
+      return <CorpoReceita c={c} />;
+    case 'parecer':
+      return <CorpoParecer c={c} />;
+    case 'solicitacao_exames':
+      return <CorpoSolicitacao c={c} />;
+    default:
+      return assertNever(c);
+  }
+}
+
 function Documento({ d, qr }: { d: DadosPdfDocumento; qr: Buffer }) {
   const c = d.conteudo;
   const p = c.copia!.profissional;
-  const titulo = TIPO_DOCUMENTO_ROTULO[c.tipo];
+  const titulo = rotuloDoTipo(c.tipo);
   const retificacao = c.copia!.retificacao;
   const carimbo = [p.nomeCompleto, 'Nutricionista', p.crn, p.email, p.telefone].join(' · ');
   return (
@@ -106,7 +193,7 @@ function Documento({ d, qr }: { d: DadosPdfDocumento; qr: Buffer }) {
         {retificacao ? <Text>{w(linhaDaVersao(retificacao.versao, formatarCodigo(retificacao.substitui)))}</Text> : null}
         <Text>{w(`Paciente: ${c.copia!.paciente.nome}`)}</Text>
         <Text>{`Data de emissão: ${d.data}`}</Text>
-        {c.tipo === 'parecer' ? <CorpoParecer c={c} /> : <CorpoReceita c={c} />}
+        <Corpo c={c} />
         <View style={s.carimbo} wrap={false}>
           <Text>{w(carimbo)}</Text>
           {p.endereco ? <Text>{w(p.endereco)}</Text> : null}

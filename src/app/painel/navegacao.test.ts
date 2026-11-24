@@ -82,4 +82,11 @@ describe('menu do painel (D20)', () => {
     expect(itemAtual('/painel/exames-recebidos')).toBe('/painel/exames-recebidos');
     expect(itemAtual('/painel/exames-recebidos/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b')).toBe('/painel/exames-recebidos');
   });
+  it('Plano 22 (T10b, EP-D51): as telas de /painel/prescricao moram no hub e marcam "Configurações"', () => {
+    expect(itemAtual('/painel/prescricao/itens')).toBe('/painel/configuracoes');
+    expect(itemAtual('/painel/prescricao/itens/novo')).toBe('/painel/configuracoes');
+    expect(itemAtual('/painel/prescricao/itens/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b')).toBe('/painel/configuracoes');
+    expect(itemAtual('/painel/prescricao/modelos/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b')).toBe('/painel/configuracoes');
+    expect(itemAtual('/painel/prescricaox')).toBeNull();
+  });
 });

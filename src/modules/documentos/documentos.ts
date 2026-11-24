@@ -4,6 +4,7 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { patients, signedDocumentNotes, signedDocumentReceipts, signedDocuments, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
+import { FILA_DO_PDF_DO_DOCUMENTO } from '@/jobs/queues';
 import { partesNoFuso } from '@/modules/agenda/fuso';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { semInvalidosNoBanco } from '@/lib/texto-seguro';
@@ -12,13 +13,15 @@ import { apagarArquivo, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenam
 import { auditRead } from '@/modules/plataforma/audit';
 import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { gerarCodigo } from './codigo';
-import { DECLARACAO_POR_TIPO, DIGITALIZACAO_MAX_MS, envioEmCurso, MSG_DECLARACAO, MSG_RETIFICACAO, type EventoRecibo, type StatusDocumento, type TipoAssinatura, type TipoDocumento, type ViaRecibo } from './constantes';
+import { declaracaoDoDocumento, DIGITALIZACAO_MAX_MS, envioEmCurso, MSG_DECLARACAO, MSG_RETIFICACAO, type EventoRecibo, type StatusDocumento, type TipoAssinatura, type TipoDocumento, type ViaRecibo } from './constantes';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from './erros';
 import { validarParecerParaPreparar, validarRascunhoParecer, type ConteudoDocumento, type ConteudoParecer } from './parecer';
 import { copiarExames } from './parecer-exames';
 import { copiaDoPerfil, type CopiaDoDocumento } from './perfil-profissional';
 import { validarParaPreparar, validarRascunho, type ConteudoReceita } from './prescricao';
 import { lerMotivoRetificacao } from './retificacao';
+import { validarRascunhoSolicitacao, validarSolicitacaoParaPreparar } from './solicitacao';
+import { assertNever, conteudoVazio } from './tipos-de-documento';
 
 export type Recibo = { evento: EventoRecibo; via: ViaRecibo; em: Date };
 export type ItemLista = {
@@ -34,9 +37,6 @@ export type DocumentoLido = ItemLista & {
   retificaId: string | null; motivoRetificacao: string | null; substituidoEm: Date | null;
   versoes: { anterior: (VersaoVizinha & { codigo: string | null }) | null; seguinte: (VersaoVizinha & { status: StatusDocumento }) | null };
 };
-
-const CONTEUDO_VAZIO: ConteudoReceita = { versao: 1, tipo: 'receita', itens: [], orientacoes: '' };
-const PARECER_VAZIO: ConteudoParecer = { versao: 1, tipo: 'parecer', exames: [], avaliacao: '', conduta: '', encaminhamentos: '' };
 
 /** Trava o documento do paciente (FOR UPDATE) num dos estados pedidos; outro estado → TransicaoInvalidaError. */
 async function travarDocumento(tx: Tx, patientId: string, docId: string, estados: readonly StatusDocumento[]) {
@@ -58,14 +58,16 @@ async function criarDocumento(ctx: TenantContext, patientId: string, conteudo: C
 }
 
 /** US-142: "Nova receita". */
-export const criarReceita = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, CONTEUDO_VAZIO, deps.db ?? getDb());
+export const criarReceita = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, conteudoVazio('receita'), deps.db ?? getDb());
 /** US-141: "Novo parecer nutricional". */
-export const criarParecer = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, PARECER_VAZIO, deps.db ?? getDb());
+export const criarParecer = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, conteudoVazio('parecer'), deps.db ?? getDb());
+/** Plano 22 (US-377, RN-388): "Nova solicitação de exames". */
+export const criarSolicitacao = (ctx: TenantContext, patientId: string, deps: { db?: Db } = {}): Promise<string> => criarDocumento(ctx, patientId, conteudoVazio('solicitacao_exames'), deps.db ?? getDb());
 
-/** "Rascunho salvo." — valida os itens (habilitação no servidor, RN-150) e grava conteúdo e justificativa. */
+/** "Rascunho salvo." — valida os itens (habilitação no servidor, RN-150) e grava conteúdo e justificativa; devolve o conteúdo gravado. */
 export async function salvarRascunhoReceita(
   ctx: TenantContext, tenant: TenantRow, patientId: string, docId: string, input: { conteudo: unknown; justificativa: unknown; motivoRetificacao?: unknown }, deps: { db?: Db } = {},
-): Promise<void> {
+): Promise<ConteudoReceita> {
   const conteudo = validarRascunho(input.conteudo, { habilitada: !!tenant.fitoterapiaRegistro });
   // SUS-109: um NUL na coluna text daria 22021 com o texto no log
   const j = typeof input.justificativa === 'string' ? semInvalidosNoBanco(input.justificativa).trim() : '';
@@ -74,6 +76,7 @@ export async function salvarRascunhoReceita(
   await withTenant(ctx, async (tx) => {
     await carregarPacienteParaEscrita(tx, patientId);
     const d = await travarDocumento(tx, patientId, docId, ['rascunho']);
+    // EP-D57 (Plano 22): a guarda do editor fica — recusa qualquer outro tipo (parecer, solicitação), não cai em nenhum
     if (d.tipo !== 'receita') throw new TransicaoInvalidaError(); // o editor da receita não grava num parecer
     await tx.update(signedDocuments).set({ conteudo, updatedAt: new Date() }).where(eq(signedDocuments.id, docId));
     await tx
@@ -81,6 +84,7 @@ export async function salvarRascunhoReceita(
       .set({ justificativaUso: j || null, ...(d.retificaId && motivo !== undefined ? { motivoRetificacao: motivo } : {}), updatedAt: new Date() })
       .where(eq(signedDocumentNotes.documentoId, docId));
   }, deps.db ?? getDb());
+  return conteudo; // Plano 22 (RN-394): o "Carregar modelo" devolve o conteúdo gravado (modelos.ts)
 }
 
 /**
@@ -95,9 +99,29 @@ export async function salvarRascunhoParecer(
   await withTenant(ctx, async (tx) => {
     await carregarPacienteParaEscrita(tx, patientId);
     const d = await travarDocumento(tx, patientId, docId, ['rascunho']);
-    if (d.tipo !== 'parecer') throw new TransicaoInvalidaError();
+    if (d.tipo !== 'parecer') throw new TransicaoInvalidaError(); // EP-D57: idem, o editor do parecer só grava num parecer
     const exames = await copiarExames(tx, patientId, r.exameIds);
     const conteudo: ConteudoParecer = { versao: 1, tipo: 'parecer', exames, avaliacao: r.avaliacao, conduta: r.conduta, encaminhamentos: r.encaminhamentos };
+    await tx.update(signedDocuments).set({ conteudo, updatedAt: new Date() }).where(eq(signedDocuments.id, docId));
+    if (d.retificaId && motivo !== undefined)
+      await tx.update(signedDocumentNotes).set({ motivoRetificacao: motivo, updatedAt: new Date() }).where(eq(signedDocumentNotes.documentoId, docId));
+  }, deps.db ?? getDb());
+}
+
+/**
+ * Plano 22 (US-377, RN-388) "Rascunho salvo." da solicitação: valida (0 exames vale no rascunho; laboratório e chaves a
+ * mais somem, EP-D2) e grava o conteúdo com `orientacoesFormato: 'marcacao'` (RN-395). Sem justificativa de uso (é da
+ * receita, RN-389). Ordem de travas: paciente → documento. A guarda do editor (EP-D57): só grava numa solicitação.
+ */
+export async function salvarRascunhoSolicitacao(
+  ctx: TenantContext, patientId: string, docId: string, input: { conteudo: unknown; motivoRetificacao?: unknown }, deps: { db?: Db } = {},
+): Promise<void> {
+  const conteudo = validarRascunhoSolicitacao(input.conteudo);
+  const motivo = input.motivoRetificacao === undefined ? undefined : lerMotivoRetificacao(input.motivoRetificacao);
+  await withTenant(ctx, async (tx) => {
+    await carregarPacienteParaEscrita(tx, patientId);
+    const d = await travarDocumento(tx, patientId, docId, ['rascunho']);
+    if (d.tipo !== 'solicitacao_exames') throw new TransicaoInvalidaError(); // EP-D57: o editor da solicitação só grava numa solicitação
     await tx.update(signedDocuments).set({ conteudo, updatedAt: new Date() }).where(eq(signedDocuments.id, docId));
     if (d.retificaId && motivo !== undefined)
       await tx.update(signedDocumentNotes).set({ motivoRetificacao: motivo, updatedAt: new Date() }).where(eq(signedDocumentNotes.documentoId, docId));
@@ -113,7 +137,8 @@ export async function apagarRascunho(ctx: TenantContext, patientId: string, docI
 }
 
 /**
- * US-143 / US-141: declaração do tipo (D5) + perfil completo + (receita) justificativa ou (parecer) exames e avaliação →
+ * US-143 / US-141: declaração do tipo (D5) + perfil completo + (receita) justificativa, (parecer) exames e avaliação ou
+ * (solicitação, Plano 22) ao menos um exame →
  * congela a cópia (RN-154; no parecer, a última cópia dos exames, RN-148), gera o código (RN-142) e enfileira o PDF na mesma
  * transação (o job só existe se a transação confirmar).
  */
@@ -139,16 +164,25 @@ export async function prepararParaAssinatura(
       retificacao = { versao: d.versao, substitui: anterior!.codigo! };
     }
     const tipo = d.tipo as TipoDocumento;
-    let conteudo: ConteudoDocumento;
-    if (tipo === 'parecer') {
-      const c = d.conteudo as ConteudoParecer;
-      validarParecerParaPreparar(c);
-      // RN-148: a cópia "por último, ao preparar" — o que a IA acrescentou depois do último salvar entra; excluído → erro
-      conteudo = { ...c, exames: await copiarExames(tx, patientId, c.exames.map((e) => e.id)) };
-    } else {
-      const c = d.conteudo as ConteudoReceita;
-      validarParaPreparar(c, nota?.j ?? null, { habilitada: !!tenant.fitoterapiaRegistro });
-      conteudo = c;
+    // Plano 22 (DEP-E7): o conteúdo gravado é o do tipo da coluna (o editor de cada tipo só grava o seu). Conteúdo de um
+    // tipo na linha de outro nunca prepara — conferido ANTES de validar e de copiar os exames (revisão da T7, b)
+    let conteudo: ConteudoDocumento = d.conteudo as ConteudoDocumento;
+    if (conteudo.tipo !== tipo) throw new TransicaoInvalidaError();
+    switch (conteudo.tipo) {
+      case 'parecer':
+        validarParecerParaPreparar(conteudo);
+        // RN-148: a cópia "por último, ao preparar" — o que a IA acrescentou depois do último salvar entra; excluído → erro
+        conteudo = { ...conteudo, exames: await copiarExames(tx, patientId, conteudo.exames.map((e) => e.id)) };
+        break;
+      case 'receita':
+        validarParaPreparar(conteudo, nota?.j ?? null, { habilitada: !!tenant.fitoterapiaRegistro });
+        break;
+      case 'solicitacao_exames':
+        // RN-389: ao menos um exame; sem justificativa de uso (é da receita)
+        validarSolicitacaoParaPreparar(conteudo);
+        break;
+      default:
+        assertNever(conteudo);
     }
     await tx
       .update(signedDocuments)
@@ -156,13 +190,14 @@ export async function prepararParaAssinatura(
         status: 'preparando',
         codigo: gerarCodigo(),
         declaracaoEm: agora,
-        conteudo: { ...conteudo, copia: { profissional, paciente: { nome: paciente.nome }, ...(retificacao ? { retificacao } : {}) }, declaracao: DECLARACAO_POR_TIPO[tipo] },
+        // Plano 22 (EP-D56): a declaração do conteúdo preparado (a da receita com fórmula ganha a frase do art. 9º, II)
+        conteudo: { ...conteudo, copia: { profissional, paciente: { nome: paciente.nome }, ...(retificacao ? { retificacao } : {}) }, declaracao: declaracaoDoDocumento(conteudo) },
         pdfStatus: 'pendente',
         pdfPedidoEm: agora,
         updatedAt: agora,
       })
       .where(eq(signedDocuments.id, docId));
-    await boss.send('documento-pdf', { tenantId: ctx.tenantId, documentoId: docId }, { db: fromDrizzle(tx, sql) });
+    await boss.send(FILA_DO_PDF_DO_DOCUMENTO, { tenantId: ctx.tenantId, documentoId: docId }, { db: fromDrizzle(tx, sql) });
   }, deps.db ?? getDb());
 }
 
@@ -224,7 +259,7 @@ export async function pedirNovoPdfDocumento(ctx: TenantContext, patientId: strin
     const d = await travarDocumento(tx, patientId, docId, ['preparando']);
     if (d.pdfStatus !== 'falhou' && d.pdfStatus !== 'sem_cota') throw new TransicaoInvalidaError();
     await tx.update(signedDocuments).set({ pdfStatus: 'pendente', pdfPedidoEm: agora, updatedAt: agora }).where(eq(signedDocuments.id, docId));
-    await boss.send('documento-pdf', { tenantId: ctx.tenantId, documentoId: docId }, { db: fromDrizzle(tx, sql) });
+    await boss.send(FILA_DO_PDF_DO_DOCUMENTO, { tenantId: ctx.tenantId, documentoId: docId }, { db: fromDrizzle(tx, sql) });
   }, deps.db ?? getDb());
 }
 

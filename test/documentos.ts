@@ -15,6 +15,9 @@ export const codigoAleatorio = () => Array.from({ length: 12 }, () => CROCKFORD[
 
 /** Plano 13: o conteúdo mínimo de um parecer (como o rascunho vazio de `criarParecer`). */
 export const CONTEUDO_PARECER_TESTE = { versao: 1, tipo: 'parecer', exames: [], avaliacao: '', conduta: '', encaminhamentos: '' };
+/** Plano 22: o conteúdo mínimo de uma solicitação de exames (um exame, para o preparo e o PDF). */
+export const CONTEUDO_SOLICITACAO_TESTE = { versao: 1, tipo: 'solicitacao_exames', exames: [{ nome: 'Glicose' }], indicacaoClinica: null, orientacoes: '', orientacoesFormato: 'marcacao' };
+type TipoDeTeste = 'receita' | 'parecer' | 'solicitacao_exames';
 
 /**
  * Documento gravado direto no banco (sem o fluxo), no estado pedido. Emitido = com o stored_files do PDF assinado (FK NO
@@ -27,21 +30,21 @@ export async function documentoNoBanco(
   db: Db,
   ctx: TenantContext,
   patientId: string,
-  o: { status?: StatusDocumento; conteudo?: Record<string, unknown>; assinaturaTipo?: TipoAssinatura; tipo?: 'receita' | 'parecer'; versao?: number; retificaId?: string } = {},
+  o: { status?: StatusDocumento; conteudo?: Record<string, unknown>; assinaturaTipo?: TipoAssinatura; tipo?: TipoDeTeste; versao?: number; retificaId?: string; declaracaoEm?: Date } = {},
 ): Promise<{ id: string; codigo: string | null; pdfPath: string | null }> {
   const status = o.status ?? 'rascunho';
   const tipo = o.tipo ?? 'receita';
   const emitido = ['assinado', 'substituido', 'cancelado'].includes(status);
   const codigo = status === 'rascunho' ? null : codigoAleatorio();
   const pdfPath = emitido ? `${ctx.tenantId}/documento_assinado/${randomUUID()}.pdf` : null;
-  const conteudo = o.conteudo ?? (tipo === 'parecer' ? CONTEUDO_PARECER_TESTE : { versao: 1, tipo: 'receita', itens: [], orientacoes: '' });
+  const conteudo = o.conteudo ?? (tipo === 'parecer' ? CONTEUDO_PARECER_TESTE : tipo === 'solicitacao_exames' ? CONTEUDO_SOLICITACAO_TESTE : { versao: 1, tipo: 'receita', itens: [], orientacoes: '' });
   const id = randomUUID();
   await withTenant(ctx, async (tx) => {
     if (pdfPath)
       await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${ctx.tenantId}, 'documento_assinado', ${pdfPath}, 100, 'application/pdf', ${patientId})`);
-    await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, tipo, versao, retifica_id, status, codigo, conteudo, pdf_path, pdf_sha256, assinado_em, assinatura_tipo, assinante_nome, entregue_em)
+    await tx.execute(sql`insert into signed_documents (id, tenant_id, patient_id, tipo, versao, retifica_id, status, codigo, conteudo, pdf_path, pdf_sha256, assinado_em, assinatura_tipo, assinante_nome, entregue_em, declaracao_em)
       values (${id}, ${ctx.tenantId}, ${patientId}, ${tipo}, ${o.versao ?? 1}, ${o.retificaId ?? null}, ${status}, ${codigo}, ${JSON.stringify(conteudo)}::jsonb,
-              ${pdfPath}, ${emitido ? 'a'.repeat(64) : null}, ${emitido ? new Date() : null}, ${emitido ? (o.assinaturaTipo ?? 'digitalizada') : null}, ${emitido && (o.assinaturaTipo ?? 'digitalizada') !== 'digitalizada' ? 'DEBBY SILVA' : null}, ${emitido ? new Date() : null})`);
+              ${pdfPath}, ${emitido ? 'a'.repeat(64) : null}, ${emitido ? new Date() : null}, ${emitido ? (o.assinaturaTipo ?? 'digitalizada') : null}, ${emitido && (o.assinaturaTipo ?? 'digitalizada') !== 'digitalizada' ? 'DEBBY SILVA' : null}, ${emitido ? new Date() : null}, ${o.declaracaoEm ?? null})`);
   }, db);
   return { id, codigo, pdfPath };
 }
@@ -96,7 +99,7 @@ const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 export async function outroDocumento(
   c: Consultorio,
   db: Db,
-  o: { base?: Buffer; conteudo?: Record<string, unknown>; paciente?: PatientRow; tipo?: 'receita' | 'parecer'; retifica?: { id: string; versao: number }; motivo?: string } = {},
+  o: { base?: Buffer; conteudo?: Record<string, unknown>; paciente?: PatientRow; tipo?: TipoDeTeste; retifica?: { id: string; versao: number }; motivo?: string } = {},
 ) {
   const BASE_DOC = o.base ?? pdfDeTeste();
   const p = o.paciente ?? (await novoPaciente(db, c.T.ctx));
@@ -106,7 +109,7 @@ export async function outroDocumento(
   const id = randomUUID();
   const tipo = o.tipo ?? 'receita';
   const copia = { profissional: COPIA_TESTE, paciente: { nome: 'Ana Souza' } };
-  const conteudo = o.conteudo ?? (tipo === 'parecer' ? { ...CONTEUDO_PARECER_TESTE, avaliacao: 'Avaliação de teste.', copia } : { versao: 1, tipo: 'receita', itens: [], orientacoes: '', copia });
+  const conteudo = o.conteudo ?? (tipo === 'parecer' ? { ...CONTEUDO_PARECER_TESTE, avaliacao: 'Avaliação de teste.', copia } : tipo === 'solicitacao_exames' ? { ...CONTEUDO_SOLICITACAO_TESTE, copia } : { versao: 1, tipo: 'receita', itens: [], orientacoes: '', copia });
   const codigo = codigoAleatorio();
   await withTenant(c.T.ctx, async (tx) => {
     await tx.execute(sql`insert into stored_files (tenant_id, tipo, caminho, bytes, mime, patient_id) values (${c.T.tenantId}, 'documento_base', ${base}, ${BASE_DOC.length}, 'application/pdf', ${p.id})`);
@@ -136,7 +139,7 @@ export async function retificacaoAssinadaNoBanco(
   ctx: TenantContext,
   patientId: string,
   original: { id: string; versao: number },
-  o: { motivo?: string; tipo?: 'receita' | 'parecer'; conteudo?: Record<string, unknown>; substituir?: boolean } = {},
+  o: { motivo?: string; tipo?: TipoDeTeste; conteudo?: Record<string, unknown>; substituir?: boolean } = {},
 ): Promise<{ id: string; codigo: string; pdfPath: string }> {
   const v = await documentoNoBanco(db, ctx, patientId, { tipo: o.tipo, conteudo: o.conteudo, retificaId: original.id, versao: original.versao + 1 });
   const codigo = codigoAleatorio();

@@ -4,7 +4,9 @@ import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { stopBoss } from '@/jobs/boss';
 import { getAuth } from '@/lib/auth';
-import { criarReceita, lerDocumento } from '@/modules/documentos/documentos';
+import { criarReceita, criarSolicitacao, lerDocumento } from '@/modules/documentos/documentos';
+import { listarItensSalvos, listarModelosPrescricao, MSG_MODELOS, salvarModeloPrescricao } from '@/modules/documentos/modelos';
+import { DECLARACAO_SOLICITACAO } from '@/modules/documentos/solicitacao';
 import { criarExame } from '@/modules/pacientes/exames';
 import { documentoNoBanco } from '../../../../../../test/documentos';
 import { nutriComDpa } from '../../../../../../test/nutri';
@@ -26,7 +28,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const { apagarRascunhoAction, cancelarAction, criarParecerAction, entreguePessoalmenteAction, pedirNovoPdfAction, prepararAction, prepararParecerAction, reenviarLinkAction, retificarAction, salvarParecerAction, salvarRascunhoAction, voltarAEditarAction } = await import('./actions');
+const { apagarRascunhoAction, cancelarAction, carregarModeloAction, criarParecerAction, criarSolicitacaoAction, entreguePessoalmenteAction, pedirNovoPdfAction, prepararAction, prepararParecerAction, prepararSolicitacaoAction, reenviarLinkAction, retificarAction, salvarComoModeloAction, salvarItemAction, salvarParecerAction, salvarRascunhoAction, salvarSolicitacaoAction, voltarAEditarAction } = await import('./actions');
 
 const db = getDb();
 const auth = getAuth();
@@ -196,5 +198,148 @@ describe('retificar pelas ações (US-148, US-149)', () => {
     const { N, p } = await consultorio();
     const cancelado = await documentoNoBanco(db, N.ctx, p.id, { status: 'cancelado' });
     expect(await retificarAction(p.id, cancelado.id, {})).toEqual(MUDOU);
+  });
+});
+
+// Plano 22 (T8, US-377, RN-389, RN-398): as ações da solicitação no molde das da receita e do parecer
+describe('solicitação de exames pelas ações (US-377)', () => {
+  const editor = (o: { exames: unknown[]; indicacaoClinica?: string; orientacoes?: string; declaracao?: boolean }) => {
+    const f = new FormData();
+    f.set('conteudo', JSON.stringify({ exames: o.exames, indicacaoClinica: o.indicacaoClinica ?? '', orientacoes: o.orientacoes ?? '' }));
+    if (o.declaracao) f.set('declaracao', 'on');
+    return f;
+  };
+  const EXAMES = [{ nome: 'Hemograma completo', painel: true }, { nome: 'Glicemia de jejum' }];
+
+  it('"Nova solicitação de exames" abre o rascunho; salvar e preparar o que está na tela; o erro volta ao campo', async () => {
+    const { N, p } = await consultorio();
+    const destino = await criarSolicitacaoAction(p.id).catch((e: Error) => e.message);
+    expect(destino).toMatch(new RegExp(`^redirect /painel/pacientes/${p.id}/documentos/[0-9a-f-]{36}$`));
+    const id = String(destino).split('/').at(-1)!;
+    expect((await lerDocumento(N.ctx, p.id, id, db))?.tipo).toBe('solicitacao_exames');
+    expect(await salvarSolicitacaoAction(p.id, id, {}, editor({ exames: [{ nome: 'Glicose' }, { nome: 'glicose' }] }))).toEqual({ erros: { 'exames.1.nome': 'Este exame já está na lista.' } });
+    expect(await salvarSolicitacaoAction(p.id, id, {}, editor({ exames: EXAMES, indicacaoClinica: 'Acompanhar a dieta.' }))).toEqual({ ok: true });
+    expect(revalidatePath).toHaveBeenCalledWith(`/painel/pacientes/${p.id}/documentos`, 'layout');
+    expect(await prepararSolicitacaoAction(p.id, id, {}, editor({ exames: [], declaracao: true }))).toEqual({ erros: { exames: 'Inclua ao menos um exame.' } });
+    expect(await prepararSolicitacaoAction(p.id, id, {}, editor({ exames: EXAMES }))).toEqual({ erros: { declaracao: 'Confirme a declaração para continuar.' } });
+    // na tela: um exame a mais, sem "Salvar rascunho"
+    expect(await prepararSolicitacaoAction(p.id, id, {}, editor({ exames: [...EXAMES, { nome: 'Ferritina' }], declaracao: true }))).toEqual({ ok: true });
+    expect(await lerDocumento(N.ctx, p.id, id, db)).toMatchObject({ status: 'preparando', conteudo: { exames: [...EXAMES, { nome: 'Ferritina' }], declaracao: DECLARACAO_SOLICITACAO } });
+  });
+
+  it('o editor da solicitação não grava numa receita (e vice-versa): o motivo, sem revalidar', async () => {
+    const { N, p } = await consultorio();
+    const receita = await criarReceita(N.ctx, p.id, { db });
+    const sol = await criarSolicitacao(N.ctx, p.id, { db });
+    revalidatePath.mockClear();
+    expect(await salvarSolicitacaoAction(p.id, receita, {}, editor({ exames: EXAMES }))).toEqual(MUDOU);
+    expect(await salvarRascunhoAction(p.id, sol, {}, formulario({ itens: [], justificativa: '' }))).toEqual(MUDOU);
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it('sem documentos_liberados (RN-398): criar, salvar e preparar respondem 404, como a receita', async () => {
+    const { N, p } = await consultorio();
+    const id = await criarSolicitacao(N.ctx, p.id, { db });
+    await db.update(tenants).set({ documentosLiberados: false }).where(eq(tenants.id, N.tenantId));
+    await expect(criarSolicitacaoAction(p.id)).rejects.toThrow('notFound');
+    await expect(salvarSolicitacaoAction(p.id, id, {}, editor({ exames: EXAMES }))).rejects.toThrow('notFound');
+    await expect(prepararSolicitacaoAction(p.id, id, {}, editor({ exames: EXAMES, declaracao: true }))).rejects.toThrow('notFound');
+    expect((await lerDocumento(N.ctx, p.id, id, db))?.conteudo).toMatchObject({ exames: [] });
+  });
+
+  it('paciente bloqueado: "Nova solicitação de exames" volta para a lista com ?bloqueado=1', async () => {
+    const { N } = await consultorio();
+    const b = await novoPaciente(db, N.ctx, { status: 'bloqueado' });
+    await expect(criarSolicitacaoAction(b.id)).rejects.toThrow(`redirect /painel/pacientes/${b.id}/documentos?bloqueado=1`);
+  });
+});
+
+// Plano 22 (T10b, US-379, RN-393, RN-394, R22-11): "Salvar item", "Salvar como modelo" e "Carregar modelo" na receita
+describe('itens salvos e modelos na receita pelas ações (US-379)', () => {
+  const comNome = (nome: string, campos: Record<string, string>) => {
+    const f = new FormData();
+    f.set('nome', nome);
+    for (const [k, v] of Object.entries(campos)) f.set(k, v);
+    return f;
+  };
+  const carregar = (modeloId: string, modo: string, itens: unknown[], justificativa: string, orientacoes = '') => {
+    const f = new FormData();
+    f.set('conteudo', JSON.stringify({ itens, orientacoes }));
+    f.set('justificativa', justificativa);
+    f.set('modeloId', modeloId);
+    f.set('modo', modo);
+    return f;
+  };
+
+  it('"Salvar item" e "Salvar como modelo" gravam na biblioteca sem salvar o rascunho; o erro do nome volta ao diálogo', async () => {
+    const { N, p } = await consultorio();
+    const id = await criarReceita(N.ctx, p.id, { db });
+    expect(await salvarItemAction(p.id, id, {}, comNome('Vitamina D', { item: JSON.stringify(vitD('2000')) }))).toMatchObject({ ok: true });
+    const r = await salvarItemAction(p.id, id, {}, comNome('vitamina d', { item: JSON.stringify(vitD('2000')) }));
+    expect(r.erros).toEqual({ nome: MSG_MODELOS.erros.itemRepetido });
+    expect(r.valores).toEqual({ nome: 'vitamina d' });
+    // a justificativa do rascunho não vai para o modelo (nem é enviada)
+    const conteudo = JSON.stringify({ itens: [vitD('2000')], orientacoes: '- Tomar no almoço' });
+    expect(await salvarComoModeloAction(p.id, id, {}, comNome('Rotina', { conteudo }))).toMatchObject({ ok: true });
+    expect((await salvarComoModeloAction(p.id, id, {}, comNome('', { conteudo }))).erros?.nome).toBe(MSG_MODELOS.erros.nome);
+    const [m] = await listarModelosPrescricao(N.ctx, { db });
+    expect(m).toMatchObject({ nome: 'Rotina', itens: 1 });
+    expect(await listarItensSalvos(N.ctx, 'suplementos', { db })).toHaveLength(1);
+    // o rascunho não foi salvo nem mudou
+    expect((await lerDocumento(N.ctx, p.id, id, db))?.conteudo).toMatchObject({ itens: [] });
+  });
+
+  it('"Carregar modelo" com o que está na tela: grava pelo caminho do salvar e devolve o conteúdo gravado, com a justificativa digitada', async () => {
+    const { N, p } = await consultorio();
+    const id = await criarReceita(N.ctx, p.id, { db });
+    const [t] = await db.select().from(tenants).where(eq(tenants.id, N.tenantId));
+    const modeloId = await salvarModeloPrescricao(N.ctx, t, null, { nome: 'Rotina', itens: [vitD('2000', '1 ao dia'), vitD('1000', '2 ao dia')], orientacoes: '**Do modelo**' }, { db });
+    const r = await carregarModeloAction(p.id, id, carregar(modeloId, 'acrescentar', [vitD('50', 'digitado')], 'Exposição solar baixa'));
+    expect(r.erros).toBeUndefined();
+    expect(r.conteudo?.itens.map((i) => i.posologia)).toEqual(['digitado', '1 ao dia', '2 ao dia']);
+    expect(r.conteudo?.orientacoes).toBe('**Do modelo**');
+    const d = await lerDocumento(N.ctx, p.id, id, db);
+    expect(d).toMatchObject({ status: 'rascunho', justificativa: 'Exposição solar baixa' });
+    expect((d?.conteudo as { itens: unknown[] }).itens).toHaveLength(3);
+    expect(revalidatePath).toHaveBeenCalledWith(`/painel/pacientes/${p.id}/documentos`, 'layout');
+    // 19 na tela + 2 do modelo: a mensagem dos 20 e nada muda
+    revalidatePath.mockClear();
+    const muitos = await carregarModeloAction(p.id, id, carregar(modeloId, 'acrescentar', Array.from({ length: 19 }, () => vitD('50')), 'Outra'));
+    expect(muitos).toEqual({ erros: { itens: MSG_MODELOS.passaDe20 } });
+    expect(revalidatePath).not.toHaveBeenCalled();
+    expect((await lerDocumento(N.ctx, p.id, id, db))?.justificativa).toBe('Exposição solar baixa');
+    // substituir troca os itens
+    expect((await carregarModeloAction(p.id, id, carregar(modeloId, 'substituir', [vitD('50', 'digitado')], 'Exposição solar baixa'))).conteudo?.itens).toHaveLength(2);
+  });
+
+  it('"Carregar modelo" numa retificação: o motivo digitado vai junto e é gravado; sem o campo (fora da retificação), o motivo gravado não muda', async () => {
+    const { N, p } = await consultorio();
+    const v1 = await documentoNoBanco(db, N.ctx, p.id, { status: 'assinado' });
+    const v2 = String(await retificarAction(p.id, v1.id, {}).catch((e: Error) => e.message)).split('/').at(-1)!;
+    const [t] = await db.select().from(tenants).where(eq(tenants.id, N.tenantId));
+    const modeloId = await salvarModeloPrescricao(N.ctx, t, null, { nome: 'Rotina', itens: [vitD('2000', '1 ao dia')], orientacoes: '' }, { db });
+    const comMotivo = carregar(modeloId, 'acrescentar', [vitD('50', 'digitado')], 'Exposição solar baixa');
+    comMotivo.set('motivoRetificacao', 'Dose corrigida');
+    expect((await carregarModeloAction(p.id, v2, comMotivo)).erros).toBeUndefined();
+    expect(await lerDocumento(N.ctx, p.id, v2, db)).toMatchObject({ versao: 2, motivoRetificacao: 'Dose corrigida', justificativa: 'Exposição solar baixa' });
+    // o formulário fora da retificação não manda o campo: o motivo gravado fica como estava
+    expect((await carregarModeloAction(p.id, v2, carregar(modeloId, 'substituir', [], 'Exposição solar baixa'))).erros).toBeUndefined();
+    expect((await lerDocumento(N.ctx, p.id, v2, db))?.motivoRetificacao).toBe('Dose corrigida');
+    // o motivo inválido volta ao campo e nada muda
+    const longo = carregar(modeloId, 'acrescentar', [], 'Exposição solar baixa');
+    longo.set('motivoRetificacao', 'x'.repeat(501));
+    expect(await carregarModeloAction(p.id, v2, longo)).toEqual({ erros: { motivoRetificacao: 'Escreva o motivo da retificação (até 500 caracteres).' } });
+    expect((await lerDocumento(N.ctx, p.id, v2, db))?.motivoRetificacao).toBe('Dose corrigida');
+  });
+
+  it('sem documentos_liberados (RN-398): "Salvar item", "Salvar como modelo" e "Carregar modelo" respondem 404 e nada é gravado', async () => {
+    const { N, p } = await consultorio();
+    const id = await criarReceita(N.ctx, p.id, { db });
+    await db.update(tenants).set({ documentosLiberados: false }).where(eq(tenants.id, N.tenantId));
+    await expect(salvarItemAction(p.id, id, {}, comNome('Vitamina D', { item: JSON.stringify(vitD('2000')) }))).rejects.toThrow('notFound');
+    await expect(salvarComoModeloAction(p.id, id, {}, comNome('Rotina', { conteudo: JSON.stringify({ itens: [vitD('2000')], orientacoes: '' }) }))).rejects.toThrow('notFound');
+    await expect(carregarModeloAction(p.id, id, carregar('00000000-0000-4000-8000-000000000001', 'acrescentar', [], ''))).rejects.toThrow('notFound');
+    expect(await listarItensSalvos(N.ctx, 'suplementos', { db })).toEqual([]);
+    expect(await listarModelosPrescricao(N.ctx, { db })).toEqual([]);
   });
 });

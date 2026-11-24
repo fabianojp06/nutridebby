@@ -1,5 +1,8 @@
+import type { ConteudoDocumento } from './parecer';
+
 /**
- * Planos 10A e 10B — documentos assinados. SEM imports: componentes 'use client' leem daqui (como marca-constantes.ts).
+ * Planos 10A e 10B — documentos assinados. SEM imports de valor (Plano 22: só o `import type` acima, apagado na
+ * compilação): componentes 'use client' leem daqui (como marca-constantes.ts).
  * No Plano 10A só existe a assinatura digitalizada (opção E); o Plano 10B amplia `TipoAssinatura` e `ROTULO_ASSINATURA`
  * com 'govbr' e 'icp' (e os CHECKs do banco, migration própria).
  */
@@ -34,11 +37,19 @@ export const linhaDaAssinatura = (t: TipoAssinatura): string => `Assinatura: ${R
 export type SituacaoVerificacao = 'valido' | 'substituido' | 'cancelado' | 'eliminado';
 export type EventoRecibo = 'aberto' | 'recebido';
 export type ViaRecibo = 'portal' | 'link_email' | 'pessoalmente';
-/** Plano 13: o parecer nutricional (F3-05) ao lado da receita. "Receita" no banco e na tela (D16 do 10A). */
-export const TIPO_DOCUMENTO_ROTULO = { receita: 'Receita', parecer: 'Parecer nutricional' } as const;
+/**
+ * Plano 13: o parecer nutricional (F3-05) ao lado da receita. "Receita" no banco e na tela (D16 do 10A). Plano 22 (RN-397,
+ * EP-D1): a solicitação de exames laboratoriais. Quem decide pelo tipo usa `switch` + `assertNever`
+ * (`tipos-de-documento.ts`), nunca "o que não é parecer é receita" (DEP-E7).
+ */
+export const TIPO_DOCUMENTO_ROTULO = { receita: 'Receita', parecer: 'Parecer nutricional', solicitacao_exames: 'Solicitação de exames laboratoriais' } as const;
 export type TipoDocumento = keyof typeof TIPO_DOCUMENTO_ROTULO;
 /** Leitor de tela no portal ("Abrir PDF da receita de …", "Abrir PDF do parecer nutricional de …"): o artigo muda com o tipo. */
-export const TIPO_DOCUMENTO_COM_ARTIGO: Record<TipoDocumento, string> = { receita: 'da receita', parecer: 'do parecer nutricional' };
+export const TIPO_DOCUMENTO_COM_ARTIGO: Record<TipoDocumento, string> = {
+  receita: 'da receita',
+  parecer: 'do parecer nutricional',
+  solicitacao_exames: 'da solicitação de exames laboratoriais',
+};
 
 /**
  * D5 da spec (RASCUNHO até a revisão da Debby e a consulta ao CRN-3, runbook passo 3). Minor 10 da revisão de normas:
@@ -52,14 +63,35 @@ export const DECLARACAO_PARECER = 'Declaro que este parecer não afirma diagnós
 /** D5 da spec (RASCUNHO, como a declaração): a ressalva fixa impressa no PDF do parecer (§3.1). */
 export const RESSALVA_PARECER = 'Este parecer trata do estado nutricional e não constitui diagnóstico de doença nem substitui avaliação médica.';
 /**
- * Plano 22 (RN-389, §6.2; RASCUNHO para a Debby e o CRN-3, §14.3): a declaração ao preparar a solicitação de exames.
- * Aqui, sem imports, para os componentes 'use client'; `solicitacao.ts` reexporta (R22-14). Entra em
- * `DECLARACAO_POR_TIPO` só na T7, com o tipo `solicitacao_exames` (EP-D49).
+ * Plano 22 (RN-389, §6.2; RASCUNHO para a Debby e o CRN-4, §14.3): a declaração ao preparar a solicitação de exames.
+ * Aqui, sem imports, para os componentes 'use client'; `solicitacao.ts` reexporta (R22-14). Em `DECLARACAO_POR_TIPO`
+ * desde a T7, com o tipo `solicitacao_exames` (EP-D49).
  */
 export const DECLARACAO_SOLICITACAO =
   'Declaro que os exames solicitados são laboratoriais e necessários à avaliação, à prescrição ou à evolução nutricional, dentro da minha competência (Lei nº 8.234/1991, art. 4º, VIII, e Resolução CFN nº 306/2003), e que este pedido não indica laboratório.';
-export const DECLARACAO_POR_TIPO: Record<TipoDocumento, string> = { receita: DECLARACAO_RECEITA, parecer: DECLARACAO_PARECER };
+export const DECLARACAO_POR_TIPO: Record<TipoDocumento, string> = {
+  receita: DECLARACAO_RECEITA,
+  parecer: DECLARACAO_PARECER,
+  solicitacao_exames: DECLARACAO_SOLICITACAO,
+};
 export const MSG_DECLARACAO = 'Confirme a declaração para continuar.';
+
+/**
+ * Plano 22 (RN-392, EP-D56; RASCUNHO para a Debby e o CRN-4, como a declaração): a frase que a declaração da receita ganha,
+ * antes do ponto final, quando a receita tem a fórmula magistral fitoterápica (Res. CFN 680/2021, art. 9º, II).
+ */
+export const FRASE_FORMULA_FITOTERAPICA =
+  ', e que a fórmula magistral fitoterápica tem só derivados vegetais, sem vitaminas, minerais, aminoácidos ou substâncias isoladas (Resolução CFN nº 680/2021, art. 9º, II)';
+
+/**
+ * Plano 22 (EP-D56): a declaração gravada no preparo E mostrada na tela (o mesmo texto, do mesmo conteúdo). A declaração
+ * continua por tipo de documento (`DECLARACAO_POR_TIPO`); só a da receita com `formula_fitoterapica` ganha a frase. Aqui
+ * o `=== 'receita'` não decide o tipo por exclusão (DEP-E7): todo tipo cai em `DECLARACAO_POR_TIPO[c.tipo]`.
+ */
+export function declaracaoDoDocumento(c: ConteudoDocumento): string {
+  if (c.tipo === 'receita' && c.itens.some((i) => i.tipo === 'formula_fitoterapica')) return `${DECLARACAO_RECEITA.replace(/\.$/, '')}${FRASE_FORMULA_FITOTERAPICA}.`;
+  return DECLARACAO_POR_TIPO[c.tipo];
+}
 
 /** Q13-5 ★ (proposto na spec v0.5): a versão no portal e no link ("Versão 2") e no PDF e no painel (a linha abaixo do título). */
 export const rotuloDaVersao = (versao: number): string => `Versão ${versao}`;

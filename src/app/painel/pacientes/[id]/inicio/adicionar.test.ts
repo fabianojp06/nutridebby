@@ -17,7 +17,7 @@ const PACIENTE = '00000000-0000-4000-8000-0000000000a1';
 const BASE = `/painel/pacientes/${PACIENTE}`;
 const naTela = (id: string, podeAdicionar = true): Pick<SecaoNoInicio, 'id' | 'podeAdicionar'> => ({ id, podeAdicionar });
 const TODAS = SECOES_DA_FICHA.map((s) => naTela(s.id));
-const acoes = { 'criar-receita': vi.fn(async () => undefined), 'criar-parecer': vi.fn(async () => undefined) };
+const acoes = { 'criar-receita': vi.fn(async () => undefined), 'criar-parecer': vi.fn(async () => undefined), 'criar-solicitacao': vi.fn(async () => undefined) };
 const html = (grupos: GrupoNoAdicionar[]) => renderToStaticMarkup(createElement(Adicionar, { grupos, acoes }));
 const rotulos = (grupos: GrupoNoAdicionar[]) => grupos.map((g) => [g.titulo, g.itens.map((i) => i.rotulo)]);
 
@@ -32,16 +32,16 @@ const OUTRA: SecaoDaFicha = {
 };
 
 describe('Adicionar ao prontuário (US-263, RN-280)', () => {
-  it('grupos e itens na ordem da US-263: Avaliações (Anamnese, Antropometria, Gasto energético, Exame, Atendimento) e Prescrições (Plano alimentar, Receita, Parecer nutricional)', () => {
+  it('grupos e itens na ordem da US-263: Avaliações (Anamnese, Antropometria, Gasto energético, Exame, Atendimento; Plano 22: Solicitação de exames) e Prescrições (Plano alimentar, Receita, Parecer nutricional)', () => {
     const grupos = montarAdicionar(PACIENTE, TODAS);
     expect(rotulos(grupos)).toEqual([
-      ['Avaliações', ['Anamnese', 'Antropometria', 'Gasto energético', 'Exame', 'Atendimento']],
+      ['Avaliações', ['Anamnese', 'Antropometria', 'Gasto energético', 'Exame', 'Atendimento', 'Solicitação de exames']],
       ['Prescrições', ['Plano alimentar', 'Receita', 'Parecer nutricional']],
     ]);
     const h = html(grupos);
     expect([...h.matchAll(/<h3[^>]*>([^<]*)<\/h3>/g)].map((m) => m[1])).toEqual(['Avaliações', 'Prescrições']);
     expect([...h.matchAll(/<(?:a|button)\b[^>]*>([^<]*)<\/(?:a|button)>/g)].map((m) => m[1]).filter((t) => !['Fechar', '+', 'Adicionar'].includes(t))).toEqual([
-      'Anamnese', 'Antropometria', 'Gasto energético', 'Exame', 'Atendimento', 'Plano alimentar', 'Receita', 'Parecer nutricional',
+      'Anamnese', 'Antropometria', 'Gasto energético', 'Exame', 'Atendimento', 'Solicitação de exames', 'Plano alimentar', 'Receita', 'Parecer nutricional',
     ]);
   });
 
@@ -64,15 +64,17 @@ describe('Adicionar ao prontuário (US-263, RN-280)', () => {
     expect(itens.find((i) => i.rotulo === 'Plano alimentar')).toEqual({ rotulo: 'Plano alimentar', href: `${BASE}/plano-alimentar` });
     expect(itens.find((i) => i.rotulo === 'Receita')).toEqual({ rotulo: 'Receita', acao: 'criar-receita' });
     expect(itens.find((i) => i.rotulo === 'Parecer nutricional')).toEqual({ rotulo: 'Parecer nutricional', acao: 'criar-parecer' });
+    expect(itens.find((i) => i.rotulo === 'Solicitação de exames')).toEqual({ rotulo: 'Solicitação de exames', acao: 'criar-solicitacao' });
     const h = html(grupos);
     expect(h).toContain(`href="${BASE}/gasto-energetico#novo-calculo"`);
     expect(h).toContain(`href="${BASE}/exames#novo-exame"`);
     expect(h).toContain(`href="${BASE}/atendimentos#novo-atendimento"`);
     expect(h).toMatch(/<form[^>]*>(?:(?!<\/form>).)*Receita<\/button><\/form>/);
     expect(h).toMatch(/<form[^>]*>(?:(?!<\/form>).)*Parecer nutricional<\/button><\/form>/);
+    expect(h).toMatch(/<form[^>]*>(?:(?!<\/form>).)*Solicitação de exames<\/button><\/form>/);
   });
 
-  it('documentos desligados (a seção não veio do Início): sem "Receita" e "Parecer nutricional"', () => {
+  it('documentos desligados (a seção não veio do Início): sem "Receita", "Parecer nutricional" e "Solicitação de exames"', () => {
     const grupos = montarAdicionar(PACIENTE, TODAS.filter((s) => s.id !== 'documentos'));
     expect(rotulos(grupos)).toEqual([
       ['Avaliações', ['Anamnese', 'Antropometria', 'Gasto energético', 'Exame', 'Atendimento']],
@@ -81,6 +83,7 @@ describe('Adicionar ao prontuário (US-263, RN-280)', () => {
     const h = html(grupos);
     expect(h).not.toContain('Receita');
     expect(h).not.toContain('Parecer nutricional');
+    expect(h).not.toContain('Solicitação de exames');
   });
 
   it('sem item de "Outros": sem o grupo; com uma seção que o usa, "Outros" no fim e o destino absoluto como está', () => {

@@ -127,7 +127,7 @@ Layout no disco: `DATA_DIR/<tenantId>/<tipo>/<uuid>.<ext>` (`armazenamento.ts:96
 | `salvarArquivo(ctx, input)` | Única porta de gravação. Ver fluxo abaixo | `armazenamento.ts:64` |
 | `apagarArquivo(ctx, filtro, deps)` | Única porta de remoção: apaga `stored_files`, devolve os bytes à cota e remove do disco depois do commit (ou antes, com `removerAntesDoCommit`) | `armazenamento.ts:160` |
 | `nivelDeUso(bytes)` | `ok` / `aviso` (≥ 80%) / `esgotado` (≥ 100%) | `armazenamento.ts:38` |
-| `limparTmpOrfaos(dataDir, agora)` | Apaga `*.<pid>.tmp` com mais de 24 h; fila diária `limpar-tmp` às 04h | `armazenamento.ts:210`; `src/worker/index.ts:211` |
+| `limparTmpOrfaos(dataDir, agora)` | Apaga `*.<pid>.tmp` com mais de 24 h; fila diária `limpar-tmp` às 04h | `armazenamento.ts:210`; `src/worker/index.ts:330` |
 | `signFileUrl(caminho)` | URL `/api/arquivos?c=…&e=…&s=…`, HMAC-SHA256 com `FILE_URL_SECRET`, validade 300 s | `src/lib/signed-url.ts:16` |
 | `verifyFileUrl(params)` | Confere formato do caminho, assinatura (comparação em tempo constante) e validade | `src/lib/signed-url.ts:27` |
 
@@ -195,7 +195,7 @@ passa por `anonimizarDocumentosDoPaciente`, [§9.4.4](09-documentos-assinados.md
 
 ### 4.1.4 Monitoramento de backup e disco (RNF-05, RNF-13)
 
-**Arquivo:** `src/modules/plataforma/monitoramento.ts`. Jobs em `src/worker/index.ts:131-149`.
+**Arquivo:** `src/modules/plataforma/monitoramento.ts`. Jobs em `src/worker/index.ts:149-170`.
 
 O backup roda no host (systemd às 03h, `scripts/backup/nutri-backup.sh`), não no worker (Plano 02, decisão "Onde roda o backup"; regra 10 do CLAUDE.md). O script grava `backup_runs`; o app só lê.
 
@@ -474,7 +474,7 @@ stateDiagram-v2
 | `concluirExclusaoAtendida(data, deps)` | Job: apaga as fotos e **só depois** envia o e-mail "pedido atendido" (F-13). Na última tentativa o e-mail sai mesmo com erro de disco. Plano 15: antes do e-mail, as conversas da IA Nutri e a participação (`apagarIaNutriDoTitular`), menos a pergunta com risco não aberta, que fica até 30 dias (D22); o e-mail cita "as conversas com a IA Nutri" e essa guarda ([§10.14.7](10-ia.md#10147-retenção-exclusão-anonimização-e-exportação-rn-181-d8--180-dias-d22-76-133)) | `lgpd.ts:370` |
 | `pedidosDoTitularAbertos(ctx)` | Quadro "Pedidos do titular" do Início, prazo mais curto primeiro | `lgpd.ts:425` |
 | `anexosDoPaciente(tx, id)` | Laudos, exportações, PDFs de plano e fotos do diário do paciente | `lgpd.ts:445` |
-| `anonimizarVencidos(db, now)` | Job diário: por tenant (inclusive suspensos), rede de segurança das fotos, depois anonimiza cada bloqueado vencido. Plano 15: `app_anonimizar_consentimentos_ia_nutri` (tira IP, user-agent e conta do consentimento da IA Nutri) e `limparIaNutriNaAnonimizacao` (o que restou da conversa e a participação). Plano 18 (RN-283): apaga a linha de `patient_cadastro` e, no início de cada tenant, roda a rede `apagarCadastrosDosAnonimizados`. Plano 20: `app_anonimizar_financeiro`, só se o paciente tem lançamento (`:565`) | `lgpd.ts:502` |
+| `anonimizarVencidos(db, now)` | Job diário: por tenant (inclusive suspensos), rede de segurança das fotos, depois anonimiza cada bloqueado vencido. Plano 15: `app_anonimizar_consentimentos_ia_nutri` (tira IP, user-agent e conta do consentimento da IA Nutri) e `limparIaNutriNaAnonimizacao` (o que restou da conversa e a participação). Plano 18 (RN-283): apaga a linha de `patient_cadastro` e, no início de cada tenant, roda a rede `apagarCadastrosDosAnonimizados`. Plano 20: `app_anonimizar_financeiro`, só se o paciente tem lançamento (`:565`). Plano 22 (PR 1, RN-399): depois do `UPDATE` que grava `anonimizado_em`, `app_anonimizar_exames_textos(tenant, paciente)` (0128, `SECURITY DEFINER`, contexto `worker`) anula a `justificativa` de `exam_versoes` e o `texto` de `exam_interpretacoes` — os exames, as versões e as notas ficam como prontuário; cada linha anulada aparece no Histórico como "Sistema · Alterou" ([cap. 2, §2.5.13](02-banco-de-dados.md#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)). A solicitação de exames sai com os outros documentos (`app_anonimizar_documentos`, [cap. 9, §9.12.3](09-documentos-assinados.md#9123-solicitação-de-exames-laboratoriais-t8-us-376-us-377-rn-388-a-rn-391-ep-d1-a-ep-d7)) | `lgpd.ts:502` |
 | `contaSemOutroVinculo(tx, userId)` / `anonimizarContaSemVinculo(tx, userId, now)` | P06-08: a conta de login sem outro vínculo é anonimizada; sessões, senha, 2FA e `verification` ligados a ela saem; só conta `paciente` | `conta-titular.ts:10,29` |
 
 O que `atenderPedidoExclusao` faz na transação (`lgpd.ts:114-219`):
@@ -523,7 +523,7 @@ A spec (RN-283) diz "no fim" da varredura: divergência registrada (#18 abaixo).
 O pedido de exclusão atendido (`bloqueado`) **não** muda o cadastro complementar: ele fica guardado até a anonimização,
 como o resto do prontuário (teste em `lgpd.test.ts`).
 
-Jobs: `retencao-lgpd` às 04h (`src/worker/index.ts:153`), que também chama `expirarExportacoesVencidas`; `exclusao-atendida` com 5 novas tentativas (`src/jobs/queues.ts:20`).
+Jobs: `retencao-lgpd` às 04h (`src/worker/index.ts:172`), que também chama `expirarExportacoesVencidas`; `exclusao-atendida` com 5 novas tentativas (`src/jobs/queues.ts:20`).
 
 Plano 10A: na anonimização, os documentos assinados saem **antes** do laço de anexos, por
 `anonimizarDocumentosDoPaciente` (`src/modules/documentos/lgpd-documentos.ts`; função `app_anonimizar_documentos` no
@@ -1394,7 +1394,7 @@ Modelo não se publica: `publicarPlano` filtra por `patient_id` e devolve "não 
 5. Grava com `salvarArquivo(tipo 'plano_pdf', ['pdf'])`: `antesDaReserva` trava o paciente e desiste se ele foi bloqueado ou anonimizado; `registrar` grava `pdf_path` e `pronto`.
 6. Cota esgotada ou última tentativa → `falhou`; outros erros → nova tentativa do pg-boss.
 
-Rede de segurança: `expirarPdfsPendentes` a cada 15 min marca `falhou` o pendente há mais de 1 h, medido por `pdf_pedido_em` (`plano-pdf-job.ts:114,125`; `src/worker/index.ts:207`). Fila `plano-pdf`: 2 novas tentativas, 30 s com backoff, 120 s cada (`src/jobs/queues.ts:25`).
+Rede de segurança: `expirarPdfsPendentes` a cada 15 min marca `falhou` o pendente há mais de 1 h, medido por `pdf_pedido_em` (`plano-pdf-job.ts:114,125`; `src/worker/index.ts:226`). Fila `plano-pdf`: 2 novas tentativas, 30 s com backoff, 120 s cada (`src/jobs/queues.ts:25`).
 
 Download: o painel chama `signFileUrl(pdf_path)` (`src/app/painel/pacientes/[id]/plano-alimentar/[planId]/pdf-do-plano.tsx`); o portal, `src/app/api/p/plano/pdf/route.ts`.
 

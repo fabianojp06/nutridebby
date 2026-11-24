@@ -769,7 +769,7 @@ export function CompartilharPdf(p: { url: string /* /api/p/documentos/{id}/pdf o
 - [ ] **Step 4:** `APP_URL=http://localhost:3102 pnpm test:e2e e2e/solicitacao-exames.spec.ts e2e/exames.spec.ts e2e/acessibilidade-exames.spec.ts e2e/acessibilidade-painel.spec.ts e2e/documentos.spec.ts e2e/parecer.spec.ts e2e/portal.spec.ts && pnpm test && pnpm lint && pnpm typecheck` → PASS. Rodar `pnpm e2e:seed` de novo e repetir os E2E (banco reaproveitado).
 - [ ] **Step 5:** commit `test(e2e)+docs: fechamento do Plano 22 — exames e prescrição (P22-12)`.
 
-**Pronto quando:** E2E e suíte verdes duas vezes seguidas no banco reaproveitado; manual técnico conferido pelo `guardiao-manual`; textos para o dono (Docs, Central de Ajuda, pacote do CRN-3 e do advogado: EP-P1, EP-P2) prontos.
+**Pronto quando:** E2E e suíte verdes duas vezes seguidas no banco reaproveitado; manual técnico conferido pelo `guardiao-manual`; textos para o dono (Docs, Central de Ajuda, pacote do CRN-4 e do advogado: EP-P1, EP-P2) prontos.
 
 ---
 
@@ -903,3 +903,31 @@ Verificador cético sobre 36 achados (I1–I4, M1–M11, R22-01 a R22-25), cada 
 | EP-D62 | As funções que leem ou gravam `exam_versoes`/`exam_interpretacoes` ficam fora de `src/modules/pacientes/exames.ts`: `exameParaEditar`, `editarExame`, `versoesDoExame`, `mostrarNoApp` e `retirarDoApp` em `src/modules/exames/edicao.ts`; `abrirExame` em `src/modules/exames/detalhe.ts`; `pacientes/exames.ts` fica com `lerValores`, `lerValoresComErros`, `ValorExame`, criar, excluir, listar e séries; a guarda da RN-399 passa a ser por alcance + texto, a partir de `src/modules/ia/**` | `src/modules/ia/conferencia.ts:7` importa `@/modules/pacientes/exames` em tempo de execução: com as funções novas lá, a nota e as versões ficariam alcançáveis pela IA, e a guarda "só `interpretacao.ts`" ou quebraria sem motivo ou deixaria passar um `import { abrirExame }` futuro (I4) |
 | EP-D63 | As migrations do PR 1 chamam-se `exames_catalogo` e `rls_exames_catalogo` (não `exames`/`rls_exames`) | `drizzle/0029_exames.sql` e `drizzle/0030_rls_exames.sql` já existem; o mesmo nome deixaria ambíguas as citações no manual técnico, no `CLAUDE.md`, na spec e nos greps do §5 (M1) |
 | EP-D64 | A T5 vira T5a (nota, detalhe, REF) e T5b (comparativo, guardas, semente, E2E, manual do PR 2); a T10 vira T10a (banco e módulo) e T10b (telas, diálogos da receita, cartão, guias); o PR 2 e o PR 4 não mudam; 14 tarefas no total | Cada uma passava de um ciclo de revisão por tarefa e misturava a revisão do `revisor-rls` com a do `revisor-interface` (R22-19) |
+
+## Pendências (fechamento do PR 4, T12 — 23/11/2026)
+
+Resolvido na T12: a guarda da consulta automática (o "Novo exame" leva o foco ao primeiro erro por efeito, sem
+temporizador); o `auditRead` do "Lançar resultados" depois da conferência do tipo; a quebra de palavra na lista e na
+visão da solicitação; o guia `documentos` (título, resumo, "um laboratório" na verificação e os passos da solicitação antes
+do "Preparar") e o resumo do `configuracoes` (o cartão "Prescrição" com os documentos liberados); o `CLAUDE.md` (regras 8 e
+9); o manual técnico (cap. 2 §2.5.14, cap. 4, cap. 5 §5.8.1, cap. 6, cap. 9 §9.12 com o runbook da R-375 e o README);
+a spec (US-378 e RNF-373 sem o "Derivado ou extração" na conferência; CRN-3 → CRN-4, §21); a semente e os E2E do CS-372 e
+do axe dos estados que não são rota, inclusive o editor da solicitação nos dois temas a 1280 e a 360 px, com um nome
+longo e sem rolagem lateral (escritos; quem roda é o controlador, um E2E por vez).
+
+Para a Debby (CRN-4) — P22-B2 e P22-B4 do backlog:
+
+- `DECLARACAO_SOLICITACAO` e o art. 2º, parágrafo único, V; a frase da declaração com a fórmula e o `naoVegetal` sem
+  "altamente purificadas"/"associações" (art. 9º, II); "só derivados vegetais" × droga vegetal em pó; unidades UI/UFC/U
+  aceitas no composto; o binômio que aceita fungos e algas; o PDF do composto sem os rótulos (parte usada, derivado).
+- EP-P1 (as seis perguntas ao CRN-4) e EP-P3 (nomes para começar, categorias, termos barrados, textos do manual guiado e
+  da Central de Ajuda, todos "rascunho para a Debby").
+
+Para o advogado (E-09) — P22-B1 e P22-B3: EP-P2 (RDC 657/2022; exames no app; o termo 1.1 da onda 2, com o Anexo A) e a
+cópia do titular sem as versões anteriores da nota (backlog do PR 2, P22-B11).
+
+Minors que ficam no backlog (P22-B11 a P22-B13): os do PR 2, os da T8 que pedem texto novo ("Lançar resultados" e os
+anúncios da solicitação) e os de interface das T9 e T10b.
+
+Textos para o dono aplicar (manual do usuário no Docs e Central de Ajuda): preparados pelo papel de guardião em
+`../.sessoes/plano22-pr4-propostas-manual-usuario-e-ajuda.md` (fora do repositório, como os do Plano 17).

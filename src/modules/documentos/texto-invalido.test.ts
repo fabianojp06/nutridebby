@@ -109,11 +109,10 @@ describe('SUS-109: texto com NUL ou surrogate sem par nos documentos', () => {
       await withTenant(c.T.ctx, (tx) => tx.insert(signedDocumentNotes).values({ tenantId: c.T.tenantId, patientId: p.id, documentoId: v1.id }), app.db);
       const v2 = await retificarDocumento(c.T.ctx, p.id, v1.id, { db: app.db });
       const motivoRetificacao = sujo('Dose\r\n', ch);
-      await semErroDoBanco(() =>
-        tipo === 'receita'
-          ? salvarRascunhoReceita(c.T.ctx, c.tenant, p.id, v2, { conteudo: { itens: [], orientacoes: '' }, justificativa: '', motivoRetificacao }, { db: app.db })
-          : salvarRascunhoParecer(c.T.ctx, p.id, v2, { conteudo: { exameIds: [], avaliacao: 'A.' }, motivoRetificacao }, { db: app.db }),
-      );
+      await semErroDoBanco(async () => {
+        if (tipo === 'receita') await salvarRascunhoReceita(c.T.ctx, c.tenant, p.id, v2, { conteudo: { itens: [], orientacoes: '' }, justificativa: '', motivoRetificacao }, { db: app.db });
+        else await salvarRascunhoParecer(c.T.ctx, p.id, v2, { conteudo: { exameIds: [], avaliacao: 'A.' }, motivoRetificacao }, { db: app.db });
+      });
       expect((await lerDocumento(c.T.ctx, p.id, v2, app.db))!.motivoRetificacao, tipo).toBe(limpo('Dose\n'));
     }
   });

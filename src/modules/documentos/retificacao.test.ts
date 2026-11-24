@@ -21,11 +21,22 @@ import { retificarDocumento } from './retificacao';
 import { consultarVerificacao } from './verificacao';
 
 const app = makeDb(inject('appDatabaseUrl'));
+const dono = makeDb(inject('ownerDatabaseUrl'));
 afterAll(async () => {
   await stopBoss();
   await closeDb();
   await app.pool.end();
+  await dono.pool.end();
 });
+/**
+ * A nota com a justificativa de um documento já emitido — o estado que o fluxo deixa (a justificativa é gravada no
+ * rascunho e congela no preparo, 0105). Fixture pelo dono com os gatilhos desligados só nesta transação.
+ */
+const notaComJustificativa = (tenantId: string, patientId: string, documentoId: string, j: string) =>
+  dono.db.transaction(async (tx) => {
+    await tx.execute(sql`set local session_replication_role = replica`);
+    await tx.execute(sql`insert into signed_document_notes (tenant_id, patient_id, documento_id, justificativa_uso) values (${tenantId}, ${patientId}, ${documentoId}, ${j})`);
+  });
 const erroEm = (campo: string, msg: string) => (e: unknown) => e instanceof DocumentoError && e.erros[campo] === msg;
 const contar = async (ctx: Parameters<typeof withTenant>[0], original: string) =>
   Number((await withTenant(ctx, (tx) => tx.execute(sql`select count(*)::int as n from signed_documents where retifica_id = ${original}`), app.db)).rows[0].n);
@@ -66,6 +77,39 @@ describe('retificar (US-148, RN-146, SBIS NGS1.12.01/02)', () => {
     const d = (await lerDocumento(c.T.ctx, p.id, v2, app.db))!;
     expect((d.conteudo as ConteudoParecer).exames[0].valores.map((v) => v.nome)).toEqual(['Hemoglobina', 'Ferritina']);
     expect(d.motivoRetificacao).toBe('Ferritina lançada depois');
+  });
+
+  it('Plano 22 (RN-397, DEP-E7): solicitação → "Versão 2" do mesmo tipo, com os exames, a indicação, as orientações e orientacoesFormato; a nota nova sem justificativa', async () => {
+    const c = await consultorio();
+    const p = await novoPaciente(app.db, c.T.ctx);
+    const conteudo = {
+      versao: 1, tipo: 'solicitacao_exames', exames: [{ nome: 'Glicose' }, { nome: 'Hemograma completo', painel: true }], indicacaoClinica: 'Acompanhar a resposta à dieta.',
+      orientacoes: 'Jejum de **8 h**.\n- traga o pedido', orientacoesFormato: 'marcacao', copia: { profissional: {}, paciente: { nome: 'Ana Souza' } }, declaracao: 'x',
+    };
+    const v1 = await documentoNoBanco(app.db, c.T.ctx, p.id, { status: 'assinado', tipo: 'solicitacao_exames', conteudo });
+    // controle: mesmo com uma justificativa na nota da 1 (que a solicitação nunca grava), a 2 nasce sem — a justificativa é só da receita
+    await notaComJustificativa(c.T.tenantId, p.id, v1.id, 'J');
+    const v2 = await retificarDocumento(c.T.ctx, p.id, v1.id, { db: app.db });
+    const d = (await lerDocumento(c.T.ctx, p.id, v2, app.db))!;
+    expect(d).toMatchObject({ tipo: 'solicitacao_exames', status: 'rascunho', versao: 2, retificaId: v1.id, justificativa: null });
+    expect(d.conteudo).toEqual({
+      versao: 1, tipo: 'solicitacao_exames', exames: [{ nome: 'Glicose' }, { nome: 'Hemograma completo', painel: true }], indicacaoClinica: 'Acompanhar a resposta à dieta.',
+      orientacoes: 'Jejum de **8 h**.\n- traga o pedido', orientacoesFormato: 'marcacao',
+    });
+  });
+
+  it('receita: a justificativa de uso da 1 vai para a nota da "Versão 2" (o parecer, não)', async () => {
+    const c = await consultorio();
+    const p = await novoPaciente(app.db, c.T.ctx);
+    const nota = (id: string) => notaComJustificativa(c.T.tenantId, p.id, id, 'Exposição solar baixa');
+    const receita = await documentoNoBanco(app.db, c.T.ctx, p.id, { status: 'assinado' });
+    await nota(receita.id);
+    const r2 = await retificarDocumento(c.T.ctx, p.id, receita.id, { db: app.db });
+    expect((await lerDocumento(c.T.ctx, p.id, r2, app.db))!.justificativa).toBe('Exposição solar baixa');
+    const parecer = await documentoNoBanco(app.db, c.T.ctx, p.id, { status: 'assinado', tipo: 'parecer' });
+    await nota(parecer.id);
+    const p2 = await retificarDocumento(c.T.ctx, p.id, parecer.id, { db: app.db });
+    expect((await lerDocumento(c.T.ctx, p.id, p2, app.db))!.justificativa).toBeNull();
   });
 
   it('uma por vez: "Retificar" de novo (ou dois cliques ao mesmo tempo) abre a mesma; apagada, nasce outra "Versão 2"', async () => {

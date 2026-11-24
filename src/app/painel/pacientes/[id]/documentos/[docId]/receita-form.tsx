@@ -2,39 +2,51 @@
 
 import Link from 'next/link';
 import { useActionState, useState, type ReactNode } from 'react';
+import { RetornoDaTela } from '@/app/painel/exames/retorno';
 import { Botao } from '@/components/ui/botao';
 import { semResetAutomatico } from '@/lib/form-sem-reset';
-import { CATEGORIAS, MODOS_PREPARO, MSG_PRESCRICAO, TIPOS_ITEM, UNIDADES, VIAS, type ConteudoReceita } from '@/modules/documentos/prescricao';
-import { prepararAction, salvarRascunhoAction, type EstadoForm } from '../actions';
+import { declaracaoDoDocumento } from '@/modules/documentos/constantes';
+import { TIPOS_ITEM, type ConteudoReceita } from '@/modules/documentos/prescricao';
+import { carregarModeloAction, prepararAction, salvarComoModeloAction, salvarItemAction, salvarRascunhoAction, type EstadoForm } from '../actions';
+import { CamposDoItem, chavesDoItem, doItem, novoItem, type ItemNoFormulario } from './campos-do-item';
+import { AdicionarItemSalvo, CarregarModelo, SalvarComoModelo, SalvarItem, type ItemSalvoDaReceita, type ModeloDaReceita } from './dialogos-da-receita';
 import { MotivoRetificacao } from './motivo-retificacao';
-import { Preparar } from './preparar';
+import { OrientacoesCampo } from './orientacoes-campo';
+import { marcarDeclaracao, Preparar, seguirDeclaracao, type EstadoDaDeclaracao } from './preparar';
 
-type TipoItem = keyof typeof TIPOS_ITEM;
-type Componente = { nome: string; quantidade: string; unidade: string };
-type ItemForm = Record<string, string | boolean | Componente[]> & { tipo: TipoItem };
 type Estado = EstadoForm & { intencao?: 'salvar' | 'preparar' };
-type CampoTexto = { chave: string; rotulo: string; max: number; obrigatorio: boolean; area?: boolean };
-
-const T = (chave: string, rotulo: string, max: number, obrigatorio = true, area = false): CampoTexto => ({ chave, rotulo, max, obrigatorio, area });
-const BOTANICA = [T('nomenclatura', 'Nomenclatura botânica', 120), T('parte', 'Parte utilizada', 60)];
-const FINAIS = [T('nomePopular', 'Nome popular', 60, false), T('duracao', 'Duração', 100, false)];
-/** US-142: os campos de cada tipo de item (rótulos e limites da tabela da spec). */
-const CAMPOS: Record<TipoItem, CampoTexto[]> = {
-  suplemento: [T('forma', 'Forma de apresentação', 60), T('posologia', 'Posologia', 300, true, true), T('duracao', 'Duração', 100, false)],
-  planta_cha: [...BOTANICA, T('formaUso', 'Forma de utilização e preparo', 300, true, true), T('posologia', 'Posologia', 300, true, true), ...FINAIS],
-  derivado_vegetal: [...BOTANICA, T('formaFarmaceutica', 'Forma farmacêutica', 60), T('dose', 'Dose', 120), T('posologia', 'Posologia', 300, true, true), T('padronizacao', 'Padronização do marcador', 120, false), T('extracao', 'Forma ou meio de extração', 120, false), ...FINAIS],
-  fitoterapico: [...BOTANICA, T('extracao', 'Forma ou meio de extração', 120), T('formaFarmaceutica', 'Forma farmacêutica', 60), T('dose', 'Dose', 120), T('posologia', 'Posologia', 300, true, true), T('padronizacao', 'Padronização do marcador', 120, false), ...FINAIS],
+type Props = {
+  patientId: string;
+  docId: string;
+  conteudo: ConteudoReceita;
+  justificativa: string;
+  habilitada: boolean;
+  motivo?: string | null;
+  /** Plano 22 (T10b, US-379): os itens salvos ("Adicionar item salvo") e os modelos ("Carregar modelo") do consultório. */
+  itensSalvos?: ItemSalvoDaReceita[];
+  modelos?: ModeloDaReceita[];
 };
-const novoItem = (tipo: TipoItem): ItemForm =>
-  tipo === 'suplemento' ? { tipo, categoria: 'nutriente', composicao: [{ nome: '', quantidade: '', unidade: 'mg' }], via: 'oral', manipulado: false } : tipo === 'planta_cha' ? { tipo, modoPreparo: 'infusao' } : { tipo, via: 'oral' };
+const ID_DOS_ITENS = 'itens-da-receita';
 
-/** O conteúdo salvo vira o estado do formulário (números como texto, para a vírgula). */
-function doConteudo(c: ConteudoReceita): ItemForm[] {
-  return c.itens.map((it) => {
-    const o: Record<string, unknown> = { ...it };
-    if (it.tipo === 'suplemento') o.composicao = it.composicao.map((k) => ({ nome: k.nome, quantidade: String(k.quantidade).replace('.', ','), unidade: k.unidade }));
-    return o as ItemForm;
-  });
+/**
+ * Plano 22 (T10b, RN-394, EP-D30): "Carregar modelo" grava no servidor e devolve o conteúdo gravado; o editor guarda itens
+ * e orientações em `useState` iniciado uma vez (um revalidate não o atualiza), então ele é **remontado** (`key`) com o
+ * retorno — e com a justificativa e o motivo que estavam digitados (o modelo não os traz; a justificativa foi gravada
+ * junto). Depois, "Rascunho salvo." na região de status e o foco no título "Itens da receita".
+ */
+export function ReceitaForm(props: Props) {
+  const [base, setBase] = useState({ versao: 0, conteudo: props.conteudo, justificativa: props.justificativa, motivo: props.motivo ?? null });
+  return (
+    <EditorDaReceita
+      key={base.versao}
+      {...props}
+      conteudo={base.conteudo}
+      justificativa={base.justificativa}
+      motivo={base.motivo}
+      carregado={base.versao}
+      aoCarregado={(conteudo, justificativa, motivo) => setBase((b) => ({ versao: b.versao + 1, conteudo, justificativa, motivo }))}
+    />
+  );
 }
 
 /**
@@ -43,134 +55,103 @@ function doConteudo(c: ConteudoReceita): ItemForm[] {
  * JSON escondido sai dele) e o reset automático do React 19 cancelado (`semResetAutomatico`, SUS-108): o `form.reset()`
  * depois de cada action levava os <select> à primeira opção e as caixas ao estado da montagem — a tela mostrava outra
  * coisa que o JSON que se salva.
+ * Plano 22 (T9): os campos de cada item por `CamposDoItem` (o seletor do tipo de cada item, a fórmula fitoterápica);
+ * as orientações por `OrientacoesCampo` (marcação mínima, RN-395); a declaração mostrada é a do conteúdo da tela
+ * (`declaracaoDoDocumento`, EP-D56: com a fórmula, a frase do art. 9º, II), a mesma que o preparo grava.
+ * Plano 22 (T10b, US-379): "Salvar item" por item, "Adicionar item salvo", "Salvar como modelo" e "Carregar modelo" —
+ * cada um com o seu `Dialogo` (e, nos que pedem o nome, o seu `<form>`) fora do `<form>` da receita (portal,
+ * `dialogos-da-receita.tsx`). "Salvar item" e "Salvar como modelo" não salvam o rascunho; "Adicionar item salvo" copia
+ * no cliente; a região `<p role="status">` (sempre montada) anuncia "Item salvo.", "Modelo salvo." e, depois de
+ * "Carregar modelo", "Rascunho salvo.".
  */
-export function ReceitaForm({ patientId, docId, conteudo, justificativa: justificativaSalva, habilitada, declaracao, motivo = null }: { patientId: string; docId: string; conteudo: ConteudoReceita; justificativa: string; habilitada: boolean; declaracao: string; motivo?: string | null }) {
+function EditorDaReceita({
+  patientId,
+  docId,
+  conteudo,
+  justificativa: justificativaSalva,
+  habilitada,
+  motivo = null,
+  itensSalvos = [],
+  modelos = [],
+  carregado,
+  aoCarregado,
+}: Props & { carregado: number; aoCarregado: (conteudo: ConteudoReceita, justificativa: string, motivo: string | null) => void }) {
   const [s, action, pendente] = useActionState<Estado, FormData>(async (prev, f) => {
     // o botão que enviou vem no FormData (submitter); Enter num campo envia pelo primeiro, "Salvar rascunho"
     const intencao = f.get('intencao') === 'preparar' ? 'preparar' : 'salvar';
     return { ...(await (intencao === 'preparar' ? prepararAction : salvarRascunhoAction)(patientId, docId, prev, f)), intencao };
   }, {});
-  const [itens, setItens] = useState<ItemForm[]>(() => doConteudo(conteudo));
+  const [itens, setItens] = useState<ItemNoFormulario[]>(() => conteudo.itens.map(doItem));
   const [orientacoes, setOrientacoes] = useState(conteudo.orientacoes);
   const [justificativa, setJustificativa] = useState(justificativaSalva);
-  const [declarada, setDeclarada] = useState(false);
+  // revisão da P22-09: a confirmação é do texto que estava na tela; a declaração muda com a fórmula e a caixa volta desmarcada
+  const declaracao = declaracaoDoDocumento({ ...conteudo, itens: itens as unknown as ConteudoReceita['itens'], orientacoes });
+  const [estadoDecl, setEstadoDecl] = useState<EstadoDaDeclaracao>({ vista: declaracao, marcada: false, mudou: false });
+  // ajuste do estado durante a renderização (o padrão do React para "informação da renderização anterior"), sem efeito
+  const decl = seguirDeclaracao(estadoDecl, declaracao);
+  if (decl !== estadoDecl) setEstadoDecl(decl);
   // Q13-1 ★: null = não é retificação (o campo não aparece nem vai no formulário)
   const [motivoRet, setMotivoRet] = useState(motivo ?? '');
-  const [tipoNovo, setTipoNovo] = useState<TipoItem>('suplemento');
-  const e = s.erros ?? {};
-  const mudar = (i: number, chave: string, v: unknown) => setItens((xs) => xs.map((x, j) => (j === i ? { ...x, [chave]: v as string } : x)));
-  const idDe = (k: string) => k.replace(/\./g, '-');
-  /** Cada chave de erro que um campo mostra; as que sobrarem vão para o aviso geral (nenhum erro some em silêncio). */
-  const mostradas = new Set<string>(['geral']);
-  const erroDe = (k: string) => {
-    mostradas.add(k);
-    return e[k];
+  // T10b: o retorno das bibliotecas na região de status; depois de "Carregar modelo" (remontado), "Rascunho salvo." e o foco nos itens
+  const [retorno, setRetorno] = useState(carregado ? { texto: 'Rascunho salvo.', marcador: `c${carregado}`, focar: true } : { texto: '', marcador: '', focar: false });
+  const anunciar = (texto: string) => setRetorno({ texto, marcador: String(Date.now()), focar: false });
+  const focoNosItens = () => document.getElementById(ID_DOS_ITENS);
+  const carregar = (modeloId: string, modo: 'acrescentar' | 'substituir') => {
+    const f = new FormData();
+    f.set('conteudo', JSON.stringify({ itens, orientacoes }));
+    f.set('justificativa', justificativa);
+    // numa retificação, o motivo digitado vai junto (grava pelo mesmo caminho do "Salvar rascunho"); fora dela, o campo não vai
+    if (motivo !== null) f.set('motivoRetificacao', motivoRet);
+    f.set('modeloId', modeloId);
+    f.set('modo', modo);
+    return carregarModeloAction(patientId, docId, f);
   };
+  const e = s.erros ?? {};
+  /** Cada chave de erro que um campo mostra; as que sobrarem vão para o aviso geral (nenhum erro some em silêncio). */
+  const mostradas = new Set<string>(['geral', 'itens', 'orientacoes', 'justificativa', 'declaracao', ...(motivo !== null ? ['motivoRetificacao'] : [])]);
+  itens.forEach((it, i) => chavesDoItem(it, `itens.${i}`).forEach((k) => mostradas.add(k)));
   /** RNF-10: o controle com erro leva aria-invalid e aponta para a mensagem (`<id>-erro`). */
   const aria = (k: string, dica?: string) => {
-    const descr = [dica, erroDe(k) ? `${idDe(k)}-erro` : undefined].filter(Boolean).join(' ');
-    return { 'aria-invalid': erroDe(k) ? (true as const) : undefined, 'aria-describedby': descr || undefined };
+    const descr = [dica, e[k] ? `${k}-erro` : undefined].filter(Boolean).join(' ');
+    return { 'aria-invalid': e[k] ? (true as const) : undefined, 'aria-describedby': descr || undefined };
   };
-  const msg = (k: string, className = 'text-sm text-erro') => erroDe(k) && <p id={`${idDe(k)}-erro`} role="alert" className={className}>{erroDe(k)}</p>;
-  const campo = (i: number, c: CampoTexto, it: ItemForm) => {
-    const k = `itens.${i}.${c.chave}`;
-    const Tag = c.area ? 'textarea' : 'input';
-    return (
-      <div key={c.chave} className="space-y-1">
-        <label htmlFor={idDe(k)} className="block font-medium">{`${c.rotulo}${c.obrigatorio ? '' : ' (opcional)'}`}</label>
-        <Tag id={idDe(k)} maxLength={c.max} value={String(it[c.chave] ?? '')} onChange={(ev) => mudar(i, c.chave, ev.target.value)} {...aria(k)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
-        {msg(k)}
-      </div>
-    );
-  };
-  const selecao = (i: number, chave: string, rotulo: string, opcoes: Record<string, string>, it: ItemForm) => {
-    const k = `itens.${i}.${chave}`;
-    return (
-      <div className="space-y-1">
-        <label htmlFor={idDe(k)} className="block font-medium">{rotulo}</label>
-        <select id={idDe(k)} value={String(it[chave] ?? '')} onChange={(ev) => mudar(i, chave, ev.target.value)} {...aria(k)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto">
-          {Object.entries(opcoes).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
-        </select>
-        {msg(k)}
-      </div>
-    );
-  };
-  // o editor primeiro: as chaves que ele mostra ficam em `mostradas` antes de calcular as que sobraram
+  const msg = (k: string, className = 'text-sm text-erro') => e[k] && <p id={`${k}-erro`} role="alert" className={className}>{e[k]}</p>;
   const editor = (
     <>
-      {motivo !== null && <MotivoRetificacao valor={motivoRet} aoMudar={setMotivoRet} erro={erroDe('motivoRetificacao')} />}
-      <h3 className="font-semibold">Itens da receita</h3>
+      {motivo !== null && <MotivoRetificacao valor={motivoRet} aoMudar={setMotivoRet} erro={e.motivoRetificacao} />}
+      <h3 id={ID_DOS_ITENS} tabIndex={-1} className="font-semibold">Itens da receita</h3>
+      <RetornoDaTela texto={retorno.texto} marcador={retorno.marcador} focarTitulo={retorno.focar ? ID_DOS_ITENS : undefined} />
+      {/* T10b (RN-394): o modelo entra pelo caminho do "Salvar rascunho"; "Salvar como modelo" leva os itens e as orientações da tela */}
+      <div className="flex flex-wrap gap-3">
+        <CarregarModelo
+          modelos={modelos}
+          quantos={itens.length}
+          carregar={carregar}
+          aoCarregado={(c) => aoCarregado(c, justificativa, motivo !== null ? motivoRet : null)}
+          focoAoFechar={focoNosItens}
+        />
+        <SalvarComoModelo conteudo={{ itens, orientacoes }} acao={salvarComoModeloAction.bind(null, patientId, docId)} aoSalvo={anunciar} />
+      </div>
       {msg('itens', 'text-erro')}
-      {itens.map((it, i) => {
-        const composicao = it.composicao as Componente[];
-        return (
-          <fieldset key={i} className="space-y-3 rounded-2xl border border-borda p-4">
-            <legend className="px-1 font-semibold">{`Item ${i + 1}: ${TIPOS_ITEM[it.tipo]}`}</legend>
-            {msg(`itens.${i}.tipo`)}
-            {it.tipo === 'suplemento' && (
-              <>
-                {selecao(i, 'categoria', 'Categoria', CATEGORIAS, it)}
-                {/* Minor 11 da revisão de normas: extrato vegetal não entra como "Outro" (art. 12, I, da Res. 680) */}
-                {it.categoria === 'outro' && <p className="text-sm text-suave">{MSG_PRESCRICAO.dicaOutro}</p>}
-                {/* só aria-describedby: aria-invalid não vale num grupo (fieldset) */}
-                <fieldset id={idDe(`itens.${i}.composicao`)} className="space-y-2" aria-describedby={erroDe(`itens.${i}.composicao`) ? `${idDe(`itens.${i}.composicao`)}-erro` : undefined}>
-                  <legend className="font-medium">Composição</legend>
-                  {/* "Informe de 1 a 10 componentes." (revisão da T6: antes, nenhum campo mostrava esta chave) */}
-                  {msg(`itens.${i}.composicao`)}
-                  {composicao.map((k, j) => {
-                    const base = `itens.${i}.composicao.${j}`;
-                    const set = (campoK: keyof Componente, v: string) => mudar(i, 'composicao', composicao.map((x, m) => (m === j ? { ...x, [campoK]: v } : x)));
-                    return (
-                      <div key={j} className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_1fr_1fr_auto]">
-                        <div><label htmlFor={idDe(`${base}.nome`)} className="block text-sm">{`Componente ${j + 1}`}</label><input id={idDe(`${base}.nome`)} value={k.nome} maxLength={120} onChange={(ev) => set('nome', ev.target.value)} {...aria(`${base}.nome`)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" /></div>
-                        <div><label htmlFor={idDe(`${base}.quantidade`)} className="block text-sm">Quantidade</label><input id={idDe(`${base}.quantidade`)} inputMode="decimal" value={k.quantidade} onChange={(ev) => set('quantidade', ev.target.value)} {...aria(`${base}.quantidade`)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" /></div>
-                        <div><label htmlFor={idDe(`${base}.unidade`)} className="block text-sm">Unidade</label><select id={idDe(`${base}.unidade`)} value={k.unidade} onChange={(ev) => set('unidade', ev.target.value)} {...aria(`${base}.unidade`)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto">{UNIDADES.map((u) => <option key={u}>{u}</option>)}</select></div>
-                        {/* o suplemento tem ao menos um componente: com um só, nada a remover */}
-                        {composicao.length > 1 && (
-                          <button type="button" className="min-h-11 self-end underline" onClick={() => mudar(i, 'composicao', composicao.filter((_, m) => m !== j))}>{`Remover componente ${j + 1}`}</button>
-                        )}
-                        {[`${base}.nome`, `${base}.quantidade`, `${base}.unidade`].map((x) => erroDe(x) && <p key={x} id={`${idDe(x)}-erro`} role="alert" className="text-sm text-erro sm:col-span-4">{erroDe(x)}</p>)}
-                      </div>
-                    );
-                  })}
-                  {composicao.length < 10 && (
-                    <button type="button" className="min-h-11 underline" onClick={() => mudar(i, 'composicao', [...composicao, { nome: '', quantidade: '', unidade: 'mg' }])}>Adicionar componente</button>
-                  )}
-                </fieldset>
-              </>
-            )}
-            {it.tipo === 'planta_cha' && selecao(i, 'modoPreparo', 'Modo de preparo', MODOS_PREPARO, it)}
-            {CAMPOS[it.tipo].map((c) => campo(i, c, it))}
-            {it.tipo !== 'planta_cha' && selecao(i, 'via', 'Via', VIAS, it)}
-            {it.tipo === 'suplemento' && (
-              <div className="flex items-center gap-2">
-                <input id={`item-${i}-manipulado`} type="checkbox" checked={it.manipulado === true} onChange={(ev) => mudar(i, 'manipulado', ev.target.checked)} className="size-5" />
-                <label htmlFor={`item-${i}-manipulado`}>Manipulado</label>
-              </div>
-            )}
+      {itens.map((it, i) => (
+        <fieldset key={i} className="space-y-3 rounded-2xl border border-borda p-4">
+          <legend className="px-1 font-semibold">{`Item ${i + 1}: ${TIPOS_ITEM[it.tipo]}`}</legend>
+          <CamposDoItem item={it} indice={i} habilitada={habilitada} erros={e} aoMudar={(novo) => setItens((xs) => xs.map((x, j) => (j === i ? novo : x)))} />
+          <div className="flex flex-wrap items-center gap-3">
+            <SalvarItem numero={i + 1} item={it} acao={salvarItemAction.bind(null, patientId, docId)} aoSalvo={anunciar} />
             <button type="button" className="min-h-11 underline" onClick={() => setItens((xs) => xs.filter((_, j) => j !== i))}>{`Remover item ${i + 1}`}</button>
-          </fieldset>
-        );
-      })}
-      {itens.length < 20 && (
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1">
-            <label htmlFor="tipo-novo" className="block font-medium">Tipo do item</label>
-            <select id="tipo-novo" value={tipoNovo} onChange={(ev) => setTipoNovo(ev.target.value as TipoItem)} aria-describedby={habilitada ? undefined : 'fito-dica'} className="rounded-xl border border-campo bg-cartao p-2 text-texto">
-              {(Object.keys(TIPOS_ITEM) as TipoItem[]).map((t) => (
-                <option key={t} value={t} disabled={t === 'fitoterapico' && !habilitada}>{TIPOS_ITEM[t]}</option>
-              ))}
-            </select>
           </div>
-          <Botao type="button" variante="secundario" onClick={() => setItens((xs) => [...xs, novoItem(tipoNovo)])}>Adicionar item</Botao>
-          {!habilitada && <p id="fito-dica" className="w-full text-sm text-suave">{MSG_PRESCRICAO.semHabilitacao}</p>}
+        </fieldset>
+      ))}
+      {/* o tipo é escolhido no seletor de cada item (CamposDoItem); o item novo nasce suplemento, como o seletor de antes */}
+      {itens.length < 20 && (
+        <div className="flex flex-wrap gap-3">
+          <Botao type="button" variante="secundario" onClick={() => setItens((xs) => [...xs, novoItem('suplemento')])}>Adicionar item</Botao>
+          {/* RN-393: copia o item salvo para o rascunho, no cliente, sem gravar */}
+          <AdicionarItemSalvo itens={itensSalvos} habilitada={habilitada} aoAdicionar={(item) => setItens((xs) => (xs.length < 20 ? [...xs, doItem(item)] : xs))} focoAoFechar={focoNosItens} />
         </div>
       )}
-      <div className="space-y-1">
-        <label htmlFor="orientacoes" className="block font-medium">Orientações gerais (opcional)</label>
-        <textarea id="orientacoes" maxLength={2000} value={orientacoes} onChange={(ev) => setOrientacoes(ev.target.value)} {...aria('orientacoes')} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
-        {msg('orientacoes')}
-      </div>
+      <OrientacoesCampo id="orientacoes" rotulo="Orientações gerais (opcional)" max={2000} valor={orientacoes} aoMudar={setOrientacoes} erro={e.orientacoes} />
       <div className="space-y-1">
         <label htmlFor="justificativa" className="block font-medium">Justificativa de uso</label>
         <textarea id="justificativa" name="justificativa" maxLength={2000} value={justificativa} onChange={(ev) => setJustificativa(ev.target.value)} {...aria('justificativa', 'justificativa-dica')} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" />
@@ -179,7 +160,7 @@ export function ReceitaForm({ patientId, docId, conteudo, justificativa: justifi
       </div>
     </>
   );
-  const erroDeclaracao = erroDe('declaracao');
+  const erroDeclaracao = e.declaracao;
   const sobras = [...new Set(Object.keys(e).filter((k) => !mostradas.has(k)).map((k) => e[k]))];
   // o aviso geral (e as chaves sem campo) aparece junto do botão que foi usado
   const aviso: ReactNode = (e.geral || sobras.length > 0) && (
@@ -199,7 +180,7 @@ export function ReceitaForm({ patientId, docId, conteudo, justificativa: justifi
       {s.intencao !== 'preparar' && aviso}
       {s.ok && s.intencao === 'salvar' && <p role="status">Rascunho salvo.</p>}
       <Botao disabled={pendente}>Salvar rascunho</Botao>
-      <Preparar declaracao={declaracao} marcada={declarada} aoMarcar={setDeclarada} erro={erroDeclaracao} aviso={s.intencao === 'preparar' ? aviso : null} pendente={pendente} />
+      <Preparar declaracao={declaracao} marcada={decl.marcada} aoMarcar={(v) => setEstadoDecl((d) => marcarDeclaracao(seguirDeclaracao(d, declaracao), v))} mudou={decl.mudou} erro={erroDeclaracao} aviso={s.intencao === 'preparar' ? aviso : null} pendente={pendente} />
     </form>
   );
 }

@@ -158,6 +158,34 @@ describe('LGPD do parecer e das versões (US-150 v0.5)', () => {
     expect(r.documentos[0]).not.toHaveProperty('exames');
   });
 
+  it('Plano 22 (R22-13): solicitação emitida na cópia do titular com os exames, a indicação e as orientações; o rascunho só na da equipe; a anonimizada ({}) passa', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const solicitacao = {
+      versao: 1, tipo: 'solicitacao_exames', exames: [{ nome: 'Glicose' }, { nome: 'Hemograma completo', painel: true }], indicacaoClinica: 'Acompanhar a resposta à dieta.',
+      orientacoes: 'Jejum de 8 horas.', orientacoesFormato: 'marcacao', copia: { profissional: {}, paciente: { nome: 'Ana Souza' } },
+    };
+    await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', tipo: 'solicitacao_exames', conteudo: solicitacao });
+    await documentoNoBanco(app.db, T.ctx, p.id, { tipo: 'solicitacao_exames', conteudo: { ...solicitacao, exames: [{ nome: 'Ferritina' }] } });
+    await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', tipo: 'solicitacao_exames', conteudo: {} }); // anonimizada
+    const exportar = (escopo: 'titular' | 'equipe') => withTenant({ tenantId: T.tenantId, role: 'worker' }, (tx) => documentosParaExportacao(tx, p.id, escopo), app.db);
+    const titular = await exportar('titular');
+    expect(titular.documentos).toHaveLength(2);
+    expect(titular.documentos[0]).toEqual({
+      tipo: 'Solicitação de exames laboratoriais', versao: 1, retificaCodigo: null, situacao: 'Assinado', criadoEm: expect.any(String), assinadoEm: expect.any(String),
+      codigo: expect.any(String), sha256: 'a'.repeat(64), assinatura: 'Digitalizado', recebimento: [], pdf: null,
+      exames: [{ nome: 'Glicose', painel: false }, { nome: 'Hemograma completo', painel: true }], indicacaoClinica: 'Acompanhar a resposta à dieta.', orientacoes: 'Jejum de 8 horas.',
+    });
+    // a da solicitação não tem chaves da receita nem do parecer (nada de justificativa: é só da receita)
+    expect(titular.documentos[0]).not.toHaveProperty('justificativaDeUso');
+    expect(titular.documentos[0]).not.toHaveProperty('itens');
+    expect(titular.documentos[1]).toMatchObject({ tipo: 'Solicitação de exames laboratoriais', exames: [], indicacaoClinica: null, orientacoes: '' });
+    expect(JSON.stringify(titular)).not.toContain('Ferritina'); // o rascunho não vai ao titular
+    const equipe = await exportar('equipe');
+    expect(equipe.documentos.map((d) => d.situacao)).toEqual(['Assinado', 'Rascunho', 'Assinado']);
+    expect(JSON.stringify(equipe)).toContain('Ferritina');
+  });
+
   it('anonimização com v1 substituída, v2 assinada e v3 em rascunho: v3 apagada, v1 e v2 limpas (com as notas e o motivo); nada sobra', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);

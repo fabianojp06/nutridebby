@@ -9,6 +9,7 @@ import { casasDecimais, formatarDecimal } from '@/lib/numero';
 import { expandirParaAnalise } from '@/modules/exames/catalogo-regras';
 import { classificarLinha, indiceDoCatalogo } from '@/modules/exames/classificacao';
 import { MSG_EXAMES } from '@/modules/exames/constantes';
+import { examesParaLancar } from '@/modules/documentos/lancar-resultados';
 import { bibliotecasParaExames } from '@/modules/exames/modelos-solicitacao';
 import { motivoDoPaciente, situacaoIaDoPaciente } from '@/modules/ia/autorizacao';
 import { abrirSugestao } from '@/modules/ia/conferencia';
@@ -27,6 +28,7 @@ import { ExcluirExame } from './[exameId]/excluir-exame';
 import { ConferenciaIa } from './conferencia-ia';
 import { ExameForm } from './exame-form';
 import { IaDoExame, iaNoExame } from './ia-exame';
+import { linhasParaLancar } from './lancar';
 import { BotaoComparar, CaixaComparar, SelecaoParaComparar } from './comparar-exames';
 import { AvisosDaClassificacao, TabelaClassificada, type LinhaClassificada } from './tabela-classificada';
 
@@ -46,6 +48,10 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
   const modelos = bloqueado ? [] : bibliotecas.modelos.map((m) => ({ id: m.id, nome: m.nome, linhas: expandirParaAnalise(m.exames, indice) }));
   const doPacienteParaCategoria = { sexo: paciente.sexo, dataNascimento: paciente.dataNascimento };
   const busca = await searchParams;
+  // Plano 22 (T8, RN-390, RN-398, EP-D50): "Lançar resultados" da solicitação assinada abre o "Novo exame" com o título e
+  // as linhas; só com os documentos liberados (desligado, o parâmetro é ignorado: sem linhas e sem auditRead)
+  const solicitacao = bloqueado ? null : linhasParaLancar(tenant, busca);
+  const lancar = solicitacao ? await examesParaLancar(ctx, paciente.id, solicitacao) : null;
   const ia = configIA(getEnv());
   const estadoIa = estadoIaComPaciente(tenant, ia);
   const agora = new Date();
@@ -139,7 +145,7 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
       {!bloqueado && (
         <section aria-labelledby="novo-exame" className="max-w-6xl space-y-3">
           <h2 id="novo-exame" tabIndex={-1} className="text-lg font-semibold">Novo exame</h2>
-          <ExameForm patientId={paciente.id} hoje={hojeNoFuso(tenant.fuso)} catalogo={catalogo} modelos={modelos} />
+          <ExameForm key={lancar ? solicitacao : 'novo'} patientId={paciente.id} hoje={hojeNoFuso(tenant.fuso)} catalogo={catalogo} modelos={modelos} inicial={lancar ?? undefined} />
         </section>
       )}
       <section aria-labelledby="exames" className="space-y-4">

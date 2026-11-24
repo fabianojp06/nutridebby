@@ -627,7 +627,7 @@ do paciente como ativos (também os desligados pela equipe ou pelo paciente, com
 refeições do plano publicado. Por isso ligar e religar não conferem o teto. A publicação do plano **não** é barrada: se o
 plano novo passar do teto, o worker corta, e a seção do painel avisa.
 
-**O job `lembretes-rotina`** (cron `* * * * *` em `src/worker/index.ts:115`; fila em `src/jobs/queues.ts:41`:
+**O job `lembretes-rotina`** (cron `* * * * *` em `src/worker/index.ts:116`; fila em `src/jobs/queues.ts:41`:
 `retryLimit: 0`, expira em 120 s; um job por vez):
 
 ```mermaid
@@ -1771,6 +1771,20 @@ Plano 20 (Financeiro, [§12.6](12-financeiro.md#126-telas-navegação-e-manual-g
 - **Teste do manual.** `src/modules/financeiro` entrou em `TSX_FORA` (os rótulos citados entre aspas moram em
   `MSG_FINANCEIRO`); o caso do Plano 15 passou a `versao ≥ 3` e casos novos fixam `boas-vindas` 4, `agenda` 2 e o guia
   `financeiro` (versão, posição, rotas e alvos).
+
+Plano 22 (exames e prescrição; cada PR que muda a tela sobe +1 sobre a versão da `main`, EP-D52; o PR 2 em detalhe logo abaixo):
+
+- Plano 22: guia `exames-do-consultorio` na v1 (PR 2, `/painel/exames/*`: catálogo e modelos de solicitação).
+- Plano 22: guia `configuracoes` na v9 (PR 2, o cartão "Exames").
+- Plano 22: guia `prontuario` na v4 (PR 2, "Adicionar do catálogo", "Editar" e "Comparar" na aba Exames).
+- Plano 22: guia `portal-novidades` na v4 (PR 3, "Exames" com os resultados liberados, §5.5.15).
+- Plano 22: guia `documentos` na v3 (PR 4, a solicitação de exames, a fórmula, a marcação e as bibliotecas da receita;
+  título "Documentos: receita, parecer e solicitação de exames"; os passos `nova-solicitacao` e `editor-solicitacao` antes
+  de `preparar-documento`, T12).
+- Plano 22: guia `configuracoes` na v10 (PR 4, o cartão "Prescrição", só com os documentos liberados).
+- Plano 22: guia `prescricao` na v1 (PR 4, `/painel/prescricao/*`: itens salvos e modelos de prescrição), logo depois de
+  `exames-do-consultorio` e antes do `financeiro`, que continua o último de `GUIAS` (Plano 20).
+- Plano 22: guia `portal-novidades` na v5 (PR 4, "Compartilhar" em Eu › Meus documentos, [cap. 9, §9.12.6](09-documentos-assinados.md#9126-compartilhar-o-pdf-assinado-t11-us-380-rn-396-ep-d24-ep-d25-ep-d43)).
 
 Plano 26 (Relatórios, PR 1, [§5.11](#511-relatórios-plano-26)):
 

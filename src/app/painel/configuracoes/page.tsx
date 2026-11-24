@@ -18,6 +18,8 @@ const CARTOES = [
   { href: '/conta/seguranca', titulo: 'Segurança', texto: 'Senha e verificação em duas etapas.' },
   // Plano 22 (T3, EP-D33): no fim
   { href: '/painel/exames/catalogo', titulo: 'Exames', texto: 'Catálogo de exames, faixas do consultório e modelos de solicitação.' },
+  // Plano 22 (T10b, EP-D33, RN-398): no fim; só com os documentos liberados (o filtro abaixo)
+  { href: '/painel/prescricao/itens', titulo: 'Prescrição', texto: 'Suplementos, fitoterápicos e modelos de prescrição.', soComDocumentos: true },
 ];
 
 /** D20: hub de Configurações. */
@@ -32,7 +34,7 @@ export default async function ConfiguracoesPage({ searchParams }: PageProps<'/pa
     <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
       <h1 className="font-titulo text-2xl font-semibold">Configurações</h1>
       <ul data-guia="cartoes-configuracoes" className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
-        {CARTOES.map((c) => (
+        {CARTOES.filter((c) => !c.soComDocumentos || tenant.documentosLiberados).map((c) => (
           <li key={c.href}>
             <Link href={c.href} className="block h-full rounded-3xl border border-borda bg-cartao p-5 hover:border-campo">
               <span className="block font-titulo text-lg font-semibold">{c.titulo}</span>

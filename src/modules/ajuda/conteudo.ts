@@ -85,11 +85,12 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'documentos',
-    versao: 2, // Plano 13: o parecer nutricional e a retificação (quem já viu o tour, vê de novo)
+    versao: 3, // Plano 13: o parecer nutricional e a retificação; Plano 22 (T8, EP-D52): a solicitação de exames (+1 sobre a main)
     padrao: new RegExp(`^/painel/pacientes/${ID}/documentos(/.*)?$`),
-    titulo: 'Documentos: receita e parecer',
+    // Plano 22 (T12, Minor da T8): o título e o resumo citam a solicitação de exames (rascunho para a Debby e o revisor-interface)
+    titulo: 'Documentos: receita, parecer e solicitação de exames',
     ajuda: {
-      resumo: 'Receitas de suplementos e fitoterápicos e pareceres nutricionais sobre os exames, assinados por você à mão (digitalizada) e entregues ao paciente com código de verificação.',
+      resumo: 'Receitas de suplementos e fitoterápicos, pareceres nutricionais sobre os exames e solicitações de exames laboratoriais, assinados por você à mão (digitalizada) e entregues ao paciente com código de verificação.',
       secoes: [
         {
           titulo: 'Passo a passo',
@@ -98,6 +99,8 @@ export const GUIAS: readonly Guia[] = [
             'Clique em "Preparar para assinatura" e confirme a declaração. Em alguns segundos o PDF fica pronto.',
             'Clique em "Baixar PDF para assinar", imprima, assine à mão e envie as fotos das páginas em "Enviar documento digitalizado (assinado à mão)", com o código da verificação em duas etapas.',
             'Assinado, o documento vai para o app do paciente; quem não tem o app recebe um link por e-mail. Na consulta presencial, use "Entregue pessoalmente".',
+            // Plano 22 (T8, US-377): rascunho para a Debby e o revisor-interface
+            'Para pedir exames, clique em "Nova solicitação de exames": use "Adicionar do catálogo", "Adicionar exame fora do catálogo" (só exames laboratoriais) ou "Carregar modelo", escreva a indicação clínica e as orientações, se quiser, e prepare e assine como a receita. A solicitação não indica laboratório: o paciente leva ao que escolher.',
           ],
         },
         {
@@ -107,8 +110,18 @@ export const GUIAS: readonly Guia[] = [
             'Depois de assinado, o documento não muda. Errou, ou o exame mudou? Use "Retificar": a versão nova, com o motivo (fica só no prontuário), substitui a anterior quando for assinada. "Cancelar documento" é para o documento que não deve mais valer.',
             'O parecer guarda uma cópia dos valores dos exames. Se o exame mudar depois de preparar, a tela avisa e o parecer continua com a cópia.',
             'O parecer não afirma diagnóstico de doença nem prescreve medicamento: para isso, encaminhe ao médico.',
-            'Qualquer pessoa com o código de verificação (o paciente, uma farmácia) confere a autenticidade sem ver o conteúdo.',
-            '"Fitoterápico (forma farmacêutica ou fórmula magistral)" só aparece com a habilitação registrada em Configurações.',
+            // Plano 22 (T12, Minor da T8): o laboratório também confere a solicitação pelo código
+            'Qualquer pessoa com o código de verificação (o paciente, uma farmácia, um laboratório) confere a autenticidade sem ver o conteúdo.',
+            // Plano 22 (T9, §6.2, US-378): os dois tipos e o "desabilitado" (rascunho para a Debby e o revisor-interface)
+            'Sem a habilitação em Fitoterapia registrada em Configurações, "Fitoterápico (forma farmacêutica ou fórmula magistral)" e "Fórmula magistral com vários compostos vegetais" aparecem desabilitados no tipo do item. Use a fórmula para 2 a 10 derivados vegetais em quantidades próprias; o fitoterápico, para o produto de uma planta só.',
+            'A fórmula magistral fitoterápica só aceita derivados vegetais: a nomenclatura botânica de cada composto é conferida (Gênero espécie, sem vitaminas, minerais, aminoácidos ou substâncias isoladas). É uma conferência de apoio: a responsabilidade pela composição continua sua.',
+            'Nas orientações, "Negrito" e "Lista" formatam o texto (o mesmo sai no PDF) e "Prévia" mostra como fica.',
+            // Plano 22 (T8, RN-390): rascunho para a Debby e o revisor-interface
+            'Com a solicitação assinada, "Lançar resultados" abre o "Novo exame" na aba Exames com o título e uma linha por exame pedido (um painel, como o hemograma, vira uma linha por exame que o compõe). É uma cópia: o exame lançado não muda a solicitação.',
+            'Planos de saúde podem recusar pedido de exame feito por nutricionista: o aviso aparece no rascunho, não no PDF.',
+            // Plano 22 (T10b, US-379; o guia já subiu na T8 deste PR, EP-D52): rascunho para a Debby e o revisor-interface
+            'Na receita, "Salvar item" guarda um item para usar de novo e "Salvar como modelo" guarda os itens e as orientações (a justificativa de uso não vai). Nenhum dos dois salva o rascunho. Retire dados do paciente antes de salvar.',
+            '"Adicionar item salvo" copia o item para a receita: mudar o item salvo depois não muda a receita. "Carregar modelo" acrescenta os itens do modelo ou substitui os da receita e salva o rascunho, com as mesmas conferências do "Salvar rascunho".',
           ],
         },
       ],
@@ -118,6 +131,9 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'novo-parecer', titulo: 'Novo parecer nutricional', texto: 'O parecer lê os exames lançados na aba Exames: você escolhe os exames e escreve a avaliação, a conduta e os encaminhamentos.' },
       { alvo: 'editor-receita', titulo: 'Itens e justificativa', texto: 'Cada tipo de item pede os campos da resolução do CFN. A justificativa de uso fica só no prontuário.' },
       { alvo: 'editor-parecer', titulo: 'Exames e avaliação', texto: 'Os valores dos exames escolhidos são copiados a cada vez que você salva e congelados ao preparar.' },
+      // Plano 22 (T8, US-377; T12, Minor da T8: antes do "Preparar"): rascunho para a Debby e o revisor-interface
+      { alvo: 'nova-solicitacao', titulo: 'Nova solicitação de exames', texto: 'Peça exames laboratoriais num documento assinado e verificável, sem indicar laboratório: o paciente leva o pedido ao laboratório que escolher.' },
+      { alvo: 'editor-solicitacao', titulo: 'Exames da solicitação', texto: 'Escolha os exames do catálogo, de um modelo ou digite outros. A indicação clínica descreve a finalidade nutricional, sem afirmar doença. Assinada, use "Lançar resultados" para lançar os valores.' },
       { alvo: 'preparar-documento', titulo: 'Preparar para assinatura', texto: 'A declaração confirma a sua responsabilidade. O PDF sai com a sua marca, o código de verificação e o QR code.' },
       { alvo: 'assinar-documento', titulo: 'Assinar e enviar', texto: 'Baixe o PDF, imprima, assine à mão e envie as fotos das páginas com o código da verificação em duas etapas. O sistema monta um PDF novo com o código e o QR.' },
       { alvo: 'entrega-documento', titulo: 'Entrega', texto: 'O paciente recebe pelo app ou por um link por e-mail. Aqui você vê se ele abriu e confirmou o recebimento, ou marca a entrega pessoal.' },
@@ -358,18 +374,20 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'configuracoes',
-    versao: 9, // Plano 22: o cartão "Exames" (+1 sobre a main); 8 = Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
+    versao: 10, // Plano 22 (T10b): o cartão "Prescrição" (+1 sobre a 9 da T3, o cartão "Exames"); 8 = Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
-      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança, exames do consultório e o tema do painel.',
+      // Plano 22 (T12, Minor da T10b): o cartão "Prescrição" só aparece com os documentos liberados
+      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança, exames do consultório, prescrição (com os documentos liberados) e o tema do painel.',
       secoes: [
         { titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] },
         {
           titulo: 'Dados para documentos',
           itens: [
             'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone que saem no carimbo das receitas e dos pareceres, junto com o CRN.',
-            'A habilitação em Fitoterapia é uma declaração sua, com o registro no CRN; sem ela, a receita não oferece "Fitoterápico (forma farmacêutica ou fórmula magistral)".',
+            // Plano 22 (T9, §6.2): os dois tipos e o "desabilitado" (rascunho para a Debby e o revisor-interface)
+            'A habilitação em Fitoterapia é uma declaração sua, com o registro no CRN; sem ela, a receita mostra desabilitados "Fitoterápico (forma farmacêutica ou fórmula magistral)" e "Fórmula magistral com vários compostos vegetais".',
             'Para assinar documentos, a verificação em duas etapas precisa estar ativa (cartão "Segurança").',
           ],
         },
@@ -388,8 +406,8 @@ export const GUIAS: readonly Guia[] = [
       ],
     },
     passos: [
-      // Plano 22: o cartão "Exames" (catálogo e modelos de solicitação)
-      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório. Em "Exames" ficam o catálogo de exames, as suas faixas e os modelos de solicitação.' },
+      // Plano 22: o cartão "Exames" (catálogo e modelos de solicitação); T10b: o cartão "Prescrição" (só com os documentos liberados)
+      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório. Em "Exames" ficam o catálogo de exames, as suas faixas e os modelos de solicitação. Com os documentos liberados, "Prescrição" guarda os itens salvos e os modelos de prescrição.' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
       { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas e dos pareceres. Mudar depois não altera documento já preparado.' },
       // Plano 14B: a seção só aparece com a IA ativa no consultório; sem ela, o passo abre no centro, sem destaque (como o de cima)
@@ -473,6 +491,38 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'novo-exame-catalogo', titulo: 'Novo exame', texto: 'Nome, unidade e outros nomes. Para um painel, preencha "Exames que compõem este".' },
       { alvo: 'faixas-consultorio', titulo: 'Faixas do consultório', texto: 'Faixas que você define, com a fonte. Servem para mostrar uma categoria ao lado do resultado, só no painel.' },
       { alvo: 'modelos-nota', titulo: 'Modelos de nota', texto: 'Textos seus para quando o resultado está abaixo ou acima da referência. Escreva fatores a investigar e encaminhamentos; não afirme doença.' },
+    ],
+  },
+  {
+    // Plano 22 (T10b, US-379, RN-393, RN-394): rascunho para o revisor-interface e a Debby
+    id: 'prescricao',
+    versao: 1,
+    padrao: /^\/painel\/prescricao(\/.*)?$/,
+    titulo: 'Prescrição',
+    ajuda: {
+      resumo: 'Os itens salvos (suplementos e fitoterápicos) e os modelos de prescrição do consultório, para montar receitas mais rápido. A receita guarda uma cópia: mudar ou excluir um item salvo ou um modelo não muda as receitas já feitas.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Em "Novo item salvo", dê um nome e preencha o item como na receita. Também dá para salvar um item direto da receita, com "Salvar item".',
+            'Os modelos de prescrição nascem da receita: monte os itens e as orientações e clique em "Salvar como modelo". Aqui você muda o nome, os itens e as orientações, ou exclui o modelo.',
+            'Na receita, use "Adicionar item salvo" ou "Carregar modelo".',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'A justificativa de uso nunca vai para o modelo: ela é de cada paciente e fica no prontuário.',
+            'Sem a habilitação em Fitoterapia, os fitoterápicos formulados ficam desabilitados, também nos itens salvos e nos modelos.',
+            'Os itens salvos e os modelos são do consultório: retire dados do paciente antes de salvar.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'secoes-prescricao', titulo: 'Itens e modelos', texto: 'Suplementos e Fitoterápicos guardam os itens salvos; Modelos de prescrição, receitas prontas para começar.' },
+      { alvo: 'novo-item-salvo', titulo: 'Novo item salvo', texto: 'Dê um nome e preencha o item como na receita. Na receita, "Adicionar item salvo" copia o item.' },
     ],
   },
   {

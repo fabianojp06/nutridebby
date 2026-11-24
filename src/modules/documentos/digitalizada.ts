@@ -5,6 +5,7 @@ import { getDb } from '@/db/client';
 import { patients, signedDocuments } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
+import { FILA_DA_DIGITALIZADA } from '@/jobs/queues';
 import { confirmarCodigo2fa, liberarCodigo2fa } from '@/lib/confirmar-2fa';
 import { detectarTipo } from '@/lib/file-type';
 import { logger } from '@/lib/logger';
@@ -110,7 +111,7 @@ export async function receberDigitalizada(a: AcessoAssinatura, docId: string, im
       const soEste = sql`jsonb_array_length(coalesce(${signedDocuments.digitalizacao}, '[]'::jsonb)) = ${imagens.length}`;
       const ok = await tx.update(signedDocuments).set({ digitalizacaoStatus: 'pendente' }).where(and(daVersao, soEste)).returning({ id: signedDocuments.id });
       if (!ok.length) throw new TransicaoInvalidaError();
-      await boss.send('documento-digitalizado', { tenantId: a.ctx.tenantId, documentoId: docId, userId: a.user.id }, { db: fromDrizzle(tx, sql) });
+      await boss.send(FILA_DA_DIGITALIZADA, { tenantId: a.ctx.tenantId, documentoId: docId, userId: a.user.id }, { db: fromDrizzle(tx, sql) });
     }, db);
   } catch (e) {
     await withTenant(a.ctx, (tx) => tx.update(signedDocuments).set({ digitalizacaoStatus: 'falhou' }).where(daVersao), db).catch(() => undefined);

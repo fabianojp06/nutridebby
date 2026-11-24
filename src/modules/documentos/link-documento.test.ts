@@ -17,7 +17,7 @@ let ip = 0;
 const deps = (agora = new Date()) => ({ db: app.db, agora, ip: `198.51.100.${++ip % 250}`, ipDoLimite: `198.51.100.${ip % 250}`, verificarTurnstile: async () => 'ok' as const, appUrl: 'https://x' });
 
 /** `liberado`: o interruptor do admin (D20); o novoTenant nasce desligado, como em produção. */
-async function cenario(o: { liberado?: boolean; tipo?: 'receita' | 'parecer' } = {}) {
+async function cenario(o: { liberado?: boolean; tipo?: 'receita' | 'parecer' | 'solicitacao_exames' } = {}) {
   const T = await novoTenant(app.db);
   if (o.liberado !== false) await liberarDocumentos(app.db, T.tenantId);
   const p = await novoPaciente(app.db, T.ctx);
@@ -52,6 +52,18 @@ describe('link de uso único (RN-158, Review Focus 4)', () => {
     expect(await estadoDoLink(x.token, sessao, deps())).toMatchObject({ tipo: 'aberto', titulo: 'Parecer nutricional', versao: 1 });
     await retificacaoAssinadaNoBanco(app.db, x.T.ctx, x.p.id, { id: x.d.id, versao: 1 }, { tipo: 'parecer' });
     expect(await estadoDoLink(x.token, sessao, deps())).toEqual({ tipo: 'indisponivel' });
+  });
+
+  it('Plano 22 (R22-20): o título vem do tipo do documento — a solicitação abre como "Solicitação de exames laboratoriais" e a receita como "Receita"', async () => {
+    const abrir = async (tipo: 'receita' | 'solicitacao_exames') => {
+      const x = await cenario({ tipo });
+      await pedirCodigoDocumento(x.token, { turnstile: 't' }, deps());
+      const { sessao } = await confirmarCodigoDocumento(x.token, { codigo: await ultimoCodigo(x.p.email) }, deps());
+      return estadoDoLink(x.token, sessao, deps());
+    };
+    // Plano 22 (T11, RN-396): o estado aberto também traz o tipo, para o texto por tipo do "Compartilhar"
+    expect(await abrir('solicitacao_exames')).toMatchObject({ tipo: 'aberto', titulo: 'Solicitação de exames laboratoriais', tipoDoc: 'solicitacao_exames', versao: 1 });
+    expect(await abrir('receita')).toMatchObject({ tipo: 'aberto', titulo: 'Receita', tipoDoc: 'receita', versao: 1 });
   });
 
   it('limites: 1 código por minuto e 5 por hora por documento; 5 erros invalidam o código', async () => {

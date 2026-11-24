@@ -16,6 +16,7 @@ import { soltarArquivosDoPreparo } from './arquivos-do-preparo';
 import { EMITIDOS } from './constantes';
 import { RecusaAssinaturaError, TransicaoInvalidaError } from './erros';
 import { exigirHabilitacaoAtual, registrarAssinatura, type VersaoLida } from './registrar-assinatura';
+import type { ConteudoSolicitacao } from './solicitacao';
 
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(async () => {
@@ -115,5 +116,30 @@ describe('exigirHabilitacaoAtual (Plano 13): só a receita tem fitoterápico', (
     expect(() => exigirHabilitacaoAtual(semHabilitacao, {} as never)).not.toThrow();
     const fito = { tipo: 'fitoterapico', nomenclatura: 'Matricaria recutita L.', parte: 'Flores', extracao: 'Extrato seco', formaFarmaceutica: 'Cápsula', dose: '300 mg', via: 'oral', posologia: '1 ao dia', padronizacao: '', nomePopular: '', duracao: '' };
     expect(() => exigirHabilitacaoAtual(semHabilitacao, { versao: 1, tipo: 'receita', itens: [fito as never], orientacoes: '' })).toThrow(RecusaAssinaturaError);
+  });
+
+  it('Plano 22 (RN-392, DEP-E7): a solicitação passa por caso próprio, sem olhar habilitação; a receita com fitoterápico continua recusada (habilitacao_retirada)', () => {
+    const semHabilitacao = { fitoterapiaRegistro: null };
+    const solicitacao: ConteudoSolicitacao = { versao: 1, tipo: 'solicitacao_exames', exames: [{ nome: 'Glicose' }], indicacaoClinica: null, orientacoes: '', orientacoesFormato: 'marcacao' };
+    expect(() => exigirHabilitacaoAtual(semHabilitacao, solicitacao)).not.toThrow();
+    const fito = { tipo: 'fitoterapico', nomenclatura: 'Matricaria recutita L.', parte: 'Flores', extracao: 'Extrato seco', formaFarmaceutica: 'Cápsula', dose: '300 mg', via: 'oral', posologia: '1 ao dia', padronizacao: '', nomePopular: '', duracao: '' };
+    let erro: unknown;
+    try {
+      exigirHabilitacaoAtual(semHabilitacao, { versao: 1, tipo: 'receita', itens: [fito as never], orientacoes: '' });
+    } catch (e) {
+      erro = e;
+    }
+    expect(erro).toBeInstanceOf(RecusaAssinaturaError);
+    expect(erro).toMatchObject({ codigo: 'sem_habilitacao', motivoTecnico: 'habilitacao_retirada' });
+    // a regra é a única de prescricao.ts (exigeHabilitacao): a fórmula magistral fitoterápica (T9) também exige
+    const formula = { ...fito, tipo: 'formula_fitoterapica' };
+    expect(() => exigirHabilitacaoAtual(semHabilitacao, { versao: 1, tipo: 'receita', itens: [formula as never], orientacoes: '' })).toThrow(RecusaAssinaturaError);
+    expect(() => exigirHabilitacaoAtual({ fitoterapiaRegistro: 'CRN-3 nº 1/2024' }, { versao: 1, tipo: 'receita', itens: [formula as never], orientacoes: '' })).not.toThrow();
+  });
+
+  it('Plano 22: a verificação grava o tipo real da solicitação', async () => {
+    const x = await outroDocumento(await novoConsultorio(app.db), app.db, { tipo: 'solicitacao_exames' });
+    await assinarNoBanco(x, { codigo: x.codigo, baseSha256: x.baseSha256 });
+    expect((await app.db.execute(sql`select tipo from document_verifications where codigo = ${x.codigo}`)).rows).toEqual([{ tipo: 'solicitacao_exames' }]);
   });
 });

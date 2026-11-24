@@ -97,7 +97,7 @@ const inserir = <R>(ctx: TenantContext, fn: Parameters<typeof withTenant<R>>[1])
 /**
  * Cenário único (Review Focus 2): Ana com conta e sem a etiqueta "gestante"; conteúdo e receita só para "gestante";
  * plano arquivado e publicado (receita "gestante", receita para todos e receita despublicada); documento emitido, cancelado,
- * rascunho e um anonimizado; envio cancelado e recebido; peso oculto; diário dentro e fora dos 30 dias; lembretes (um ligado,
+ * rascunho e um anonimizado (Plano 22: e a solicitação de exames assinada e em rascunho); envio cancelado e recebido; peso oculto; diário dentro e fora dos 30 dias; lembretes (um ligado,
  * um desligado pelo paciente, a pausa); um aparelho; WhatsApp autorizado. Mais: Bia arquivada (com conta), Caio com o plano
  * publicado sem item principal e sem lembrete, e Duda com o convite pendente.
  */
@@ -128,6 +128,9 @@ async function montar() {
   const emitido = await documentoNoBanco(app.db, T.ctx, ana.id, { status: 'assinado' });
   const cancelado = await documentoNoBanco(app.db, T.ctx, ana.id, { status: 'cancelado', tipo: 'parecer' });
   const rascunho = await documentoNoBanco(app.db, T.ctx, ana.id, { status: 'rascunho' });
+  // Plano 22 (T8, EP-D59): a solicitação de exames assinada conta como os outros emitidos; a em rascunho, não
+  const solicitacao = await documentoNoBanco(app.db, T.ctx, ana.id, { status: 'assinado', tipo: 'solicitacao_exames' });
+  const solicitacaoRascunho = await documentoNoBanco(app.db, T.ctx, ana.id, { tipo: 'solicitacao_exames' });
   const anonimizado = await documentoNoBanco(app.db, T.ctx, ana.id, { status: 'assinado' });
   // a marca de anonimização só nasce com o titular bloqueado (app_anonimizar_documentos): aqui, direto, para exercitar o
   // filtro de `anonimizado_em` que o portal aplica em TypeScript
@@ -209,7 +212,7 @@ async function montar() {
     duda,
     ids: {
       planos: [arquivado, publicado],
-      documentos: [emitido.id, cancelado.id, rascunho.id, anonimizado.id],
+      documentos: [emitido.id, cancelado.id, solicitacao.id, rascunho.id, solicitacaoRascunho.id, anonimizado.id],
       envios: [envioCancelado, envioRecebido],
       exames: [exameLiberado, exameNaoLiberado],
       avaliacoes: [av1.id, av2.id],
@@ -294,10 +297,10 @@ describe('noAppDoPaciente (Plano 18, D16, RN-281)', () => {
       expect(semOrdem(r.visiveis[id] ?? []), id).toEqual(semOrdem(pedidos.filter((i) => portal.ids.includes(i))));
     }
     // os casos do cenário, para o teste não passar com tudo zerado
-    expect(r.contagens).toMatchObject({ 'plano-alimentar': 1, antropometria: 2, atendimentos: 2, documentos: 2, 'exames-enviados': 1, exames: 1 });
+    expect(r.contagens).toMatchObject({ 'plano-alimentar': 1, antropometria: 2, atendimentos: 2, documentos: 3, 'exames-enviados': 1, exames: 1 });
     expect(r.visiveis.exames).toEqual([c.ids.exames[0]]); // Plano 22: só o liberado tem o selo
     expect(r.visiveis['plano-alimentar']).toEqual([c.ids.planos[1]]); // o arquivado (que a RLS entrega) fica sem selo
-    expect(semOrdem(r.visiveis.documentos)).toEqual(semOrdem(c.ids.documentos.slice(0, 2))); // sem o rascunho e o anonimizado
+    expect(semOrdem(r.visiveis.documentos)).toEqual(semOrdem(c.ids.documentos.slice(0, 3))); // sem os rascunhos e o anonimizado (Plano 22: com a solicitação assinada)
     expect(r.visiveis['exames-enviados']).toEqual([c.ids.envios[1]]); // sem o cancelado
 
     // conteúdos: o feed (a audiência pela RLS; a etiqueta "gestante" fica fora, a receita sugerida no plano também)

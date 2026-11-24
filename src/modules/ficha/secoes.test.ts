@@ -8,6 +8,7 @@ import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../..
 import { DO_PLANO_18, ehDoPlano18 } from '../../../test/ficha';
 import { anamneses, anamnesisTemplates, anthropometry, auditLog, consultations, energyCalcs, exams, mealPlans, patients } from '@/db/schema';
 import { TenantContextError, withTenant } from '@/db/tenant';
+import { montarAdicionar } from './adicionar';
 import { secoesDoInicio, type SecaoNoInicio } from './inicio';
 import { secaoExamesEnviados } from './secoes/exames-enviados';
 import type { PacienteDaSecao, SecaoDaFicha, TenantDaSecao } from './tipos';
@@ -205,7 +206,12 @@ describe('secoesDoInicio (RN-277, RN-278)', () => {
     await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado' });
     const r = await secoesDoInicio(T.ctx, { ...TUDO_LIGADO, documentosLiberados: false }, comoPaciente(p), { db: app.db });
     expect(secao(r, 'documentos')).toBeUndefined();
-    expect(secao(await secoesDoInicio(T.ctx, TUDO_LIGADO, comoPaciente(p), { db: app.db }), 'documentos')!.resumo.total).toBe(1);
+    const ligado = await secoesDoInicio(T.ctx, TUDO_LIGADO, comoPaciente(p), { db: app.db });
+    expect(secao(ligado, 'documentos')!.resumo.total).toBe(1);
+    // Plano 22 (T8, US-377): "Solicitação de exames" no Adicionar só com os documentos liberados (a seção some sem eles)
+    const rotulos = (x: SecaoNoInicio[]) => montarAdicionar(p.id, x).flatMap((g) => g.itens.map((i) => i.rotulo));
+    expect(rotulos(r)).not.toContain('Solicitação de exames');
+    expect(rotulos(ligado)).toContain('Solicitação de exames');
   });
 
   it('envios (RN-192): sem o recebimento ligado, só com algum envio não cancelado', async () => {

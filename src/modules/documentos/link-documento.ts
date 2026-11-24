@@ -11,8 +11,9 @@ import { chaveDoLimite, consumirLimite } from '@/modules/agenda/limite-ip';
 import { normalizarEmailDoLink } from '@/modules/agenda/link-consulta';
 import { auditRead } from '@/modules/plataforma/audit';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
-import { TIPO_DOCUMENTO_ROTULO, type TipoDocumento } from './constantes';
+import type { TipoDocumento } from './constantes';
 import { registrarRecibo } from './recebimento';
+import { rotuloDoTipo } from './tipos-de-documento';
 
 /**
  * RN-158 / D3 b: link de uso único SEM ESTADO (como link-consulta.ts): versão + tenant + paciente + documento + emissão
@@ -95,7 +96,7 @@ export class LinkError extends Error {
   }
 }
 export type DepsLink = { db?: Db; agora?: Date; ip: string | null; ipDoLimite: string | null; verificarTurnstile: (t: string | null) => Promise<'ok' | 'invalido' | 'indisponivel'>; appUrl: string };
-export type EstadoLink = { tipo: 'invalido' | 'expirado' | 'indisponivel' } | { tipo: 'pedir_codigo' } | { tipo: 'aberto'; titulo: string; versao: number; data: Date; recebidoEm: Date | null };
+export type EstadoLink = { tipo: 'invalido' | 'expirado' | 'indisponivel' } | { tipo: 'pedir_codigo' } | { tipo: 'aberto'; titulo: string; versao: number; data: Date; recebidoEm: Date | null; tipoDoc: TipoDocumento };
 
 /** HMAC do código amarrado ao id do pedido (o mesmo código em outro pedido não confere); chave derivada do link. */
 const hashDoCodigo = (pedido: string, codigo: string) => createHmac('sha256', chaveDoLinkDocumento()).update(`codigo:${pedido}:${codigo}`).digest('base64url');
@@ -122,10 +123,12 @@ async function abrirLink(token: unknown, deps: DepsLink) {
         if (!p) return null;
         // D20 (correção do /code-review high do PR #18): o interruptor do admin vale também aqui — desligado, o link fica
         // indisponível, nenhum código é enviado (linkUtilizavel) e a sessão já aberta não abre o PDF nem confirma
-        const disponivel = t?.status === 'ativa' && !!t.liberado && p.status === 'ativo' && !p.anonimizadoEm && d?.status === 'assinado' && !!d.pdf;
+        // Plano 22 (DEP-E7): sem a linha do documento, o tipo é nulo (nunca "receita" por falta) e o link fica indisponível
+        const tipoDoc = d ? (d.tipoDoc as TipoDocumento) : null;
+        const disponivel = t?.status === 'ativa' && !!t.liberado && p.status === 'ativo' && !p.anonimizadoEm && d?.status === 'assinado' && !!d.pdf && !!tipoDoc;
         return {
           email: p.email, disponivel, assinadoEm: d?.assinadoEm ?? null, pdf: d?.pdf ?? null,
-          tipoDoc: (d?.tipoDoc ?? 'receita') as TipoDocumento, versao: d?.versao ?? 1,
+          tipoDoc, versao: d?.versao ?? 1,
         };
       },
       db,
@@ -157,11 +160,13 @@ const recebidoEm = async (tx: Tx, documentoId: string) =>
 export async function estadoDoLink(token: unknown, sessao: string | undefined, deps: DepsLink): Promise<EstadoLink> {
   const l = await abrirLink(token, deps);
   if (!l) return { tipo: 'invalido' };
-  if (!l.dados.disponivel) return { tipo: 'indisponivel' };
+  const tipoDoc = l.dados.tipoDoc;
+  if (!l.dados.disponivel || !tipoDoc) return { tipo: 'indisponivel' };
   if (l.expirado) return { tipo: 'expirado' };
   if (!(await sessaoValida(l.ids, sessao, deps))) return { tipo: 'pedir_codigo' };
   const recebido = await withTenant(ctxDo(l.ids, deps.ip), (tx) => recebidoEm(tx, l.ids.documentoId), deps.db ?? getDb());
-  return { tipo: 'aberto', titulo: TIPO_DOCUMENTO_ROTULO[l.dados.tipoDoc], versao: l.dados.versao, data: l.dados.assinadoEm!, recebidoEm: recebido };
+  // Plano 22 (T11, RN-396): `tipoDoc` para o texto por tipo do "Compartilhar" na página do link
+  return { tipo: 'aberto', titulo: rotuloDoTipo(tipoDoc), versao: l.dados.versao, data: l.dados.assinadoEm!, recebidoEm: recebido, tipoDoc };
 }
 
 async function linkUtilizavel(token: unknown, deps: DepsLink) {

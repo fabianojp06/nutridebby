@@ -4,9 +4,10 @@ import { signedDocumentNotes, signedDocuments } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
-import { MSG_RETIFICACAO, type StatusDocumento } from './constantes';
+import { MSG_RETIFICACAO, type StatusDocumento, type TipoDocumento } from './constantes';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from './erros';
 import type { ConteudoDocumento } from './parecer';
+import { assertNever, semCopia } from './tipos-de-documento';
 
 const EM_ANDAMENTO: StatusDocumento[] = ['rascunho', 'preparando', 'aguardando_assinatura'];
 
@@ -27,19 +28,25 @@ export function lerMotivoRetificacao(v: unknown): string | null {
   return m || null;
 }
 
-/** NGS1.12.02: a versão nova nasce do conteúdo da vigente — sem a cópia do perfil/paciente e sem a declaração (RN-154: nascem de novo no preparo). */
-function semCopia(c: ConteudoDocumento): ConteudoDocumento {
-  return c.tipo === 'parecer'
-    ? { versao: 1, tipo: 'parecer', exames: c.exames, avaliacao: c.avaliacao, conduta: c.conduta, encaminhamentos: c.encaminhamentos }
-    : { versao: 1, tipo: 'receita', itens: c.itens, orientacoes: c.orientacoes };
+/** Plano 22 (DEP-E7): a justificativa de uso é só da receita; os outros tipos, por caso explícito, nascem sem. */
+function justificativaDaVersaoNova(tipo: TipoDocumento, daVigente: string | null): string | null {
+  switch (tipo) {
+    case 'receita':
+      return daVigente;
+    case 'parecer':
+    case 'solicitacao_exames':
+      return null;
+    default:
+      return assertNever(tipo);
+  }
 }
 
 /**
  * US-148: "Retificar" um documento "assinado" (a versão em vigor) abre o rascunho da versão seguinte com o conteúdo dela;
  * havendo uma retificação em andamento, abre a mesma (uma por vez). Ordem de travas (D-P1): paciente → ORIGINAL (FOR
  * UPDATE) — a do cancelamento e da assinatura da versão nova —, então dois cliques simultâneos se enfileiram e o segundo
- * acha a primeira (o índice único da 0089 continua como barreira do banco). Na receita, a justificativa de uso vai para a
- * nota da versão nova (a habilitação é conferida de novo ao salvar, preparar e assinar); o motivo nasce vazio (Q13-1 ★).
+ * acha a primeira (o índice único da 0089 continua como barreira do banco). O conteúdo vai inteiro, menos a cópia e a
+ * declaração (`semCopia`, Plano 22). Na receita, a justificativa de uso vai para a nota da versão nova (a habilitação é conferida de novo ao salvar, preparar e assinar); o motivo nasce vazio (Q13-1 ★).
  */
 export async function retificarDocumento(ctx: TenantContext, patientId: string, docId: string, deps: { db?: Db } = {}): Promise<string> {
   return withTenant(
@@ -61,7 +68,7 @@ export async function retificarDocumento(ctx: TenantContext, patientId: string, 
         .values({ tenantId: ctx.tenantId, patientId, tipo: o.tipo, versao: o.versao + 1, retificaId: o.id, conteudo: semCopia(o.conteudo as ConteudoDocumento) })
         .returning({ id: signedDocuments.id });
       const [nota] = await tx.select({ j: signedDocumentNotes.justificativaUso }).from(signedDocumentNotes).where(eq(signedDocumentNotes.documentoId, docId));
-      await tx.insert(signedDocumentNotes).values({ tenantId: ctx.tenantId, patientId, documentoId: n.id, justificativaUso: o.tipo === 'receita' ? (nota?.j ?? null) : null });
+      await tx.insert(signedDocumentNotes).values({ tenantId: ctx.tenantId, patientId, documentoId: n.id, justificativaUso: justificativaDaVersaoNova(o.tipo as TipoDocumento, nota?.j ?? null) });
       return n.id;
     },
     deps.db ?? getDb(),

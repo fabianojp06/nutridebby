@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DocumentoError } from './erros';
-import { binomioValido, descreverItem, exigeHabilitacao, MSG_PRESCRICAO, TERMOS_NAO_VEGETAIS, temTermoNaoVegetal, validarParaPreparar, validarRascunho } from './prescricao';
+import { binomioValido, descreverItem, exigeHabilitacao, MSG_PRESCRICAO, TERMOS_NAO_VEGETAIS, temTermoNaoVegetal, TIPOS_ITEM, validarItem, validarItensDoModelo, validarParaPreparar, validarRascunho } from './prescricao';
 
 const vitD = { tipo: 'suplemento', categoria: 'nutriente', composicao: [{ nome: 'Vitamina D3', quantidade: '2000', unidade: 'UI' }], forma: 'Cápsula', via: 'oral', posologia: '1 cápsula ao dia, no almoço' };
 const curcuma = { tipo: 'derivado_vegetal', nomenclatura: 'Curcuma longa L.', parte: 'Rizoma', formaFarmaceutica: 'Cápsula', dose: '500 mg', via: 'oral', posologia: '1 cápsula ao dia' };
@@ -159,5 +159,101 @@ describe('Plano 22 (P22-02): regras puras da fórmula fitoterápica (RN-392, EP-
     expect(MSG_PRESCRICAO.compostos).toBe('Informe de 2 a 10 compostos vegetais.');
     expect(MSG_PRESCRICAO.binomio).toBe('Use a nomenclatura botânica (Gênero espécie), como Matricaria chamomilla L.');
     expect(MSG_PRESCRICAO.naoVegetal).toBe('Fórmula fitoterápica não pode ter vitaminas, minerais, aminoácidos ou substâncias isoladas (Resolução CFN nº 680/2021, art. 9º, II).');
+  });
+});
+
+/** Plano 22 (T9, US-378): a fórmula magistral fitoterápica com 3 compostos, como no cenário da spec. */
+const composto = (nomenclatura: string, extra: Record<string, unknown> = {}) => ({ nomenclatura, parte: 'Folhas', extracao: 'Extrato seco', quantidade: '200', unidade: 'mg', ...extra });
+const formula = (compostos: unknown[] = [composto('Passiflora incarnata L.'), composto('Melissa officinalis L.'), composto('Matricaria chamomilla L.', { parte: 'Flores', padronizacao: '1,2% de apigenina' })]) => ({
+  tipo: 'formula_fitoterapica', compostos, formaFarmaceutica: 'Cápsula', via: 'oral', posologia: '1 cápsula à noite', duracao: '30 dias',
+});
+
+describe('Plano 22 (T9): fórmula magistral fitoterápica no Zod do item (RN-392, US-378)', () => {
+  it('o rótulo novo em TIPOS_ITEM; o do fitoterápico (spec 10A) não muda; a ajuda do seletor do tipo com o texto da §6.2', () => {
+    expect(TIPOS_ITEM.formula_fitoterapica).toBe('Fórmula magistral com vários compostos vegetais');
+    expect(TIPOS_ITEM.fitoterapico).toBe('Fitoterápico (forma farmacêutica ou fórmula magistral)');
+    expect(MSG_PRESCRICAO.ajudaTipo).toBe("Use 'Fórmula magistral com vários compostos vegetais' quando a fórmula tiver de 2 a 10 derivados vegetais em quantidades próprias; 'Fitoterápico' para o produto de uma planta só.");
+    // semHabilitacao e dicaOutro citam os dois tipos (§6.2)
+    for (const m of [MSG_PRESCRICAO.semHabilitacao, MSG_PRESCRICAO.dicaOutro]) {
+      expect(m).toContain(`"${TIPOS_ITEM.fitoterapico}"`);
+      expect(m).toContain(`"${TIPOS_ITEM.formula_fitoterapica}"`);
+    }
+  });
+
+  it('3 compostos com a habilitação: salvo, quantidades com vírgula viram número, padronização opcional', () => {
+    const c = validarRascunho({ itens: [formula()] }, { habilitada: true });
+    expect(c.itens[0]).toMatchObject({ tipo: 'formula_fitoterapica', compostos: [{ quantidade: 200, padronizacao: '' }, {}, { padronizacao: '1,2% de apigenina' }], via: 'oral', duracao: '30 dias' });
+    expect(c.orientacoesFormato).toBe('marcacao');
+  });
+
+  it('sem a habilitação: recusada com semHabilitacao na chave do tipo (salvar e preparar)', () => {
+    expect(lanca('itens.0.tipo', MSG_PRESCRICAO.semHabilitacao)(() => validarRascunho({ itens: [formula()] }, { habilitada: false }))).toBe(true);
+    const c = validarRascunho({ itens: [formula()] }, { habilitada: true });
+    expect(lanca('itens.0.tipo', MSG_PRESCRICAO.semHabilitacao)(() => validarParaPreparar(c, 'Insônia leve', { habilitada: false }))).toBe(true);
+  });
+
+  it('composto que não é vegetal (na nomenclatura) → naoVegetal; "camomila" → binomio', () => {
+    for (const n of ['Picolinato de cromo', 'Vitamina C', 'Creatina monoidratada', 'Curcumina lipossomal', 'Lactobacillus acidophilus']) {
+      const f = formula([composto('Passiflora incarnata L.'), composto(n)]);
+      expect(lanca('itens.0.compostos.1.nomenclatura', MSG_PRESCRICAO.naoVegetal)(() => validarRascunho({ itens: [f] }, { habilitada: true })), n).toBe(true);
+    }
+    expect(lanca('itens.0.compostos.0.nomenclatura', MSG_PRESCRICAO.binomio)(() => validarRascunho({ itens: [formula([composto('camomila'), composto('Melissa officinalis L.')])] }, { habilitada: true }))).toBe(true);
+  });
+
+  it('RN-392 (ajuste do /code-review do PR 1): o "Derivado ou extração" e a padronização ficam fora da conferência — "curcumina isolada" e "5% de curcuminoides" passam', () => {
+    const f = formula([composto('Curcuma longa L.', { parte: 'Rizoma', extracao: 'curcumina isolada', padronizacao: '5% de curcuminoides' }), composto('Zingiber officinale Roscoe', { parte: 'Rizoma', padronizacao: '5% de gingeróis' })]);
+    expect(validarRascunho({ itens: [f] }, { habilitada: true }).itens[0]).toMatchObject({ compostos: [{ extracao: 'curcumina isolada', padronizacao: '5% de curcuminoides' }, {}] });
+  });
+
+  it('1 e 11 compostos → compostos; via só oral, sublingual ou enteral; posologia até 300', () => {
+    expect(lanca('itens.0.compostos', MSG_PRESCRICAO.compostos)(() => validarRascunho({ itens: [formula([composto('Passiflora incarnata L.')])] }, { habilitada: true }))).toBe(true);
+    expect(lanca('itens.0.compostos', MSG_PRESCRICAO.compostos)(() => validarRascunho({ itens: [formula(Array(11).fill(composto('Passiflora incarnata L.')))] }, { habilitada: true }))).toBe(true);
+    expect(lanca('itens.0.compostos', MSG_PRESCRICAO.compostos)(() => validarRascunho({ itens: [{ ...formula(), compostos: undefined }] }, { habilitada: true }))).toBe(true);
+    expect(() => validarRascunho({ itens: [{ ...formula(), via: 'retal' }] }, { habilitada: true })).toThrow(DocumentoError);
+    expect(() => validarRascunho({ itens: [{ ...formula(), posologia: 'x'.repeat(301) }] }, { habilitada: true })).toThrow(DocumentoError);
+    for (const v of ['oral', 'sublingual', 'enteral']) expect(validarRascunho({ itens: [{ ...formula(), via: v }] }, { habilitada: true }).itens).toHaveLength(1);
+  });
+
+  it('descreverItem: um composto por linha (nomenclatura, parte, derivado, padronização, quantidade), a forma, a via, a posologia e a duração', () => {
+    const [it] = validarRascunho({ itens: [formula()] }, { habilitada: true }).itens;
+    expect(descreverItem(it)).toEqual({
+      titulo: 'Fórmula magistral fitoterápica',
+      linhas: [
+        'Passiflora incarnata L. · Folhas · Extrato seco · 200 mg',
+        'Melissa officinalis L. · Folhas · Extrato seco · 200 mg',
+        'Matricaria chamomilla L. · Flores · Extrato seco · Padronização: 1,2% de apigenina · 200 mg',
+        'Forma farmacêutica: Cápsula',
+        'Via: Oral',
+        'Posologia: 1 cápsula à noite',
+        'Duração: 30 dias',
+      ],
+    });
+  });
+
+  it('RN-395: o rascunho validado grava orientacoesFormato "marcacao" (também um rascunho antigo salvo de novo)', () => {
+    expect(validarRascunho({ itens: [], orientacoes: '**Beba água**' }, { habilitada: false })).toEqual({ versao: 1, tipo: 'receita', itens: [], orientacoes: '**Beba água**', orientacoesFormato: 'marcacao' });
+  });
+});
+
+describe('Plano 22 (T9, R22-09): validarItem e validarItensDoModelo — o mesmo Zod do item, para a T10a', () => {
+  it('validarItem: fitoterápico (e a fórmula) sem habilitação → semHabilitacao na chave "tipo"; suplemento válido → o item', () => {
+    const fito = { tipo: 'fitoterapico', nomenclatura: 'Passiflora incarnata L.', parte: 'Folhas', extracao: 'Extrato seco', formaFarmaceutica: 'Cápsula', dose: '300 mg', via: 'oral', posologia: '1 cápsula à noite' };
+    expect(lanca('tipo', MSG_PRESCRICAO.semHabilitacao)(() => validarItem(fito, { habilitada: false }))).toBe(true);
+    expect(lanca('tipo', MSG_PRESCRICAO.semHabilitacao)(() => validarItem(formula(), { habilitada: false }))).toBe(true);
+    expect(validarItem(fito, { habilitada: true })).toMatchObject({ tipo: 'fitoterapico' });
+    expect(validarItem(vitD, { habilitada: false })).toMatchObject({ tipo: 'suplemento', composicao: [{ quantidade: 2000 }] });
+    // os erros do Zod sem o prefixo "itens.N"
+    expect(lanca('posologia', 'Informe a posologia (até 300 caracteres).')(() => validarItem({ ...vitD, posologia: '' }, { habilitada: false }))).toBe(true);
+    expect(() => validarItem(null, { habilitada: false })).toThrow(DocumentoError);
+  });
+
+  it('validarItensDoModelo: 0 itens → semItens; 21 → itensDemais; 3 → os itens, as orientações e orientacoesFormato "marcacao"; habilitação conferida', () => {
+    expect(lanca('itens', MSG_PRESCRICAO.semItens)(() => validarItensDoModelo({ itens: [], orientacoes: '' }, { habilitada: false }))).toBe(true);
+    expect(lanca('itens', MSG_PRESCRICAO.semItens)(() => validarItensDoModelo({ itens: undefined, orientacoes: '' }, { habilitada: false }))).toBe(true);
+    expect(lanca('itens', MSG_PRESCRICAO.itensDemais)(() => validarItensDoModelo({ itens: Array(21).fill(vitD), orientacoes: '' }, { habilitada: false }))).toBe(true);
+    expect(lanca('orientacoes', MSG_PRESCRICAO.orientacoes)(() => validarItensDoModelo({ itens: [vitD], orientacoes: 'x'.repeat(2001) }, { habilitada: false }))).toBe(true);
+    const m = validarItensDoModelo({ itens: [vitD, curcuma, vitD], orientacoes: ' - Com água ' }, { habilitada: false });
+    expect(m).toEqual({ itens: [expect.objectContaining({ tipo: 'suplemento' }), expect.objectContaining({ tipo: 'derivado_vegetal' }), expect.objectContaining({ tipo: 'suplemento' })], orientacoes: '- Com água', orientacoesFormato: 'marcacao' });
+    expect(lanca('itens.1.tipo', MSG_PRESCRICAO.semHabilitacao)(() => validarItensDoModelo({ itens: [vitD, formula()], orientacoes: '' }, { habilitada: false }))).toBe(true);
   });
 });

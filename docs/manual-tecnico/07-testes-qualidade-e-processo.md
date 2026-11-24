@@ -245,7 +245,7 @@ o porquê.
 
 **Por que a guarda confere a expressão e não só o nome.** Uma política `paciente_sem_delete USING (true)` tem o nome
 e o comando certos e não nega nada. A guarda normaliza o texto que o Postgres guarda e compara com a negação
-esperada (`normalizarExpressao` e `NEGA_PACIENTE`, `rls-guard.ts:212-213`; débito B-5 do Plano 06). O mesmo vale para a audiência: uma
+esperada (`normalizarExpressao` e `NEGA_PACIENTE`, `rls-guard.ts:218-219`; débito B-5 do Plano 06). O mesmo vale para a audiência: uma
 `paciente_conteudo_visivel USING (true)` mostraria ao paciente todo conteúdo do tenant (`AUDIENCIA_EXIGE`,
 `HERDA_DE_CONTENTS`, R11 do Plano 07). Os testes "B-5" e "R11" de `src/db/rls-guard.test.ts` (`:170` e `:204`)
 provam que essas armadilhas quebram o CI.
@@ -347,6 +347,9 @@ fábricas de `COM_MAE` (`:350`; desde o Plano 17, também `lembretes_rotina_envi
 | Variáveis | `src/env.test.ts` | Validação de cada variável por processo (chaves de teste do Turnstile recusadas em produção fora de `localhost`, `AUTH_SECRET` ≥ 32, `DATABASE_URL_MIGRATOR` nunca exposta ao app…) |
 | Exames fora da IA (Plano 22, RN-399) | `src/modules/exames/guardas.test.ts` | Pelo grafo de imports a partir de cada fonte de `src/modules/ia/**`: nenhum arquivo alcançado (fora de `src/db/schema/**`) contém `examInterpretacoes`, `examVersoes`, `exam_interpretacoes` ou `exam_versoes`, nem é `exames/interpretacao.ts`, `edicao.ts` ou `detalhe.ts` (com controle positivo); `src/modules/ia/nutri-paciente/**` não importa `exams` nem `@/modules/portal/exames-liberados`; `campos-enviados.ts` igual; `src/app/sw.ts` sem `/p/exames` ([§10.15](10-ia.md#1015-exames-do-consultório-fora-da-ia-plano-22-rn-399)) |
 | Exames sem dado em log (Plano 22, RNF-370) | `src/modules/exames/log.test.ts` | Erros forçados em `editarExame`, `salvarNota`, `salvarExameDoCatalogo` e `salvarModeloSolicitacao` com nome, valor, faixa, nota e justificativa marcadores: nada chega ao logger nem ao `beforeSend` de `src/lib/sentry-filtro.ts` |
+| Filas "-2" do PDF de documento (Plano 22, EP-D34, R-375) | `src/worker/filas-documento-pdf.test.ts` | As filas `documento-pdf-2` e `documento-digitalizado-2` com as opções das antigas e o app enfileirando só nelas; nenhum `send('documento-pdf'` nem `send('documento-digitalizado'` (aspas simples, duplas ou crase) em `src/` fora de `queues.ts` e dos testes; o worker registra as duas famílias num laço, com um handler cada (conferência de texto de `src/worker/index.ts`). O worker antigo, na janela do deploy, nunca recebe um tipo que não desenha |
+| Marcação nunca vira HTML (Plano 22, RN-395) | `src/components/marcacao-blocos.test.ts:30`; `src/modules/documentos/marcacao-documento.test.ts` | Nenhum arquivo de `src/app/painel/pacientes/[id]/documentos`, de `src/modules/documentos` (fora de `*.test.ts`) nem `src/components/marcacao-blocos.tsx` contém `dangerouslySetInnerHTML` (com controle positivo: mais de 20 arquivos e o `orientacoes-campo.tsx` no alcance); `marcacao-documento.test.ts` prova pelo PDF da receita e da solicitação que `<script>`, tags e links saem como texto. `solicitacao-form.test.ts` e `compartilhar-pdf.test.ts` repetem a conferência no próprio fonte |
+| Documentos liberados em toda página e action da prescrição (Plano 22, R22-11) | `src/app/painel/prescricao/itens/page.test.ts:89-100` | As cinco `page.tsx` e os dois `actions.ts` de `src/app/painel/prescricao`: um `await acessoComDocumentos(` por função exportada (`export async function`/`export default async function`) e nenhum `requireNutri` direto. O `notFound()` de um layout não protege as Server Actions |
 
 O grafo de imports (`test/grafo-de-imports.ts`) usa o parser do TypeScript, segue `import`, `export … from`,
 `import()` e `require`, ignora `import type` e resolve o alias `@/`. Por quê: um `grep` de texto não pega o import
@@ -407,7 +410,7 @@ por tela (ex.: `src/app/p/(portal)/plano/page.test.ts`), não como varredura. O 
 | `workers` (`:12`) | 2 no CI; local, o padrão do Playwright | No runner próprio, o contêiner do job enxerga 8 núcleos numa cota de 4: o padrão (metade dos núcleos vistos) daria 4 workers e estouraria prazos. 2, como no runner hospedado de 4 vCPU |
 | `trace` | `retain-on-failure` | O CI sobe `playwright-report` quando falha (`ci.yml`, último passo do job `e2e`) |
 | `webServer[0]` | `next start` na porta da `baseURL` | E2E roda o **build de produção**, não o `next dev` |
-| `webServer[1]` | `pnpm worker`, espera `worker iniciado` no stdout (`src/worker/index.ts:218`) | E-mails e lembretes são enviados pelo worker |
+| `webServer[1]` | `pnpm worker`, espera `worker iniciado` no stdout (`src/worker/index.ts:337`) | E-mails e lembretes são enviados pelo worker |
 
 **Projetos:**
 
@@ -496,7 +499,7 @@ Detalhes que evitam falso verde:
 | `pacientes.spec.ts` | 9 | Cadastro, convite, prontuário (desde o Plano 18, os rótulos novos do formulário em seções) |
 | `plano-alimentar.spec.ts` | 18 | Criar, calcular e publicar plano |
 | `agenda.spec.ts` | 12 | Horários, consultas, lembretes, link da consulta, página pública, WhatsApp sandbox, presença |
-| `portal.spec.ts` | 20 | Portal do paciente |
+| `portal.spec.ts` | 22 | Portal do paciente; desde o Plano 22 (PR 4, T11), o "Compartilhar" do PDF assinado (sem compartilhar de arquivo, baixa o PDF e explica) e a página do link com o acesso vencido ("Digitar o código") |
 | `conteudos.spec.ts` | 3 | Conteúdo visível só para a audiência certa (§9.7) |
 | `inicio.spec.ts` | 2 | Início em bento |
 | `menu-conta.spec.ts` | 1 | Menu da conta |
@@ -515,7 +518,8 @@ Detalhes que evitam falso verde:
 | `lembretes.spec.ts` (Plano 17) | 2 (+ laço de 3 modos) | A nutricionista salva a sugestão na seção "Lembretes no app" ("Previsto para hoje", aviso sem aparelho), o paciente desliga a água em Eu › Lembretes (interruptor otimista com a ação presa na rede, foco e região de status) e a nutricionista vê "Desligado pelo paciente em {data}" sem o "Apagar"; axe da seção com lembretes salvos e com o suplemento aberto com erro nos três modos do painel. IPs `10.9.31.71`–`.75`. O envio do push fica nos testes de `src/modules/lembretes` (o E2E não tem aparelho inscrito); `acessibilidade.spec.ts` ganhou `/p/perfil/lembretes` (com o lembrete livre de link longo, a 320 px com texto a 200%) e a tela vazia (`10.9.10.25`) |
 | `cadastro.spec.ts` (Plano 18, PR 2) | 10 (2 em laço de 2 temas) | Cadastro com CPF, estado civil e CEP (US-260; o CPF nunca na lista); CPF repetido com a mensagem, o link em nova aba e o digitado mantido, com axe claro e escuro; Perfil (o estado civil e a Observação não voltam atrás, foco no CEP inválido); lista (abas, "Mais recentes" com a busca, `?status=arquivado` → Inativos); menu da linha (Esc, clique fora, Tab depois do último item); arquivar pela lista duas vezes (região de status e foco no título, D26); Início (nota "Cadastro incompleto", selo e cartão "No app"); "No app do paciente" da paciente da semente; impressão com o nome civil antes de "Nome social"; axe do menu aberto e do diálogo Adicionar. IPs `10.9.18.20`–`.29`; repetível no banco de dev (CPF novo a cada execução, sufixo `c18…`) |
 | `exames.spec.ts` (Plano 22, PR 2) | 2 | CS-371: com o catálogo da semente (painel "Hemograma completo" de 20 componentes e "Ferritina", `scripts/e2e-seed.ts`), "Adicionar do catálogo" monta as 20 linhas, a faixa preenchida mostra "Acima da referência" antes de salvar, abrir o exame e salvar a nota; US-374: marcar 2 exames e abrir o comparativo (fora de 2 a 6, o botão fica `aria-disabled`). IP `10.9.22.20` |
-| `acessibilidade-exames.spec.ts` (Plano 22, PR 2) | 11 (2 em laço de 2 temas × 2 larguras) | axe no catálogo e no detalhe (com "Ver referência" e "Inserir modelo") a 1280 e 360 px, claro e escuro; foco do `Dialogo` (Esc, fechar pelo navegador, desmontado aberto), da busca no catálogo, de "Acrescentar faixa"/"Remover faixa", das linhas do exame ("Usar {a} a {b}", "Remover", "Remover todos") e da nota ("Nota salva." com o foco no título). IP `10.9.22.10` |
+| `acessibilidade-exames.spec.ts` (Plano 22, PRs 2, 3 e 4) | 17 (5 em laço de 2 temas × 2 larguras) | axe no catálogo e no detalhe (com "Ver referência" e "Inserir modelo") a 1280 e 360 px, claro e escuro; foco do `Dialogo` (Esc, fechar pelo navegador, desmontado aberto), da busca no catálogo, de "Acrescentar faixa"/"Remover faixa", das linhas do exame ("Usar {a} a {b}", "Remover", "Remover todos") e da nota ("Nota salva." com o foco no título). PR 3: axe de "Mostrar no app do paciente" (confirmação aberta, exame liberado, selo na lista e o excluir do exame no app). PR 4 (T12): axe dos diálogos da receita ("Carregar modelo" com a confirmação "Substituir", "Salvar item", "Salvar como modelo", "Adicionar item salvo"), do editor da solicitação com um nome longo e sem rolagem lateral (e a confirmação "Substituir") e do "Compartilhar" pronto do portal (aparelho claro e escuro, 1280 e 360 px, num `test` só). IPs `10.9.22.10` a `.12` |
+| `solicitacao-exames.spec.ts` (Plano 22, PR 4) | 2 | CS-370 (T8): ficha → "Adicionar" → "Solicitação de exames" → "Carregar modelo" (o "Check-up E2E" da semente) → exame fora do catálogo → preparar com a declaração → digitalizada → o paciente vê o documento no app (só o PDF) → verificação pública só com o rótulo → "Lançar resultados" abre o "Novo exame" com as linhas; CS-372 (T12): receita de 5 itens do modelo "Rotina E2E" em 1 clique + revisão ("Acrescentar aos itens" grava pelo "Salvar rascunho", um item incompleto recusa tudo, "Substituir" pede a confirmação; a declaração com a frase da fórmula; o preparo na fila `documento-pdf-2`). IPs `10.9.22.40` a `.43` |
 
 Os números são de chamadas `test(` no arquivo; laços geram mais casos na execução.
 
@@ -549,7 +553,7 @@ O CI roda `lint` e `typecheck` (job `quality`, `ci.yml:74-75`). **Não** roda o 
 de 100 colunas. Formatação não bloqueia; o backlog do Plano 08 tem um item de Prettier nos arquivos do heartbeat.
 
 Comentários com `eslint-disable` existem e explicam o motivo na mesma linha (ex.: `useBoss` em
-`src/worker/index.ts:59`, que não é hook do React).
+`src/worker/index.ts:77`, que não é hook do React).
 
 ---
 
@@ -996,7 +1000,7 @@ merge: merge é deploy e precisa do OK do dono.
 
 | # | Fonte | O que diz | O que o código faz |
 |---|---|---|---|
-| 1 | Spec §9.7, "Merge na `main`" | "no container do app, `migrate` roda antes do `start` (o worker espera a versão do schema)" | **Resolvida no Plano 09 (P09-02 a):** o worker espera a versão do schema (`esperarVersaoDoSchema`, §6.2.1). Antes dela: nenhuma espera. `startWorker` (`src/worker/index.ts:48`) sobe o pg-boss e registra os jobs direto; o modo `worker` do `docker-entrypoint.sh` não consulta migrations; `deploy.yml` chama os webhooks do app e do worker em seguida. A proteção real é o padrão expand/contract |
+| 1 | Spec §9.7, "Merge na `main`" | "no container do app, `migrate` roda antes do `start` (o worker espera a versão do schema)" | **Resolvida no Plano 09 (P09-02 a):** o worker espera a versão do schema (`esperarVersaoDoSchema`, §6.2.1). Antes dela: nenhuma espera. `startWorker` (`src/worker/index.ts:62`) sobe o pg-boss e registra os jobs direto; o modo `worker` do `docker-entrypoint.sh` não consulta migrations; `deploy.yml` chama os webhooks do app e do worker em seguida. A proteção real é o padrão expand/contract |
 | 2 | Spec §9.7, "Pull request" | Pipeline em sequência: lint → `tsc` → Vitest → testes de RLS/isolamento → build → Playwright | Jobs separados (`mudancas`, `quality`, `test`, `e2e`, `image`); no runner próprio (desde 12/10/2026), um por vez, na ordem em que o runner os pega. Os testes de RLS e isolamento estão dentro do `pnpm test`; o build está dentro do job `e2e`; o job `image` (orçamento de 265 MB) e o `mudancas` (Plano 12) não aparecem na spec |
 | 3 | Spec §9.7, "Merge na `main`" | Push para o GHCR "com tag = SHA do commit" | Também publica `:latest` e poda o pacote para as 2 versões mais recentes (`deploy.yml:103-121`) |
 | 4 | Spec RNF-10 (v1.11) | Axe em "42 rotas de `ROTAS_DO_PAINEL`" | 43 entradas em `ROTAS_DO_PAINEL`, uma por `page.tsx` de `src/app/painel` (43), mais `/conta/seguranca` = 44 telas. O Plano 08, D25, fala em "~43" |

@@ -8,6 +8,11 @@ tabelas novas, a coluna `exams.mostrar_no_app_em`, a política `paciente_exame_l
 da anonimização ([§2.5.13](#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)); `drizzle/meta/_journal.json` com 128 entradas. Os números não são reservados e mudam
 no rebase (spec do Plano 22, §9; `docs/operacao/sessoes-paralelas.md`, §5).
 
+Plano 22 (PR 4, documentos; conferido no branch `plano-22-exames-prescricao` na T12, 23/11/2026, e nos rebases sobre a `main` `123b78e` e `c5a4050`, 24/11/2026): a `0134` (gerada,
+`prescricao_modelos`) e a `0135` (custom, `rls_prescricao_modelos`), com `prescricao_itens_salvos` e `prescricao_modelos`
+([§2.5.14](#2514-itens-salvos-e-modelos-de-prescrição-prescricao-modelosts-plano-22-pr-4)); `drizzle/meta/_journal.json`
+com 136 entradas. Números do branch, como os do PR 1 (mudam se outra migration entrar antes na `main`).
+
 Convenção de citação: `arquivo:linha` aponta para o código; "Plano NN, Dx" aponta para a tabela de decisões do plano em `docs/superpowers/plans/`; "spec §n" aponta para `docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md`.
 
 ---
@@ -168,6 +173,11 @@ São 69 tabelas em `public`: 53 com `tenant_id` sob RLS, 4 com `tenant_id` fora 
 Plano 22 (PR 1): mais `exames_catalogo`, `exames_modelos_solicitacao`, `exam_interpretacoes` e `exam_versoes`, as quatro
 sob RLS ([§2.5.13](#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)): **73** tabelas, 57 com `tenant_id` sob RLS (`pgTable(` de `src/db/schema/*.ts`, conferido em
 23/11/2026 no branch `plano-22-exames-prescricao`).
+Plano 22 (PR 4): mais `prescricao_itens_salvos` e `prescricao_modelos`, as duas sob RLS ([§2.5.14](#2514-itens-salvos-e-modelos-de-prescrição-prescricao-modelosts-plano-22-pr-4)):
+**84** tabelas com as duas do Plano 23 (`locais_atendimento`, `aniversario_autorizacoes`) e as sete do Plano 25
+(`chat_configuracoes`, `chat_horarios`, `chat_conversas`, `chat_mensagens`, `chat_leituras`, `chat_avisos_nutri` e `recados`):
+72 com `tenant_id`, 68 delas sob RLS (contagem dos `pgTable(` de `src/db/schema/*.ts` e do `pg_class` do banco migrado até a 0135,
+conferida no rebase sobre a `main` `c5a4050`, 24/11/2026).
 
 Legenda da coluna "Proteção":
 **T** `tenant_isolation` · **P** `patient_isolation` · **S** `staff_only` · **Pub** comandos liberados ao contexto `publico` · **PE** comandos que a sessão de paciente grava · **A** gatilho de auditoria (entidade) · **X** política própria (ver §2.6.5).
@@ -231,6 +241,8 @@ Legenda da coluna "Proteção":
 | `exames_modelos_solicitacao` (Plano 22) | T, S (sem `patient_id`, fora da auditoria) | 0128 (tabela na 0127) |
 | `exam_interpretacoes` (Plano 22) | T, P, S, A `exames_nota`; `REVOKE UPDATE, DELETE, TRUNCATE` (só de inclusão, EP-D41); gatilho `exam_interpretacoes_regras` (BEFORE INSERT: contexto vazio e `worker` recusados; autor e hora da sessão `nutri` pelo banco; titular bloqueado ou anonimizado recusado); FK tripla para `exams` `ON DELETE CASCADE` | 0128 (tabela na 0127) |
 | `exam_versoes` (Plano 22) | T, P, S, A `exames_versoes`; `REVOKE UPDATE, DELETE, TRUNCATE`; gatilho `exam_versoes_regras` (a mesma ordem); FK tripla para `exams` `ON DELETE CASCADE` | 0128 (tabela na 0127) |
+| `prescricao_itens_salvos` (Plano 22, PR 4) | T, S (sem `patient_id`, fora da auditoria); nada em `Pub` nem `PE` (RN-393) | 0135 (tabela na 0134) |
+| `prescricao_modelos` (Plano 22, PR 4) | T, S (sem `patient_id`, fora da auditoria) (RN-394) | 0135 (tabela na 0134) |
 
 Toda tabela da matriz tem também `publico_negado` (ou `publico_sem_<cmd>` nos comandos não liberados) e `paciente_sem_<cmd>` nos comandos de escrita não liberados (§2.6.4).
 
@@ -485,10 +497,32 @@ A `0128` (`drizzle/0128_rls_exames_catalogo.sql`, editada à mão):
 Listas: as quatro em `STAFF_ONLY` (`src/db/rls-guard.ts:121-124`); nenhuma em `PUBLICO_LIBERADO`, `PACIENTE_ESCREVE` ou
 `AUDIT_EXCEPTIONS`. Isolamento (`test/isolamento.test.ts`): as quatro fábricas (`:187-197`; a de `exams`, `:29`, passa a
 gravar o exame **liberado**, como `meal_plans` grava `'publicado'`, para o laço genérico continuar provando a leitura da
-sessão de paciente), `SO_INSERE` (`:203`), `COM_MAE` (`:392-393`; a recusa dos negativos de INSERT vem de `exams`) e o caso
-"Plano 22 (RN-385)" (`:598`: a paciente não vê o exame não liberado nem as filhas). Testes do banco em
+sessão de paciente), `SO_INSERE` (`:211`), `COM_MAE` (`:400-401`; a recusa dos negativos de INSERT vem de `exams`) e o caso
+"Plano 22 (RN-385)" (`:606`: a paciente não vê o exame não liberado nem as filhas). Testes do banco em
 `src/modules/exames/banco.test.ts` (CHECKs, gatilhos por papel, só de inclusão, cascata, política e `audit_log`). As funções
 de cada tabela estão em [§4.2.12](04-modulos-clinicos.md#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2).
+
+Plano 22 (PR 4, T12): na anonimização, cada linha que a `app_anonimizar_exames_textos` anula grava um `alterar` de ator nulo
+pelo gatilho `audit_row_change` (o `UPDATE` roda no contexto `worker`, sem `app.user_id`): o Histórico de acessos mostra
+"Sistema · Alterou · Versões do exame" e "Sistema · Alterou · Nota de interpretação do exame", uma linha por versão ou nota
+com texto. Não há filtro para elas em `visivelNoHistorico` (`src/modules/plataforma/audit.ts`), como o "Alterou" de
+`patients` da mesma anonimização: a trilha mostra que o sistema apagou os textos livres.
+
+### 2.5.14 Itens salvos e modelos de prescrição (`prescricao-modelos.ts`, Plano 22, PR 4)
+
+| Tabela | Colunas principais | Chaves e restrições | Fonte |
+|---|---|---|---|
+| `prescricao_itens_salvos` | `nome`, `tipo` (o grupo da lista: `suplemento` em "Suplementos", os quatro vegetais em "Fitoterápicos"), `item` (jsonb `ItemPrescricao`, validado pelo mesmo Zod do item da receita, `validarItem`), `created_at`, `updated_at` | Sem `patient_id`; FK `tenant_id` → `tenants`; índice único `prescricao_itens_salvos_nome_unico` (`tenant_id`, `lower(nome)`); CHECKs `nome` 1–80, `tipo` nos cinco tipos de item, `item` objeto e `prescricao_itens_salvos_tipo_coerente` (`item->>'tipo' is not distinct from tipo`: sem a chave, o `=` daria NULL e passaria; M11 da revisão do plano) | `drizzle/0134_prescricao_modelos.sql` |
+| `prescricao_modelos` | `nome`, `itens` (jsonb `ItemPrescricao[]`, 1 a 20, `validarItensDoModelo`), `orientacoes` (até 2000, marcação; padrão `''`), `created_at`, `updated_at` | Sem `patient_id`; índice único `prescricao_modelos_nome_unico` (`tenant_id`, `lower(nome)`); CHECK de array com `case … else false` (um objeto dá 23514, não o 22023 de `jsonb_array_length`); **sem** justificativa de uso nem dado do paciente | idem |
+
+A `0135` (`drizzle/0135_rls_prescricao_modelos.sql`, custom): `app_enable_tenant_rls` + `app_enable_staff_only` nas duas;
+nenhuma em `PUBLICO_LIBERADO`, `PACIENTE_ESCREVE` ou `AUDIT_EXCEPTIONS` (sem `patient_id`, sem auditoria). Listas: as duas em
+`STAFF_ONLY` (`src/db/rls-guard.ts`) e em `FABRICAS` de `test/isolamento.test.ts` (o item salvo da fábrica é um suplemento
+válido, por causa do CHECK de coerência). Os tetos (300 itens e 100 modelos por consultório) e a unicidade são conferidos
+pelo módulo sob `pg_advisory_xact_lock` (`src/modules/documentos/modelos.ts`); o índice único é a última defesa. Testes do
+banco em `src/modules/documentos/banco-modelos.test.ts`; o módulo em [§9.12.5](09-documentos-assinados.md#9125-itens-salvos-e-modelos-de-prescrição-t10a-t10b-us-379-rn-393-rn-394-ep-d29-ep-d30).
+A solicitação de exames não tem tabela própria: é um tipo de `signed_documents` (CHECKs `signed_documents_tipo_valido` e
+`document_verifications_tipo_valido` ampliados na `0127`, PR 1, EP-D49).
 
 ---
 
@@ -707,14 +741,14 @@ As listas de `src/db/rls-guard.ts` e `src/db/audit-guard.ts` são a fonte da ver
 |---|---|---|---|
 | `RLS_EXCEPTIONS` (`rls-guard.ts:9`) | `user`, `consents`, `invites`, `document_verifications` (Plano 10A) | `findRlsViolations` (`:57`): toda tabela com `tenant_id` fora da lista tem RLS habilitada, forçada e `tenant_isolation`; com `patient_id` (ou `patients`), também `patient_isolation` | `src/db/rls-guard.test.ts:52-83` |
 | `PATIENT_POLICY_EXCEPTIONS` (`:20`) | `stored_files` (política própria `paciente_arquivos`) | idem | idem |
-| `STAFF_ONLY` (`:105`) | `patient_tags`, `patient_tag_links`, `consultation_notes`, `availability_rules`, `availability_blocks`, `public_booking_requests`, `whatsapp_conexoes`, `signed_document_notes` (Plano 10A), `ia_tarefas`, `ia_uso` (Plano 11), `ia_geracoes_modelos` (Plano 14B-1), `lembretes_rotina_envios` (Plano 17), `fin_configuracoes`, `fin_categorias` e `fin_lancamentos` (Plano 20, F-D1: o titular recebe o que é dele pela exportação, por inclusão explícita) | `findStaffOnlyViolations` (`:123`): cada tabela da lista tem `staff_only` RESTRICTIVE | `rls-guard.test.ts:85-101` |
-| `PUBLICO_LIBERADO` (`:141`) | `availability_rules` e `availability_blocks` (`select`); `appointments`, `patients`, `notifications` (`select`, `insert`); `audit_log` (`insert`); `public_booking_requests` (`select`, `insert`, `update`) | `findPublicoViolations` (`:152`): fora da lista, exatamente `publico_negado`; na lista, exatamente as `publico_sem_<cmd>` dos comandos negados, com comando e RESTRICTIVE certos | `rls-guard.test.ts:103-143` |
-| `PACIENTE_ESCREVE` (`:188`) | `patients` (`update`); `appointments`, `notifications`, `data_exports` (`insert`, `update`); `audit_log`, `stored_files`, `access_events`, `diary_entries`, `privacy_requests`, `content_views`, `signed_document_receipts` (`insert`); `push_subscriptions`, `content_favorites` (`insert`, `delete`); `document_access_codes` (`insert`, `update`; Plano 10A); `exam_submissions` (`insert`, `update`) e `exam_submission_files` (`insert`) (Plano 12); `ia_autorizacoes` (`insert`; Plano 14A, `:205`); `ia_nutri_mensagens` (`update`) e `ia_nutri_consentimentos` (`insert`) (Plano 15, `:206-207`); `lembretes_rotina` (`update`; Plano 17, `:208`); o motivo de `patients` cita a pausa dos lembretes desde o Plano 17 | `findPacienteEscritaViolations` (`:216`): cada comando não liberado tem `paciente_sem_<cmd>` com nome, comando, RESTRICTIVE **e a expressão** certa (B-5); comando liberado não pode ter a negação | `rls-guard.test.ts:145-214` |
-| `CONTEUDO_POR_AUDIENCIA` (`:245`) | `contents`, `recipes`, `recipe_ingredients` | `findConteudoAudienciaViolations` (`:273`): `paciente_conteudo_visivel` RESTRICTIVE `FOR SELECT` com trechos obrigatórios da expressão (R11) | `rls-guard.test.ts:216+` |
-| `ESCRITA_POR_AUDIENCIA` (`:267`) | `content_views` → `paciente_conteudo_visto`; `content_favorites` → `paciente_conteudo_favorito` | idem, `FOR INSERT` | idem |
+| `STAFF_ONLY` (`:105`) | `patient_tags`, `patient_tag_links`, `consultation_notes`, `availability_rules`, `availability_blocks`, `public_booking_requests`, `whatsapp_conexoes`, `signed_document_notes` (Plano 10A), `ia_tarefas`, `ia_uso` (Plano 11), `ia_geracoes_modelos` (Plano 14B-1), `lembretes_rotina_envios` (Plano 17), `fin_configuracoes`, `fin_categorias` e `fin_lancamentos` (Plano 20, F-D1: o titular recebe o que é dele pela exportação, por inclusão explícita) | `findStaffOnlyViolations` (`:130`): cada tabela da lista tem `staff_only` RESTRICTIVE | `rls-guard.test.ts:85-101` |
+| `PUBLICO_LIBERADO` (`:148`) | `availability_rules` e `availability_blocks` (`select`); `appointments`, `patients`, `notifications` (`select`, `insert`); `audit_log` (`insert`); `public_booking_requests` (`select`, `insert`, `update`) | `findPublicoViolations` (`:159`): fora da lista, exatamente `publico_negado`; na lista, exatamente as `publico_sem_<cmd>` dos comandos negados, com comando e RESTRICTIVE certos | `rls-guard.test.ts:103-143` |
+| `PACIENTE_ESCREVE` (`:195`) | `patients` (`update`); `appointments`, `notifications`, `data_exports` (`insert`, `update`); `audit_log`, `stored_files`, `access_events`, `diary_entries`, `privacy_requests`, `content_views`, `signed_document_receipts` (`insert`); `push_subscriptions`, `content_favorites` (`insert`, `delete`); `document_access_codes` (`insert`, `update`; Plano 10A); `exam_submissions` (`insert`, `update`) e `exam_submission_files` (`insert`) (Plano 12); `ia_autorizacoes` (`insert`; Plano 14A, `:212`); `ia_nutri_mensagens` (`update`) e `ia_nutri_consentimentos` (`insert`) (Plano 15, `:213-214`); `lembretes_rotina` (`update`; Plano 17, `:215`); o motivo de `patients` cita a pausa dos lembretes desde o Plano 17 | `findPacienteEscritaViolations` (`:224`): cada comando não liberado tem `paciente_sem_<cmd>` com nome, comando, RESTRICTIVE **e a expressão** certa (B-5); comando liberado não pode ter a negação | `rls-guard.test.ts:145-214` |
+| `CONTEUDO_POR_AUDIENCIA` (`:253`) | `contents`, `recipes`, `recipe_ingredients` | `findConteudoAudienciaViolations` (`:281`): `paciente_conteudo_visivel` RESTRICTIVE `FOR SELECT` com trechos obrigatórios da expressão (R11) | `rls-guard.test.ts:216+` |
+| `ESCRITA_POR_AUDIENCIA` (`:275`) | `content_views` → `paciente_conteudo_visto`; `content_favorites` → `paciente_conteudo_favorito` | idem, `FOR INSERT` | idem |
 | `AUDIT_EXCEPTIONS` (`audit-guard.ts:4`) | `audit_log`, `invites`, `consents`, `notifications`, `push_subscriptions`, `access_events`, `stored_files`, `content_views`, `content_favorites`, `document_access_codes` (Plano 10A), `ia_autorizacoes` (Plano 14A: consentimento, não dado de saúde; a linha é a prova, como `consents`), `ia_nutri_consentimentos` (Plano 15, pelo mesmo motivo), `lembretes_rotina_envios` (Plano 17: registro técnico do último horário enviado, sem dado clínico; a configuração, em `lembretes_rotina`, é auditada) | `findAuditViolations` (`:23`): toda tabela com `patient_id` (ou `patients`) tem o gatilho `audit_row_change` | `src/db/audit-guard.test.ts:10-50` |
 
-A guarda de `STAFF_ONLY` confere só o sentido lista → banco. Uma `staff_only` criada sem entrada na lista não quebra o CI; a regra 2 do CLAUDE.md manda fazer as duas coisas. Pior: **nenhuma guarda detecta a tabela que deveria ser `staff_only` quando se esquecem o SQL e a lista**. `findStaffOnlyViolations` (`rls-guard.ts:123`) e a matriz de `test/isolamento.test.ts` só percorrem as tabelas já listadas em `STAFF_ONLY`; a tabela esquecida fica só com `patient_isolation`, e o paciente continua lendo as próprias linhas. Quem decide que a tabela é interna da equipe é a revisão, não o CI.
+A guarda de `STAFF_ONLY` confere só o sentido lista → banco. Uma `staff_only` criada sem entrada na lista não quebra o CI; a regra 2 do CLAUDE.md manda fazer as duas coisas. Pior: **nenhuma guarda detecta a tabela que deveria ser `staff_only` quando se esquecem o SQL e a lista**. `findStaffOnlyViolations` (`rls-guard.ts:130`) e a matriz de `test/isolamento.test.ts` só percorrem as tabelas já listadas em `STAFF_ONLY`; a tabela esquecida fica só com `patient_isolation`, e o paciente continua lendo as próprias linhas. Quem decide que a tabela é interna da equipe é a revisão, não o CI.
 
 Outros testes de isolamento:
 
@@ -723,8 +757,8 @@ Outros testes de isolamento:
 - `src/db/migrate.test.ts:15-29`: o role da aplicação não é superusuário nem `BYPASSRLS` e é membro de `nutri_app_role` (Plano 01, Review Focus 2: o superusuário do Testcontainers mascararia a RLS). Desde o Plano 20, também a guarda do journal (`drizzle/meta/_journal.json` com `idx` sem buraco e `when` estritamente crescente; §2.5.12).
 - Fixtures de teste `rls_fixture_patient_items` e `audit_fixture_registros`, criadas só no `globalSetup` (`test/global-setup.ts:24-48`).
 - Plano 22: as quatro tabelas do catálogo e das filhas do exame em `STAFF_ONLY` (`src/db/rls-guard.ts:121-124`); no
-  isolamento, as fábricas (`test/isolamento.test.ts:187-197`, com a de `exams` liberada, `:29`), `SO_INSERE` (`:203`),
-  `COM_MAE` (`:392-393`) e o caso "Plano 22 (RN-385)" (`:598`) — detalhe em [§2.5.13](#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22).
+  isolamento, as fábricas (`test/isolamento.test.ts:187-197`, com a de `exams` liberada, `:29`), `SO_INSERE` (`:218`),
+  `COM_MAE` (`:411-412`) e o caso "Plano 22 (RN-385)" (`:617`) — detalhe em [§2.5.13](#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22).
 
 ---
 
@@ -747,7 +781,7 @@ Decisão do Plano 02 ("API de auditoria"): **escrita** auditada por gatilho, sem
 | `ip` | `app_current_ip()` |
 | `criado_em` | `clock_timestamp()` (ações na mesma transação ficam em ordem) |
 
-Proteções: `REVOKE UPDATE, DELETE` (append-only, `0002`); `patient_isolation` (`0007:52`); `paciente_sem_leitura` (`0085`). O `INSERT` é liberado a `publico` e `paciente` porque o gatilho e o `auditRead` rodam com o papel de quem age (`PUBLICO_LIBERADO` e `PACIENTE_ESCREVE`, motivos em `src/db/rls-guard.ts:141`, `:188`). Os IPs do `audit_log` ficam mesmo após a anonimização, como registro de responsabilização (spec RNF-08, "Plano 05").
+Proteções: `REVOKE UPDATE, DELETE` (append-only, `0002`); `patient_isolation` (`0007:52`); `paciente_sem_leitura` (`0085`). O `INSERT` é liberado a `publico` e `paciente` porque o gatilho e o `auditRead` rodam com o papel de quem age (`PUBLICO_LIBERADO` e `PACIENTE_ESCREVE`, motivos em `src/db/rls-guard.ts:143`, `:190`). Os IPs do `audit_log` ficam mesmo após a anonimização, como registro de responsabilização (spec RNF-08, "Plano 05").
 
 ### 2.8.2 Gatilho `audit_row_change`
 
@@ -899,7 +933,7 @@ Segue as regras 1, 2, 7, 8 e 9 do CLAUDE.md. Exemplo: tabela `minha_tabela` com 
    | Portal do paciente grava | `SELECT app_allow_paciente_escrita('minha_tabela', 'insert', …);` | Entrada em `PACIENTE_ESCREVE`; avaliar política RESTRICTIVE e/ou gatilho `paciente_colunas` para conferir **o que** é gravado (0080, 0085) |
    | Conteúdo sem `patient_id` lido pela audiência | Política RESTRICTIVE `paciente_conteudo_visivel` `FOR SELECT` herdando de `contents` por `EXISTS` (ligando `c.id` e `c.tenant_id`) | Entrada em `CONTEUDO_POR_AUDIENCIA` |
    | `patient_id` mas não é dado de saúde | Sem `app_enable_audit` | Entrada justificada em `AUDIT_EXCEPTIONS` |
-   | Escrita do paciente só em conteúdo que ele vê pela audiência | Política RESTRICTIVE de `INSERT` (como `paciente_conteudo_visto`, `paciente_conteudo_favorito`) | Entrada em `PACIENTE_ESCREVE` **e** em `ESCRITA_POR_AUDIENCIA` (`rls-guard.ts:267`) |
+   | Escrita do paciente só em conteúdo que ele vê pela audiência | Política RESTRICTIVE de `INSERT` (como `paciente_conteudo_visto`, `paciente_conteudo_favorito`) | Entrada em `PACIENTE_ESCREVE` **e** em `ESCRITA_POR_AUDIENCIA` (`rls-guard.ts:275`) |
    | `patient_id` sem a política `patient_isolation` padrão (política própria) | Política própria no lugar de `app_enable_patient_rls` (caso de `stored_files`: `paciente_arquivos`) | Entrada justificada em `PATIENT_POLICY_EXCEPTIONS` (`rls-guard.ts:20`) |
    | Titular na coluna `id` (como `patients`) | `app_enable_patient_rls('t', 'id')` e `app_enable_audit('t', 'e', 'id')` | — |
 
@@ -935,9 +969,9 @@ flowchart TD
 | 4 | §4.1, item "Tabelas sem `tenant_id`": lista `users`, `consents` e `invites` | As três têm `tenant_id` e estão em `RLS_EXCEPTIONS` (o item "Escrita do paciente negada por padrão" da mesma seção já diz isso) | `drizzle/0003_auth.sql:57`, `drizzle/0018_convite_paciente.sql:4-5`; `src/db/rls-guard.ts:9-15` |
 | 5 | §7 não lista `system_heartbeat`; §4.1 não a cita entre as tabelas fora da RLS | A tabela existe (`name`, `beat_at`) e é usada pelo worker e pelo `/api/health` | `drizzle/0001_plataforma.sql:13-16`; `src/worker/heartbeat.ts` |
 | 6 | §4.1: `withTenant` faz `SET LOCAL` de `app.tenant_id`, `app.role` e `app.patient_id` | `set_config(…, true)` de cinco GUCs: também `app.user_id` e `app.ip` (usados pela auditoria e por `paciente_por_conta`) | `src/db/tenant.ts:94-99` |
-| 7 | CLAUDE.md regra 2: tabela `staff_only` exige a entrada em `STAFF_ONLY`, e "a guarda quebra o CI se esquecer" (para as outras listas) | A guarda de `STAFF_ONLY` só confere lista → banco; `staff_only` instalada sem entrada na lista não quebra o CI | `src/db/rls-guard.ts:123-132` |
+| 7 | CLAUDE.md regra 2: tabela `staff_only` exige a entrada em `STAFF_ONLY`, e "a guarda quebra o CI se esquecer" (para as outras listas) | A guarda de `STAFF_ONLY` só confere lista → banco; `staff_only` instalada sem entrada na lista não quebra o CI | `src/db/rls-guard.ts:130-139` |
 | 8 | `CLAUDE.md`, regra 1: lista das tabelas fora da RLS (`tenants`, `backup_runs`, `public_rate_limits`, `ia_gasto_plataforma`) | `admin_actions` (Plano 09, sem `tenant_id`, só inclusão) também fica fora da RLS e não aparece nessa lista; a regra a cita só no trecho de `reiniciar-2fa.ts`. As escritas de IA nela (`contas.ts`, `metricas.ts`) seguem a mesma proteção (fora de `withTenant`, só a admin) | `drizzle/0095_admin_actions.sql`; `src/modules/plataforma/contas.ts` (`definirIaLiberada`), `metricas.ts` (`ajustarCotaIa`) |
-| 9 | `CLAUDE.md`, regras 2 e 8: cada plano com tabela nova anota ali as listas, os gatilhos e a auditoria (Planos 11 a 15) | **Resolvida (revisão final do Plano 17, 17/11/2026):** a anotação entrou no fim das regras 2 e 8 (`lembretes_rotina` (`PACIENTE_ESCREVE` `update`, entidade `lembretes`, gatilhos `lembretes_rotina_regras` e `lembretes_rotina_sem_apagar`), `lembretes_rotina_envios` (`STAFF_ONLY`, `AUDIT_EXCEPTIONS`, gatilho do worker, `PAPEL_DA_FABRICA`/`COM_MAE`/`IMUTAVEIS` no isolamento) e a exceção da sessão `nutri` em `patients_lembretes_do_paciente` (a limpeza na ida a `bloqueado`); detalhe na §2.5.11) | `drizzle/0119_rls_lembretes_rotina.sql`, `0120`; `src/db/rls-guard.ts:208`; `src/db/audit-guard.ts:19` |
+| 9 | `CLAUDE.md`, regras 2 e 8: cada plano com tabela nova anota ali as listas, os gatilhos e a auditoria (Planos 11 a 15) | **Resolvida (revisão final do Plano 17, 17/11/2026):** a anotação entrou no fim das regras 2 e 8 (`lembretes_rotina` (`PACIENTE_ESCREVE` `update`, entidade `lembretes`, gatilhos `lembretes_rotina_regras` e `lembretes_rotina_sem_apagar`), `lembretes_rotina_envios` (`STAFF_ONLY`, `AUDIT_EXCEPTIONS`, gatilho do worker, `PAPEL_DA_FABRICA`/`COM_MAE`/`IMUTAVEIS` no isolamento) e a exceção da sessão `nutri` em `patients_lembretes_do_paciente` (a limpeza na ida a `bloqueado`); detalhe na §2.5.11) | `drizzle/0119_rls_lembretes_rotina.sql`, `0120`; `src/db/rls-guard.ts:215`; `src/db/audit-guard.ts:19` |
 | 10 | Spec dos lembretes (`docs/superpowers/specs/2026-11-13-nutridebby-lembretes-de-rotina-design.md`) §5.5: a configuração "é parte da conduta" e por isso é auditada | O comentário da `0119` repete isso (`:6`), mas `atenderPedidoExclusao` classifica a configuração como "ajuste do app, não prontuário" para fins de guarda (NORMAS-03) e a apaga na hora. Leitura coerente: auditada como escrita sobre o titular (regra 8), fora do prazo de guarda do prontuário ([§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17)) | `drizzle/0119_rls_lembretes_rotina.sql:6`; `src/modules/pacientes/lgpd.ts:196-205` |
 | 11 | Spec do Plano 18 (`docs/superpowers/specs/2026-11-16-nutridebby-18-ficha-cadastro-design.md`) §9.1: dois gatilhos em `patient_cadastro` (`_colunas_fixas` com `tenant_id` e `patient_id`; `_sem_apagar`) | Três: `patient_cadastro_colunas_fixas` também fixa o `id` (o `entidade_id` da trilha), e `patient_cadastro_titular_ativo` (BEFORE INSERT OR UPDATE) recusa gravar o cadastro de titular já anonimizado, para qualquer papel — uma imagem antiga no deploy ou a tela aberta durante a anonimização traria CPF e endereço de volta (revisão da T5) | `drizzle/0125_rls_patient_cadastro.sql:18-30`, `:49-63` |
 | 12 | Spec do Financeiro (`docs/superpowers/specs/2026-11-16-nutridebby-20-financeiro-design.md`) RN-316 e plano, Tarefa 9: `anonimizarVencidos` chama `app_anonimizar_financeiro` para o paciente vencido | Só quando ele tem lançamento: a função confere o prazo pelo relógio do banco, e o `now` do job pode ser outro (decisão da execução; [§12.13](12-financeiro.md#1213-divergências-conhecidas), #1) | `src/modules/pacientes/lgpd.ts:565` (a conferência em `temLancamentos`, `src/modules/financeiro/titular.ts`) |

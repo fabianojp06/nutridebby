@@ -3,6 +3,7 @@ import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { DocumentoError } from './erros';
 import type { CopiaDoDocumento } from './perfil-profissional';
 import type { ConteudoReceita } from './prescricao';
+import type { ConteudoSolicitacao } from './solicitacao';
 
 /**
  * Plano 13 — parecer nutricional (F3-05, US-141, RN-148). Sem imports do servidor: o formulário 'use client' e o PDF do
@@ -47,7 +48,8 @@ export type ConteudoParecer = {
   /** D5: o texto da declaração confirmada no preparo. */
   declaracao?: string;
 };
-export type ConteudoDocumento = ConteudoReceita | ConteudoParecer;
+/** Plano 22 (RN-397): a solicitação de exames laboratoriais. Quem decide pelo tipo usa `switch` + `assertNever` (DEP-E7). */
+export type ConteudoDocumento = ConteudoReceita | ConteudoParecer | ConteudoSolicitacao;
 
 /**
  * O navegador manda a quebra de linha do <textarea> como \r\n: normalizar antes de contar (o maxLength da tela conta 1).

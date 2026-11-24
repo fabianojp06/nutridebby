@@ -60,6 +60,13 @@ describe('solicitação de exames (RN-388, RN-389; "Solicitação: erros" da §6
     expect(c.orientacoes).toBe('linha 1\n\n- item');
   });
 
+  it('surrogate UTF-16 sem par some do texto e do nome do exame (o jsonb recusaria com 22P02); o par válido fica', () => {
+    const c = validarRascunhoSolicitacao({ exames: [{ nome: 'Glico\ud800se' }], indicacaoClinica: 'a\udc00b', orientacoes: 'linha\ud800 1 \u{1F600}' });
+    expect(c.exames).toEqual([{ nome: 'Glicose' }]);
+    expect(c.indicacaoClinica).toBe('ab');
+    expect(c.orientacoes).toBe('linha 1 \u{1F600}');
+  });
+
   it('textos da §6.2 e a declaração: a mesma de constantes.ts (reexportada, R22-14)', () => {
     expect(MSG_SOLICITACAO.titulo).toBe('Solicitação de exames laboratoriais');
     expect(MSG_SOLICITACAO.nova).toBe('Nova solicitação de exames');

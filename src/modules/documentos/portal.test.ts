@@ -63,6 +63,21 @@ describe('documentos no portal (US-146)', () => {
     expect(await confirmarRecebimentoNoPortal(ctxPaciente(T.tenantId, p.id), v1.id, app.db)).toBeNull();
   });
 
+  it('Plano 22 (T9, RN-395, D17 do 10A): com uma solicitação e uma receita com fórmula e orientações formatadas, as chaves continuam as de hoje — nada dos itens nem das orientações', async () => {
+    const T = await consultorioLiberado();
+    const p = await novoPaciente(app.db, T.ctx);
+    const formula = {
+      tipo: 'formula_fitoterapica', formaFarmaceutica: 'Cápsula', via: 'oral', posologia: '1 cápsula à noite', duracao: '30 dias',
+      compostos: [{ nomenclatura: 'Passiflora incarnata L.', parte: 'Folhas', extracao: 'Extrato seco', padronizacao: '', quantidade: 200, unidade: 'mg' }, { nomenclatura: 'Melissa officinalis L.', parte: 'Folhas', extracao: 'Extrato seco', padronizacao: '', quantidade: 200, unidade: 'mg' }],
+    };
+    await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', conteudo: { versao: 1, tipo: 'receita', itens: [formula], orientacoes: '**Tomar à noite**', orientacoesFormato: 'marcacao' } });
+    await documentoNoBanco(app.db, T.ctx, p.id, { status: 'assinado', tipo: 'solicitacao_exames', conteudo: { versao: 1, tipo: 'solicitacao_exames', exames: [{ nome: 'Glicose' }], indicacaoClinica: 'Acompanhar a dieta.', orientacoes: '- Jejum de 8 h', orientacoesFormato: 'marcacao' } });
+    const lista = await documentosDoPaciente(ctxPaciente(T.tenantId, p.id), app.db);
+    expect(lista.map((d) => d.titulo).sort()).toEqual(['Receita', 'Solicitação de exames laboratoriais']);
+    for (const d of lista) expect(Object.keys(d).sort()).toEqual(['aberto', 'assinaturaTipo', 'data', 'id', 'recebidoEm', 'status', 'tipo', 'titulo', 'versao']);
+    for (const fora of ['Passiflora', 'Tomar', 'Glicose', 'Jejum', 'Acompanhar', 'marcacao']) expect(JSON.stringify(lista)).not.toContain(fora);
+  });
+
   it('RN-157: a digitalizada aparece como "Assinatura: Digitalizado" (o Plano 10B acrescenta o caso do gov.br)', async () => {
     const T = await consultorioLiberado();
     const p = await novoPaciente(app.db, T.ctx);

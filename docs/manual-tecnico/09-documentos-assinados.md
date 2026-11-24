@@ -3,14 +3,17 @@
 > **Manual técnico do NutriDebby.** Este capítulo descreve o módulo `src/modules/documentos`: a base de "documento
 > assinado", a receita de suplementos e fitoterápicos com assinatura **digitalizada** (Plano 10A, PR #19, em produção
 > desde 06/10/2026) e, desde o Plano 13, o **parecer nutricional** sobre os exames e a **retificação** por versão nova
-> (§9.11). A assinatura gov.br e ICP-Brasil (Plano 10B) ainda não existe no código.
+> (§9.11). A assinatura gov.br e ICP-Brasil (Plano 10B) ainda não existe no código. Desde o Plano 22 (PR 4, §9.12): a
+> **solicitação de exames laboratoriais** (tipo novo), a fórmula magistral fitoterápica, as orientações com marcação
+> mínima, os itens salvos e os modelos de prescrição e o "Compartilhar" do PDF assinado.
 
 | Item | Valor |
 |---|---|
 | Conferido contra | `main` em `3991c7d` (merge do PR #19), 06/10/2026; a §9.11 e as atualizações do Plano 13 contra o branch `plano-13-parecer` em `2d4b84c` (Tarefas 1–11 integradas, antes do merge), 08/10/2026 |
 | Spec | `docs/superpowers/specs/2026-10-03-nutridebby-documentos-assinados-design.md` **v0.6** (abreviada "spec B"; "§10" = modelo de dados dela; a parte do Plano 13 na seção "Plano 13 — preparação (v0.5)") |
 | Plano | `docs/superpowers/plans/2026-10-05-nutridebby-10a-receita.md` ("Plano 10A, Dx") e `docs/superpowers/plans/2026-10-08-nutridebby-13-parecer.md` ("Plano 13", decisões D-P1 a D-P8, Q13-1 a Q13-6, desvios 1–11) |
-| Migrations | `0089`–`0093` (Plano 10A) e `0104_parecer` (gerada) / `0105_parecer_regras` (custom) (Plano 13) |
+| Migrations | `0089`–`0093` (Plano 10A) e `0104_parecer` (gerada) / `0105_parecer_regras` (custom) (Plano 13); Plano 22: o CHECK de tipo com `solicitacao_exames` na `0127_exames_catalogo` (PR 1, EP-D49) e `0134_prescricao_modelos` (gerada) / `0135_rls_prescricao_modelos` (custom) (PR 4) — números do branch, gerados de novo sobre a `main` `c5a4050`; o §5 de `sessoes-paralelas.md` renumera se outra migration entrar antes |
+| Plano 22 | Spec `docs/superpowers/specs/2026-11-17-nutridebby-22-exames-prescricao-design.md` v0.3; plano `docs/superpowers/plans/2026-11-17-nutridebby-22-exames-prescricao.md` (EP-D1 a EP-D64); §9.12 conferida contra o branch `plano-22-exames-prescricao` (T7 a T12), 23/11/2026 |
 | Segredos | Só nomes de variáveis. Nenhuma variável nova: as chaves do link derivam de `ENCRYPTION_KEY` por HKDF; o Plano 13 não criou variável nem interruptor |
 
 ---
@@ -146,7 +149,7 @@ Chaves e restrições que importam:
 |---|---|---|
 | `RLS_EXCEPTIONS` | `document_verifications` | `src/db/rls-guard.ts:15` |
 | `STAFF_ONLY` | `signed_document_notes` | `src/db/rls-guard.ts:113` |
-| `PACIENTE_ESCREVE` | `signed_document_receipts` (`insert`), `document_access_codes` (`insert`, `update`) | `src/db/rls-guard.ts:201-202` |
+| `PACIENTE_ESCREVE` | `signed_document_receipts` (`insert`), `document_access_codes` (`insert`, `update`) | `src/db/rls-guard.ts:207-208` |
 | `AUDIT_EXCEPTIONS` | `document_access_codes` | `src/db/audit-guard.ts:15` |
 | `SEM_CONTA_PERMITIDOS` | `src/modules/documentos/link-documento.ts` (sete arquivos desde o Plano 18) | `src/db/tenant.ts:39` |
 | `ENTIDADE_ROTULO` | `documentos` ("Documentos assinados"), `perfil_profissional` ("Perfil profissional"), `tentativa_assinatura` ("Tentativa de assinatura com código recusado") | `src/modules/plataforma/audit.ts:64-66` |
@@ -283,8 +286,10 @@ sempre por `signFileUrl` (5 min) com a URL nascendo no clique (303).
 |---|---|---|---|---|
 | `documento-pdf` | `prepararParaAssinatura`, `pedirNovoPdfDocumento` | PDF preparado (`gerarPdfDoDocumento`) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, documentoId }` |
 | `documento-digitalizado` | `receberDigitalizada` | PDF das fotos e assinatura (`montarPdfDigitalizado`) | 2 / 30↗ / 180 / 86 400 | `{ tenantId, documentoId, userId }` |
-| `expirar-documento-pdf` | cron `*/15 * * * *` (`src/worker/index.ts:223`) | PDF `pendente` há mais de 1 h → `falhou`; digitalização `recebendo`/`pendente` há mais de 1 h → `falhou`; base e fotos sem referência há mais de 1 h → apagados; ponteiros que sobraram num emitido → `soltarArquivosDoPreparo` | 1 / 60 / 300 / — | `{}` |
-| `agenda-limpeza` (existente) | cron `30 4 * * *` | Também apaga os códigos do link vencidos há mais de 1 dia (`limparCodigosDeDocumentoVencidos`); o log "limpeza da agenda pública" ganhou o campo `codigos` (`src/worker/index.ts:124-125`) | — | `{}` |
+| `expirar-documento-pdf` | cron `*/15 * * * *` (`src/worker/index.ts:243`) | PDF `pendente` há mais de 1 h → `falhou`; digitalização `recebendo`/`pendente` há mais de 1 h → `falhou`; base e fotos sem referência há mais de 1 h → apagados; ponteiros que sobraram num emitido → `soltarArquivosDoPreparo` | 1 / 60 / 300 / — | `{}` |
+| `agenda-limpeza` (existente) | cron `30 4 * * *` | Também apaga os códigos do link vencidos há mais de 1 dia (`limparCodigosDeDocumentoVencidos`); o log "limpeza da agenda pública" ganhou o campo `codigos` (`src/worker/index.ts:139-140`) | — | `{}` |
+| `documento-pdf-2` (Plano 22) | `prepararParaAssinatura`, `pedirNovoPdfDocumento` (o app **novo** só enfileira aqui: `FILA_DO_PDF_DO_DOCUMENTO`) | O mesmo `gerarPdfDoDocumento`; o worker novo consome as duas (`FILAS_DO_PDF_DO_DOCUMENTO`, §9.12.2) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, documentoId }` |
+| `documento-digitalizado-2` (Plano 22) | `receberDigitalizada` (`FILA_DA_DIGITALIZADA`) | O mesmo `montarPdfDigitalizado`; o worker novo consome as duas (`FILAS_DA_DIGITALIZADA`) | 2 / 30↗ / 180 / 86 400 | `{ tenantId, documentoId, userId }` |
 
 ## 9.9 Manual guiado
 
@@ -294,7 +299,11 @@ sempre por `signFileUrl` (5 min) com a URL nascendo no clique (303).
 "Dados para documentos", passo `dados-documentos`: "carimbo das receitas e dos pareceres", Plano 13) e `seguranca` v1
 (`/conta/seguranca`, passo `ativar-2fa`). Os textos novos do Plano 13 são rascunho para a Debby (desvio 9). O teste do manual passou a cobrir
 `src/app/conta`. O guia `prontuario` não cita a aba Documentos e fica na v1 enquanto ela depender do interruptor
-(P10A-17).
+(P10A-17). Plano 22 (PR 4): `documentos` **v3** ("Documentos: receita, parecer e solicitação de exames", 11 passos — mais
+`nova-solicitacao` e `editor-solicitacao`, antes de `preparar-documento`), `configuracoes` **v10** (cartão "Prescrição",
+só com os documentos liberados) e o guia novo `prescricao` v1 (`/painel/prescricao/*`, passos `secoes-prescricao` e
+`novo-item-salvo`); no app, `portal-novidades` **v5** ("Compartilhar", §9.12.6). Os números são do branch: no rebase
+sobem +1 sobre a `main` (EP-D52).
 
 ## 9.10 Operação
 
@@ -540,6 +549,153 @@ O desvio 11 **da spec** v0.5 (cabeçalho do cap. 11 com "ainda sem merge") já e
 fechamento do Plano 12): o cap. 11 diz "em produção desde 08/10/2026, PR #25, merge `3b59c38`" (R3 do pre-flight do
 Plano 13).
 
+## 9.12 Solicitação de exames, fórmula fitoterápica, modelos e "Compartilhar" (Plano 22, PR 4)
+
+US-376 a US-380, RN-388 a RN-398, EP-D1 a EP-D7, EP-D24 a EP-D31, EP-D34, EP-D47 a EP-D57. As duas tabelas novas estão
+no [cap. 2](02-banco-de-dados.md) (§2.5.14); o "Lançar resultados" leva ao "Novo exame" do [cap. 4](04-modulos-clinicos.md).
+
+### 9.12.1 Tipo novo sem ramo por exclusão (T7, RN-397, DEP-E7)
+
+- `src/modules/documentos/tipos-de-documento.ts` (puro): `TIPOS_DE_DOCUMENTO = ['receita', 'parecer',
+  'solicitacao_exames']`, `assertNever` (mensagem fixa, nunca o valor), `conteudoVazio(tipo)`, `rotuloDoTipo(tipo)`,
+  `semCopia(conteudo)` (a retificação copia **todas** as chaves do conteúdo, menos `copia` e `declaracao`) e a
+  reexportação de `exigeHabilitacao`. Todo código que decide pelo tipo usa `switch` + `assertNever`: `conteudoVazio`
+  e o preparo de `documentos.ts`, o corpo do PDF (`documento-pdf.tsx`), a justificativa de `retificacao.ts`,
+  `link-documento.ts` (tipo ausente → `indisponivel`, sem `?? 'receita'`), `lgpd-documentos.ts`,
+  `exigirHabilitacaoAtual` (`registrar-assinatura.ts`) e o título da digitalizada (`digitalizada-job.tsx`, por
+  `rotuloDoTipo`). As guardas dos editores (`salvarRascunhoReceita`, `salvarRascunhoParecer`) recusam qualquer outro tipo e
+  ficaram como estavam (EP-D57).
+- Rótulos (`constantes.ts`): "Solicitação de exames laboratoriais", "da solicitação de exames laboratoriais" e
+  `DECLARACAO_POR_TIPO.solicitacao_exames = DECLARACAO_SOLICITACAO` (rascunho para a Debby). `declaracaoDoDocumento(c)`
+  (EP-D56) é a declaração que a tela mostra e o preparo grava: a da receita ganha `FRASE_FORMULA_FITOTERAPICA` só quando
+  há `formula_fitoterapica`.
+- Habilitação em Fitoterapia: `exigeHabilitacao(tipo)` (`fitoterapico` e `formula_fitoterapica`) no Zod do salvar, no
+  preparo e na assinatura (`exigirHabilitacaoAtual`: a receita confere cada item; parecer e solicitação não pedem).
+
+### 9.12.2 Filas "-2" (T7, EP-D34, R-375)
+
+O app novo enfileira só em `documento-pdf-2` e `documento-digitalizado-2` (`FILA_DO_PDF_DO_DOCUMENTO`,
+`FILA_DA_DIGITALIZADA`, `src/jobs/queues.ts`); o worker novo registra as quatro com o mesmo handler
+(`FILAS_DO_PDF_DO_DOCUMENTO`, `FILAS_DA_DIGITALIZADA`, `src/worker/index.ts`). O worker antigo, de pé na janela do deploy,
+só conhece as filas velhas: nunca recebe um documento que não sabe desenhar (a exceção está no runbook, §9.12.7). Guarda
+de fonte em `src/worker/filas-documento-pdf.test.ts` (ignora `*.test.ts`, confere opções iguais e handler único).
+
+### 9.12.3 Solicitação de exames laboratoriais (T8, US-376, US-377, RN-388 a RN-391, EP-D1 a EP-D7)
+
+- **Conteúdo** (`ConteudoSolicitacao`, `solicitacao.ts`, puro): `exames` (1 a 40 no preparo, `{ nome, painel? }`, cópia,
+  sem FK para o catálogo), `indicacaoClinica` (até 500, opcional), `orientacoes` (até 1000, marcação) e
+  `orientacoesFormato: 'marcacao'`. O Zod é sem `.strict()` (R22-15): uma chave `laboratorio` some da saída — não existe
+  campo de laboratório em lugar nenhum (EP-D2, C-374).
+- **Criação:** "Nova solicitação de exames" na aba Documentos (`criarSolicitacaoAction`, `data-guia="nova-solicitacao"`) e
+  "Adicionar" → "Solicitação de exames" no Início da ficha (`'criar-solicitacao'`). O editor
+  (`[docId]/solicitacao-form.tsx`, `data-guia="editor-solicitacao"`) tem "Adicionar do catálogo", "Adicionar exame fora do
+  catálogo" (com a ajuda fixa da Lei 8.234/1991, art. 4º, VIII), "Carregar modelo" ("Acrescentar" sem repetir;
+  "Substituir" com a confirmação "Substituir os {n} exames da solicitação pelos do modelo?"; as orientações do modelo só
+  com as da tela vazias), "Remover todos", a indicação clínica com a linha fixa "Descreva a finalidade nutricional; não
+  afirme doença." e o aviso "Planos de saúde podem recusar pedido de exame feito por nutricionista." (na tela, nunca no
+  PDF, EP-D4). Fora do rascunho, `solicitacao-visao.tsx` mostra os exames, a indicação e as orientações.
+- **Preparo e assinatura:** `validarSolicitacaoParaPreparar` (1 a 40 exames); o PDF (`CorpoSolicitacao`) com o título
+  fixo, os exames (um painel sai como um item, com o nome dele), a indicação só se preenchida e as orientações pela
+  marcação; a digitalizada e a verificação como a receita.
+- **"Lançar resultados"** (RN-390, EP-D50): na solicitação assinada, o link `/painel/pacientes/[id]/exames?solicitacao=<docId>#novo-exame`.
+  A página lê `linhasParaLancar(tenant, busca)` (o parâmetro só vale com `documentos_liberados`) e `examesParaLancar`
+  (`lancar-resultados.ts`): só a solicitação `assinado` do paciente da rota, não anonimizada; o título "Exames solicitados
+  em {data do preparo no fuso}" e uma linha por exame, com os painéis expandidos pelo catálogo **atual**
+  (`expandirParaAnalise`). O conteúdo é lido sem auditar, o tipo é conferido e só então grava o `auditRead` (entidade
+  `documentos`, como `lerDocumento`; T12). O exame salvo depois é cópia (sem FK).
+- **Portal, link e verificação:** como a receita, sem os exames nem as orientações na tela (D17 do 10A); a verificação
+  pública só com o rótulo do tipo (D8). **Exportação:** em `documentos[]` do `dados.json`, `exames` (`nome`, `painel`),
+  `indicacaoClinica` e `orientacoes`, sem justificativa; o titular só recebe as emitidas (R22-13). **Anonimização:** a de
+  todos os documentos (`app_anonimizar_documentos`).
+
+### 9.12.4 Fórmula magistral fitoterápica e marcação mínima (T9, US-378, RN-392, RN-395, EP-D26 a EP-D28, EP-D31)
+
+- **Item `formula_fitoterapica`** (`prescricao.ts`, entra em `TIPOS_ITEM` e no Zod só no PR 4, EP-D48): 2 a 10
+  `compostos` (`nomenclatura`, `parte`, `extracao`, `padronizacao` opcional, `quantidade`, `unidade`), `formaFarmaceutica`,
+  `via`, `posologia` (até 300) e `duracao`. Em cada composto, a nomenclatura passa pela conferência de apoio: primeiro
+  `temTermoNaoVegetal` (`TERMOS_NAO_VEGETAIS`, rascunho para a Debby; mensagem do art. 9º, II), depois `binomioValido`. O
+  "Derivado ou extração" e a padronização ficam fora da conferência (citam o marcador legitimamente, art. 12, I, "d").
+  O fitoterápico de uma planta só também passa pela conferência dos termos. Exige a habilitação. Os campos de cada item
+  ficaram em `[docId]/campos-do-item.tsx` (`CamposDoItem`, R22-10), reaproveitados pelo item salvo.
+- **Marcação mínima** (`marcacao.ts`, puro, sem import): `lerMarcacao(texto)` → blocos (`paragrafo` com trechos;
+  `lista` de linhas com "- "; `**negrito**` sem aninhar). Nunca vira HTML: o PDF (`documento-pdf.tsx`), a prévia do
+  editor (`OrientacoesCampo`, com "Negrito", "Lista" e "Prévia") e a página do documento (`MarcacaoBlocos`,
+  `src/components/marcacao-blocos.tsx`) montam componentes; `<`, `>`, `&`, links e tags ficam como texto. Só o conteúdo
+  com `orientacoesFormato: 'marcacao'` é lido assim; a receita de antes do Plano 22 continua texto puro. Nenhum
+  `dangerouslySetInnerHTML` (guarda de texto em `src/components/marcacao-blocos.test.ts`; o PDF com `<script>`, tags e links
+  literais em `marcacao-documento.test.ts`).
+- **Retificação:** conserva o tipo, todas as chaves e o `orientacoesFormato` (`semCopia`).
+
+### 9.12.5 Itens salvos e modelos de prescrição (T10a, T10b, US-379, RN-393, RN-394, EP-D29, EP-D30)
+
+- **Módulo** `modelos.ts` (textos e tetos em `modelos-textos.ts`, puro): `listarItensSalvos(ctx, grupo)`,
+  `abrirItemSalvo`, `salvarItemSalvo`, `excluirItemSalvo`, `listarModelosPrescricao`, `abrirModeloPrescricao`,
+  `salvarModeloPrescricao`, `excluirModeloPrescricao` e `carregarModeloNaReceita`. Todas conferem `ctx.role === 'nutri'`
+  antes da transação. O item passa por `validarItem` e o modelo por `validarItensDoModelo` — o **mesmo** Zod do item da
+  receita e a mesma conferência da habilitação (R22-09). Tetos de 300 itens e 100 modelos contados sob
+  `pg_advisory_xact_lock` por consultório; nome único sem diferença de maiúsculas (índice de `lower(nome)`).
+- **"Carregar modelo"** (RN-394, R-377): a action recebe o conteúdo **da tela**, o id do modelo e o modo; `acrescentar`
+  com mais de 20 itens recusa com "Com este modelo a receita passaria de 20 itens. Use Substituir ou retire itens."; as
+  orientações do modelo entram só com as da tela vazias; grava por `salvarRascunhoReceita` (Zod, 20 itens, habilitação
+  **atual**, paciente e documento travados; tudo ou nada) com a justificativa digitada e devolve o conteúdo gravado — o
+  `ReceitaForm` remonta o editor (`key`) com ele, anuncia "Rascunho salvo." e leva o foco a "Itens da receita".
+- **Diálogos da receita** (`[docId]/dialogos-da-receita.tsx`, todos pelo `Dialogo`, em portal para fora do `<form>` da
+  receita): "Salvar item" e "Salvar como modelo" (o nome num `<form>` próprio, com o aviso de tirar dados do paciente;
+  não salvam o rascunho; a justificativa nunca vai ao modelo), "Adicionar item salvo" (copia no cliente, sem gravar; sem a
+  habilitação, o fitoterápico formulado fica `aria-disabled` com a mensagem `semHabilitacao`) e "Carregar modelo"
+  (com a confirmação "Substituir os {n} itens da receita pelos do modelo?").
+- **Telas** `/painel/prescricao/itens` (`?tipo=suplementos|fitoterapicos`), `/itens/novo`, `/itens/[id]`, `/modelos` e
+  `/modelos/[id]` (o modelo nasce na receita), no fim de `DO_HUB` (EP-D51) e no cartão "Prescrição" de Configurações (só com
+  `documentos_liberados`, `soComDocumentos`). Toda página **e** toda action chamam `acessoComDocumentos`
+  (`src/app/painel/documentos-liberados.ts`: `requireNutri` + `notFound()` sem os documentos liberados; o `notFound()` de um
+  layout não protege as Server Actions).
+
+### 9.12.6 "Compartilhar" o PDF assinado (T11, US-380, RN-396, EP-D24, EP-D25, EP-D43)
+
+`CompartilharPdf` (`src/components/portal/compartilhar-pdf.tsx`, estado em `compartilhar-pdf-estado.ts`), em
+`/p/documentos` (só no assinado em vigor) e na página do link (`/documento/[token]`). Dois passos, porque o compartilhar
+exige um toque recente: "Preparar para compartilhar" busca o PDF **uma vez** pela rota de sempre (`/api/p/documentos/[id]/pdf`
+ou `/api/documento/[token]/pdf`, que assinam a URL de 5 min e gravam o `auditRead` de hoje) e o guarda em memória;
+"Compartilhar" chama `navigator.share` quando `canShare({ files })` aceita, senão baixa o arquivo (com a mensagem "Este
+aparelho não consegue compartilhar o arquivo. O PDF foi baixado; envie pelo aplicativo que preferir."). A plataforma
+nunca envia nada nem grava registro novo; não há farmácia nem laboratório cadastrado (EP-D24, C-374). Sessão do link
+vencida: "O acesso venceu. Digite o código de novo." com "Digitar o código". Sem temporizador (a guarda da consulta
+automática). Textos em `MSG_COMPARTILHAR`.
+
+### 9.12.7 Runbook da volta atrás (R-375) e janela do deploy (M9)
+
+1. **Não voltar a imagem abaixo do PR 4 depois da primeira solicitação ou fórmula.** O app e o worker antigos não
+   conhecem o tipo `solicitacao_exames` nem o item `formula_fitoterapica`: o PDF sairia com o corpo da receita (ou falharia),
+   o editor antigo abriria a solicitação como receita e a exportação antiga perderia os campos novos. A migration
+   (`0134`/`0135`) é só aditiva e não precisa voltar.
+2. **Se a volta for inevitável:** antes, no `/admin`, desligar "Documentos" (`documentos_liberados`) dos consultórios
+   que usam (nenhuma tela de documento abre e nenhuma fila nova é alimentada); voltar a imagem; depois de subir de novo
+   o PR 4, religar. As exportações (`exportacao`) concluídas pelo worker antigo nesse intervalo saem sem as solicitações e
+   as fórmulas: refazer pelo worker novo as do intervalo (o titular pede de novo ou a nutricionista reexporta) **ou**
+   segurar a fila `exportacao` até o worker novo subir.
+3. **Janela do deploy (exceção da EP-D34).** Uma solicitação criada e preparada pelo app novo pode receber as fotos da
+   digitalizada numa réplica do app **antigo** (o Easypanel troca as réplicas uma a uma), que enfileira na fila velha
+   `documento-digitalizado`; se o worker antigo ainda estiver vivo e pegar o job, o PDF assinado sai com o título
+   "Receita" (`digitalizada-job.tsx` da `main` antiga: `TIPO_DOCUMENTO_ROTULO[d.tipo]` é `undefined` e cai em
+   `?? TIPO_DOCUMENTO_ROTULO.receita`). Como nenhuma solicitação existe antes do PR 4, basta fazer o deploy sem
+   solicitação em andamento; se houver, conferir depois o título dos PDFs digitalizados do intervalo e **retificar** o
+   que saiu errado (§9.11.3).
+4. Merge e deploy só com o OK do dono (merge = deploy; a migration roda no boot), nunca das 03h às 07h30 BRT e sem
+   snapshot da Hostinger (congela a VPS): a migration é só aditiva e o backup diário cobre o banco.
+
+### 9.12.8 Testes
+
+`src/modules/documentos/{tipos-de-documento,solicitacao-documento,lancar-resultados,formula-fitoterapica,marcacao-documento,modelos,banco-modelos,documentos,retificacao,registrar-assinatura,lgpd-documentos,link-documento,verificacao-publica,portal,digitalizada,digitalizada-job,documento-pdf-job}.test.ts`,
+`src/worker/filas-documento-pdf.test.ts`, `src/components/{marcacao-blocos,portal/compartilhar-pdf}.test.ts`, os testes
+de página e action de `src/app/painel/pacientes/[id]/documentos/**` e `src/app/painel/prescricao/**`,
+`src/modules/ficha/no-app.test.ts` e `src/modules/pacientes/exportacao.test.ts`. E2E: `e2e/solicitacao-exames.spec.ts`
+(CS-370 e CS-372: receita de 5 itens a partir do modelo "Rotina E2E" da semente em 1 clique + revisão),
+`e2e/portal.spec.ts` (o download do "Compartilhar" e o link vencido) e `e2e/acessibilidade-exames.spec.ts` (o axe dos
+diálogos da receita, do editor da solicitação — com um nome longo, sem rolagem lateral — e do "Compartilhar" pronto, claro
+e escuro, 1280 e 360 px). A semente (`scripts/e2e-seed.ts`) dá ao
+consultório do E2E a habilitação em Fitoterapia, o modelo "Rotina E2E" (5 itens) e os itens salvos "Magnésio E2E" e
+"Fórmula calmante E2E", repetíveis (`ON CONFLICT DO NOTHING`).
+
 ## Divergências encontradas
 
 | # | Spec / documento | Código | Onde |
@@ -554,3 +710,6 @@ Plano 13).
 | 8 | Spec B US-150 / Q13-1: o titular não recebe o motivo da retificação | Fora da exportação do titular até a resposta do advogado (E-09); com "sim", uma linha em `lgpd-documentos.ts` | `lgpd-documentos.ts` |
 | 9 | Spec da IA §5.10 (art. 37 da Res. CFN 856/2026) | Valores lidos pela IA e conferidos chegam ao paciente no PDF do parecer sem indicação de IA (Q13-2 (a)); pergunta ao CRN-3 (P-B1) antes de 23/01/2027; com "sim", a nota de origem no PDF (Q13-2 (b), backlog P13-14) | `documento-pdf.tsx` |
 | 10 | Spec B US-149 (cancelar) com retificação em andamento | A tela da versão 1 continua mostrando "Cancelar documento"; a recusa vem depois da confirmação (Minor da revisão da T9, backlog P13-15) | `[docId]/page.tsx` |
+| 11 | Plano 22, runbook R-375: "desligar `documentos_liberados` antes" | Desligar fecha a aba Documentos, `/p/documentos`, a página do link e as rotas do PDF (`notFound`/404), mas a verificação pública (`/v/…`) continua respondendo e os jobs já enfileirados seguem no worker | §9.12.7 |
+| 12 | Plano 22, spec US-379: "Substituir os {n} itens" | Com 1 item, o texto sai "Substituir os 1 itens" (texto exato da spec; plural no backlog do plano) | `modelos-textos.ts` |
+| 13 | Plano 22, T8: o `auditRead` do "Lançar resultados" vinha de `lerDocumentoNaTransacao(…, { auditar: true })`, antes da conferência do tipo do conteúdo | Desde a T12, lido sem auditar e o `auditRead` gravado depois da conferência (teste "a coluna diz solicitação, mas o conteúdo é de outro tipo") | `lancar-resultados.ts` |
