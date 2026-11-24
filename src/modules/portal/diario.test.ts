@@ -61,8 +61,8 @@ describe('diário (US-042, RN-07)', () => {
     expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto: 'a'.repeat(2001), foto: null }, deps()))).toEqual({ texto: MSG_DIARIO.texto });
     // F-4: o limite conta caracteres (code points), como o CHECK do banco (char_length), não unidades UTF-16
     expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto: '🍎'.repeat(2001), foto: null }, deps()))).toEqual({ texto: MSG_DIARIO.texto });
-    // F-4: NUL não entra no Postgres (text) — recusado antes, com 400, e não 500
-    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto: 'arroz\u0000feijão', foto: null }, deps()))).toEqual({ geral: MSG_DIARIO.formulario });
+    // F-4 / SUS-110: o NUL e o surrogate sem par saem em silêncio (portal/texto-invalido.test.ts); só eles → texto vazio
+    expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto: ' \u0000\ud800 ', foto: null }, deps()))).toEqual({ geral: MSG_DIARIO.vazio });
     const pdf = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(100)]);
     expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto: 'x', foto: pdf }, deps()))).toEqual({ foto: MSG_DIARIO.foto });
     expect(await erros(registrarNoDiario(ctx, SP, { refeicao: 'Ceia', texto: 'x', foto: Buffer.alloc(10 * 1024 * 1024 + 1, 0xff) }, deps()))).toEqual({ foto: MSG_DIARIO.foto });

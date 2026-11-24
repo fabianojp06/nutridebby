@@ -16,4 +16,9 @@ describe('normalizarTexto', () => {
     expect(normalizarTexto(null)).toBe('');
     expect(normalizarTexto(42)).toBe('');
   });
+  it('SUS-110: tira o NUL e o surrogate sem par antes de aparar e juntar; o emoji (par válido) fica', () => {
+    expect(normalizarTexto('\u0000 Pão\u0000 low\ud800 carb \udc00 🙂 ')).toBe('Pão low carb 🙂');
+    expect(normalizarTexto('\u0000\ud800 \udc00')).toBe('');
+    expect(normalizarTexto('🙂\ud83d')).toBe('🙂');
+  });
 });

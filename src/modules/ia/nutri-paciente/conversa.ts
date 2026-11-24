@@ -4,6 +4,7 @@ import { getDb, type Db } from '@/db/client';
 import { iaNutriMensagens, patients, tenants } from '@/db/schema';
 import { sessaoDePacienteComConta, withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { idValido } from '@/modules/pacientes/base';
 import { auditRead, recordAudit } from '@/modules/plataforma/audit';
 import { lerPausa } from '@/modules/plataforma/ia-nutri-pausa';
@@ -19,9 +20,13 @@ export type { DepsIaNutri } from './deps';
 export type ResultadoPergunta = { codigo: CodigoPergunta; mensagemId: string | null; textoFixo: CodigoTextoFixo | null };
 export type ResultadoEnvioDireto = { codigo: 'encaminhada' | 'limite' | 'indisponivel' | 'risco'; mensagemId: string | null; textoFixo: CodigoTextoFixo | null };
 
-/** O texto do cliente: sem espaços nas pontas; vazio ou acima de 500 caracteres (contados como o banco conta) → "Escreva sua dúvida em até 500 caracteres." */
+/**
+ * O texto do cliente: sem espaços nas pontas; vazio ou acima de 500 caracteres (contados como o banco conta) → "Escreva sua
+ * dúvida em até 500 caracteres." SUS-110 (regra 3): sem o NUL nem o surrogate sem par, antes de tudo — o parâmetro `text` da
+ * função recusaria o NUL (22021) com a pergunta, dado de saúde, no CONTEXT do erro (log do Postgres e do app).
+ */
 function textoDaPergunta(textoBruto: unknown): string {
-  const texto = typeof textoBruto === 'string' ? textoBruto.trim() : '';
+  const texto = typeof textoBruto === 'string' ? semInvalidosNoBanco(textoBruto).trim() : '';
   if (!texto || Array.from(texto).length > MAX_PERGUNTA) throw new IaNutriError(MSG_IA_NUTRI.longa);
   return texto;
 }

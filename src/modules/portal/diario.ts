@@ -3,6 +3,7 @@ import { fromDrizzle, type PgBoss } from 'pg-boss';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { diaryEntries, mealPlans, meals, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { getBoss } from '@/jobs/boss';
 import { inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { idValido } from '@/modules/pacientes/base';
@@ -102,9 +103,9 @@ export async function registrarNoDiario(
   if (refeicaoId && !idValido(refeicaoId)) throw new DiarioError({ geral: MSG_DIARIO.refeicaoNaoEncontrada });
   const refeicaoInformada = typeof input.refeicao === 'string' ? input.refeicao : '';
   if (!refeicaoId && !(REFEICOES_DO_DIARIO as readonly string[]).includes(refeicaoInformada)) throw new DiarioError({ refeicao: MSG_DIARIO.refeicao });
-  const texto = typeof input.texto === 'string' ? input.texto.normalize('NFC').trim() : '';
-  // NUL não cabe num `text` do Postgres (SQLSTATE 22021): sem isto, um 500 em vez de um 400
-  if (texto.includes('\0')) throw new DiarioError({ geral: MSG_DIARIO.formulario });
+  // SUS-110 (regra 3): o NUL (22021 no `text`, com um trecho do diário no log) e o surrogate sem par (U+FFFD no banco) saem
+  // em silêncio, antes de tudo — como no SUS-109; antes (F-4) o NUL era recusado com "Formulário inválido."
+  const texto = typeof input.texto === 'string' ? semInvalidosNoBanco(input.texto).normalize('NFC').trim() : '';
   // Caracteres (code points), como o CHECK do banco (char_length) e a spec — não unidades UTF-16 (um emoji conta 1)
   if ([...texto].length > TEXTO_DIARIO_MAX) throw new DiarioError({ texto: MSG_DIARIO.texto });
   const foto = input.foto && input.foto.length > 0 ? input.foto : null;

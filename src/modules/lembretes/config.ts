@@ -2,6 +2,7 @@
  * Plano 17 (§5.1, §5.2): tipos e validação da configuração dos lembretes de rotina. Puro (sem banco): o painel valida
  * antes de salvar, e o worker revalida cada linha (`validarConfig`, sem o texto, que ele nem lê) antes de `planoDoDia`.
  */
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { HORA_HHMM, minutosDe } from '@/modules/agenda/horarios';
 import { ANTECEDENCIAS, DIARIO_DEPOIS, INTERVALOS_AGUA, JANELA_FIM_MIN, JANELA_INICIO_MIN, MAX_HORARIOS, MSG_LEMBRETES as M, TEXTO_MAX } from './constantes';
 
@@ -104,12 +105,14 @@ function configDoTipo(tipo: unknown, config: unknown, erros: Erros): SemTexto<Le
   }
 }
 
-/** Texto do suplemento (nome) e do livre: aparado, 1..60 / 1..120 caracteres (como `char_length(btrim(...))` do CHECK). */
+/**
+ * Texto do suplemento (nome) e do livre: aparado, 1..60 / 1..120 caracteres (como `char_length(btrim(...))` do CHECK).
+ * SUS-110 (regra 3): o NUL (22021 no `text`, com o texto no log) e o surrogate sem par (U+FFFD no banco) saem em silêncio,
+ * antes de aparar e medir — como no diário; antes o NUL era recusado com "Formulário inválido.".
+ */
 function texto(tipo: 'suplemento' | 'livre', v: unknown, erros: Erros): string | null {
-  const t = typeof v === 'string' ? v.trim() : '';
+  const t = typeof v === 'string' ? semInvalidosNoBanco(v).trim() : '';
   if (!t) erros.texto = tipo === 'suplemento' ? M.textoSuplemento : M.textoLivre;
-  // NUL não cabe num `text` do Postgres (SQLSTATE 22021): sem isto, um 500 em vez do erro do campo (como no diário)
-  else if (t.includes('\0')) erros.texto = M.formulario;
   else if ([...t].length > TEXTO_MAX[tipo]) erros.texto = tipo === 'suplemento' ? M.textoLongoSuplemento : M.textoLongoLivre;
   else return t;
   return null;

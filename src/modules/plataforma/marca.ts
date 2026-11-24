@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
 import { tenants, type TenantRow } from '@/db/schema';
 import { signFileUrl } from '@/lib/signed-url';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { contraste } from '@/lib/tema/contraste';
 import { corNoEscuro } from '@/lib/tema/marca-tema';
 import { primeiroErroPorCampo } from '@/lib/validacao';
@@ -60,9 +61,13 @@ export class PerfilError extends Error {
   }
 }
 
-/** US-005. `tenants` não tem RLS: o tenantId vem sempre da sessão (requireNutri), nunca do formulário. */
+/**
+ * US-005. `tenants` não tem RLS: o tenantId vem sempre da sessão (requireNutri), nunca do formulário.
+ * SUS-110 (regra 3): todo texto do formulário sem o NUL nem o surrogate sem par, antes da validação — o `text` recusaria o
+ * NUL (22021, com o endereço ou o nome no log); nos campos de formato (cor, horas, link, fuso, CRN) o que sobra continua conferido.
+ */
 export async function atualizarPerfil(tenantId: string, input: Record<string, unknown>, db: Db = getDb()): Promise<void> {
-  const p = perfilSchema.safeParse(input);
+  const p = perfilSchema.safeParse(Object.fromEntries(Object.entries(input).map(([k, v]) => [k, typeof v === 'string' ? semInvalidosNoBanco(v) : v])));
   if (!p.success) throw new PerfilError(primeiroErroPorCampo(p.error));
   await db.update(tenants).set({ ...p.data, updatedAt: new Date() }).where(eq(tenants.id, tenantId));
 }

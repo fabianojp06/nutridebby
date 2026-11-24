@@ -95,12 +95,13 @@ describe('POST /api/p/diario (US-042)', () => {
     expect(await registros(A.T, A.paciente.id)).toEqual([]);
   });
 
-  it('F-4: texto com NUL → 400 "Formulário inválido." (não 500), nada gravado', async () => {
+  // o surrogate sem par não chega pela rede (o corpo vai em UTF-8, que já o troca por U+FFFD): só o NUL; o surrogate é
+  // provado no módulo (src/modules/portal/texto-invalido.test.ts)
+  it('F-4 / SUS-110: texto com NUL → 200, gravado sem ele (nunca o 500 do Postgres)', async () => {
     const A = await pacienteLogado();
-    const r = await enviar({ refeicao: 'Almoço', texto: 'arroz\u0000feijão' }, { cookie: A.cookie });
-    expect(r.status).toBe(400);
-    expect(await r.json()).toEqual({ erros: { geral: MSG_DIARIO.formulario } });
-    expect(await registros(A.T, A.paciente.id)).toEqual([]);
+    const r = await enviar({ refeicao: 'Almoço', texto: 'arroz\u0000 e feijão 🙂' }, { cookie: A.cookie });
+    expect(r.status).toBe(200);
+    expect((await registros(A.T, A.paciente.id)).map((e) => e.texto)).toEqual(['arroz e feijão 🙂']);
   });
 
   it('texto + JPEG válido → 200 "Registro salvo."; o 11º do dia → 409 com o limite', async () => {

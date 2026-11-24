@@ -107,12 +107,12 @@ describe('envio de exame pelo paciente (US-160, US-161, RN-160 a RN-162, RN-166,
     expect(await erros('2026-02-30')).toEqual({ dataColeta: MSG_ENVIO.dataObrigatoria });
   });
 
-  it('nome ≤ 120 e observação ≤ 500 caracteres (code points, como o CHECK); NUL → formulário inválido; a observação guarda as quebras de linha', async () => {
+  it('nome ≤ 120 e observação ≤ 500 caracteres (code points, como o CHECK); NUL e surrogate sem par saem em silêncio (SUS-110); a observação guarda as quebras de linha', async () => {
     const { T, p, ctx } = await cenario();
     const foto = await jpegDe(2000);
     expect((await erroDe(enviarExame(ctx, SP, entrada([foto], { nome: 'x'.repeat(121), observacao: 'y'.repeat(501) }), deps))).erros).toEqual({ nome: MSG_ENVIO.nome, observacao: MSG_ENVIO.observacao });
-    expect((await erroDe(enviarExame(ctx, SP, entrada([foto], { nome: 'a\u0000b' }), deps))).erros).toEqual({ geral: MSG_ENVIO.formulario });
-    await enviarExame(ctx, SP, entrada([foto], { nome: '🧪'.repeat(120), observacao: '  exame pedido\nna consulta de setembro  ' }), deps);
+    // o limite conta depois da limpeza: 120 emojis + NUL + surrogate sem par cabem
+    await enviarExame(ctx, SP, entrada([foto], { nome: `${'🧪'.repeat(120)}\u0000\udc00`, observacao: '  exame\ud800 pedido\nna consulta\u0000 de setembro  ' }), deps);
     const [e] = await envios(T, p.id);
     expect(e).toMatchObject({ nome: '🧪'.repeat(120), observacao: 'exame pedido\nna consulta de setembro' });
   });

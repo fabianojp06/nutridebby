@@ -3,6 +3,7 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
 import { appointments, consultationNotes, consultations } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { motivoParaNaoIniciarAtendimento } from '@/modules/agenda/presenca';
 import { cobrarConsultaRealizada, type ResultadoCobranca } from '@/modules/financeiro/cobranca';
 import { auditRead } from '@/modules/plataforma/audit';
@@ -37,8 +38,9 @@ function validar(input: Entrada, hoje: string): { data: string; notas: string | 
   const data = typeof input.data === 'string' ? input.data.trim() : '';
   if (!dataValida(data)) erros.data = MSG_ATENDIMENTO.data;
   else if (data > hoje) erros.data = MSG_ATENDIMENTO.futuro;
-  // o navegador envia quebra de linha como CRLF, mas o maxLength do textarea conta 1 caractere: normaliza antes de medir
-  const limpo = (v: unknown) => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n').trim() : '');
+  // o navegador envia quebra de linha como CRLF, mas o maxLength do textarea conta 1 caractere: normaliza antes de medir.
+  // SUS-110 (regra 3): sem o NUL nem o surrogate sem par — o `text` recusaria o NUL (22021) com um trecho da evolução no log.
+  const limpo = (v: unknown) => (typeof v === 'string' ? semInvalidosNoBanco(v).replace(/\r\n?/g, '\n').trim() : '');
   const notas = limpo(input.notasPrivadas);
   if (notas.length > 20000) erros.notasPrivadas = MSG_ATENDIMENTO.notas;
   const orientacoes = limpo(input.orientacoes);

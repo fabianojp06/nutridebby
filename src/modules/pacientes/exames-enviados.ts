@@ -4,6 +4,7 @@ import { examSubmissionFiles, examSubmissions, exams, patients, type PatientRow 
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { logger } from '@/lib/logger';
 import { normalizarTexto } from '@/lib/text';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { apagarArquivo } from '@/modules/plataforma/armazenamento';
 import { auditRead } from '@/modules/plataforma/audit';
 import { avisarEnvioAtualizado } from '@/modules/portal/avisos';
@@ -169,7 +170,8 @@ export async function aceitarEnvio(
   const db = deps.db ?? getDb();
   const agora = deps.agora ?? new Date();
   const erros: Partial<Record<'titulo' | 'data', string>> = {};
-  const titulo = normalizarTexto(entrada.titulo).slice(0, 120);
+  // SUS-110: o corte em 120 pode deixar meio emoji (surrogate sem par) no fim — limpo de novo
+  const titulo = semInvalidosNoBanco(normalizarTexto(entrada.titulo).slice(0, 120));
   if (!titulo) erros.titulo = MSG_EXAME.titulo;
   const data = typeof entrada.data === 'string' ? entrada.data.trim() : '';
   if (!dataValida(data)) erros.data = MSG_EXAME.data;

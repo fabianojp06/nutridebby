@@ -12,6 +12,7 @@ import {
   type PatientCadastroRow,
 } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { auditRead } from '@/modules/plataforma/audit';
 import { idValido, PacienteError } from './base';
 import { MSG_CADASTRO, normalizarQuebras, OBSERVACAO_MAXIMO, tamanhoDoTexto, type Escolaridade, type EstadoCivil, type IdentidadeDeGenero, type Uf } from './cadastro-textos';
@@ -151,9 +152,12 @@ function validarCampo(campo: CampoDoCadastro, bruto: unknown): { ok: true; valor
   const regra = REGRAS[campo];
   const erro = { ok: false as const, erro: erroDaRegra(campo, regra) };
   if (typeof bruto !== 'string') return erro;
-  const t = normalizarQuebras(bruto).trim();
+  // SUS-110 (regra 3): nos textos livres (nome social, ocupação, endereço, observação…), o NUL (22021, com o texto no log)
+  // e o surrogate sem par (U+FFFD no banco) saem em silêncio antes de aparar e medir, como no SUS-109
+  const t = (regra.tipo === 'texto' ? semInvalidosNoBanco(normalizarQuebras(bruto)) : normalizarQuebras(bruto)).trim();
   if (!t) return { ok: true, valor: null };
-  // o NUL derrubaria o INSERT (texto do Postgres não aceita) — recusado como valor fora da regra
+  // nos campos de formato (CPF, CEP, telefone e as listas), o NUL continua recusado com a mensagem do campo, como valor fora
+  // da regra (o surrogate sem par também: não passa pelos padrões nem pelas listas)
   if (t.includes('\u0000')) return erro;
   switch (regra.tipo) {
     case 'texto': {

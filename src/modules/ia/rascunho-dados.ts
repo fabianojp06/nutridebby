@@ -3,6 +3,7 @@ import type { Tx } from '@/db/client';
 import { anamneses, type AnamneseRow, type PatientRow } from '@/db/schema';
 import { lerDecimal } from '@/lib/numero';
 import { normalizarTexto } from '@/lib/text';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
 import { MAX_REFEICOES, META_MAX, META_MIN, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { Categoria } from './campos-enviados';
@@ -50,7 +51,8 @@ export function validarMetas(bruto: unknown): { ok: true; metas: MetasDoRascunho
     if (!HORARIO.test(horario)) erros[`refeicao:${i}:horario`] = MSG_PLANO.horario;
     return { nome, horario };
   });
-  const restricoes = typeof o.restricoes === 'string' ? o.restricoes.replace(/\r\n?/g, '\n').trim() : '';
+  // SUS-110 (regra 3): sem o NUL nem o surrogate sem par — o jsonb `ia_tarefas.parametros` recusaria (22P05/22P02) com as restrições no log
+  const restricoes = typeof o.restricoes === 'string' ? semInvalidosNoBanco(o.restricoes).replace(/\r\n?/g, '\n').trim() : '';
   if (restricoes.length > MAX_RESTRICOES) erros.restricoes = MSG_RASCUNHO_IA.restricoes;
   if (Object.keys(erros).length) return { ok: false, erros };
   return {
