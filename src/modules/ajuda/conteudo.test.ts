@@ -223,7 +223,7 @@ describe('conteúdo do manual (P08-10)', () => {
   it('Plano 18 (§8.3): o guia "Início do paciente" casa só o Início da ficha, vem antes do prontuário e traz os passos da spec', () => {
     const g = GUIAS.find((x) => x.id === 'inicio-paciente')!;
     expect(g.titulo).toBe('Início do paciente');
-    expect(g.versao).toBe(2); // 2 no PR 2 do Plano 18: o cartão No app e o selo
+    expect(g.versao).toBe(3); // 2 no PR 2 do Plano 18: o cartão No app e o selo; 3 no PR 2 do Plano 25: a seção "Mensagens"
     expect(guiaDaRota(`/painel/pacientes/${UUID}`)?.id).toBe('inicio-paciente');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil`)?.id).toBe('perfil-paciente'); // guia próprio desde a Tarefa 7a
     expect(guiaDaRota(`/painel/pacientes/${UUID}/app`)?.id).toBe('prontuario');
@@ -233,7 +233,10 @@ describe('conteúdo do manual (P08-10)', () => {
     for (const alvo of ['cabecalho-paciente', 'abas-prontuario']) expect(g.passos.find((p) => p.alvo === alvo)?.texto).toBe(prontuario.passos.find((p) => p.alvo === alvo)?.texto);
     expect(g.passos.find((p) => p.alvo === 'adicionar-prontuario')?.texto).toBe('Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.');
     // Tarefa 9 (PR 2, versao 2): a frase do selo volta ao passo das seções, e o passo do cartão entra (spec §8.3)
-    expect(g.passos.find((p) => p.alvo === 'secoes-inicio')?.texto).toBe('Cada seção mostra quantos registros há e os três mais recentes. O selo No app marca o que o paciente vê no app.');
+    // Plano 25, PR 2 (versao 3): a seção "Mensagens" conta as não lidas e põe "Enviar mensagem" em "Outros", no Adicionar (§4.4)
+    expect(g.passos.find((p) => p.alvo === 'secoes-inicio')?.texto).toBe(
+      'Cada seção mostra quantos registros há e os três mais recentes; a seção "Mensagens" mostra as não lidas, e "Enviar mensagem" fica em "Outros", no "Adicionar". O selo No app marca o que o paciente vê no app.',
+    );
     expect(g.passos.find((p) => p.alvo === 'no-app-cartao')?.texto).toBe('O que o paciente enxerga no app, contado com as mesmas regras do app.');
     // a explicação da página "No app do paciente" fica nas ajudas deste guia (a página cai no guia `prontuario`)
     expect(g.ajuda.secoes.flatMap((s) => s.itens)).toContainEqual(expect.stringContaining('"No app do paciente"'));

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { Botao } from '@/components/ui/botao';
 import { Selo } from '@/components/ui/selo';
 import { requireNutri } from '@/lib/tenant-session';
 import { MSG_MENSAGENS, ROTULO_FORMA_TCLE } from '@/modules/mensagens/constantes';
@@ -24,7 +25,6 @@ const M = MSG_MENSAGENS;
 const RETORNOS: Record<string, string> = { liberada: M.liberacao.sucesso, pausada: M.pausa.sucesso, retomada: M.pausa.retomada };
 /** Rodada da T6b (CH-D75): o `?erro=` fechado do ato que redireciona (retomar). */
 const ERROS: Record<string, string> = { retomar: M.pausa.falhaRetomar };
-const BOTAO_SECUNDARIO = 'inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha';
 
 /**
  * US-440, US-441 e US-450 (§6.2, §7.2): a conversa com o paciente. Abrir lê com auditRead e avança o "lido" do consultório
@@ -87,7 +87,9 @@ export default async function Conversa({ params, searchParams }: PageProps<'/pai
           {ativo && liberada && !estado.pausada && <PausarDialogo patientId={patientId} nome={nome} />}
           {ativo && estado.pausada && (
             <form action={retomarAction.bind(null, patientId)}>
-              <button className={BOTAO_SECUNDARIO}>{M.pausa.retomar}</button>
+              <Botao variante="secundario" type="submit">
+                {M.pausa.retomar}
+              </Botao>
             </form>
           )}
         </div>

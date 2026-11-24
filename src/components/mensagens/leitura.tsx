@@ -22,7 +22,8 @@ export function ProvedorDaLeitura({ minhas, ultimaLida, children }: { minhas: re
 
 /**
  * RN-448: "Lida" na última mensagem própria que o paciente já passou; "Enviada" nas próprias depois dela (ou em todas,
- * quando a lida não está na página); nada nas anteriores à lida.
+ * quando a lida não está na página); nada nas anteriores à lida. O tamanho vem da linha da hora em que fica: `text-sm` no
+ * portal (nada no portal fica abaixo disso), `text-xs` no painel.
  */
 export function EstadoDaMinha({ id }: { id: string }) {
   const { minhas, ultimaLida } = useContext(ContextoDaLeitura);
@@ -30,5 +31,5 @@ export function EstadoDaMinha({ id }: { id: string }) {
   const j = ultimaLida === null ? -1 : minhas.indexOf(ultimaLida);
   if (i < 0) return null;
   if (j >= 0 && i < j) return null;
-  return <span className="text-xs text-suave">{i === j ? C.lida : C.enviada}</span>;
+  return <span className="text-suave">{i === j ? C.lida : C.enviada}</span>;
 }

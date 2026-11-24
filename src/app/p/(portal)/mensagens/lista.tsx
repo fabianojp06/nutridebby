@@ -73,7 +73,7 @@ export function ListaDoPortal({ mensagens, fuso }: { mensagens: MensagemNaTela[]
         <div className={`max-w-[85%] space-y-1 rounded-2xl p-3 ${m.recado ? 'border-2 border-marca bg-cartao' : m.minha ? 'bg-p-clara' : 'border border-borda bg-cartao'}`}>
           {m.texto !== null && <p className="wrap-break-word whitespace-pre-line">{m.texto}</p>}
           {m.anexo && <Anexo m={m} />}
-          <p className="flex flex-wrap items-center gap-2 text-xs text-suave">
+          <p className="flex flex-wrap items-center gap-2 text-sm text-suave">
             <time dateTime={m.criadaEm.toISOString()}>{p.hora}</time>
             {m.minha && <EstadoDaMinha id={m.id} />}
           </p>

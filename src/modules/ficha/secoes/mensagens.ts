@@ -29,12 +29,17 @@ export const secaoMensagens: SecaoDaFicha = {
       select (p.status = 'ativo' and p.anonimizado_em is null) as ativo, nl.n as nao_lidas,
              u.id, u.autor, u.recado, u.risco, u.ms
         from patients p
+        -- o marcador do consultório atrás da cerca "offset 0", como o da caixa (mensagens/caixa.ts, MARCADOR_DO_CONSULTORIO):
+        -- "criada_em > lida.ate" entra no índice da conversa em vez de ler todas as mensagens (revisão final do PR 2)
+        cross join lateral (
+          select coalesce((select l.lida_ate from chat_leituras l
+                            where l.tenant_id = p.tenant_id and l.patient_id = p.id and l.lado = 'consultorio'),
+                          '-infinity'::timestamptz) as ate
+          offset 0) lida
         cross join lateral (
           select count(*)::int as n from chat_mensagens m
            where m.tenant_id = p.tenant_id and m.patient_id = p.id and m.autor = 'paciente'
-             and m.criada_em > coalesce((select l.lida_ate from chat_leituras l
-                                          where l.tenant_id = p.tenant_id and l.patient_id = p.id and l.lado = 'consultorio'),
-                                        '-infinity'::timestamptz)) nl
+             and m.criada_em > lida.ate) nl
         left join lateral (
           select m.id, m.autor, m.recado_id is not null as recado, m.risco is not null as risco,
                  (extract(epoch from m.criada_em) * 1000)::float8 as ms

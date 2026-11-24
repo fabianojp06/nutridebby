@@ -150,7 +150,7 @@ export const GUIAS: readonly Guia[] = [
     // Plano 18 (§8.3): só o Início da ficha; antes do `prontuario`, que casa todas as abas (os passos novos só têm alvo aqui).
     // Título "Início do paciente": "Início" é o do guia de boas-vindas (o manual completo lista um h2 por guia).
     id: 'inicio-paciente',
-    versao: 2, // Plano 18, PR 2: o cartão No app
+    versao: 3, // Plano 18, PR 2: o cartão No app; Plano 25, PR 2: a seção "Mensagens" (não lidas e "Enviar mensagem" em "Outros")
     padrao: new RegExp(`^/painel/pacientes/${ID}$`),
     titulo: 'Início do paciente',
     ajuda: {
@@ -172,7 +172,7 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'cabecalho-paciente', titulo: 'O paciente', texto: 'Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o paciente está arquivado ou bloqueado.' },
       { alvo: 'abas-prontuario', titulo: 'Abas do prontuário', texto: 'Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento tem a sua aba.' },
       { alvo: 'adicionar-prontuario', titulo: 'Adicionar', texto: 'Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.' },
-      { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes. O selo No app marca o que o paciente vê no app.' },
+      { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes; a seção "Mensagens" mostra as não lidas, e "Enviar mensagem" fica em "Outros", no "Adicionar". O selo No app marca o que o paciente vê no app.' },
       { alvo: 'no-app-cartao', titulo: 'No app do paciente', texto: 'O que o paciente enxerga no app, contado com as mesmas regras do app.' },
     ],
   },

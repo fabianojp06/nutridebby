@@ -82,5 +82,9 @@ Voltar para a imagem anterior ao PR 2 depois que a conversa estiver em uso (spec
 3. **Exportação sem a conversa.** O ZIP gerado pela imagem antiga sai sem as seções `conversa` e `mensagens`. Se um
    titular pediu a exportação nessa janela, gerar de novo depois que a imagem nova voltar.
 4. **Anexos em processamento** (só a partir do PR 3) ficam parados até a varredura nova (RN-474).
+5. **Aviso de mensagens à nutricionista com o app novo e o worker antigo.** O job de e-mail `aviso_mensagens_nutri`
+   ("Mensagens novas de pacientes", RN-458), enfileirado pelo app novo, cai no `default` do renderizador do worker antigo
+   ("Tipo de e-mail desconhecido") e se esgota nas 3 tentativas da fila `email`, em cerca de 7 min. Nada vaza (o corpo é
+   fixo, sem conteúdo da conversa), mas **o aviso se perde**: a nutricionista vê as mensagens novas na caixa do painel.
 
 Registrar no incidente a janela (início e fim) em que a imagem antiga ficou no ar.

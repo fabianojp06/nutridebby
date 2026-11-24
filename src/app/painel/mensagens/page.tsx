@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { BotaoLink } from '@/components/ui/botao';
 import { requireNutri } from '@/lib/tenant-session';
 import { caixaDeMensagens } from '@/modules/mensagens/caixa';
 import { MSG_MENSAGENS } from '@/modules/mensagens/constantes';
@@ -38,14 +39,9 @@ export default async function Mensagens({ searchParams }: PageProps<'/painel/men
     <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-titulo text-2xl font-semibold">{C.titulo}</h1>
-        <Link
-          href="/painel/mensagens/nova"
-          prefetch={false}
-          data-guia="nova-conversa"
-          className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95"
-        >
+        <BotaoLink href="/painel/mensagens/nova" prefetch={false} data-guia="nova-conversa">
           {C.novaConversa}
-        </Link>
+        </BotaoLink>
       </div>
       <AbasDeMensagens atual="conversas" contagens={contagens} />
       <div data-guia="mensagens-filtro" className="flex flex-wrap items-end justify-between gap-3">

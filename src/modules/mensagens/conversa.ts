@@ -58,15 +58,10 @@ async function temCarimbo(tx: Tx, tenantId: string): Promise<boolean> {
 }
 
 /**
- * O estado da conversa para as telas (painel e portal), na transação do chamador — sem auditRead (só a situação: liberada,
- * forma do TCLE, pausa, titular, conta e carimbo; nenhum texto). Paciente fora do consultório (ou de outra sessão de
+ * O estado da conversa (liberada, forma do TCLE, pausa, titular, conta e carimbo; nenhum texto) e o id do paciente lido do
+ * banco (o auditRead grava o paciente da linha lida, nunca o da URL). Paciente fora do consultório (ou de outra sessão de
  * paciente) ou id inválido → PacienteNaoEncontradoError.
  */
-export async function estadoDaConversa(tx: Tx, patientId: string): Promise<EstadoDaConversa> {
-  return (await lerEstado(tx, patientId)).estado;
-}
-
-/** O estado e o id do paciente lido do banco (o auditRead grava o paciente da linha lida, nunca o da URL). */
 async function lerEstado(tx: Tx, patientId: string): Promise<{ patientId: string; nome: string; fuso: string; estado: EstadoDaConversa }> {
   if (!idValido(patientId)) throw new PacienteNaoEncontradoError();
   const [r] = await tx
@@ -310,8 +305,12 @@ async function ultimaLidaPeloOutro(tx: Tx, lado: LadoLeitura, patientId: string)
   return r.rows[0]?.id ?? null;
 }
 
-/** Leitura auditada (uma por render) e, depois, o marcador até a última mensagem do outro lado que a tela carregou. */
-async function registrarLeitura(tx: Tx, lado: LadoLeitura, patientId: string, mensagens: MensagemNaTela[]) {
+/**
+ * Leitura auditada (uma por render) e, depois, o marcador até a última mensagem do outro lado que a tela carregou. Titular
+ * anonimizado: a conversa já não existe (a anonimização a apaga), e não há leitura a registrar — nem auditRead, nem marcador.
+ */
+async function registrarLeitura(tx: Tx, lado: LadoLeitura, estado: EstadoDaConversa, patientId: string, mensagens: MensagemNaTela[]) {
+  if (estado.titular === 'anonimizado') return;
   await auditRead(tx, { entidade: 'chat', entidadeId: null, patientId });
   const ultimaDoOutro = mensagens.findLast((m) => m.autor === OUTRO_AUTOR[lado]);
   if (ultimaDoOutro) await marcarLida(tx, lado, patientId, ultimaDoOutro.id);
@@ -335,7 +334,7 @@ export async function conversaNoPainel(
     async (tx) => {
       const lido = await lerEstado(tx, patientId);
       const { mensagens, haAnteriores } = await pagina(tx, lido.patientId, o.antes, (m) => m.autor === 'nutri' && m.autorUserId === ctx.actorUserId);
-      await registrarLeitura(tx, 'consultorio', lido.patientId, mensagens);
+      await registrarLeitura(tx, 'consultorio', lido.estado, lido.patientId, mensagens);
       return { nome: lido.nome, estado: lido.estado, mensagens, haAnteriores, ultimaLida: await ultimaLidaPeloOutro(tx, 'consultorio', lido.patientId) };
     },
     db,
@@ -365,7 +364,7 @@ export async function minhaConversa(
         foraDoHorario: h.horarioAtivo && h.faixas.length > 0 && !dentroDoHorario(h.faixas, lido.fuso, new Date()),
       };
       const { mensagens, haAnteriores } = await pagina(tx, lido.patientId, o.antes, (m) => m.autor === 'paciente');
-      await registrarLeitura(tx, 'paciente', lido.patientId, mensagens);
+      await registrarLeitura(tx, 'paciente', lido.estado, lido.patientId, mensagens);
       return { estado: lido.estado, horario, mensagens, haAnteriores, ultimaLida: await ultimaLidaPeloOutro(tx, 'paciente', lido.patientId) };
     },
     db,
@@ -408,12 +407,19 @@ export async function mensagensNaFaixa(ctx: TenantContext, db: Db = getDb()): Pr
   return withTenant(
     ctx,
     async (tx) => {
+      // o marcador do paciente (sem marcador, `-infinity`) atrás da cerca `offset 0`, como o da caixa (caixa.ts,
+      // MARCADOR_DO_CONSULTORIO): `criada_em > lida.ate` entra no índice (tenant_id, patient_id, criada_em, id) em vez de
+      // ler a conversa toda (revisão final do PR 2)
       const r = await tx.execute<{ n: number }>(sql`
         select (select count(*)::int from chat_mensagens m
                  where m.tenant_id = c.tenant_id and m.patient_id = c.patient_id and m.autor = 'nutri'
-                   and (l.lida_ate is null or m.criada_em > l.lida_ate)) as n
+                   and m.criada_em > lida.ate) as n
           from chat_conversas c
-          left join chat_leituras l on l.tenant_id = c.tenant_id and l.patient_id = c.patient_id and l.lado = 'paciente'
+          cross join lateral (
+            select coalesce((select l.lida_ate from chat_leituras l
+                              where l.tenant_id = c.tenant_id and l.patient_id = c.patient_id and l.lado = 'paciente'),
+                            '-infinity'::timestamptz) as ate
+            offset 0) lida
          where c.tenant_id = app_current_tenant() and c.patient_id = ${ctx.patientId}
            and (c.liberada_em is not null
                 or exists (select 1 from chat_mensagens r where r.tenant_id = c.tenant_id and r.patient_id = c.patient_id and r.recado_id is not null))`);

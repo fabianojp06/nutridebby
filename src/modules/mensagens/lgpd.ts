@@ -123,6 +123,9 @@ export async function apagarConversaDoTitular(ctx: TenantContext, patientId: str
   const temConversa = await withTenant(
     ctx,
     async (tx) => {
+      // relógio: anonimizarVencidos escolhe os vencidos pelo `now` do JS (hojeNoFuso), e esta conferência e a de
+      // app_chat_apagar_do_titular usam o now() do banco. Em produção os dois coincidem; com um `now` injetado diferente
+      // (testes), o titular fica para o dia seguinte — o mesmo caso do Financeiro (app_anonimizar_financeiro)
       const [p] = (
         await tx.execute<{ saindo: boolean }>(sql`
           select (p.anonimizado_em is not null
@@ -169,6 +172,7 @@ export async function apagarConversaDoTitular(ctx: TenantContext, patientId: str
       });
     }
   }
+  // a função confere de novo o titular pelo now() do banco (não pelo `now` do JS de anonimizarVencidos; ver o passo 1)
   await withTenant(ctx, (tx) => tx.execute(sql`select app_chat_apagar_do_titular(${patientId})`), db);
 }
 

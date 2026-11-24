@@ -10,7 +10,7 @@ import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { arquivarPaciente, desarquivarPaciente } from '@/modules/pacientes/lgpd';
 import { ENTIDADE_ROTULO, listAccessHistory, rotuloDaAcao } from '@/modules/plataforma/audit';
 import { consultorioDoChat, esperarBloqueio as esperarTrava, mensagemDoDono, pacienteDoChat, recadoPara } from '../../../test/mensagens';
-import { conversaNoPainel, estadoDaConversa, liberarConversa, marcarLida, mensagensNaFaixa, minhaConversa, pausarConversa, retomarConversa, situacao } from './conversa';
+import { conversaNoPainel, liberarConversa, marcarLida, mensagensNaFaixa, minhaConversa, pausarConversa, retomarConversa, situacao } from './conversa';
 import { enviarComoNutri, enviarComoPaciente } from './envio';
 import { contadorDeMensagens } from './caixa';
 import { salvarConfiguracao } from './horario';
@@ -43,7 +43,7 @@ const conversaDe = async (T: TenantDeTeste, p: string) =>
     | { id: string; liberada_em: string | null; liberada_por: string | null; tcle_forma: string | null; pausada_em: string | null; pausada_por: string | null }
     | undefined;
 const auditoria = async (T: TenantDeTeste, p: string) =>
-  (await em(T.ctx, sql`select acao, entidade, entidade_id, actor_user_id from audit_log where patient_id = ${p} and entidade like 'chat%' order by criado_em, id`)) as {
+  (await em(T.ctx, sql`select acao, entidade, entidade_id, actor_user_id from audit_log where patient_id = ${p} and entidade like 'chat%' and acao <> 'ler' order by criado_em, id`)) as {
     acao: string;
     entidade: string;
     entidade_id: string;
@@ -51,8 +51,13 @@ const auditoria = async (T: TenantDeTeste, p: string) =>
   }[];
 /** O "Histórico de acessos" do paciente, só os itens do chat: [rótulo da ação, rótulo da entidade]. */
 const historico = async (T: TenantDeTeste, p: string) =>
-  (await listAccessHistory(T.ctx, p, 1, app.db)).itens.filter((i) => i.entidade.startsWith('chat')).map((i) => [rotuloDaAcao(i), ENTIDADE_ROTULO[i.entidade]]);
-const estado = (T: TenantDeTeste, p: string) => withTenant(T.ctx, (tx) => estadoDaConversa(tx, p), app.db);
+  (await listAccessHistory(T.ctx, p, 1, app.db)).itens.filter((i) => i.entidade.startsWith('chat') && i.acao !== 'ler').map((i) => [rotuloDaAcao(i), ENTIDADE_ROTULO[i.entidade]]);
+/**
+ * O estado da conversa como as telas o recebem (`conversaNoPainel`; o `estadoDaConversa` saiu como código morto na revisão
+ * final do PR 2). A abertura grava a leitura (`ler` de `chat`): `auditoria` e `historico` acima a deixam de fora, e as
+ * leituras são conferidas por `leiturasAuditadas`.
+ */
+const estado = async (T: TenantDeTeste, p: string) => (await conversaNoPainel(T.ctx, p, {}, app.db)).estado;
 
 /** Um Db que falha se alguém abrir transação: prova que a recusa vem antes do withTenant. */
 const semTransacao = () => {
@@ -170,7 +175,7 @@ describe('Plano 25 — liberarConversa (US-440, RN-441, CH-D39)', () => {
     await expect(liberarConversa(T.ctx, 'nao-e-uuid', { forma: 'aceite_escrito', confirmou: true }, app.db)).rejects.toBeInstanceOf(PacienteNaoEncontradoError);
     await expect(pausarConversa(T.ctx, p.id, app.db)).rejects.toBeInstanceOf(PacienteNaoEncontradoError);
     await expect(retomarConversa(T.ctx, p.id, app.db)).rejects.toBeInstanceOf(PacienteNaoEncontradoError);
-    await expect(withTenant(T.ctx, (tx) => estadoDaConversa(tx, p.id), app.db)).rejects.toBeInstanceOf(PacienteNaoEncontradoError);
+    await expect(conversaNoPainel(T.ctx, p.id, {}, app.db)).rejects.toBeInstanceOf(PacienteNaoEncontradoError);
     expect(await conversaDe(outro, p.id)).toBeUndefined();
   });
 
@@ -196,7 +201,7 @@ describe('Plano 25 — liberarConversa (US-440, RN-441, CH-D39)', () => {
     }
   });
 
-  it('estadoDaConversa: temConta pela conta ligada ao paciente', async () => {
+  it('estado da conversa: temConta pela conta ligada ao paciente', async () => {
     const T = await consultorio();
     const { paciente } = await pacienteComConta(app.db, T);
     expect(await estado(T, paciente.id)).toEqual({
@@ -499,6 +504,20 @@ describe('Plano 25 — conversaNoPainel e minhaConversa (RN-446, RN-448, RN-453)
     expect(Object.keys(r.horario).sort()).toEqual(['faixas', 'foraDoHorario', 'horarioAtivo', 'resumo']);
     expect(r.horario).toMatchObject({ horarioAtivo: true, resumo: 'segunda a sexta, 9h às 12h' });
     expect(JSON.stringify(r)).not.toMatch(/aviso/i);
+  });
+
+  it('titular anonimizado: abrir a conversa (painel e portal) não grava leitura de chat no audit_log nem o marcador', async () => {
+    const T = await novoTenant(app.db);
+    await owner.pool.query('update tenants set nome_profissional = $1, crn = $2 where id = $3', ['Débora Nutricionista', 'CRN-4 54321', T.tenantId]);
+    const c = await pacienteDoChat(app.db, T);
+    await enviarComoPaciente(c.P, { texto: 'Oi, Débora' }, app.db);
+    // a conversa de quem a imagem antiga anonimizou sem conhecer o chat (§9.9), antes da rede de limpeza
+    await owner.pool.query("update patients set status = 'bloqueado', bloqueado_em = now(), anonimizar_apos = '2026-01-01', anonimizado_em = now() where id = $1", [c.p]);
+    const painel = await conversaNoPainel(T.ctx, c.p, {}, app.db);
+    expect(painel.estado).toMatchObject({ titular: 'anonimizado' });
+    expect((await minhaConversa(c.P, {}, app.db)).estado).toMatchObject({ titular: 'anonimizado' });
+    expect(await leiturasAuditadas(T)).toEqual([]);
+    expect(await leiturasDe(T, c.p)).toEqual([]);
   });
 
   it('sessão sem conta ou que não é de paciente → Error antes da transação; conversaNoPainel só na sessão nutri e só do próprio consultório', async () => {

@@ -1919,7 +1919,7 @@ mensagem, resolvidos no SQL (CH-D40, CH-D72).
 |---|---|
 | `src/modules/mensagens/constantes.ts` | Puro (sem banco; o cliente importa): `MSG_MENSAGENS`, `MSG_RECADOS`, `MSG_PORTAL_MENSAGENS` (textos da §6.2), limites (`TEXTO_MAX` 2.000, `LIMITE_MENSAGENS_HORA` 30, `LIMITE_MENSAGENS_DIA` 200, `MENSAGENS_POR_PAGINA` 50, `MAX_FAIXAS_POR_DIA` 3, `JANELA_AVISO_NUTRI_MS` 2 h, `ATRASO_EMAIL_PACIENTE_MS` 30 min, `SITUACAO_INTERVALO_MS` 15 s, `SITUACAO_INTERVALO_OCIOSO_MS` 60 s depois de `SITUACAO_OCIOSO_APOS_MS` 5 min, `CONTADOR_INTERVALO_MS` 60 s), `RISCO_DO_TEXTO_FIXO`, `SOCORRO_DO_RISCO`, `SOCORRO_NA_RECUSA` (CH-D77), `OPCOES_FORMA_TCLE`, `ROTULO_FORMA_TCLE`, `TEXTOS_AVISO`, `ERROS_DO_UPLOAD_PAINEL`/`_PORTAL` com `erroDoUpload` (códigos fechados do `?erro=`) e `rotuloDoQuando` ("agora", "há {n} min", "há {n} h", "ontem", "{dd/mm}", "{dd/mm/aaaa}", no fuso do consultório) |
 | `sessao.ts` | `exigirNutri` e `exigirPacienteComConta`: conferem o papel **antes** de abrir a transação (RN-440) |
-| `conversa.ts` | `liberarConversa`, `pausarConversa`, `retomarConversa`, `estadoDaConversa`, `conversaNoPainel`, `minhaConversa`, `marcarLida`, `situacao` e `mensagensNaFaixa` |
+| `conversa.ts` | `liberarConversa`, `pausarConversa`, `retomarConversa`, `conversaNoPainel`, `minhaConversa`, `marcarLida`, `situacao` e `mensagensNaFaixa` |
 | `envio.ts` | `enviarComoNutri`, `enviarComoPaciente` e `avisoNoHorario` (puro) |
 | `caixa.ts` | `caixaDeMensagens`, `contadorDeMensagens` e `pacientesParaNovaConversa` (CH-D66) |
 | `avisos.ts` | `quandoAvisar` (puro), `avisarPaciente` e `avisarNutriDeMensagem` |
