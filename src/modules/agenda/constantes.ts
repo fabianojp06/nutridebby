@@ -334,7 +334,8 @@ export const MSG_ANIVERSARIO = {
   naoQueroMais: 'Não quero mais receber mensagens de aniversário',
   portal: {
     titulo: 'Receber mensagem de aniversário da sua nutricionista',
-    ajuda: 'Uma mensagem por ano, por e-mail, no dia do seu aniversário. Usamos seu nome, sua data de nascimento e seu e-mail. Você pode desligar quando quiser, aqui ou pelo link no próprio e-mail.',
+    // texto provisório (AG-D78): a Debby revisa
+    ajuda: 'Uma mensagem por ano, por e-mail (e, se a sua nutricionista quiser, pelo WhatsApp dela), no dia do seu aniversário. Usamos seu nome, sua data de nascimento, seu e-mail e seu telefone. Você pode desligar quando quiser, aqui ou pelo link no próprio e-mail.',
     autorizar: 'Autorizar',
     retirar: 'Retirar autorização',
     autorizadoEm: (data: string) => `Autorizado em ${data}`,

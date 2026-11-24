@@ -14,7 +14,7 @@ export type AniversarioState = { erro?: string };
 /** O mês da tela (vem do `bind` da página); qualquer outro valor volta para o mês corrente. */
 const mesDaVolta = (mes: unknown) => (typeof mes === 'string' && /^20\d{2}-(0[1-9]|1[0-2])$/.test(mes) ? `mes=${mes}&` : '');
 /** A volta das ações (§7): a lista com `?ok=` (lista fechada) e o marcador `envio`, que leva o foco ao h1 e anuncia de novo. */
-const destino = (mes: unknown, q: string) => `${CAMINHO}?${mesDaVolta(mes)}${q}&envio=${Date.now()}`;
+const destino = (mes: unknown, q: string) => `${CAMINHO}?${mesDaVolta(mes)}${q ? `${q}&` : ''}envio=${Date.now()}`;
 
 function refazerTelas(): void {
   revalidatePath(CAMINHO);
@@ -51,10 +51,20 @@ export async function registrarAction(patientId: string, mes: string, _prev: Ani
   redirect(destino(mes, 'ok=autorizada'));
 }
 
-/** US-414 "Retirar autorização" pela nutricionista (sem a forma, AG-D61). Sem autorização a retirar, nada é gravado. */
+/**
+ * US-414 "Retirar autorização" pela nutricionista (sem a forma, AG-D61). Sem autorização a retirar, nada é gravado. O
+ * paciente que não existe mais nesta sessão (id forjado, outro consultório) volta à lista sem o "Autorização retirada."
+ * (revisão da T10, M5), como as outras ações tratam `PacienteNaoEncontradoError`; outro erro sobe.
+ */
 export async function retirarAction(patientId: string, mes: string): Promise<void> {
   const { ctx } = await requireNutri(CAMINHO);
-  await retirarAutorizacao(ctx, patientId);
+  let volta = 'ok=retirada';
+  try {
+    await retirarAutorizacao(ctx, patientId);
+  } catch (e) {
+    if (!(e instanceof PacienteNaoEncontradoError)) throw e;
+    volta = '';
+  }
   refazerTelas();
-  redirect(destino(mes, 'ok=retirada'));
+  redirect(destino(mes, volta));
 }

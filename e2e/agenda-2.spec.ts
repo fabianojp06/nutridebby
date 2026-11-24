@@ -521,7 +521,7 @@ test.describe('Plano 23 (T10): Aniversariantes — autorização no portal, envi
   test('portal: o bloco com a ajuda fixa e o botão explícito; "Autorizar" → "Autorizado em {hoje}" e "Retirar autorização" (US-414)', async () => {
     await ana.goto('/p/perfil');
     await expect(bloco()).toBeVisible();
-    await expect(bloco().getByText('Uma mensagem por ano, por e-mail, no dia do seu aniversário. Usamos seu nome, sua data de nascimento e seu e-mail. Você pode desligar quando quiser, aqui ou pelo link no próprio e-mail.')).toBeVisible();
+    await expect(bloco().getByText('Uma mensagem por ano, por e-mail (e, se a sua nutricionista quiser, pelo WhatsApp dela), no dia do seu aniversário. Usamos seu nome, sua data de nascimento, seu e-mail e seu telefone. Você pode desligar quando quiser, aqui ou pelo link no próprio e-mail.')).toBeVisible();
     // a execução anterior pode ter deixado autorizado: a retirada no app primeiro (a tabela é só de inclusão)
     if (await bloco().getByRole('button', { name: 'Retirar autorização' }).isVisible()) {
       await bloco().getByRole('button', { name: 'Retirar autorização' }).click();

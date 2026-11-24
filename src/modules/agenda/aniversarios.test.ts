@@ -13,6 +13,7 @@ import { stopBoss } from '@/jobs/boss';
 import { processarNotificacoes } from '@/modules/notificacoes/enviar';
 import { assinarLinkDeSaida } from './aniversario-link';
 import {
+  ALVO_UM_POR_ANO,
   AniversarioError,
   contarAniversariantesDeHojeNaTransacao,
   aniversariantesDoMes,
@@ -22,6 +23,7 @@ import {
   enviarMensagensDeAniversario,
   estadoDoLinkDeSaida,
   LIMITE_SAIDA_POR_HORA,
+  ONDE_UM_POR_ANO,
   registrarAutorizacao,
   retirarAutorizacao,
   retirarPeloLink,
@@ -177,13 +179,13 @@ describe('aniversariantes do mês (US-412, RN-431)', () => {
 });
 
 describe('envio da mensagem de aniversário (US-413, RN-432, CS-404)', () => {
-  it('"Selecionar todos" mandado inteiro: só os "Pode receber" de hoje ao fim do mês; às 15h o de hoje sai agora, os outros às 9h do dia', async () => {
+  it('"Selecionar todos" mandado inteiro: só os "Pode receber" de hoje ao fim do mês; às 15h o de hoje sai agora (9h, já vencido), os outros às 9h do dia', async () => {
     const m = await novembro();
     const todos = [m.ana, m.bia, m.caio, m.duda, m.eva, m.fabi, m.outubro, m.semData, m.arquivado, m.bloqueado, m.anonimizado].map((p) => p.id);
     expect(await enviarMensagensDeAniversario(m.T.ctx, tenant(m.T), [...todos, 'nao-e-uuid', m.ana.id], deps())).toEqual({ agendadas: 2, agora: 1 });
     const ms = await mensagens(m.T);
     expect(ms.map((n) => [n.patientId, n.canal, n.status, n.agendadaPara.toISOString(), n.appointmentId])).toEqual([
-      [m.eva.id, 'email', 'pendente', agora.toISOString(), null],
+      [m.eva.id, 'email', 'pendente', em('2026-11-10', '09:00').toISOString(), null], // sempre 9h: já venceu, sai na próxima varredura
       [m.fabi.id, 'email', 'pendente', em('2026-11-12', '09:00').toISOString(), null],
       [m.ana.id, 'email', 'pendente', em('2026-11-20', '09:00').toISOString(), null],
     ]);
@@ -239,6 +241,42 @@ describe('envio da mensagem de aniversário (US-413, RN-432, CS-404)', () => {
     expect(ms.find((n) => n.patientId === ana.id)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'sem_autorizacao' });
     expect(ms.find((n) => n.patientId === bia.id)).toMatchObject({ status: 'enviada' });
     expect(d.transport.enviados.map((e) => e.subject)).toEqual(['Uma mensagem da sua nutricionista']);
+  });
+});
+
+describe('o ano do índice (revisão da T10, M1 e M2)', () => {
+  it('Rio Branco, aniversário em 31/12, envio às 20h30 locais (01h30 UTC de 01/01): a linha fica às 9h locais de 31/12, no balde de 2026; sai na próxima varredura; um só no ano', async () => {
+    const RB = 'America/Rio_Branco';
+    const T = await novoTenant(app.db);
+    await app.db.update(tenants).set({ fuso: RB }).where(eq(tenants.id, T.tenantId));
+    const rb = tenantAgenda(T, { fuso: RB });
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Rio Branco', dataNascimento: '1990-12-31' });
+    await autorizado(T, ana.id, '2026-12-01T12:00:00Z');
+    const as2030 = em('2026-12-31', '20:30', RB);
+    expect(as2030.toISOString()).toBe('2027-01-01T01:30:00.000Z');
+    expect(await enviarMensagensDeAniversario(T.ctx, rb, [ana.id], deps(as2030))).toEqual({ agendadas: 1, agora: 1 });
+    const [n] = await mensagens(T);
+    expect(n.agendadaPara.toISOString()).toBe(em('2026-12-31', '09:00', RB).toISOString());
+    const [ano] = (await withTenant(T.ctx, (tx) => tx.execute<{ ano: number }>(sql`select date_part('year', timezone('UTC', agendada_para))::int as ano from notifications where id = ${n.id}`), app.db)).rows;
+    expect(ano.ano).toBe(2026);
+    expect(await enviarMensagensDeAniversario(T.ctx, rb, [ana.id], deps(em('2026-12-31', '20:45', RB)))).toEqual({ agendadas: 0, agora: 0 });
+    // a varredura das 20h31 locais manda (o dia no fuso ainda é 31/12, antes das 21h)
+    const d = depsDeEnvio(em('2026-12-31', '20:31', RB), { db: app.db });
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    expect((await mensagens(T))[0]).toMatchObject({ status: 'enviada' });
+    expect(d.transport.enviados.map((e) => e.subject)).toEqual(['Uma mensagem da sua nutricionista']);
+  });
+
+  it('o alvo e o predicado do ON CONFLICT do envio são os do índice notifications_aniversario_unique (pg_indexes)', async () => {
+    const [ix] = (await app.db.execute<{ indexdef: string }>(sql`select indexdef from pg_indexes where indexname = 'notifications_aniversario_unique'`)).rows;
+    expect(ix?.indexdef).toMatch(/^CREATE UNIQUE INDEX/);
+    // o Postgres normaliza com `::text` e parênteses: compara sem eles e sem espaços
+    const normal = (t: string) => t.replace(/::text/g, '').replace(/[()\s]/g, '');
+    const [colunas, predicado] = ix.indexdef.split(/ WHERE /);
+    expect(normal(colunas.replace(/^.*USING btree /, ''))).toBe(normal(ALVO_UM_POR_ANO));
+    expect(normal(predicado)).toBe(normal(ONDE_UM_POR_ANO));
+    // controle: um alvo diferente não passaria
+    expect(normal(ALVO_UM_POR_ANO.replace("'UTC'", "'America/Sao_Paulo'"))).not.toBe(normal(colunas.replace(/^.*USING btree /, '')));
   });
 });
 

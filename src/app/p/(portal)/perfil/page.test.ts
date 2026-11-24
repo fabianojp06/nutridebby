@@ -193,7 +193,7 @@ describe('/p/perfil — Eu (US-197, molde D-Assuntos)', () => {
   });
 
   describe('Plano 23 (T10, US-414, §6.2): "Receber mensagem de aniversário da sua nutricionista"', () => {
-    const AJUDA = 'Uma mensagem por ano, por e-mail, no dia do seu aniversário. Usamos seu nome, sua data de nascimento e seu e-mail. Você pode desligar quando quiser, aqui ou pelo link no próprio e-mail.';
+    const AJUDA = 'Uma mensagem por ano, por e-mail (e, se a sua nutricionista quiser, pelo WhatsApp dela), no dia do seu aniversário. Usamos seu nome, sua data de nascimento, seu e-mail e seu telefone. Você pode desligar quando quiser, aqui ou pelo link no próprio e-mail.';
     it('não autorizado: o h2, a ajuda fixa, "Não autorizado" e o botão explícito "Autorizar" (nada marcado por padrão); depois de Privacidade e antes de "Como usar o app"', async () => {
       blocoIa.valor = null;
       aniv.valor = { situacao: 'nao_autorizado', autorizadoEm: null };

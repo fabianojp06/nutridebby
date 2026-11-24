@@ -63,6 +63,13 @@ const MAX_POR_ENVIO = 1000;
 /** RN-434: tentativas de retirada por token por hora (o POST de um clique vem dos IPs do provedor de e-mail: nunca por IP). */
 export const LIMITE_SAIDA_POR_HORA = 10;
 const MES = /^20\d{2}-(0[1-9]|1[0-2])$/;
+/**
+ * RN-432 / §9.8: o alvo e o predicado do `ON CONFLICT` do envio — cópia literal da expressão e do `WHERE` do índice
+ * `notifications_aniversario_unique` (ANIVERSARIO_UM_POR_ANO, 0130). Exportados só para o teste que os compara com o
+ * `indexdef` do banco (as duas cópias não podem divergir: com outro alvo, o Postgres não acha o índice e recusa com 42P10).
+ */
+export const ALVO_UM_POR_ANO = "(tenant_id, patient_id, (date_part('year', timezone('UTC', agendada_para))))";
+export const ONDE_UM_POR_ANO = "tipo = 'aniversario'";
 
 /** RN-400: só a sessão da nutricionista lê a lista e envia; conferido antes de abrir a transação. */
 const exigirNutri = (ctx: TenantContext) => {
@@ -189,8 +196,8 @@ export async function contarAniversariantesDeHojeNaTransacao(tx: Tx, fuso: strin
 
 /**
  * US-413 "Enviar mensagem" (RN-432): uma linha de `notifications` (tipo `aniversario`, canal `email`, sem consulta) por
- * paciente que ainda "Pode receber" no mês corrente — a RN-431 é conferida de novo aqui, na transação —, às 9h do dia no
- * fuso; o de hoje depois das 9h (e antes das 21h), agora (sai na próxima varredura). Uma por paciente por ano: o
+ * paciente que ainda "Pode receber" no mês corrente — a RN-431 é conferida de novo aqui, na transação —, sempre às 9h do
+ * dia no fuso; a do aniversariante de hoje marcada depois das 9h (e antes das 21h) já venceu e sai na próxima varredura. Uma por paciente por ano: o
  * `ON CONFLICT` repete a expressão e o predicado do índice `notifications_aniversario_unique` (ANIVERSARIO_UM_POR_ANO), e
  * a linha ignorada também ocupa o ano. Devolve quantas foram agendadas e quantas saem agora.
  */
@@ -218,12 +225,15 @@ export async function enviarMensagensDeAniversario(ctx: TenantContext, tenant: P
         const dia = diaDoAniversario(p.dataNascimento, ano);
         if (dia.slice(0, 7) !== hoje.slice(0, 7)) continue; // outro mês: só consulta (RN-431)
         if (elegivel(p, aut.get(p.id) ?? null, dia, hoje, { hora: Math.floor(minutos / 60), fuso }) !== 'pode_receber') continue;
-        const ja = dia === hoje && minutos >= 9 * 60;
-        const para = ja ? agora : paraInstante(dia, '09:00', fuso)!;
+        // sempre as 9h do dia no fuso (revisão da T10, M1): o de hoje depois das 9h já venceu e sai na próxima varredura
+        // (lte(agendadaPara, agora)); com "agora", o envio das 20h30 em Rio Branco (01h30 UTC do dia seguinte) cairia, em
+        // 31/12, no balde do ano seguinte do índice (o ano é o de UTC)
+        const para = paraInstante(dia, '09:00', fuso)!;
+        const ja = para.getTime() <= agora.getTime();
         const r = await tx.execute<{ id: string }>(sql`
           insert into notifications (tenant_id, patient_id, tipo, canal, status, agendada_para, created_at, updated_at)
           values (${ctx.tenantId}, ${p.id}, 'aniversario', 'email', 'pendente', ${para.toISOString()}::timestamptz, ${agora.toISOString()}::timestamptz, ${agora.toISOString()}::timestamptz)
-          on conflict (tenant_id, patient_id, (date_part('year', timezone('UTC', agendada_para)))) where tipo = 'aniversario' do nothing
+          on conflict ${sql.raw(ALVO_UM_POR_ANO)} where ${sql.raw(ONDE_UM_POR_ANO)} do nothing
           returning id`);
         if (r.rows.length) {
           agendadas++;
