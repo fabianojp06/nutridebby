@@ -128,6 +128,11 @@ describe('Plano 23 (US-410, §6.2): "Retorno previsto (opcional)" no atendimento
     expect(/<input id="retornoPrevistoEm"[^>]*>/.exec(html)?.[0]).toMatch(new RegExp(`type="date"[^>]*name="retornoPrevistoEm"[^>]*value="${esperada}"`));
     expect(html).toMatch(/<label for="retornoPrevistoEm"[^>]*>Data<\/label>/);
     expect(texto(html)).toMatch(/Em\s*semanas/);
+    // nome acessível completo mesmo vazio e a dica ligada ao campo
+    const semanas = /<input id="retornoSemanas"[^>]*>/.exec(html)?.[0] ?? '';
+    expect(semanas).toContain('aria-label="Em quantas semanas"');
+    expect(semanas).toContain('aria-describedby="retornoSemanas-dica"');
+    expect(html).toContain('<p id="retornoSemanas-dica" class="text-sm text-suave">Se preencher as semanas, elas valem no lugar da data.</p>');
     expect(html).toMatch(/<label for="retornoSemanas"[^>]*>Em<input id="retornoSemanas" type="number"[^>]*name="retornoSemanas"[^>]*\/>semanas<\/label>/);
 
     const errado = formulario(C, '');

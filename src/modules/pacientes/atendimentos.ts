@@ -43,8 +43,9 @@ export type Atendimento = { id: string; data: string; orientacoesPaciente: strin
  */
 type Entrada = { data: unknown; notasPrivadas: unknown; orientacoes: unknown; appointmentId?: unknown; retornoPrevistoEm?: unknown; retornoSemanas?: unknown };
 
-/** Semanas: inteiro (sem sinal nem fração); outro texto não vira previsão. */
+/** Semanas: inteiro de 1 a 104 (o `min`/`max` do campo; 104 semanas = 728 dias, dentro dos 2 anos); outro texto não vira previsão. */
 const SEMANAS = /^\d{1,3}$/;
+const semanasValidas = (s: string) => SEMANAS.test(s) && Number(s) >= 1 && Number(s) <= 104;
 
 /**
  * A previsão pedida: `undefined` = não informada (manter a gravada), `null` = sem previsão, `string` = a data, ou `false`
@@ -54,7 +55,7 @@ function previsaoPedida(input: Entrada, data: string): string | null | undefined
   if (input.retornoPrevistoEm === undefined && input.retornoSemanas === undefined) return undefined;
   const texto = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
   const semanas = texto(input.retornoSemanas);
-  if (semanas) return SEMANAS.test(semanas) && dataValida(data) ? retornoEmSemanas(data, Number(semanas)) : false;
+  if (semanas) return semanasValidas(semanas) && dataValida(data) ? retornoEmSemanas(data, Number(semanas)) : false;
   const dia = texto(input.retornoPrevistoEm);
   if (!dia) return null;
   return dataValida(dia) ? dia : false;
@@ -67,7 +68,8 @@ function validar(input: Entrada, hoje: string): { data: string; notas: string | 
   else if (data > hoje) erros.data = MSG_ATENDIMENTO.futuro;
   // RN-430: entre a data do atendimento e + 730 dias, antes do banco (o CHECK é a última defesa: o 23514 levaria a linha ao log)
   const retorno = previsaoPedida(input, data);
-  if (retorno === false || (typeof retorno === 'string' && dataValida(data) && !previsaoNaFaixa(data, retorno))) erros.retornoPrevistoEm = MSG_ATENDIMENTO.retornoPrevisto;
+  // com a data do atendimento inválida, só o erro da data (a faixa da previsão depende dela)
+  if (!erros.data && (retorno === false || (typeof retorno === 'string' && !previsaoNaFaixa(data, retorno)))) erros.retornoPrevistoEm = MSG_ATENDIMENTO.retornoPrevisto;
   // o navegador envia quebra de linha como CRLF, mas o maxLength do textarea conta 1 caractere: normaliza antes de medir
   const limpo = (v: unknown) => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n').trim() : '');
   const notas = limpo(input.notasPrivadas);
@@ -161,7 +163,7 @@ export async function atualizarAtendimento(
           .select({ retorno: consultations.retornoPrevistoEm })
           .from(consultations)
           .where(and(eq(consultations.id, id), eq(consultations.patientId, p.id)))
-          .for('update');
+          .for('no key update');
         if (atual?.retorno && !previsaoNaFaixa(v.data, atual.retorno)) throw new AtendimentoError({ retornoPrevistoEm: MSG_ATENDIMENTO.retornoPrevisto });
       }
       const [c] = idValido(id)

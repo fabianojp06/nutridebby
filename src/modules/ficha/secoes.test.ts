@@ -338,7 +338,7 @@ describe('Plano 23 (US-411, §4.4): a seção "Consultas" do Início', () => {
     expect(futuras.length).toBe(s.resumo.total);
   });
 
-  it('sem consulta futura e com previsão, abre com o item "Retorno previsto" (o do último atendimento com previsão); com consulta futura, a previsão some e a consulta é "Retorno"', async () => {
+  it('sem consulta futura e com previsão, abre com o item "Retorno previsto" (a do atendimento mais novo, AG-D76); com consulta futura, a previsão some e a consulta é "Retorno"', async () => {
     const T = await novoTenant(app.db);
     const p = await novoPaciente(app.db, T.ctx);
     const [velho, ultimo] = await withTenant(
@@ -349,7 +349,6 @@ describe('Plano 23 (US-411, §4.4): a seção "Consultas" do Início', () => {
           .values([
             { tenantId: T.tenantId, patientId: p.id, data: dia(-60), retornoPrevistoEm: dia(-10) },
             { tenantId: T.tenantId, patientId: p.id, data: dia(-30), retornoPrevistoEm: dia(10) },
-            { tenantId: T.tenantId, patientId: p.id, data: dia(-20) },
           ])
           .returning({ id: consultations.id }),
       app.db,
@@ -362,6 +361,24 @@ describe('Plano 23 (US-411, §4.4): a seção "Consultas" do Início', () => {
       total: 1,
       ultimos: [{ id: futura, rotulo: 'Retorno', data: dia(15), situacao: 'Agendada', noApp: false, href: `/painel/agenda/consultas/${futura}` }],
     });
+  });
+
+  it('AG-D76: previsão para 10/12 e um atendimento mais novo (05/12) sem previsão → sem o item "Retorno previsto"', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await withTenant(T.ctx, (tx) => tx.insert(consultations).values({ tenantId: T.tenantId, patientId: p.id, data: '2026-11-01', retornoPrevistoEm: '2026-12-10' }), app.db);
+    expect((await consultasDe(T, p)).resumo.ultimos.map((i) => [i.rotulo, i.data])).toEqual([['Retorno previsto', '2026-12-10']]);
+    await withTenant(T.ctx, (tx) => tx.insert(consultations).values({ tenantId: T.tenantId, patientId: p.id, data: '2026-12-05' }), app.db);
+    expect((await consultasDe(T, p)).resumo).toEqual({ total: 0, ultimos: [] });
+  });
+
+  it('consulta futura depois do corte da Lista (13 meses): não entra no total, mas tira o item "Retorno previsto" (como o marcador da agenda)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await withTenant(T.ctx, (tx) => tx.insert(consultations).values({ tenantId: T.tenantId, patientId: p.id, data: dia(-30), retornoPrevistoEm: dia(10) }), app.db);
+    expect((await consultasDe(T, p)).resumo.total).toBe(1);
+    await consultaDireta(app.db, T.ctx, p.id, em(dia(395), '10:00'), 60);
+    expect((await consultasDe(T, p)).resumo).toEqual({ total: 0, ultimos: [] });
   });
 
   it('nada: total 0 e sem itens; outro consultório não vê', async () => {

@@ -137,6 +137,12 @@ describe('agendaDoPeriodo (US-404, US-405)', () => {
       { tenantId: T.tenantId, patientId: fabio, data: '2026-10-01', retornoPrevistoEm: '2026-11-20' },
     ]), app.db);
     await consultaDireta(app.db, T.ctx, fabio, em('2026-12-01', '10:00'), 60); // com consulta futura: sem marcador
+    // AG-D76: previsão para 19/11 e um atendimento mais novo sem previsão → sem marcador
+    const gil = (await novoPaciente(app.db, T.ctx, { nome: 'Gil Prado' })).id;
+    await withTenant(T.ctx, (tx) => tx.insert(consultations).values([
+      { tenantId: T.tenantId, patientId: gil, data: '2026-10-01', retornoPrevistoEm: '2026-11-19' },
+      { tenantId: T.tenantId, patientId: gil, data: '2026-11-05' },
+    ]), app.db);
     const antes = await linhasDeAuditoria(T);
     expect((await agendaDoPeriodo(T.ctx, tenantAgenda(T), filtros(), deps)).retornos).toEqual([]);
     expect((await agendaDoPeriodo(T.ctx, tenantAgenda(T), filtros({ retorno: true }), deps)).retornos).toEqual([{ patientId: eva, nome: 'Eva Melo', data: '2026-11-19' }]);

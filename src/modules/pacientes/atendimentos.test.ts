@@ -262,7 +262,7 @@ describe('Plano 23 (US-410, RN-430): previsão de retorno no atendimento', () =>
     const { id: semanas104 } = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...base, data: '2026-09-29', retornoSemanas: '104' }, deps);
     expect(await previsao(T, p.id, semanas104)).toBe('2028-09-26');
     const outro = await novoPaciente(app.db, T.ctx);
-    for (const entrada of [{ retornoPrevistoEm: '2026-09-30' }, { retornoPrevistoEm: '2028-10-01' }, { retornoSemanas: '105' }, { retornoSemanas: '-1' }, { retornoSemanas: '2,5' }, { retornoSemanas: 'seis' }, { retornoPrevistoEm: '2026-02-30' }]) {
+    for (const entrada of [{ retornoPrevistoEm: '2026-09-30' }, { retornoPrevistoEm: '2028-10-01' }, { retornoSemanas: '105' }, { retornoSemanas: '0' }, { retornoSemanas: '-1' }, { retornoSemanas: '2,5' }, { retornoSemanas: 'seis' }, { retornoPrevistoEm: '2026-02-30' }]) {
       const e = await registrarAtendimento(T.ctx, T.tenant, outro.id, { ...base, ...entrada }, deps).catch((x: unknown) => x);
       expect(e, JSON.stringify(entrada)).toBeInstanceOf(AtendimentoError);
       expect((e as AtendimentoError).erros, JSON.stringify(entrada)).toEqual({ retornoPrevistoEm: FORA_DA_FAIXA });
@@ -289,6 +289,15 @@ describe('Plano 23 (US-410, RN-430): previsão de retorno no atendimento', () =>
     expect(await buscarAtendimento(T.ctx, p.id, id, app.db)).toMatchObject({ data: '2026-09-10', retornoPrevistoEm: '2026-09-20' });
     await atualizarAtendimento(T.ctx, T.tenant, p.id, id, { ...base, data: '2026-09-10', retornoPrevistoEm: '', retornoSemanas: '' }, deps);
     expect(await buscarAtendimento(T.ctx, p.id, id, app.db)).toMatchObject({ retornoPrevistoEm: null });
+  });
+
+  it('data do atendimento inválida: só o erro da data, não o da previsão', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    for (const entrada of [{ retornoSemanas: '6' }, { retornoPrevistoEm: '2026-12-01' }, { retornoSemanas: 'seis' }]) {
+      const e = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...base, data: '', ...entrada }, deps).catch((x: unknown) => x);
+      expect((e as AtendimentoError).erros, JSON.stringify(entrada)).toEqual({ data: MSG_ATENDIMENTO.data });
+    }
   });
 
   it('a previsão não vai ao portal: a Jornada projeta só id, data e orientação', async () => {

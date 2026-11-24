@@ -8,8 +8,9 @@ import { withTenant } from '@/db/tenant';
 import { previsoesDeRetorno, retornoEmSemanas } from './retorno';
 
 /**
- * Plano 23 (US-410, RN-430): a previsão de retorno. O marcador é do ÚLTIMO atendimento com previsão, de paciente `ativo` e não
- * anonimizado, SEM consulta futura em `STATUS_OCUPA` (agendada, confirmada ou o pedido `solicitada`). Só id, nome e data.
+ * Plano 23 (US-410, RN-430, AG-D76): a previsão de retorno. O marcador é a previsão do atendimento MAIS NOVO (sem previsão
+ * nele, sem marcador), de paciente `ativo` e não anonimizado, SEM consulta futura em `STATUS_OCUPA` (agendada, confirmada ou
+ * o pedido `solicitada`). Só id, nome e data.
  */
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl')); // só para contar o audit_log
@@ -39,13 +40,16 @@ describe('previsoesDeRetorno (US-410, RN-430)', () => {
 
   beforeAll(async () => {
     T = await novoTenant(app.db);
-    for (const nome of ['Ana Souza', 'Bia Lima', 'Caio Dias', 'Davi Reis', 'Eva Melo', 'Fábio Nunes', 'Gil Prado', 'Hugo Sá']) {
+    for (const nome of ['Ana Souza', 'Bia Lima', 'Caio Dias', 'Davi Reis', 'Eva Melo', 'Fábio Nunes', 'Gil Prado', 'Hugo Sá', 'Iara Luz']) {
       id[nome.split(' ')[0].toLowerCase()] = (await novoPaciente(app.db, T.ctx, { nome })).id;
     }
-    // Ana: duas previsões — vale a do ÚLTIMO atendimento com previsão (o mais novo sem previsão não apaga)
+    // Ana: duas previsões — vale a do atendimento mais novo (AG-D76); o empate de data desempata pela criação
     await atendimento(T, id.ana, '2026-10-01', '2026-12-01');
-    await atendimento(T, id.ana, '2026-10-20', '2026-12-10');
-    await atendimento(T, id.ana, '2026-11-02', null);
+    await atendimento(T, id.ana, '2026-10-20', '2026-12-03', new Date('2026-10-20T12:00:00Z'));
+    await atendimento(T, id.ana, '2026-10-20', '2026-12-10', new Date('2026-10-20T18:00:00Z'));
+    // Iara (AG-D76): previsão para 10/12 e um atendimento mais novo, em 05/12, sem previsão → sem marcador
+    await atendimento(T, id.iara, '2026-11-01', '2026-12-10');
+    await atendimento(T, id.iara, '2026-12-05', null);
     // Bia: previsão, mas com consulta futura agendada → sem marcador
     await atendimento(T, id.bia, '2026-10-05', '2026-12-05');
     await consultaDireta(app.db, T.ctx, id.bia, em('2027-01-10', '10:00'), 60);
@@ -70,7 +74,7 @@ describe('previsoesDeRetorno (US-410, RN-430)', () => {
 
   const ler = (de: string, ate: string, filtro: { patientId?: string } = {}) => withTenant(T.ctx, (tx) => previsoesDeRetorno(tx, de, ate, filtro, agora), app.db);
 
-  it('o último atendimento com previsão, só de ativo sem consulta futura em STATUS_OCUPA; ordem por data; só id, nome e data', async () => {
+  it('a previsão do atendimento mais novo (AG-D76), só de ativo sem consulta futura em STATUS_OCUPA; ordem por data; só id, nome e data', async () => {
     const r = await ler('2026-11-30', '2026-12-31');
     expect(r).toEqual([
       { patientId: id.ana, nome: 'Ana Souza', data: '2026-12-10' },
@@ -84,6 +88,7 @@ describe('previsoesDeRetorno (US-410, RN-430)', () => {
     expect(await ler('2026-12-11', '2026-12-31')).toEqual([]);
     expect(await ler('2026-11-30', '2026-12-31', { patientId: id.davi })).toEqual([{ patientId: id.davi, nome: 'Davi Reis', data: '2026-12-07' }]);
     expect(await ler('2026-11-30', '2026-12-31', { patientId: id.bia })).toEqual([]);
+    expect(await ler('2026-11-30', '2026-12-31', { patientId: id.iara })).toEqual([]); // AG-D76: o mais novo não tem previsão
   });
 
   it('outro consultório não vê', async () => {

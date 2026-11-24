@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, sql, type SQL } from 'drizzle-orm';
 import { appointments, consultations } from '@/db/schema';
 import { ROTULO_RETORNO_PREVISTO, ROTULO_STATUS, ROTULO_TIPO_CONSULTA, sqlEhRetorno, STATUS_OCUPA, TITULO_SECAO_CONSULTAS } from '@/modules/agenda/status';
 import { hojeNoFuso, somarAnos } from '@/modules/pacientes/datas';
@@ -20,8 +20,9 @@ const futuraDo = (patientId: string, agora: SQL | Date) =>
  * 18, como a P05 D10). `total` = consultas futuras até o fim da Lista filtrada pelo paciente (de hoje a hoje + 12 meses,
  * RN-411: o "Ver todos" mostra as mesmas). Os itens são as próximas em ordem **crescente** — exceção ao "mais recentes
  * primeiro" de `tipos.ts`: aqui o que importa é a próxima consulta —, com "Primeira consulta" ou "Retorno" (`sqlEhRetorno`,
- * RN-416) e a situação. Sem consulta futura, o item "Retorno previsto" com a data do último atendimento com previsão
- * (RN-430; total 1). Sem `adicionar`: o "Marcar consulta" já existe na ficha.
+ * RN-416) e a situação. Sem consulta futura (nenhuma, nem depois do corte da Lista: a mesma regra do marcador da agenda,
+ * `previsoesDeRetorno`), o item "Retorno previsto" com a previsão do atendimento MAIS NOVO (RN-430, AG-D76: sem previsão
+ * nele, sem item; total 1). Sem `adicionar`: o "Marcar consulta" já existe na ficha.
  */
 export const secaoConsultas: SecaoDaFicha = {
   id: 'consultas',
@@ -57,10 +58,13 @@ export const secaoConsultas: SecaoDaFicha = {
         })),
       };
     }
+    // a futura depois do corte da Lista não entra no total, mas tira a previsão (como o marcador da agenda)
+    const [longe] = await tx.select({ id: appointments.id }).from(appointments).where(futuraDo(patientId, agora)).limit(1);
+    if (longe) return { total: 0, ultimos: [] };
     const [previsao] = await tx
       .select({ id: consultations.id, data: consultations.retornoPrevistoEm })
       .from(consultations)
-      .where(and(eq(consultations.patientId, patientId), isNotNull(consultations.retornoPrevistoEm)))
+      .where(eq(consultations.patientId, patientId))
       .orderBy(desc(consultations.data), desc(consultations.createdAt), desc(consultations.id))
       .limit(1);
     if (!previsao?.data) return { total: 0, ultimos: [] };

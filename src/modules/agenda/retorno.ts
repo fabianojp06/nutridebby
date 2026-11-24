@@ -26,8 +26,9 @@ export const previsaoNaFaixa = (dataAtendimento: string, previsao: string): bool
   previsao >= dataAtendimento && previsao <= somarDias(dataAtendimento, DIAS_MAX_RETORNO);
 
 /**
- * O marcador "Retorno previsto" da agenda (RN-430), de `de` a `ate` (AAAA-MM-DD, fechado): para cada paciente `ativo` e não
- * anonimizado, a previsão do ÚLTIMO atendimento com previsão (data, depois criação), só quando ele não tem consulta futura
+ * O marcador "Retorno previsto" da agenda (RN-430, AG-D76), de `de` a `ate` (AAAA-MM-DD, fechado): para cada paciente
+ * `ativo` e não anonimizado, a previsão do atendimento MAIS NOVO (data, criação, id) — sem previsão nele, sem marcador (um
+ * atendimento novo sem previsão apaga a anterior) —, só quando ele não tem consulta futura
  * em `STATUS_OCUPA` (agendada, confirmada ou o pedido que ainda não terminou em `agora`). Uma consulta só; só id, nome de
  * registro e data. Leitura da agenda: sem `auditRead` (RN-414, AG-D30). Roda na transação da sessão `nutri` de quem chama.
  */
@@ -35,7 +36,7 @@ export async function previsoesDeRetorno(tx: Tx, de: string, ate: string, filtro
   const ultima = tx
     .selectDistinctOn([consultations.patientId], { patientId: consultations.patientId, data: consultations.retornoPrevistoEm })
     .from(consultations)
-    .where(and(isNotNull(consultations.retornoPrevistoEm), filtro.patientId ? eq(consultations.patientId, filtro.patientId) : undefined))
+    .where(filtro.patientId ? eq(consultations.patientId, filtro.patientId) : undefined)
     .orderBy(consultations.patientId, sql`${consultations.data} desc`, sql`${consultations.createdAt} desc`, sql`${consultations.id} desc`)
     .as('ultima');
   // §4.3: o pedido (`solicitada`) também é consulta futura — com ele, o marcador some
@@ -47,7 +48,7 @@ export async function previsoesDeRetorno(tx: Tx, de: string, ate: string, filtro
     .select({ patientId: patients.id, nome: patients.nome, data: sql<string>`${ultima.data}::text` })
     .from(ultima)
     .innerJoin(patients, eq(patients.id, ultima.patientId))
-    .where(and(eq(patients.status, 'ativo'), isNull(patients.anonimizadoEm), gte(ultima.data, de), lte(ultima.data, ate), notExists(futura)))
+    .where(and(eq(patients.status, 'ativo'), isNull(patients.anonimizadoEm), isNotNull(ultima.data), gte(ultima.data, de), lte(ultima.data, ate), notExists(futura)))
     .orderBy(asc(ultima.data), asc(patients.nome), asc(patients.id));
   return rs.map((r) => ({ patientId: r.patientId, nome: r.nome, data: r.data }));
 }

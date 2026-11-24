@@ -52,12 +52,15 @@ export function AtendimentoForm({ acao, inicial, hoje, botao, somenteLeitura, co
               <input id="retornoPrevistoEm" name="retornoPrevistoEm" type="date" defaultValue={v.retornoPrevistoEm ?? ''} className="rounded-xl border border-campo bg-cartao p-2 text-texto" {...aria('retornoPrevistoEm')} />
             </div>
             <span className="pb-2 text-suave">ou</span>
+            {/* nome acessível completo mesmo com o campo vazio (o rótulo visível envolve o campo: "Em [n] semanas") */}
             <label htmlFor="retornoSemanas" className="inline-flex min-h-11 items-center gap-2">
               Em
-              <input id="retornoSemanas" name="retornoSemanas" type="number" inputMode="numeric" min={1} max={104} step={1} defaultValue={v.retornoSemanas ?? ''} className="w-20 rounded-xl border border-campo bg-cartao p-2 text-texto" {...aria('retornoPrevistoEm')} />
+              <input id="retornoSemanas" name="retornoSemanas" type="number" inputMode="numeric" min={1} max={104} step={1} defaultValue={v.retornoSemanas ?? ''} className="w-20 rounded-xl border border-campo bg-cartao p-2 text-texto"
+                aria-label="Em quantas semanas" aria-invalid={e.retornoPrevistoEm ? true : undefined} aria-describedby={e.retornoPrevistoEm ? 'retornoSemanas-dica retornoPrevistoEm-erro' : 'retornoSemanas-dica'} />
               semanas
             </label>
           </div>
+          <p id="retornoSemanas-dica" className="text-sm text-suave">Se preencher as semanas, elas valem no lugar da data.</p>
           {erro('retornoPrevistoEm')}
         </fieldset>
       </fieldset>

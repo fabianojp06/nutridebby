@@ -115,3 +115,17 @@ pendente no banco, deixa o pedido sem dono. Antes de trocar a imagem:
 
 Com a chave desligada desde sempre (o padrão da migration; a semente do E2E começa com ela desligada), o PR 3 não grava
 nada que a imagem do PR 2 não entenda: a volta é só trocar a imagem.
+
+## PR 3 (previsão de retorno) — Volta atrás para a imagem do PR 2 (T9)
+
+A imagem do PR 2 não conhece a previsão de retorno (`consultations.retorno_previsto_em`, CHECK
+`consultations_retorno_previsto_faixa`: entre a data do atendimento e + 730 dias). Com ela no ar — na volta atrás e
+também na janela do deploy do PR 3, enquanto a imagem antiga ainda atende —, **editar a data de um atendimento que tem
+previsão para depois dela** (ou para mais de 2 anos antes) cai no CHECK: o Postgres devolve 23514, a tela dá erro 500 e
+o `DETAIL` do erro leva a linha inteira de `consultations` (com `orientacoes_paciente`, dado de saúde) ao log do banco
+(regra 3). A imagem do PR 3 confere a faixa antes do UPDATE (`atualizarAtendimento`, RN-430) e nunca chega ao 23514.
+
+- Antes de voltar: avisar a nutricionista para não editar a data de atendimentos com previsão até a imagem nova voltar.
+- Depois de um episódio: procurar `consultations_retorno_previsto_faixa` no log do `nutri_db` e tratar as linhas como
+  dado de saúde no log (rotação/limpeza conforme `docs/operacao/`), sem copiá-las para fora.
+- A coluna e o CHECK ficam (expansão, RNF-407); nada a desfazer no banco.
