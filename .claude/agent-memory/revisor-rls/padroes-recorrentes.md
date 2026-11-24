@@ -540,3 +540,12 @@ Plano 27, T8d (guarda da virada do dia no registro de metas, 24/11/2026): limpa 
 mesmo now() do INSERT, recusa antes de gravar e depois do nao_encontrada; runbook só leitura, superusuário, só ids).
 - "Dia que a tela leu" vindo de fonte diferente da leitura dos dados (TS `hojeNoFuso` antes da transação × registros por
   `app_hoje_do_tenant()`): na virada, recusa espúria por ms. Pedir que a página use o dia devolvido pela própria leitura.
+Plano 21B (spec do laudo da balança, 24/11/2026) — 0 Critical, 6 Important:
+- Arquivo cujo DONO passa a ser `ia_tarefas` (ponteiro na tarefa): `desativarIa` trava tenant → tarefas na_fila/pronta, e o
+  `apagarArquivo` faz UPDATE tenants DEPOIS do naMesmaTransacao (que trava o dono) → ciclo novo. Dono travado pelo cancelamento
+  do consultório pede paciente → tenant → dono.
+- CHECK "estado ativo exige ponteiro" × `cancelarTarefas`, que PULA `processando` (e põe pronta em `cancelada`, não `descartada`):
+  remover/salvar durante a leitura dá 23514. Molde certo: ramo semAutorizacao de expirarTarefasDoTenant (estorno só sem enviado_em).
+- Pré-condições da IA no `antesDaReserva` de salvarArquivo = antes da trava do tenant (viola D16); decidir de novo no `registrar`.
+- "Um dono só" entre duas tabelas (UNIQUE por tabela) e lista de origem que "só encolhe" sem amarrar ao valor mudado: conferir
+  exclusão mútua no banco e auto-retirada no gatilho (não recusar: a imagem antiga edita sem conhecer a coluna).
