@@ -1046,6 +1046,10 @@ Só "Meu plano" fica no aparelho. Regras em `src/app/sw-regras.ts`, usadas pelo 
 | Rota "Meu plano" | `NetworkFirst`, 4 s de espera, não grava (`cacheWillUpdate: null`) |
 | Outras navegações em `/p/` sem rede | `NetworkOnly` com `handlerDidError` → a cópia guardada |
 | Selo | "Offline — exibindo última versão" quando `navigator.onLine` é falso ou o `GET /api/p/ping` falha em 5 s (`src/app/p/selo-offline.tsx`) |
+| Marca da cópia (SUS-112) | A busca de `guardarPlano` leva `x-nd-copia: 1` (`CABECALHO_PEDIDO_DA_COPIA`); só então `/p/plano` desenha `<span hidden data-nd-copia-offline>` (`MARCA_DA_COPIA`). A navegação do paciente nunca leva o cabeçalho |
+| Quando a rede volta (SUS-112) | `reloadOnOnline={false}` no `SerwistProvider`; `RecarregarAoVoltar` (`src/app/p/sw-provider.tsx`, refeito a cada endereço) chama `recarregarCopiaAoVoltar` (`sw-regras.ts`): na página viva não instala nenhum ouvinte (lista de permissão: diário, envio de exame, Hoje… nunca recarregam, e o que o paciente digita fica); na cópia (`ehCopiaOffline`), o `online` e o `nd:rede-voltou` (`EVENTO_REDE_VOLTOU`) passam por um caminho só, que recarrega no máximo uma vez com `navigator.onLine` e a página ficando (`deveRecarregarAoVoltar`). `vigiarSaida`: `beforeunload` marca a saída por 5 s, `pagehide` sem prazo; qualquer `pageshow` e o `visibilitychange` para `visible` desmarcam. Reload pulado porque a página saía fica pendente e é tentado de novo quando a saída desmarca |
+| Ping do selo (SUS-112) | `vigiarRede` (`src/app/p/selo-offline.tsx`): fora com `navigator.onLine` verdadeiro (a cópia do NetworkFirst), o ping se repete a cada 15 s (`REPETIR_PING_MS`); de fora para dentro, dispara `nd:rede-voltou` na `window` |
+| Conversa da IA Nutri (SUS-112) | O aviso "Sem conexão…" de uma pergunta que falhou sem rede sai quando `useOnline()` volta a verdadeiro (`avisoAoVoltarARede`), sem o reload que antes o limpava |
 
 A cópia **sai**:
 
