@@ -262,7 +262,7 @@ describe('relatorioAgenda (US-483, RN-490)', () => {
   const P = periodo('2026-10', '2026-11');
   beforeAll(async () => {
     T = await novoTenant(app.db);
-    const [ana, bia, caio, dani, eva, fabio, gil, hugo, iris, jose] = await pacientes(T, [{}, {}, {}, {}, {}, {}, {}, {}, {}, {}]);
+    const [ana, bia, caio, dani, eva, fabio, gil, hugo, iris] = await pacientes(T, [{}, {}, {}, {}, {}, {}, {}, {}, {}]);
     await consulta(T, ana, em('2026-10-01', '10:00'), { status: 'realizada' }); // primeira da vida: não é retorno
     await atendimento(T, fabio, '2026-10-01'); // atendimento sem consulta
     await consulta(T, iris, new Date('2026-11-01T02:00:00Z')); // 31/10 às 23:00 em São Paulo: outubro, já começou
@@ -275,11 +275,12 @@ describe('relatorioAgenda (US-483, RN-490)', () => {
     await consulta(T, ana, em('2026-11-17', '09:00')); // agendada, já começou: iniciada; retorno
     await consulta(T, fabio, em('2026-11-20', '10:00'), { origem: 'paciente' }); // retorno pelo atendimento de outubro
     await consulta(T, gil, em('2026-11-21', '10:00'), { status: 'confirmada' });
-    // pedido do paciente sem resposta (Plano 23): não é consulta marcada, nem iniciada, nem retorno (code review do PR 1)
+    // pedido do paciente sem resposta (Plano 23): não é consulta marcada, nem iniciada, nem retorno (code review do PR 1);
+    // da Ana, que tem consulta realizada em outubro: sem a exclusão, contaria como retorno
     await owner.db.transaction(async (tx) => {
       await tx.execute(sql`select set_config('app.tenant_id', ${T.tenantId}, true)`);
       await tx.execute(sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, status)
-        values (${T.tenantId}, ${jose}, ${em('2026-11-09', '10:00')}, ${em('2026-11-09', '11:00')}, 'presencial', 'paciente', 'solicitada')`);
+        values (${T.tenantId}, ${ana}, ${em('2026-11-09', '10:00')}, ${em('2026-11-09', '11:00')}, 'presencial', 'paciente', 'solicitada')`);
     });
   });
 
