@@ -91,6 +91,7 @@ test('a pessoa da recepção abre o convite, aceita o termo, cria a senha, confi
 
   // o link do convite não vale de novo
   await page.goto(link.pathname);
-  await expect(page.getByRole('alert')).toContainText('Convite inválido ou já usado.');
+  // filtrado pelo texto: o anunciador de rotas do Next também tem role=alert
+  await expect(page.getByRole('alert').filter({ hasText: 'Convite inválido ou já usado.' })).toBeVisible();
   await ctx.close();
 });

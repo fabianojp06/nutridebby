@@ -75,8 +75,9 @@ test('uma tela do prontuário leva a "Sem permissão" e nada é lido nem registr
   const nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.36.12', { viewport: { width: 1280, height: 900 } });
   await expect(nutri).toHaveURL(/\/painel$/);
   await nutri.goto(`${pacientePath}/historico`);
-  await expect(nutri.getByRole('heading', { level: 1 }).first()).toBeVisible();
-  await expect(nutri.locator('main')).not.toContainText(RECEPCAO.nome);
+  await expect(nutri.getByRole('heading', { level: 2, name: 'Histórico de acessos' })).toBeVisible();
+  // o prontuário não tem <main> próprio: a página inteira não pode citar a recepção
+  await expect(nutri.locator('body')).not.toContainText(RECEPCAO.nome);
   await nutri.context().close();
 });
 
