@@ -593,3 +593,10 @@ corrida provada com NOWAIT no paciente e o aceite sem máscara de 40P01.
 - Limpeza LGPD que só apaga depois de OUTRO job marcar o estado final (vencer → resolvido_em): a linha que nunca resolve
   (falha repetida) fica para sempre, contra a frase do ponto de coleta. Pedir a rede pela data do próprio dado.
 - GET "só mostra" que chama função SECURITY DEFINER com trava consultiva do tenant + FOR UPDATE, sem limite por IP.
+Plano 23, T9 (previsão de retorno e seção Consultas, 24/11/2026): sem Critical/Important na lente banco.
+- Duas leituras do mesmo "sem consulta futura" com janelas diferentes (seção da ficha limitada à Lista de 12 meses ×
+  marcador sem teto): com consulta só depois de 12 meses, a ficha diz "Retorno previsto" e a agenda não. Cruzar o predicado.
+- Guarda de texto "a IA não cita a coluna X" não pega `select()` sem colunas (resumo-dados.ts lê a linha inteira de
+  `consultations`): a coluna entra na memória do módulo da IA sem o nome no fonte. Pedir prova pelo payload montado.
+- CHECK entre duas colunas editáveis (previsão × data) protegido só no módulo novo: na volta atrás, a imagem antiga edita
+  a data sem conhecer a previsão → 23514 com a linha (orientações) no log do Postgres. Pedir registro no §6.8.1.
