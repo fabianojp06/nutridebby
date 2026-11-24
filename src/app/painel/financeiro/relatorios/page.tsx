@@ -1,6 +1,7 @@
 import { BotaoLink } from '@/components/ui/botao';
 import { Cartao } from '@/components/ui/cartao';
 import { requireNutri } from '@/lib/tenant-session';
+import { OpcoesDoFiltroDeLocal } from '@/components/opcoes-de-local';
 import { MSG_FILTRO_LOCAL } from '@/modules/agenda/constantes';
 import { MSG_FINANCEIRO as M } from '@/modules/financeiro/constantes';
 import { formatarReais } from '@/modules/financeiro/dinheiro';
@@ -35,7 +36,9 @@ const ID_ERRO_FLUXO = 'fluxo-csv-erro-origem';
  * fluxo e o foco vai para o link dele; sem, no cartão do CSV dos lançamentos, com o foco no "Baixar CSV").
  * Uma transação (RNF-301); sem `auditRead` (RN-318) — o download grava o `exportar` na rota. Sem configuração (RN-301): o
  * primeiro acesso. Plano 23 (US-416, RN-437): "Local" (`?local=`) recorta as entradas e saídas dos 12 meses e começa
- * escolhido no CSV; o fluxo de caixa (com o saldo) não se divide e diz "Todos os locais".
+ * escolhido no CSV ("Local dos lançamentos"); o fluxo de caixa (com o saldo) não se divide e diz "Local: Todos os locais".
+ * AG-D79: as opções trazem os arquivados com lançamento; `?local=` fora delas é descartado; `?erro=local`: a rota do CSV
+ * recusou o local (o alerta junto do "Local dos lançamentos").
  */
 export default async function Relatorios({ searchParams }: PageProps<'/painel/financeiro/relatorios'>) {
   const { ctx, tenant } = await requireNutri('/painel/financeiro/relatorios');
@@ -56,7 +59,7 @@ export default async function Relatorios({ searchParams }: PageProps<'/painel/fi
     );
   }
 
-  const { config, ano, anos, fluxo, dozeMeses, locais, localId } = tela;
+  const { config, ano, anos, fluxo, dozeMeses, locais, local } = tela;
   const mesAtual = intervaloDoMes(mesDe(hojeNoFuso(tenant.fuso)));
   // o saldo começa no ano mostrado ou depois: os meses antes dele mostram "—" nas linhas de saldo (US-306)
   const notaDoSaldo = config.saldoInicialEm >= `${ano}-01-01`;
@@ -75,15 +78,9 @@ export default async function Relatorios({ searchParams }: PageProps<'/painel/fi
             ))}
           </Selecao>
         </div>
-        <div className="min-w-44">
-          <Selecao id="local" rotulo={MSG_FILTRO_LOCAL.local} defaultValue={localId ?? ''}>
-            <option value="">{MSG_FILTRO_LOCAL.todosOsLocais}</option>
-            {locais.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.nome}
-              </option>
-            ))}
-            <option value={SEM_LOCAL}>{MSG_FILTRO_LOCAL.semLocal}</option>
+        <div className="min-w-0 max-w-full sm:min-w-44 sm:max-w-xs">
+          <Selecao id="local" rotulo={MSG_FILTRO_LOCAL.local} defaultValue={local?.id ?? ''}>
+            <OpcoesDoFiltroDeLocal opcoes={locais} semLocal={SEM_LOCAL} />
           </Selecao>
         </div>
         <button className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">
@@ -116,7 +113,7 @@ export default async function Relatorios({ searchParams }: PageProps<'/painel/fi
         )}
         <FluxoDeCaixa fluxo={fluxo} captionId="fluxo-caption" />
         <div className="mt-2 space-y-1 text-sm text-suave">
-          <p>{MSG_FILTRO_LOCAL.todosOsLocais}</p>
+          <p>{MSG_FILTRO_LOCAL.recorte(MSG_FILTRO_LOCAL.todosOsLocais)}</p>
           <p>{R.soPagos}</p>
           {notaDoSaldo && <p>{R.notaSaldo(formatarData(config.saldoInicialEm))}</p>}
         </div>
@@ -124,6 +121,8 @@ export default async function Relatorios({ searchParams }: PageProps<'/painel/fi
 
       <Cartao id="doze-titulo" titulo={R.dozeMeses}>
         <div className="space-y-4">
+          {/* Plano 23 (US-416, RN-437): o recorte dos 12 meses, na forma da impressão (§6.2) */}
+          <p className="text-sm text-suave">{MSG_FILTRO_LOCAL.recorte(local?.nome ?? MSG_FILTRO_LOCAL.todosOsLocais)}</p>
           <Barras meses={dozeMeses} />
           <div
             role="region"
@@ -164,8 +163,9 @@ export default async function Relatorios({ searchParams }: PageProps<'/painel/fi
           ate={mesAtual.ate}
           erroDoServidor={parametros.erro === 'periodo'}
           erroDeOrigem={erroDeOrigem && !erroNoFluxo}
+          erroDeLocal={parametros.erro === 'local'}
           locais={locais}
-          local={localId ?? ''}
+          local={local?.id ?? ''}
         />
       </Cartao>
     </>

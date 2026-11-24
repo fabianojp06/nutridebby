@@ -1,7 +1,8 @@
+import { sql } from 'drizzle-orm';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { makeDb } from '../../../../../test/db';
-import { novoLocal } from '../../../../../test/agenda';
+import { consultaDireta, novoLocal } from '../../../../../test/agenda';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../../../test/pacientes';
 
 /** US-306 (Plano 20, T8): "Relatórios" — fluxo de caixa do ano, 12 meses e o formulário do CSV, com o banco de verdade. */
@@ -22,6 +23,8 @@ const { listarCategorias, salvarConfiguracoes } = await import('@/modules/financ
 const { criarLancamento } = await import('@/modules/financeiro/lancamentos');
 const { MSG_FINANCEIRO: M } = await import('@/modules/financeiro/constantes');
 const { formatarData, hojeNoFuso } = await import('@/modules/pacientes/datas');
+const { withTenant } = await import('@/db/tenant');
+const { finLancamentos } = await import('@/db/schema');
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -185,8 +188,47 @@ describe('Plano 23 (US-416, RN-437): "Local" em Relatórios', () => {
     expect(doze(await render({ local: 'sem_local' }))).toMatch(/R\$\s250,00/);
     // o fluxo de caixa não se divide: com o local, o mesmo de sem
     expect(texto(com.match(/<section[^>]*aria-labelledby="fluxo-titulo"[\s\S]*?<\/section>/)![0])).toBe(texto(fluxo));
-    // valor inválido: sem filtro
-    expect(opcoes(await render({ local: 'x' }), 'local').find((o) => o[2])?.[1]).toBe('Todos os locais');
+    // o recorte dos 12 meses, na forma da impressão; o fluxo diz "Local: Todos os locais"
+    expect(doze(sem)).toContain('Local: Todos os locais');
+    expect(doze(com)).toContain('Local: Clínica Centro');
+    expect(doze(await render({ local: 'sem_local' }))).toContain('Local: Sem local');
+    expect(texto(fluxo)).toContain('Local: Todos os locais');
+    // o seletor do CSV tem nome próprio; o da página continua "Local"
+    expect(sem).toMatch(/<label for="csv-local"[^>]*>Local dos lançamentos<\/label>/);
+    // valor inválido ou desconhecido: descartado (sem filtro)
+    for (const local of ['x', '00000000-0000-4000-8000-00000000dead']) {
+      const html = await render({ local });
+      expect(opcoes(html, 'local').find((o) => o[2])?.[1], local).toBe('Todos os locais');
+      expect(doze(html), local).toContain('Local: Todos os locais');
+    }
+  });
+
+  it('AG-D79: o local arquivado com lançamento aparece no grupo "Arquivados" (nos dois seletores) e filtra; ?erro=local mostra o alerta junto do "Local dos lançamentos"', async () => {
+    const C = await cenario();
+    const antiga = await novoLocal(app.db, C.ctx, { nome: 'Sala Antiga' });
+    const semUso = await novoLocal(app.db, C.ctx, { nome: 'Sala Vazia', arquivado: true });
+    const p = (await novoPaciente(app.db, C.ctx, { nome: 'Bia Lima' })).id;
+    const consulta = await consultaDireta(app.db, C.ctx, p, new Date(`${C.ano}-01-02T13:00:00Z`), 60, { localId: antiga, status: 'realizada' });
+    const consultas = (await listarCategorias(C.ctx, { db: app.db })).find((c) => c.nome === 'Consultas')!.id;
+    await withTenant(
+      C.ctx,
+      (tx) =>
+        tx.insert(finLancamentos).values({ tenantId: C.tenantId, tipo: 'entrada', categoriaId: consultas, valorCentavos: 12_300, vencimento: `${C.ano}-01-02`, pagoEm: `${C.ano}-01-02`, formaPagamento: 'pix', patientId: p, appointmentId: consulta, criadoPor: C.nutriId }),
+      app.db,
+    );
+    await withTenant(C.ctx, (tx) => tx.execute(sql`update locais_atendimento set arquivado_em = now(), agendamento_online = false where id = ${antiga}`), app.db);
+    const html = await render({ local: antiga });
+    for (const id of ['local', 'csv-local']) {
+      const select = html.match(new RegExp(`<select[^>]*id="${id}"[\\s\\S]*?</select>`))![0];
+      expect(select, id).toMatch(new RegExp(`<optgroup label="Arquivados"><option value="${antiga}" selected="">Sala Antiga</option></optgroup>`));
+      expect(select, id).not.toContain(semUso);
+    }
+    const doze = texto(html.match(/<section[^>]*aria-labelledby="doze-titulo"[\s\S]*?<\/section>/)![0]);
+    expect(doze).toContain('Local: Sala Antiga');
+    expect(doze).toMatch(/R\$\s123,00/);
+    const erro = await render({ erro: 'local' });
+    expect(erro).toMatch(/<select[^>]*id="csv-local"[^>]*aria-invalid="true"[^>]*aria-describedby="csv-local-erro"/);
+    expect(erro).toMatch(/<p id="csv-local-erro" role="alert"[^>]*>Escolha um local da lista.<\/p>/);
   });
 });
 

@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Campo } from '@/components/campo';
+import { OpcoesDoFiltroDeLocal } from '@/components/opcoes-de-local';
 import { Botao } from '@/components/ui/botao';
 import { MSG_FILTRO_LOCAL } from '@/modules/agenda/constantes';
+import type { OpcoesDeLocal } from '@/modules/agenda/locais';
 import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 import { periodoValido } from '@/modules/financeiro/meses';
 import { SEM_LOCAL } from '@/modules/financeiro/tipos';
@@ -38,14 +40,17 @@ export function BaixarCsv({
   ate,
   erroDoServidor,
   erroDeOrigem = false,
-  locais = [],
+  erroDeLocal = false,
+  locais = { ativos: [], arquivados: [] },
   local = '',
 }: {
   de: string;
   ate: string;
   erroDoServidor: boolean;
   erroDeOrigem?: boolean;
-  locais?: { id: string; nome: string }[];
+  /** `?erro=local`: a rota recusou o local (fora das opções); o alerta junto do seletor, que recebe o foco. */
+  erroDeLocal?: boolean;
+  locais?: OpcoesDeLocal;
   /** O local escolhido em Relatórios (um id ou `sem_local`), ou ''. */
   local?: string;
 }) {
@@ -53,7 +58,8 @@ export function BaixarCsv({
   const form = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (erroDoServidor) form.current?.querySelector<HTMLElement>('#csv-ate')?.focus();
-  }, [erroDoServidor]);
+    else if (erroDeLocal) form.current?.querySelector<HTMLElement>('#csv-local')?.focus();
+  }, [erroDoServidor, erroDeLocal]);
   function conferir(e: FormEvent<HTMLFormElement>) {
     const fd = new FormData(e.currentTarget);
     const novos = errosDoPeriodo(String(fd.get('de') ?? ''), String(fd.get('ate') ?? ''));
@@ -77,19 +83,25 @@ export function BaixarCsv({
         <Campo id="csv-de" name="de" type="date" rotulo={C.de} defaultValue={de} erro={erros.de} />
         <Campo id="csv-ate" name="ate" type="date" rotulo={C.ate} defaultValue={ate} erro={erros.ate} />
       </div>
-      <div className="space-y-1 sm:max-w-xs">
+      <div className="min-w-0 max-w-full space-y-1 sm:max-w-xs">
         <label htmlFor="csv-local" className="block font-medium">
-          {MSG_FILTRO_LOCAL.local}
+          {MSG_FILTRO_LOCAL.localDosLancamentos}
         </label>
-        <select id="csv-local" name="local" defaultValue={local} className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto">
-          <option value="">{MSG_FILTRO_LOCAL.todosOsLocais}</option>
-          {locais.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.nome}
-            </option>
-          ))}
-          <option value={SEM_LOCAL}>{MSG_FILTRO_LOCAL.semLocal}</option>
+        <select
+          id="csv-local"
+          name="local"
+          defaultValue={local}
+          aria-invalid={erroDeLocal ? true : undefined}
+          aria-describedby={erroDeLocal ? 'csv-local-erro' : undefined}
+          className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto"
+        >
+          <OpcoesDoFiltroDeLocal opcoes={locais} semLocal={SEM_LOCAL} />
         </select>
+        {erroDeLocal && (
+          <p id="csv-local-erro" role="alert" className="text-sm text-erro">
+            {MSG_FILTRO_LOCAL.localInvalido}
+          </p>
+        )}
       </div>
       <div>
         <div className="flex min-h-11 items-center gap-2">

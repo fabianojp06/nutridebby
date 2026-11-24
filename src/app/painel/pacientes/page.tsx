@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { Selo } from '@/components/ui/selo';
+import { OpcoesDoFiltroDeLocal } from '@/components/opcoes-de-local';
 import { requireNutri } from '@/lib/tenant-session';
 import { MSG_FILTRO_LOCAL } from '@/modules/agenda/constantes';
-import { locaisParaFiltro } from '@/modules/agenda/locais';
+import { localDasOpcoes, locaisParaFiltro } from '@/modules/agenda/locais';
 import { situacoesDoAcesso } from '@/modules/pacientes/convite-paciente';
 import { formatarDataNoFuso, hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
 import { listarEtiquetas } from '@/modules/pacientes/etiquetas';
@@ -29,7 +30,10 @@ const CAMPO = 'min-h-11 rounded-xl border border-campo bg-cartao p-2 text-texto'
 export default async function PacientesPage({ searchParams }: PageProps<'/painel/pacientes'>) {
   const { ctx, tenant } = await requireNutri('/painel/pacientes');
   const sp = await searchParams;
-  const filtro = filtroDaUrl(sp);
+  // Plano 23 (US-415, AG-D79): o local pedido só vale se for uma das opções (ativo, ou arquivado com consulta)
+  const locais = await locaisParaFiltro(ctx, 'pacientes');
+  const pedido = filtroDaUrl(sp);
+  const filtro = localDasOpcoes(locais, pedido.localId) ? pedido : { ...pedido, localId: undefined };
   const aba = filtro.aba ?? 'ativos';
   const busca = filtro.busca ?? '';
   const etiquetaId = filtro.etiquetaId ?? '';
@@ -37,7 +41,7 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
   const ok = sp.ok === 'arquivado' || sp.ok === 'reativado' ? sp.ok : null;
   // D26: o marcador da ação (`r`, gerado pela action) só serve para a região anunciar de novo; fora do formato, vazio
   const marcador = ok && typeof sp.r === 'string' && /^[0-9a-f]{8}$/.test(sp.r) ? sp.r : '';
-  const [etiquetas, locais, lista] = await Promise.all([listarEtiquetas(ctx), locaisParaFiltro(ctx, filtro.localId), listarPacientes(ctx, filtro)]);
+  const [etiquetas, lista] = await Promise.all([listarEtiquetas(ctx), listarPacientes(ctx, filtro)]);
   const acessos = await situacoesDoAcesso(ctx, lista.filter((p) => p.status === 'ativo'));
   const hoje = hojeNoFuso(tenant.fuso);
   const campos = { aba, busca, etiqueta: etiquetaId, ordem: filtro.ordem ?? 'nome', local: localId };
@@ -89,11 +93,10 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
             </select>
           </div>
           {/* Plano 23 (US-415, RN-436): quem tem consulta no local; combina com a aba, a busca e a etiqueta */}
-          <div className="space-y-1">
+          <div className="min-w-0 max-w-full space-y-1">
             <label htmlFor="local" className="block font-medium">{MSG_FILTRO_LOCAL.local}</label>
-            <select id="local" name="local" defaultValue={localId} className={CAMPO}>
-              <option value="">{MSG_FILTRO_LOCAL.todosOsLocais}</option>
-              {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            <select id="local" name="local" defaultValue={localId} className={`${CAMPO} w-full sm:w-auto sm:max-w-xs`}>
+              <OpcoesDoFiltroDeLocal opcoes={locais} />
             </select>
           </div>
           <div className="space-y-1">

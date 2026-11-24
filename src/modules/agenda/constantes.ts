@@ -221,6 +221,14 @@ export const MSG_FILTRO_LOCAL = {
   local: MSG_VISOES.local,
   todosOsLocais: MSG_VISOES.todosOsLocais,
   semLocal: 'Sem local',
+  /** Fora da §6.2 (AG-D79): o grupo dos locais arquivados com histórico. */
+  arquivados: 'Arquivados',
+  /** Fora da §6.2: o seletor do CSV em Relatórios (o filtro da página continua "Local"). */
+  localDosLancamentos: 'Local dos lançamentos',
+  /** A forma da impressão (§6.2, "Local: {nome ou Todos os locais}"): o recorte dos 12 meses, do fluxo e do Resumo. */
+  recorte: MSG_VISOES.impressao.local,
+  /** Fora da §6.2: `?local=` que não é uma das opções, num download do CSV. */
+  localInvalido: 'Escolha um local da lista.',
 } as const;
 
 /**

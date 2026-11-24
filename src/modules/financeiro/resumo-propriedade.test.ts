@@ -4,8 +4,9 @@ import { novoLocal } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import type { Db } from '@/db/client';
-import { appointments, finConfiguracoes, finLancamentos, type TipoLancamento } from '@/db/schema';
+import { appointments, finConfiguracoes, finLancamentos, locaisAtendimento, type TipoLancamento } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { locaisParaFiltro } from '@/modules/agenda/locais';
 import { listarCategorias, salvarConfiguracoes } from './configuracoes';
 import { MSG_FINANCEIRO } from './constantes';
 import { csvLancamentos } from './csv';
@@ -267,11 +268,14 @@ describe('RN-437 — propriedade: soma dos locais + "Sem local" = total sem filt
     for (let rodada = 0; rodada < RODADAS_LOCAL; rodada++) {
       const s = sortear(r);
       const onde: Onde[] = s.lancamentos.map((l) => (l.paciente ? r.um(['centro', 'consultorio', 'antiga', 'nenhum'] as const) : 'nenhum'));
-      const contexto = `rodada ${rodada}: hoje ${s.hoje} (${s.agora.toISOString()})`;
+      // AG-D79: em parte das rodadas a Clínica Centro está arquivada (com ou sem lançamento nesta rodada)
+      const centroArquivado = r.chance(0.4);
+      const contexto = `rodada ${rodada}: hoje ${s.hoje} (${s.agora.toISOString()})${centroArquivado ? ', Clínica Centro arquivada' : ''}`;
       await withTenant(
         T.ctx,
         async (tx) => {
           await tx.update(finConfiguracoes).set({ saldoInicialCentavos: s.saldo, saldoInicialEm: s.saldoInicialEm }).where(eq(finConfiguracoes.tenantId, T.tenantId));
+          if (centroArquivado) await tx.update(locaisAtendimento).set({ arquivadoEm: s.agora, agendamentoOnline: false }).where(eq(locaisAtendimento.id, centro));
           // uma consulta por lançamento ligado, em horários que não se cruzam (o EXCLUDE vale para o consultório inteiro)
           const consultas: (string | null)[] = [];
           for (const [i, l] of s.lancamentos.entries()) {
@@ -306,7 +310,7 @@ describe('RN-437 — propriedade: soma dos locais + "Sem local" = total sem filt
           const cancelados = ids.filter((_, i) => s.lancamentos[i].cancelado).map((x) => x.id);
           if (cancelados.length)
             await tx.update(finLancamentos).set({ canceladoEm: s.agora, canceladoPor: T.nutriId, motivoCancelamento: 'Teste' }).where(inArray(finLancamentos.id, cancelados));
-          await conferirLocais(tx as unknown as Db, s, onde, { centro, consultorio }, contexto);
+          await conferirLocais(tx as unknown as Db, s, onde, { centro, consultorio, centroArquivado }, contexto);
           throw new Desfazer();
         },
         app.db,
@@ -317,9 +321,21 @@ describe('RN-437 — propriedade: soma dos locais + "Sem local" = total sem filt
   });
 });
 
-async function conferirLocais(db: Db, s: ReturnType<typeof sortear>, onde: Onde[], locais: { centro: string; consultorio: string }, contexto: string) {
+async function conferirLocais(
+  db: Db,
+  s: ReturnType<typeof sortear>,
+  onde: Onde[],
+  locais: { centro: string; consultorio: string; centroArquivado: boolean },
+  contexto: string,
+) {
   const deps = { db, agora: s.agora };
-  const FILTROS = [locais.centro, locais.consultorio, SEM_LOCAL] as const;
+  // a partição é a das opções da tela (AG-D79): os ativos, os arquivados com lançamento e "Sem local" — nunca ids fixos
+  const opcoes = await locaisParaFiltro(T.ctx, 'financeiro', { db });
+  const comLancamento = onde.includes('centro');
+  expect(opcoes.ativos.map((l) => l.id), contexto).toEqual(locais.centroArquivado ? [locais.consultorio] : [locais.centro, locais.consultorio]);
+  expect(opcoes.arquivados.map((l) => l.id), contexto).toEqual(locais.centroArquivado && comLancamento ? [locais.centro] : []);
+  const FILTROS = [...opcoes.ativos, ...opcoes.arquivados].map((l) => l.id).concat(SEM_LOCAL);
+  const centroNasOpcoes = FILTROS.includes(locais.centro);
   const mes = mesDe(s.hoje);
   const { de: inicio, ate: fim } = intervaloDoMes(mes);
 
@@ -333,10 +349,10 @@ async function conferirLocais(db: Db, s: ReturnType<typeof sortear>, onde: Onde[
   for (const campo of [(t: typeof total.totais) => t.entradas.recebido, (t: typeof total.totais) => t.entradas.aReceber, (t: typeof total.totais) => t.saidas.pago, (t: typeof total.totais) => t.saidas.aPagar])
     expect(somaTotais(campo), contexto).toBe(campo(total.totais));
   const noMes = s.lancamentos.filter((l, i) => onde[i] === 'centro' && (l.pagoEm ?? l.vencimento) >= inicio && (l.pagoEm ?? l.vencimento) <= fim);
-  expect(partes[0].linhas.length, contexto).toBe(noMes.length);
+  if (centroNasOpcoes) expect(partes[FILTROS.indexOf(locais.centro)].linhas.length, contexto).toBe(noMes.length);
 
   // CSV do mês (com os nomes): linhas e valores
-  const csv = async (localId?: string) => lerCsv(await exportarLancamentosCsv(T.ctx, T.tenant, { de: inicio, ate: fim, comPacientes: true, localId }, deps));
+  const csv = async (localId?: string) => lerCsv((await exportarLancamentosCsv(T.ctx, T.tenant, { de: inicio, ate: fim, comPacientes: true, localId }, deps)).csv);
   const csvTotal = await csv();
   const csvPartes: (typeof csvTotal)[] = [];
   for (const localId of FILTROS) csvPartes.push(await csv(localId));
@@ -363,6 +379,8 @@ async function conferirLocais(db: Db, s: ReturnType<typeof sortear>, onde: Onde[
   const tela = await telaDeRelatorios(T.ctx, T.tenant, { ano: String(ano), localId: locais.centro }, deps);
   if (!tela.config) throw new Error('sem configuração');
   expect(tela.fluxo, contexto).toEqual(await fluxoDeCaixaDoAno(T.ctx, T.tenant, ano, deps));
-  expect(tela.dozeMeses, contexto).toEqual(dozePartes[0]);
-  expect(tela.localId, contexto).toBe(locais.centro);
+  // a Clínica Centro arquivada sem lançamento não é opção: o pedido é descartado e os 12 meses são os de todos os locais
+  expect(tela.dozeMeses, contexto).toEqual(centroNasOpcoes ? dozePartes[FILTROS.indexOf(locais.centro)] : doze);
+  expect(tela.local?.id, contexto).toBe(centroNasOpcoes ? locais.centro : undefined);
+  expect(tela.locais, contexto).toEqual(opcoes);
 }

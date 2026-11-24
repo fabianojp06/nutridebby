@@ -459,13 +459,17 @@ test('Plano 26: Relatórios (seções, erro do período e impressão) a 1280 e 3
 /**
  * Plano 23 (US-400, US-404 a US-406, RNF-403): a agenda em Mês, a Semana com "Mostrar 24 horas", filtro de local e
  * aniversários, os Locais e a impressão — nos três modos, a 1280 e a 360 px (a 360 px a grade e o Mês viram lista por dia,
- * sem rolagem lateral). O id do local vem do próprio filtro ("Clínica Centro E2E" da semente, AG-D59).
+ * sem rolagem lateral). O id do local vem do próprio filtro ("Clínica Centro E2E" da semente, AG-D59). T11: os filtros
+ * "Local" de Pacientes e de Lançamentos com o local de 60 caracteres da semente escolhido (sem rolagem a 360 px).
  */
 test('Plano 23: agenda em Mês e em Semana com filtro e 24 horas, Locais e impressão, nos três modos, 1280 e 360 px', async () => {
   test.setTimeout(240_000);
   await nutri.goto('/painel/agenda');
   const local = await nutri.getByLabel('Local', { exact: true }).locator('option', { hasText: 'Clínica Centro E2E' }).getAttribute('value');
   expect(local).toMatch(/^[0-9a-f-]{36}$/);
+  // T11 (revisão da interface I-2): o local de 60 caracteres da semente nos filtros "Local" de Pacientes e de Lançamentos
+  const localLongo = await nutri.getByLabel('Local', { exact: true }).locator('option', { hasText: 'Centro Integrado de Nutrição Clínica e Esportiva Sala E2E 60' }).getAttribute('value');
+  expect(localLongo).toMatch(/^[0-9a-f-]{36}$/);
   // M1 (revisão da T5): a semana do agenda-2.spec (segunda daqui a ~120 dias), com consulta, bloqueio e o aniversário da
   // Lia — quando o agenda-2.spec roda antes (o comando do E2E o põe primeiro); sem ele, a semana vem vazia e o axe mede o resto
   const d = new Date(Date.now() + 120 * 86_400_000);
@@ -478,6 +482,8 @@ test('Plano 23: agenda em Mês e em Semana com filtro e 24 horas, Locais e impre
     `/painel/agenda?visao=lista&data=${semana}`,
     '/painel/agenda/locais',
     `/painel/agenda/imprimir?visao=semana&data=${semana}`,
+    `/painel/pacientes?local=${localLongo}`,
+    `/painel/financeiro/lancamentos?local=${localLongo}`,
   ];
   const falhas: string[] = [];
   try {

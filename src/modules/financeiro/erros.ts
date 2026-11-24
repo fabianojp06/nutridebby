@@ -36,6 +36,17 @@ export class CategoriaNaoEncontradaError extends Error {
 }
 
 /**
+ * Plano 23 (US-416, AG-D79): o `local` de um download do CSV não é "Sem local" nem uma das opções do filtro (ativo, ou
+ * arquivado com lançamento). A rota volta para Relatórios com `?erro=local`, sem exportar.
+ */
+export class LocalDoFiltroInvalidoError extends Error {
+  override name = 'LocalDoFiltroInvalidoError';
+  constructor() {
+    super('financeiro: local do filtro inválido');
+  }
+}
+
+/**
  * RN-300 (§4.2): só a sessão `nutri`. Conferido antes de abrir a transação: numa sessão de paciente, o `staff_only`
  * devolveria vazio em silêncio, e a tela mostraria "nenhum lançamento" em vez de um erro.
  */

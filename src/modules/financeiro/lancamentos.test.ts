@@ -7,11 +7,12 @@ import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { finLancamentos } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { locaisParaFiltro } from '@/modules/agenda/locais';
 import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { gravarCadastro } from '@/modules/pacientes/cadastro';
 import { listarCategorias, salvarConfiguracoes } from './configuracoes';
 import { MSG_FINANCEIRO } from './constantes';
-import { FinanceiroError, FinanceiroNaoConfiguradoError, LancamentoNaoEncontradoError } from './erros';
+import { FinanceiroError, FinanceiroNaoConfiguradoError, LancamentoNaoEncontradoError, LocalDoFiltroInvalidoError } from './erros';
 import { exportarLancamentosCsv } from './exportacao';
 import {
   abrirLancamento,
@@ -515,7 +516,7 @@ describe('Plano 18 (D7, RN-266): o nome de exibição nas telas do Financeiro; o
     expect((await pendenciasDoPaciente(C.ctx, C.tenant, C.p, deps))?.paciente.nome).toBe('Joana Souza');
 
     // o CSV para o contador: documento fiscal, nome civil (nunca o social)
-    const csv = await exportarLancamentosCsv(C.ctx, C.tenant, { de: '2026-11-01', ate: '2026-11-30', comPacientes: true }, deps);
+    const { csv } = await exportarLancamentosCsv(C.ctx, C.tenant, { de: '2026-11-01', ate: '2026-11-30', comPacientes: true }, deps);
     expect(csv).toContain('Ana Souza');
     expect(csv).toContain('Bia Lima');
     expect(csv).not.toContain('Joana Souza');
@@ -579,15 +580,43 @@ describe('Plano 23 (US-416, RN-437, AG-D12): filtro "Local" em Lançamentos e no
     expect(await leituras(C.tenantId)).toHaveLength(1);
   });
 
-  it('CSV com `localId`: só as linhas do local (ou "Sem local"), com o mesmo `exportar`', async () => {
+  it('CSV com `localId`: só as linhas do local (ou "Sem local"), com o mesmo `exportar`; devolve o local aplicado', async () => {
     const { C, centro } = await comLocais();
-    const csv = (localId?: string) => exportarLancamentosCsv(C.ctx, C.tenant, { de: '2026-11-01', ate: '2026-11-30', comPacientes: false, localId }, deps);
+    const exportar = (localId?: string) => exportarLancamentosCsv(C.ctx, C.tenant, { de: '2026-11-01', ate: '2026-11-30', comPacientes: false, localId }, deps);
+    const csv = async (localId?: string) => (await exportar(localId)).csv;
+    expect((await exportar(centro)).local).toEqual({ id: centro, nome: 'Clínica Centro' });
+    expect((await exportar(SEM_LOCAL)).local).toEqual({ id: SEM_LOCAL, nome: 'Sem local' });
+    expect((await exportar()).local).toBeNull();
     const linhas = (texto: string) => texto.split('\r\n').slice(1, -1);
     expect(linhas(await csv(centro))).toHaveLength(1);
     expect(linhas(await csv(centro))[0]).toContain('100,00');
     expect(linhas(await csv(SEM_LOCAL))).toHaveLength(3);
     expect(linhas(await csv())).toHaveLength(5);
-    const exportacoes = await contar(`select count(*)::int as n from audit_log where tenant_id = $1 and acao = 'exportar' and entidade = 'financeiro'`, C.tenantId);
-    expect(exportacoes).toBe(4);
+    const exportacoes = () => contar(`select count(*)::int as n from audit_log where tenant_id = $1 and acao = 'exportar' and entidade = 'financeiro'`, C.tenantId);
+    expect(await exportacoes()).toBe(7);
+  });
+
+  it('AG-D79: o local do CSV tem de ser uma das opções — de outro consultório, arquivado sem lançamento ou desconhecido → LocalDoFiltroInvalidoError, sem exportar', async () => {
+    const { C } = await comLocais();
+    const B = await cenario();
+    const semLancamento = await novoLocal(app.db, C.ctx, { nome: 'Antiga', arquivado: true });
+    for (const localId of [await novoLocal(app.db, B.ctx), semLancamento, randomUUID(), 'x'])
+      await expect(exportarLancamentosCsv(C.ctx, C.tenant, { de: '2026-11-01', ate: '2026-11-30', comPacientes: false, localId }, deps)).rejects.toBeInstanceOf(
+        LocalDoFiltroInvalidoError,
+      );
+    expect(await contar(`select count(*)::int as n from audit_log where tenant_id = $1 and acao = 'exportar'`, C.tenantId)).toBe(0);
+  });
+
+  it('AG-D79: as opções do filtro trazem os ativos e, à parte, o arquivado com lançamento ligado a consulta (o arquivado só com consulta, não)', async () => {
+    const { C, centro, consultorio } = await comLocais();
+    const soConsulta = await novoLocal(app.db, C.ctx, { nome: 'Só consulta' });
+    await consultaDireta(app.db, C.ctx, C.p, new Date('2026-11-10T13:00:00Z'), 60, { localId: soConsulta });
+    const arquivar = (id: string) => withTenant(C.ctx, (tx) => tx.execute(sql`update locais_atendimento set arquivado_em = now(), agendamento_online = false where id = ${id}`), app.db);
+    await arquivar(centro);
+    await arquivar(soConsulta);
+    expect(await locaisParaFiltro(C.ctx, 'financeiro', { db: app.db })).toEqual({ ativos: [{ id: consultorio, nome: 'Consultório' }], arquivados: [{ id: centro, nome: 'Clínica Centro' }] });
+    expect((await locaisParaFiltro(C.ctx, 'pacientes', { db: app.db })).arquivados.map((l) => l.nome)).toEqual(['Clínica Centro', 'Só consulta']);
+    // o arquivado com lançamento continua filtrável no CSV
+    expect((await exportarLancamentosCsv(C.ctx, C.tenant, { de: '2026-11-01', ate: '2026-11-30', comPacientes: false, localId: centro }, deps)).local?.nome).toBe('Clínica Centro');
   });
 });

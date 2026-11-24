@@ -271,6 +271,7 @@ const STATUS_DA_ABA: Record<AbaDaLista, StatusPaciente[]> = {
  * Plano 18 (RN-270, RN-271): o filtro da lista a partir da URL (ou dos campos ocultos do menu da linha). `?aba=` só aceita
  * as três abas; `?situacao=bloqueados` vale como `bloqueados`; o link antigo `?status=arquivado` vale como `inativos` e
  * `?status=bloqueado` como `bloqueados`; valor desconhecido (ou repetido) cai no padrão. `registro` nunca sai daqui.
+ * Plano 23 (US-415): `?local=` só com um id no formato; a página descarta também o que não é uma das opções.
  */
 export function filtroDaUrl(sp: Record<string, string | string[] | undefined>): FiltroDaLista {
   const v = (k: string) => (typeof sp[k] === 'string' ? (sp[k] as string) : '');
@@ -287,7 +288,7 @@ export function filtroDaUrl(sp: Record<string, string | string[] | undefined>): 
     aba,
     ...(v('busca') ? { busca: v('busca') } : {}),
     ...(v('etiqueta') ? { etiquetaId: v('etiqueta') } : {}),
-    ...(v('local') ? { localId: v('local') } : {}), // Plano 23 (US-415)
+    ...(idValido(v('local')) ? { localId: v('local') } : {}), // Plano 23 (US-415): fora do formato, descartado
     ordem,
   };
 }

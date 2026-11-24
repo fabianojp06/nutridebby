@@ -56,11 +56,12 @@ export default async function Lancamentos({
     );
   }
 
-  const { config, lista: r, categorias, paciente, locais } = tela;
+  const { config, lista: r, categorias, paciente, locais, local } = tela;
   const hoje = hojeNoFuso(tenant.fuso);
   // o mês efetivo: o da URL; sem ele, todos ('') com paciente, ou o atual no fuso
   const mes = f.mes ?? (paciente ? '' : mesDe(hoje));
-  const filtros = { ...f, mes, paciente: paciente?.id };
+  // Plano 23 (AG-D79): o local fora das opções foi descartado pela tela; os links e o select usam o aplicado
+  const filtros = { ...f, mes, paciente: paciente?.id, local: local?.id };
   const volta = urlDaLista(filtros);
   const reais = formatarReais;
   const t = r.totais;

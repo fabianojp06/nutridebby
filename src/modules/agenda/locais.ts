@@ -348,25 +348,43 @@ export async function locaisDoSeletor(tx: Tx): Promise<LocalDoSeletor[]> {
 
 /** Plano 23 (US-415, US-416): uma opção do filtro "Local" fora da agenda — só id e nome (nunca a sala nem o endereço). */
 export type LocalDoFiltro = { id: string; nome: string };
+/** As opções do filtro "Local" dos filtros de histórico: os ativos e, à parte, os arquivados com histórico (AG-D79). */
+export type OpcoesDeLocal = { ativos: LocalDoFiltro[]; arquivados: LocalDoFiltro[] };
+/** O histórico que faz um local arquivado aparecer: consulta (lista de pacientes) ou lançamento ligado a consulta (Financeiro). */
+export type UsoDoFiltro = 'pacientes' | 'financeiro';
 
 /**
- * Plano 23 (US-415, US-416): as opções do filtro "Local" da lista de pacientes e do Financeiro, como as da agenda (a
- * mesma ordem; os ativos e o escolhido, mesmo arquivado — o filtro de um local arquivado continua aparecendo escolhido).
- * Não cria os locais iniciais (é só leitura). Id inválido no `selecionado` é ignorado.
+ * Plano 23 (US-415, US-416, AG-D79): as opções do filtro "Local" dos filtros de histórico — lista de pacientes e
+ * Financeiro (Lançamentos, Relatórios e o CSV). Os ativos e, à parte, os arquivados que têm histórico: alguma consulta
+ * (`pacientes`) ou algum lançamento ligado a consulta do local (`financeiro`) — sem eles, quem deixou de atender num
+ * local perderia o recorte do histórico dele, e a soma dos locais com "Sem local" não fecharia na tela (RN-437). A
+ * RN-403 ("o arquivado some dos seletores") vale só para os seletores de marcação. A mesma ordem da agenda. Só leitura
+ * (não cria os locais iniciais); só a sessão `nutri`.
  */
-export async function locaisParaFiltro(ctx: TenantContext, selecionado?: string, deps: Deps = {}): Promise<LocalDoFiltro[]> {
+export async function locaisParaFiltro(ctx: TenantContext, uso: UsoDoFiltro, deps: Deps = {}): Promise<OpcoesDeLocal> {
   exigirNutri(ctx);
-  return withTenant(ctx, (tx) => locaisDoFiltro(tx, selecionado), deps.db ?? getDb());
+  return withTenant(ctx, (tx) => locaisDoFiltro(tx, uso), deps.db ?? getDb());
 }
 
 /** `locaisParaFiltro` na transação de quem chama (sessão `nutri`: as telas do Financeiro, RNF-301). */
-export function locaisDoFiltro(tx: Tx, selecionado?: string): Promise<LocalDoFiltro[]> {
-  const ativo = isNull(locaisAtendimento.arquivadoEm);
-  return tx
-    .select({ id: locaisAtendimento.id, nome: locaisAtendimento.nome })
-    .from(locaisAtendimento)
-    .where(idValido(selecionado) ? or(ativo, eq(locaisAtendimento.id, selecionado)) : ativo)
+export async function locaisDoFiltro(tx: Tx, uso: UsoDoFiltro): Promise<OpcoesDeLocal> {
+  const L = locaisAtendimento;
+  const historico =
+    uso === 'pacientes'
+      ? sql`exists (select 1 from appointments a where a.tenant_id = ${L.tenantId} and a.local_id = ${L.id})`
+      : sql`exists (select 1 from appointments a join fin_lancamentos f on f.tenant_id = a.tenant_id and f.appointment_id = a.id where a.tenant_id = ${L.tenantId} and a.local_id = ${L.id})`;
+  const linhas = await tx
+    .select({ id: L.id, nome: L.nome, arquivado: sql<boolean>`${L.arquivadoEm} is not null` })
+    .from(L)
+    .where(or(isNull(L.arquivadoEm), historico))
     .orderBy(...ORDEM);
+  const so = (arquivado: boolean) => linhas.filter((l) => l.arquivado === arquivado).map(({ id, nome }) => ({ id, nome }));
+  return { ativos: so(false), arquivados: so(true) };
+}
+
+/** O local pedido, se for uma das opções (ativo ou arquivado com histórico); senão null — o filtro é descartado. */
+export function localDasOpcoes(opcoes: OpcoesDeLocal, id: string | undefined): LocalDoFiltro | null {
+  return (id && [...opcoes.ativos, ...opcoes.arquivados].find((l) => l.id === id)) || null;
 }
 
 /** Locais ativos, o principal primeiro (sessão `nutri`: seletores do painel). */

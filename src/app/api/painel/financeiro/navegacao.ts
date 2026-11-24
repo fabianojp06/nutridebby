@@ -1,5 +1,6 @@
 import { getEnv } from '@/env';
 import { DPA_PATH, type ApiNutri } from '@/lib/tenant-session';
+import { SEM_LOCAL } from '@/modules/financeiro/tipos';
 
 /**
  * Os downloads do CSV (US-306, §4.1) são navegação (link e formulário GET de Relatórios), não `fetch`: a nutricionista
@@ -72,3 +73,21 @@ export const arquivoCsv = (conteudo: string, nome: string) =>
       'cache-control': 'no-store',
     },
   });
+
+/**
+ * Plano 23 (US-416, RN-437): o recorte de local no nome do CSV dos lançamentos — `-sem-local`, ou `-local-<nome>` com o
+ * nome em ASCII minúsculo (só letras, dígitos e hífens, até 24 caracteres); nome sem nenhum desses, os 8 primeiros do id.
+ * Sem local escolhido, nada. Nunca texto do usuário cru no cabeçalho `content-disposition`.
+ */
+export function sufixoDoLocal(local: { id: string; nome: string } | null): string {
+  if (!local) return '';
+  if (local.id === SEM_LOCAL) return '-sem-local';
+  const slug = local.nome
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .slice(0, 24)
+    .replace(/^-+|-+$/g, '');
+  return `-local-${slug || local.id.slice(0, 8)}`;
+}

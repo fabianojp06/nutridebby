@@ -416,8 +416,10 @@ describe('Plano 23 (US-415, RN-436, AG-D11): filtro "Local" da lista de paciente
     expect(leituras).toEqual([]);
   });
 
-  it('filtroDaUrl lê `local`; vazio ou repetido fica de fora', () => {
-    expect(filtroDaUrl({ local: 'l1', aba: 'todos' })).toEqual({ aba: 'todos', localId: 'l1', ordem: 'nome' });
+  it('filtroDaUrl lê `local` só no formato de id; vazio, fora do formato ou repetido fica de fora', () => {
+    const id = '00000000-0000-4000-8000-00000000c001';
+    expect(filtroDaUrl({ local: id, aba: 'todos' })).toEqual({ aba: 'todos', localId: id, ordem: 'nome' });
+    expect(filtroDaUrl({ local: 'l1' })).toEqual({ aba: 'ativos', ordem: 'nome' });
     expect(filtroDaUrl({ local: '' })).toEqual({ aba: 'ativos', ordem: 'nome' });
     expect(filtroDaUrl({ local: ['a', 'b'] })).toEqual({ aba: 'ativos', ordem: 'nome' });
   });

@@ -66,7 +66,7 @@ export default async function ResumoDoFinanceiro({ searchParams }: PageProps<'/p
         </Aviso>
       )}
       {/* Plano 23 (US-416, RN-437): o Resumo e o saldo não se dividem por local */}
-      <p className="text-sm text-suave">{MSG_FILTRO_LOCAL.todosOsLocais}</p>
+      <p className="text-sm text-suave">{MSG_FILTRO_LOCAL.recorte(MSG_FILTRO_LOCAL.todosOsLocais)}</p>
       <div data-guia="financeiro-cartoes" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Cartao id="cartao-saldo" titulo={M.cartaoSaldo.titulo}>
           <p className="font-titulo text-2xl font-semibold">{reais(r.saldoAtual ?? 0)}</p>

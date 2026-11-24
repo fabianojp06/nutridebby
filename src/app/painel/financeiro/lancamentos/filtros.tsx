@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import type { FinCategoriaRow } from '@/db/schema';
+import { OpcoesDoFiltroDeLocal } from '@/components/opcoes-de-local';
 import { MSG_FILTRO_LOCAL } from '@/modules/agenda/constantes';
+import type { OpcoesDeLocal } from '@/modules/agenda/locais';
 import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 import { nomeDoMes } from '@/modules/financeiro/meses';
 import { SEM_LOCAL } from '@/modules/financeiro/tipos';
@@ -22,8 +24,8 @@ type Props = {
   /** `meses` de `listarLancamentos` (do mês atual ao do lançamento mais antigo). */
   meses: string[];
   categorias: Pick<FinCategoriaRow, 'id' | 'tipo' | 'nome'>[];
-  /** Plano 23 (US-416): as opções de "Local" (os ativos e o escolhido), além de "Todos os locais" e "Sem local". */
-  locais: { id: string; nome: string }[];
+  /** Plano 23 (US-416, AG-D79): as opções de "Local" (os ativos e os arquivados com lançamento), com "Todos os locais" e "Sem local". */
+  locais: OpcoesDeLocal;
   /** O paciente do filtro (chip "Paciente: {nome}"). */
   paciente: { id: string; nome: string } | null;
 };
@@ -98,15 +100,12 @@ export function FiltrosDaLista({ filtros, meses, categorias, locais, paciente }:
         <Selecao id="forma" rotulo={F.forma} defaultValue={filtros.forma ?? ''}>
           <OpcoesDeForma vazia={F.todas} />
         </Selecao>
-        <Selecao id="local" rotulo={MSG_FILTRO_LOCAL.local} defaultValue={filtros.local ?? ''}>
-          <option value="">{MSG_FILTRO_LOCAL.todosOsLocais}</option>
-          {locais.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.nome}
-            </option>
-          ))}
-          <option value={SEM_LOCAL}>{MSG_FILTRO_LOCAL.semLocal}</option>
-        </Selecao>
+        {/* o nome do local tem até 60 caracteres: a 360 px o seletor encolhe com a tela */}
+        <div className="min-w-0 max-w-full sm:max-w-xs">
+          <Selecao id="local" rotulo={MSG_FILTRO_LOCAL.local} defaultValue={filtros.local ?? ''}>
+            <OpcoesDoFiltroDeLocal opcoes={locais} semLocal={SEM_LOCAL} />
+          </Selecao>
+        </div>
         <button className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">
           {F.filtrar}
         </button>

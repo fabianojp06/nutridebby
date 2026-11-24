@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { closeDb, getDb } from '@/db/client';
 import { tenants } from '@/db/schema';
 import { getAuth } from '@/lib/auth';
+import { novoLocal } from '../../../../../test/agenda';
 import { makeDb } from '../../../../../test/db';
 import { nutriComDpa } from '../../../../../test/nutri';
 import { novoPaciente, novoTenant } from '../../../../../test/pacientes';
@@ -153,6 +154,28 @@ describe('GET /api/painel/financeiro/lancamentos.csv (RN-321)', () => {
     falha.csv = true;
     await expect(pedir(lancamentosCsv, 'lancamentos.csv?de=2026-10-01&ate=2026-10-31&pacientes=1', C.cookie)).rejects.toThrow('falha forçada');
     expect(await exportacoes(C.tenantId)).toEqual([]);
+  });
+});
+
+describe('Plano 23 (US-416, RN-437, AG-D79): `local` no CSV dos lançamentos', () => {
+  it('"Sem local" e um local das opções: o recorte no nome do arquivo; fora das opções (formato, outro consultório, arquivado sem lançamento) → 303 ?erro=local, sem exportar', async () => {
+    const C = await cenario();
+    const centro = await novoLocal(db, C.ctx, { nome: 'Clínica São José — Centro' });
+    const semNome = await novoLocal(db, C.ctx, { nome: '—!!' });
+    const arquivado = await novoLocal(db, C.ctx, { nome: 'Antiga', arquivado: true });
+    const B = await novoTenant(db);
+    const deOutro = await novoLocal(db, B.ctx, { nome: 'Outro' });
+    const nome = async (q: string) => (await pedir(lancamentosCsv, `lancamentos.csv?de=2026-10-01&ate=2026-10-31${q}`, C.cookie)).headers.get('content-disposition');
+    expect(await nome('&local=sem_local')).toBe('attachment; filename="lancamentos-2026-10-01-a-2026-10-31-sem-local.csv"');
+    expect(await nome(`&local=${centro}`)).toBe('attachment; filename="lancamentos-2026-10-01-a-2026-10-31-local-clinica-sao-jose-centro.csv"');
+    expect(await nome(`&local=${semNome}`)).toBe(`attachment; filename="lancamentos-2026-10-01-a-2026-10-31-local-${semNome.slice(0, 8)}.csv"`);
+    expect(await nome('&local=')).toBe('attachment; filename="lancamentos-2026-10-01-a-2026-10-31.csv"');
+    const antes = (await exportacoes(C.tenantId)).length;
+    for (const local of ['x', deOutro, arquivado, randomUUID()]) {
+      const r = await pedir(lancamentosCsv, `lancamentos.csv?de=2026-10-01&ate=2026-10-31&local=${local}`, C.cookie);
+      expect([r.status, r.headers.get('location')], local).toEqual([303, '/painel/financeiro/relatorios?erro=local']);
+    }
+    expect(await exportacoes(C.tenantId)).toHaveLength(antes);
   });
 });
 
