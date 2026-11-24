@@ -910,7 +910,7 @@ Resolvido na T12: a guarda da consulta automática (o "Novo exame" leva o foco a
 temporizador); o `auditRead` do "Lançar resultados" depois da conferência do tipo; a quebra de palavra na lista e na
 visão da solicitação; o guia `documentos` (título, resumo, "um laboratório" na verificação e os passos da solicitação antes
 do "Preparar") e o resumo do `configuracoes` (o cartão "Prescrição" com os documentos liberados); o `CLAUDE.md` (regras 8 e
-9); o manual técnico (cap. 2 §2.5.13, cap. 4, cap. 5 §5.8.1, cap. 6, cap. 9 §9.12 com o runbook da R-375 e o README);
+9); o manual técnico (cap. 2 §2.5.14, cap. 4, cap. 5 §5.8.1, cap. 6, cap. 9 §9.12 com o runbook da R-375 e o README);
 a spec (US-378 e RNF-373 sem o "Derivado ou extração" na conferência; CRN-3 → CRN-4, §21); a semente e os E2E do CS-372 e
 do axe dos estados que não são rota, inclusive o editor da solicitação nos dois temas a 1280 e a 360 px, com um nome
 longo e sem rolagem lateral (escritos; quem roda é o controlador, um E2E por vez).
