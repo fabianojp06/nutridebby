@@ -464,6 +464,29 @@ describe('Plano 23 (T3): local na consulta e nos horários livres', () => {
     expect(await gravada(T, antiga)).toMatchObject({ localId: clinica, modalidade: 'presencial' });
   });
 
+  it('code-review do PR 2 (I-1, AG-D82): consulta do paciente num local com sala → o link enviado é ignorado sem erro e fica a sala; a da nutricionista grava o digitado', async () => {
+    const { T, clinica, video, ana } = await doisLocais();
+    const SALA = 'https://sala.exemplo.test/debby';
+    const entrada = { data: '2026-10-15', hora: '09:00', duracaoMin: '60' };
+    const doPaciente = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-15', '09:00'), 60, { origem: 'paciente', localId: clinica });
+    // trocando para o local com sala: o link digitado não vale (o gatilho grava a sala), sem erro
+    await moverConsulta(T.ctx, tenantAgenda(T), doPaciente, { ...entrada, localId: video, linkOnline: 'https://meet.google.com/digitado' }, deps);
+    expect(await gravada(T, doPaciente)).toMatchObject({ modalidade: 'online', localId: video, linkOnline: SALA });
+    // no mesmo local (o gatilho não roda): o digitado também não vale
+    await moverConsulta(T.ctx, tenantAgenda(T), doPaciente, { ...entrada, duracaoMin: '45', localId: video, linkOnline: 'https://meet.google.com/outro' }, deps);
+    expect(await gravada(T, doPaciente)).toMatchObject({ localId: video, linkOnline: SALA, fim: em('2026-10-15', '09:45') });
+    // o texto do campo só leitura (ou qualquer lixo) não vira "Informe o link da chamada"
+    for (const linkOnline of ['Sala fixa do local', 'http://inseguro.test', ''])
+      await moverConsulta(T.ctx, tenantAgenda(T), doPaciente, { ...entrada, localId: video, linkOnline }, deps);
+    expect(await gravada(T, doPaciente)).toMatchObject({ localId: video, linkOnline: SALA });
+    // a consulta da nutricionista (origem nutri) continua gravando o link digitado, trocando de local ou não
+    const daNutri = await consultaDireta(app.db, T.ctx, ana.id, em('2026-10-16', '09:00'), 60, { localId: clinica });
+    await moverConsulta(T.ctx, tenantAgenda(T), daNutri, { data: '2026-10-16', hora: '09:00', duracaoMin: '60', localId: video, linkOnline: 'https://meet.google.com/digitado' }, deps);
+    expect(await gravada(T, daNutri)).toMatchObject({ localId: video, linkOnline: 'https://meet.google.com/digitado' });
+    await moverConsulta(T.ctx, tenantAgenda(T), daNutri, { data: '2026-10-16', hora: '09:00', duracaoMin: '60', localId: video, linkOnline: 'https://meet.google.com/outro' }, deps);
+    expect(await gravada(T, daNutri)).toMatchObject({ linkOnline: 'https://meet.google.com/outro' });
+  });
+
   it('"Fora do seu horário de atendimento" é pelas regras do local da consulta', async () => {
     const { T, consultorio, clinica, ana } = await doisLocais();
     await criarRegra(T.ctx, { diaSemana: '4', inicio: '08:00', fim: '12:00', duracaoMin: '60', localId: clinica }, deps); // quinta, só na Clínica

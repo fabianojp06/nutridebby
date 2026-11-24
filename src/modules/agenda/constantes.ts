@@ -101,6 +101,12 @@ export const ROTULO_TIPO_LOCAL: Record<TipoDeLocal, string> = { presencial: 'Pre
 
 /** Plano 23 (US-400, spec §6.2): textos dos locais de atendimento. Os sem texto na spec estão marcados (vão à tabela na T12). */
 export const MSG_LOCAIS = {
+  /**
+   * Fora da §6.2 (AG-D82): no "Alterar" da consulta marcada pelo paciente num local online com sala fixa, o "Link da
+   * chamada" fica só leitura com este texto — o banco grava a sala do local nesse caso (gatilho `appointments_link_da_sala`
+   * e `moverConsulta`).
+   */
+  salaFixaDoLocal: 'Sala fixa do local',
   salvo: 'Local salvo.',
   arquivado: 'Local arquivado.',
   reativado: 'Local reativado.',

@@ -3,7 +3,7 @@
 import { useActionState, useState } from 'react';
 import { Campo } from '@/components/campo';
 import type { TipoDeLocal } from '@/db/schema';
-import { DURACOES, ROTULO_TIPO_LOCAL } from '@/modules/agenda/constantes';
+import { DURACOES, MSG_LOCAIS, ROTULO_TIPO_LOCAL } from '@/modules/agenda/constantes';
 import type { ConsultaState } from './actions';
 
 /** Plano 23 (US-402): o local do seletor; a sala fixa só neste formulário do painel. */
@@ -17,15 +17,22 @@ type Props = {
   locais: LocalDoFormulario[];
   /** Aviso junto do campo "Local" (o local da consulta foi arquivado: não está entre as opções). */
   avisoDoLocal?: string;
+  /**
+   * AG-D82: a consulta foi marcada pelo paciente (origem `paciente`). Num local online com sala fixa, o banco grava a sala
+   * do local (gatilho `appointments_link_da_sala` e `moverConsulta`), então o "Link da chamada" fica só leitura com "Sala
+   * fixa do local".
+   */
+  doPaciente?: boolean;
   botao: string;
 };
 
 /**
  * US-031 / Plano 23 (US-402, RN-407): o "Local" no lugar da modalidade (a modalidade é o tipo do local). Num local de
  * videoconferência aparece "Link da chamada": vazio = a sala fixa do local. O link gravado só volta ao campo com o mesmo
- * local da consulta; trocando de local, o campo recomeça vazio (o link de uma sala não passa para outra).
+ * local da consulta; trocando de local, o campo recomeça vazio (o link de uma sala não passa para outra). AG-D82: na
+ * consulta marcada pelo paciente num local online com sala, o campo fica só leitura com "Sala fixa do local".
  */
-export function ConsultaForm({ acao, inicial, pacientes, locais, avisoDoLocal, botao }: Props) {
+export function ConsultaForm({ acao, inicial, pacientes, locais, avisoDoLocal, doPaciente = false, botao }: Props) {
   const [state, action, pendente] = useActionState<ConsultaState, FormData>(acao, {});
   const v = state.valores ?? inicial;
   const e = state.erros ?? {};
@@ -68,7 +75,10 @@ export function ConsultaForm({ acao, inicial, pacientes, locais, avisoDoLocal, b
         {avisoDoLocal && <p id="localId-aviso" className="text-sm text-suave">{avisoDoLocal}</p>}
         {erro('localId')}
       </div>
-      {local?.tipo === 'online' && (
+      {local?.tipo === 'online' && doPaciente && local.linkSala ? (
+        // AG-D82: sem `name` (nada a enviar: o banco grava a sala); outro local volta ao campo normal
+        <Campo key={`${local.id}-sala`} id="linkOnline" name={undefined} rotulo="Link da chamada" type="text" readOnly value={MSG_LOCAIS.salaFixaDoLocal} />
+      ) : local?.tipo === 'online' && (
         <Campo key={local.id} id="linkOnline" rotulo="Link da chamada" type="url" defaultValue={local.id === (state.valores?.localId ?? inicial.localId) ? v.linkOnline : ''} erro={e.linkOnline}
           placeholder={local.linkSala ?? 'https://…'} dica={local.linkSala ? 'Vazio = a sala fixa do local.' : undefined} />
       )}

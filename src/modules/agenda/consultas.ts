@@ -112,11 +112,14 @@ function validarData(tenant: Pick<TenantAgenda, 'fuso'>, input: EntradaConsulta,
  * Na transação da gravação: o local ativo do consultório (a RLS esconde o de outro), travado `FOR SHARE` para não ser
  * arquivado entre a conferência e a gravação (ordem: paciente → local → consulta). A modalidade é o tipo do local; o link
  * da chamada, o informado ou a sala fixa do local (`linkSugerido`); no presencial, o link informado é ignorado.
+ * AG-D82 (`doPaciente`, consulta de origem `paciente`): num local online com sala, sempre a sala — o link enviado é ignorado
+ * sem erro (o campo é só leitura na tela; trocando de local, o gatilho `appointments_link_da_sala` grava a sala de todo modo).
  */
-async function comLocal(tx: Tx, input: EntradaConsulta, d: DataValidada): Promise<HorarioValidado> {
+async function comLocal(tx: Tx, input: EntradaConsulta, d: DataValidada, doPaciente = false): Promise<HorarioValidado> {
   const [l] = await tx.select().from(locaisAtendimento).where(and(eq(locaisAtendimento.id, d.localId), isNull(locaisAtendimento.arquivadoEm))).for('share');
   if (!l || (input.modalidade !== undefined && input.modalidade !== l.tipo)) throw new ConsultaError({ localId: MSG_AGENDA.escolhaOLocal });
   if (l.tipo !== 'online') return { ...d, modalidade: 'presencial', linkOnline: null };
+  if (doPaciente && l.linkSala) return { ...d, modalidade: 'online', linkOnline: l.linkSala };
   const link = textoAparado(input.linkOnline) || linkSugerido(l) || '';
   if (!linkValido(link)) throw new ConsultaError({ linkOnline: MSG_AGENDA.linkObrigatorio });
   return { ...d, modalidade: 'online', linkOnline: link };
@@ -204,7 +207,8 @@ export async function lerConsultaParaEscrita(tx: Tx, id: string): Promise<Appoin
  * perde a confirmação e o pedido de remarcação (eram do horário antigo); mudar só a duração, a modalidade
  * ou o link mantém a situação (R3). Ordem das travas: paciente → local → consulta. Plano 23: o local entra na alteração
  * (RN-407; a consulta antiga sem local ganha o escolhido); o link vazio de uma consulta online é a sala do local, nunca o
- * link que a consulta tinha (o formulário só reapresenta o link gravado com o mesmo local).
+ * link que a consulta tinha (o formulário só reapresenta o link gravado com o mesmo local). AG-D82: na consulta marcada pelo
+ * paciente, num local online com sala, o link é a sala (o enviado é ignorado; o campo é só leitura na tela).
  */
 export async function moverConsulta(ctx: TenantContext, tenant: TenantAgenda, id: string, input: EntradaConsulta, deps: Deps = {}): Promise<{ avisos: AvisoAgenda[] }> {
   exigirNutri(ctx);
@@ -218,10 +222,11 @@ export async function moverConsulta(ctx: TenantContext, tenant: TenantAgenda, id
       ctx,
       async (tx) => {
         if (!idValido(id)) throw new ConsultaNaoEncontradaError();
-        const [antes] = await tx.select({ patientId: appointments.patientId }).from(appointments).where(eq(appointments.id, id));
+        // `origem`: nenhuma escrita do app a muda depois de gravada; lida antes da trava (ordem paciente → local → consulta)
+        const [antes] = await tx.select({ patientId: appointments.patientId, origem: appointments.origem }).from(appointments).where(eq(appointments.id, id));
         if (!antes) throw new ConsultaNaoEncontradaError();
         await carregarPacienteParaEscrita(tx, antes.patientId);
-        const v = await comLocal(tx, input, d);
+        const v = await comLocal(tx, input, d, antes.origem === 'paciente');
         const c = await lerConsultaParaEscrita(tx, id);
         if (!STATUS_ATIVOS.includes(c.status as StatusConsulta)) throw new ConsultaError({ geral: MSG_AGENDA.naoAlteravel });
         const choque = await mensagemDeConflito(tx, v, tenant.fuso, id);

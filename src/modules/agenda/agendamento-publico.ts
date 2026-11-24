@@ -19,7 +19,7 @@ import { escolherHorario, gravarConsultaDoPaciente, horariosParaPaciente, localR
 import { MAX_CONSULTAS_FUTURAS_PUBLICO, MSG_AGENDA, MSG_PUBLICO } from './constantes';
 import { ConsultaError, ehSobreposicao, STATUS_ATIVOS } from './consultas';
 import { inicioDoDia, quandoComFuso, somarDias } from './fuso';
-import { horariosVisiveis, localInicial, type HorarioVisivel, type LocalVisivel } from './horarios';
+import { horariosVisiveis, localInicial, type HorarioVisivel, type LocalVisivel, type Modalidade } from './horarios';
 import { chaveDoLimite, consumirLimite } from './limite-ip';
 
 export { MSG_PUBLICO };
@@ -338,7 +338,21 @@ export async function confirmarCodigo(slug: string, input: Record<string, unknow
     db,
   );
   if ('erro' in r) throw r.erro;
-  return concluir(tenant, r.pedido, { inicio: r.pedido.inicio.toISOString(), localId: r.pedido.localId }, deps, db, agora);
+  const localId = r.pedido.localId ?? (await localDoPedidoSemLocal(tenant, r.pedido, agora, db));
+  return concluir(tenant, r.pedido, { inicio: r.pedido.inicio.toISOString(), localId }, deps, db, agora);
+}
+
+/**
+ * Code-review do PR 2 (Plano 23): o pedido gravado pela imagem anterior não tem `local_id`. O local é o que gera agora o
+ * horário do pedido na modalidade dele, entre os ativos com agendamento pelo paciente (`horariosParaPaciente`, RN-410a); só
+ * com exatamente um. Sem nenhum (ou com mais de um), `null`: `escolherHorario` recusa e a pessoa recebe o "horário ocupado"
+ * de sempre, com os outros horários.
+ */
+async function localDoPedidoSemLocal(tenant: TenantRow, p: PedidoRow, agora: Date, db: Db): Promise<string | null> {
+  const t = p.inicio.getTime();
+  const hs = await horariosParaPaciente(tenant, agora, { db, de: p.inicio, ate: new Date(t + 60_000) });
+  const locais = new Set(hs.filter((h) => h.inicio.getTime() === t && h.modalidades.includes(p.modalidade as Modalidade)).map((h) => h.localId));
+  return locais.size === 1 ? [...locais][0] : null;
 }
 
 /** Depois de "horário ocupado": o pedido já verificado escolhe outro horário sem novo código (até 30 min). */

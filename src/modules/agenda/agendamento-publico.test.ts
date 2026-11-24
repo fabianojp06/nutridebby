@@ -594,6 +594,30 @@ describe('Plano 23: local (US-403, RN-405, RN-406, AG-D40, AG-D60, AG-D62)', () 
     expect((await consultasDe(T, p.id)).map((c) => ({ localId: c.localId, modalidade: c.modalidade, link: c.linkOnline }))).toEqual([{ localId: video, modalidade: 'online', link: SALA }]);
   });
 
+  it('code-review do PR 2 (I-2): pedido da imagem anterior (sem local) → o local pelo horário e pela modalidade do pedido; sem local que gere o horário, "horário ocupado"', async () => {
+    const { T, video } = await doisLocais();
+    // a imagem do PR 1 grava o pedido sem `local_id`: o pedido é anulado direto no banco, como ela o deixaria
+    const semLocal = async (e: ReturnType<typeof pedido>) => {
+      const t = await solicitarCodigo(T.slug, e, deps());
+      await owner.db.update(publicBookingRequests).set({ localId: null }).where(eq(publicBookingRequests.email, e.email));
+      return t.pedido;
+    };
+    const online = pedido(em('2026-10-16', '09:00'), { localId: video });
+    expect(await confirmarCodigo(T.slug, { pedido: await semLocal(online), codigo: await codigoDe(online.email) }, deps())).toMatchObject({ estado: 'agendada' });
+    const [po] = await pacientesCom(T, online.email);
+    expect((await consultasDe(T, po.id)).map((c) => ({ localId: c.localId, modalidade: c.modalidade, link: c.linkOnline }))).toEqual([{ localId: video, modalidade: 'online', link: SALA }]);
+    const presencial = pedido(em('2026-10-16', '11:00'));
+    expect(await confirmarCodigo(T.slug, { pedido: await semLocal(presencial), codigo: await codigoDe(presencial.email) }, deps())).toMatchObject({ estado: 'agendada' });
+    const [pp] = await pacientesCom(T, presencial.email);
+    expect((await consultasDe(T, pp.id)).map((c) => ({ localId: c.localId, modalidade: c.modalidade }))).toEqual([{ localId: T.localId, modalidade: 'presencial' }]);
+    // nenhum local gera mais o horário (o online deixou de aceitar agendamento): "horário ocupado" de sempre, sem paciente
+    const tarde = pedido(em('2026-10-16', '15:00'), { localId: video });
+    const t = await semLocal(tarde);
+    await owner.db.update(locaisAtendimento).set({ agendamentoOnline: false }).where(eq(locaisAtendimento.id, video));
+    expect(await confirmarCodigo(T.slug, { pedido: t, codigo: await codigoDe(tarde.email) }, deps())).toMatchObject({ estado: 'horario_ocupado' });
+    expect(await pacientesCom(T, tarde.email)).toEqual([]);
+  });
+
   it('local sem agendamento entre a escolha e a gravação: o 42501 do gatilho vira "Esse horário não está mais disponível. Escolha outro." (outros horários), sem paciente nem consulta', async () => {
     const T = await consultorio();
     const centro = await novoLocal(app.db, T.ctx, { nome: 'Clínica Centro' });

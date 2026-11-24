@@ -130,7 +130,7 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
         {ativa && (
           <section aria-labelledby="alterar" className="space-y-2">
             <h2 id="alterar" className="text-lg font-semibold">Alterar data e hora</h2>
-            <ConsultaForm acao={moverAction.bind(null, c.id)} avisoDoLocal={localArquivado ? 'O local desta consulta foi arquivado.' : undefined} locais={locais.map(({ id, nome, tipo, linkSala }) => ({ id, nome, tipo, linkSala }))} botao="Salvar alteração"
+            <ConsultaForm acao={moverAction.bind(null, c.id)} avisoDoLocal={localArquivado ? 'O local desta consulta foi arquivado.' : undefined} locais={locais.map(({ id, nome, tipo, linkSala }) => ({ id, nome, tipo, linkSala }))} doPaciente={c.origem === 'paciente'} botao="Salvar alteração"
               inicial={{ data: p.data, hora: p.hora, duracaoMin: String(Math.round((c.fim.getTime() - c.inicio.getTime()) / 60_000)), localId: localInicial, linkOnline: c.linkOnline ?? '' }} />
           </section>
         )}
