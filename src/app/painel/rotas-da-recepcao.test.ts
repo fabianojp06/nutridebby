@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { analisarTopo, arquivosDoApp, ehDeServerActions, guardasAlcancadas, guardasDoArquivo, rotaDoArquivo, semComentarios, type Arquivo } from '../../../test/fonte';
 import { FORA_DO_PAINEL, ROTAS_DA_RECEPCAO } from './rotas-da-recepcao';
@@ -18,7 +18,20 @@ const NUTRI = ['requireNutri', 'requireApiNutri', 'carregarProntuario'] as const
 const EQUIPE = ['requireEquipe', 'requireApiEquipe'] as const;
 const GUARDAS = [...NUTRI, ...EQUIPE];
 const METODOS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-const LE_DADOS = /from '@\/(modules|db)\/|from '@\/lib\/(tenant-session|session|paciente-session|api-auth)'/;
+const LE_DADOS = /from '@\/(modules|db)\/([^']+)'|from '@\/lib\/(tenant-session|session|paciente-session|api-auth)'/g;
+
+/**
+ * O layout importa módulo, banco ou sessão. Exceção única: o módulo de `src/modules` que não importa nada (só constantes e
+ * textos, como `src/modules/exames/constantes.ts`, Plano 22) não lê dado nenhum. O módulo que não se acha no disco conta
+ * como leitura.
+ */
+function leDados(fonte: string): boolean {
+  return [...semComentarios(fonte).matchAll(LE_DADOS)].some(([, raiz, caminho]) => {
+    if (raiz !== 'modules') return true;
+    const alvo = [`src/modules/${caminho}.ts`, `src/modules/${caminho}.tsx`, `src/modules/${caminho}/index.ts`].find((f) => existsSync(f));
+    return !alvo || /^\s*import\b|\brequire\(|^\s*export\b[^\n]*\bfrom\s*['"]/m.test(semComentarios(readFileSync(alvo, 'utf8')));
+  });
+}
 
 type Tipo = 'pagina' | 'rota' | 'action' | 'layout';
 /** `chave`: o que a lista usa (a rota, ou arquivo#action); `rotulo`: o nome na mensagem (a rota com o método, no handler). */
@@ -34,7 +47,7 @@ function entradas(arquivos: Arquivo[]): { todas: Entrada[]; naoLidas: string[] }
     const chave = rotaDoArquivo(arquivo);
     if (/(^|\/)page\.tsx$/.test(arquivo)) return [{ tipo: 'pagina', chave, rotulo: chave, guardas: guardasDoArquivo(fonte, GUARDAS) }];
     if (/(^|\/)layout\.tsx$/.test(arquivo))
-      return [{ tipo: 'layout', chave, rotulo: `/${arquivo}`, guardas: guardasDoArquivo(fonte, GUARDAS), leDados: LE_DADOS.test(semComentarios(fonte)) }];
+      return [{ tipo: 'layout', chave, rotulo: `/${arquivo}`, guardas: guardasDoArquivo(fonte, GUARDAS), leDados: leDados(fonte) }];
     const ehRota = /(^|\/)route\.ts$/.test(arquivo);
     if (!ehRota && !ehDeServerActions(fonte)) return [];
     const { blocos, naoEntendidos } = analisarTopo(fonte);
@@ -101,7 +114,7 @@ describe('ROTAS_DA_RECEPCAO (RN-513): negação por padrão no app', () => {
     expect(chaves).toContain('/api/painel/relatorios/csv');
     // os layouts também são entradas (o raiz, com requireEquipe, e os aninhados)
     expect(entradas(DO_PAINEL).todas.filter((e) => e.tipo === 'layout').map((e) => e.rotulo)).toEqual(
-      expect.arrayContaining(['/painel/layout.tsx', '/painel/pacientes/[id]/layout.tsx', '/painel/financeiro/layout.tsx', '/painel/relatorios/layout.tsx']),
+      expect.arrayContaining(['/painel/layout.tsx', '/painel/pacientes/[id]/layout.tsx', '/painel/financeiro/layout.tsx', '/painel/relatorios/layout.tsx', '/painel/exames/layout.tsx']),
     );
   });
 
@@ -178,6 +191,10 @@ describe('ROTAS_DA_RECEPCAO (RN-513): negação por padrão no app', () => {
         '/painel/rascunho/layout.tsx: chama requireEquipe e nenhuma rota de ROTAS_DA_RECEPCAO fica sob ele',
       ]);
       expect(violacoesDasRotas([layout('return children;', "import { lerAlgo } from '@/modules/algo';\n")], [])).toEqual(['/painel/rascunho/layout.tsx: sem sessão e importa módulo, banco ou sessão']);
+      // Plano 22: o módulo sem import nenhum (só constantes e textos) não lê dado; o que importa algo, sim
+      expect(violacoesDasRotas([layout('return children;', "import { MSG_EXAMES } from '@/modules/exames/constantes';\n")], [])).toEqual([]);
+      expect(violacoesDasRotas([layout('return children;', "import { listarCatalogo } from '@/modules/exames/catalogo';\n")], [])).toEqual(['/painel/rascunho/layout.tsx: sem sessão e importa módulo, banco ou sessão']);
+      expect(violacoesDasRotas([layout('return children;', "import { MSG_EXAMES } from '@/modules/exames/constantes';\nimport { db } from '@/db/client';\n")], [])).toEqual(['/painel/rascunho/layout.tsx: sem sessão e importa módulo, banco ou sessão']);
       expect(violacoesDasRotas([layout('return children;'), layout("await requireNutri('/x');\n  return children;")], [])).toEqual([]);
       expect(violacoesDasRotas([telaDaRecepcao, layout("await requireEquipe('/painel/rascunho');\n  return children;")], ['/painel/rascunho'])).toEqual([]);
     });
