@@ -6,6 +6,7 @@ import { withTenant, type TenantContext } from '@/db/tenant';
 import { getBoss } from '@/jobs/boss';
 import { partesNoFuso } from '@/modules/agenda/fuso';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { formatarData } from '@/modules/pacientes/datas';
 import { apagarArquivo, MSG_COTA_ESGOTADA } from '@/modules/plataforma/armazenamento';
 import { auditRead } from '@/modules/plataforma/audit';
@@ -66,7 +67,8 @@ export async function salvarRascunhoReceita(
   ctx: TenantContext, tenant: TenantRow, patientId: string, docId: string, input: { conteudo: unknown; justificativa: unknown; motivoRetificacao?: unknown }, deps: { db?: Db } = {},
 ): Promise<void> {
   const conteudo = validarRascunho(input.conteudo, { habilitada: !!tenant.fitoterapiaRegistro });
-  const j = typeof input.justificativa === 'string' ? input.justificativa.trim() : '';
+  // SUS-109: um NUL na coluna text daria 22021 com o texto no log
+  const j = typeof input.justificativa === 'string' ? semInvalidosNoBanco(input.justificativa).trim() : '';
   if (j.length > 2000) throw new DocumentoError({ justificativa: 'Use no máximo 2000 caracteres.' });
   const motivo = input.motivoRetificacao === undefined ? undefined : lerMotivoRetificacao(input.motivoRetificacao);
   await withTenant(ctx, async (tx) => {

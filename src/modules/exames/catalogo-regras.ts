@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ExameDaLista, FaixaDoConsultorio } from '@/db/schema/exames-catalogo';
 import { lerDecimal } from '@/lib/numero';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { normalizarNome } from '@/modules/ia/correspondencia';
 import { casarComCatalogo, type IndiceDoCatalogo } from './classificacao';
 import {
@@ -53,8 +54,9 @@ export type ExameDoCatalogoEntrada = {
 };
 
 const E = MSG_EXAMES.erros;
-const umaLinha = (s: string) => s.replace(/\u0000/g, '').trim().replace(/\s+/g, ' ');
-const textoLivre = (s: string) => s.replace(/\u0000/g, '').replace(/\r\n?/g, '\n').trim();
+/** SUS-109: sem NUL nem surrogate sem par — o jsonb e o text do catálogo recusariam (22P05/22P02/22021) com o texto no log. */
+const umaLinha = (s: string) => semInvalidosNoBanco(s).trim().replace(/\s+/g, ' ');
+const textoLivre = (s: string) => semInvalidosNoBanco(s).replace(/\r\n?/g, '\n').trim();
 /** Lista de nomes: array de textos ou um texto com um por linha (o formulário); vazios somem. */
 const linhas = (v: unknown): string[] =>
   (Array.isArray(v) ? v : typeof v === 'string' ? v.split(/\r?\n/) : []).map((x) => (typeof x === 'string' ? umaLinha(x) : '')).filter(Boolean);

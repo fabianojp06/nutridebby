@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getDb, type Db } from '@/db/client';
 import { tenants, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { primeiroErroPorCampo } from '@/lib/validacao';
 import { formatarTelefone, normalizarTelefone } from '@/modules/pacientes/telefone';
 import { recordAudit } from '@/modules/plataforma/audit';
@@ -31,7 +32,8 @@ export class PerfilIncompletoError extends Error {
   }
 }
 
-const espacos = (s: string) => s.trim().replace(/\s+/g, ' ');
+/** SUS-109: sem NUL (22021 em `tenants`) nem surrogate sem par (a cópia vai ao jsonb do documento). */
+const espacos = (s: string) => semInvalidosNoBanco(s).trim().replace(/\s+/g, ' ');
 const dadosSchema = z.object({
   nomeProfissional: z.string().transform(espacos).pipe(z.string().min(5, MSG_PERFIL_PROF.nome).max(120, MSG_PERFIL_PROF.nome)),
   contatoEmail: z.string().trim().toLowerCase().pipe(z.email(MSG_PERFIL_PROF.email).max(254, MSG_PERFIL_PROF.email)),

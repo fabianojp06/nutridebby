@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ExameDaLista } from '@/db/schema/exames-catalogo';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { normalizarNome } from '@/modules/ia/correspondencia';
 import { LISTA_DE_EXAMES_MAX, MSG_EXAMES, NOME_MAX } from '@/modules/exames/constantes';
 import { DocumentoError } from './erros';
@@ -61,9 +62,9 @@ export type ConteudoSolicitacao = {
 };
 
 /** Espaços repetidos viram um (o nome do exame é uma linha). */
-const umaLinha = (s: string) => s.replace(/\u0000/g, '').trim().replace(/\s+/g, ' ');
-/** Texto de várias linhas: sem NUL (o Postgres recusa), `\r\n` → `\n`, sem espaços nas pontas; as quebras ficam (marcação). */
-export const textoLivre = (s: string) => s.replace(/\u0000/g, '').replace(/\r\n?/g, '\n').trim();
+const umaLinha = (s: string) => semInvalidosNoBanco(s).trim().replace(/\s+/g, ' ');
+/** Texto de várias linhas: sem NUL nem surrogate sem par (o Postgres recusa, SUS-109), `\r\n` → `\n`, sem espaços nas pontas; as quebras ficam (marcação). */
+export const textoLivre = (s: string) => semInvalidosNoBanco(s).replace(/\r\n?/g, '\n').trim();
 
 /**
  * A lista de exames da solicitação (RN-388) e do modelo de solicitação (RN-391): cada um com o nome (1 a 80, uma linha) e
