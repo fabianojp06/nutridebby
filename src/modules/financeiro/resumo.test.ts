@@ -3,10 +3,20 @@ import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { cincoMilLancamentos, dbQueContaConsultas } from '../../../test/financeiro';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import type { Tx } from '@/db/client';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { arquivarCategoria, listarCategorias, salvarConfiguracoes } from './configuracoes';
 import { cancelarLancamento, criarLancamento } from './lancamentos';
-import { entradasESaidas12Meses, fluxoDeCaixaDoAno, pagamentosPendentes, pendenciasDoPaciente, resumoDoMes } from './resumo';
+import {
+  entradasESaidas12Meses,
+  fluxoDeCaixaDoAno,
+  pagamentosPendentes,
+  pendenciasDoPaciente,
+  porCategoriaNoPeriodo,
+  recebidoEPagoPorMes,
+  receitaPorPaciente,
+  resumoDoMes,
+} from './resumo';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -400,5 +410,75 @@ describe('RNF-301: uma transação e um número fixo de consultas, sem N+1', () 
       pendentes: { transacoes: 1, consultas: 3 + 1 },
       pendenciasDoPaciente: { transacoes: 1, consultas: 3 + 3 }, // paciente, linhas, auditRead
     });
+  });
+});
+
+/**
+ * Plano 26 (RN-491, RE-D68): os agregados que os Relatórios leem do Financeiro, na transação de quem chama. O cenário de
+ * `cenario()`: Financeiro configurado e a paciente Ana; período de meses inteiros.
+ */
+describe('Plano 26: recebidoEPagoPorMes, porCategoriaNoPeriodo e receitaPorPaciente', () => {
+  const P = { de: '2026-09', ate: '2026-11', meses: ['2026-09', '2026-10', '2026-11'] };
+  const naTransacao = <T>(C: Cenario, fn: (tx: Tx) => Promise<T>) => withTenant(C.ctx, fn, app.db);
+
+  it('recebido e pago por mês do pagamento: uma linha por mês; cancelados, em aberto e fora do período fora; nada de outro consultório', async () => {
+    const C = await cenario({ saldoInicialEm: '2026-09-01', saldoInicial: '0,00' });
+    await entrada(C, { valor: '250,00', vencimento: '2026-09-10', pagoEm: '2026-09-30', forma: 'pix' });
+    await entrada(C, { valor: '100,00', vencimento: '2026-11-01', pagoEm: '2026-11-01', forma: 'pix' });
+    await saida(C, { valor: '80,00', vencimento: '2026-11-05', pagoEm: '2026-11-16', forma: 'pix' });
+    const cancelada = await entrada(C, { valor: '999,00', vencimento: '2026-10-10', pagoEm: '2026-10-10', forma: 'pix' });
+    await cancelarLancamento(C.ctx, cancelada.id, 'Devolução', deps);
+    await entrada(C, { valor: '500,00', vencimento: '2026-10-20' }); // em aberto
+    await saida(C, { valor: '40,00', vencimento: '2026-08-31', pagoEm: '2026-08-31', forma: 'pix' }); // antes do período
+    const outro = await cenario({ saldoInicialEm: '2026-09-01', saldoInicial: '0,00' });
+    await entrada(outro, { valor: '777,00', vencimento: '2026-10-10', pagoEm: '2026-10-10', forma: 'pix' });
+
+    expect(await naTransacao(C, (tx) => recebidoEPagoPorMes(tx, C.tenantId, P))).toEqual([
+      { mes: '2026-09', recebido: 25000, pago: 0 },
+      { mes: '2026-10', recebido: 0, pago: 0 },
+      { mes: '2026-11', recebido: 10000, pago: 8000 },
+    ]);
+    // controle positivo do outro consultório: o lançamento dele está lá, pela leitura dele
+    expect((await naTransacao(outro, (tx) => recebidoEPagoPorMes(tx, outro.tenantId, P)))[1]).toEqual({ mes: '2026-10', recebido: 77700, pago: 0 });
+    // RN-493: agregado, sem "Visualizou"
+    expect(await leituras(C.tenantId)).toEqual([]);
+  });
+
+  it('por categoria no período: só as com movimento (a arquivada também), "Consultas" primeiro, depois pelo nome', async () => {
+    const C = await cenario({ saldoInicialEm: '2026-09-01', saldoInicial: '0,00' });
+    await entrada(C, { valor: '100,00', categoriaId: C.outrasEntradas, vencimento: '2026-10-01', pagoEm: '2026-10-01', forma: 'pix', pacienteId: '' });
+    await entrada(C, { valor: '250,00', vencimento: '2026-10-02', pagoEm: '2026-10-02', forma: 'pix' });
+    await entrada(C, { valor: '250,00', vencimento: '2026-11-02', pagoEm: '2026-11-02', forma: 'pix' });
+    await saida(C, { valor: '30,00', categoriaId: C.material, vencimento: '2026-10-03', pagoEm: '2026-10-03', forma: 'pix' });
+    await saida(C, { valor: '1.000,00', vencimento: '2026-09-05', pagoEm: '2026-09-05', forma: 'pix' });
+    await saida(C, { valor: '60,00', categoriaId: C.divulgacao, vencimento: '2026-10-04' }); // em aberto: fora
+    await arquivarCategoria(C.ctx, C.material, deps);
+    expect(await naTransacao(C, (tx) => porCategoriaNoPeriodo(tx, C.tenantId, P))).toEqual({
+      entradas: [
+        { categoria: 'Consultas', valor: 50000 },
+        { categoria: 'Outras entradas', valor: 10000 },
+      ],
+      saidas: [
+        { categoria: 'Aluguel e condomínio', valor: 100000 },
+        { categoria: 'Material e insumos', valor: 3000 },
+      ],
+    });
+  });
+
+  it('receita por paciente: entradas recebidas com paciente ativo ou arquivado, as maiores primeiro, até o limite', async () => {
+    const C = await cenario({ saldoInicialEm: '2026-09-01', saldoInicial: '0,00' });
+    const bia = (await novoPaciente(app.db, C.ctx, { nome: 'Bia Lima', status: 'arquivado' })).id;
+    const caio = (await novoPaciente(app.db, C.ctx, { nome: 'Caio Reis' })).id;
+    await entrada(C, { valor: '250,00', vencimento: '2026-10-01', pagoEm: '2026-10-01', forma: 'pix' }); // Ana
+    await entrada(C, { valor: '400,00', vencimento: '2026-10-01', pagoEm: '2026-10-01', forma: 'pix', pacienteId: bia });
+    await entrada(C, { valor: '900,00', vencimento: '2026-10-01', pacienteId: caio }); // em aberto
+    await entrada(C, { valor: '50,00', categoriaId: C.outrasEntradas, vencimento: '2026-10-01', pagoEm: '2026-10-01', forma: 'pix', pacienteId: '' }); // sem paciente
+    const lista = await naTransacao(C, (tx) => receitaPorPaciente(tx, C.tenantId, P, { limite: 20 }));
+    expect(lista).toEqual([
+      { patientId: bia, nomeExibido: 'Bia Lima', nomeRegistro: 'Bia Lima', valor: 40000 },
+      { patientId: C.ana, nomeExibido: 'Ana Souza', nomeRegistro: 'Ana Souza', valor: 25000 },
+    ]);
+    expect(await naTransacao(C, (tx) => receitaPorPaciente(tx, C.tenantId, P, { limite: 1 }))).toEqual([lista[0]]);
+    expect(await leituras(C.tenantId)).toEqual([]); // RN-493: sem "Visualizou" na tela
   });
 });

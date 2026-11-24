@@ -23,6 +23,9 @@ const ROTAS = [
   '/painel/pacientes/:id/perfil', '/painel/pacientes/:id/app',
   '/n/:slug',
   '/api/p/acesso', '/api/p/push', '/api/painel/planos/:id', '/api/painel/planos/:id/revisao', '/api/painel/alimentos',
+  // Plano 26 (CS-483): as seis seções dos Relatórios
+  '/painel/relatorios', '/painel/relatorios/atendimentos', '/painel/relatorios/planos', '/painel/relatorios/agenda',
+  '/painel/relatorios/financeiro', '/painel/relatorios/ranking',
 ];
 const STATUS_PUSH = [204, 409, 429]; // 204 inscrito; 409 inscrição de outra conta (falha: não deveria acontecer); 429 limite da T6
 
@@ -33,6 +36,9 @@ export const options = {
     nutri: { executor: 'ramping-vus', exec: 'nutri', stages: rampa(20) },
     ficha: { executor: 'ramping-vus', exec: 'ficha', stages: rampa(5) }, // Plano 18 (CS-263): tirados dos 25 da nutricionista
     publico: { executor: 'ramping-vus', exec: 'publico', stages: rampa(5) },
+    // Plano 26 (CS-483): 3 nutricionistas abrindo os Relatórios, além dos 100 (a divisão dos 25 da nutricionista é revista
+    // na rodada do fechamento do PR 1)
+    relatorios: { executor: 'ramping-vus', exec: 'relatorios', stages: rampa(3) },
   },
   thresholds: {
     // O resumo do k6 (tela e --summary-export) só mostra a sub-métrica que tem threshold: `[]` cria a linha sem meta.
@@ -46,6 +52,8 @@ export const options = {
     // Plano 18 (CS-263, RNF-260): o Início da ficha (as seções do registro, o cabeçalho e o cartão "No app") na meta das
     // páginas; depois do `...ROTAS` acima, que criou a linha sem meta
     'http_req_duration{nome:/painel/pacientes/:id}': ['p(95)<800'],
+    // Plano 26 (CS-483, RNF-01): cada seção dos Relatórios abre com p95 ≤ 800 ms (tag `scenario` do próprio k6)
+    'http_req_duration{scenario:relatorios}': ['p(95)<800'],
     http_req_failed: ['rate<0.01'],
     checks: ['rate>0.99'],
   },
@@ -118,10 +126,25 @@ export function publico() {
   pausa();
 }
 
+// Plano 26 (CS-483, RN-496): as seis seções dos Relatórios (agregação no SQL, uma transação por seção) sobre os 12 meses
+// de agenda e de Financeiro da semente (`semearRelatorios`), no período padrão e num período escolhido; o Ranking pelos
+// dois critérios. Só leitura: a tela não grava `audit_log` (RN-493); o CSV e a impressão ficam fora (gravam `exportar`).
+export function relatorios() {
+  const n = nutris[(__VU * 5 + __ITER) % nutris.length];
+  const periodo = __ITER % 2 ? '?de=2026-03&ate=2026-08' : '';
+  for (const url of ['/painel/relatorios', '/painel/relatorios/atendimentos', '/painel/relatorios/planos', '/painel/relatorios/agenda', '/painel/relatorios/financeiro', '/painel/relatorios/ranking']) {
+    pagina(`${url}${periodo}`, n.cookie);
+    pausa();
+  }
+  pagina(`/painel/relatorios/ranking?por=receita${periodo ? `&${periodo.slice(1)}` : ''}`, n.cookie);
+  pausa();
+}
+
 // Fumaça (`--vus 3 --duration 30s` na linha de comando troca os cenários por um só, que roda o `default`): os quatro perfis
 export default function fumaca() {
   paciente();
   nutri();
   ficha();
   publico();
+  relatorios(); // Plano 26
 }

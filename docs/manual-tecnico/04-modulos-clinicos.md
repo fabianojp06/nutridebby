@@ -1154,7 +1154,7 @@ PDF, à IA nem ao comparativo; sai só no `dados.json` ([§4.2.9](#429-exportaç
 
 ### 4.2.13 Mensagens na ficha e no titular (Plano 25, PR 2)
 
-A conversa por mensagens ([§5.11](05-agenda-portal-conteudo.md#511-mensagens-e-recados-plano-25-pr-2)) é prontuário
+A conversa por mensagens ([§5.12](05-agenda-portal-conteudo.md#512-mensagens-e-recados-plano-25-pr-2)) é prontuário
 (CH-D2): entra na ficha como seção do Início, vai na exportação nos dois escopos, fica no pedido de exclusão e só sai na
 anonimização.
 

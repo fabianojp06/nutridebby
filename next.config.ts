@@ -26,6 +26,10 @@ const nextConfig: NextConfig = {
     // O cabeçalho do next.config vence o do Route Handler (send-response.js só põe o do handler se a chave ainda não
     // existir): sem esta regra, o 'no-referrer' de /api/arquivos (URL assinada na query) virava o global.
     { source: '/api/arquivos', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] },
+    // Plano 26 (RN-494, RN-495): a impressão e o CSV dos Relatórios trazem números do consultório e, no Ranking, nomes de
+    // pacientes — nada em cache (a rota do CSV também manda o cabeçalho; aqui vale desde a primeira resposta)
+    { source: '/painel/relatorios/imprimir', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
+    { source: '/api/painel/relatorios/csv', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
   ],
 };
 

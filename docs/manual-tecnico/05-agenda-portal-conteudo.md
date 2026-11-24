@@ -27,6 +27,7 @@ Convenções do capítulo:
 | Conteúdo | `src/modules/conteudo/` | Vídeo, oEmbed, capa, markdown, receitas, audiência, aviso, métricas, LGPD do titular | P07 |
 | Ajuda | `src/modules/ajuda/conteudo.ts`, `src/modules/ajuda/portal.ts`, `src/modules/ajuda/precisa-do-guia.ts` (P08-13) | Texto dos tours e do manual do painel (`GUIAS`) e o guia do portal (`GUIA_PORTAL`, `AVISO_PORTAL`) | P08 (P16 para o portal) |
 | Tema | `src/lib/tema/`, `src/app/globals.css`, `src/components/ui/` | Tokens de cor, contraste, cor da marca no escuro, cor da faixa do portal, componentes base | P08 (P16 para o portal) |
+| Relatórios | `src/modules/relatorios/` + `src/app/painel/relatorios/`, `src/app/api/painel/relatorios/csv/` | Seis seções agregadas no SQL (pacientes, atendimentos, planos, agenda, financeiro, ranking), período, quem vê cada seção, CSV, impressão e o `exportar` na transação da leitura (§5.11) | P26 (PR 1) |
 
 A spec registra a divisão em dois módulos (`agenda` e `notificacoes`) porque o motor de envio também serve o convite do
 paciente (US-010) — desvio do §4.1 listado no Plano 05 ("Desvios conscientes da spec").
@@ -1612,9 +1613,11 @@ Guardas: `src/app/painel/cores.test.ts` (sem cor fixa, sem `dark:` espalhado, bo
 
 - `src/app/painel/layout.tsx` monta o cabeçalho de todas as telas. **Não é barreira de segurança**: cada página chama
   `requireNutri` (guarda em `cabecalho.test.ts`). Com o DPA pendente, o cabeçalho mostra só marca, tema e "Sair".
-- Menu de 7 itens fixos (`ITENS_DO_MENU`): Início, Pacientes, Agenda, Diários, Conteúdos, Financeiro (Plano 20, RN-327:
-  para toda nutricionista, sem contador) e Configurações; "Exames recebidos" (Plano 12) e "Dúvidas dos pacientes" (Plano 15)
-  entram quando ligados, e o menu chega a 9 itens (o cabeçalho quebra a linha, R-310 do Plano 20). "Configurações" é um
+- Menu de 8 itens fixos (`ITENS_DO_MENU`): Início, Pacientes, Agenda, Diários, Conteúdos, Financeiro (Plano 20, RN-327:
+  para toda nutricionista, sem contador), Relatórios (Plano 26, §4.1: entre "Financeiro" e "Configurações"; marca também
+  a impressão, `/painel/relatorios/imprimir`) e Configurações; "Exames recebidos" (Plano 12) e "Dúvidas dos pacientes"
+  (Plano 15) entram quando ligados, e o menu chega a 10 itens (o cabeçalho quebra a linha, R-310 do Plano 20; aceito na
+  spec do Plano 26, §4.1). "Configurações" é um
   hub de cartões e fica marcado também em WhatsApp, Alimentos e modelos (`DO_HUB`).
 - Menu da conta no avatar (`<details>`, `src/app/painel/menu-conta.tsx`): "Perfil e marca", "Segurança", "Manual",
   "Rever o tour de boas-vindas", "Sair".
@@ -1622,7 +1625,7 @@ Guardas: `src/app/painel/cores.test.ts` (sem cor fixa, sem `dark:` espalhado, bo
 - Plano 25 (PR 2): "Dúvidas dos pacientes" sai do menu; no lugar e na posição dele entra **"Mensagens"**, sempre na
   sessão `nutri` (`ITEM_MENSAGENS`), com o número das conversas não lidas somado ao das dúvidas abertas da IA Nutri e a
   consulta de 60 s; a fila virou a aba "Dúvidas da IA Nutri" de Mensagens e `/painel/duvidas` marca "Mensagens"
-  ([§5.11.8](#5118-telas-do-painel)). Com "Exames recebidos", o menu tem 9 itens.
+  ([§5.12.8](#5128-telas-do-painel)). Com "Exames recebidos" e "Relatórios" (Plano 26), o menu tem 10 itens.
 
 ### 5.7.5 Tema da conta (P08 D17)
 
@@ -1772,6 +1775,19 @@ Plano 20 (Financeiro, [§12.6](12-financeiro.md#126-telas-navegação-e-manual-g
 - **Teste do manual.** `src/modules/financeiro` entrou em `TSX_FORA` (os rótulos citados entre aspas moram em
   `MSG_FINANCEIRO`); o caso do Plano 15 passou a `versao ≥ 3` e casos novos fixam `boas-vindas` 4, `agenda` 2 e o guia
   `financeiro` (versão, posição, rotas e alvos).
+
+Plano 26 (Relatórios, PR 1, [§5.11](#511-relatórios-plano-26)):
+
+- **Guia novo `relatorios`**, versão 1, logo **antes** do `financeiro` (que continua o último; as rotas não se cruzam),
+  título "Relatórios", `padrao` `^/painel/relatorios(/(atendimentos|planos|agenda|financeiro|ranking))?$`: as seis
+  seções. Passos da spec §6.2 com os alvos `abas-relatorios`, `filtro-periodo` ("Escolha até 12 meses.", sem o local — a
+  frase do local entra na v2, com o Plano 23) e `exportar`. A impressão fica em `SEM_AJUDA` ("página de impressão, sem
+  menu"). Texto da ajuda em rascunho até a aprovação do dono e da Debby.
+- **`boas-vindas` na v5** (comentário "5 = Plano 26"): o passo do menu passa a "Pacientes, Agenda, Diários, Conteúdos,
+  Financeiro, Relatórios e Configurações ficam no topo. …"; para caber nos 300 caracteres, a frase da IA Nutri ficou "Com a
+  IA Nutri ativada, "Dúvidas dos pacientes" aparece também, com o número das abertas.".
+- **Teste do manual.** `src/modules/relatorios` entrou em `TSX_FORA` (os rótulos citados moram em `MSG_RELATORIOS`); o
+  caso do Plano 20 passou a `versao ≥ 4` e casos novos fixam `boas-vindas` 5 e o guia `relatorios` (versão, rotas, passos).
 
 | Campo | Papel |
 |---|---|
@@ -1958,7 +1974,87 @@ tentativas e payload de cada uma: [§6.2.3 Filas](06-worker-seguranca-operacao.m
 
 ---
 
-## 5.11 Mensagens e recados (Plano 25, PR 2)
+## 5.11 Relatórios (Plano 26)
+
+PR 1 (US-480 a US-487, PD-100): a área **Relatórios** da nutricionista. Spec
+`docs/superpowers/specs/2026-11-17-nutridebby-26-relatorios-recepcionista-design.md` (RN-480 a RN-497); plano
+`docs/superpowers/plans/2026-11-17-nutridebby-26-relatorios-recepcionista.md` (T1 a T3). Sem migration: só leitura das
+tabelas que já existem e o `exportar` no `audit_log`.
+
+### 5.11.1 Módulo (`src/modules/relatorios/`)
+
+| Arquivo | Papel |
+|---|---|
+| `constantes.ts` | `SECOES` (a ordem das abas), `RANKING_LIMITE = 20`, `MESES_MAX = 12`, `FAIXAS_ETARIAS`, `MSG_RELATORIOS` (os textos da §6.2) |
+| `periodo.ts` | `periodoDaUrl` (meses inteiros 'AAAA-MM' no fuso, no máximo 12, "De" ≤ "Até", sem mês futuro; erro → os números do padrão), `opcoesDeMes` (RE-D48: do mais antigo entre o primeiro cadastro e o mês atual − 11), `limitesDoMes` (só **importa** de `agenda/fuso.ts`, C-483) |
+| `acesso.ts` | `secoesPermitidas`/`podeVerSecao` (RN-480: um lugar só para abas, página, CSV e impressão; a recepção já está na tabela, para a T11b) e `exigirSecao`, chamada por cada leitura **antes** de abrir a transação |
+| `pacientes.ts`, `atendimentos.ts`, `planos.ts`, `agenda.ts`, `financeiro.ts`, `ranking.ts` | Uma função por seção, **uma transação**, agregação no SQL (`count(*) filter`, mês no fuso). Nenhuma coluna de conteúdo; Financeiro e Ranking por receita só pelas funções de `src/modules/financeiro/resumo.ts` (RN-491); Ranking com `limit 20` e empate por `app_unaccent(lower(nome exibido))` (RE-D68) |
+| `leitura.ts` | `lerSecao(secao, …)`: a tela, a impressão e o CSV leem por aqui |
+| `comum.ts` | `prepararSecao` (seção, local e período antes da transação) e `fecharLeitura` (chama o `naMesmaTransacao` dentro da transação, com os dados que vão sair) |
+| `csv.ts` | `linhasCsv`, `montarCsv`, `nomeDoArquivo` (RN-494: `;`, BOM, CRLF, meses mm/aaaa, vírgula decimal, escape de fórmula do Financeiro) |
+| `registro.ts` | `registrarExportacao` e `exportacaoNaLeitura` (RN-493) |
+
+O filtro de **local** (RN-482) é da Fase B, com o Plano 23 na `main` (T11a): até lá `prepararSecao` recusa `localId`
+preenchido e a tela não mostra o campo.
+
+### 5.11.2 Telas (`src/app/painel/relatorios/`)
+
+| Rota | Arquivo | O que faz |
+|---|---|---|
+| `/painel/relatorios` (Pacientes), `/atendimentos`, `/planos`, `/agenda`, `/financeiro`, `/ranking[?por=receita]` | `page.tsx` de cada seção → `telaDosRelatorios` (`tela.tsx`) | h1 "Relatórios", abas (`abas.tsx`: `nav` "Seções dos relatórios", links com `aria-current`, levando `de`/`ate`), período (`filtros.tsx`, formulário GET), h2 da seção com "Baixar CSV" e "Ver versão para imprimir" (`prefetch={false}`), conteúdo (`secoes.tsx`) |
+| `/painel/relatorios/imprimir?secao=…&de=…&ate=…[&por=…]` | `imprimir/page.tsx` | Cabeçalho (consultório, "Relatório de {seção}", período, "Local: Todos", "Gerado em"), as mesmas tabelas sem barras, rodapé da §6.2, "Imprimir ou salvar em PDF" (`window.print`) e "Voltar aos relatórios" (`print:hidden`); `<title>` "Relatório de {seção} — {consultório}" (`generateMetadata`) |
+| `GET /api/painel/relatorios/csv?secao=…&de=…&ate=…[&por=…]` | `src/app/api/painel/relatorios/csv/route.ts` | O arquivo `relatorio-{secao}-{de}-a-{ate}.csv` (`relatorio-ranking-consultas-…`/`-receita-…`); `HEAD` → 405 |
+
+- **Sessão (RE-D51):** no PR 1 todas as páginas e a rota chamam `requireNutri`/`requireApiNutri`, com o acesso
+  `ACESSO_DA_NUTRI` (`url.ts`: todas as seções). A T11b troca por `requireEquipe` e entra em `ROTAS_DA_RECEPCAO`.
+- **Período (RN-481):** `filtroDaUrl` (`url.ts`) lê `de`/`ate`; com erro, os números são os do padrão, os `<select>` ficam
+  com o que veio (quando o mês está nas opções), o erro fica junto do campo com `aria-invalid` + `aria-describedby` (o
+  aviso e "Mostrando {mês de ano} a {mês de ano}."), sem `role="alert"`, e o foco vai ao aviso na montagem
+  (`foco.tsx`, `FocoNoAviso`). `?erro=periodo` (a volta do CSV) vale como "Período inválido. Mostrando os últimos 12
+  meses.". As abas e o critério do Ranking levam o período só quando ele veio na URL e é válido.
+- **Tabelas (RNF-481):** `tabela.tsx` — `caption` (sr-only; o título visível é o h3 do bloco) e `th scope`; a tabela por
+  mês fica num `role="region"` focável com `focus-visible:outline-offset-[-3px]`. Barras (`barras.tsx`, Agenda e
+  Financeiro): `aria-hidden`, cor por classe de token (`fill-ok`, `fill-erro`), legenda em texto, `print:hidden`.
+- **Estados:** "Ainda não há dados neste período." quando a seção não tem nada a contar (`semDados`; o Ranking diz isso
+  dentro do próprio bloco); Financeiro não configurado → "O Financeiro ainda não foi configurado." + "Configurar o
+  Financeiro". Ranking: o aviso da §6.2, "Mais consultas"/"Maior receita" como links com `aria-current`, o **nome
+  exibido** com link para a ficha (`prefetch={false}`); na impressão e no CSV, o **nome de registro** (coluna "Paciente
+  (nome de registro)").
+- **Seção não permitida:** na página, `notFound()`; na rota, 403 — inalcançáveis para a nutricionista; a T6 troca pela
+  página "Sem permissão" (303 no CSV).
+
+### 5.11.3 Auditoria e origem do pedido (RN-493)
+
+- A tela **não** grava nada no `audit_log`: agregado sem `auditRead`; o Ranking é lista nominal como a lista de pacientes
+  (P05 D10), também sem `auditRead`.
+- O CSV e a impressão gravam `exportar` (entidade `relatorios`, "Relatórios" em `ENTIDADE_ROTULO`; `entidade_id`
+  `{secao}|{de}..{ate}|{local ou todos}`) **na transação da leitura**, pelo `naMesmaTransacao` = `exportacaoNaLeitura`:
+  agregado, uma linha sem paciente; Ranking, uma por paciente da lista devolvida ("Exportou — Relatórios" no Histórico de
+  acessos). No CSV, a montagem do arquivo também fica dentro da transação: se ela falhar, o registro volta junto.
+- **Origem do pedido** (molde do `recusaDeOrigem` do Plano 20, RN-321): o `exportar` sai em nome da nutricionista, e o
+  cookie (SameSite=Lax) vai junto numa navegação vinda de outro site. `navegacaoDaPropriaOrigem` (`url.ts`) só aceita
+  `Sec-Fetch-Site` `same-origin` ou `none` e, sem o cabeçalho, `Origin` (ou `Referer`) da origem do `APP_URL`; fora
+  disso a rota e a impressão voltam para a seção (303/redirect) sem ler nem gravar.
+- **Navegação, nunca JSON (RN-494):** sem sessão → `/entrar?volta=<seção>`; DPA pendente → `/painel/dpa`; período
+  inválido → a seção com `?erro=periodo`; seção desconhecida → `/painel/relatorios`; papel errado (paciente, admin) → o
+  403 JSON de sempre (`acesso-negado.test.ts`).
+- **Log (RN-497, RNF-482):** a falha do CSV loga só `{ codigo: 'relatorios_csv_falhou', secao, motivo }` (o nome do erro)
+  e responde 500 sem corpo; nenhum número, nome, valor, categoria ou local.
+- **Cache:** `Cache-Control: no-store` para `/painel/relatorios/imprimir` e `/api/painel/relatorios/csv` em
+  `next.config.ts` (a rota também manda o cabeçalho).
+
+### 5.11.4 Testes
+
+`src/modules/relatorios/*.test.ts` (núcleo, seções no SQL com cenário fixo, CS-482: mês atual = Início e Resumo do
+Financeiro), `src/app/painel/relatorios/page.test.ts` (abas, filtros, erro do período, estados, Ranking, nenhuma linha no
+`audit_log` com controle positivo), `src/app/painel/relatorios/imprimir/page.test.ts` (o `exportar` do render, título,
+origem), `src/app/api/painel/relatorios/csv/route.test.ts` (cabeçalhos, BOM, exportações, redirects, origem, log da
+falha), `e2e/relatorios.spec.ts` (IPs `10.9.36.1`–`.9`) e o laço do `e2e/acessibilidade-painel.spec.ts` (as sete rotas em
+`ROTAS_DO_PAINEL`, a 1280 e a 360 px, claro e escuro).
+
+---
+
+## 5.12 Mensagens e recados (Plano 25, PR 2)
 
 Conversa por mensagens entre a nutricionista e o paciente, no painel (`/painel/mensagens`) e no app (`/p/mensagens`),
 depois que a nutricionista libera a conversa com o registro do TCLE de telenutrição (PD-90, sem anexos). Conferido no
@@ -1979,7 +2075,7 @@ textos já existem em `MSG_RECADOS` e nas chaves de anexo de `MSG_MENSAGENS`, ma
 (contagem) a cada 15 s na conversa aberta e o número do menu a cada 60 s. Marcador de leitura e cursores pelo **id** da
 mensagem, resolvidos no SQL (CH-D40, CH-D72).
 
-### 5.11.1 Peças
+### 5.12.1 Peças
 
 | Arquivo | O que faz |
 |---|---|
@@ -1998,7 +2094,7 @@ O módulo de Mensagens importa de `src/modules/ia` só `nutri-paciente/sinais-ri
 nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `chat_mensagens`/`recados` (RN-469; guarda em
 `src/modules/mensagens/guardas.test.ts`, [§7.4.3](07-testes-qualidade-e-processo.md#743-guardas-de-código-leitura-do-fonte)).
 
-### 5.11.2 Liberação (TCLE), pausa e retomada (US-440, US-450; RN-441, RN-442, RN-475; CH-D3, CH-D39, CH-D74, CH-D75)
+### 5.12.2 Liberação (TCLE), pausa e retomada (US-440, US-450; RN-441, RN-442, RN-475; CH-D3, CH-D39, CH-D74, CH-D75)
 
 - **Liberar** (`liberarConversa`, `src/modules/mensagens/conversa.ts:109`): só a sessão `nutri`; a forma do TCLE tem de
   ser `termo_assinado` ou `aceite_escrito` (sem a forma verbal, que não deixa o comprovante, CH-D3) e a confirmação
@@ -2024,7 +2120,7 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
   conversa, preencha seu nome e seu CRN em Configurações." / "Para pausar a conversa, preencha seu nome e seu CRN em
   Configurações." com o link ao Perfil; erro inesperado de cada ato com texto próprio (CH-D75).
 
-### 5.11.3 Envio, limites e sinal de risco (US-441, US-443; RN-443, RN-444, RN-447, RN-449; CH-D72, CH-D77)
+### 5.12.3 Envio, limites e sinal de risco (US-441, US-443; RN-443, RN-444, RN-447, RN-449; CH-D72, CH-D77)
 
 - **Texto** (`textoDoEnvio`, `envio.ts:49`): sem o caractere NUL, sem espaços nas pontas, de 1 a 2.000 caracteres
   contados como o Postgres conta (pontos de código, como o CHECK `chat_mensagens_texto_tamanho`). Vazio ou longo volta
@@ -2032,7 +2128,7 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
 - **Nutricionista** (`enviarComoNutri`, `envio.ts:71`): titular `FOR SHARE`, conversa `FOR NO KEY UPDATE` (serializa com
   a pausa e com outra nutricionista sem segurar o `FOR KEY SHARE` que o INSERT do paciente e o marcador tomam pela FK);
   erro `conversa` (titular inativo, conversa não liberada ou pausada) ou `carimbo`. O gatilho grava `autor_nome`,
-  `autor_crn` (de `tenants`) e `criada_em` (`clock_timestamp()`); `avisarPaciente` roda na mesma transação (§5.11.7).
+  `autor_crn` (de `tenants`) e `criada_em` (`clock_timestamp()`); `avisarPaciente` roda na mesma transação (§5.12.7).
 - **Paciente** (`enviarComoPaciente`, `:190` → `gravarDoPaciente`, `:138`): paciente `FOR UPDATE`; conversa liberada e
   não pausada; os limites de 30 mensagens na última hora e 200 no dia (no fuso do consultório) contados **no banco**
   (CTE `materialized` com o limite inferior pronto, para o índice da conversa ler só a janela); `detectarRisco` grava o
@@ -2050,7 +2146,7 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
   (RN-470). Sem JS (o campo não manda `js=1`), o sucesso volta pelo redirect POST → GET. O campo é `textarea`: Enter
   quebra a linha, nada é enviado sozinho.
 
-### 5.11.4 Leitura, "Lida" e cursores (RN-446, RN-448, RN-452, RN-453; CH-D40, CH-D72)
+### 5.12.4 Leitura, "Lida" e cursores (RN-446, RN-448, RN-452, RN-453; CH-D40, CH-D72)
 
 - **Abrir lê e audita.** `conversaNoPainel` (`conversa.ts:326`) e `minhaConversa` (`:350`) devolvem o estado, as últimas
   50 mensagens (ou as 50 antes de `?antes=`) e o "Lida", e gravam **um** `auditRead` (entidade `chat`, o `patient_id`
@@ -2078,7 +2174,7 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
   commitada antes, e duas nutricionistas escrevendo ao mesmo paciente quase ao mesmo tempo — o "Lida" pode sair errado
   numa janela curta, mas nada vaza.
 
-### 5.11.5 Caixa, contador do menu e "Nova conversa" (US-442; RN-453, RN-459, RN-463; CH-D42, CH-D43, CH-D66)
+### 5.12.5 Caixa, contador do menu e "Nova conversa" (US-442; RN-453, RN-459, RN-463; CH-D42, CH-D43, CH-D66)
 
 - **Caixa** (`caixaDeMensagens`, `caixa.ts:48`): uma consulta; só as conversas **liberadas ou com mensagem individual**
   (a que só tem recados se acompanha em "Recados", CH-D42), com o nome de registro, o quando e o tipo da última mensagem
@@ -2099,7 +2195,7 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
 - Nenhuma dessas leituras chama `auditRead` nem devolve texto de mensagem (teste das chaves em `caixa.test.ts`): abrir a
   conversa é que lê.
 
-### 5.11.6 Horário de atendimento por mensagens (US-446; RN-451, RN-472; CH-D70, CH-D73, CH-D76)
+### 5.12.6 Horário de atendimento por mensagens (US-446; RN-451, RN-472; CH-D70, CH-D73, CH-D76)
 
 - `chat_configuracoes.horario_ativo` e as faixas de `chat_horarios` (minutos do dia no fuso do consultório, de 15 em 15,
   fim `1440` = "24:00", até 3 por dia, sem sobrepor — `validarFaixas`, `horario.ts:36`, e o `EXCLUDE`
@@ -2120,7 +2216,7 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
   salvar. Tente de novo." com a configuração enviada de volta (CH-D76); gravou → `?ok=salva&r=…` e "Configuração salva."
   na região `role="status"`.
 
-### 5.11.7 Avisos (US-445; RN-456 a RN-458; CS-440; CH-D61, CH-D62, CH-D70)
+### 5.12.7 Avisos (US-445; RN-456 a RN-458; CS-440; CH-D61, CH-D62, CH-D70)
 
 - **Ao paciente** (`avisarPaciente`, `avisos.ts:188`), na transação do envio da nutricionista: só com conta; se já há
   `notifications` `pendente` do **mesmo tipo** do paciente (travada `FOR UPDATE`, para não correr com a reserva do motor),
@@ -2145,7 +2241,7 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
 - E-mails no `renderEmail` (`src/email/templates.tsx`) por `comLinkNoFim`: o corpo da spec, de um parágrafo, termina no
   link, que no HTML vira clicável; o texto puro é o corpo.
 
-### 5.11.8 Telas do painel
+### 5.12.8 Telas do painel
 
 - **Menu** (`ITEM_MENSAGENS`, `src/app/painel/navegacao.ts:23`): "Mensagens" sempre, na sessão `nutri`, no lugar e na
   posição de "Dúvidas dos pacientes" (antes de "Conteúdos", CH-D14); `/painel/duvidas` marca "Mensagens" (`:43`). O
@@ -2155,7 +2251,7 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
   "Conversas ({n})" e "Dúvidas da IA Nutri ({n})" — esta só com a IA Nutri ativada ou com dúvida aberta (e sempre na
   própria fila); a aba "Recados" entra na T10 (PR 3); filtro "Todas"/"Não lidas" (links-pílula com `aria-current`), busca
   por formulário GET (sem JS), "Nova conversa" e "Mostrar mais".
-- **`/painel/mensagens/nova`**: a lista de "Nova conversa" (§5.11.5).
+- **`/painel/mensagens/nova`**: a lista de "Nova conversa" (§5.12.5).
 - **`/painel/mensagens/[patientId]`** (conversa): id inexistente ou de outro consultório → `notFound()`. Cabeçalho com o
   nome de registro, "Abrir ficha", "Liberada em {dd/mm/aaaa} ({forma})", o selo "Conversa pausada" e "Pausar conversa" ou
   "Retomar conversa"; estados "A conversa com {nome} ainda não foi liberada." (com "Liberar conversa" ou o texto do
@@ -2171,14 +2267,14 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
   "Enviar"/"Enviando…". Texto como texto: nenhum HTML, nenhum link automático (RNF-444, CH-D34).
 - **`/painel/duvidas`**: h1 "Dúvidas da IA Nutri" e as abas de Mensagens; o detalhe volta por "Voltar para Dúvidas da IA
   Nutri" (CH-D45). Nada mais muda na fila neste PR ("Marcar como vista" segue; "Responder na conversa" é do PR 3).
-- **`/painel/configuracoes/mensagens`**: §5.11.6.
+- **`/painel/configuracoes/mensagens`**: §5.12.6.
 - **Ficha**: seção "Mensagens" do Início e "Enviar mensagem" no Adicionar
   ([§4.2.13](04-modulos-clinicos.md#4213-mensagens-na-ficha-e-no-titular-plano-25-pr-2)).
 - **Prefetch** (RN-473, CH-D46): todo link que abre a conversa (a caixa, a "Nova conversa", a ficha, "Ver mensagens
   anteriores", a faixa do portal) tem `prefetch={false}` — o prefetch do Next 16 renderizaria a conversa, gravaria o
   `auditRead` e avançaria o "lido" sem ninguém ver.
 
-### 5.11.9 No app do paciente (US-443; RN-449 a RN-452, RN-463, RN-471 a RN-473; CH-D15, CH-D46, CH-D48)
+### 5.12.9 No app do paciente (US-443; RN-449 a RN-452, RN-463, RN-471 a RN-473; CH-D15, CH-D46, CH-D48)
 
 - **Entrada** (`LinkDeMensagens`, `src/components/portal/faixa.tsx:59`): o link "Mensagens" / "Mensagens ({n})" à direita
   na linha do consultório da faixa, com o `aria-label` "Mensagens, {n} não lidas" / "Mensagens, 1 não lida", 44 px e sem
@@ -2191,7 +2287,7 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
   profissional}, nutricionista, {crn}" (só com os dois preenchidos) e os contatos do perfil (`contato_email`,
   `contato_telefone_e164`); o aviso de urgência **sempre**, como texto ("Este canal não é para urgências. Em caso de
   urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo.", RN-450; descreve o campo); o horário
-  (§5.11.6). A lista mostra "Você" nas próprias, "{autor_nome} · Nutricionista · {autor_crn}" nas da nutricionista e
+  (§5.12.6). A lista mostra "Você" nas próprias, "{autor_nome} · Nutricionista · {autor_crn}" nas da nutricionista e
   "Recado do consultório · {autor_nome} · {autor_crn}" nas cópias de recado, com o socorro sob a mensagem de risco. No
   rodapé, a região viva e o campo "Escreva sua mensagem"; sem a conversa liberada, "Por enquanto, sua nutricionista só
   envia recados por aqui. Para falar com o consultório, use os canais de sempre."; pausada, "A conversa por mensagens está
@@ -2208,7 +2304,7 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
   resposta da §6.2 (sem prazo de leitura, CH-D73). Quem já viu a v3 recebe "O manual do app foi atualizado. Quer ver o que
   há de novo?" uma vez (§5.8.4).
 
-### 5.11.10 Auditoria, privacidade e LGPD
+### 5.12.10 Auditoria, privacidade e LGPD
 
 - **Auditoria** ([§2.8](02-banco-de-dados.md#28-auditoria)): escritas de `chat_mensagens` pelo gatilho (entidade `chat`,
   "Mensagens (conversa com o paciente)"); o gatilho de `chat_conversas` grava a entidade neutra `chat_conversa`, fora da
@@ -2222,7 +2318,7 @@ nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `ch
 - **Titular** (exportação nos dois escopos, conversa mantida no pedido de exclusão, anonimização com rede de limpeza):
   [§4.2.13](04-modulos-clinicos.md#4213-mensagens-na-ficha-e-no-titular-plano-25-pr-2).
 
-### 5.11.11 Manual guiado do painel
+### 5.12.11 Manual guiado do painel
 
 `src/modules/ajuda/conteudo.ts`: guia novo **`mensagens`** v1 (`padrao` `/^\/painel\/mensagens(\/.*)?$/`: a caixa, a nova
 conversa e a conversa; passos `mensagens-abas`, `mensagens-filtro`, `mensagens-caixa`, `nova-conversa`, `liberar-conversa`,
@@ -2325,7 +2421,7 @@ Plano 17 (lembretes de rotina; spec `docs/superpowers/specs/2026-11-13-nutridebb
 
 Plano 25, PR 2 (mensagens e recados; spec `docs/superpowers/specs/2026-11-17-nutridebby-25-chat-recados-design.md` v0.4,
 plano `docs/superpowers/plans/2026-11-17-nutridebby-25-chat-recados.md`) × código, conferido em 23/11/2026 no branch
-`plano-25-chat-recados` em `fdeefa0` (§5.11):
+`plano-25-chat-recados` em `fdeefa0` (§5.12):
 
 28. **Onde fica o aviso à nutricionista.** RN-458 e RN-472 da spec v0.4 ainda põem `aviso_email` e `aviso_nutri_em` em
     `chat_configuracoes`. O código os tem em `chat_avisos_nutri` (`staff_only`; CH-D70, que a §9.4 da própria spec já

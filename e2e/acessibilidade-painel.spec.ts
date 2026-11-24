@@ -434,10 +434,48 @@ test('teclado: Tab chega aos itens do menu na ordem da tela, e o item atual é a
   // Plano 12 (D11): o seed liga o recebimento de exames, então "Exames recebidos" é o 5º item; Plano 25 (CH-D14):
   // "Mensagens", sempre, no lugar de "Dúvidas dos pacientes" (Plano 15), antes de "Conteúdos". Os contadores " (n)"
   // dependem do que as outras specs deixaram no banco de dev e saem da comparação. Plano 20 (RN-327): "Financeiro" antes de
-  // "Configurações", sempre (não depende de configuração), e o menu chega a 9 itens (R-310)
-  for (let i = 0; i < 9; i++) {
+  // "Configurações", sempre (não depende de configuração), e o menu chega a 9 itens (R-310); Plano 26: "Relatórios" entre
+  // "Financeiro" e "Configurações" (10)
+  for (let i = 0; i < 10; i++) {
     rotulos.push((await nutri.evaluate(() => document.activeElement?.textContent ?? '')).trim().replace(/ \(\d+\)$/, ''));
     await nutri.keyboard.press('Tab');
   }
-  expect(rotulos).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Mensagens', 'Conteúdos', 'Financeiro', 'Configurações']);
+  expect(rotulos).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Mensagens', 'Conteúdos', 'Financeiro', 'Relatórios', 'Configurações']);
+});
+
+/**
+ * Plano 26 (RNF-481): as sete telas dos Relatórios (as seis seções e a impressão) a 1280 e a 360 px, claro e escuro — a
+ * 1280 px elas já passam no laço de ROTAS_DO_PAINEL nos três modos; aqui, também a 360 px (sem rolagem lateral: a tabela
+ * por mês rola dentro da própria região) e o erro do período aberto (`aria-invalid` e o aviso com o foco). A impressão
+ * grava um `exportar` sem paciente a cada visita (agregado da Agenda), como no laço geral.
+ */
+test('Plano 26: Relatórios (seções, erro do período e impressão) a 1280 e 360 px, claro e escuro', async () => {
+  test.setTimeout(240_000);
+  const doRelatorio = rotas.filter((u) => u.startsWith('/painel/relatorios'));
+  expect(doRelatorio, 'as telas dos Relatórios em ROTAS_DO_PAINEL').toHaveLength(7);
+  const telas = [...doRelatorio, '/painel/relatorios/agenda?de=2026-06&ate=2026-01'];
+  const falhas: string[] = [];
+  try {
+    for (const [largura, altura] of [[1280, 720], [360, 800]] as const) {
+      await nutri.setViewportSize({ width: largura, height: altura });
+      for (const tema of ['Claro', 'Escuro'] as const) {
+        await escolherTema(nutri, tema);
+        for (const url of telas) {
+          await nutri.goto(url);
+          await expect(nutri.getByRole('heading', { level: 1 })).toBeVisible();
+          await nutri.waitForLoadState('networkidle');
+          for (const v of await violacoes(nutri, undefined, { ignorarForaDaTela: largura < 1280 })) falhas.push(`${largura} px ${tema} ${url} — ${v}`);
+          if (largura === 360 && !(await nutri.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${tema} 360 px ${url} — rola na horizontal`);
+        }
+      }
+    }
+    // o erro do período: o "De" inválido e descrito pelo aviso, que recebe o foco no carregamento
+    await nutri.goto('/painel/relatorios/agenda?de=2026-06&ate=2026-01');
+    await expect(nutri.getByLabel('De', { exact: true })).toHaveAttribute('aria-invalid', 'true');
+    await expect(nutri.getByText('O mês inicial não pode ser depois do final.')).toBeFocused();
+  } finally {
+    await nutri.setViewportSize({ width: 1280, height: 720 });
+    await escolherTema(nutri, 'Igual ao aparelho');
+  }
+  expect(falhas).toEqual([]);
 });
