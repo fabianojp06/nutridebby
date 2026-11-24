@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CABECALHO_PEDIDO_DA_COPIA, MARCA_DA_COPIA } from '@/app/sw-regras';
 
 // Só a montagem da página: sessão e plano simulados.
 vi.mock('next/navigation', async (orig) => ({ ...(await orig<typeof import('next/navigation')>()), useRouter: () => ({ refresh: vi.fn() }) }));
@@ -39,6 +40,9 @@ vi.mock('@/modules/portal/plano', async (importOriginal) => ({
 const ia = vi.hoisted(() => ({ entrada: 'nenhuma' }));
 vi.mock('@/env', () => ({ getEnv: () => ({ IA_PROVEDOR: 'sandbox', IA_MODELO_LEITURA: 'claude-opus-5-5', IA_INFERENCE_GEO: 'us', IA_TETO_GLOBAL_MENSAL_USD: 50 }) }));
 vi.mock('@/modules/ia/nutri-paciente/estado', () => ({ entradaDoPaciente: async () => ia.entrada }));
+// SUS-112: a busca da cópia offline (guardarPlano, no service worker) leva o cabeçalho x-nd-copia; a navegação do paciente não
+const pedido = vi.hoisted(() => ({ cabecalhos: new Headers() }));
+vi.mock('next/headers', () => ({ headers: async () => pedido.cabecalhos }));
 const { default: MeuPlano } = await import('./page');
 
 describe('/p/plano em sanfona (US-196, F-Plano)', () => {
@@ -103,3 +107,18 @@ describe('/p/plano em sanfona (US-196, F-Plano)', () => {
   });
 });
 
+
+describe('SUS-112: a marca da cópia offline', () => {
+  afterEach(() => {
+    pedido.cabecalhos = new Headers();
+  });
+  it('a busca da cópia (cabeçalho x-nd-copia) leva a marca escondida; a página aberta pelo paciente, não — só a cópia recarrega quando a rede volta', async () => {
+    const viva = renderToStaticMarkup(await MeuPlano({ searchParams: Promise.resolve({}) } as never));
+    expect(viva).not.toContain(MARCA_DA_COPIA);
+    pedido.cabecalhos = new Headers({ [CABECALHO_PEDIDO_DA_COPIA]: '1' });
+    const copia = renderToStaticMarkup(await MeuPlano({ searchParams: Promise.resolve({}) } as never));
+    expect(copia).toMatch(new RegExp(`<span hidden="" ${MARCA_DA_COPIA}=""></span>`));
+    pedido.cabecalhos = new Headers({ [CABECALHO_PEDIDO_DA_COPIA]: 'outro' });
+    expect(renderToStaticMarkup(await MeuPlano({ searchParams: Promise.resolve({}) } as never))).not.toContain(MARCA_DA_COPIA);
+  });
+});

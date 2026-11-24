@@ -13,7 +13,8 @@ export function TermoForm({ volta }: { volta: string }) {
       {/* P08-06: a versão que a pessoa leu; a action recusa se a versão em vigor mudou com a página aberta */}
       <input type="hidden" name="versao" value={TERMO_PACIENTE_VERSAO} />
       <div className="flex items-start gap-2">
-        <input id="aceite" name="aceite" type="checkbox" checked={marcado} onChange={(e) => setMarcado(e.target.checked)} className="mt-1 size-5" />
+        {/* SUS-108: `defaultChecked` do estado — o reset automático depois de um erro mantém a caixa como o botão a vê */}
+        <input id="aceite" name="aceite" type="checkbox" defaultChecked={marcado} onChange={(e) => setMarcado(e.target.checked)} className="mt-1 size-5" />
         <label htmlFor="aceite">{TERMO_PACIENTE_ROTULO}</label>
       </div>
       {estado.erro && (

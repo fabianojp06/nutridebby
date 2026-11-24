@@ -979,8 +979,9 @@ Nenhuma URL mudou (C-195): as telas que não são seção marcam a seção pelo 
   `molduraDaSecao` (`src/app/p/moldura.ts`) devolve a marca e as seções (Jornada, Plano, Exames e Eu); com o
   recebimento desligado, decide o "Exames" numa transação própria (`temEnvioVisivel`). Hoje usa `molduraComExames(tenant, exames)` (mesmo arquivo) com o
   `exames` que `faixaDeHoje` (`src/modules/portal/hoje.ts`) já decidiu na transação da faixa (P08-13; §5.5.13). A regra
-  RN-192 (`Boolean(tenant.examesPacienteAtivadoEm) || envio não cancelado`) fica escrita nos dois lugares,
-  `molduraDaSecao` e `faixaDeHoje`: mudou uma, mude a outra (o teste `src/app/p/(portal)/inicio/page.test.ts`, "P08-13:
+  RN-192 (`Boolean(tenant.examesPacienteAtivadoEm) || envio não cancelado`; desde o Plano 22, PR 3, `|| exame liberado`,
+  §5.5.15) fica num lugar só, `examesVisiveis` (`src/modules/portal/exames-enviados.ts`), chamada nos dois lugares,
+  `molduraDaSecao` e `faixaDeHoje`, cada um com as consultas do seu contexto: termo novo entra nos dois (o teste `src/app/p/(portal)/inicio/page.test.ts`, "P08-13:
   a seção "Exames" da moldura é a que a faixa decidiu", confere o repasse). A cor da faixa é `--nd-faixa`, posta pelo
   `src/app/p/(portal)/layout.tsx` com `corDaFaixa` (§5.7.6).
 - **"Voltar" é um link fixo** para o destino (Desvio 13), com o nome "Voltar para {destino}" (`MSG_G.voltarPara`): a seção
@@ -1046,6 +1047,10 @@ Só "Meu plano" fica no aparelho. Regras em `src/app/sw-regras.ts`, usadas pelo 
 | Rota "Meu plano" | `NetworkFirst`, 4 s de espera, não grava (`cacheWillUpdate: null`) |
 | Outras navegações em `/p/` sem rede | `NetworkOnly` com `handlerDidError` → a cópia guardada |
 | Selo | "Offline — exibindo última versão" quando `navigator.onLine` é falso ou o `GET /api/p/ping` falha em 5 s (`src/app/p/selo-offline.tsx`) |
+| Marca da cópia (SUS-112) | A busca de `guardarPlano` leva `x-nd-copia: 1` (`CABECALHO_PEDIDO_DA_COPIA`); só então `/p/plano` desenha `<span hidden data-nd-copia-offline>` (`MARCA_DA_COPIA`). A navegação do paciente nunca leva o cabeçalho |
+| Quando a rede volta (SUS-112) | `reloadOnOnline={false}` no `SerwistProvider`; `RecarregarAoVoltar` (`src/app/p/sw-provider.tsx`, refeito a cada endereço) chama `recarregarCopiaAoVoltar` (`sw-regras.ts`): na página viva não instala nenhum ouvinte (lista de permissão: diário, envio de exame, Hoje… nunca recarregam, e o que o paciente digita fica); na cópia (`ehCopiaOffline`), o `online` e o `nd:rede-voltou` (`EVENTO_REDE_VOLTOU`) passam por um caminho só, que recarrega no máximo uma vez com `navigator.onLine` e a página ficando (`deveRecarregarAoVoltar`). `vigiarSaida`: `beforeunload` marca a saída por 5 s, `pagehide` sem prazo; qualquer `pageshow` e o `visibilitychange` para `visible` desmarcam. Reload pulado porque a página saía fica pendente e é tentado de novo quando a saída desmarca |
+| Ping do selo (SUS-112) | `vigiarRede` (`src/app/p/selo-offline.tsx`): fora com `navigator.onLine` verdadeiro (a cópia do NetworkFirst), o ping se repete a cada 15 s (`REPETIR_PING_MS`); de fora para dentro, dispara `nd:rede-voltou` na `window` |
+| Conversa da IA Nutri (SUS-112) | O aviso "Sem conexão…" de uma pergunta que falhou sem rede sai quando `useOnline()` volta a verdadeiro (`avisoAoVoltarARede`), sem o reload que antes o limpava |
 
 A cópia **sai**:
 
@@ -1347,6 +1352,44 @@ O `diary_entries_tem_conteudo` usa `is not distinct from`, não `=` (desvio da T
   ([§6.8.1](06-worker-seguranca-operacao.md#681-roteiro-de-volta-atrás); runbook `docs/operacao/app-paciente.md`, passo 7).
 
 ---
+
+### 5.5.15 "Resultados liberados" (Plano 22, PR 3; US-375, RN-385 a RN-387, EP-D22, EP-D23)
+
+A nutricionista marca um exame "Mostrar no app do paciente" no detalhe do exame (§4.2.13 do
+[cap. 4](04-modulos-clinicos.md#4213-mostrar-no-app-plano-22-pr-3)); o paciente passa a vê-lo em `/p/exames`.
+
+- **Quais exames: a RLS.** A política RESTRICTIVE `paciente_exame_liberado` (FOR SELECT em `exams`, migration `0128`)
+  só deixa a sessão de paciente ler o exame com `mostrar_no_app_em`. Nenhum código do portal filtra essa coluna em
+  TypeScript.
+- **Quais campos: a projeção.** `examesLiberadosDoPaciente(ctx)` (`src/modules/portal/exames-liberados.ts`) só aceita
+  sessão de paciente (`pacienteDaSessao`) e devolve `id`, `data`, `titulo` e, por linha, `nome`, `valor`, `unidade`,
+  `referencia` e `fora` (`foraParaOApp`: `true` abaixo ou acima da faixa do laudo, `false` dentro, `null` sem faixa ou
+  com a faixa diferente do texto da referência). Nunca `iaTarefaId`, laudo, faixas, nota de interpretação ou categoria do
+  consultório (teste das chaves em `exames-liberados.test.ts`). Um `auditRead` (`exames`, `entidadeId: null`) por
+  abertura com itens. No portal, só este arquivo consulta `exams`; a IA Nutri não o importa
+  (`src/modules/exames/guardas.test.ts`).
+- **O laudo fica fora do app** (EP-D22, DEP-E3). A política `paciente_arquivos` de `stored_files` (0102) ainda deixa a
+  sessão do paciente ler a **linha** do laudo (tipo `exame`, só metadados) mesmo de exame não liberado; a garantia é que
+  nada do portal lista essa linha nem assina a URL dela (`signFileUrl`): nenhuma rota de `/api/p` serve o laudo, e a guarda
+  de fonte "o laudo fica fora do portal" em `exames-liberados.test.ts` quebra se uma fonte de `src/modules/portal`,
+  `src/app/p` ou `src/app/api/p` passar a ler `exams.arquivoPath` ou procurar `stored_files` tipo `exame`. Decisão da T6:
+  sem download do laudo pelo portal e sem migration no PR 3; tirar `exame` da lista de tipos do paciente na
+  `paciente_arquivos` fica como proposta para um PR com migration (backlog).
+- **Menu.** `temExameLiberado(ctx)` e `temExameLiberadoNaTransacao(tx, patientId)` respondem só existe/não existe, sem
+  `auditRead`. `examesVisiveis(tenant, temEnvio, temLiberado)` avalia o liberado por último (não consulta quando o
+  recebimento ou o envio já deram verdadeiro); `molduraDaSecao` passa `temExameLiberado`, `faixaDeHoje` passa
+  `temExameLiberadoNaTransacao` na transação da faixa. A barra de ações continua levando a `#enviar` só com o envio ligado.
+- **Tela** (`src/app/p/(portal)/exames/page.tsx`): seção "Resultados liberados" acima de "Enviar exame", com "Resultados
+  que sua nutricionista liberou para você." e o aviso "Não é diagnóstico. Converse com sua nutricionista." no topo; um
+  cartão por exame (título com `wrap-break-word` e a data) e um `<dl>` por marcador (nome no `<dt>`, "Resultado: {valor}
+  {unidade}" com o `Selo` "Fora da referência" ao lado, "Referência: {texto}"), sem tabela, para não haver rolagem lateral
+  a 360 px. "Meus exames enviados" some com o recebimento desligado e sem envio. Fora da cópia offline (o service worker
+  não cita `/p/exames`, RNF-377).
+- Guia do app (`src/modules/ajuda/portal.ts`) na versão 4: "Exames: enviar um exame (quando o consultório recebe exames
+  pelo app), acompanhar os que você enviou e ver os resultados que a sua nutricionista liberar."
+
+**Testes:** `src/modules/portal/{exames-liberados,exames-enviados,hoje}.test.ts`, `src/app/p/(portal)/exames/page.test.ts`,
+`src/modules/ficha/no-app.test.ts` (paridade) e o caso novo de `e2e/app-paciente.spec.ts`.
 
 ## 5.6 Conteúdos (Plano 07)
 

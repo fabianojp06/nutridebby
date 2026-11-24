@@ -21,6 +21,7 @@ import {
   tenants,
   twoFactor,
   user,
+  exams,
 } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
@@ -518,6 +519,110 @@ for (const p of pacientesDoCadastro) {
     );
   }
 }
+
+// Plano 22 (T6, US-375, PM-E14): um exame liberado no app ("Mostrar no app") da paciente MULTI no "Consultório E2E 2" —
+// consultório sem o recebimento de exames pelo app e sem envio dela, para o app-paciente.spec ver "Resultados liberados" e
+// o item "Exames" do menu só pelo exame liberado (RN-386). Uma linha fora da faixa do laudo ("Fora da referência") e uma
+// referência longa (quebra a linha a 360 px). Idempotente pelo título; a marca é religada a cada execução. O spec copia
+// o título (importar este arquivo roda o seed).
+const E2E_EXAME_LIBERADO = { titulo: 'Exames de rotina da semente' };
+const [consultorio2] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, 'e2e-consultorio-2'));
+await withTenant(
+  { tenantId: consultorio2.id, role: 'worker' },
+  async (tx) => {
+    const [multi] = await tx.select({ id: patients.id }).from(patients).where(and(eq(patients.tenantId, consultorio2.id), eq(patients.email, E2E_MULTI.email)));
+    const [ja] = await tx.select({ id: exams.id }).from(exams).where(and(eq(exams.patientId, multi.id), eq(exams.titulo, E2E_EXAME_LIBERADO.titulo)));
+    if (ja) {
+      await tx.update(exams).set({ mostrarNoAppEm: new Date() }).where(and(eq(exams.id, ja.id), sql`${exams.mostrarNoAppEm} is null`));
+      return;
+    }
+    await tx.insert(exams).values({
+      tenantId: consultorio2.id,
+      patientId: multi.id,
+      data: '2026-10-20',
+      titulo: E2E_EXAME_LIBERADO.titulo,
+      valores: [
+        { nome: 'Glicemia de jejum', valor: 105, unidade: 'mg/dL', referencia: '70 a 99 mg/dL', refMin: 70, refMax: 99 },
+        { nome: 'Ferritina', valor: 80, unidade: 'ng/mL', referencia: 'Mulheres adultas: de 15 a 150 ng/mL, conforme o método do laboratório' },
+      ],
+      mostrarNoAppEm: new Date(),
+    });
+  },
+  db,
+);
+// Plano 25 (T1c; T6, CH-D67, CH-D68): o consultório próprio do E2E do chat, NOVO a cada execução (os outros E2E não veem a
+// conversa nem os recados), com o carimbo profissional (RN-475) — sem ele o gatilho recusa liberar, enviar e o recado. Tudo
+// por withTenant com papel: a sessão `nutri` libera, escreve e manda o recado (o gatilho carimba, põe o relógio e confere o
+// ator) e a sessão do paciente, com a conta dele, escreve a mensagem com sinal de risco — nunca sem papel (o gatilho
+// devolveria NEW cedo e o carimbo ficaria por conta da semente). A conta do paciente é reaproveitada (consents é só de
+// inclusão) e os vínculos dela com os consultórios do chat das execuções anteriores vão para "arquivado", para o portal abrir
+// direto no consultório novo (RN-08: só o vínculo ativo dá acesso). Credenciais copiadas nas specs (importar o seed roda o seed).
+export const E2E_CHAT_NUTRI = { email: 'chat-nutri-e2e@nutridebby.test', password: 'Nutri2026segura' };
+export const E2E_CHAT_PACIENTE = { email: 'chat-paciente-e2e@nutridebby.test', password: 'Nutri2026segura', nome: 'Paciente Chat E2E' };
+const CARIMBO_CHAT = { nomeProfissional: 'Nutri Chat E2E da Silva', crn: 'CRN-3 25025' };
+const [consultorioChat] = await db
+  .insert(tenants)
+  .values({ slug: `e2e-chat-${sufixo}`, nomeExibicao: 'Consultório Chat E2E', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date(), ...CARIMBO_CHAT })
+  .returning({ id: tenants.id });
+await db.delete(user).where(eq(user.email, E2E_CHAT_NUTRI.email));
+const chatNutriId = randomUUID();
+await db.insert(user).values({ id: chatNutriId, name: 'Nutri Chat E2E', email: E2E_CHAT_NUTRI.email, emailVerified: true, appRole: 'nutri', tenantId: consultorioChat.id, guia: TUDO_VISTO, tema: 'sistema' });
+await db.insert(account).values({ id: randomUUID(), userId: chatNutriId, accountId: chatNutriId, providerId: 'credential', password: await hashPassword(E2E_CHAT_NUTRI.password) });
+const senhaChat = await hashPassword(E2E_CHAT_PACIENTE.password);
+const [jaChat] = await db.select({ id: user.id }).from(user).where(eq(user.email, E2E_CHAT_PACIENTE.email));
+const chatPacienteUserId = jaChat?.id ?? randomUUID();
+if (jaChat) {
+  await db.update(account).set({ password: senhaChat }).where(eq(account.userId, chatPacienteUserId));
+} else {
+  await db.insert(user).values({ id: chatPacienteUserId, name: E2E_CHAT_PACIENTE.nome, email: E2E_CHAT_PACIENTE.email, emailVerified: true, appRole: 'paciente' });
+  await db.insert(account).values({ id: randomUUID(), userId: chatPacienteUserId, accountId: chatPacienteUserId, providerId: 'credential', password: senhaChat });
+}
+const chatsAntigos = await db.select({ id: tenants.id }).from(tenants).where(and(like(tenants.slug, 'e2e-chat-%'), sql`${tenants.id} <> ${consultorioChat.id}`));
+for (const { id: tenantId } of chatsAntigos) {
+  await withTenant(
+    { tenantId, role: 'worker' },
+    (tx) => tx.update(patients).set({ status: 'arquivado', updatedAt: new Date() }).where(and(eq(patients.userId, chatPacienteUserId), eq(patients.status, 'ativo'))),
+    db,
+  );
+}
+await db.insert(consents).values({ userId: chatPacienteUserId, tenantId: consultorioChat.id, termoVersao: TERMO_PACIENTE, ip: null }).onConflictDoNothing();
+const ctxChatNutri: TenantContext = { tenantId: consultorioChat.id, role: 'nutri', actorUserId: chatNutriId };
+const chatPacienteId = await withTenant(
+  ctxChatNutri,
+  async (tx) => {
+    const [p] = await tx
+      .insert(patients)
+      .values({ tenantId: consultorioChat.id, userId: chatPacienteUserId, nome: E2E_CHAT_PACIENTE.nome, dataNascimento: '1990-04-12', sexo: 'F', email: E2E_CHAT_PACIENTE.email })
+      .returning({ id: patients.id });
+    // liberação com a forma do TCLE (CH-D3); o gatilho põe o relógio e confere a liberação em nome de quem libera
+    await tx.execute(sql`insert into chat_conversas (tenant_id, patient_id, liberada_em, liberada_por, tcle_forma)
+                         values (${consultorioChat.id}, ${p.id}, now(), ${chatNutriId}, 'aceite_escrito')`);
+    await tx.execute(sql`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, texto)
+                         values (${consultorioChat.id}, ${p.id}, 'nutri', ${chatNutriId}, 'Olá! A partir de hoje você pode falar comigo por aqui.')`);
+    return p.id;
+  },
+  db,
+);
+// a mensagem do paciente com o sinal de risco (o selo "Sinal de risco" na caixa e na conversa, para o axe)
+await withTenant(
+  { tenantId: consultorioChat.id, role: 'paciente', patientId: chatPacienteId, actorUserId: chatPacienteUserId },
+  (tx) =>
+    tx.execute(sql`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, texto, risco)
+                   values (${consultorioChat.id}, ${chatPacienteId}, 'paciente', ${chatPacienteUserId}, 'Estou com tontura e muita dor de cabeça desde ontem.', 'sintoma_agudo')`),
+  db,
+);
+// o recado com a cópia na conversa (CH-D68: a conversa mostra o rótulo "Recado" e o carimbo desde o PR 2)
+await withTenant(
+  ctxChatNutri,
+  async (tx) => {
+    const r = await tx.execute(sql`insert into recados (tenant_id, texto, filtro, filtro_rotulo, destinatarios, autor_nome, autor_crn, criado_por)
+                                   values (${consultorioChat.id}, 'O consultório não atende no feriado de sexta-feira.', '{"tipo":"todos"}', 'Todos os pacientes com app', 1,
+                                           ${CARIMBO_CHAT.nomeProfissional}, ${CARIMBO_CHAT.crn}, ${chatNutriId}) returning id`);
+    await tx.execute(sql`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, texto, recado_id)
+                         values (${consultorioChat.id}, ${chatPacienteId}, 'nutri', ${chatNutriId}, 'O consultório não atende no feriado de sexta-feira.', ${r.rows[0].id as string})`);
+  },
+  db,
+);
 
 await stopBoss(); // a publicação do plano enfileira o PDF
 await closeDb();

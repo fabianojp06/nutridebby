@@ -424,3 +424,58 @@ test('Nota de interpretação (T5a): Esc do "Ver referência" devolve o foco; sa
   await expect(campo).toHaveValue('');
   await expect(nutri.getByRole('button', { name: 'Apagar nota' })).toHaveCount(0);
 });
+
+// Plano 22 (T6, US-375, RN-385; revisão da P22-06): "Mostrar no app do paciente" no detalhe do exame — a confirmação
+// (`DialogoConfirmar`) aberta, o detalhe liberado (selo "No app", "Retirar do app" e a mensagem na região de status) e a lista
+// da aba com o selo, nos modos claro e escuro, a 1280 e a 360 px. O axe do detalhe ainda não liberado já roda no laço da T5a.
+// Cada volta libera e retira: o exame termina como estava (fora do app). A paciente do detalhe não tem o app: a mensagem leva
+// também a frase de quem ainda não entrou. O cartão do portal com o exame liberado: acessibilidade.spec.ts (conta MULTI).
+for (const [modo, tema] of [
+  ['claro', 'Claro'],
+  ['escuro', 'Escuro'],
+] as const) {
+  for (const largura of [1280, 360]) {
+    test(`axe sem violações em "Mostrar no app do paciente" (confirmação aberta e exame liberado) — modo ${modo}, ${largura} px`, async () => {
+      await nutri.setViewportSize({ width: 1280, height: 800 });
+      await escolherTema(nutri, tema);
+      await nutri.setViewportSize({ width: largura, height: 800 });
+      const falhas: string[] = [];
+
+      await nutri.goto(detalheDoExame);
+      await nutri.waitForLoadState('networkidle'); // o botão é de um componente do cliente: o clique antes da hidratação se perde
+      const mostrar = nutri.getByRole('button', { name: 'Mostrar no app do paciente', exact: true });
+      await mostrar.click();
+      const confirmar = nutri.getByRole('dialog', { name: 'Mostrar no app do paciente' });
+      await expect(confirmar).toContainText('A nota de interpretação, as categorias do consultório e o laudo não aparecem.');
+      for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`confirmação "Mostrar no app" — ${v}`);
+      await confirmar.getByRole('button', { name: 'Mostrar no app', exact: true }).click();
+      await expect(confirmar).toBeHidden();
+      await expect(nutri.getByRole('status').filter({ hasText: 'O exame aparece no app do paciente.' })).toBeVisible();
+      await expect(nutri.getByText('No app', { exact: true })).toBeVisible();
+      const retirar = nutri.getByRole('button', { name: 'Retirar do app', exact: true });
+      await expect(retirar).toBeVisible();
+      for (const v of await violacoes(nutri)) falhas.push(`detalhe liberado — ${v}`);
+
+      await nutri.goto(`${prontuarioDoDetalhe}/exames`);
+      await expect(nutri.getByText('No app', { exact: true }).first()).toBeVisible(); // o selo na lista da aba
+      for (const v of await violacoes(nutri)) falhas.push(`lista da aba com o selo — ${v}`);
+      // o "Excluir" do exame no app: o DialogoConfirmar com o aviso (fecha no Esc; nada é excluído)
+      await nutri.waitForLoadState('networkidle');
+      await nutri.getByRole('button', { name: /^Excluir o exame Ferro / }).click();
+      const excluir = nutri.getByRole('alertdialog', { name: /^Excluir o exame Ferro / });
+      await expect(excluir).toContainText('Este exame está no app do paciente. Ao excluir, ele some de lá.');
+      for (const v of await violacoes(nutri, 'dialog[open]')) falhas.push(`excluir exame no app — ${v}`);
+      await nutri.keyboard.press('Escape');
+      await expect(excluir).toBeHidden();
+
+      // de volta como estava: "Retirar do app" (imediato, sem confirmação)
+      await nutri.goto(detalheDoExame);
+      await nutri.waitForLoadState('networkidle');
+      await retirar.click();
+      await expect(nutri.getByRole('status').filter({ hasText: 'O exame saiu do app do paciente.' })).toBeVisible();
+      await expect(mostrar).toBeVisible();
+
+      expect(falhas).toEqual([]);
+    });
+  }
+}

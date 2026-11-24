@@ -316,3 +316,14 @@ describe('Plano 26 (RN-493) — os Relatórios no Histórico de acessos', () => 
     expect(rotuloDaAcao({ acao: 'exportar', entidade: 'relatorios' })).toBe('Exportou');
   });
 });
+
+describe('Plano 22 (T6, RN-385, EP-D45) — "Mostrar no app" no Histórico de acessos', () => {
+  it('a ação sai na coluna Ação ("Liberou exame no app"/"Retirou exame do app") e a entidade é "Exames"', () => {
+    expect(ENTIDADE_ROTULO.exame_no_app_liberado).toBe('Exames');
+    expect(ENTIDADE_ROTULO.exame_no_app_retirado).toBe('Exames');
+    expect(rotuloDaAcao({ acao: 'alterar', entidade: 'exame_no_app_liberado' })).toBe('Liberou exame no app');
+    expect(rotuloDaAcao({ acao: 'alterar', entidade: 'exame_no_app_retirado' })).toBe('Retirou exame do app');
+    // o `alterar` do gatilho de exams continua "Alterou — Exames"
+    expect(rotuloDaAcao({ acao: 'alterar', entidade: 'exames' })).toBe('Alterou');
+  });
+});

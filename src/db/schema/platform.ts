@@ -133,7 +133,7 @@ export const storedFiles = pgTable(
   (t) => [
     check(
       'stored_files_tipo_valido',
-      sql`${t.tipo} in ('logo','capa','exame','plano_pdf','diario_foto','diario_foto_original','orientacao_pdf','exportacao','documento_base','documento_assinado','documento_digitalizado','exame_original','exame_pagina','ia_autorizacao_termo')`,
+      sql`${t.tipo} in ('logo','capa','exame','plano_pdf','diario_foto','diario_foto_original','orientacao_pdf','exportacao','documento_base','documento_assinado','documento_digitalizado','exame_original','exame_pagina','ia_autorizacao_termo','chat_anexo','chat_anexo_original')`,
     ),
     check('stored_files_bytes_positivo', sql`${t.bytes} > 0`),
     // logo/capa nunca têm dono; o resto sempre (orientacao_pdf é do Plano 07: do consultório).

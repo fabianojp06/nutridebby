@@ -14,7 +14,7 @@ import { withTenant } from '@/db/tenant';
 import { getBoss, stopBoss } from '@/jobs/boss';
 import { MSG_ENVIO } from '@/modules/pacientes/exames-enviados-constantes';
 import { COTA_BYTES } from '@/modules/plataforma/armazenamento';
-import { cancelarMeuEnvio, classificarArquivos, enviarExame, EnvioError, meusEnvios, pdfDoMeuEnvio, temEnvioVisivel } from './exames-enviados';
+import { cancelarMeuEnvio, classificarArquivos, enviarExame, EnvioError, examesVisiveis, meusEnvios, pdfDoMeuEnvio, temEnvioVisivel } from './exames-enviados';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-envio-pac-'));
@@ -237,5 +237,32 @@ describe('temEnvioVisivel (Plano 16, RN-192)', () => {
   it('só em sessão de paciente', async () => {
     const T = await novoTenant(app.db);
     await expect(temEnvioVisivel(T.ctx, app.db)).rejects.toThrow(/sessão de paciente/);
+  });
+});
+
+describe('examesVisiveis (Plano 16, RN-192; Plano 22, RN-386, EP-D23)', () => {
+  const ligado = { examesPacienteAtivadoEm: new Date() };
+  const desligado = { examesPacienteAtivadoEm: null };
+  const sim = () => Promise.resolve(true);
+  const nao = () => Promise.resolve(false);
+  const proibido = () => Promise.reject(new Error('não devia consultar'));
+
+  it('as quatro combinações: recebimento ligado; desligado com envio; desligado sem envio com exame liberado; desligado sem nada → false', async () => {
+    expect(await examesVisiveis(ligado, proibido, proibido)).toBe(true);
+    expect(await examesVisiveis(desligado, sim, proibido)).toBe(true);
+    expect(await examesVisiveis(desligado, nao, sim)).toBe(true);
+    expect(await examesVisiveis(desligado, nao, nao)).toBe(false);
+  });
+
+  it('`temLiberado` é o último termo: não é chamado quando o recebimento ou o envio já deram true; o envio antes do liberado', async () => {
+    const chamadas: string[] = [];
+    const anota = (nome: string, r: boolean) => () => (chamadas.push(nome), Promise.resolve(r));
+    await examesVisiveis(ligado, anota('envio', true), anota('liberado', true));
+    expect(chamadas).toEqual([]);
+    await examesVisiveis(desligado, anota('envio', true), anota('liberado', true));
+    expect(chamadas).toEqual(['envio']);
+    chamadas.length = 0;
+    await examesVisiveis(desligado, anota('envio', false), anota('liberado', true));
+    expect(chamadas).toEqual(['envio', 'liberado']);
   });
 });

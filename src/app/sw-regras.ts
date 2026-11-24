@@ -22,6 +22,129 @@ export function ehNavegacaoDoPortal(url: URL, modo: RequestMode, origem: string)
   return modo === 'navigate' && url.origin === origem && url.pathname.startsWith('/p/');
 }
 
+/** O documento na tela é a cópia offline de "Meu plano"? Pela marca que só o HTML guardado leva (MARCA_DA_COPIA). */
+export function ehCopiaOffline(documento: { querySelector: (seletor: string) => unknown }): boolean {
+  return documento.querySelector(`[${MARCA_DA_COPIA}]`) != null;
+}
+
+/**
+ * SUS-112: quando a rede volta, o portal recarrega SÓ a cópia offline (lista de permissão, nunca de rotas excluídas): é o
+ * único documento que precisa virar a página de verdade. Uma página viva (diário, questionário, envio de exame, Hoje…)
+ * nunca recarrega — o que o paciente digitava se perdia (o `reloadOnOnline` padrão do Serwist recarregava qualquer página).
+ * E só com a rede de fato de volta (`navigator.onLine`) e a página ficando: no Chrome sem rede o `online` chega entre o
+ * `beforeunload` e a troca de documento, e o reload passava por cima da navegação em curso (o "navega sozinha" do P09-04).
+ */
+export function deveRecarregarAoVoltar(o: { copia: boolean; saindo: boolean; online: boolean }): boolean {
+  return o.copia && o.online && !o.saindo;
+}
+
+/**
+ * Quanto o `beforeunload` vale como "saindo" sem a página descarregar. Um `beforeunload` que não descarrega (download,
+ * `tel:`, `mailto:`) deixaria `saindo` verdadeiro para sempre, e a cópia nunca mais recarregaria ao voltar a rede. A troca
+ * de documento que a marca protege leva bem menos que isto (sem rede, o service worker responde).
+ */
+export const SAINDO_SEM_DESCARREGAR_MS = 5_000;
+
+type Relogio = { setTimeout: (f: () => void, ms: number) => unknown; clearTimeout: (t: never) => void };
+type Documento = EventTarget & { visibilityState?: string; querySelector: (seletor: string) => unknown };
+
+/**
+ * A página está saindo? `beforeunload` marca e, se a página não descarregar em `SAINDO_SEM_DESCARREGAR_MS`, desmarca;
+ * `pagehide` marca sem prazo. Desmarcam: QUALQUER `pageshow` (a volta do bfcache e o `pagehide` que não descarregou) e o
+ * `visibilitychange` para `visible` (no iOS/PWA o `pagehide` vem ao trocar de app sem a página sair — sem isto, "saindo"
+ * ficaria preso para sempre). `aoFicar` avisa cada vez que "saindo" volta a falso. Sem DOM: os eventos chegam por `janela`
+ * (a `window`) e `documento` (o `document`), injetáveis nos testes. Devolve a leitura e o "parar".
+ */
+export function vigiarSaida(
+  janela: EventTarget,
+  o: { documento?: Documento; relogio?: Relogio; aoFicar?: () => void } = {},
+): { saindo: () => boolean; parar: () => void } {
+  const relogio = o.relogio ?? (globalThis as unknown as Relogio);
+  let saindo = false;
+  let timer: unknown;
+  const limpar = () => {
+    if (timer !== undefined) relogio.clearTimeout(timer as never);
+    timer = undefined;
+  };
+  const ficar = () => {
+    limpar();
+    if (!saindo) return;
+    saindo = false;
+    o.aoFicar?.();
+  };
+  const aoAvisarSaida = () => {
+    saindo = true;
+    limpar();
+    timer = relogio.setTimeout(() => {
+      timer = undefined;
+      ficar(); // o `tel:`/download não descarregou: a página ficou
+    }, SAINDO_SEM_DESCARREGAR_MS);
+  };
+  const aoEsconder = () => {
+    limpar();
+    saindo = true;
+  };
+  const aoVer = () => {
+    if (o.documento?.visibilityState === 'visible') ficar();
+  };
+  janela.addEventListener('beforeunload', aoAvisarSaida);
+  janela.addEventListener('pagehide', aoEsconder);
+  janela.addEventListener('pageshow', ficar);
+  o.documento?.addEventListener('visibilitychange', aoVer);
+  return {
+    saindo: () => saindo,
+    parar: () => {
+      limpar();
+      janela.removeEventListener('beforeunload', aoAvisarSaida);
+      janela.removeEventListener('pagehide', aoEsconder);
+      janela.removeEventListener('pageshow', ficar);
+      o.documento?.removeEventListener('visibilitychange', aoVer);
+    },
+  };
+}
+
+/**
+ * SUS-112: evento da `window` que o selo offline dispara quando o ping (`/api/p/ping`) volta a responder depois de falhar.
+ * Cobre a cópia servida pelo NetworkFirst com `navigator.onLine` verdadeiro o tempo todo (rede lenta), sem evento `online`.
+ */
+export const EVENTO_REDE_VOLTOU = 'nd:rede-voltou';
+
+/**
+ * SUS-112: o recarregamento da cópia quando a rede volta. Na página viva devolve `null` sem instalar nenhum ouvinte (sem
+ * `beforeunload`, o Firefox continua usando o bfcache). Na cópia, um caminho só (`tentar`), chamado pelo `online` e pelo
+ * EVENTO_REDE_VOLTOU, decide por `deveRecarregarAoVoltar` e recarrega no máximo uma vez; pulado porque a página estava
+ * saindo, fica pendente e tenta de novo quando "saindo" volta a falso (prazo de 5 s, `pageshow`, `visibilitychange`).
+ */
+export function recarregarCopiaAoVoltar(o: {
+  janela: EventTarget;
+  documento: Documento;
+  online: () => boolean;
+  recarregar: () => void;
+  relogio?: Relogio;
+}): { parar: () => void } | null {
+  if (!ehCopiaOffline(o.documento)) return null;
+  let pendente = false;
+  let recarregou = false;
+  const tentar = () => {
+    if (recarregou) return;
+    const decisao = { copia: ehCopiaOffline(o.documento), online: o.online(), saindo: saida.saindo() };
+    pendente = decisao.copia && decisao.online && decisao.saindo;
+    if (!deveRecarregarAoVoltar(decisao)) return;
+    recarregou = true;
+    o.recarregar();
+  };
+  const saida = vigiarSaida(o.janela, { documento: o.documento, relogio: o.relogio, aoFicar: () => pendente && tentar() });
+  o.janela.addEventListener('online', tentar);
+  o.janela.addEventListener(EVENTO_REDE_VOLTOU, tentar);
+  return {
+    parar: () => {
+      saida.parar();
+      o.janela.removeEventListener('online', tentar);
+      o.janela.removeEventListener(EVENTO_REDE_VOLTOU, tentar);
+    },
+  };
+}
+
 export function podeGuardarPlano(r: { status: number; type: ResponseType; redirected: boolean; url: string; headers: Headers }, origem: string): boolean {
   if (r.status !== 200 || r.type !== 'basic' || r.redirected) return false;
   const u = urlOuNull(r.url);
@@ -58,6 +181,17 @@ export const CABECALHO_GUARDADO_EM = 'x-nd-guardado-em';
  * deploy troca o service worker, que apaga do precache os estáticos antigos — a cópia de outro build não abre offline.
  */
 export const CABECALHO_BUILD = 'x-nd-build';
+/**
+ * Vai NA BUSCA que guardarPlano faz de /p/plano (nunca na navegação do paciente). Com ele, o servidor desenha a marca da
+ * cópia (MARCA_DA_COPIA) no HTML que fica guardado no aparelho. O mesmo cabeçalho do Plano 25 (CABECALHO_PEDIDO_DA_COPIA).
+ */
+export const CABECALHO_PEDIDO_DA_COPIA = 'x-nd-copia';
+/**
+ * SUS-112: atributo do elemento que só existe no HTML da cópia offline de "Meu plano" (desenhado quando a busca leva
+ * CABECALHO_PEDIDO_DA_COPIA). A página aberta da rede nunca o tem; a cópia, servida em qualquer endereço do portal sem
+ * rede, sempre.
+ */
+export const MARCA_DA_COPIA = 'data-nd-copia-offline';
 /** O mesmo prazo da sessão (que desliza, P06-11): uma cópia mais velha que isto não tem sessão viva por trás. */
 export const VALIDADE_PLANO_MS = 30 * 24 * 60 * 60 * 1000;
 /** Cópia com mais de 1 dia é buscada de novo na visita a "Meu plano" (mesmo dono e versão): a validade anda junto com a sessão. */

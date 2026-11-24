@@ -4,7 +4,9 @@ import { whatsappAction, type PerfilState } from './actions';
 
 /** "Perfil > Notificações": "Receber lembretes por WhatsApp" (US-011, D20). */
 export function WhatsappForm({ ativo }: { ativo: boolean }) {
-  // T-6: controlada — depois de um erro (ex.: sem telefone) a caixa volta ao que está salvo, não fica marcada
+  // T-6: depois de um erro (ex.: sem telefone) a caixa volta ao que está salvo, não fica marcada. SUS-108: `defaultChecked`
+  // do estado (o React o atualiza a cada renderização) — o reset automático depois da action leva a caixa a ele; com
+  // `checked` controlado, o reset a levava ao valor da montagem, e depois de salvar a tela mostrava o valor antigo.
   const [marcada, setMarcada] = useState(ativo);
   const [s, enviar, enviando] = useActionState<PerfilState, FormData>(async (anterior, dados) => {
     const r = await whatsappAction(anterior, dados);
@@ -18,7 +20,7 @@ export function WhatsappForm({ ativo }: { ativo: boolean }) {
           id="whatsapp"
           name="whatsapp"
           type="checkbox"
-          checked={marcada}
+          defaultChecked={marcada}
           onChange={(e) => setMarcada(e.target.checked)}
           aria-invalid={s.erro ? true : undefined}
           aria-describedby={s.erro ? 'whatsapp-erro' : undefined}

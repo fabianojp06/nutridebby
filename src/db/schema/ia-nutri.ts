@@ -105,7 +105,7 @@ export const iaNutriMensagens = pgTable(
     ),
     check('ia_nutri_mensagens_so_da_pergunta', sql`${t.autor} = 'paciente' or (${t.encaminhadaEm} is null and ${t.abertaPelaNutriEm} is null and ${t.resolvidaEm} is null and ${t.saiuEm} is null and ${t.enviadoEm} is null)`),
     check('ia_nutri_mensagens_avaliacao_valida', sql`${t.avaliacao} is null or (${t.autor} = 'ia' and ${t.avaliacao} in ('ajudou', 'nao_ajudou'))`),
-    check('ia_nutri_mensagens_resolucao', sql`(${t.resolucao} is null) = (${t.resolvidaEm} is null) and (${t.resolucao} is null or ${t.resolucao} in ('vista', 'encerrada'))`),
+    check('ia_nutri_mensagens_resolucao', sql`(${t.resolucao} is null) = (${t.resolvidaEm} is null) and (${t.resolucao} is null or ${t.resolucao} in ('vista', 'encerrada', 'respondida'))`),
     check('ia_nutri_mensagens_destino_valido', sql`${t.destino} is null or (${t.destino} in ('anthropic-us', 'bedrock-eu', 'teste') and ${t.saiuEm} is not null)`),
     check('ia_nutri_mensagens_reserva_valida', sql`${t.reservaMicroUsd} >= 0`),
     check('ia_nutri_mensagens_textos_tecnicos', sql`(${t.modelo} is null or char_length(${t.modelo}) <= 60) and (${t.promptVersao} is null or char_length(${t.promptVersao}) <= 60)`),

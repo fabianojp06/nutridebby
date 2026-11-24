@@ -40,8 +40,14 @@ function linhasDoNoApp(n: NoApp, patientId: string, o: { documentos: boolean; ex
     c ? { rotulo: r.jornada, texto: t.atendimentos(c.atendimentos ?? 0) } : null,
     c && o.documentos ? { rotulo: r.documentos, texto: t.documentos(c.documentos ?? 0) } : null,
     c ? { rotulo: r.conteudos, texto: t.conteudosNaBiblioteca(c.conteudos ?? 0) } : null,
-    // RN-192: com o recebimento de exames ligado ou algum envio
-    c && (o.exames || (c['exames-enviados'] ?? 0) > 0) ? { rotulo: r.exames, texto: t.envios(c['exames-enviados'] ?? 0) } : null,
+    // RN-192: com o recebimento de exames ligado ou algum envio; Plano 22 (RN-386, RN-387): ou com exame liberado — a mesma
+    // regra do item "Exames" do menu do app (`examesVisiveis`)
+    c && (o.exames || (c['exames-enviados'] ?? 0) > 0 || (c.exames ?? 0) > 0)
+      ? {
+          rotulo: r.exames,
+          texto: juntar([(o.exames || (c['exames-enviados'] ?? 0) > 0) && t.envios(c['exames-enviados'] ?? 0), (c.exames ?? 0) > 0 && t.examesLiberados(c.exames ?? 0)]),
+        }
+      : null,
     c ? { rotulo: r.diario, texto: t.diario(c.diario30d ?? 0) } : null,
     n.iaNutri ? { rotulo: r.iaNutri, texto: n.iaNutri === 'ligada' ? t.iaNutri.ligada : t.iaNutri.desligada } : null,
   ];
