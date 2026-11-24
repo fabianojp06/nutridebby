@@ -49,7 +49,7 @@ export const GUIA_PORTAL: Guia = {
           // Plano 17: depende da nutricionista ter configurado (o guia é o mesmo para todos os pacientes)
           'Se a sua nutricionista configurou lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um.',
           // Plano 23 (US-403, US-408): depende do consultório (a confirmação dos pedidos é uma chave da nutricionista)
-          'Ao agendar, escolha onde você quer ser atendido. Se a sua nutricionista confirma os pedidos, a consulta fica "Aguardando confirmação da nutricionista" até ela responder, e a resposta chega por e-mail. Antes disso, você pode tocar em "Desistir do pedido".',
+          'Se o consultório atende em mais de um local, escolha onde você quer ser atendido ao agendar. Se a sua nutricionista confirma os pedidos, a consulta fica "Aguardando confirmação da nutricionista" até ela responder, e a resposta chega por e-mail. Antes disso, você pode tocar em "Desistir do pedido".',
           // Plano 23 (US-414)
           'Em Eu, você autoriza ou retira a mensagem de aniversário da sua nutricionista quando quiser.',
         ],

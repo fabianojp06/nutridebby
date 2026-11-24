@@ -79,7 +79,9 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
             <Link href={urlDaLista({ aba: 'ativos' })} className="inline-flex min-h-11 items-center text-link underline">{MSG_LISTA.voltarParaALista}</Link>
           </div>
         )}
-        <form method="get" data-guia="busca-pacientes" role="search" className="flex flex-wrap items-end gap-3">
+        {/* os campos não são controlados: a chave com os filtros ativos remonta o formulário quando a URL muda (navegação do
+            cliente pelas abas ou pelo "Voltar para a lista" manteria o que estava escolhido na tela), como nos filtros da agenda */}
+        <form key={`busca-${JSON.stringify(campos)}`} method="get" data-guia="busca-pacientes" role="search" className="flex flex-wrap items-end gap-3">
           {aba === 'bloqueados' ? <input type="hidden" name="situacao" value="bloqueados" /> : <input type="hidden" name="aba" value={aba} />}
           <div className="space-y-1">
             <label htmlFor="busca" className="block font-medium">Buscar por nome ou e-mail</label>

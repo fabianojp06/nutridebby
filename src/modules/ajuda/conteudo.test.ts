@@ -83,12 +83,12 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 23: o guia da agenda cita o Mês e o de horários pede o local da regra, com a versão nova (quem já viu o tour, vê de novo)', () => {
     const agenda = GUIAS.find((x) => x.id === 'agenda')!;
-    expect(agenda.versao).toBe(3);
+    expect(agenda.versao).toBeGreaterThanOrEqual(3); // 4 desde a T12 do Plano 23 (abaixo)
     expect(agenda.passos.find((p) => p.alvo === 'periodo-agenda')?.titulo).toBe('Dia, semana, mês ou lista');
     const horarios = GUIAS.find((x) => x.id === 'horarios')!;
-    expect(horarios.versao).toBe(2);
+    expect(horarios.versao).toBeGreaterThanOrEqual(2); // 3 desde a T12 do Plano 23 (abaixo)
     const textos = horarios.ajuda.secoes.flatMap((s) => s.itens).join(' ');
-    expect(textos).toContain('com início, fim, duração e local.');
+    expect(textos).toContain('Escolha o local e crie uma regra por dia da semana');
     expect(textos).not.toContain('modalidade');
   });
   it('Plano 13: o guia de documentos cita o parecer e a retificação e subiu de versão (quem já viu o tour, vê de novo)', () => {
@@ -175,7 +175,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 20 (T7): o guia da Agenda cita a cobrança criada ao marcar "Realizada" e a versão sobe para 2 (3 desde o Plano 23, a visão Mês)', () => {
     const g = GUIAS.find((x) => x.id === 'agenda')!;
-    expect(g.versao).toBeGreaterThanOrEqualGreaterThanOrEqual(2); // 3 desde o Plano 23 (acima) // 3 desde o Plano 23 (abaixo)
+    expect(g.versao).toBeGreaterThanOrEqual(2); // 3 desde o Plano 23 (acima)
     const passos = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens.join(' ');
     expect(passos).toContain('Realizada');
     expect(passos).toContain('cobrança');
@@ -324,17 +324,21 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/versoes`)?.id).toBe('prontuario');
   });
 
-  // Plano 23 (T12): cada guia sobe UMA vez no plano, sobre a versão da main (96d6f94): agenda 2→3, horarios 1→2,
-  // configuracoes 9→10 (AG-D55), financeiro 1→2, pacientes 2→3 (filtro de local, T11) e prontuario 4→5 (retorno previsto, T9)
-  it('Plano 23: as versões sobem uma vez sobre a main', () => {
+  // Plano 23 (T12): cada guia sobe UMA vez no PR, sobre a versão da main (58904ef): configuracoes 9→10 (AG-D55),
+  // financeiro 1→2, pacientes 2→3 (filtro de local, T11) e prontuario 4→5 (retorno previsto, T9); agenda e horarios sobem
+  // sobre as do PR 2 (#86: agenda 3, a visão Mês; horarios 2, o local da regra): agenda 3→4 e horarios 2→3. O boas-vindas
+  // (5, Plano 26: "Relatórios" no menu) e o guia dos Relatórios (1, Plano 26 PR 1) não mudam no Plano 23.
+  it('Plano 23: as versões sobem uma vez sobre a main (e sobre o PR 2), sem mexer nas do Plano 26', () => {
     const versao = (id: string) => GUIAS.find((x) => x.id === id)!.versao;
-    expect({ agenda: versao('agenda'), horarios: versao('horarios'), configuracoes: versao('configuracoes'), financeiro: versao('financeiro'), pacientes: versao('pacientes'), prontuario: versao('prontuario') }).toEqual({
-      agenda: 3,
-      horarios: 2,
+    expect({ agenda: versao('agenda'), horarios: versao('horarios'), configuracoes: versao('configuracoes'), financeiro: versao('financeiro'), pacientes: versao('pacientes'), prontuario: versao('prontuario'), boasVindas: versao(ID_BOAS_VINDAS), relatorios: versao('relatorios') }).toEqual({
+      agenda: 4,
+      horarios: 3,
       configuracoes: 10,
       financeiro: 2,
       pacientes: 3,
       prontuario: 5,
+      boasVindas: 5,
+      relatorios: 1,
     });
   });
   it('Plano 23: o guia da Agenda — local na Nova consulta, filtros, legenda, abas, Solicitações com a ressalva da chave, Aniversariantes e Locais', () => {

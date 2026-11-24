@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { consultaDireta } from '../../../test/agenda';
+import { consultaDireta, novoLocal, pedidoDireto } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import type { Db } from '@/db/client';
@@ -16,6 +16,7 @@ import {
   listarLocais,
   localDaConsulta,
   locaisAtivos,
+  locaisParaFiltro,
   locaisParaAgendamento,
   LocalError,
   reativarLocal,
@@ -381,5 +382,27 @@ describe('leituras para as outras telas', () => {
     expect(await withTenant(ctxPaciente(T.tenantId, ana.id), (tx) => localDaConsulta(tx, crypto.randomUUID()), app.db)).toBeNull();
     // a sessão nutri não lê pela projeção (a função devolve vazio fora do publico/paciente)
     expect(await withTenant(T.ctx, (tx) => locaisParaAgendamento(tx), app.db)).toEqual([]);
+  });
+});
+
+describe('opções do filtro "Local" de Pacientes (AG-D79, RN-436)', () => {
+  it('o arquivado entra só com consulta fora de cancelada e solicitada — o mesmo critério do filtro da lista', async () => {
+    const T = await novoTenant(app.db);
+    const p = (await novoPaciente(app.db, T.ctx, { nome: 'Ana' })).id;
+    const ativo = await novoLocal(app.db, T.ctx, { nome: 'A ativo' });
+    const comConsulta = await novoLocal(app.db, T.ctx, { nome: 'B com consulta' });
+    const soCancelada = await novoLocal(app.db, T.ctx, { nome: 'C só cancelada' });
+    const soPedido = await novoLocal(app.db, T.ctx, { nome: 'D só pedido' });
+    const semNada = await novoLocal(app.db, T.ctx, { nome: 'E sem consulta' });
+    let hora = 0;
+    const proxima = () => new Date(Date.UTC(2027, 0, 4, 11) + hora++ * 2 * 3_600_000);
+    await consultaDireta(app.db, T.ctx, p, proxima(), 60, { localId: comConsulta, status: 'faltou' });
+    await consultaDireta(app.db, T.ctx, p, proxima(), 60, { localId: soCancelada, status: 'cancelada', canceladoPor: 'nutri', canceladaEm: new Date() });
+    await pedidoDireto(app.db, T, p, proxima(), 60, { localId: soPedido });
+    const arquivar = (id: string) => withTenant(T.ctx, (tx) => tx.update(locaisAtendimento).set({ arquivadoEm: new Date(), agendamentoOnline: false }).where(eq(locaisAtendimento.id, id)), app.db);
+    for (const id of [comConsulta, soCancelada, soPedido, semNada]) await arquivar(id);
+    const opcoes = await locaisParaFiltro(T.ctx, 'pacientes', deps);
+    expect(opcoes.ativos.map((l) => l.id)).toContain(ativo);
+    expect(opcoes.arquivados).toEqual([{ id: comConsulta, nome: 'B com consulta' }]);
   });
 });

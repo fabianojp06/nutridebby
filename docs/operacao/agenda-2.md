@@ -175,8 +175,24 @@ vai virar `falhou`/`sem_modelo`.
 
 ## PR 4 (filtro de local em Pacientes e no Financeiro) — Volta atrás (T11)
 
-O PR 4 só lê (filtro "Local" na lista de pacientes, em Lançamentos, Relatórios e no CSV) e não tem migration: voltar é
+O filtro "Local" (lista de pacientes, Lançamentos, Relatórios e o CSV) só lê, e o PR 4 não tem migration: voltar é
 trocar a imagem pela do **PR 3**. Somem os seletores; um link salvo com `?local=` passa a ser ignorado. Nada fica no banco.
+
+Mas o PR 4 também traz as correções da AG-D81 e da AG-D82, e a imagem do PR 3 volta ao comportamento anterior:
+
+1. **Aviso de pedido não confirmado para horário passado (AG-D81).** As notificações `pedido_nao_confirmado` já criadas
+   para um horário que passou e ainda `agendada`s seriam enviadas pela imagem do PR 3: a pessoa receberia "escolha outro
+   horário" para um horário que já passou.
+2. **Vencimento de pedidos de horário passado (AG-D81).** A imagem do PR 3 volta a avisar (e-mail) os pedidos que vencem
+   com o horário já passado, inclusive o da pessoa nova quando o horário passa antes das 08h.
+3. **Link da sala (AG-D82).** Em "Alterar", a consulta de origem `paciente` num local online com sala volta a aceitar um
+   link digitado, que o banco troca pela sala do local (gatilho `appointments_link_da_sala`): o dado não muda, mas a tela
+   volta a enganar (o campo deixa de ser só leitura com "Sala fixa do local").
+
+Conferência no banco (só leitura, com o OK do dono, regra 3 do servidor), antes de voltar: `select count(*) from
+notifications where tipo = 'pedido_nao_confirmado' and status = 'agendada'` e, entre elas, as de consulta com `inicio`
+já passado (vão sair com a imagem do PR 3); combinar com o dono se essas são canceladas antes ou se a volta espera o
+horário delas.
 
 ---
 

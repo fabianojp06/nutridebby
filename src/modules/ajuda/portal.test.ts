@@ -60,6 +60,7 @@ describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
     expect(avisoDoGuia({}, true)).toBe(AVISO_PORTAL.pergunta); // já usava o app e nunca viu o guia (Plano 16, G-D17)
     expect(avisoDoGuia({}, false)).toBe(AVISO_PORTAL.boasVindas);
     expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 2, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 17: a versão 2 já é anterior
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 3, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 22: a versão 3 já é anterior
     expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 4, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 23: a versão 4 já é anterior
     expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 5, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
     expect(avisoDoGuia({ outro: { v: 1, estado: 'visto' } }, false)).toBe(AVISO_PORTAL.boasVindas); // o progresso de outro guia não conta

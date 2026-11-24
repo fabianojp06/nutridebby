@@ -81,8 +81,10 @@ export function ConsultaForm({ acao, inicial, pacientes, locais, avisoDoLocal, d
         {erro('localId')}
       </div>
       {local?.tipo === 'online' && doPaciente && local.linkSala ? (
-        // AG-D82: sem `name` (nada a enviar: o banco grava a sala); outro local volta ao campo normal
-        <Campo key={`${local.id}-sala`} id="linkOnline" name={undefined} rotulo="Link da chamada" type="text" readOnly value={MSG_LOCAIS.salaFixaDoLocal} />
+        // AG-D82: sem `name` (nada a enviar: o banco grava a sala); outro local volta ao campo normal. O fundo `bg-linha` é a
+        // dica visual do campo só leitura (o mesmo `read-only:bg-linha` das linhas do exame); a classe substitui a do `Campo`
+        <Campo key={`${local.id}-sala`} id="linkOnline" name={undefined} rotulo="Link da chamada" type="text" readOnly value={MSG_LOCAIS.salaFixaDoLocal}
+          className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto read-only:bg-linha" />
       ) : local?.tipo === 'online' && (
         <Campo key={local.id} id="linkOnline" rotulo="Link da chamada" type="url" defaultValue={local.id === (state.valores?.localId ?? inicial.localId) ? v.linkOnline : ''} erro={e.linkOnline}
           placeholder={local.linkSala ?? 'https://…'} dica={local.linkSala ? 'Vazio = a sala fixa do local.' : undefined} />

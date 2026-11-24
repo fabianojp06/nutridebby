@@ -356,7 +356,8 @@ export type UsoDoFiltro = 'pacientes' | 'financeiro';
 /**
  * Plano 23 (US-415, US-416, AG-D79): as opções do filtro "Local" dos filtros de histórico — lista de pacientes e
  * Financeiro (Lançamentos, Relatórios e o CSV). Os ativos e, à parte, os arquivados que têm histórico: alguma consulta
- * (`pacientes`) ou algum lançamento ligado a consulta do local (`financeiro`) — sem eles, quem deixou de atender num
+ * fora de `cancelada` e `solicitada` (`pacientes`: o mesmo critério do filtro, RN-436 — senão a opção listaria ninguém)
+ * ou algum lançamento ligado a consulta do local (`financeiro`) — sem eles, quem deixou de atender num
  * local perderia o recorte do histórico dele, e a soma dos locais com "Sem local" não fecharia na tela (RN-437). A
  * RN-403 ("o arquivado some dos seletores") vale só para os seletores de marcação. A mesma ordem da agenda. Só leitura
  * (não cria os locais iniciais); só a sessão `nutri`.
@@ -371,7 +372,7 @@ export async function locaisDoFiltro(tx: Tx, uso: UsoDoFiltro): Promise<OpcoesDe
   const L = locaisAtendimento;
   const historico =
     uso === 'pacientes'
-      ? sql`exists (select 1 from appointments a where a.tenant_id = ${L.tenantId} and a.local_id = ${L.id})`
+      ? sql`exists (select 1 from appointments a where a.tenant_id = ${L.tenantId} and a.local_id = ${L.id} and a.status not in ('cancelada', 'solicitada'))`
       : sql`exists (select 1 from appointments a join fin_lancamentos f on f.tenant_id = a.tenant_id and f.appointment_id = a.id where a.tenant_id = ${L.tenantId} and a.local_id = ${L.id})`;
   const linhas = await tx
     .select({ id: L.id, nome: L.nome, arquivado: sql<boolean>`${L.arquivadoEm} is not null` })

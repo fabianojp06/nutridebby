@@ -2930,11 +2930,12 @@ qualquer `<form action>` e o estado é a fonte ("Selecionar todos", "Limpar sele
 ### 5.13.7 Volta atrás e como estender
 
 - **Manual guiado (T12, `34a2b871`; `src/modules/ajuda/conteudo.ts`, `portal.ts`):** cada guia sobe uma vez no plano,
-  sobre a versão da `main`: `pacientes` v3 (o filtro "Local"), `prontuario` v5 ("Retorno previsto (opcional)" e a seção
-  "Consultas"), `agenda` v3 (`:237`: Dia, Semana, Mês ou Lista, local na Nova consulta, filtros, legenda, abas, Solicitações
+  sobre a versão da `main` (`58904ef`; `agenda` e `horarios` sobre as do PR 2): `pacientes` v3 (o filtro "Local"),
+  `prontuario` v5 ("Retorno previsto (opcional)" e a seção "Consultas"), `agenda` v4 (`:237`: Dia, Semana, Mês ou Lista, local na Nova consulta, filtros, legenda, abas, Solicitações
   e Aniversariantes, as duas com a ressalva "se você ligar 'Confirmar os pedidos antes de marcar' em Horários"),
-  `horarios` v2 (o local de cada regra e a chave), `configuracoes` v10 (AG-D55) e `financeiro` v2 (o filtro de local); o
-  guia do portal v4 (o local na marcação, o pedido que espera a confirmação e a mensagem de aniversário em Eu).
+  `horarios` v3 (o local de cada regra e a chave), `configuracoes` v10 (AG-D55) e `financeiro` v2 (o filtro de local); o
+  guia do portal v5 (o local na marcação, só com mais de um local, o pedido que espera a confirmação e a mensagem de
+  aniversário em Eu). `boas-vindas` (v5) e `relatorios` (v1), do Plano 26, não mudam (o teste das versões os fixa).
   `/painel/agenda/imprimir` em `SEM_AJUDA` (`src/modules/ajuda/conteudo.test.ts:25`); `locais`, `solicitacoes` e
   `aniversariantes` no `padrao` do guia `agenda`. Toda tela nova do `/painel` do Plano 23 tem guia ou está em `SEM_AJUDA`.
 - `docs/operacao/agenda-2.md`, "PR 4 (filtro de local em Pacientes e no Financeiro) — Volta atrás (T11)": o PR 4 só lê;

@@ -132,12 +132,13 @@ exemplo, que o paciente foi informado do canal e dos dados usados). Decidir se e
 
 ### A.10 Manual guiado (Ajuda) — rascunho
 
-Os guias subiram uma versão na T12 (quem já viu o tour vê o aviso de novo): `agenda` 3, `horarios` 2, `configuracoes`
-10, `financeiro` 2, `pacientes` 3, `prontuario` 5 e o guia do portal 4. Os textos estão em
+Os guias subiram uma versão na T12 (quem já viu o tour vê o aviso de novo): `agenda` 4 e `horarios` 3 (sobre os 3 e 2 do
+PR 2), `configuracoes` 10, `financeiro` 2, `pacientes` 3, `prontuario` 5 e o guia do portal 5 (sobre o 4 do Plano 22). Os textos estão em
 `src/modules/ajuda/conteudo.ts` e `src/modules/ajuda/portal.ts` e aparecem no painel em Ajuda (manual completo). São
 **rascunho** até a Debby revisar, como todos os guias (P08-08). Os dois itens novos do guia do portal são **ao paciente**:
 
-- "Ao agendar, escolha onde você quer ser atendido. Se a sua nutricionista confirma os pedidos, a consulta fica
+- "Se o consultório atende em mais de um local, escolha onde você quer ser atendido ao agendar. Se a sua nutricionista
+  confirma os pedidos, a consulta fica
   "Aguardando confirmação da nutricionista" até ela responder, e a resposta chega por e-mail. Antes disso, você pode
   tocar em "Desistir do pedido"."
 - "Em Eu, você autoriza ou retira a mensagem de aniversário da sua nutricionista quando quiser."
