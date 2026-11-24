@@ -17,6 +17,7 @@ import {
   lerMensagem,
   mensagemDaPropriaOrigem,
   paginaSemConexao,
+  recarregaAoVoltarARede,
   planoValido,
   podeGuardarPlano,
   precisaBuscarPlano,
@@ -281,5 +282,21 @@ describe('Plano 25 (T7): /p/mensagens fora do cache e do plano guardado', () => 
     expect(puts).toEqual(['URL_PLANO']);
     expect(sw).toMatch(/fetch\(URL_PLANO, \{[^}]*headers: \{ \[CABECALHO_PEDIDO_DA_COPIA\]: '1' \}/);
     expect(CABECALHO_PEDIDO_DA_COPIA).toBe('x-nd-copia');
+  });
+});
+
+// Correção do E2E "rodada T6b (I4)" (o mesmo padrão no portal): ao reconectar, o Serwist recarregava a página inteira
+describe('Plano 25: a rede que volta não recarrega a conversa (o rascunho fica)', () => {
+  it('recarrega as outras páginas do portal (a cópia do plano vira a página de verdade), nunca /p/mensagens', () => {
+    expect(recarregaAoVoltarARede('/p/inicio')).toBe(true);
+    expect(recarregaAoVoltarARede('/p/plano')).toBe(true);
+    expect(recarregaAoVoltarARede('/p/mensagens')).toBe(false);
+    expect(recarregaAoVoltarARede('/p/mensagens/')).toBe(false);
+  });
+  it('sw-provider.tsx: o reloadOnOnline do Serwist desligado e refeito com a exceção', () => {
+    const f = readFileSync('src/app/p/sw-provider.tsx', 'utf8');
+    expect(f).toMatch(/<SerwistProvider[^>]*reloadOnOnline=\{false\}/);
+    expect(f).toMatch(/if \(recarregaAoVoltarARede\(window\.location\.pathname\)\) window\.location\.reload\(\)/);
+    expect(f).toMatch(/addEventListener\('online', aoVoltar\)/);
   });
 });

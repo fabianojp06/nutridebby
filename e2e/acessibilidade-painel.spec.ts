@@ -109,6 +109,7 @@ for (const [modo, tema, aparelho] of [
   ['igual ao aparelho (aparelho escuro)', 'Igual ao aparelho', 'dark'],
 ] as const) {
   test(`axe sem violações em todas as telas do painel — modo ${modo}`, async () => {
+    test.setTimeout(420_000); // Plano 25: quatro rotas novas no laço (caixa, nova conversa, conversa e configuração)
     await escolherTema(nutri, tema);
     await nutri.emulateMedia({ colorScheme: aparelho });
     const falhas: string[] = [];

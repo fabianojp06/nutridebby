@@ -118,9 +118,10 @@ describe('o campo do portal (US-443, RN-473)', () => {
     const h = campo();
     expect(h).toMatch(/<textarea[^>]*disabled=""[^>]*>meu rascunho<\/textarea>/);
     expect(h).toMatch(/<button(?=[^>]*type="submit")(?=[^>]*disabled="")[^>]*>/);
-    // a chave do texto não depende da rede (só da resposta da action): ficar sem rede não remonta o campo
+    // ficar sem rede não remonta o campo
     const fonte = readFileSync('src/app/p/(portal)/mensagens/conversa-portal.tsx', 'utf8');
-    expect(fonte).toMatch(/<Texto key=\{estado\?\.marca \?\? 'inicio'\}/);
+    // o textarea nunca remonta (nem pela rede, nem pela resposta: correção do E2E "rodada T6b (I4)")
+    expect(fonte).toMatch(/<Texto estado=\{estado\}/);
     for (const k of fonte.match(/key=\{[^}]*\}/g) ?? []) expect(k).not.toMatch(/online|depois|ultima/);
   });
 

@@ -45,7 +45,7 @@ test('T6a: axe da caixa com o selo "Sinal de risco" e da nova conversa, nos trê
     await escolherTema(nutri, tema);
     await nutri.emulateMedia({ colorScheme: aparelho });
     await nutri.goto('/painel/mensagens');
-    await expect(nutri.getByText('Sinal de risco').first()).toBeVisible();
+    await expect(nutri.getByText('Sinal de risco', { exact: true }).first()).toBeVisible();
     for (const v of await violacoes(nutri)) falhas.push(`${tema} /painel/mensagens — ${v}`);
     await nutri.goto('/painel/mensagens/nova');
     await expect(nutri.getByRole('heading', { level: 1, name: 'Nova conversa' })).toBeVisible();
@@ -177,7 +177,7 @@ test('T6b: liberar (erro junto ao campo, depois a forma e a confirmação) → e
   await dialogo.getByLabel('Como o paciente (ou o responsável legal) concordou?').selectOption({ label: 'Aceite por escrito (mensagem ou e-mail)' });
   await dialogo.getByLabel(/deu ciência e concordou com o TCLE de telenutrição/).check();
   await dialogo.getByRole('button', { name: 'Liberar', exact: true }).click();
-  await expect(nutri).toHaveURL(new RegExp(`${url}\\?ok=liberada$`));
+  await expect(nutri).toHaveURL(new RegExp(`${url}\\?ok=liberada&r=[0-9a-f]{8}$`));
   await expect(regiaoViva(nutri)).toHaveText('Conversa liberada.');
   await expect(regiaoViva(nutri)).toBeFocused();
   await expect(nutri.getByText(/^Liberada em \d{2}\/\d{2}\/\d{4} \(aceite por escrito\)$/)).toBeVisible();
@@ -311,6 +311,7 @@ test('rodada T6b (I4): rede caída no envio — "Não foi possível enviar. Tent
   await nutri.getByRole('button', { name: 'Enviar', exact: true }).click();
   await expect(listaDeMensagens(nutri).getByText(rascunho)).toBeVisible();
   await expect(campo).toHaveValue('');
+  await expect(nutri.locator('textarea#texto-mensagem')).toHaveCount(1); // o textarea velho não fica no formulário
 });
 
 test('rodada T6b (I1): pausar → retomar — cada retorno é anunciado na região viva, que recebe o foco sem rolar a tela', async () => {
@@ -321,14 +322,14 @@ test('rodada T6b (I1): pausar → retomar — cada retorno é anunciado na regi�
   await expect(pausar).toContainText('Combine com o paciente como o acompanhamento continua.');
   await expect(pausar.getByRole('button', { name: 'Cancelar' })).toBeFocused();
   await pausar.getByRole('button', { name: 'Pausar', exact: true }).click();
-  await expect(nutri).toHaveURL(new RegExp(`${url}\\?ok=pausada$`));
+  await expect(nutri).toHaveURL(new RegExp(`${url}\\?ok=pausada&r=[0-9a-f]{8}$`));
   await expect(regiaoViva(nutri)).toHaveText('Conversa pausada.');
   await expect(regiaoViva(nutri)).toBeFocused();
   await expect(nutri.getByText('Conversa pausada', { exact: true })).toBeVisible();
   await expect(nutri.getByLabel('Mensagem')).toHaveCount(0);
   const rolagemAntes = await nutri.evaluate(() => window.scrollY);
   await nutri.getByRole('button', { name: 'Retomar conversa' }).click();
-  await expect(nutri).toHaveURL(new RegExp(`${url}\\?ok=retomada$`));
+  await expect(nutri).toHaveURL(new RegExp(`${url}\\?ok=retomada&r=[0-9a-f]{8}$`));
   await expect(regiaoViva(nutri)).toHaveText('Conversa retomada.');
   await expect(regiaoViva(nutri)).toBeFocused();
   expect(Math.abs((await nutri.evaluate(() => window.scrollY)) - rolagemAntes)).toBeLessThan(400);
@@ -438,7 +439,7 @@ test('T6c: a seção "Mensagens" no Início da ficha — "{n} não lidas", os it
 // ——— T7: a conversa no app (/p/mensagens). Bloco de IP: 10.9.25.20 a 10.9.25.39 — a primeira paciente do chat .20 (a
 // faixa, o envio e o "Lida"), .21 (sinal de risco), .22 (400 px e axe), .23 (sem rede), .24 (sem JavaScript), .25 (mensagem
 // nova com a tela aberta); rodada da T7: .26 (a nutricionista do consultório principal) e .27 (a paciente com plano
-// guardado); re-revisão: .28 (recusa com risco a 400×600) e .29 (?antes= no app) ———
+// guardado); re-revisão: .28 (recusa com risco a 400×600) e .29 (?antes= no app); .30 (a rede volta sem recarregar) ———
 
 const NO_APP = { campo: 'Escreva sua mensagem', urgencia: 'Este canal não é para urgências. Em caso de urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo.' };
 const listaDoApp = (page: Page) => page.getByRole('list', { name: 'Mensagens' });
@@ -712,4 +713,30 @@ test('re-revisão T7: recusa com sinal de risco a 400×600 — o erro e o socorr
     await expect(nutri).toHaveURL(/\?ok=retomada/);
     await paciente.context().close();
   }
+});
+
+test('correção (I4 no app): a rede cai e volta com a conversa aberta — a página não recarrega, o rascunho fica; enviar limpa o campo', async ({ browser }) => {
+  const paciente = await primeiraPacienteNoApp(browser, '10.9.25.30');
+  await paciente.goto('/p/mensagens');
+  await paciente.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await paciente.waitForLoadState('networkidle');
+  const campo = paciente.getByLabel(NO_APP.campo);
+  const rascunho = `Rascunho que atravessa a queda de rede ${Date.now()}`;
+  await campo.fill(rascunho);
+  await paciente.evaluate(() => {
+    (window as unknown as { mesmoDocumento: boolean }).mesmoDocumento = true;
+  });
+  await paciente.context().setOffline(true);
+  await expect(campo).toBeDisabled();
+  await paciente.context().setOffline(false);
+  await expect(campo).toBeEnabled();
+  await expect(campo).toHaveValue(rascunho);
+  expect(await paciente.evaluate(() => (window as unknown as { mesmoDocumento?: boolean }).mesmoDocumento)).toBe(true); // sem recarregar
+  await paciente.getByRole('button', { name: 'Enviar', exact: true }).click();
+  await expect(listaDoApp(paciente).getByText(rascunho)).toBeVisible();
+  await expect(campo).toHaveValue('');
+  await expect(paciente.locator('textarea')).toHaveCount(1);
+  await paciente.context().close();
 });

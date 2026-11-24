@@ -26,6 +26,15 @@ export function ehNavegacaoDoPortal(url: URL, modo: RequestMode, origem: string)
   return modo === 'navigate' && url.origin === origem && url.pathname.startsWith('/p/') && !ehDaConversa(url.pathname);
 }
 
+/**
+ * O portal recarrega a página quando a rede volta (o `reloadOnOnline` do Serwist, refeito no provider do portal, src/app/p): a cópia do
+ * plano servida sem rede volta a ser a página de verdade. Na conversa, não (RN-473, US-443 "Sem internet"): recarregar
+ * jogaria fora o rascunho que o paciente escreveu sem rede — a própria tela reabilita o campo e consulta as novas.
+ */
+export function recarregaAoVoltarARede(pathname: string): boolean {
+  return !ehDaConversa(pathname);
+}
+
 /** A navegação para a conversa (/p/mensagens): só rede; sem rede, a página do aviso (paginaSemConexao), sem cache. */
 export function ehConversaDoPortal(url: URL, modo: RequestMode, origem: string): boolean {
   return modo === 'navigate' && url.origin === origem && ehDaConversa(url.pathname);

@@ -3,6 +3,7 @@ import { useRouter } from 'next/navigation';
 import { useActionState, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ContextoDaLeitura } from '@/components/mensagens/leitura';
 import { seguraFalhaDeRede } from '@/components/mensagens/rede';
+import { aplicarResposta } from '@/components/mensagens/campo';
 import { rolarAteOFim } from '@/components/mensagens/rolagem';
 import { acompanharSituacao, novasNaTela, primeiraNovaDepois } from '@/components/mensagens/situacao';
 import { useOnline } from '@/components/portal/online';
@@ -108,18 +109,19 @@ export function SituacaoDoPortal({ depois, consultar, abrirNoFim, aviso }: { dep
   );
 }
 
-/** Depois de enviar: o foco volta ao campo (e a tela rola até o rodapé) — ou, com sinal de risco, vai ao socorro (RN-449). */
-type Foco = 'campo' | 'socorro' | null;
-
 /**
- * O texto do campo, remontado só quando a action responde (`marca`) com o texto devolvido: no erro, o que foi escrito; no
- * sucesso, vazio. Nada mais o remonta (molde da rodada da T6b, C1): mensagem nova, "Lida" novo ou a rede que cai não tocam
- * no rascunho — sem rede, o campo só fica desabilitado, com o texto dentro (RN-473).
+ * O texto do campo: UM `textarea` só, nunca remontado (molde da rodada da T6b, C1: mensagem nova, "Lida" novo ou a rede que
+ * cai não tocam no rascunho — sem rede, o campo só fica desabilitado, com o texto dentro, RN-473). A cada resposta da action
+ * (`estado`, novo objeto por resposta), o valor vira o texto devolvido (no erro, o que foi escrito; no sucesso, vazio) e,
+ * depois de enviar, o foco volta ao campo (a tela rola até o fim) — ou, com sinal de risco, vai ao socorro (RN-449).
+ * Correção do E2E "rodada T6b (I4)" (o mesmo padrão do painel): remontar o `textarea` por `key` deixava, depois de uma
+ * falha de rede, o nó velho com o rascunho no formulário ao lado do novo. `defaultValue` cobre o render sem JS.
  */
-function Texto({ inicial, focar, idErro, desabilitado }: { inicial: string; focar: Foco; idErro: string | undefined; desabilitado: boolean }) {
+function Texto({ estado, idErro, desabilitado }: { estado: EstadoDoEnvioPortal | null; idErro: string | undefined; desabilitado: boolean }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    if (focar === 'socorro') {
+    if (!aplicarResposta(ref.current, estado)) return;
+    if (estado?.textoFixo) {
       const socorros = document.querySelectorAll<HTMLElement>('[data-mensagem] [data-socorro]');
       const ultimo = socorros[socorros.length - 1];
       if (ultimo) {
@@ -127,17 +129,16 @@ function Texto({ inicial, focar, idErro, desabilitado }: { inicial: string; foca
         return;
       }
     }
-    if (!focar) return;
     ref.current?.focus({ preventScroll: true });
     rolarAteOFim();
-  }, [focar]);
+  }, [estado]);
   return (
     <textarea
       ref={ref}
       id="texto-mensagem"
       name="texto"
       rows={2}
-      defaultValue={inicial}
+      defaultValue={estado?.texto ?? ''}
       disabled={desabilitado}
       aria-describedby={idErro ? `${ID_AVISO_URGENCIA} ${idErro}` : ID_AVISO_URGENCIA}
       aria-invalid={idErro ? true : undefined}
@@ -166,7 +167,6 @@ export function CampoDoPortal({ erroInicial }: { erroInicial: string | null }) {
   const estado = estadoComJs ?? estadoSemJs;
   const erro = estado ? estado.erro : erroInicial;
   const idErro = erro ? 'erro-mensagem' : undefined;
-  const focar: Foco = estado?.enviada ? (estado.textoFixo ? 'socorro' : 'campo') : null;
   const bloqueado = !online || enviando;
   return (
     <form action={comJs ? acaoComJs : acaoSemJs} className="space-y-2" aria-busy={enviando || undefined}>
@@ -174,7 +174,8 @@ export function CampoDoPortal({ erroInicial }: { erroInicial: string | null }) {
       <label htmlFor="texto-mensagem" className="block font-semibold">
         {P.campo}
       </label>
-      <Texto key={estado?.marca ?? 'inicio'} inicial={estado?.texto ?? ''} focar={focar} idErro={idErro} desabilitado={!online} />
+      {/* sem `key`: o mesmo textarea a cada resposta (o texto devolvido entra pelo efeito do Texto) */}
+      <Texto estado={estado} idErro={idErro} desabilitado={!online} />
       {erro && (
         // re-revisão da T7 (1): o socorro da recusa (CH-D77: o texto recusado, sem dizer "enviada") fica DENTRO do alerta —
         // o leitor de tela ouve o erro e o 188/192 juntos; o campo continua descrito só pelo erro (`erro-mensagem`)

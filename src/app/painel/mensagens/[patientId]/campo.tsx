@@ -1,5 +1,6 @@
 'use client';
 import { useActionState, useEffect, useRef, useSyncExternalStore } from 'react';
+import { aplicarResposta } from '@/components/mensagens/campo';
 import { rolarAteOFim } from '@/components/mensagens/rolagem';
 import { Botao } from '@/components/ui/botao';
 import { MSG_MENSAGENS } from '@/modules/mensagens/constantes';
@@ -14,24 +15,27 @@ const marcaNova = () => `${Date.now().toString(36)}-${Math.random().toString(36)
 
 
 /**
- * O texto do campo, remontado só quando a action responde (`marca`) com o texto devolvido: no erro, o que foi escrito; no
- * sucesso, vazio. Nada mais o remonta (rodada da T6b, C1): uma mensagem nova ou o "Lida" que muda não tocam no rascunho.
- * Depois de enviar, o foco volta ao campo e a tela rola até o rodapé (§7.2).
+ * O texto do campo: UM `textarea` só, nunca remontado (rodada da T6b, C1: mensagem nova ou "Lida" que muda não tocam no
+ * rascunho). A cada resposta da action (`estado`, novo objeto por resposta), o valor vira o texto devolvido — no erro, o que
+ * foi escrito; no sucesso, vazio — e, depois de enviar, o foco volta ao campo e a tela rola até o fim (§7.2). Correção do
+ * E2E "rodada T6b (I4)": a versão anterior remontava o `textarea` por `key` a cada resposta; depois de uma falha de rede, o
+ * envio seguinte deixava o `textarea` velho (com o rascunho) no formulário ao lado do novo (o reset automático do formulário
+ * pelo React e a troca do nó no mesmo commit) — o campo "não limpava". `defaultValue` cobre o render sem JS (RNF-443).
  */
-function Texto({ inicial, focar, idErro }: { inicial: string; focar: boolean; idErro: string | undefined }) {
+function Texto({ estado, idErro }: { estado: EstadoDoEnvio | null; idErro: string | undefined }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    if (!focar) return;
+    if (!aplicarResposta(ref.current, estado)) return;
     ref.current?.focus({ preventScroll: true });
     rolarAteOFim(); // rodada da T7 (I3): até o fim do documento, não até o rodapé sticky
-  }, [focar]);
+  }, [estado]);
   return (
     <textarea
       ref={ref}
       id="texto-mensagem"
       name="texto"
       rows={3}
-      defaultValue={inicial}
+      defaultValue={estado?.texto ?? ''}
       aria-describedby={idErro}
       aria-invalid={idErro ? true : undefined}
       className="block w-full resize-y rounded-xl border border-campo bg-cartao p-2 text-texto"
@@ -62,7 +66,8 @@ export function CampoDaConversa({ patientId }: { patientId: string }) {
       <label htmlFor="texto-mensagem" className="block font-medium">
         {C.campo}
       </label>
-      <Texto key={estado?.marca ?? 'inicio'} inicial={estado?.texto ?? ''} focar={!!estado?.enviada} idErro={idErro} />
+      {/* sem `key`: o mesmo textarea a cada resposta (o texto devolvido entra pelo efeito do Texto) */}
+      <Texto estado={estado} idErro={idErro} />
       {estado?.erro && (
         <p key={estado.marca} id="erro-mensagem" role="alert" className="text-erro">
           {estado.erro}
