@@ -1078,3 +1078,89 @@ Spec × código (e runbooks). As marcadas como **registradas** já constam como 
 8. **Limite de login por IP + rota, não IP + e-mail — registrada** (Plano 01; D11).
 9. **Backup no host, não no worker; sem `postgresql-client-16` no host — registradas** (Plano 02; D6).
 10. **`@sentry/node` em vez de `@sentry/nextjs` — registrada** (D1).
+
+---
+
+## 6.12 Agenda 2: vencimento, links com token e saída de um clique (Plano 23, PR 3)
+
+Plano 23, Tarefas 6 a 10 (detalhe funcional na
+[§5.12](05-agenda-portal-conteudo.md#512-agenda-2-solicitações-previsão-de-retorno-e-aniversariantes-plano-23-pr-3); banco na
+[§2.12](02-banco-de-dados.md#212-agenda-2-plano-23-migrations-0130-e-0131)). Conferido em `f0122aa` (24/11/2026). O PR 3
+não mexe em `src/worker/index.ts` nem em `src/jobs/queues.ts`: continuam as 33 filas da §6.2.3, e nenhuma variável de
+ambiente nova.
+
+### 6.12.1 Vencimento dentro do job `notificacoes` (RN-427, AG-D19, AG-D67)
+
+- `processarNotificacoes` (`src/modules/notificacoes/enviar.ts:509`) chama `vencerComSeguranca` (`:493`) com a mesma lista
+  de tenants da volta (`:513`), **antes** da varredura de envio: o "não confirmado" de um pedido vencido sai na mesma volta.
+  Vale para o cron de 1 min (todos os tenants da varredura) e para o envio imediato de um tenant (`dispararEnvio` →
+  `{ tenantId }`: só aquele consultório vence). Um `try/catch` por tenant: o vencimento nunca derruba os envios; o log
+  ("falha ao vencer os pedidos de consulta do tenant") leva só `tenantId`, o nome do erro e o SQLSTATE.
+- `vencerSolicitacoes` (`src/modules/agenda/solicitacoes.ts:312`) faz, por tenant, uma transação curta de leitura (as
+  consultas `solicitada` e as pessoas novas aguardando com `inicio − antecedencia_min_h ≤ agora`) e depois uma transação
+  **por pedido**, papel `worker`, com `set_config('lock_timeout', '2s', true)`: o job de minuto não espera trava alheia (o
+  55P03 vai ao log e o pedido vence na volta seguinte). Custo: duas consultas por tenant por minuto, mais uma transação por
+  pedido vencido.
+- O gatilho confere o prazo do `pedido_vencido` pelo `now()` do banco ([§2.12.9](02-banco-de-dados.md#2129-divergências-do-plano-23), #16).
+- A limpeza das 04h30 (`agenda-limpeza`, `limparPedidosPublicos`) ficou como rede: apaga também o pedido aguardando nunca
+  resolvido cujo horário passou há mais de 24 h; a contagem continua no campo `pedidos` do log "limpeza da agenda pública".
+
+### 6.12.2 Rotas e páginas com token (AG-D71)
+
+| Caminho | Método | Token | Cabeçalhos (`next.config.ts`) | Observações |
+|---|---|---|---|---|
+| `/n/[slug]/pedido/[token]` | GET (página) | O do próprio pedido da pessoa nova (43 caracteres base64url; só o SHA-256 no banco) | `Referrer-Policy: no-referrer` e `Cache-Control: no-store` (`:33`); `metadata` com `referrer` e `robots: noindex` | Mostra e não grava; limite por IP `pedido-link-ip` |
+| `/api/n/[slug]/pedido/[token]` | POST (formulário, sem JS) | Idem | Idem (`:34`) | Slug `[a-z0-9-]{1,80}` e token conferidos antes de tudo (senão 404); grava pela função do banco; 303 para a página com `?ok=1` ou `?erro=limite`. Pasta `n` já fora da guarda de mesma origem |
+| `/aniversario/sair/[token]` | GET (página) | HMAC da finalidade `aniversario_sair` (66 caracteres), sem validade | `no-referrer` e `no-store` (`:37`) | Mostra e não grava (`semConta` só para ler o estado) |
+| `/api/aniversario/sair/[token]` | POST | Idem | Idem (`:38`) | URL do `List-Unsubscribe`: o provedor de e-mail faz o POST de um clique (RFC 8058) sem cookie e de outra origem; a pasta `aniversario` entra em `EXCLUIDAS` da guarda de mesma origem (`src/app/api/mesma-origem-rotas.test.ts:29`). Um clique → 200 sem corpo (também com token que não confere) ou 429; formulário da página → 303; outro corpo → 400. O token só vai ao `Location` depois de conferido o formato |
+
+A regra 3 vale nas quatro: nome, e-mail, IP e token nunca em log; o token de saída só entra no banco como HMAC
+(`chaveDoLimite('aniversario-sair', token)`), e o token que não confere nem chega ao banco.
+
+### 6.12.3 Limites novos (`public_rate_limits`)
+
+| Onde | Limite | Chave | Fonte |
+|---|---|---|---|
+| Link "Desistir do pedido": abrir a página (GET) | 30 / h | HMAC do IP (`pedido-link-ip`, /64) | `LIMITE_LINK_PEDIDO_HORA`, `src/modules/agenda/agendamento-publico.ts:106`, `:562-563` |
+| Link "Desistir do pedido": o botão (POST) | 10 / h | O mesmo balde `ip` da página pública (pedido de código) | `LIMITE_IP_HORA`, `:102` |
+| Saída do aniversário (um clique e "Confirmar") | 10 / h | HMAC do **token** (`aniversario-sair`), nunca do IP: os POSTs vêm dos IPs do provedor de e-mail; consumido só depois de o MAC conferir | `LIMITE_SAIDA_POR_HORA`, `src/modules/agenda/aniversarios.ts:64`, `:359` |
+
+Os dois tipos novos estão no fim da união de `chaveDoLimite` (`src/modules/agenda/limite-ip.ts:18`); a limpeza diária apaga
+os contadores com mais de 1 dia, como os outros.
+
+### 6.12.4 E-mail: cabeçalhos e envio adiado
+
+- `OutgoingEmail.headers?` (`src/email/transport.ts:13`) é repassado ao Resend como `headers` e ao Mailpit como `Headers`, só
+  quando existe (`:33`, `:54`); `RenderedEmail.headers?` sai do modelo (`src/email/types.ts`) e é passado pelo motor das
+  notificações (`enviarEmail`, `src/modules/notificacoes/enviar.ts:122`) e pela fila `email` (`src/email/job.ts:27`). Hoje
+  só o modelo `aniversario` o usa (`List-Unsubscribe` e `List-Unsubscribe-Post: List-Unsubscribe=One-Click`).
+- **DKIM a conferir em produção:** Gmail e Yahoo só honram o um clique se os dois cabeçalhos estiverem cobertos pela
+  assinatura DKIM. Conferir no primeiro e-mail de aniversário real que o `h=` do `DKIM-Signature` do Resend lista
+  `List-Unsubscribe` e `List-Unsubscribe-Post` (revisão de normas da T10). Sem isso, o link "Não quero mais receber
+  mensagens de aniversário" do corpo continua valendo.
+- `enqueueEmail(…, { startAfter })` (`src/email/queue.ts:17-22`, AG-D75) usa o `startAfter` do pg-boss, dentro da transação
+  quando há `tx`, sem fila nova: o "não confirmado" da pessoa nova no horário silencioso sai às 08:00 no fuso.
+
+### 6.12.5 Volta atrás
+
+`docs/operacao/agenda-2.md`, seções "PR 3 (pedidos) — Volta atrás com a chave ligada (T6)", "… com a tela das Solicitações
+(T8)" e "PR 3 (previsão de retorno) — Volta atrás para a imagem do PR 2 (T9)". O PR 3 não tem migration: voltar é trocar a
+imagem pela do PR 2 (nunca por uma anterior ao PR 1). Antes, com a chave ligada: desligar a chave, responder ou deixar
+vencer os pendentes e conferir no banco (só leitura, com o OK do dono) `solicitada` e pessoa nova aguardando = 0; senão a
+imagem antiga agenda lembretes e "consulta marcada" para o pedido, ninguém o vence e o link de desistência dá 404. Na
+imagem do PR 2, editar a data de atendimento com previsão para fora da faixa dá 23514 e o `DETAIL` leva a linha ao log do
+banco (tratar como dado de saúde no log). Falta no runbook a parte do aniversário (§6.12.6, #12).
+
+### 6.12.6 Divergências do Plano 23 (PR 3)
+
+11. **DKIM dos cabeçalhos do um clique — pendente.** A RN-434 conta com o um clique do provedor; os cabeçalhos ainda não
+    foram vistos assinados num e-mail real (§6.12.4).
+12. **Volta atrás do aniversário — pendente.** O runbook não diz o que a imagem do PR 2 faz com o que o PR 3 gravou: o
+    motor antigo não tem modelo para `aniversario` nem para `pedido_nao_confirmado` (`emailDaNotificacao` só conhece os
+    tipos de consulta), e a linha pendente vira `falhou` com `erro = 'sem_modelo'`; a de aniversário continua ocupando o ano
+    do índice, e a mensagem daquele ano não sai mais, nem depois de voltar ao PR 3. A página e a rota de saída dão 404 (os
+    e-mails já enviados levam esse link). Tarefa 12.
+13. **Balde do botão de desistência — nova.** O POST "Desistir do pedido" conta no mesmo limite `ip` (10/h) do pedido de
+    código da página pública: quem desiste gasta uma vaga do próprio IP para pedir outro código (spec silenciosa).
+14. **`APP_URL` no vencimento — nova.** `vencerComSeguranca` não repassa o `appUrl` das dependências do worker;
+    `vencerSolicitacoes` usa `getEnv().APP_URL` (mesmo valor em produção; só os testes injetam outro).
