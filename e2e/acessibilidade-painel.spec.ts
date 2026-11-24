@@ -300,8 +300,7 @@ test('768 px: nenhuma tela do painel rola na horizontal', async () => {
 });
 
 // SUS-125: com a conta E2E_FIN_AXE, a do Plano 20 (acima, em série com este teste). Com a nutri-e2e, o tema é trocado ao
-// mesmo tempo pelo acessibilidade-painel-base.spec e pelas specs do outro worker (cadastro, ficha, lembretes), e o
-// recarregar daria o tema de outra spec.
+// mesmo tempo pelas specs do outro worker (cadastro, ficha, lembretes), e o recarregar daria o tema de outra spec.
 test('D17: o botão de tema alterna, persiste depois de recarregar e em outro aparelho (está na conta, não no navegador)', async ({ browser }) => {
   if (!finAxe) {
     // só sem o Plano 20 (--grep)

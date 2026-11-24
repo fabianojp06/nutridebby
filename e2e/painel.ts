@@ -85,6 +85,9 @@ function idDaUrl(page: Page, padrao: RegExp): string {
  */
 export const IA_NUTRI_2 = { email: 'ia-nutri-2-e2e@nutridebby.test', senha: 'Nutri2026segura', nome: 'Paciente IA Nutri Dois' };
 
+/** SUS-125: a parte do acessibilidade-painel que está preparando (prepararTelasComId), para duvidaDiretaDaSegunda. */
+let parteDoPreparo: 0 | 1 = 1;
+
 /**
  * Plano 15 (US-175, DP-16): uma dúvida direta da segunda paciente — no portal, a pergunta e "Enviar direto para minha
  * nutricionista" (sem o worker) — e o id dela na fila do painel. A linha é localizada pelo NOME da paciente, nunca "a
@@ -92,12 +95,26 @@ export const IA_NUTRI_2 = { email: 'ia-nutri-2-e2e@nutridebby.test', senha: 'Nut
  * dúvida no axe grava `aberta_pela_nutri_em` e não apaga nada (dúvida direta, sem risco).
  * SUS-125: se a fila já tem uma dúvida dela (a outra parte do acessibilidade-painel, a tentativa anterior do CI ou o
  * ia-nutri-paciente.spec, que também só envia direto), usa essa: a paciente tem no máximo 3 dúvidas abertas
- * (`LIMITE_DUVIDAS_ABERTAS`), e cada envio a mais gastaria uma.
+ * (`LIMITE_DUVIDAS_ABERTAS`), e cada envio a mais gastaria uma. As duas partes preparam ao mesmo tempo (a fila é do
+ * consultório, as duas contas a veem): só a parte 1 envia; a base (parte 0) espera a dela e só envia se não vier (rodando
+ * sozinha). A parte vem de `parteDoPreparo` (gravada no começo de prepararTelasComId; a chamada fica como estava, ao
+ * lado das linhas que os PRs do Plano 27 acrescentam).
  */
 async function duvidaDiretaDaSegunda(browser: Browser, nutri: Page, ip: string): Promise<string> {
+  const parte = parteDoPreparo;
   const abrir = nutri.getByRole('row').filter({ hasText: IA_NUTRI_2.nome }).getByRole('link', { name: /^Abrir dúvida/ }).first();
-  await nutri.goto('/painel/duvidas');
-  if (!(await abrir.count())) {
+  const naFila = async () => {
+    await nutri.goto('/painel/duvidas');
+    return (await abrir.count()) > 0;
+  };
+  let tem = await naFila();
+  if (!tem && parte === 0) {
+    tem = await expect
+      .poll(naFila, { timeout: 90_000, intervals: [5_000] })
+      .toBe(true)
+      .then(() => true, () => false);
+  }
+  if (!tem) {
     const p = await entrarComo(browser, IA_NUTRI_2.email, IA_NUTRI_2.senha, ip);
     await expect(p).toHaveURL(/\/p\//, { timeout: ESPERA_DO_SERVIDOR });
     await p.goto('/p/plano/ia');
@@ -124,6 +141,7 @@ async function duvidaDiretaDaSegunda(browser: Browser, nutri: Page, ip: string):
  * do acessibilidade-painel que prepara (SUS-125: as duas preparam ao mesmo tempo, cada uma com as suas linhas).
  */
 export async function prepararTelasComId(browser: Browser, nutri: Page, ip: string, ipIaNutri: string, parte: 0 | 1): Promise<IdsDoPainel> {
+  parteDoPreparo = parte;
   const sufixo = `${Date.now().toString(36)}p${parte}`; // SUS-125: as duas partes preparam ao mesmo tempo (nomes únicos no consultório)
   const paciente = await pacienteNoPortal(browser, nutri, ip);
   const p = paciente.prontuario;

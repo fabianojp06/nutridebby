@@ -486,9 +486,11 @@ Detalhes que evitam falso verde:
   plano, conteúdo…) antes do laço. SUS-125: cada parte prepara as próprias linhas (`parte` 0 no `-base`, 1 no
   `acessibilidade-painel.spec.ts`: outro paciente, a consulta noutro bloco de semanas) com os próprios IPs (lista no topo
   de `e2e/acessibilidade-painel.ts`); a dúvida da
-  segunda paciente da IA Nutri é reaproveitada se a fila já tem uma dela (no máximo 3 abertas por paciente).
-- **Tema garantido em cada tela (SUS-125).** O tema é da conta (D17), e a `nutri-e2e` é a mesma nas duas partes e nas
-  specs que trocam o tema dela no outro worker (cadastro, ficha, lembretes). `garantirTema` (`e2e/acessibilidade-painel.ts`)
+  segunda paciente da IA Nutri é reaproveitada se a fila já tem uma dela (no máximo 3 abertas por paciente), e só a
+  parte 1 envia (a base espera até 90 s a dela; rodando sozinha, envia).
+- **Tema garantido em cada tela (SUS-125).** O tema é da conta (D17). As duas partes usam contas diferentes do
+  consultório do E2E — a base, a `E2E_NUTRI_BASE_AXE` (`scripts/e2e-seed.ts`); a outra, a `nutri-e2e` —, para não
+  regravarem o tema uma da outra; mas as specs do outro worker (cadastro, ficha, lembretes) trocam o tema da `nutri-e2e`. `garantirTema` (`e2e/acessibilidade-painel.ts`)
   confere o `data-tema` da tela antes do axe e, se outra spec trocou o tema da conta no meio, escolhe de novo o tema do
   modo do teste na conta e abre a tela de novo (o estado aberto, como o menu da conta ou os erros do formulário, é refeito
   pelo `refazer` do `violacoes`), até 3 vezes; a tela nunca é mexida por fora, e um tema que não pega falha. Cada nova

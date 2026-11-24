@@ -8,7 +8,8 @@ import { ROTAS_DO_PAINEL, type IdsDoPainel } from './painel-rotas';
  * arquivo único: os laços de todas as telas nos três modos e os estados abertos) e `acessibilidade-painel.spec.ts` (do
  * Plano 20 em diante, na ordem de sempre; caso novo entra no fim dele). SUS-125: era um arquivo só, em série, com 40% a 50%
  * do tempo do E2E (11 a 15 min); em duas partes, os 2 workers do CI as rodam ao mesmo tempo. Cada parte entra com a sua
- * sessão, prepara as suas linhas (`prepararTelasComId`, com a `parte`) e usa os seus IPs (o limite de login é por IP):
+ * conta (o tema é da conta, D17: a base com a `E2E_NUTRI_BASE_AXE`, a outra com a nutri-e2e), prepara as suas linhas
+ * (`prepararTelasComId`, com a `parte`) e usa os seus IPs (o limite de login é por IP):
  * - base (`parte` 0): 10.9.13.87 (nutri), 10.9.13.88 (paciente do preparo), 10.9.29.52 (a segunda paciente da IA Nutri);
  * - acessibilidade-painel.spec (`parte` 1): 10.9.13.84 (nutri), 10.9.13.83 (paciente do preparo), 10.9.29.51 (a segunda
  *   paciente da IA Nutri, Plano 15), 10.9.20.2 (a conta E2E_FIN_AXE, Plano 20 e D17), 10.9.13.85 (o "outro aparelho" do
@@ -38,8 +39,8 @@ export function rotasDoPainel(ids: IdsDoPainel): string[] {
 const temaDaTela = (page: Page) => page.evaluate(() => document.querySelector('[data-tema]')?.getAttribute('data-tema') ?? null);
 
 /**
- * SUS-125: o tema é da conta (D17), e a nutri-e2e é a mesma nas duas partes e nas specs que trocam o tema dela no outro
- * worker (cadastro, ficha, lembretes). Se outra trocou o tema entre o `escolherTema` do teste e a abertura da tela, a
+ * SUS-125: o tema é da conta (D17), e as specs do outro worker trocam o tema da nutri-e2e (cadastro, ficha, lembretes);
+ * a base do axe tem conta própria, para as duas partes não regravarem o tema uma da outra. Se outra trocou o tema entre o `escolherTema` do teste e a abertura da tela, a
  * página veio com outro `data-tema` e o axe conferiria o modo errado calado. Então o tema do modo do teste é escolhido de
  * novo na conta e a tela é aberta de novo (com `refazer`, o estado aberto dela é refeito), até 3 vezes; a tela nunca é
  * mexida por fora, e um defeito real do tema (a conta gravada, a tela com outro) falha aqui. Cada nova escolha fica

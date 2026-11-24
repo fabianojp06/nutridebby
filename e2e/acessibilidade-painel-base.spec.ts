@@ -10,7 +10,9 @@ import { prepararTelasComId } from './painel';
 // (do Plano 20 em diante; caso novo entra no fim dele). O que os dois dividem (o axe, o tema garantido em cada tela e os IPs
 // de cada parte) está em e2e/acessibilidade-painel.ts. IPs desta parte: 10.9.13.87 (nutri), 10.9.13.88 (paciente do
 // preparo), 10.9.29.52 (a segunda paciente da IA Nutri).
-const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
+// Conta própria no consultório do E2E (E2E_NUTRI_BASE_AXE da semente; copiada: importar o seed roda o seed): o tema é da
+// conta (D17), e com a nutri-e2e do acessibilidade-painel.spec as duas partes regravariam o tema uma da outra a cada tela.
+const NUTRI = { email: 'nutri-base-axe-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial', timeout: 360_000 }); // cada laço visita todas as telas do painel (mais de 60 desde o Plano 22, que acrescentou o catálogo, os exames e a prescrição)
 let nutri: Page;
 let rotas: string[] = [];
