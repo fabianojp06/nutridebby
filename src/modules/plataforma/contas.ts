@@ -25,6 +25,7 @@ export function normalizarCrn(valor: string): string | null {
   const m = CRN_ENTRADA.exec(valor.trim());
   if (!m) return null;
   const [, regiao, numero, sufixo] = m;
+  if (/^0+$/.test(numero)) return null; // inscrição só com zeros não existe
   return `CRN-${regiao} ${numero}${sufixo ? `-${sufixo.toUpperCase()}` : ''}`;
 }
 

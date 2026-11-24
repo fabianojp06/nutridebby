@@ -71,6 +71,8 @@ describe('normalizarCrn (SUS-118)', () => {
     'CRN312345', // sem separador: região e número ambíguos
     'CRN-312345',
     'CRN-0 123',
+    'CRN-3 0',
+    'CRN-3 0000',
     'CRN-12 123',
     'CRN-3 12345678',
     'CRN-3 12345-X',

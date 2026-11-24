@@ -228,7 +228,7 @@ Lugar: Configurações > Perfil e marca, seção "Dados para documentos" (`/pain
 | Campo | Obrig. | Validação | Erro |
 |---|---|---|---|
 | `nome_profissional` (nome completo) | Sim | 5–120 caracteres | "Informe seu nome completo (5 a 120 caracteres)" |
-| `crn` (já existe; a coluna é opcional desde o MVP) | Sim para preparar | `CRN_REGEX` do MVP (`crnSchema`, ex.: CRN-3 12345); a jurisdição é o número da região | "CRN inválido. Ex.: CRN-3 12345" |
+| `crn` (já existe; a coluna é opcional desde o MVP) | Sim para preparar | `normalizarCrn` (`crnSchema`, SUS-118: região de 1 a 11, separador, sufixo P/S, gravado como "CRN-3 12345" ou "CRN-3 12345-P"); a jurisdição é o número da região | "Informe o CRN no formato CRN-3 12345 (região de 1 a 11; inscrição provisória ou secundária: CRN-3 12345-P ou -S)." |
 | `contato_email` | Sim | e-mail válido | "Informe um e-mail profissional válido" |
 | `contato_telefone` | Sim | validação e formato por `src/modules/pacientes/telefone.ts` (E.164, exibido `(11) 91234-5678`) | "Informe um telefone válido com DDD" |
 | `endereco_consultorio` (já existe) | Não | até 200 caracteres | "Use no máximo 200 caracteres" (texto do MVP) |
