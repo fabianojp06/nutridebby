@@ -7,6 +7,12 @@ run-name: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}-{1}', git
 
 on:
   pull_request:
+  # SUS-117: o portal no WebKit (job `e2e-webkit`) toda noite na main, às 05h30 UTC (02h30 de Brasília, antes do backup das
+  # 03h e fora da janela de merge), e à mão. Nesses dois eventos só o `mudancas` e o `e2e-webkit` rodam (os outros jobs
+  # ficam de fora pela condição `github.event_name` de cada um).
+  schedule:
+    - cron: '30 5 * * *'
+  workflow_dispatch:
   workflow_call:
     outputs:
       codigo:
@@ -39,6 +45,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       codigo: ${{ steps.filtro.outputs.codigo }}
+      portal: ${{ steps.filtro.outputs.portal }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -50,16 +57,24 @@ jobs:
         run: |
           set -euo pipefail
           codigo=true
+          portal=true
           if [[ -n "${BASE:-}" && ! "$BASE" =~ ^0+$ ]] && git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
             arquivos="$(git diff --name-only "${BASE}...${HEAD}")"
             if [[ -n "$arquivos" ]] && ! grep -qEv '^(docs/|\.claude/agents/)|\.md$' <<<"$arquivos"; then
               codigo=false
             fi
+            # SUS-117: o `e2e-webkit` só roda no PR que toca o portal do paciente (telas, service worker, avisos, os specs
+            # do projeto `webkit`, a config e as dependências do Playwright). Na dúvida (base ausente, diff vazio), roda.
+            if [[ -n "$arquivos" ]] && ! grep -qE '^(src/app/p/|src/app/n/|src/app/sw|src/components/portal/|e2e/(portal|sessao-portal|app-paciente|sus-112-recarregar-ao-voltar|fontes-portal|nada-some|questionario|metas|mensagens[^/]*|site[^/]*)\.spec\.ts$|e2e/(helpers|portal)\.ts$|playwright\.config\.ts$|\.github/workflows/ci\.yml$|package\.json$|pnpm-lock\.yaml$)' <<<"$arquivos"; then
+              portal=false
+            fi
           fi
-          echo "Mudança com código: ${codigo}"
+          echo "Mudança com código: ${codigo}; no portal: ${portal}"
           echo "codigo=${codigo}" >> "$GITHUB_OUTPUT"
+          echo "portal=${portal}" >> "$GITHUB_OUTPUT"
 
   quality:
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: [self-hosted, nutri-ci]
     timeout-minutes: 20
     container:
@@ -76,7 +91,7 @@ jobs:
 
   test:
     needs: mudancas
-    if: needs.mudancas.outputs.codigo == 'true'
+    if: needs.mudancas.outputs.codigo == 'true' && github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: [self-hosted, nutri-ci]
     timeout-minutes: 25
     container:
@@ -122,7 +137,7 @@ jobs:
 
   e2e:
     needs: mudancas
-    if: needs.mudancas.outputs.codigo == 'true'
+    if: needs.mudancas.outputs.codigo == 'true' && github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: [self-hosted, nutri-ci]
     timeout-minutes: 45
     container:
@@ -183,7 +198,8 @@ jobs:
   # ambiente do `e2e`; a imagem do Playwright já traz o WebKit e as dependências dele.
   e2e-webkit:
     needs: mudancas
-    if: needs.mudancas.outputs.codigo == 'true'
+    # Só no PR que toca o portal, toda noite na main e à mão; nunca no deploy (workflow_call).
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && needs.mudancas.outputs.portal == 'true')
     runs-on: [self-hosted, nutri-ci]
     timeout-minutes: 45
     container:
@@ -239,7 +255,7 @@ jobs:
 
   image:
     needs: mudancas
-    if: needs.mudancas.outputs.codigo == 'true'
+    if: needs.mudancas.outputs.codigo == 'true' && github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: [self-hosted, nutri-ci]   # no host do runner; DOCKER_HOST vem do .env do runner (daemon rootless)
     timeout-minutes: 30
     steps:

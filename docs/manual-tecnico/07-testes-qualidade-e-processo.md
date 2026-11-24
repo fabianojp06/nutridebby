@@ -433,6 +433,12 @@ Ficam de fora os do painel e os mistos em que o lado do paciente não se separa 
   `portal.spec.ts`, "sem as chaves do VAPID…" (no iPhone fora da tela de início o portal manda instalar antes, e o
   Playwright não emula o app instalado, `display-mode: standalone`). Os testes de offline e do service worker não usam
   `context.serviceWorkers()` nem o evento `serviceworker` (só Chromium): rodam no WebKit.
+- **Quando o `e2e-webkit` roda** (pedido da orquestradora, 24/11/2026: um runner só, e 7 a 10 min a mais em todo PR
+  atrasariam o trem): no PR que toca o portal (saída `portal` do job `mudancas`: `src/app/p/`, `src/app/n/`, `src/app/sw*`,
+  `src/components/portal/`, os specs do projeto `webkit`, `e2e/helpers.ts`, `e2e/portal.ts`, a config do Playwright, o
+  `ci.yml` e as dependências; na dúvida, roda), toda noite na main (`schedule`, 05h30 UTC) e à mão (`workflow_dispatch`).
+  Nunca no deploy (`workflow_call`). No `schedule` e no `workflow_dispatch` os outros jobs (`quality`, `test`, `e2e`,
+  `image`) ficam de fora pela condição `github.event_name`.
 - **Job próprio no CI (`e2e-webkit`).** Estimativa do SUS-117: os 54 testes que rodam (55 com o pulado), pela média do
   Chromium na última execução verde do CI (272 testes em 22,5 min com 2 workers) e com o peso dos specs do portal (cada
   teste cria um paciente pelo painel e aceita o convite pelo Mailpit), dão 7 a 10 min no WebKit, mais o build: acima dos
