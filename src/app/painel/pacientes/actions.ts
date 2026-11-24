@@ -84,13 +84,13 @@ export async function salvarEtiquetasAction(patientId: string, _prev: EtiquetasS
 
 /**
  * Plano 18 (RN-273, D26): arquivar ou reativar pela lista, com as mesmas funções da aba Privacidade. A volta é para a mesma
- * lista (aba, busca, etiqueta e ordem dos campos ocultos, passados por `filtroDaUrl`; a URL é montada no servidor, nunca
+ * lista (aba, busca, etiqueta, ordem e local dos campos ocultos, passados por `filtroDaUrl`; a URL é montada no servidor, nunca
  * lida de um campo) com `ok` e o marcador `r`, que a região de status fixa anuncia. Paciente bloqueado: recusa (nada muda, volta sem `ok`).
  */
 async function situacaoPelaLista(formData: FormData, ok: 'arquivado' | 'reativado', fn: typeof arquivarPaciente): Promise<never> {
   const { ctx } = await requireNutri('/painel/pacientes');
   const patientId = String(formData.get('id') ?? '');
-  const filtro = filtroDaUrl(Object.fromEntries(['aba', 'busca', 'etiqueta', 'ordem'].map((k) => [k, String(formData.get(k) ?? '')])));
+  const filtro = filtroDaUrl(Object.fromEntries(['aba', 'busca', 'etiqueta', 'ordem', 'local'].map((k) => [k, String(formData.get(k) ?? '')])));
   let feito = true;
   try {
     await fn(ctx, patientId);

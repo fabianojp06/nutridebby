@@ -170,6 +170,28 @@ test('da consulta realizada ao recebido na mesma tela, sem digitar o valor; sai 
   await expect(ultimos.getByRole('listitem').filter({ hasText: paciente.nome }).filter({ hasText: 'Recebido' })).toContainText('R$ 250,00 · Recebido');
 });
 
+test('Plano 23 (US-416, RN-437): "Local" em Lançamentos e em Relatórios — a cobrança da consulta no "Consultório", não em "Sem local"; o fluxo diz "Local: Todos os locais"', async () => {
+  // a consulta do teste anterior foi marcada no local principal que o consultório novo ganhou ao abrir a Nova consulta
+  await nutri.goto('/painel/financeiro/lancamentos');
+  await nutri.getByLabel('Local', { exact: true }).selectOption({ label: 'Consultório' });
+  await nutri.getByRole('button', { name: 'Filtrar' }).click();
+  await expect(nutri).toHaveURL(/[?&]local=[0-9a-f-]{36}/);
+  await expect(nutri.getByRole('listitem').filter({ hasText: paciente.nome }).first()).toBeVisible();
+  await nutri.getByLabel('Local', { exact: true }).selectOption({ label: 'Sem local' });
+  await nutri.getByRole('button', { name: 'Filtrar' }).click();
+  await expect(nutri).toHaveURL(/[?&]local=sem_local/);
+  await expect(nutri.getByRole('listitem').filter({ hasText: paciente.nome })).toHaveCount(0);
+
+  await nutri.goto('/painel/financeiro/relatorios');
+  await nutri.getByLabel('Local', { exact: true }).selectOption({ label: 'Consultório' });
+  await nutri.getByRole('button', { name: 'Filtrar' }).click();
+  await expect(nutri).toHaveURL(/[?&]local=[0-9a-f-]{36}/);
+  await expect(nutri.getByRole('region', { name: /Fluxo de caixa de/ }).getByText('Local: Todos os locais', { exact: true })).toBeVisible();
+  await expect(nutri.getByRole('region', { name: 'Entradas e saídas nos últimos 12 meses' }).getByText('Local: Consultório', { exact: true })).toBeVisible();
+  // o CSV tem o seletor próprio ("Local dos lançamentos"), que começa no local escolhido
+  await expect(nutri.getByLabel('Local dos lançamentos', { exact: true }).locator('option:checked')).toHaveText('Consultório');
+});
+
 test('CSV dos lançamentos: 13 meses mostram o alerta sem baixar; 1 mês baixa o arquivo sem a coluna Paciente (US-306)', async () => {
   await nutri.goto('/painel/financeiro/relatorios');
   const de = nutri.getByLabel('De', { exact: true });

@@ -29,4 +29,4 @@ export const MSG_LISTA = {
 export const ID_DO_TITULO = 'titulo-pacientes';
 
 /** Os campos ocultos que o formulário de arquivar/reativar leva, para a volta à mesma lista (a URL é montada no servidor). */
-export type CamposDaLista = { aba: string; busca: string; etiqueta: string; ordem: string };
+export type CamposDaLista = { aba: string; busca: string; etiqueta: string; ordem: string; local: string };

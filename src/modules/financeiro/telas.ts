@@ -1,6 +1,8 @@
 import { getDb, type Db } from '@/db/client';
 import type { FinCategoriaRow, TipoLancamento } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { MSG_FILTRO_LOCAL } from '@/modules/agenda/constantes';
+import { localDasOpcoes, locaisDoFiltro, type LocalDoFiltro, type OpcoesDeLocal } from '@/modules/agenda/locais';
 import { idValido } from '@/modules/pacientes/base';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { categoriasNaTransacao, configuracaoNaTransacao, type Configuracao } from './configuracoes';
@@ -22,7 +24,7 @@ import {
   type EntradasESaidasDoMes,
   type PagamentoPendente,
 } from './resumo';
-import type { FiltrosLista, FluxoDoAno, LancamentoNaTela } from './tipos';
+import { SEM_LOCAL, type FiltrosLista, type FluxoDoAno, type LancamentoNaTela } from './tipos';
 
 /**
  * RNF-301: "cada tela em uma transação". As telas dos lançamentos (Plano 20, T6), de Pagamentos pendentes e de Relatórios
@@ -36,11 +38,30 @@ export type CategoriaDoFormulario = { id: string; nome: string };
 
 export type TelaDeLancamentos =
   | { config: null }
-  | { config: Configuracao; lista: ListaDeLancamentos; categorias: FinCategoriaRow[]; paciente: PacienteDoFinanceiro | null };
+  | {
+      config: Configuracao;
+      lista: ListaDeLancamentos;
+      categorias: FinCategoriaRow[];
+      paciente: PacienteDoFinanceiro | null;
+      /** Plano 23 (US-416, AG-D79): as opções de "Local" e o local aplicado (o pedido, se for uma delas; senão null). */
+      locais: OpcoesDeLocal;
+      local: LocalDoFiltro | null;
+    };
+
+/**
+ * Plano 23 (US-416, RN-437, AG-D79): o local pedido, se for "Sem local" ou uma das opções do filtro (ativo, ou arquivado
+ * com lançamento); senão null — `?local=` inválido ou desconhecido é descartado (lista normal, "Todos os locais").
+ */
+export function localEscolhido(opcoes: OpcoesDeLocal, localId: string | undefined): LocalDoFiltro | null {
+  if (localId === SEM_LOCAL) return { id: SEM_LOCAL, nome: MSG_FILTRO_LOCAL.semLocal };
+  return localDasOpcoes(opcoes, localId);
+}
 
 /**
  * A lista (US-302, RN-306). Sem configuração (RN-301), só a configuração nula — o primeiro acesso não mostra mais nada.
- * Com ela: o paciente do filtro (chip, sem `auditRead`), a lista com o `ler` da RN-318 e as categorias do filtro.
+ * Com ela: o paciente do filtro (chip, sem `auditRead`), a lista com o `ler` da RN-318 e as categorias do filtro. Plano 23
+ * (US-416, AG-D79): e as opções do filtro "Local" (os ativos e os arquivados com lançamento, só id e nome); o local
+ * pedido fora delas é descartado.
  */
 export async function telaDeLancamentos(ctx: TenantContext, tenant: Tenant, filtros: FiltrosLista, deps: Deps = {}): Promise<TelaDeLancamentos> {
   exigirNutri(ctx);
@@ -51,9 +72,11 @@ export async function telaDeLancamentos(ctx: TenantContext, tenant: Tenant, filt
       const config = await configuracaoNaTransacao(tx);
       if (!config) return { config: null };
       const paciente = idValido(filtros.pacienteId) ? await pacienteNaTransacao(tx, filtros.pacienteId) : null;
-      const lista = await listaNaTransacao(tx, ctx.tenantId, hoje, filtros);
+      const locais = await locaisDoFiltro(tx, 'financeiro');
+      const local = localEscolhido(locais, filtros.localId);
+      const lista = await listaNaTransacao(tx, ctx.tenantId, hoje, { ...filtros, localId: local?.id });
       const categorias = await categoriasNaTransacao(tx);
-      return { config, lista, categorias, paciente };
+      return { config, lista, categorias, paciente, locais, local };
     },
     deps.db ?? getDb(),
   );
@@ -173,14 +196,24 @@ export type TelaDeRelatorios =
       anos: number[];
       fluxo: FluxoDoAno;
       dozeMeses: EntradasESaidasDoMes[];
+      /** Plano 23 (US-416, AG-D79): as opções do filtro "Local" e o local aplicado aos 12 meses (`localEscolhido`), ou null. */
+      locais: OpcoesDeLocal;
+      local: LocalDoFiltro | null;
     };
 
 /**
  * "Relatórios" (US-306): o fluxo de caixa do ano e as entradas e saídas dos últimos 12 meses, na mesma transação (RNF-301).
- * `anoPedido` vem da URL (`?ano=`): fora da lista, o ano atual no fuso. Sem `auditRead` (RN-318).
+ * `pedido.ano` vem da URL (`?ano=`): fora da lista, o ano atual no fuso. Sem `auditRead` (RN-318). Plano 23 (US-416,
+ * RN-437): `pedido.localId` (`?local=`) recorta só os 12 meses; o fluxo de caixa e o saldo são de todos os locais.
  */
-export async function telaDeRelatorios(ctx: TenantContext, tenant: Tenant, anoPedido: string | undefined, deps: Deps = {}): Promise<TelaDeRelatorios> {
+export async function telaDeRelatorios(
+  ctx: TenantContext,
+  tenant: Tenant,
+  pedido: { ano?: string; localId?: string },
+  deps: Deps = {},
+): Promise<TelaDeRelatorios> {
   exigirNutri(ctx);
+  const anoPedido = pedido.ano;
   const hoje = hojeNoFuso(tenant.fuso, deps.agora ?? new Date());
   const atual = Number(hoje.slice(0, 4));
   return withTenant(
@@ -191,11 +224,13 @@ export async function telaDeRelatorios(ctx: TenantContext, tenant: Tenant, anoPe
       const antigo = await diaMaisAntigoNaTransacao(tx, ctx.tenantId);
       const primeiro = Math.min(atual, Number(config.saldoInicialEm.slice(0, 4)), antigo ? Number(antigo.slice(0, 4)) : atual);
       const anos = Array.from({ length: atual - primeiro + 1 }, (_, i) => atual - i);
-      const pedido = Number(anoPedido);
-      const ano = anoPedido && /^\d{4}$/.test(anoPedido) && anos.includes(pedido) ? pedido : atual;
+      const numero = Number(anoPedido);
+      const ano = anoPedido && /^\d{4}$/.test(anoPedido) && anos.includes(numero) ? numero : atual;
       const fluxo = await fluxoNaTransacao(tx, ctx.tenantId, ano, config);
-      const dozeMeses = await dozeMesesNaTransacao(tx, ctx.tenantId, hoje);
-      return { config, ano, anos, fluxo, dozeMeses };
+      const locais = await locaisDoFiltro(tx, 'financeiro');
+      const local = localEscolhido(locais, pedido.localId);
+      const dozeMeses = await dozeMesesNaTransacao(tx, ctx.tenantId, hoje, local?.id);
+      return { config, ano, anos, fluxo, dozeMeses, locais, local };
     },
     deps.db ?? getDb(),
   );

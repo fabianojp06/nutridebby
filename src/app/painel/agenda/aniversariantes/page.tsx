@@ -78,11 +78,13 @@ export default async function AniversariantesPage({ searchParams }: PageProps<'/
       </nav>
       <p className="text-sm text-suave">{M.semNascimento}</p>
       {futuro && <p>{M.envioAbre(nomeDoMes)}</p>}
-      {linhas.length === 0 ? (
-        <p>{M.vazio}</p>
-      ) : (
-        <TabelaDosAniversariantes titulo={M.titulo(nomeDoMes)} linhas={linhas} corrente={r.corrente} nutri={nutri} saemAgora={minutos >= 9 * 60 && minutos < 21 * 60} enviar={enviarAction.bind(null, r.mes)} />
-      )}
+      <div data-guia="lista-aniversariantes">
+        {linhas.length === 0 ? (
+          <p>{M.vazio}</p>
+        ) : (
+          <TabelaDosAniversariantes titulo={M.titulo(nomeDoMes)} linhas={linhas} corrente={r.corrente} nutri={nutri} saemAgora={minutos >= 9 * 60 && minutos < 21 * 60} enviar={enviarAction.bind(null, r.mes)} />
+        )}
+      </div>
     </main>
   );
 }

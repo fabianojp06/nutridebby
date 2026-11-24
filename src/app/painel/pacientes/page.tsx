@@ -1,6 +1,9 @@
 import Link from 'next/link';
 import { Selo } from '@/components/ui/selo';
+import { OpcoesDoFiltroDeLocal } from '@/components/opcoes-de-local';
 import { requireNutri } from '@/lib/tenant-session';
+import { MSG_FILTRO_LOCAL } from '@/modules/agenda/constantes';
+import { localDasOpcoes, locaisParaFiltro } from '@/modules/agenda/locais';
 import { situacoesDoAcesso } from '@/modules/pacientes/convite-paciente';
 import { formatarDataNoFuso, hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
 import { listarEtiquetas } from '@/modules/pacientes/etiquetas';
@@ -21,23 +24,28 @@ const CAMPO = 'min-h-11 rounded-xl border border-campo bg-cartao p-2 text-texto'
  * Plano 18 (US-261, §8.1): abas Ativos/Inativos/Todos (`aria-current`) e "Ver bloqueados" (RN-270), "Ordenar por"
  * (RN-271), só o nome exibido (o social, quando há; RN-266), colunas "Acesso ao app" (rótulo curto) e "Desde", o menu
  * "Ações" por linha (RN-273) e a região `role="status"` fixa acima da tabela, sempre montada, com o resultado de arquivar
- * ou reativar (`?ok=`, D26). A lista não lê nada do cadastro além do nome social (RN-272).
+ * ou reativar (`?ok=`, D26). A lista não lê nada do cadastro além do nome social (RN-272). Plano 23 (US-415, RN-436): o
+ * filtro "Local" (`?local=`), derivado das consultas, levado pelas abas e pelo menu da linha.
  */
 export default async function PacientesPage({ searchParams }: PageProps<'/painel/pacientes'>) {
   const { ctx, tenant } = await requireNutri('/painel/pacientes');
   const sp = await searchParams;
-  const filtro = filtroDaUrl(sp);
+  // Plano 23 (US-415, AG-D79): o local pedido só vale se for uma das opções (ativo, ou arquivado com consulta)
+  const locais = await locaisParaFiltro(ctx, 'pacientes');
+  const pedido = filtroDaUrl(sp);
+  const filtro = localDasOpcoes(locais, pedido.localId) ? pedido : { ...pedido, localId: undefined };
   const aba = filtro.aba ?? 'ativos';
   const busca = filtro.busca ?? '';
   const etiquetaId = filtro.etiquetaId ?? '';
+  const localId = filtro.localId ?? '';
   const ok = sp.ok === 'arquivado' || sp.ok === 'reativado' ? sp.ok : null;
   // D26: o marcador da ação (`r`, gerado pela action) só serve para a região anunciar de novo; fora do formato, vazio
   const marcador = ok && typeof sp.r === 'string' && /^[0-9a-f]{8}$/.test(sp.r) ? sp.r : '';
   const [etiquetas, lista] = await Promise.all([listarEtiquetas(ctx), listarPacientes(ctx, filtro)]);
   const acessos = await situacoesDoAcesso(ctx, lista.filter((p) => p.status === 'ativo'));
   const hoje = hojeNoFuso(tenant.fuso);
-  const campos = { aba, busca, etiqueta: etiquetaId, ordem: filtro.ordem ?? 'nome' };
-  const vazio = aba === 'inativos' && !busca.trim() && !etiquetaId ? MSG_LISTA.vazioInativos : MSG_LISTA.vazio;
+  const campos = { aba, busca, etiqueta: etiquetaId, ordem: filtro.ordem ?? 'nome', local: localId };
+  const vazio = aba === 'inativos' && !busca.trim() && !etiquetaId && !localId ? MSG_LISTA.vazioInativos : MSG_LISTA.vazio;
   return (
     <>
       <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
@@ -71,7 +79,9 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
             <Link href={urlDaLista({ aba: 'ativos' })} className="inline-flex min-h-11 items-center text-link underline">{MSG_LISTA.voltarParaALista}</Link>
           </div>
         )}
-        <form method="get" data-guia="busca-pacientes" role="search" className="flex flex-wrap items-end gap-3">
+        {/* os campos não são controlados: a chave com os filtros ativos remonta o formulário quando a URL muda (navegação do
+            cliente pelas abas ou pelo "Voltar para a lista" manteria o que estava escolhido na tela), como nos filtros da agenda */}
+        <form key={`busca-${JSON.stringify(campos)}`} method="get" data-guia="busca-pacientes" role="search" className="flex flex-wrap items-end gap-3">
           {aba === 'bloqueados' ? <input type="hidden" name="situacao" value="bloqueados" /> : <input type="hidden" name="aba" value={aba} />}
           <div className="space-y-1">
             <label htmlFor="busca" className="block font-medium">Buscar por nome ou e-mail</label>
@@ -82,6 +92,13 @@ export default async function PacientesPage({ searchParams }: PageProps<'/painel
             <select id="etiqueta" name="etiqueta" defaultValue={etiquetaId} className={CAMPO}>
               <option value="">Todas</option>
               {etiquetas.map((e) => <option key={e.id} value={e.id}>{`${e.nome} (${e.pacientes})`}</option>)}
+            </select>
+          </div>
+          {/* Plano 23 (US-415, RN-436): quem tem consulta no local; combina com a aba, a busca e a etiqueta */}
+          <div className="min-w-0 max-w-full space-y-1">
+            <label htmlFor="local" className="block font-medium">{MSG_FILTRO_LOCAL.local}</label>
+            <select id="local" name="local" defaultValue={localId} className={`${CAMPO} w-full sm:w-auto sm:max-w-xs`}>
+              <OpcoesDoFiltroDeLocal opcoes={locais} />
             </select>
           </div>
           <div className="space-y-1">

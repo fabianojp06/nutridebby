@@ -8,8 +8,9 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
 | Produto | SaaS multi-tenant de gestão de consultório de nutrição, com portal do paciente (PWA) e dado de saúde (LGPD) |
 | Produção | `https://nutri.wsscloud.tech` (Easypanel, projeto `nutri`: `nutri_app`, `nutri_worker`, `nutri_db`) |
 | Conferido contra | `main` em `62615b9` (PR #15, fechamento do Plano 08), em 05/10/2026; o cap. 8 contra `bbf2adf` (PR #18), na mesma data; o cap. 9 e as atualizações do Plano 10A contra `3991c7d` (PR #19), em 06/10/2026; o cap. 10 e as atualizações do Plano 11 contra `2efa27b` (PR #23, merge na `main`), em 07/10/2026; o cap. 11 e as atualizações do Plano 12 contra o branch `plano-12-exames-paciente` (Tarefas 1–14 integradas, antes do merge), em 07/10/2026; a §9.11 (parecer e retificação) e as atualizações do Plano 13 (inclusive a P09-07 no §4.1.1) contra o branch `plano-13-parecer` em `2d4b84c` (Tarefas 1–11 integradas, antes do merge), em 08/10/2026; as atualizações do Plano 16 (portal no layout G, §5.5.2 e §5.5.11–§5.5.14, §5.7.6, §5.8.4, a seção "Onde fica no portal" do cap. 11 e o `/admin` em abas da T17 nos caps. 1, 4, 6 e 8) contra o branch `plano-16-app-paciente` em `7b9f54e` (Tarefas 1–15 e 17 integradas, antes do merge; mergeado no PR #28, `3fe7452`, em 08/10/2026), em 08/10/2026; as atualizações do Plano 14A (autorização do paciente para IA e provedor na UE: §10.10–§10.11 e os caps. 1, 2 e 6) contra o branch `plano-14-ia-nutricionista` em `fa7f712` (Tarefas 1–11 integradas, antes do merge), em 09/10/2026; as atualizações do Plano 14B-1 (modelos sugeridos pela IA por área: §10.12 e os caps. 1, 2, 4 e 6) contra o branch `plano-14b-ia-nutri` (Tarefas 1–5 e o fechamento 5F, antes do merge; mergeado no PR #34, `95b2728`, em 13/10/2026), em 10/10/2026; as atualizações do Plano 14B-2 (resumo do histórico e rascunho de plano pela IA, com dado de paciente pseudonimizado: §10.13, as marcas "Plano 14B-2" do cap. 10 e os caps. 1, 2, 4 e 6) contra o branch `plano-14b-2-resumo-rascunho` em `1a92740` (Tarefas 6–12 integradas, antes do merge), em 14/10/2026; o CI no runner próprio da VPS (§7.7, §1.8, §1.9, §1.10 e os caps. 2, 6 e 8) contra o branch `runner-proprio` em `bbd7728` (antes do merge; mergeado no PR #33, `8a8d202`, em 13/10/2026), em 12/10/2026; as atualizações do Plano 15 (IA Nutri do paciente: §10.14, as marcas "Plano 15" do cap. 10 e os caps. 1, 2, 4, 5 e 6) contra o branch `plano-15-ia-nutri-paciente` em `4f8fade` (Tarefas 1–13 integradas, antes do merge; mergeado no PR #37, `528ae7b`, em 15/10/2026), em 15/10/2026; as atualizações do Plano 17 (lembretes de rotina por push: §5.3.9, §2.5.11 e os caps. 1, 2, 5, 6 e 7, com as linhas de `src/worker/index.ts`, `src/db/rls-guard.ts` e `test/isolamento.test.ts` refeitas) contra o branch `plano-17-lembretes-rotina` em `df641d3` (Tarefas 1–7 e o E2E integrados, antes do merge; base `5482450`; mergeado no PR #51, `667c952`, em 16/11/2026), em 17/11/2026; as atualizações do Plano 18, PR 1 (ficha do paciente: abas Início e Perfil, cabeçalho com a última avaliação e registro de seções — §4.2.10, §2.8.3, §5.8.1 e os caps. 1, 3, 5, 7, 9 e 10) contra o branch `plano-18-ficha-cadastro` em `d9066f9` (Tarefas 1–4, antes do merge; base `667c952`; mergeado no PR #52, `9eeacaf`), em 17/11/2026; as do Plano 18, PR 2 (cadastro complementar `patient_cadastro`, CPF, formulário em seções, lista nova, "No app do paciente", LGPD, nome social na IA, E2E e carga — §4.2.11, §2.5, §2.6, §2.8.3, §3.8, §5.8.1, §6.6, §6.8.1, §10.13.1, §10.14.3 e os caps. 1 e 7) contra o branch local `plano-18-pr2` em `3799409` (Tarefas 5–12b; base `6c3ee8f`, merge do PR #53), em 17/11/2026, com as citações `arquivo:linha` que o PR 2 e o PR 1 do Plano 20 deslocaram reconferidas sobre `e4dc52b` na revisão da P18-12c; o cap. 12 e as atualizações do Plano 20 (Financeiro do consultório: §2.5.12, §2.6.8, §2.7, §2.8, §3.7, §3.12, §4.2.6, §4.2.8, §4.2.9, §5.1.8, §5.7.4, §5.8.1, §6.8.1, §7.4, §7.5, §10.8 e os caps. 1 e 7, com as linhas de `src/db/rls-guard.ts`, `test/isolamento.test.ts`, `src/modules/pacientes/lgpd.ts` e `src/modules/plataforma/dpa.ts` refeitas) contra o branch `plano-20-financeiro` em `7a0e919` (Tarefas 2–11 do PR 2 e a onda de correção da revisão final, antes do merge; rebaseado na `main` `6c3ee8f`, onde já está o PR 1, #53), em 17/11/2026, e rebaseado de novo na `main` `07756c4` (PR 2 do Plano 18, #56) na mesma data, com as citações `arquivo:linha` dos trechos em conflito reconferidas |
-| Escopo | Planos 01–08, 09 (itens P09-01 a P09-05 e, pelo Plano 13, a P09-07), 10A, 11, 12 (parte F3-04 e a sessão da equipe) 13 (parecer nutricional e retificação, F3-05), 16 (app do paciente no layout G, G-01 e G-02, com a T17 do `/admin`) 14A (autorização do paciente para IA e provedor AWS na UE), 14B-1 (modelos de plano e de anamnese sugeridos pela IA por área, sem dado de paciente) 14B-2 (resumo do histórico e rascunho de plano pela IA, com dado de paciente pseudonimizado, e textos de IA 1.1) 15 (IA Nutri do paciente, F3-02: conversa sobre o próprio plano com resposta montada pelo sistema, consentimento próprio 1.0 e aditivo 1.2) 17 (lembretes de rotina por push, configurados pela nutricionista por paciente) e 18 (PR 1 e PR 2: ficha do paciente — abas Início e Perfil, cabeçalho e registro de seções — e o cadastro complementar `patient_cadastro`, CPF, formulário em seções, lista nova, "No app do paciente", LGPD e nome social na IA) e 20 (Financeiro do consultório: PR 1 de fundação e PR 2; a seção da ficha, PR 3, ainda não existe), spec do MVP v1.13, spec de documentos assinados v0.6, spec da IA v0.4 (§5.10 com a nota do Plano 13) spec C v0.3 (parte F3-04) e spec G v0.1 (app do paciente) e spec da IA v0.5.1 (parte do 14A) e v0.6 (parte da 14B-1) e v0.7 (parte da 14B-2) e a spec dos lembretes de rotina (13/11/2026) e a da ficha e cadastro (v0.3, 17/11/2026) e a do Financeiro v0.2 (16/11/2026, com a §18), migrations `0000`–`0125` (126 arquivos em `drizzle/`; as `0124`–`0125` são do Plano 18, §2.5.4; as `0122`–`0123` são do Plano 20, §2.5.12 e [cap. 12](12-financeiro.md); as `0118`–`0121` são do Plano 17, §2.5.11; a `0106` é do Plano 16, §5.5.12 e §5.5.14; a `0110` é a migration de dados do prazo de guarda, JUR-01; o cap. 10 cobre `0098`–`0100`, do Plano 14A, `0107`–`0109`, do Plano 14B-1, `0111`–`0112`, do Plano 14B-2, `0113`–`0114` e, do Plano 15, `0115`–`0117`; o cap. 11, `0101`–`0102`, e o cap. 9, `0089`–`0093` e `0104`–`0105`; a `0103` é da sessão da equipe, Tarefa 14 do Plano 12) |
-| Conferido contra (Plano 22) | Os PRs 1 e 2 do Plano 22 (exames do consultório: as quatro tabelas, a coluna e a política de `exams`, o catálogo, os modelos de solicitação, a edição com versão, o detalhe com classificação, a nota de interpretação, o comparativo e a exportação — §2.5.13, §4.2.12, §10.15 e os caps. 1, 2, 4, 5 e 7) contra o branch `plano-22-exames-prescricao` em `829b0a7` (Tarefas 1 a 5b; base `07756c4`, merge do PR #56; o PR 1, #58, ainda fora da `main`), em 23/11/2026, com as migrations `0127`–`0128` (128 arquivos), que mudam no rebase. Os PRs 3 (app do paciente) e 4 (documentos) ainda não existem no código |
+| Escopo | Planos 01–08, 09 (itens P09-01 a P09-05 e, pelo Plano 13, a P09-07), 10A, 11, 12 (parte F3-04 e a sessão da equipe) 13 (parecer nutricional e retificação, F3-05), 16 (app do paciente no layout G, G-01 e G-02, com a T17 do `/admin`) 14A (autorização do paciente para IA e provedor AWS na UE), 14B-1 (modelos de plano e de anamnese sugeridos pela IA por área, sem dado de paciente) 14B-2 (resumo do histórico e rascunho de plano pela IA, com dado de paciente pseudonimizado, e textos de IA 1.1) 15 (IA Nutri do paciente, F3-02: conversa sobre o próprio plano com resposta montada pelo sistema, consentimento próprio 1.0 e aditivo 1.2) 17 (lembretes de rotina por push, configurados pela nutricionista por paciente) e 18 (PR 1 e PR 2: ficha do paciente — abas Início e Perfil, cabeçalho e registro de seções — e o cadastro complementar `patient_cadastro`, CPF, formulário em seções, lista nova, "No app do paciente", LGPD e nome social na IA) e 20 (Financeiro do consultório: PR 1 de fundação e PR 2; a seção da ficha, PR 3, ainda não existe), spec do MVP v1.13, spec de documentos assinados v0.6, spec da IA v0.4 (§5.10 com a nota do Plano 13) spec C v0.3 (parte F3-04) e spec G v0.1 (app do paciente) e spec da IA v0.5.1 (parte do 14A) e v0.6 (parte da 14B-1) e v0.7 (parte da 14B-2) e a spec dos lembretes de rotina (13/11/2026) e a da ficha e cadastro (v0.3, 17/11/2026) e a do Financeiro v0.2 (16/11/2026, com a §18), migrations `0000`–`0125` (126 arquivos em `drizzle/`; as `0124`–`0125` são do Plano 18, §2.5.4; as `0122`–`0123` são do Plano 20, §2.5.12 e [cap. 12](12-financeiro.md); as `0118`–`0121` são do Plano 17, §2.5.11; a `0106` é do Plano 16, §5.5.12 e §5.5.14; a `0110` é a migration de dados do prazo de guarda, JUR-01; o cap. 10 cobre `0098`–`0100`, do Plano 14A, `0107`–`0109`, do Plano 14B-1, `0111`–`0112`, do Plano 14B-2, `0113`–`0114` e, do Plano 15, `0115`–`0117`; o cap. 11, `0101`–`0102`, e o cap. 9, `0089`–`0093` e `0104`–`0105`; a `0103` é da sessão da equipe, Tarefa 14 do Plano 12). Depois: Plano 22, PRs 1 e 2 (exames do consultório, `0127`–`0128`, linha seguinte), e Plano 23, PRs 1 a 4 (Agenda 2, `0130`–`0131`; spec da Agenda 2 v0.4, de 24/11/2026, com as decisões AG-D46 a AG-D82 na §14.3; 132 arquivos em `drizzle/`, `0000`–`0131`) |
+| Conferido contra (Plano 22) | Os PRs 1 e 2 do Plano 22 (exames do consultório: as quatro tabelas, a coluna e a política de `exams`, o catálogo, os modelos de solicitação, a edição com versão, o detalhe com classificação, a nota de interpretação, o comparativo e a exportação — §2.5.13, §4.2.12, §10.15 e os caps. 1, 2, 4, 5 e 7) contra o branch `plano-22-exames-prescricao` em `829b0a7` (Tarefas 1 a 5b; base `07756c4`, merge do PR #56; o PR 1, #58, ainda fora da `main`; mesclados depois, o PR 1 no #58 e o PR 2 no #69, em 23/11/2026), em 23/11/2026, com as migrations `0127`–`0128` (128 arquivos), que mudam no rebase. Os PRs 3 (app do paciente) e 4 (documentos) ainda não existem no código |
+| Conferido contra (Plano 23) | Os PRs 1 a 4 do Plano 23 (Agenda 2: §2.12, §5.11, §5.12, §5.13, §6.12, §6.13, §12.14 e os caps. 1, 4 e 7) contra o branch `plano-23-agenda-2`: PR 2 em `02fb478` (23/11/2026), PR 3 em `f0122aa` e o PR 4 com o fechamento (T11, T12, AG-D79 a AG-D82) em `0ba8869e` (24/11/2026), depois do rebase sobre a `main` `96d6f94` (Plano 22, PR 2, #69, e SUS-108, #71); o PR 1 (fundação no banco) mesclado no #59 (`16f944a`). No fechamento, as citações `arquivo:linha` que o plano e o rebase deslocaram foram refeitas em todos os capítulos (as listas de `src/db/rls-guard.ts` e `test/isolamento.test.ts` pelo símbolo) e as divergências do Plano 23 renumeradas depois das do Plano 22 (#161 em diante) |
 | Segredos | Só **nomes** de variáveis. Nenhum valor de `.env`, senha, token ou chave aparece no manual |
 
 ---
@@ -76,7 +77,7 @@ flowchart LR
 | 2 | [02-banco-de-dados.md](02-banco-de-dados.md) | Roles, migrations, catálogo de tabelas, RLS, contextos, funções SQL, guardas, auditoria | RLS, listas de `src/db/rls-guard.ts`, passo a passo de tabela nova |
 | 3 | [03-autenticacao-e-acesso.md](03-autenticacao-e-acesso.md) | Better Auth, senha, 2FA, sessão, guardas por papel, vínculos do paciente, convites, aceites, proxy, suspensão, sair | Sessão e autorização, limites de login, proxy |
 | 4 | [04-modulos-clinicos.md](04-modulos-clinicos.md) | Plataforma (contas, marca, armazenamento, monitoramento, métricas), prontuário, LGPD, exportação, alimentos, plano alimentar | Armazenamento e URL assinada, monitoramento de backup/disco, LGPD |
-| 5 | [05-agenda-portal-conteudo.md](05-agenda-portal-conteudo.md) | Agenda, página pública, motor de notificações, canais (e-mail, WhatsApp, push), portal PWA, conteúdos, interface V2, manual guiado; Agenda 2 (locais de atendimento, visões, impressão, solicitações, previsão de retorno, aniversariantes; Plano 23) | Notificações, contexto `publico`, portal, audiência do conteúdo, locais de atendimento, pedidos de consulta |
+| 5 | [05-agenda-portal-conteudo.md](05-agenda-portal-conteudo.md) | Agenda, página pública, motor de notificações, canais (e-mail, WhatsApp, push), portal PWA, conteúdos, interface V2, manual guiado; Agenda 2 (locais de atendimento, visões, impressão, solicitações, previsão de retorno, aniversariantes, filtro de local em Pacientes e no Financeiro; Plano 23) | Notificações, contexto `publico`, portal, audiência do conteúdo, locais de atendimento, pedidos de consulta |
 | 6 | [06-worker-seguranca-operacao.md](06-worker-seguranca-operacao.md) | pg-boss, filas, payload cifrado, cabeçalhos e CSP, limites, Turnstile, logs, Sentry, health, backup, carga, go-live, incidentes | Tabela única das 33 filas, segurança HTTP, backup e restauração |
 | 7 | [07-testes-qualidade-e-processo.md](07-testes-qualidade-e-processo.md) | Vitest + Testcontainers, guardas, matriz de isolamento, E2E, CI/CD, ambiente de dev, regras do `CLAUDE.md`, revisão, plano novo, primeiro dia | Pipeline de CI e deploy, matriz de isolamento, processo |
 | 8 | [08-sustentacao.md](08-sustentacao.md) | Rotina diária a anual (o que verificar, como, sinal e ação), alertas existentes, catálogo de serviços externos, responsáveis, registro na issue mensal, lacunas | Rotina de sustentação, catálogo de serviços externos e calendário de vencimentos |
@@ -145,7 +146,8 @@ flowchart LR
 [5.9 Como estender](05-agenda-portal-conteudo.md#59-como-estender-com-segurança) ·
 [5.11 Relatórios (Plano 26)](05-agenda-portal-conteudo.md#511-relatórios-plano-26) ·
 [5.11 Agenda 2: locais, local fora do painel, visões e impressão](05-agenda-portal-conteudo.md#511-agenda-2-locais-de-atendimento-local-fora-do-painel-e-visões-plano-23-pr-2) ·
-[5.12 Agenda 2: solicitações, previsão de retorno e aniversariantes](05-agenda-portal-conteudo.md#512-agenda-2-solicitações-previsão-de-retorno-e-aniversariantes-plano-23-pr-3)
+[5.12 Agenda 2: solicitações, previsão de retorno e aniversariantes](05-agenda-portal-conteudo.md#512-agenda-2-solicitações-previsão-de-retorno-e-aniversariantes-plano-23-pr-3) ·
+[5.13 Agenda 2: filtro de local fora da agenda e decisões do fechamento](05-agenda-portal-conteudo.md#513-agenda-2-filtro-de-local-fora-da-agenda-e-decisões-do-fechamento-plano-23-pr-4)
 
 **6. Worker, segurança e operação** — [6.2 Worker pg-boss](06-worker-seguranca-operacao.md#62-worker-pg-boss) ·
 [6.3 Segurança](06-worker-seguranca-operacao.md#63-segurança) ·
@@ -157,7 +159,8 @@ flowchart LR
 [6.9 Incidentes](06-worker-seguranca-operacao.md#69-rotina-de-incidentes) ·
 [6.10 O que só o dono faz](06-worker-seguranca-operacao.md#610-o-que-só-o-dono-faz) ·
 [6.11 Decisões](06-worker-seguranca-operacao.md#611-decisões-de-projeto-deste-capítulo) ·
-[6.12 Agenda 2: vencimento, links com token e saída de um clique](06-worker-seguranca-operacao.md#612-agenda-2-vencimento-links-com-token-e-saída-de-um-clique-plano-23-pr-3)
+[6.12 Agenda 2: vencimento, links com token e saída de um clique](06-worker-seguranca-operacao.md#612-agenda-2-vencimento-links-com-token-e-saída-de-um-clique-plano-23-pr-3) ·
+[6.13 Agenda 2: fechamento (PR 4 e AG-D81)](06-worker-seguranca-operacao.md#613-agenda-2-fechamento-do-plano-pr-4-e-ag-d81)
 
 **7. Testes, qualidade e processo** — [7.3 Vitest + Testcontainers](07-testes-qualidade-e-processo.md#73-vitest--testcontainers) ·
 [7.4 Guardas do CI](07-testes-qualidade-e-processo.md#74-guardas-do-ci) ·
@@ -222,7 +225,8 @@ flowchart LR
 [12.8 Auditoria e privacidade](12-financeiro.md#128-auditoria-e-privacidade) ·
 [12.9 LGPD](12-financeiro.md#129-lgpd-us-307-us-309-f-d16-f-d17-f-d22-f-d23) ·
 [12.10 Testes e E2E](12-financeiro.md#1210-testes-e-e2e) ·
-[12.13 Divergências](12-financeiro.md#1213-divergências-conhecidas)
+[12.13 Divergências](12-financeiro.md#1213-divergências-conhecidas) ·
+[12.14 Filtro de local (Plano 23)](12-financeiro.md#1214-filtro-de-local-plano-23-pr-4)
 
 ### Onde cada assunto mora
 
@@ -257,6 +261,7 @@ Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem u
 | Financeiro do consultório (lançamentos, cobrança da consulta, pagamentos pendentes, relatórios, CSV, LGPD do Financeiro, DPA 1.1) | [cap. 12](12-financeiro.md) | §1.6, §1.7, §1.10, §2.5.12, §2.6.8, §2.7, §2.8, §3.7, §3.12, §4.2.6, §4.2.8, §4.2.9, §5.1.8, §5.7.4, §5.8.1, §6.8.1, §7.4, §7.5, §10.8; `docs/operacao/financeiro.md` (runbook) |
 | Agenda 2 (locais de atendimento, `garantirLocaisIniciais`, horários por local, local na página pública, no portal, no link e nas mensagens, visões Dia/Semana/Mês/Lista, filtros, impressão; Plano 23, PR 2) | [§5.11](05-agenda-portal-conteudo.md#511-agenda-2-locais-de-atendimento-local-fora-do-painel-e-visões-plano-23-pr-2) | §1.6, §1.7, §1.10, §4.1.2 (Perfil sem o link padrão), §7.4.3 (guarda do `publico`), §7.5 (`agenda-2.spec.ts`) |
 | Agenda 2, PR 3: status `solicitada` e a chave "Confirmar os pedidos antes de marcar", pedido do paciente e da pessoa nova, fila "Solicitações", vencimento, previsão de retorno, seção "Consultas" da ficha, aniversariantes (autorização, envio, saída de um clique) | [§5.12](05-agenda-portal-conteudo.md#512-agenda-2-solicitações-previsão-de-retorno-e-aniversariantes-plano-23-pr-3) | §1.6, §1.7, §1.10, [§2.12](02-banco-de-dados.md#212-agenda-2-plano-23-migrations-0130-e-0131) (tabelas, gatilhos, funções, `STATUS_OCUPA`), [§6.12](06-worker-seguranca-operacao.md#612-agenda-2-vencimento-links-com-token-e-saída-de-um-clique-plano-23-pr-3) (vencimento no job `notificacoes`, rotas com token, limites, DKIM); `docs/operacao/agenda-2.md` (runbook) |
+| Agenda 2, PR 4 e fechamento: filtro "Local" na lista de pacientes e no Financeiro (Lançamentos, 12 meses, CSV com "Sem local"), arquivados com histórico nos filtros (AG-D79), retirar a autorização de aniversário sem confirmação (AG-D80), sem "não confirmado" de horário passado (AG-D81), "Link da chamada" só leitura na consulta do paciente com sala (AG-D82), SUS-108 nos rádios do local | [§5.13](05-agenda-portal-conteudo.md#513-agenda-2-filtro-de-local-fora-da-agenda-e-decisões-do-fechamento-plano-23-pr-4) | §1.6, §1.10, §4.2 (`listarPacientes`, `filtroDaUrl`), [§6.13](06-worker-seguranca-operacao.md#613-agenda-2-fechamento-do-plano-pr-4-e-ag-d81) (AG-D81 no vencimento), [§12.14](12-financeiro.md#1214-filtro-de-local-plano-23-pr-4); `docs/operacao/agenda-2.md` (volta atrás do PR 4) |
 | Exames enviados pelo paciente (envio, rasterização, revisão, memória) | [cap. 11](11-exames-enviados.md) | §6.4 (#3, limites do worker), §7.7 (orçamento da imagem e filtro de documentação); `docs/operacao/exames-enviados.md` (runbook) |
 
 ---
@@ -304,7 +309,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Tenant | A conta de uma nutricionista (consultório). Isola todos os dados dela. Linha em `tenants` | Spec, Apêndice B; [§2.5](02-banco-de-dados.md#25-catálogo-de-tabelas) |
 | Debby | A primeira cliente (piloto) do produto | Spec §1 |
 | Dono | Dono do servidor e do produto. Aprova merge, reinício, mudança no Easypanel e no banco de produção | `CLAUDE.md`, regra 6; [§6.10](06-worker-seguranca-operacao.md#610-o-que-só-o-dono-faz) |
-| Admin | Usuário da plataforma que cria e suspende contas. Não tem contexto de tenant e nunca lê tabela 🔒 | Spec §3; `src/db/tenant.ts:56` |
+| Admin | Usuário da plataforma que cria e suspende contas. Não tem contexto de tenant e nunca lê tabela 🔒 | Spec §3; `src/db/tenant.ts:57` |
 | Paciente / titular | A pessoa atendida. "Titular" é o termo da LGPD para o dono dos dados (pedidos de exportação e exclusão) | Spec, US-018 e US-046 |
 | Vínculo | Relação (consultório, prontuário) de uma conta de paciente. Uma conta pode ter vínculos em vários consultórios; o escolhido fica no cookie `nd_vinculo` | Spec, Apêndice B; `src/lib/paciente-session.ts` (`COOKIE_VINCULO`) |
 | DPA | Contrato de tratamento de dados entre a nutricionista (controladora) e a plataforma (operadora); aceite em `consents` | Spec, Apêndice B; [§3.12](03-autenticacao-e-acesso.md#312-aceites-dpa-e-termo-do-paciente-consents) |
@@ -375,6 +380,13 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Faixa do consultório | Faixa que a nutricionista define no catálogo, sempre com a fonte (sexo do cadastro, idade em anos completos, "A partir de" inclusivo, "Abaixo de" exclusivo, categoria de uma lista fechada sem nome de doença); mostra a categoria "(faixa do consultório)" ao lado do resultado, só no painel, calculada na leitura (Plano 22, RN-374, RN-380, RN-381, EP-D11) | `src/modules/exames/classificacao.ts` |
 | Classificação neutra | "Abaixo da referência", "Dentro da referência" ou "Acima da referência", pela faixa do laudo, calculada na leitura e nunca gravada (`classificarNeutra`), sempre com o aviso "Classificação automática pela faixa de referência informada. Não é diagnóstico." (Plano 22, RN-379, RN-381) | `src/modules/exames/classificacao.ts:24` |
 | Nota de interpretação | Texto da nutricionista sobre um exame (`exam_interpretacoes`, só de inclusão: cada "Salvar nota" é uma versão nova, "Apagar nota" grava texto nulo); não vai ao app, ao PDF, à IA nem ao comparativo; sai no `dados.json` nos dois escopos (Plano 22, RN-383, EP-D19, EP-D61) | [§4.2.12](04-modulos-clinicos.md#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2) |
+| Local de atendimento | Consultório, clínica ou sala de videoconferência do consultório (`locais_atendimento`, só a equipe): presencial ou online, um **principal**, arquivável; cada regra de horário e cada consulta nova tem um local, e a modalidade é o tipo dele (Plano 23) | [§5.11.1](05-agenda-portal-conteudo.md#5111-locais-de-atendimento-us-400-rn-400-a-rn-405); [§2.12](02-banco-de-dados.md#212-agenda-2-plano-23-migrations-0130-e-0131) |
+| Sala fixa | O `link_sala` de um local online: nunca chega ao paciente nem ao público; na consulta marcada pelo paciente nesse local, o banco a copia para o link da consulta (`appointments_link_da_sala`), e o "Alterar" mostra "Sala fixa do local" só leitura (AG-D82) | [§5.13.4](05-agenda-portal-conteudo.md#5134-decisões-ag-d79-a-ag-d82) |
+| Pedido de consulta (`solicitada`) | Com a chave "Confirmar os pedidos antes de marcar" ligada, o que o paciente marca pelo app nasce `solicitada` (o banco decide) e segura o horário até a nutricionista aceitar ou recusar em "Solicitações", ou vencer em `inicio − antecedência` (`prazoDoPedido`, `src/modules/agenda/status.ts:105`) | [§5.12.1](05-agenda-portal-conteudo.md#5121-o-status-solicitada-e-a-chave-us-407-rn-420-a-rn-423) |
+| Pessoa nova (pedido aguardando) | Pedido da página pública de quem ainda não é paciente: fica em `public_booking_requests` aguardando, sem cadastro, até o aceite (que cria o paciente e a consulta) | [§5.12.3](05-agenda-portal-conteudo.md#5123-pessoa-nova-pela-página-pública-rn-424-rn-424a-rn-425-rn-426-rn-429) |
+| Previsão de retorno | Data opcional registrada no atendimento (`consultations.retorno_previsto_em`, "Retorno previsto"), mostrada na agenda ("Previsões de retorno") e na seção "Consultas" do Início da ficha | [§5.12.6](05-agenda-portal-conteudo.md#5126-previsão-de-retorno-us-410-rn-430-ag-d73-ag-d76) |
+| Autorização de aniversário | Prova só de inclusão (`aniversario_autorizacoes`) de que o paciente autorizou ou retirou a mensagem de aniversário (pela nutricionista, no app ou pelo link do e-mail); vale a última (`autorizacaoQueConta`, `src/modules/agenda/aniversarios.ts:82`) | [§5.12.8](05-agenda-portal-conteudo.md#5128-aniversariantes-lista-e-autorização-us-412-a-us-414-rn-431-rn-433-rn-435) |
+| Filtro de local (histórico) / "Sem local" | O seletor "Local" da lista de pacientes e do Financeiro: os locais ativos e, à parte ("Arquivados"), os arquivados com histórico (AG-D79); no Financeiro, "Sem local" (`sem_local`) = lançamento sem consulta ou de consulta sem local | [§5.13](05-agenda-portal-conteudo.md#513-agenda-2-filtro-de-local-fora-da-agenda-e-decisões-do-fechamento-plano-23-pr-4) |
 
 ### Isolamento e banco
 
@@ -382,22 +394,22 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 |---|---|---|
 | RLS | Row-Level Security: o Postgres filtra as linhas pelo contexto da transação. Habilitada **e forçada** em toda tabela com `tenant_id` | `drizzle/0000_base_roles_e_rls.sql:30`; [§2.6](02-banco-de-dados.md#26-rls-em-detalhe) |
 | 🔒 | Na spec §7 e no manual: tabela com `tenant_id` sob RLS | Spec §7 |
-| GUC (`app.*`) | Variáveis de sessão do Postgres que a RLS lê: `app.tenant_id`, `app.role`, `app.patient_id`, `app.user_id`, `app.ip` | `src/db/tenant.ts:94-99`; [§2.6.1](02-banco-de-dados.md#261-os-gucs-do-contexto) |
-| `withTenant(ctx, fn)` | Abre a transação com o contexto aplicado (`set_config(…, true)`). Toda consulta a tabela com `tenant_id` passa por ele (regra 1) | `src/db/tenant.ts:86` |
-| `withConta(userId, fn)` | Contexto `conta`: a conta de paciente, sem tenant, procurando os próprios vínculos. Só `src/modules/portal/vinculos.ts` usa | `src/db/tenant.ts:114`; Plano 06, D2 |
+| GUC (`app.*`) | Variáveis de sessão do Postgres que a RLS lê: `app.tenant_id`, `app.role`, `app.patient_id`, `app.user_id`, `app.ip` | `src/db/tenant.ts:95-100`; [§2.6.1](02-banco-de-dados.md#261-os-gucs-do-contexto) |
+| `withTenant(ctx, fn)` | Abre a transação com o contexto aplicado (`set_config(…, true)`). Toda consulta a tabela com `tenant_id` passa por ele (regra 1) | `src/db/tenant.ts:87` |
+| `withConta(userId, fn)` | Contexto `conta`: a conta de paciente, sem tenant, procurando os próprios vínculos. Só `src/modules/portal/vinculos.ts` usa | `src/db/tenant.ts:115`; Plano 06, D2 |
 | Contexto (papel) | Valor de `app.role`: `nutri`, `paciente`, `worker` ou `publico` (`TenantRole`), mais `conta` via `withConta`. O admin não tem contexto | `src/db/tenant.ts:14`; [§2.6.3](02-banco-de-dados.md#263-contextos) |
 | Contexto `publico` | Páginas sem login (página pública, link da consulta, horários livres). Negado em toda tabela por `publico_negado`, salvo o que `PUBLICO_LIBERADO` lista | `src/db/tenant.ts:8-13`; Plano 05, D11 |
 | `semConta` | Paciente agindo sem sessão de login (link da consulta, WhatsApp, convite, link do documento, link da autorização de IA; desde o Plano 15, o contexto da IA Nutri lido pelo worker; desde o Plano 18, a contagem do "No app do paciente" pela nutricionista, em `no-app.ts`). Lista fechada em `SEM_CONTA_PERMITIDOS`; não lê `patient_cadastro` | `src/db/tenant.ts:39` |
 | `tenant_isolation` / `patient_isolation` | Políticas base: linha do tenant do contexto; na sessão de paciente, só as linhas do próprio `patient_id` | `drizzle/0000_base_roles_e_rls.sql:30-50` |
 | `STAFF_ONLY` | Lista de tabelas que o paciente nunca vê, nem as próprias linhas (notas privadas, etiquetas, regras da agenda…). Política RESTRICTIVE `staff_only` por `app_enable_staff_only` | `src/db/rls-guard.ts:105`; `drizzle/0020_rls_etiquetas.sql:3` |
-| `PUBLICO_LIBERADO` | Tabelas e comandos que o contexto `publico` pode usar, cada um com o motivo. `app_allow_publico` no SQL | `src/db/rls-guard.ts:141`; `drizzle/0051_rls_consultas.sql:19` |
-| `PACIENTE_ESCREVE` | Tabelas e comandos que a sessão de paciente pode gravar. O resto nega por `paciente_sem_<cmd>`. `app_allow_paciente_escrita` no SQL | `src/db/rls-guard.ts:188`; `drizzle/0070_paciente_sem_escrita.sql:25` |
-| `CONTEUDO_POR_AUDIENCIA` | Tabelas de conteúdo sem `patient_id` que o paciente lê pela audiência (política `paciente_conteudo_visivel`) | `src/db/rls-guard.ts:245`; `drizzle/0083_audiencia_conteudos.sql:42` |
+| `PUBLICO_LIBERADO` | Tabelas e comandos que o contexto `publico` pode usar, cada um com o motivo. `app_allow_publico` no SQL | `src/db/rls-guard.ts:146`; `drizzle/0051_rls_consultas.sql:19` |
+| `PACIENTE_ESCREVE` | Tabelas e comandos que a sessão de paciente pode gravar. O resto nega por `paciente_sem_<cmd>`. `app_allow_paciente_escrita` no SQL | `src/db/rls-guard.ts:193`; `drizzle/0070_paciente_sem_escrita.sql:25` |
+| `CONTEUDO_POR_AUDIENCIA` | Tabelas de conteúdo sem `patient_id` que o paciente lê pela audiência (política `paciente_conteudo_visivel`) | `src/db/rls-guard.ts:251`; `drizzle/0083_audiencia_conteudos.sql:42` |
 | `RLS_EXCEPTIONS` | Tabelas com `tenant_id` fora da RLS: `user`, `consents`, `invites`, `document_verifications`, cada uma com quem pode acessá-la | `src/db/rls-guard.ts:9`; [§2.9](02-banco-de-dados.md#29-tabelas-fora-da-rls-e-quem-as-acessa) |
 | `AUDIT_EXCEPTIONS` | Tabelas com `patient_id` sem gatilho de auditoria, com justificativa | `src/db/audit-guard.ts:4` |
 | `liberarReceitasDoPlano` | Exceção da RN-12: libera, na transação, as receitas sugeridas no plano publicado do próprio paciente | `src/modules/conteudo/audiencia.ts:45` |
 | Guarda | Teste que confere uma regra do projeto (não uma função) e quebra o CI se alguém a esquecer | [§7.4](07-testes-qualidade-e-processo.md#74-guardas-do-ci) |
-| `FABRICAS` / `ULTIMAS` | Fábricas de linha por tabela na matriz de isolamento; `ULTIMAS` = tabelas-mãe apagadas por último | `test/isolamento.test.ts:24`, `:113` |
+| `FABRICAS` / `ULTIMAS` | Fábricas de linha por tabela na matriz de isolamento; `ULTIMAS` = tabelas-mãe apagadas por último | `test/isolamento.test.ts:24`, `:288` |
 | Gatilho `audit_row_change` | Grava `audit_log` em toda escrita de tabela de dado de saúde (`app_enable_audit`) | `drizzle/0007_auditoria_funcoes.sql:36`; [§2.8](02-banco-de-dados.md#28-auditoria) |
 | `auditRead` | Registra a leitura de dado de saúde, na mesma transação (regra 8) | `src/modules/plataforma/audit.ts:28` |
 | Migrator / `nutri_app_role` | Migrator = role dono do schema (`DATABASE_URL_MIGRATOR`), só nas migrations. `nutri_app_role` = grupo sem login que recebe os privilégios; o role de `DATABASE_URL` é membro dele, sem `BYPASSRLS` | `drizzle/0000_base_roles_e_rls.sql:10-19`; [§2.2](02-banco-de-dados.md#22-roles-e-credenciais) |
@@ -446,14 +458,14 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | N7, M8, G7, PF-F3, T8-R2a… | Rótulos de achados das revisões, citados em comentários do código. Procure o rótulo no plano ou no backlog do período | Planos e backlog |
 | NORMAS-DECISAO-n, NORMAS-0n | Decisões e achados da lente de normas (CFN, LGPD) na revisão de um plano; no Plano 17: NORMAS-DECISAO-1 (nome da refeição no push só da lista fechada), NORMAS-DECISAO-2 (suplemento sem vínculo com a receita) e NORMAS-03 (configuração dos lembretes = ajuste do app) | Plano 17, "Revisão do plano (16/11/2026)" |
 | US-30x, RN-3xx, RNF-30x, CS-30x, R-3xx, F-Dn, F-Pn | Histórias, regras, requisitos, critérios, riscos, decisões (F-D1 a F-D30) e pendências externas (F-P1 a F-P5) da spec do Financeiro (faixa 300; o prefixo "F-" evita colisão com o Dx dos planos) | `2026-11-16-nutridebby-20-financeiro-design.md`; [cap. 12](12-financeiro.md) |
-| US-40x, RN-4xx, RNF-40x, CS-40x, R-40x, C-40x, AG-Dn, AG-Pn, I-n, P23-… | Histórias, regras, requisitos, critérios, riscos, restrições, decisões e pendências da spec da Agenda 2 (faixa 400; AG-D1 em diante; I-n e P23-… são achados das revisões da spec e do plano) | `2026-11-17-nutridebby-23-agenda-2-design.md`; detalhe no código em [§5.11](05-agenda-portal-conteudo.md#511-agenda-2-locais-de-atendimento-local-fora-do-painel-e-visões-plano-23-pr-2) |
+| US-40x, RN-4xx, RNF-40x, CS-40x, R-40x, C-40x, AG-Dn, AG-Pn, I-n, P23-… | Histórias, regras, requisitos, critérios, riscos, restrições, decisões e pendências da spec da Agenda 2 (faixa 400; AG-D1 a AG-D82; as AG-D79 a AG-D82 são do fechamento, em [§5.13.4](05-agenda-portal-conteudo.md#5134-decisões-ag-d79-a-ag-d82); I-n e P23-… são achados das revisões da spec e do plano) | `2026-11-17-nutridebby-23-agenda-2-design.md`; detalhe no código em [§5.11](05-agenda-portal-conteudo.md#511-agenda-2-locais-de-atendimento-local-fora-do-painel-e-visões-plano-23-pr-2) |
 | Regra n | Regra obrigatória n do `CLAUDE.md` do projeto (1 a 10) | [§7.9](07-testes-qualidade-e-processo.md#79-as-10-regras-do-claudemd-com-o-porquê) |
 
 ---
 
 ## Divergências spec × código (consolidadas)
 
-Lista única, sem repetição, das divergências registradas no fim de cada capítulo (conferência de 05/10/2026; IA e exames enviados em 07/10/2026; parecer e app do paciente G em 08/10/2026; autorização de IA do Plano 14A em 09/10/2026; modelos sugeridos do Plano 14B-1 em 10/10/2026; IA Nutri do paciente do Plano 15 em 15/10/2026; CI no runner próprio em 12/10/2026; resumo e rascunho do Plano 14B-2 em 14/10/2026; lembretes de rotina do Plano 17 em 17/11/2026; ficha do Plano 18, PR 1, em 17/11/2026; Financeiro do Plano 20 em 17/11/2026; Agenda 2 do Plano 23, PR 2, em 23/11/2026, e PR 3 em 24/11/2026). O
+Lista única, sem repetição, das divergências registradas no fim de cada capítulo (conferência de 05/10/2026; IA e exames enviados em 07/10/2026; parecer e app do paciente G em 08/10/2026; autorização de IA do Plano 14A em 09/10/2026; modelos sugeridos do Plano 14B-1 em 10/10/2026; IA Nutri do paciente do Plano 15 em 15/10/2026; CI no runner próprio em 12/10/2026; resumo e rascunho do Plano 14B-2 em 14/10/2026; lembretes de rotina do Plano 17 em 17/11/2026; ficha do Plano 18, PR 1, em 17/11/2026; Financeiro do Plano 20 em 17/11/2026; Agenda 2 do Plano 23, PR 2, em 23/11/2026, PR 3 e PR 4 com o fechamento em 24/11/2026). O
 código é a referência. "Cap." aponta onde está o detalhe.
 
 **Tipo:** **Doc** = só o documento está desatualizado · **Comp.** = o comportamento difere do texto e alguém deve
@@ -786,27 +798,28 @@ Os números abaixo foram renumerados no rebase sobre o Plano 20 (que ocupou 142�
 Conferido no branch `plano-23-agenda-2` em `02fb478` (Tarefas 2–5 e as ondas de correção das revisões por tarefa, antes da
 revisão final; o PR 1, fundação no banco, ainda não mesclado; 23/11/2026), contra a spec
 `docs/superpowers/specs/2026-11-17-nutridebby-23-agenda-2-design.md` e o plano `docs/superpowers/plans/2026-11-17-nutridebby-23-agenda-2.md`;
-detalhe nas divergências 28–44 do [cap. 5](05-agenda-portal-conteudo.md#5118-divergências-do-plano-23-pr-2).
+detalhe nas divergências 28–44 do [cap. 5](05-agenda-portal-conteudo.md#5118-divergências-do-plano-23-pr-2). Números 161–177
+desde o rebase sobre a `main` `96d6f94` (eram 154–170).
 
 | # | Fonte | Diz | Código | Tipo | Cap. |
 |---|---|---|---|---|---|
-| 154 | Spec RN-410a | Regra sem local: primeiro local online ativo "por `created_at`" | O principal, se for do tipo, depois `created_at` (como a `0127`) | Doc | 5 #28 |
-| 155 | Plano, Tarefa 4 | `local?.endereco ?? tenant.enderecoConsultorio` | Consulta com local leva só o endereço do local (pode ser nenhum); o do Perfil só na consulta sem local (RN-407) | Reg. | 5 #29 |
-| 156 | Plano, Tarefa 4 (interface) | WhatsApp nunca leva link, nome nem endereço do local | Leva o endereço do local (como o do Perfil antes), nunca o nome nem link (Step 1 do plano, US-402) | Reg. | 5 #30 |
-| 157 | Plano, Tarefa 2 | `localDaConsulta` → `Omit<LocalProjetado, 'id'>` | `LocalDaConsulta` = nome, tipo, cidade e endereço (o que a projeção tem) | Doc | 5 #31 |
-| 158 | Spec §7 | Locais em tabela no desktop | Cartões em todas as larguras | Pend. | 5 #32 |
-| 159 | Spec RN-402 | O principal não se arquiva | "Arquivar" aparece no principal com mais de um local e o servidor recusa com a mensagem; com um local só, some | Doc | 5 #33 |
-| 160 | Plano, Tarefa 5 | Grade do Mês com 5 ou 6 semanas | 4 a 6 (fevereiro que começa na segunda cabe em 4); o período do Mês são só os dias do mês | Doc | 5 #34 |
-| 161 | Spec §7 | Item que atravessa linhas aparece uma vez com "até hh:mm" | "08:40–09:30" até 1 h; "09:00 (até 10:30)" acima | Reg. | 5 #35 |
-| 162 | Spec RN-411 | Lista com paciente de hoje a hoje + 12 meses | 12 meses a partir da data da URL (hoje ao abrir) | Doc | 5 #36 |
-| 163 | Spec RN-418 | Rodapé fixo na impressão | Rodapé no `<tfoot>` de uma tabela só (repete em toda página; o `position: fixed` cobria uma linha por página); dia em `th scope="rowgroup"` | Reg. | 5 #37 |
-| 164 | Plano, Tarefa 5 | `AgendaDoPeriodo` com itens, bloqueios, retornos, aniversários e regras | Também `periodo` e `opcoes`; `agendaDoPeriodoNaTransacao` exportada para a impressão | Doc | 5 #38 |
-| 165 | Spec §6.2 | Lista fechada dos textos | Textos em `MSG_VISOES` e textos novos fora da §6.2 (cabeçalhos da grade e da impressão, singular, estados vazios, mensagens de locais e horários, " · {nome do local}") | Pend. | 5 #39 |
-| 166 | Plano, Tarefa 5 | "Pedido a responder" na legenda | **Resolvida no PR 3 (T8):** `PEDIDOS_NA_AGENDA = true` | — | 5 #40 |
-| 167 | Plano, Tarefa 4 | Guarda do `publico` só no mesmo arquivo | Segue também os imports de `./`, `../` e `@/modules/…` e acusa alias, namespace, `returning()`, SQL cru e contexto em constante | Doc | 5 #41 |
-| 168 | Spec RN-406; tela da consulta | "Vazio = a sala fixa do local.": o link digitado vale | Consulta de origem `paciente` movida pela nutricionista para local online com sala: o gatilho `appointments_link_da_sala` troca o link digitado pela sala | Comp. | 5 #42 |
-| 169 | Spec §6.2 | "Horário excluído." | Definido em `MSG_AGENDA` e sem uso (a exclusão de regra não devolve mensagem) | Doc | 5 #43 |
-| 170 | Plano, Tarefa 12 | Guias `agenda` e `horarios` com locais, visões e impressão | `agenda` v3 (com o Mês) e `horarios` v2 ("local") desde a revisão final do PR 2; falta o texto da Nova consulta e os passos de Locais | Pend. | 5 #44 |
+| 161 | Spec RN-410a | Regra sem local: primeiro local online ativo "por `created_at`" | O principal, se for do tipo, depois `created_at` (como a `0127`) | Doc | 5 #28 |
+| 162 | Plano, Tarefa 4 | `local?.endereco ?? tenant.enderecoConsultorio` | Consulta com local leva só o endereço do local (pode ser nenhum); o do Perfil só na consulta sem local (RN-407) | Reg. | 5 #29 |
+| 163 | Plano, Tarefa 4 (interface) | WhatsApp nunca leva link, nome nem endereço do local | Leva o endereço do local (como o do Perfil antes), nunca o nome nem link (Step 1 do plano, US-402) | Reg. | 5 #30 |
+| 164 | Plano, Tarefa 2 | `localDaConsulta` → `Omit<LocalProjetado, 'id'>` | `LocalDaConsulta` = nome, tipo, cidade e endereço (o que a projeção tem) | Doc | 5 #31 |
+| 165 | Spec §7 | Locais em tabela no desktop | Cartões em todas as larguras | Pend. | 5 #32 |
+| 166 | Spec RN-402 | O principal não se arquiva | "Arquivar" aparece no principal com mais de um local e o servidor recusa com a mensagem; com um local só, some | Doc | 5 #33 |
+| 167 | Plano, Tarefa 5 | Grade do Mês com 5 ou 6 semanas | 4 a 6 (fevereiro que começa na segunda cabe em 4); o período do Mês são só os dias do mês | Doc | 5 #34 |
+| 168 | Spec §7 | Item que atravessa linhas aparece uma vez com "até hh:mm" | "08:40–09:30" até 1 h; "09:00 (até 10:30)" acima | Reg. | 5 #35 |
+| 169 | Spec RN-411 | Lista com paciente de hoje a hoje + 12 meses | 12 meses a partir da data da URL (hoje ao abrir) | Doc | 5 #36 |
+| 170 | Spec RN-418 | Rodapé fixo na impressão | Rodapé no `<tfoot>` de uma tabela só (repete em toda página; o `position: fixed` cobria uma linha por página); dia em `th scope="rowgroup"` | Reg. | 5 #37 |
+| 171 | Plano, Tarefa 5 | `AgendaDoPeriodo` com itens, bloqueios, retornos, aniversários e regras | Também `periodo` e `opcoes`; `agendaDoPeriodoNaTransacao` exportada para a impressão | Doc | 5 #38 |
+| 172 | Spec §6.2 | Lista fechada dos textos | Textos em `MSG_VISOES` e textos novos fora da §6.2 (cabeçalhos da grade e da impressão, singular, estados vazios, mensagens de locais e horários, " · {nome do local}") | Pend. | 5 #39 |
+| 173 | Plano, Tarefa 5 | "Pedido a responder" na legenda | **Resolvida no PR 3 (T8):** `PEDIDOS_NA_AGENDA = true` | — | 5 #40 |
+| 174 | Plano, Tarefa 4 | Guarda do `publico` só no mesmo arquivo | Segue também os imports de `./`, `../` e `@/modules/…` e acusa alias, namespace, `returning()`, SQL cru e contexto em constante | Doc | 5 #41 |
+| 175 | Spec RN-406; tela da consulta | "Vazio = a sala fixa do local.": o link digitado vale | Consulta de origem `paciente` movida pela nutricionista para local online com sala: o gatilho `appointments_link_da_sala` troca o link digitado pela sala. **Resolvida pela AG-D82 (PR 4):** o banco decide; no "Alterar", o campo fica só leitura com "Sala fixa do local" | — | 5 #42 |
+| 176 | Spec §6.2 | "Horário excluído." | Definido em `MSG_AGENDA` e sem uso (a exclusão de regra não devolve mensagem) | Doc | 5 #43 |
+| 177 | Plano, Tarefa 12 | Guias `agenda` e `horarios` com locais, visões e impressão | `agenda` v3 (com o Mês) e `horarios` v2 ("local") desde a revisão final do PR 2; falta o texto da Nova consulta e os passos de Locais. **Resolvida no fechamento (T12):** os dois guias sobem de versão com os passos da Agenda 2 | — | 5 #44 |
 
 ### Agenda 2 (Plano 23, PR 3)
 
@@ -814,40 +827,54 @@ Conferido no branch `plano-23-agenda-2` em `f0122aa` (Tarefas 6–10 e as ondas 
 revisão final do PR 3; o PR 1 mesclado no #59, `16f944a`; 24/11/2026). Detalhe nas divergências 15–21 do
 [cap. 2](02-banco-de-dados.md#2129-divergências-do-plano-23), 45–62 do
 [cap. 5](05-agenda-portal-conteudo.md#51213-divergências-do-plano-23-pr-3) e 11–14 do
-[cap. 6](06-worker-seguranca-operacao.md#6126-divergências-do-plano-23-pr-3). Na `main`, os números 154–160 são do Plano 22
-(PR 2): no rebase, os do Plano 23 (154–170 do PR 2 e estes) andam 7 casas.
+[cap. 6](06-worker-seguranca-operacao.md#6126-divergências-do-plano-23-pr-3). Renumeradas no rebase sobre a `main` `96d6f94`
+(24/11/2026): o Plano 22 (PR 2) ocupou 154–160, e as do Plano 23 andaram 7 casas (161–177 do PR 2, estas 178–206).
 
 | # | Fonte | Diz | Código | Tipo | Cap. |
 |---|---|---|---|---|---|
-| 171 | Spec RN-425 | Aceite da pessoa nova: trava do tenant → linha do pedido | Também o paciente do e-mail (`FOR NO KEY UPDATE`) logo depois (AG-D65) | Doc | 2 #15 |
-| 172 | Spec RN-427 | O pedido vence em `inicio − antecedência ≤ agora` | O módulo usa o `agora` do job; o gatilho, o `now()` do banco: relógio do app adiantado → 42501 e o pedido vence na volta seguinte | Doc | 2 #16 |
-| 173 | Spec RN-432, §9.8 | Uma mensagem de aniversário por paciente por ano | Ano **UTC** no índice; o código grava sempre as 09:00 locais e a nova tentativa não cruza o ano | Reg. | 2 #17 |
-| 174 | Spec RN-428, RN-432 | Aniversário e "não confirmado" nunca por WhatsApp | O CHECK de `notifications` aceita os dois tipos no canal `whatsapp`; só o código impede | Pend. | 2 #18 |
-| 175 | Spec RN-425 | `app_pedido_aguardar` confere o pedido | Não confere a chave, a página pública nem o início futuro (quem confere é `gravarPedido`) | Doc | 2 #19 |
-| 176 | Spec RN-422 | Sessão do paciente: só as transições listadas | O gatilho não fixa `cancelado_por`/`cancelada_em` sem mudança de status (o módulo nunca grava isso) | Pend. | 2 #20 |
-| 177 | — | Motivo da exceção de `metricas-sucesso.ts` na guarda de status | Ainda cita "0127" (hoje `0131`) | Doc | 2 #21 |
-| 178 | Spec RN-432 | Aniversariante de hoje depois das 9h: `agendada_para` = agora | Sempre as 09:00 locais (já vencida, sai na próxima varredura) | Doc | 5 #45 |
-| 179 | Spec RN-431 | Ignorada com `sem_autorizacao` ou `paciente_inativo` | Também `prazo_passado`, `horario_silencioso` e `falhou`/`virada_do_ano` | Doc | 5 #46 |
-| 180 | Spec RN-424 | Aceite do termo no cadastro novo | Também quando o e-mail já é de paciente ativo (`onConflictDoNothing`) | Doc | 5 #47 |
-| 181 | Spec RN-429 | O aguardando não sai pela idade | Rede: o aguardando nunca resolvido cujo horário passou há mais de 24 h sai | Doc | 5 #48 |
-| 182 | Spec RN-428 | Avisos da recusa e do vencimento, sem horário | AG-D75 (plano): no horário silencioso, às 08:00 no fuso | Doc | 5 #49 |
-| 183 | Spec AG-D41 | Janela de 12 h para o pedido | Também na oferta da remarcação com a chave ligada (a remarcação nasce `agendada`) | Doc | 5 #50 |
-| 184 | Spec AG-D48 | O GET do link de desistência não grava | Também um limite por IP próprio (`pedido-link-ip`, 30/h) | Doc | 5 #51 |
-| 185 | Plano, Tarefa 8; spec §4.1 | Chave em `disponibilidade.ts`/`locais.ts`; `count` da aba na transação da tela | Em `solicitacoes.ts`; nas telas da agenda, transação curta própria | Doc | 5 #52 |
-| 186 | Plano, Tarefa 6 | "acabou de ser ocupado" no portal | O aguardando dá "Esse horário não está mais disponível. Escolha outro." | Doc | 5 #53 |
-| 187 | Spec RN-430 | "Em {n} semanas", convertida no fuso | Conta da data do atendimento; 1 a 104 | Doc | 5 #54 |
-| 188 | Plano, Tarefa 10 | Nome social lido só no worker | Também na lista do painel, por projeção, só para o `wa.me` (AG-D77) | Reg. | 5 #55 |
-| 189 | Spec RN-434 | Um clique: 200 sem corpo | Também 429, 400 e 303 (formulário da página) | Doc | 5 #56 |
-| 190 | Plano, Tarefa 10 | Seção `aniversario` no fim do `dados.json` | Antes de `financeiro` (o teste do Plano 20 exige `financeiro` por último) | Doc | 5 #57 |
-| 191 | Plano, Tarefa 10 ("para decidir") | — | "Retirar autorização" da nutricionista sem confirmação; a prévia mostra "{primeiro nome}" | Comp. | 5 #58 |
-| 192 | Spec RN-428 | "Não confirmado" ao paciente | Sai também para horário já passado depois de parada longa do worker (decisão do dono pendente) | Comp. | 5 #59 |
-| 193 | — | — | A retirada gravada entre `carregarContexto` e `transport.send` não impede o e-mail daquele ano | Doc | 5 #60 |
-| 194 | Plano, Tarefa 12 | Volta atrás do aniversário no runbook | Falta (na imagem do PR 2, `falhou`/`sem_modelo` e a saída 404) | Pend. | 5 #61, 6 #12 |
-| 195 | Spec §6.2; plano, Tarefa 12 | Lista fechada dos textos; guias com a Agenda 2 | Textos novos fora da §6.2, ajuda do portal provisória (AG-D78), e-mails sem o nome do consultório (E-09), guias sem os passos novos | Pend. | 5 #62 |
-| 196 | Spec RN-434 | Um clique pelo `List-Unsubscribe` | DKIM dos dois cabeçalhos ainda não conferido em produção | Pend. | 6 #11 |
-| 197 | Plano, Tarefa 12 | Runbook do PR 3 completo | Sem a parte do aniversário (ver #194) | Pend. | 6 #12 |
-| 198 | — | — | O POST "Desistir do pedido" conta no mesmo limite `ip` (10/h) do pedido de código | Doc | 6 #13 |
-| 199 | — | — | `vencerSolicitacoes` usa `getEnv().APP_URL`, não o `appUrl` das dependências do worker | Doc | 6 #14 |
+| 178 | Spec RN-425 | Aceite da pessoa nova: trava do tenant → linha do pedido | Também o paciente do e-mail (`FOR NO KEY UPDATE`) logo depois (AG-D65) | Doc | 2 #15 |
+| 179 | Spec RN-427 | O pedido vence em `inicio − antecedência ≤ agora` | O módulo usa o `agora` do job; o gatilho, o `now()` do banco: relógio do app adiantado → 42501 e o pedido vence na volta seguinte | Doc | 2 #16 |
+| 180 | Spec RN-432, §9.8 | Uma mensagem de aniversário por paciente por ano | Ano **UTC** no índice; o código grava sempre as 09:00 locais e a nova tentativa não cruza o ano | Reg. | 2 #17 |
+| 181 | Spec RN-428, RN-432 | Aniversário e "não confirmado" nunca por WhatsApp | O CHECK de `notifications` aceita os dois tipos no canal `whatsapp`; só o código impede | Pend. | 2 #18 |
+| 182 | Spec RN-425 | `app_pedido_aguardar` confere o pedido | Não confere a chave, a página pública nem o início futuro (quem confere é `gravarPedido`) | Doc | 2 #19 |
+| 183 | Spec RN-422 | Sessão do paciente: só as transições listadas | O gatilho não fixa `cancelado_por`/`cancelada_em` sem mudança de status (o módulo nunca grava isso) | Pend. | 2 #20 |
+| 184 | — | Motivo da exceção de `metricas-sucesso.ts` na guarda de status | Ainda cita "0127" (hoje `0131`). **Resolvida no fechamento (T12)** | — | 2 #21 |
+| 185 | Spec RN-432 | Aniversariante de hoje depois das 9h: `agendada_para` = agora | Sempre as 09:00 locais (já vencida, sai na próxima varredura) | Doc | 5 #45 |
+| 186 | Spec RN-431 | Ignorada com `sem_autorizacao` ou `paciente_inativo` | Também `prazo_passado`, `horario_silencioso` e `falhou`/`virada_do_ano` | Doc | 5 #46 |
+| 187 | Spec RN-424 | Aceite do termo no cadastro novo | Também quando o e-mail já é de paciente ativo (`onConflictDoNothing`) | Doc | 5 #47 |
+| 188 | Spec RN-429 | O aguardando não sai pela idade | Rede: o aguardando nunca resolvido cujo horário passou há mais de 24 h sai | Doc | 5 #48 |
+| 189 | Spec RN-428 | Avisos da recusa e do vencimento, sem horário | AG-D75 (plano): no horário silencioso, às 08:00 no fuso | Doc | 5 #49 |
+| 190 | Spec AG-D41 | Janela de 12 h para o pedido | Também na oferta da remarcação com a chave ligada (a remarcação nasce `agendada`) | Doc | 5 #50 |
+| 191 | Spec AG-D48 | O GET do link de desistência não grava | Também um limite por IP próprio (`pedido-link-ip`, 30/h) | Doc | 5 #51 |
+| 192 | Plano, Tarefa 8; spec §4.1 | Chave em `disponibilidade.ts`/`locais.ts`; `count` da aba na transação da tela | Em `solicitacoes.ts`; nas telas da agenda, transação curta própria | Doc | 5 #52 |
+| 193 | Plano, Tarefa 6 | "acabou de ser ocupado" no portal | O aguardando dá "Esse horário não está mais disponível. Escolha outro." | Doc | 5 #53 |
+| 194 | Spec RN-430 | "Em {n} semanas", convertida no fuso | Conta da data do atendimento; 1 a 104 | Doc | 5 #54 |
+| 195 | Plano, Tarefa 10 | Nome social lido só no worker | Também na lista do painel, por projeção, só para o `wa.me` (AG-D77) | Reg. | 5 #55 |
+| 196 | Spec RN-434 | Um clique: 200 sem corpo | Também 429, 400 e 303 (formulário da página) | Doc | 5 #56 |
+| 197 | Plano, Tarefa 10 | Seção `aniversario` no fim do `dados.json` | Antes de `financeiro` (o teste do Plano 20 exige `financeiro` por último) | Doc | 5 #57 |
+| 198 | Plano, Tarefa 10 ("para decidir") | — | "Retirar autorização" da nutricionista sem confirmação; a prévia mostra "{primeiro nome}". **Resolvida pela AG-D80:** retirar sem confirmação, no painel e no portal (a prévia fica como está) | — | 5 #58 |
+| 199 | Spec RN-428 | "Não confirmado" ao paciente | Sai também para horário já passado depois de parada longa do worker (decisão do dono pendente). **Resolvida pela AG-D81 (PR 4):** só o estado, sem e-mail nem push; o envio ignora o que sobrar (`prazo_passado`) | — | 5 #59 |
+| 200 | — | — | A retirada gravada entre `carregarContexto` e `transport.send` não impede o e-mail daquele ano | Doc | 5 #60 |
+| 201 | Plano, Tarefa 12 | Volta atrás do aniversário no runbook | Falta (na imagem do PR 2, `falhou`/`sem_modelo` e a saída 404). **Resolvida no fechamento (T12):** seção "PR 3 (aniversariantes)" do runbook | — | 5 #61, 6 #12 |
+| 202 | Spec §6.2; plano, Tarefa 12 | Lista fechada dos textos; guias com a Agenda 2 | Textos novos fora da §6.2, ajuda do portal provisória (AG-D78), e-mails sem o nome do consultório (E-09), guias sem os passos novos (estes, na T12; os textos listados para aprovação em `docs/superpowers/plans/2026-11-17-nutridebby-23-textos-para-aprovacao.md`) | Pend. | 5 #62 |
+| 203 | Spec RN-434 | Um clique pelo `List-Unsubscribe` | DKIM dos dois cabeçalhos ainda não conferido em produção | Pend. | 6 #11 |
+| 204 | Plano, Tarefa 12 | Runbook do PR 3 completo | Sem a parte do aniversário (ver #201). **Resolvida no fechamento (T12)** | — | 6 #12 |
+| 205 | — | — | O POST "Desistir do pedido" conta no mesmo limite `ip` (10/h) do pedido de código | Doc | 6 #13 |
+| 206 | — | — | `vencerSolicitacoes` usa `getEnv().APP_URL`, não o `appUrl` das dependências do worker | Doc | 6 #14 |
+
+### Agenda 2 (Plano 23, PR 4 e fechamento)
+
+Conferido no branch `plano-23-agenda-2` em `0ba8869e` (Tarefa 11 e as correções das decisões AG-D79 a AG-D82, depois do
+rebase sobre a `main` `96d6f94`; 24/11/2026). Detalhe nas divergências 63–67 do
+[cap. 5](05-agenda-portal-conteudo.md#5138-divergências-do-plano-23-pr-4).
+
+| # | Fonte | Diz | Código | Tipo | Cap. |
+|---|---|---|---|---|---|
+| 207 | AG-D79; RN-436 | Arquivados com histórico nos filtros; o filtro de Pacientes conta consultas fora de `cancelada` e `solicitada` | Na lista de pacientes, o arquivado entra em "Arquivados" com **qualquer** consulta; o que só teve consulta cancelada ou pedido aparece e filtra para a lista vazia | Doc | 5 #63 |
+| 208 | AG-D81 | Sem "não confirmado" de horário passado | O comentário de `avisarPaciente` (`agendar.ts`) ainda diz que esse aviso sai "inclusive de horário que já passou" | Doc | 5 #64 |
+| 209 | Spec §6.2 | Lista fechada dos textos | "Arquivados", "Local dos lançamentos", "Escolha um local da lista.", "Sala fixa do local" e o recorte "Local: …" em Relatórios e no Resumo, à espera da aprovação (lista do fechamento em `docs/superpowers/plans/2026-11-17-nutridebby-23-textos-para-aprovacao.md`) | Pend. | 5 #65 |
+| 210 | Plano, Tarefa 11 ("Files") | E2E em `e2e/pacientes.spec.ts` | O caso de Pacientes ficou em `e2e/agenda-2.spec.ts` | Doc | 5 #66 |
+| 211 | Spec RN-403 | O arquivado some dos seletores | Os filtros de histórico o mostram, à parte (AG-D79, registrada no plano e na spec) | Reg. | 5 #67 |
 
 ### CI no runner próprio (12/10/2026)
 
@@ -858,6 +885,6 @@ Conferido no branch `runner-proprio` em `bbd7728` (antes do merge; mergeado no P
 |---|---|---|---|---|---|
 | 102 | Spec §9.7 ("Merge na `main`") e RNF-03 | Build da imagem no GitHub Actions, não na VPS, para não consumir CPU e memória do CRM | O CI roda na VPS, no runner próprio, inclusive o build de prova do job `image` (sem push), dentro da `user-1500.slice` (4 de 8 vCPU, 12 GB, sem swap); a imagem publicada segue montada no `publish` hospedado | Doc | 1 #13, 7 #11 |
 
-**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68, #74, #153, #168, #191 e #192. As de tipo Doc entram na
-próxima versão da spec ou do documento citado.
-Plano 22, PR 2: #145 (Comp.).
+**Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68, #74, #153 e, do
+Plano 22 (PR 2), #157. As de tipo Doc entram na próxima versão da spec ou do documento citado. Decididas no fechamento do
+Plano 23 (24/11/2026): #175 (AG-D82), #198 (AG-D80) e #199 (AG-D81) — eram #168, #191 e #192 antes da renumeração.

@@ -27,7 +27,7 @@ export function AbasDaAgenda({ atual, solicitacoes = null, comAniversariantes = 
   ];
   return (
     <nav aria-label="Seções da agenda">
-      <ul className="flex flex-wrap gap-x-1 border-b border-borda">
+      <ul data-guia="abas-agenda" className="flex flex-wrap gap-x-1 border-b border-borda">
         {abas.map((a) => (
           <li key={a.id}>
             <Link href={a.href} aria-current={a.id === atual ? 'page' : undefined} className={`inline-flex min-h-11 items-center whitespace-nowrap px-3 focus-visible:outline-offset-[-3px] ${a.id === atual ? 'border-b-2 border-marca font-semibold' : 'text-suave underline-offset-4 hover:underline'}`}>{a.rotulo}</Link>

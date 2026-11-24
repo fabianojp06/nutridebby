@@ -147,6 +147,14 @@ describe('arquivar e reativar pela lista (Plano 18, RN-273, D26)', () => {
     expect(await statusDe(T, p.id)).toBe('ativo');
   });
 
+  it('Plano 23 (US-415): o filtro "Local" do campo oculto volta junto', async () => {
+    const T = await consultorio();
+    const p = await novoPaciente(db, T.ctx);
+    const local = '00000000-0000-4000-8000-00000000c001';
+    const msg = await destino(arquivarDaListaAction(daLista(p.id, { local })));
+    expect(params(semMarcador(msg))).toEqual({ caminho: '/painel/pacientes', aba: 'todos', busca: 'Ana', local, ordem: 'recentes', ok: 'arquivado' });
+  });
+
   it('a URL do redirect é montada no servidor: um campo com URL externa é ignorado', async () => {
     const T = await consultorio();
     const p = await novoPaciente(db, T.ctx);

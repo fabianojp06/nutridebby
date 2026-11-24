@@ -14,7 +14,7 @@ import { exigirNutri, FinanceiroError, FinanceiroNaoConfiguradoError, Lancamento
 import { intervaloDoMes, mesDe } from './meses';
 import { cadastroDoPaciente, nomeDeExibicao } from './nome';
 import { dataDeReferencia, situacaoDoLancamento } from './situacao';
-import type { FiltrosLista, LancamentoNaTela, TotaisDaLista } from './tipos';
+import { SEM_LOCAL, type FiltrosLista, type LancamentoNaTela, type TotaisDaLista } from './tipos';
 
 type Deps = { db?: Db; agora?: Date };
 /**
@@ -391,6 +391,20 @@ function filtroDeSituacao(s: FiltrosLista['situacao'], hoje: string): SQL | unde
   }
 }
 
+/**
+ * Plano 23 (US-416, RN-437, AG-D12): o filtro "Local" pela consulta do lançamento (`appointment_id → appointments.local_id`,
+ * no tenant do lançamento): um local → os lançamentos das consultas dele; `SEM_LOCAL` → o resto (sem consulta, ou de
+ * consulta sem local) — os locais com "Sem local" somam o total sem filtro. O status da consulta não entra (o lançamento é
+ * da consulta, seja qual for a situação dela). Outro valor → sem filtro, como os outros filtros vindos da URL. Lançamentos,
+ * CSV e 12 meses; nunca o Resumo, o saldo nem o fluxo de caixa.
+ */
+export function filtroDeLocal(localId: string | undefined): SQL | undefined {
+  const consultaNoLocal = (local: SQL) =>
+    sql`exists (select 1 from appointments a where a.tenant_id = ${finLancamentos.tenantId} and a.id = ${finLancamentos.appointmentId} and ${local})`;
+  if (localId === SEM_LOCAL) return sql`not ${consultaNoLocal(sql`a.local_id is not null`)}`;
+  return idValido(localId) ? consultaNoLocal(sql`a.local_id = ${localId}`) : undefined;
+}
+
 /** Do mês atual até o mês `ate` (inclusive), mais recentes primeiro; só o atual se `ate` não for anterior. */
 function mesesAte(atual: string, ate: string | null): string[] {
   const indice = (m: string) => Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1;
@@ -433,6 +447,7 @@ export async function listaNaTransacao(tx: Tx, tenantId: string, hoje: string, f
     formaValida(filtros.forma) ? eq(finLancamentos.formaPagamento, filtros.forma!) : undefined,
     pacienteId ? eq(finLancamentos.patientId, pacienteId) : undefined,
     filtroDeSituacao(filtros.situacao, hoje),
+    filtroDeLocal(filtros.localId),
   );
   const limite = mes ? null : LIMITE_SEM_MES;
   const consulta = selecionarNaTela(tx).where(filtro).orderBy(desc(referencia), desc(finLancamentos.createdAt), desc(finLancamentos.id));

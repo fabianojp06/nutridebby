@@ -307,6 +307,36 @@ describe('vencimento (RN-427, RN-427a, AG-D67)', () => {
     expect(await vencerSolicitacoes(app.db, em('2026-10-16', '04:00'), { tenantId: T.tenantId })).toBe(1);
   }, 20_000);
 
+  it('AG-D81: depois de uma parada longa do worker, o pedido cujo horário já passou só vence (cancelada/pedido_vencido), sem "não confirmado"; o de horário futuro, como sempre', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const passou = await pedidoDireto(app.db, T, ana.id, em('2026-10-16', '16:00'));
+    const futuro = await pedidoDireto(app.db, T, ana.id, em('2026-10-17', '03:00'));
+    // o worker volta às 16:00 do dia 16: o primeiro começou agora (já passou); o segundo venceu às 15:00 (12 h antes) e ainda não começou
+    expect(await vencerSolicitacoes(app.db, em('2026-10-16', '16:00'), { tenantId: T.tenantId })).toBe(2);
+    expect(await consulta(T, passou)).toMatchObject({ status: 'cancelada', canceladoPor: 'pedido_vencido', canceladaEm: em('2026-10-16', '16:00') });
+    expect(await avisos(T, passou)).toEqual([]);
+    expect(await consulta(T, futuro)).toMatchObject({ status: 'cancelada', canceladoPor: 'pedido_vencido' });
+    expect((await avisos(T, futuro)).map((n) => [n.tipo, n.canal]).sort()).toEqual([['pedido_nao_confirmado', 'email'], ['pedido_nao_confirmado', 'push']]);
+  });
+
+  it('AG-D81: o "não confirmado" já agendado cujo horário passou antes do envio (o silêncio da noite, o worker parado) sai como ignorada/prazo_passado', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const id = await pedidoDireto(app.db, T, ana.id, em('2026-10-16', '07:00'));
+    // vence às 03:00 (horário silencioso): o aviso fica para as 08:00, quando a consulta pedida (07:00) já passou
+    await vencerSolicitacoes(app.db, em('2026-10-16', '03:00'), { tenantId: T.tenantId });
+    expect((await avisos(T, id)).map((n) => n.status)).toEqual(['pendente', 'pendente']);
+    const envio = depsDeEnvio(em('2026-10-16', '08:00'), { db: app.db });
+    await processarNotificacoes(envio, { tenantId: T.tenantId });
+    const linhas = await withTenant(T.ctx, (tx) => tx.select({ status: notifications.status, motivo: notifications.motivoIgnorada }).from(notifications).where(eq(notifications.appointmentId, id)), app.db);
+    expect(linhas).toEqual([
+      { status: 'ignorada', motivo: 'prazo_passado' },
+      { status: 'ignorada', motivo: 'prazo_passado' },
+    ]);
+    expect(envio.transport.enviados).toEqual([]);
+  });
+
   it('titular arquivado ou bloqueado (art. 18, IV): o pedido vence sem criar aviso para ele', async () => {
     const T = await novoTenant(app.db);
     const ana = await novoPaciente(app.db, T.ctx);

@@ -73,8 +73,13 @@ export function motivoParaIgnorar(c: ContextoEnvio): Resultado | null {
   if (!c.paciente || c.paciente.status !== 'ativo' || c.paciente.anonimizadoEm) return ignorar('paciente_inativo'); // RN-08, US-018
   // US-010 (rodada 1 da T14): o convite por WhatsApp que ainda estava na fila quando o paciente aceitou pelo e-mail não sai
   if (c.n.tipo === 'convite_paciente' && c.paciente.userId) return ignorar('convite_aceito');
-  // Plano 23 (§4.3, RN-428): o "pedido não confirmado" só sai com a consulta cancelada (recusa ou vencimento)
-  if (c.n.tipo === 'pedido_nao_confirmado') return c.consulta?.status === 'cancelada' ? null : ignorar('consulta_nao_aceita');
+  // Plano 23 (§4.3, RN-428): o "pedido não confirmado" só sai com a consulta cancelada (recusa ou vencimento); AG-D81: e só
+  // antes do horário pedido — "escolha outro horário" para um horário que já passou (o aviso esperou o fim do silêncio, ou o
+  // worker parou) confunde
+  if (c.n.tipo === 'pedido_nao_confirmado') {
+    if (c.consulta?.status !== 'cancelada') return ignorar('consulta_nao_aceita');
+    return c.consulta.inicio.getTime() <= c.agora.getTime() ? ignorar('prazo_passado') : null;
+  }
   // Plano 23 (RN-431): o aniversário é reconferido na hora do envio (a autorização retirada depois do agendamento não sai)
   if (c.n.tipo === 'aniversario') return motivoDoAniversario(c);
   // lembretes, "Consulta marcada" e a resposta a "1"/"2" (T12) falam de uma consulta num horário: conferidos aqui

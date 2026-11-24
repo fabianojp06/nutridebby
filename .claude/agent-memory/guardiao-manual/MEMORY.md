@@ -1,3 +1,3 @@
-- [Estado dos manuais](estado-dos-manuais.md) — último: P27 PR 3 (metas) em 0035a3a, 24/11; README até #172, cap. 4 até #34, spec v0.5, técnico: Plano 23 PR 2 (Agenda 2, §5.11) em 23/11 (`02fb478`); PR 1 do 23 sem manual (T12)
+- [Estado dos manuais](estado-dos-manuais.md) — último: P27 PR 3 (metas) em 0035a3a, 24/11; README até #172, cap. 4 até #34, spec v0.5, técnico: Plano 23 PR 2 (Agenda 2, §5.11) em 23/11 (`02fb478`); PR 1 do 23 sem manual (T12), técnico: Plano 23 PR 3 (§2.12, §5.12, §6.12) em 24/11 (`d4d522c`, base `f0122aa`); rebase pendente, técnico: fechamento do Plano 23 (§5.13, §6.13, §12.14; README #161–#211) em 24/11
 - [Onde os manuais envelhecem](onde-os-manuais-envelhecem.md) — checklist de contagens, linhas e status que ficam velhos a cada fechamento
 - [Sem push nem PR](sem-push-sem-pr.md) — commit só se pedido; push/PR/merge ficam com quem orquestra

@@ -3,6 +3,7 @@ import { Aviso } from '@/components/ui/aviso';
 import { BotaoLink } from '@/components/ui/botao';
 import { Cartao } from '@/components/ui/cartao';
 import { requireNutri } from '@/lib/tenant-session';
+import { MSG_FILTRO_LOCAL } from '@/modules/agenda/constantes';
 import { MSG_FINANCEIRO as M } from '@/modules/financeiro/constantes';
 import { formatarReais } from '@/modules/financeiro/dinheiro';
 import { mesDe, nomeDoMes } from '@/modules/financeiro/meses';
@@ -17,7 +18,8 @@ const LINK = 'inline-flex min-h-11 items-center text-link underline';
 
 /**
  * US-305 (Resumo do mês) e US-300 (primeiro acesso). Sem configuração (RN-301): só "Comece por aqui" e o botão das
- * Configurações, sem "Nova entrada"/"Nova saída". Uma transação (RNF-301); sem `auditRead` (RN-318).
+ * Configurações, sem "Nova entrada"/"Nova saída". Uma transação (RNF-301); sem `auditRead` (RN-318). Plano 23 (RN-437):
+ * de todos os locais, sem filtro.
  */
 export default async function ResumoDoFinanceiro({ searchParams }: PageProps<'/painel/financeiro'>) {
   const { ctx, tenant } = await requireNutri('/painel/financeiro');
@@ -63,6 +65,8 @@ export default async function ResumoDoFinanceiro({ searchParams }: PageProps<'/p
           </Link>
         </Aviso>
       )}
+      {/* Plano 23 (US-416, RN-437): o Resumo e o saldo não se dividem por local */}
+      <p className="text-sm text-suave">{MSG_FILTRO_LOCAL.recorte(MSG_FILTRO_LOCAL.todosOsLocais)}</p>
       <div data-guia="financeiro-cartoes" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Cartao id="cartao-saldo" titulo={M.cartaoSaldo.titulo}>
           <p className="font-titulo text-2xl font-semibold">{reais(r.saldoAtual ?? 0)}</p>

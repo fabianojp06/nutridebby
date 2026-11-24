@@ -328,7 +328,7 @@ A conta de paciente não tem tenant. Para abrir o portal é preciso saber **qual
 
 ### Contexto `conta` (Plano 06, D2)
 
-`withConta(userId, fn)` (`src/db/tenant.ts:114`) abre a transação com `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id` vazio. No banco, a política `paciente_por_conta` (`drizzle/0073_conta_vinculos.sql`, linha 6) libera **só `SELECT`** em `patients` onde `user_id` é a própria conta. Toda outra tabela devolve 0 linhas, porque nenhuma `tenant_isolation` casa sem tenant. Nada é gravado.
+`withConta(userId, fn)` (`src/db/tenant.ts:115`) abre a transação com `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id` vazio. No banco, a política `paciente_por_conta` (`drizzle/0073_conta_vinculos.sql`, linha 6) libera **só `SELECT`** em `patients` onde `user_id` é a própria conta. Toda outra tabela devolve 0 linhas, porque nenhuma `tenant_isolation` casa sem tenant. Nada é gravado.
 
 Uso restrito (CLAUDE.md, regra 1): `src/modules/portal/vinculos.ts` e a função `app_conta_sem_outro_vinculo` (`drizzle/0079_paciente_titular.sql`), usada na anonimização.
 
@@ -414,7 +414,7 @@ Os casos estão em `src/lib/paciente-session.cache.test.ts`. No Vitest o `cache`
 **O contexto de paciente aberto pela nutricionista (Plano 18, D16, RN-281).** O "No app do paciente" do painel conta o que
 o app mostra **com a RLS do paciente**, em vez de reproduzir os filtros do portal na sessão `nutri` (a audiência do
 conteúdo e a etiqueta, `paciente_so_emitidos`, `paciente_sem_rascunho`). Por isso `src/modules/ficha/no-app.ts` é o
-sétimo arquivo de `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:39-47`). As travas:
+sétimo arquivo de `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:39-48`). As travas:
 
 - `noAppDoPaciente` (`no-app.ts:84`) só aceita `ctx.role === 'nutri'` (`:90`) e, antes de abrir o contexto do paciente,
   confere na sessão `nutri` que o paciente é do consultório; arquivado, bloqueado ou anonimizado não abre o contexto

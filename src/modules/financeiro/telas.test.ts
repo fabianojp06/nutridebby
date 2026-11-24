@@ -154,7 +154,7 @@ describe('RNF-301: cada tela em uma transação', () => {
     // BEGIN, set_config do withTenant e COMMIT + as consultas de cada tela
     expect({
       lista: await medir((d) => telaDeLancamentos(C.ctx, C.tenant, {}, d)),
-      // configuração, paciente, linhas, totais, mês mais antigo, auditRead, categorias
+      // configuração, paciente, linhas, totais, mês mais antigo, auditRead, categorias, locais do filtro
       listaDoPaciente: await medir((d) => telaDeLancamentos(C.ctx, C.tenant, { pacienteId: C.p }, d)),
       // configuração, categorias, pacientes, paciente pedido (bloqueado)
       novaEntrada: await medir((d) => formularioNovo(C.ctx, 'entrada', C.bruno, d)),
@@ -165,8 +165,8 @@ describe('RNF-301: cada tela em uma transação', () => {
       configuracoes: await medir((d) => telaDeConfiguracoes(C.ctx, d)),
       configuracoesSemConfig: await medir(async (d) => telaDeConfiguracoes((await novoTenant(app.db)).ctx, d)),
     }).toEqual({
-      lista: { transacoes: 1, consultas: 3 + 5 }, // configuração, linhas, totais, mês mais antigo, categorias
-      listaDoPaciente: { transacoes: 1, consultas: 3 + 7 },
+      lista: { transacoes: 1, consultas: 3 + 6 }, // configuração, linhas, totais, mês mais antigo, categorias, locais do filtro (Plano 23)
+      listaDoPaciente: { transacoes: 1, consultas: 3 + 8 },
       novaEntrada: { transacoes: 1, consultas: 3 + 4 },
       novaSaida: { transacoes: 1, consultas: 3 + 2 },
       edicao: { transacoes: 1, consultas: 3 + 3 },

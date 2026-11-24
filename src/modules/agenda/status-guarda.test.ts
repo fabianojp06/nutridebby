@@ -48,6 +48,7 @@ const EXCECOES: Record<string, { n: number; motivo: string }> = {
   'src/modules/agenda/cancelamento.ts': { n: 3, motivo: 'exclusão LGPD cancela também o pedido (STATUS_OCUPA, §4.3); cancelar, remarcar e confirmar só em STATUS_ATIVOS (AG-D70)' },
   'src/modules/agenda/agendamento-paciente.ts': { n: 2, motivo: 'teto de 3 futuras do portal conta o pedido (STATUS_OCUPA, §4.3); o status do RETURNING decide lembretes e avisos (AG-D53)' },
   'src/modules/agenda/agendamento-publico.ts': { n: 3, motivo: 'teto de 3 futuras da página pública conta o pedido (STATUS_OCUPA, §4.3); o status do RETURNING decide entre "agendada" e "pedido" (RN-426, AG-D53); a limpeza guarda o pedido da consulta ainda `solicitada` (revisão final do PR 3, M-1 do banco)' },
+  'src/modules/agenda/locais.ts': { n: 1, motivo: 'opções do filtro "Local" de Pacientes: o arquivado entra com consulta fora de cancelada e solicitada, o mesmo critério do filtro (RN-436; o pedido não conta, §4.3)' },
   'src/modules/agenda/acoes-link.ts': { n: 2, motivo: 'link da consulta: ações só em STATUS_ATIVOS e "confirmada" (o pedido não tem link, §4.3)' },
   'src/modules/agenda/solicitacoes.ts': { n: 5, motivo: 'a fila, o aceite, a recusa, a desistência e o vencimento agem só sobre `solicitada` (RN-422, RN-427a)' },
   'src/modules/agenda/visoes.ts': { n: 3, motivo: 'a grade mostra tudo menos cancelada (RN-413; o pedido aparece com o selo); presença a registrar só STATUS_ATIVOS; `realizada` da Primeira consulta/Retorno (RN-416)' },
@@ -63,7 +64,7 @@ const EXCECOES: Record<string, { n: number; motivo: string }> = {
   'src/modules/relatorios/atendimentos.ts': { n: 1, motivo: 'Relatórios › Atendimentos: só `realizada` (o pedido não conta, §4.3)' },
   'src/modules/relatorios/ranking.ts': { n: 1, motivo: 'Relatórios › Ranking: só `realizada` (o pedido não conta, §4.3)' },
   'src/modules/pacientes/atendimentos.ts': { n: 1, motivo: 'o atendimento leva a consulta a realizada (a regra do pedido mora em motivoParaNaoIniciarAtendimento)' },
-  'src/modules/plataforma/metricas-sucesso.ts': { n: 2, motivo: 'métricas do admin: só `realizada` (o pedido nunca é realizado; o recorte do pedido está nas funções SQL da 0127, R-410)' },
+  'src/modules/plataforma/metricas-sucesso.ts': { n: 2, motivo: 'métricas do admin: só `realizada` (o pedido nunca é realizado; o recorte do pedido está nas funções SQL da 0131, R-410)' },
   'src/modules/financeiro/cobranca.ts': { n: 2, motivo: 'Plano 20: só a consulta realizada é cobrada (o pedido nunca é realizado)' },
   'src/modules/documentos/documentos.ts': { n: 1, motivo: 'falso positivo: status do documento assinado, não da consulta' },
   'src/modules/ia/leitura-job.ts': { n: 1, motivo: 'falso positivo: status da tarefa de IA, não da consulta' },
@@ -75,6 +76,7 @@ const EXCECOES: Record<string, { n: number; motivo: string }> = {
   'src/app/p/(portal)/agenda/actions.ts': { n: 1, motivo: 'o status devolvido por agendarComoPaciente decide "Pedido enviado…" (US-408, AG-D53)' },
   'src/modules/agenda/retorno.ts': { n: 1, motivo: 'marcador "Retorno previsto": some com consulta futura em STATUS_OCUPA — o pedido conta como futura (RN-430, §4.3; T9)' },
   'src/modules/ficha/secoes/consultas.ts': { n: 1, motivo: 'seção "Consultas" da ficha: as futuras em STATUS_OCUPA, o pedido com "Pedido a responder" (§4.4; T9)' },
+  'src/modules/pacientes/pacientes.ts': { n: 1, motivo: 'filtro "Local" da lista de pacientes: `not in (cancelada, solicitada)` — o pedido não liga o paciente ao local (RN-436, T11)' },
 };
 
 const PASTAS = ['src/modules', 'src/app'];

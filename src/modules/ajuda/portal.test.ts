@@ -12,11 +12,11 @@ const FONTES = ['src/app/p', 'src/components/portal']
   .join('\n');
 
 describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
-  it('id no formato do progresso e fora dos guias do painel; versão 4 (Plano 22: os resultados liberados em Exames); 5 passos com "1 de 5"', () => {
+  it('id no formato do progresso e fora dos guias do painel; versão 5 (Plano 23: pedidos e aniversário; 4 = Plano 22: os resultados liberados em Exames); 5 passos com "1 de 5"', () => {
     expect(GUIA_PORTAL.id).toBe('portal-novidades');
     expect(GUIA_PORTAL.id).toMatch(ID_GUIA);
     expect(GUIAS.map((g) => g.id)).not.toContain(GUIA_PORTAL.id);
-    expect(GUIA_PORTAL.versao).toBe(4);
+    expect(GUIA_PORTAL.versao).toBe(5);
     expect(GUIA_PORTAL.passos).toHaveLength(5);
   });
   it('todo alvo do tour existe numa tela do portal (data-guia); a faixa, o mural, as respostas, as ações e a seção Eu', () => {
@@ -61,13 +61,27 @@ describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
     expect(avisoDoGuia({}, false)).toBe(AVISO_PORTAL.boasVindas);
     expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 2, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 17: a versão 2 já é anterior
     expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 3, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 22: a versão 3 já é anterior
-    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 4, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 4, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 23: a versão 4 já é anterior
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 5, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
     expect(avisoDoGuia({ outro: { v: 1, estado: 'visto' } }, false)).toBe(AVISO_PORTAL.boasVindas); // o progresso de outro guia não conta
   });
 
   it('Plano 17 (Tarefa 6): os lembretes em "Perguntas comuns", com a ressalva de que dependem da nutricionista; o tour não muda', () => {
     const itens = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')?.itens ?? [];
     expect(itens).toContain('Se a sua nutricionista configurou lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um.');
+    expect(GUIA_PORTAL.passos.map((p) => p.alvo)).toEqual(['faixa', 'mural', 'respostas', 'acoes', 'secao-eu']);
+  });
+
+  it('Plano 23 (T12): o pedido que espera a confirmação (com a ressalva do consultório) e a mensagem de aniversário em Eu; o tour não muda', () => {
+    const itens = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Perguntas comuns')?.itens ?? [];
+    const pedido = itens.find((i) => i.includes('Aguardando confirmação da nutricionista'));
+    expect(pedido).toContain('Se a sua nutricionista confirma os pedidos');
+    expect(pedido).toContain('"Desistir do pedido"');
+    expect(itens).toContain('Em Eu, você autoriza ou retira a mensagem de aniversário da sua nutricionista quando quiser.');
+    const onde = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Onde fica cada coisa')?.itens ?? [];
+    expect(onde.find((i) => i.startsWith('Eu:'))).toContain('a mensagem de aniversário');
+    // os rótulos citados existem no portal (o texto vem das constantes da agenda, desenhadas nas telas do portal)
+    for (const r of ['Aguardando confirmação da nutricionista', 'Desistir do pedido']) expect(readFileSync(path.resolve('src/modules/agenda/constantes.ts'), 'utf8')).toContain(r);
     expect(GUIA_PORTAL.passos.map((p) => p.alvo)).toEqual(['faixa', 'mural', 'respostas', 'acoes', 'secao-eu']);
   });
 });

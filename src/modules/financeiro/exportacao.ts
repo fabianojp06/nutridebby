@@ -2,14 +2,17 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { finCategorias, finLancamentos, patients } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { locaisDoFiltro, type LocalDoFiltro } from '@/modules/agenda/locais';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { recordAudit } from '@/modules/plataforma/audit';
 import { configuracaoNaTransacao } from './configuracoes';
 import { csvFluxo, csvLancamentos } from './csv';
-import { exigirNutri } from './erros';
+import { exigirNutri, LocalDoFiltroInvalidoError } from './erros';
+import { filtroDeLocal } from './lancamentos';
 import { periodoValido } from './meses';
 import { fluxoNaTransacao } from './resumo';
 import { situacaoDoLancamento } from './situacao';
+import { localEscolhido } from './telas';
 import type { LinhaCsv } from './tipos';
 
 /**
@@ -29,27 +32,32 @@ const referencia = sql<string>`coalesce(${L.pagoEm}, ${L.vencimento})`;
  * cancelados incluídos com a situação, do mais antigo ao mais novo. O nome do paciente é o **nome civil**
  * (`patients.nome`: documento fiscal) e vem em toda linha com paciente — sem `comPacientes`, `csvLancamentos` tira a coluna
  * e esvazia a descrição dessas linhas. `exportar`: um por paciente presente no arquivo com `comPacientes`; senão (ou sem
- * nenhum paciente no período), um sem paciente.
+ * nenhum paciente no período), um sem paciente. Plano 23 (US-416, RN-437): `localId` (um local ou `SEM_LOCAL`) recorta as
+ * linhas como a lista (`filtroDeLocal`); o `exportar` é o mesmo. AG-D79: o local tem de ser "Sem local" ou uma das
+ * opções do filtro (`LocalDoFiltroInvalidoError`, antes de ler); devolve o local aplicado, para o nome do arquivo.
  */
 export async function exportarLancamentosCsv(
   ctx: TenantContext,
   tenant: Tenant,
-  pedido: { de: string; ate: string; comPacientes: boolean },
+  pedido: { de: string; ate: string; comPacientes: boolean; localId?: string },
   deps: Deps = {},
-): Promise<string> {
+): Promise<{ csv: string; local: LocalDoFiltro | null }> {
   exigirNutri(ctx);
-  const { de, ate, comPacientes } = pedido;
+  const { de, ate, comPacientes, localId } = pedido;
   if (!periodoValido(de, ate)) throw new RangeError('financeiro: período do CSV inválido');
   const hoje = hojeNoFuso(tenant.fuso, deps.agora ?? new Date());
   return withTenant(
     ctx,
     async (tx) => {
+      // Plano 23 (AG-D79): só "Sem local" ou uma das opções do filtro; o resto recusa antes de ler (nada é exportado)
+      const local = localId ? localEscolhido(await locaisDoFiltro(tx, 'financeiro'), localId) : null;
+      if (localId && !local) throw new LocalDoFiltroInvalidoError();
       const linhas = await tx
         .select({ l: L, categoria: finCategorias.nome, paciente: patients.nome })
         .from(L)
         .innerJoin(finCategorias, and(eq(finCategorias.tenantId, L.tenantId), eq(finCategorias.id, L.categoriaId)))
         .leftJoin(patients, and(eq(patients.tenantId, L.tenantId), eq(patients.id, L.patientId)))
-        .where(and(eq(L.tenantId, ctx.tenantId), sql`${referencia} between ${de} and ${ate}`))
+        .where(and(eq(L.tenantId, ctx.tenantId), sql`${referencia} between ${de} and ${ate}`, filtroDeLocal(local?.id)))
         .orderBy(asc(referencia), asc(L.createdAt), asc(L.id));
       const presentes = [...new Set(linhas.flatMap((r) => (r.l.patientId ? [r.l.patientId] : [])))];
       await recordAudit(
@@ -58,7 +66,7 @@ export async function exportarLancamentosCsv(
           ? presentes.map((patientId) => ({ acao: 'exportar' as const, entidade: 'financeiro', entidadeId: null, patientId }))
           : { acao: 'exportar', entidade: 'financeiro', entidadeId: null, patientId: null },
       );
-      return csvLancamentos(
+      const csv = csvLancamentos(
         linhas.map(
           ({ l, categoria, paciente }): LinhaCsv => ({
             vencimento: l.vencimento,
@@ -74,6 +82,7 @@ export async function exportarLancamentosCsv(
         ),
         { comPacientes },
       );
+      return { csv, local };
     },
     deps.db ?? getDb(),
   );

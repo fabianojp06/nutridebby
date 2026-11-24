@@ -1,7 +1,11 @@
 import Link from 'next/link';
 import type { FinCategoriaRow } from '@/db/schema';
+import { OpcoesDoFiltroDeLocal } from '@/components/opcoes-de-local';
+import { MSG_FILTRO_LOCAL } from '@/modules/agenda/constantes';
+import type { OpcoesDeLocal } from '@/modules/agenda/locais';
 import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 import { nomeDoMes } from '@/modules/financeiro/meses';
+import { SEM_LOCAL } from '@/modules/financeiro/tipos';
 import { OpcoesDeForma, Selecao } from './comum';
 import { mesVizinho, urlDaLista, type FiltrosDaUrl } from './url';
 
@@ -20,6 +24,8 @@ type Props = {
   /** `meses` de `listarLancamentos` (do mês atual ao do lançamento mais antigo). */
   meses: string[];
   categorias: Pick<FinCategoriaRow, 'id' | 'tipo' | 'nome'>[];
+  /** Plano 23 (US-416, AG-D79): as opções de "Local" (os ativos e os arquivados com lançamento), com "Todos os locais" e "Sem local". */
+  locais: OpcoesDeLocal;
   /** O paciente do filtro (chip "Paciente: {nome}"). */
   paciente: { id: string; nome: string } | null;
 };
@@ -28,9 +34,10 @@ type Props = {
  * RN-306 / §6.2: os filtros da lista num formulário GET ("Filtrar"), sem JavaScript. "Mês" é um `<select>` (não
  * `<input type="month">`, que o Firefox desktop não tem), mais recentes primeiro, com o mês escolhido mesmo fora da lista
  * (um mês futuro, que `meses` não traz) e "Todos os meses" só com o filtro de paciente; "Mês anterior"/"Próximo mês" são
- * links com os outros filtros. O paciente vai num campo oculto, com o chip "Paciente: {nome}" e "Limpar".
+ * links com os outros filtros. O paciente vai num campo oculto, com o chip "Paciente: {nome}" e "Limpar". Plano 23 (US-416,
+ * RN-437): "Local" — "Todos os locais", os locais e "Sem local" (lançamento sem consulta ou de consulta antiga).
  */
-export function FiltrosDaLista({ filtros, meses, categorias, paciente }: Props) {
+export function FiltrosDaLista({ filtros, meses, categorias, locais, paciente }: Props) {
   const { mes } = filtros;
   const opcoesDeMes = mes && !meses.includes(mes) ? [...meses, mes].sort().reverse() : meses;
   const doTipo = (tipo: 'entrada' | 'saida') => categorias.filter((c) => c.tipo === tipo);
@@ -93,6 +100,12 @@ export function FiltrosDaLista({ filtros, meses, categorias, paciente }: Props) 
         <Selecao id="forma" rotulo={F.forma} defaultValue={filtros.forma ?? ''}>
           <OpcoesDeForma vazia={F.todas} />
         </Selecao>
+        {/* o nome do local tem até 60 caracteres: a 360 px o seletor encolhe com a tela */}
+        <div className="min-w-0 max-w-full sm:max-w-xs">
+          <Selecao id="local" rotulo={MSG_FILTRO_LOCAL.local} defaultValue={filtros.local ?? ''}>
+            <OpcoesDoFiltroDeLocal opcoes={locais} semLocal={SEM_LOCAL} />
+          </Selecao>
+        </div>
         <button className="inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha">
           {F.filtrar}
         </button>

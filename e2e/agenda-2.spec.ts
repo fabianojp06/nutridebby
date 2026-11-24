@@ -237,6 +237,23 @@ test('impressão em PDF A4 com várias páginas: nenhuma linha some, e o rodapé
   }
 });
 
+test('Plano 23 (T11, US-415, RN-436): "Local" na lista de pacientes — combina com a busca; a aba leva o filtro', async () => {
+  // Lia tem consulta na Clínica Centro E2E (e no Consultório E2E, pelo Mês); Rui, só no Consultório E2E
+  await nutri.goto(`/painel/pacientes?busca=${encodeURIComponent(`Visoes ${sufixo}`)}`);
+  await expect(nutri.getByRole('link', { name: LIA.nome, exact: true })).toBeVisible();
+  await expect(nutri.getByRole('link', { name: RUI.nome, exact: true })).toBeVisible();
+  await nutri.getByLabel('Local', { exact: true }).selectOption({ label: 'Clínica Centro E2E' });
+  await nutri.getByRole('button', { name: 'Filtrar' }).click();
+  await expect(nutri).toHaveURL(/[?&]local=[0-9a-f-]{36}/);
+  await expect(nutri.getByRole('link', { name: LIA.nome, exact: true })).toBeVisible();
+  await expect(nutri.getByRole('link', { name: RUI.nome, exact: true })).toHaveCount(0);
+  // a aba "Todos" mantém o local e a busca
+  await nutri.getByRole('navigation', { name: 'Situação dos pacientes' }).getByRole('link', { name: 'Todos' }).click();
+  await expect(nutri).toHaveURL(/aba=todos.*local=[0-9a-f-]{36}/);
+  await expect(nutri.getByLabel('Local', { exact: true }).locator('option:checked')).toHaveText('Clínica Centro E2E');
+  await expect(nutri.getByRole('link', { name: RUI.nome, exact: true })).toHaveCount(0);
+});
+
 test('locais: criar, arquivar e reativar (US-400)', async () => {
   const nome = `Sala E2E ${sufixo}`;
   await nutri.goto('/painel/agenda/locais');

@@ -51,7 +51,7 @@ Regras de base:
 ## 12.2 Peças
 
 Módulo `src/modules/financeiro/`. Toda função exportada que lê ou grava as tabelas chama `exigirNutri(ctx)`
-(`src/modules/financeiro/erros.ts:42`) **antes** de abrir a transação: numa sessão de paciente, o `staff_only` devolveria
+(`src/modules/financeiro/erros.ts:53`) **antes** de abrir a transação: numa sessão de paciente, o `staff_only` devolveria
 vazio em silêncio, e a tela mostraria "nenhum lançamento" em vez de um erro (RN-300, §4.2 da spec). As exceções são
 `titular.ts` e a função SQL `app_anonimizar_financeiro`, do contexto `worker`.
 
@@ -65,11 +65,11 @@ vazio em silêncio, e a tela mostraria "nenhum lançamento" em vez de um erro (R
 | `csv.ts` | `celulaTexto` (`:24`), `csvLancamentos` (`:38`), `csvFluxo` (`:58`) — puros ([§12.7](#127-csv-para-o-contador-us-306-rn-321)) |
 | `erros.ts` | `FinanceiroError` (erros por campo, sempre com textos de `MSG_FINANCEIRO`, nunca o digitado), `FinanceiroNaoConfiguradoError`, `LancamentoNaoEncontradoError`, `CategoriaNaoEncontradaError`, `exigirNutri` |
 | `configuracoes.ts` | `lerConfiguracoes`, `salvarConfiguracoes` (`:72`), categorias (`listarCategorias`, `criarCategoria`, `renomearCategoria`, `arquivarCategoria`, `reativarCategoria`, `excluirCategoria`); `configuracaoNaTransacao` e `categoriasNaTransacao` para as telas |
-| `lancamentos.ts` | `criarLancamento` (`:121`), `editarLancamento` (`:222`), `ajustarValor` (`:249`, o "Salvar valor" da seção da consulta), `marcarRecebido` (`:264`), `desfazerRecebimento` (`:285`), `cancelarLancamento` (`:293`), `diaMaisAntigoNaTransacao` (`:317`), `listarLancamentos`/`listaNaTransacao` (`:412`), `abrirLancamento`/`lancamentoNaTransacao` (`:458`), `pacientesParaLancamento`, `pacienteDoFinanceiro` |
-| `resumo.ts` | `resumoDoMes` (`:69`), `fluxoDeCaixaDoAno`/`fluxoNaTransacao` (`:131`), `entradasESaidas12Meses`/`dozeMesesNaTransacao` (`:222`), `pagamentosPendentes`/`pendentesNaTransacao` (`:251`), `pendenciasDoPaciente` (`:275`) |
-| `telas.ts` | Uma transação por tela (RNF-301): `telaDeLancamentos` (`:45`), `formularioNovo` (`:79`), `telaDeEdicao` (`:110`), `telaDeConfiguracoes` (`:136`, `/code-review` do PR #55), `telaDePendencias` (`:152`), `telaDeRelatorios` (`:182`), com as mesmas consultas e a mesma auditoria das funções avulsas. O "Mês" da lista e o "Ano" de Relatórios vêm de `diaMaisAntigoNaTransacao` (`lancamentos.ts`): o mesmo `min(coalesce(pago_em, vencimento))`, em três partes com `tenant_id` explícito para os índices parciais |
+| `lancamentos.ts` | `criarLancamento` (`:122`), `editarLancamento` (`:223`), `ajustarValor` (`:250`, o "Salvar valor" da seção da consulta), `marcarRecebido` (`:265`), `desfazerRecebimento` (`:286`), `cancelarLancamento` (`:294`), `diaMaisAntigoNaTransacao` (`:318`), `listarLancamentos`/`listaNaTransacao` (`:424`, `:438`), `abrirLancamento`/`lancamentoNaTransacao` (`:477`, `:485`), Plano 23: `filtroDeLocal` (`:401`, §12.14), `pacientesParaLancamento`, `pacienteDoFinanceiro` |
+| `resumo.ts` | `resumoDoMes` (`:64`), `fluxoDeCaixaDoAno`/`fluxoNaTransacao` (`:114`, `:126`), `entradasESaidas12Meses`/`dozeMesesNaTransacao` (`:214`, `:221`), `pagamentosPendentes`/`pendentesNaTransacao` (`:243`, `:250`), `pendenciasDoPaciente` (`:275`) |
+| `telas.ts` | Uma transação por tela (RNF-301; Plano 23: `localEscolhido`, `:55`): `telaDeLancamentos` (`:66`), `formularioNovo` (`:102`), `telaDeEdicao` (`:133`), `telaDeConfiguracoes` (`:159`, `/code-review` do PR #55), `telaDePendencias` (`:175`), `telaDeRelatorios` (`:209`), com as mesmas consultas e a mesma auditoria das funções avulsas. O "Mês" da lista e o "Ano" de Relatórios vêm de `diaMaisAntigoNaTransacao` (`lancamentos.ts`): o mesmo `min(coalesce(pago_em, vencimento))`, em três partes com `tenant_id` explícito para os índices parciais |
 | `cobranca.ts` | `cobrarConsultaRealizada` (`:97`), `aoCorrigirParaFaltou` (`:110`), `cobrancaDaConsulta` (`:129`), `registrarCobrancaManual` (`:160`), `valorDaCobrancaDoAtendimento` (`:195`) |
-| `exportacao.ts` | `exportarLancamentosCsv` (`:34`) e `exportarFluxoCsv` (`:83`): leitura, `exportar` e montagem numa transação |
+| `exportacao.ts` | `exportarLancamentosCsv` (`:39`) e `exportarFluxoCsv` (`:92`): leitura, `exportar` e montagem numa transação |
 | `titular.ts` | `financeiroParaExportacao(tx, patientId, hoje)` (`:36`), a seção `financeiro` do `dados.json` (contexto `worker`) |
 
 Schema: `src/db/schema/financeiro.ts` (`finConfiguracoes` `:23`, `finCategorias` `:47`, `finLancamentos` `:79`,
@@ -246,7 +246,7 @@ Ordem paciente → consulta → lançamento, a mesma da agenda e do atendimento:
 - **Bloqueado (RN-315, F-D20):** módulo e gatilho recusam o mesmo — nenhum lançamento novo; nos existentes, só receber,
   desfazer, reduzir o valor e cancelar ("Paciente bloqueado por pedido de exclusão: só é possível registrar o recebimento,
   reduzir o valor ou cancelar."). Anonimizado: nada muda.
-- **Lista** (`listaNaTransacao`, `lancamentos.ts:412`): pela data de referência; sem `mes`, o mês atual no fuso; com
+- **Lista** (`listaNaTransacao`, `lancamentos.ts:438`): pela data de referência; sem `mes`, o mês atual no fuso; com
   `paciente` e sem `mes`, **todos os meses**, até 200 linhas (`LIMITE_SEM_MES`), com o aviso "Mostrando os 200 mais
   recentes. Escolha um mês para ver os outros." e a opção "Todos os meses" no `<select>`. O `<select>` de mês vai do mês
   atual ao do lançamento mais antigo do consultório (não `<input type="month">`, que o Firefox desktop não tem), com os links
@@ -264,13 +264,13 @@ consultas por um `pg.Pool` embrulhado em `resumo.test.ts`; `resumo.tempo.test.ts
 - **Saldo atual (RN-307, F-D29):** saldo do caixa + Σ entradas recebidas − Σ saídas pagas, não canceladas, com `pago_em`
   **no dia do saldo ou depois** (o saldo informado é o do início desse dia). Pagamento anterior aparece na lista e nos
   relatórios, mas não muda o saldo.
-- **Cartões do mês** (`resumoDoMes`, `resumo.ts:63`): "Recebido"/"Pago" pelo pagamento no mês; "A receber"/"A pagar" em
+- **Cartões do mês** (`resumoDoMes`, `resumo.ts:64`): "Recebido"/"Pago" pelo pagamento no mês; "A receber"/"A pagar" em
   aberto com vencimento no mês; "Em atraso de meses anteriores" em aberto com vencimento antes do dia 1º, só quando > 0;
   "Pagamentos pendentes" como a RN-311. O `WHERE` só deixa passar o que algum `filter` usa, no formato dos índices
   parciais (`pago_idx` com a faixa de `pago_em`, `aberto_idx`): nunca a tabela de todos os consultórios.
 - **Últimos lançamentos:** os 10 **lançados por último** (`order by created_at desc, id desc limit 10`, pelo índice
   `fin_lancamentos_criado_idx`), cancelados incluídos, como na lista ([§12.13](#1213-divergências-conhecidas), #5).
-- **Fluxo de caixa do ano** (`fluxoNaTransacao`, `resumo.ts:125`): só recebidos e pagos, não cancelados, pelo mês do
+- **Fluxo de caixa do ano** (`fluxoNaTransacao`, `resumo.ts:126`): só recebidos e pagos, não cancelados, pelo mês do
   pagamento; uma linha por categoria do tipo ("Consultas" primeiro, depois pelo nome; as arquivadas só se tiveram movimento
   no ano); totais e resultado; linhas de saldo nulas ("—") antes do mês do saldo do caixa; **no mês do saldo**, início nulo
   e fim = saldo + movimentos desde a data do saldo; depois, início = fim anterior e fim = início + resultado. O ano mostrado
@@ -295,8 +295,8 @@ levam a consulta de outra situação a "Realizada", depois das travas deles (pac
 
 | Caminho | Onde chama | Fuso | Retorno |
 |---|---|---|---|
-| "Realizada" na tela da consulta | `registrarPresenca` (`src/modules/agenda/presenca.ts:35`, chamada em `:57`) | Lê `tenants.fuso` na transação | `{ cobranca: ResultadoCobranca \| null }` (nulo quando a situação não mudou) |
-| "Registrar atendimento" ligado a uma consulta que não era "Realizada" | `registrarAtendimento` (`src/modules/pacientes/atendimentos.ts:69`, chamada em `:95`) | `tenant.fuso` | `{ id, cobranca }` (nulo sem consulta ou com ela já "Realizada": sem retroativo) |
+| "Realizada" na tela da consulta | `registrarPresenca` (`src/modules/agenda/presenca.ts:35`, chamada em `:58`) | Lê `tenants.fuso` na transação | `{ cobranca: ResultadoCobranca \| null }` (nulo quando a situação não mudou) |
+| "Registrar atendimento" ligado a uma consulta que não era "Realizada" | `registrarAtendimento` (`src/modules/pacientes/atendimentos.ts:101`, chamada em `:127`) | `tenant.fuso` | `{ id, cobranca }` (nulo sem consulta ou com ela já "Realizada": sem retroativo) |
 
 O que `cobrarConsultaRealizada` faz, nesta ordem:
 
@@ -339,7 +339,7 @@ cobrança (inclusive "Faltou"); h2 com `tabIndex={-1}` que recebe o foco depois 
 - As actions (`cobranca-actions.ts`: `registrarCobrancaAction`, `salvarValorCobrancaAction`, `receberCobrancaAction`,
   `cancelarCobrancaAction`) voltam à consulta com `?ok=cobranca_registrada|cobranca_salva|cobranca_recebida|cobranca_cancelada`.
   O id do lançamento vem do formulário: salvar o valor, receber e cancelar passam `daConsulta` (a consulta do `bind`) e
-  o módulo (`travarLancamento`, `lancamentos.ts:176`) recusa, antes de qualquer trava e de novo na linha travada, o
+  o módulo (`travarLancamento`, `lancamentos.ts:177`) recusa, antes de qualquer trava e de novo na linha travada, o
   lançamento que não é a cobrança desta consulta (`appointment_id`, no tenant da sessão) com `LancamentoNaoEncontradoError`
   → 404, sem alterar nada; a ordem de travas (paciente → lançamento) não muda (`/code-review` do PR #55).
 
@@ -421,9 +421,9 @@ cobrança (inclusive "Faltou"); h2 com `tabIndex={-1}` que recebe o foco depois 
 | Ponto | Registro | Fonte |
 |---|---|---|
 | Escritas em `fin_lancamentos` | Gatilho `audit_row_change` (entidade `financeiro`, rótulo "Financeiro"): "Criou", "Alterou" (inclusive o cancelamento e a anonimização, esta com ator nulo); o `audit_log` não guarda antes/depois (R-311, P20-14) | `0123_rls_financeiro.sql:18`; `src/modules/plataforma/audit.ts:81` |
-| Lista filtrada por paciente | **Um** `ler` (`entidadeId` nulo, o paciente do filtro) por abertura, só quando devolve linha — nunca um por lançamento | `listaNaTransacao`, `lancamentos.ts:440` |
-| Edição de lançamento com paciente | `ler` com o id do lançamento | `lancamentoNaTransacao`, `lancamentos.ts:461` |
-| "Pagamentos pendentes de {nome}" | Um `ler` por abertura, só com linha | `pendenciasDoPaciente`, `resumo.ts:281` |
+| Lista filtrada por paciente | **Um** `ler` (`entidadeId` nulo, o paciente do filtro) por abertura, só quando devolve linha — nunca um por lançamento | `listaNaTransacao`, `lancamentos.ts:467` |
+| Edição de lançamento com paciente | `ler` com o id do lançamento | `lancamentoNaTransacao`, `lancamentos.ts:488` |
+| "Pagamentos pendentes de {nome}" | Um `ler` por abertura, só com linha | `pendenciasDoPaciente`, `resumo.ts:291` |
 | Seção "Cobrança" da consulta | `ler` com o id da cobrança, só quando há cobrança | `cobrancaDaConsulta`, `cobranca.ts:142` |
 | Mensagem do atendimento com a cobrança criada | `ler` com o id da cobrança | `valorDaCobrancaDoAtendimento`, `cobranca.ts:210` |
 | CSV | `exportar` (§12.7) | `exportacao.ts` |
@@ -446,7 +446,7 @@ cobrança (inclusive "Faltou"); h2 com `tabIndex={-1}` que recebe o foco depois 
 ## 12.9 LGPD (US-307, US-309, F-D16, F-D17, F-D22, F-D23)
 
 - **Exportação do titular** (`financeiroParaExportacao`, `titular.ts:36`, chamada por `montarDados` em
-  `src/modules/pacientes/exportacao-job.ts:537`): chave `financeiro` (a última de `DadosExportacao`), **nos dois escopos**,
+  `src/modules/pacientes/exportacao-job.ts:593`): chave `financeiro` (a última de `DadosExportacao`), **nos dois escopos**,
   por inclusão explícita (`fin_lancamentos` é `staff_only`, como `ia_tarefas`), do vencimento mais antigo ao mais novo, com
   `vencimento`, `pagoEm`, `valorCentavos`, `valor` ("R$ 250,00"), `formaDePagamento` e o rótulo, `situacao` e o rótulo (no
   dia da exportação, no fuso), `categoria` (nome), `descricao`, `consultaInicio`, `canceladoEm` e `motivoCancelamento`.
@@ -567,3 +567,25 @@ Spec v0.2 (com a §18) e plano × código em `7a0e919`. Na lista consolidada do 
 Resolvidas antes do fechamento (a spec já traz o que o código faz): os índices `fin_lancamentos_criado_idx` (correção da T4)
 e `fin_lancamentos_categoria_idx` (`/code-review high` do PR 1) estão na §9.3; o ramo `worker` do gatilho que exige o prazo,
 não cancela o pago e data o cancelamento pelo relógio do banco está na §9.4.
+
+## 12.14 Filtro de local (Plano 23, PR 4)
+
+Plano 23, Tarefa 11 (US-416, RN-437, AG-D12, AG-D79); detalhe completo na
+[§5.13.3](05-agenda-portal-conteudo.md#5133-financeiro-lançamentos-relatórios-e-csv-us-416-rn-437-ag-d12). Conferido em
+`0ba8869e` (24/11/2026). Sem migration e sem coluna nova em `fin_lancamentos`: o local é o da consulta do lançamento
+(`appointment_id → appointments.local_id`).
+
+| Peça | Onde | O que mudou |
+|---|---|---|
+| `SEM_LOCAL`, `FiltrosLista.localId` | `src/modules/financeiro/tipos.ts:52`, `:63` | O valor `sem_local` (lançamento sem consulta ou de consulta sem local) |
+| `filtroDeLocal(localId)` | `src/modules/financeiro/lancamentos.ts:401` | Um `exists` na consulta do lançamento; `sem_local` → o complemento; outro valor → sem filtro. Só na lista (`listaNaTransacao`, `:450`), nos 12 meses (`dozeMesesNaTransacao`, `resumo.ts:221`) e no CSV |
+| `localEscolhido`, `telaDeLancamentos`, `telaDeRelatorios` | `src/modules/financeiro/telas.ts:55`, `:66`, `:209` | As opções (`locaisDoFiltro(tx, 'financeiro')`: os ativos e os arquivados com lançamento) na transação da tela (RNF-301); o pedido fora delas é descartado. `telaDeRelatorios` recebe `{ ano, localId }` |
+| `exportarLancamentosCsv` | `src/modules/financeiro/exportacao.ts:39` | `localId` recorta as linhas; fora das opções → `LocalDoFiltroInvalidoError` (`erros.ts:42`) antes de ler; devolve `{ csv, local }` |
+| Rota do CSV | `src/app/api/painel/financeiro/lancamentos.csv/route.ts:26-37`; `navegacao.ts:82` | `local` fora do formato ou das opções → 303 para Relatórios `?erro=local`; nome do arquivo com `-sem-local` ou `-local-<nome em ASCII>` (`sufixoDoLocal`) |
+| Telas | `lancamentos/filtros.tsx:105`, `relatorios/page.tsx:82`, `:116`, `:125`, `relatorios/baixar-csv.tsx:87-91`, `financeiro/page.tsx:69` | "Local" em Lançamentos e em Relatórios (só os 12 meses); "Local dos lançamentos" no CSV; "Local: Todos os locais" no fluxo de caixa e no Resumo, que não se dividem |
+
+**Sem mudança de auditoria** (RN-318): filtrar por local não é abrir o financeiro de um paciente identificado; o `exportar`
+do CSV é o de sempre. **Sem mudança na exportação do titular, na anonimização nem na IA.** A regra 1 do `CLAUDE.md` (Plano 23)
+registra que `telas.ts` e `exportacao.ts` leem `locais_atendimento` só por `locaisDoFiltro` (`src/modules/agenda/locais.ts`:
+id, nome e se está arquivado, na sessão `nutri`). Teste de propriedade da RN-437 (soma dos locais + "Sem local" = total sem filtro):
+`src/modules/financeiro/resumo-propriedade.test.ts:262`.

@@ -45,7 +45,13 @@ export type FluxoDoAno = {
 /** As opções do filtro "Situação" da lista (spec §6.2): recebido e pago num valor só. */
 export type SituacaoDoFiltro = 'previsto' | 'em_atraso' | 'recebido_ou_pago' | 'cancelado';
 
-/** Filtros da lista (RN-306; spec §4.1: `?mes=&tipo=&categoria=&situacao=&forma=&paciente=`). */
+/**
+ * Plano 23 (US-416, RN-437): o valor de "Sem local" no filtro de local — o lançamento sem consulta ou de consulta sem
+ * local (anterior aos locais).
+ */
+export const SEM_LOCAL = 'sem_local';
+
+/** Filtros da lista (RN-306; spec §4.1: `?mes=&tipo=&categoria=&situacao=&forma=&paciente=`; Plano 23: `&local=`). */
 export type FiltrosLista = {
   mes?: string;
   tipo?: TipoLancamento;
@@ -53,6 +59,8 @@ export type FiltrosLista = {
   categoriaId?: string;
   forma?: FormaPagamento;
   pacienteId?: string;
+  /** Plano 23 (RN-437): o local da consulta do lançamento (`appointment_id → appointments.local_id`) ou `SEM_LOCAL`. */
+  localId?: string | typeof SEM_LOCAL;
 };
 
 /** Os totais da lista, sem os cancelados (os mesmos critérios do Resumo). */

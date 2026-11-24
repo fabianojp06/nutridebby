@@ -168,6 +168,17 @@ await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
     else await tx.insert(locaisAtendimento).values({ tenantId: consultorio.id, tipo, ...estado });
   }
 }, db);
+// Plano 23 (T11, revisão da interface I-2): um local ativo com o nome no limite de 60 caracteres, para o axe e a rolagem a
+// 360 px dos filtros "Local" de Pacientes e de Lançamentos (acessibilidade-painel.spec). Sem agendamento pelo paciente (não
+// aparece no portal nem na página pública); achado pelo nome e reaproveitado, como os de cima.
+const LOCAL_LONGO_E2E = 'Centro Integrado de Nutrição Clínica e Esportiva Sala E2E 60';
+await withTenant({ tenantId: consultorio.id, role: 'worker' }, async (tx) => {
+  const agora = new Date();
+  const [existente] = await tx.select({ id: locaisAtendimento.id }).from(locaisAtendimento).where(eq(locaisAtendimento.nome, LOCAL_LONGO_E2E)).limit(1);
+  const estado = { nome: LOCAL_LONGO_E2E, endereco: null, cidade: null, mostrarEndereco: false, linkSala: null, principal: false, agendamentoOnline: false, arquivadoEm: null, updatedAt: agora };
+  if (existente) await tx.update(locaisAtendimento).set(estado).where(eq(locaisAtendimento.id, existente.id));
+  else await tx.insert(locaisAtendimento).values({ tenantId: consultorio.id, tipo: 'presencial', ...estado });
+}, db);
 // RN-16: o visitante da página pública no E2E (agenda.spec, 10.9.8.50) começa cada execução com o limite por IP zerado
 await liberarLimite(db, chaveDoLimite('ip', '10.9.8.50'));
 // P09-04: o seed zera os limites de login do Better Auth dos IPs do E2E (chave "<ip>|<caminho>", só a faixa 10.9.x.x):

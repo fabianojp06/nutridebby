@@ -13,10 +13,13 @@ import type { Guia } from './conteudo';
  * todos); o tour não muda. A subida mostra "O manual do app foi atualizado" uma vez a quem já viu a versão 2.
  * Plano 22: versão 4 (T6, EP-D52) — Exames também mostra os resultados que a nutricionista liberar no app ("Mostrar no app",
  * US-375); o menu passa a ter "Exames" com eles, mesmo sem o recebimento ligado. O tour não muda.
+ * Versão 5 (Plano 23, T12): o local na marcação, o pedido que espera a confirmação da nutricionista (com a ressalva "se a
+ * sua nutricionista confirma os pedidos") e a mensagem de aniversário em Eu; o tour não muda. Texto ao paciente: vai
+ * também ao pacote do advogado (E-09).
  */
 export const GUIA_PORTAL: Guia = {
   id: 'portal-novidades',
-  versao: 4,
+  versao: 5,
   padrao: /^\/p\/inicio$/,
   titulo: 'Como usar o app',
   ajuda: {
@@ -31,7 +34,7 @@ export const GUIA_PORTAL: Guia = {
           `Plano: as refeições do dia, o PDF, a lista de compras, os conteúdos e, quando liberada, a ${NOME_IA_NUTRI}.`,
           // Plano 22 (T6): os resultados liberados pela nutricionista ("Mostrar no app")
           'Exames: enviar um exame (quando o consultório recebe exames pelo app), acompanhar os que você enviou e ver os resultados que a sua nutricionista liberar.',
-          'Eu: sua conta, documentos, notificações, privacidade, este manual e o Sair.',
+          'Eu: sua conta, documentos, notificações, privacidade, a mensagem de aniversário, este manual e o Sair.',
         ],
       },
       {
@@ -45,6 +48,10 @@ export const GUIA_PORTAL: Guia = {
           `Se o seu consultório usar IA, você pode receber dois pedidos separados: um para os exames (em Eu › Privacidade) e outro para a ${NOME_IA_NUTRI} (em Plano). Cada um é opcional. Recusar ou retirar não muda nada no seu atendimento.`,
           // Plano 17: depende da nutricionista ter configurado (o guia é o mesmo para todos os pacientes)
           'Se a sua nutricionista configurou lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um.',
+          // Plano 23 (US-403, US-408): depende do consultório (a confirmação dos pedidos é uma chave da nutricionista)
+          'Se o consultório atende em mais de um local, escolha onde você quer ser atendido ao agendar. Se a sua nutricionista confirma os pedidos, a consulta fica "Aguardando confirmação da nutricionista" até ela responder, e a resposta chega por e-mail. Antes disso, você pode tocar em "Desistir do pedido".',
+          // Plano 23 (US-414)
+          'Em Eu, você autoriza ou retira a mensagem de aniversário da sua nutricionista quando quiser.',
         ],
       },
     ],

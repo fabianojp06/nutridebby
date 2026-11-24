@@ -1,10 +1,10 @@
 import type { FormaPagamento, TipoLancamento } from '@/db/schema/financeiro';
 import { FORMAS_DE_PAGAMENTO } from '@/modules/financeiro/constantes';
-import type { SituacaoDoFiltro } from '@/modules/financeiro/tipos';
+import { SEM_LOCAL, type SituacaoDoFiltro } from '@/modules/financeiro/tipos';
 import { idValido } from '@/modules/pacientes/base';
 
 /**
- * Os filtros da lista na URL (spec §4.1: `?mes=&tipo=&categoria=&situacao=&forma=&paciente=`). Módulo puro: a página lê,
+ * Os filtros da lista na URL (spec §4.1: `?mes=&tipo=&categoria=&situacao=&forma=&paciente=`; Plano 23: `&local=`). Módulo puro: a página lê,
  * os links ("Mês anterior", "Limpar") montam, e as actions de receber e cancelar voltam para a mesma lista.
  */
 export const LISTA = '/painel/financeiro/lancamentos';
@@ -15,6 +15,8 @@ export const PARAMETROS_DA_LISTA = [
   'situacao',
   'forma',
   'paciente',
+  // Plano 23 (US-416): o local da consulta do lançamento (um id ou `sem_local`)
+  'local',
 ] as const;
 type Parametro = (typeof PARAMETROS_DA_LISTA)[number];
 export type FiltrosDaUrl = Partial<Record<Parametro, string>>;
@@ -38,6 +40,7 @@ export function filtrosDaUrl(sp: Bruto): {
   situacao?: SituacaoDoFiltro;
   forma?: FormaPagamento;
   paciente?: string;
+  local?: string;
 } {
   const tipo = um(sp.tipo);
   const situacao = um(sp.situacao);
@@ -50,6 +53,7 @@ export function filtrosDaUrl(sp: Bruto): {
     situacao: SITUACOES.find((s) => s === situacao),
     forma: FORMAS_DE_PAGAMENTO.find((f) => f === forma),
     paciente: idValido(um(sp.paciente)) ? um(sp.paciente) : undefined,
+    local: um(sp.local) === SEM_LOCAL || idValido(um(sp.local)) ? um(sp.local) : undefined,
   };
 }
 
