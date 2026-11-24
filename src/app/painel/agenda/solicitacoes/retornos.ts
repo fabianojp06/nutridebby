@@ -14,6 +14,7 @@ export const OK_DA_FILA = {
 export const ERRO_DO_ACEITE = {
   inativo: MSG_SOLICITACOES.emailInativo,
   ocupado: MSG_SOLICITACOES.horarioOcupado,
+  indisponivel: MSG_SOLICITACOES.localIndisponivel,
   arquivado: MSG_AGENDA.pacienteArquivado,
 } as const;
 export type ErroDoAceite = keyof typeof ERRO_DO_ACEITE;

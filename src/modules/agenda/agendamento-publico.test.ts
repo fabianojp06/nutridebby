@@ -892,6 +892,7 @@ describe('Plano 23: pedido aguardando (RN-424, RN-424a, RN-425, RN-426, RN-429)'
     });
     await withTenant(T.ctx, (tx) => tx.insert(publicBookingRequests).values([linha(ana.email, aberta, em(dia(5), '09:00')), linha(bia.email, resolvida, em(dia(6), '09:00'))]), app.db);
     const restam = async () => (await withTenant(T.ctx, (tx) => tx.select({ c: publicBookingRequests.appointmentId }).from(publicBookingRequests), app.db)).map((r) => r.c);
+    await avisoSaiu(T, resolvida); // /code-review do PR 3 (I-1): com o "não confirmado" ainda na fila, o pedido ficaria
     varreduraSo(T);
     expect(await limparPedidosPublicos(app.db, agoraReal)).toBe(1);
     expect(await restam()).toEqual([aberta]);
@@ -900,4 +901,82 @@ describe('Plano 23: pedido aguardando (RN-424, RN-424a, RN-425, RN-426, RN-429)'
     expect(await limparPedidosPublicos(app.db, em(dia(6), '10:00'))).toBe(1);
     expect(await restam()).toEqual([]);
   });
+
+  it('/code-review do PR 3 (I-1): o pedido concluído cuja consulta foi recusada fica enquanto o "não confirmado" por e-mail dela está na fila (pendente ou enviando: AG-D75 o segura até as 08:00 e o e-mail lê a origem do pedido; o push, pendente, não segura); saiu ou falhou, sai; na fila há mais de 24 h (rede), sai', async () => {
+    const T = await comChave();
+    const ana = await novoPaciente(app.db, T.ctx);
+    const bia = await novoPaciente(app.db, T.ctx);
+    const caio = await novoPaciente(app.db, T.ctx);
+    const naFila = await pedidoDireto(app.db, T, ana.id, em(dia(5), '09:00'));
+    const enviada = await pedidoDireto(app.db, T, bia.id, em(dia(6), '09:00'));
+    const enviando = await pedidoDireto(app.db, T, caio.id, em(dia(7), '09:00'));
+    for (const id of [naFila, enviada, enviando]) await recusarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'consulta', id }, { db: app.db, agora: agoraReal });
+    const criado = new Date(agoraReal.getTime() - 30 * 3_600_000); // concluído na hora, há 30 h
+    const linha = (email: string, appointmentId: string, inicio: Date) => ({
+      id: randomUUID(),
+      tenantId: T.tenantId,
+      tokenHash: randomUUID(),
+      codigoHash: 'x',
+      email,
+      nome: 'Ana Souza',
+      inicio,
+      fim: new Date(inicio.getTime() + 3_600_000),
+      modalidade: 'presencial',
+      localId: T.localId,
+      termoVersao: TERMO_PACIENTE,
+      expiraEm: new Date(criado.getTime() + 10 * 60_000),
+      verificadoEm: criado,
+      concluidoEm: criado,
+      appointmentId,
+      createdAt: criado,
+    });
+    await withTenant(
+      T.ctx,
+      (tx) => tx.insert(publicBookingRequests).values([linha(ana.email, naFila, em(dia(5), '09:00')), linha(bia.email, enviada, em(dia(6), '09:00')), linha(caio.email, enviando, em(dia(7), '09:00'))]),
+      app.db,
+    );
+    await avisoSaiu(T, enviada);
+    await avisoSaiu(T, enviando, 'enviando');
+    // o push da mesma recusa segue pendente — não segura o pedido (só o e-mail lê a origem)
+    const pushes = await withTenant(T.ctx, (tx) => tx.select({ status: notifications.status }).from(notifications).where(and(eq(notifications.appointmentId, enviada), eq(notifications.canal, 'push'))), app.db);
+    expect(pushes).toEqual([{ status: 'pendente' }]);
+    const restam = async () => (await withTenant(T.ctx, (tx) => tx.select({ c: publicBookingRequests.appointmentId }).from(publicBookingRequests), app.db)).map((r) => r.c).sort();
+    varreduraSo(T);
+    expect(await limparPedidosPublicos(app.db, agoraReal)).toBe(1);
+    expect(await restam()).toEqual([naFila, enviando].sort());
+    // o "não confirmado" saiu às 08:00 (ou falhou de vez): o pedido sai na limpeza seguinte
+    await avisoSaiu(T, naFila, 'falhou');
+    varreduraSo(T);
+    expect(await limparPedidosPublicos(app.db, agoraReal)).toBe(1);
+    expect(await restam()).toEqual([enviando]);
+    // a rede: o aviso preso na fila (o envio parou) com `agendada_para` há mais de 24 h não segura o pedido
+    varreduraSo(T);
+    expect(await limparPedidosPublicos(app.db, new Date(agoraReal.getTime() + 36 * 3_600_000))).toBe(1); // + 36 h: o adiamento às 08:00 (AG-D75) é de no máximo 11 h
+    expect(await restam()).toEqual([]);
+  });
 });
+
+/**
+ * O "não confirmado" da consulta (`recusarSolicitacao`) muda de situação na fila de envio, como o worker o deixa (no contexto
+ * `worker`): `enviada` (com `enviada_em`), `falhou` (com o erro) ou `enviando`.
+ */
+async function avisoSaiu(T: TenantDeTeste, appointmentId: string, status: 'enviada' | 'falhou' | 'enviando' = 'enviada') {
+  const agoraA = new Date();
+  const mudou = await withTenant(
+    { tenantId: T.tenantId, role: 'worker' },
+    (tx) =>
+      tx
+        .update(notifications)
+        .set(
+          status === 'enviada'
+            ? { status, enviadaEm: agoraA, conteudoSelado: null, updatedAt: agoraA }
+            : status === 'falhou'
+              ? { status, erro: 'teste', conteudoSelado: null, updatedAt: agoraA }
+              : { status, updatedAt: agoraA },
+        )
+        .where(and(eq(notifications.appointmentId, appointmentId), eq(notifications.tipo, 'pedido_nao_confirmado'), eq(notifications.canal, 'email')))
+        .returning({ id: notifications.id }),
+    app.db,
+  );
+  if (mudou.length !== 1) throw new Error('avisoSaiu: esperava um "não confirmado" por e-mail');
+}

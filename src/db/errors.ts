@@ -18,6 +18,9 @@ export function uniqueViolation(err: unknown): string | null { return violacao(e
 /** Nome da constraint de FK violada (Postgres 23503). */
 export function fkViolation(err: unknown): string | null { return violacao(err, '23503'); }
 
+/** Nome da constraint CHECK violada (Postgres 23514). */
+export function checkViolation(err: unknown): string | null { return violacao(err, '23514'); }
+
 /** Nome da restrição EXCLUDE violada (Postgres 23P01). */
 export function exclusionViolation(err: unknown): string | null { return violacao(err, '23P01'); }
 

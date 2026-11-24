@@ -2,8 +2,8 @@ import { createHmac, hkdfSync, randomInt, randomUUID } from 'node:crypto';
 import { and, count, eq, gt, inArray, isNotNull, isNull, lt, max, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb, type Db, type Tx } from '@/db/client';
-import { deadlockDetectado, uniqueViolation } from '@/db/errors';
-import { appointments, consents, patients, publicBookingRequests, tenants, type TenantRow } from '@/db/schema';
+import { checkViolation, deadlockDetectado, uniqueViolation } from '@/db/errors';
+import { appointments, consents, locaisAtendimento, notifications, patients, publicBookingRequests, tenants, type TenantRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { enqueueEmail } from '@/email/queue';
 import { getEnv } from '@/env';
@@ -470,6 +470,11 @@ export async function escolherOutroHorario(slug: string, input: Record<string, u
  * consulta `solicitada` que pode esperar dias pela resposta; enquanto ela está `solicitada` (e o horário não passou há
  * mais de 24 h, a mesma rede), o pedido fica — é ele que dá a origem "da página" na fila (`daPagina`) e o link do e-mail
  * do não confirmado (`pedidoDaPagina`). Resolvida a consulta, sai na limpeza seguinte (a criação já tem mais de 24 h).
+ * /code-review do PR 3 (I-1): resolvida com recusa ou vencimento, o "não confirmado" dela pode estar na fila (AG-D75: no
+ * horário silencioso, sai às 08:00, depois desta limpeza) e o envio lê a origem pelo pedido (`carregarContexto`): enquanto
+ * houver um `pedido_nao_confirmado` por e-mail da consulta `pendente` ou `enviando` (os mesmos de `avisarPaciente`), o pedido
+ * fica — só o e-mail lê a origem (`mensagens.ts`); o push vai sempre a `/p/agenda`.
+ * Rede: o aviso com `agendada_para` há mais de 24 h (o envio parou) não segura o pedido.
  */
 export async function limparPedidosPublicos(db: Db, agora: Date): Promise<number> {
   const limite = new Date(agora.getTime() - 86_400_000);
@@ -488,6 +493,7 @@ export async function limparPedidosPublicos(db: Db, agora: Date): Promise<number
                 and(isNotNull(publicBookingRequests.aguardandoDesde), isNull(publicBookingRequests.resolvidoEm), lt(publicBookingRequests.inicio, limite)),
               ),
               sql`not exists (select 1 from ${appointments} a where a.tenant_id = ${publicBookingRequests.tenantId} and a.id = ${publicBookingRequests.appointmentId} and a.status = 'solicitada' and a.inicio >= ${limite.toISOString()}::timestamptz)`,
+              sql`not exists (select 1 from ${notifications} n where n.tenant_id = ${publicBookingRequests.tenantId} and n.appointment_id = ${publicBookingRequests.appointmentId} and n.tipo = 'pedido_nao_confirmado' and n.canal = 'email' and n.status in ('pendente', 'enviando') and n.agendada_para >= ${limite.toISOString()}::timestamptz)`,
             ),
           )
           .returning({ id: publicBookingRequests.id }),
@@ -511,6 +517,10 @@ export async function limparPedidosPublicos(db: Db, agora: Date): Promise<number
  * página (revisão da T7, M1); o opt-in do WhatsApp do pedido só entra no cadastro novo.
  * Revisão da T7 (M4): confere no banco o papel da sessão (`nutri`, senão erro antes de qualquer trava) e usa o consultório
  * da sessão (`app_current_tenant()`) para a trava e as gravações; `tenant` de outro consultório é recusado.
+ * /code-review do PR 3 (I-2): o local mudou enquanto o pedido esperava (arquivado, de outro tipo, ou online sem sala — sem
+ * ela o gatilho não copia o link e o CHECK `appointments_link_online` recusaria) → "Esse horário não está mais disponível…",
+ * conferido com o local `FOR SHARE` (ordem paciente → local → consulta, como `comLocal`); o 23514 desse CHECK, se ainda
+ * vier, vira a mesma mensagem (nada do erro vai ao log).
  */
 export async function aceitarPedidoPublico(tx: Tx, tenant: TenantAgenda, pedidoId: string, o: { agora: Date; appUrl: string }): Promise<{ appointmentId: string }> {
   const [sessao] = (await tx.execute<{ papel: string | null; tenant: string | null }>(sql`select app_current_role() as papel, app_current_tenant()::text as tenant`)).rows;
@@ -524,6 +534,12 @@ export async function aceitarPedidoPublico(tx: Tx, tenant: TenantAgenda, pedidoI
   if (prazoDoPedido(r.inicio, tenant).getTime() <= o.agora.getTime()) throw new PedidoMudouError();
   let [p] = await tx.select().from(patients).where(eq(patients.email, r.email)).for('no key update');
   if (p && (p.status !== 'ativo' || p.anonimizadoEm)) throw new ConsultaError({ geral: MSG_SOLICITACOES.emailInativo });
+  const [local] = await tx
+    .select({ tipo: locaisAtendimento.tipo, linkSala: locaisAtendimento.linkSala })
+    .from(locaisAtendimento)
+    .where(and(eq(locaisAtendimento.id, r.localId), isNull(locaisAtendimento.arquivadoEm)))
+    .for('share');
+  if (!local || local.tipo !== r.modalidade || (local.tipo === 'online' && !local.linkSala)) throw new ConsultaError({ geral: MSG_SOLICITACOES.localIndisponivel });
   if (!p) {
     const optin = r.whatsappOptin && r.telefoneE164 ? { whatsappOptinEm: r.verificadoEm, whatsappOptinOrigem: 'paciente' } : {};
     [p] = await tx
@@ -552,6 +568,7 @@ export async function aceitarPedidoPublico(tx: Tx, tenant: TenantAgenda, pedidoI
       .returning({ id: appointments.id });
   } catch (e) {
     if (ehSobreposicao(e)) throw new ConsultaError({ geral: MSG_SOLICITACOES.horarioOcupado }); // R-408
+    if (checkViolation(e) === 'appointments_link_online') throw new ConsultaError({ geral: MSG_SOLICITACOES.localIndisponivel }); // I-2: rede
     throw e;
   }
   const aviso = { tenantId, patientId: p.id, appointmentId: c.id, inicio: r.inicio };

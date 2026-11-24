@@ -101,6 +101,7 @@ describe('/painel/agenda/solicitacoes (US-409, §7)', () => {
       [{ ok: 'mudou' }, 'Este pedido já foi respondido ou venceu.'],
       [{ erro: 'inativo' }, 'Este e-mail é de um paciente arquivado ou bloqueado. Recuse o pedido ou fale com a pessoa.'],
       [{ erro: 'ocupado' }, 'Esse horário já está ocupado. Recuse o pedido ou combine outro horário com a pessoa.'],
+      [{ erro: 'indisponivel' }, 'Esse horário não está mais disponível. Recuse o pedido ou combine outro horário com a pessoa.'],
     ] as const) {
       expect(await fila(sp), JSON.stringify(sp)).toMatch(new RegExp(`<p role="status"[^>]*>${msg.replace(/[.?]/g, '\\$&')}</p>`));
     }

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { consultaDireta, em, localPrincipal, pedidoDireto, SP, tenantAgenda } from '../../../../../test/agenda';
+import { consultaDireta, em, localPrincipal, novoLocal, pedidoDireto, SP, tenantAgenda } from '../../../../../test/agenda';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../../../test/pacientes';
 import { closeDb, getDb } from '@/db/client';
-import { appointments, publicBookingRequests, tenants } from '@/db/schema';
+import { appointments, locaisAtendimento, patients, publicBookingRequests, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { hojeNoFuso, somarDias } from '@/modules/pacientes/datas';
@@ -46,7 +46,7 @@ const fd = (motivo?: string) => {
   return f;
 };
 
-async function pessoaNova(T: TenantDeTeste, localId: string, inicio: Date, email = `carla-${randomUUID().slice(0, 8)}@ex.com`): Promise<string> {
+async function pessoaNova(T: TenantDeTeste, localId: string, inicio: Date, email = `carla-${randomUUID().slice(0, 8)}@ex.com`, modalidade = 'presencial'): Promise<string> {
   const id = randomUUID();
   const agora = new Date();
   await withTenant(
@@ -54,7 +54,7 @@ async function pessoaNova(T: TenantDeTeste, localId: string, inicio: Date, email
     (tx) =>
       tx.insert(publicBookingRequests).values({
         id, tenantId: T.tenantId, tokenHash: randomUUID(), codigoHash: 'x', email, nome: 'Carla Dias',
-        inicio, fim: new Date(inicio.getTime() + 3_600_000), modalidade: 'presencial', localId, termoVersao: TERMO_PACIENTE,
+        inicio, fim: new Date(inicio.getTime() + 3_600_000), modalidade, localId, termoVersao: TERMO_PACIENTE,
         expiraEm: new Date(agora.getTime() + 600_000), verificadoEm: agora, aguardandoDesde: agora,
       }),
     db,
@@ -99,6 +99,19 @@ describe('aceitarAction e recusarAction (US-409)', () => {
     expect(await volta(aceitarAction('pessoa_nova', tomado))).toMatch(/\?erro=ocupado&envio=\d+$/);
     expect(await volta(recusarAction('pessoa_nova', tomado, {}, fd('ignorado')))).toMatch(/\?ok=recusado&envio=\d+$/);
     expect(await volta(aceitarAction('pessoa_nova', tomado))).toMatch(/\?ok=mudou&envio=\d+$/);
+  });
+
+  it('/code-review do PR 3 (I-2): pessoa nova num local online que perdeu a sala enquanto o pedido esperava → ?erro=indisponivel, sem consulta nem cadastro; o pedido segue aguardando', async () => {
+    const T = await novoTenant(db);
+    await localPrincipal(db, T.ctx);
+    const video = await novoLocal(db, T.ctx, { nome: 'Videoconferência', tipo: 'online' });
+    entrar(T);
+    const email = `carla-${randomUUID().slice(0, 8)}@ex.com`;
+    const id = await pessoaNova(T, video, em(dia(5), '09:00'), email, 'online');
+    await withTenant(T.ctx, (tx) => tx.update(locaisAtendimento).set({ linkSala: null, agendamentoOnline: false }).where(eq(locaisAtendimento.id, video)), db);
+    expect(await volta(aceitarAction('pessoa_nova', id))).toMatch(/\?erro=indisponivel&envio=\d+$/);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(patients).where(eq(patients.email, email)), db)).toEqual([]);
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(publicBookingRequests).where(eq(publicBookingRequests.id, id)), db)).toMatchObject([{ resolvidoEm: null, appointmentId: null }]);
   });
 
   it('sessão de paciente → recusada antes da transação (RN-400); o pedido não muda', async () => {

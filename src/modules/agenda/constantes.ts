@@ -256,6 +256,11 @@ export const MSG_SOLICITACOES = {
   aceito: 'Pedido aceito. Consulta marcada.',
   recusado: 'Pedido recusado.',
   horarioOcupado: 'Esse horário já está ocupado. Recuse o pedido ou combine outro horário com a pessoa.',
+  /**
+   * /code-review do PR 3 (I-2): o local do pedido da pessoa nova não serve mais (arquivado, de outro tipo ou online sem sala).
+   * Fora da §6.2: a frase da §9.1 ("Esse horário não está mais disponível") com a orientação de `horarioOcupado`.
+   */
+  localIndisponivel: 'Esse horário não está mais disponível. Recuse o pedido ou combine outro horário com a pessoa.',
   emailInativo: 'Este e-mail é de um paciente arquivado ou bloqueado. Recuse o pedido ou fale com a pessoa.',
   mudou: 'Este pedido já foi respondido ou venceu.',
   pedidoAResponder: 'Pedido a responder',

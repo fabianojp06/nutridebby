@@ -5,7 +5,7 @@ import { consultaDireta, em, novoLocal, semanaNoLocal, semanaToda, SP, tenantAge
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, consents, notifications, patients, publicBookingRequests, tenants, user } from '@/db/schema';
+import { appointments, consents, locaisAtendimento, notifications, patients, publicBookingRequests, tenants, user } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { EMAIL_FINALIDADE } from '@/email/queue';
 import type { EmailJobData, EmailMessage } from '@/email/types';
@@ -167,6 +167,25 @@ describe('aceite da pessoa nova (RN-424, US-409)', () => {
     expect(await withTenant(T.ctx, (tx) => tx.select({ link: appointments.linkOnline, localId: appointments.localId }).from(appointments).where(eq(appointments.patientId, pac.id)), app.db)).toEqual([
       { link: SALA, localId: video },
     ]);
+  });
+
+  it('/code-review do PR 3 (I-2): o local online perdeu a sala (ou o local foi arquivado) enquanto o pedido esperava → "Esse horário não está mais disponível…", sem exceção crua; nada muda (nem cadastro, nem consulta)', async () => {
+    const T = await consultorio();
+    const video = await novoLocal(app.db, T.ctx, { nome: 'Videoconferência', tipo: 'online', linkSala: SALA });
+    await semanaNoLocal(app.db, T.ctx, video, 'online');
+    const semSala = await aguardando(T, { localId: video, modalidade: 'online' });
+    await withTenant(T.ctx, (tx) => tx.update(locaisAtendimento).set({ linkSala: null, agendamentoOnline: false }).where(eq(locaisAtendimento.id, video)), app.db);
+    const centro = await novoLocal(app.db, T.ctx, { nome: 'Centro' });
+    const arquivado = await aguardando(T, { inicio: em('2026-10-16', '11:00'), localId: centro });
+    await withTenant(T.ctx, (tx) => tx.update(locaisAtendimento).set({ agendamentoOnline: false, arquivadoEm: agora }).where(eq(locaisAtendimento.id, centro)), app.db);
+    for (const p of [semSala, arquivado]) {
+      const e = await erro(aceitarSolicitacao(T.ctx, tenantAgenda(T), { tipo: 'pessoa_nova', id: p.id }, depsSol()));
+      expect(e, String(e)).toBeInstanceOf(ConsultaError);
+      expect((e as ConsultaError).erros).toEqual({ geral: MSG_SOLICITACOES.localIndisponivel });
+      expect(await pacientesCom(T, p.email)).toEqual([]);
+      expect(await linhaDoPedido(T, p.id)).toMatchObject({ resolvidoEm: null, resolucao: null, appointmentId: null });
+    }
+    expect(await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.tenantId, T.tenantId)), app.db)).toEqual([]);
   });
 
   it('vencido (início − antecedência ≤ agora) → "já foi respondido ou venceu", sem cadastro', async () => {

@@ -32,7 +32,8 @@ function erroDoAceite(e: ConsultaError): ErroDoAceite | null {
 
 /**
  * US-409 "Aceitar" (funciona sem JavaScript: um `<form>` com o botão). O pedido que já mudou (respondido em outra aba,
- * vencido) → `?ok=mudou`; o e-mail de paciente arquivado ou bloqueado, o horário tomado e o paciente arquivado →
+ * vencido) → `?ok=mudou`; o e-mail de paciente arquivado ou bloqueado, o horário tomado, o local que não serve mais
+ * (/code-review do PR 3, I-2) e o paciente arquivado →
  * `?erro=` com o texto da §6.2 na região de status. Só a sessão `nutri`: o módulo recusa antes de abrir a transação.
  */
 export async function aceitarAction(tipo: Tipo, id: string): Promise<void> {
