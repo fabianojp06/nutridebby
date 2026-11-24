@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useActionState, useState, type ReactNode } from 'react';
 import { Botao } from '@/components/ui/botao';
+import { semResetAutomatico } from '@/lib/form-sem-reset';
 import { AVALIACAO_MAX, CONDUTA_MAX, ENCAMINHAMENTOS_MAX, MSG_PARECER, PARECER_MAX_EXAMES, type ConteudoParecer } from '@/modules/documentos/parecer';
 import { prepararParecerAction, salvarParecerAction, type EstadoForm } from '../actions';
 import { MotivoRetificacao } from './motivo-retificacao';
@@ -25,7 +26,8 @@ const CAMPOS = new Set(['geral', 'motivoRetificacao', 'exames', 'avaliacao', 'co
 
 /**
  * US-141 + US-143: o editor e o preparo do parecer são UM formulário, como o da receita (revisão da T6 do 10A). Tudo
- * controlado (o React 19 reseta campos não controlados depois de cada action). A seleção vem da lista do prontuário; um
+ * controlado, com o reset automático do React 19 cancelado (`semResetAutomatico`, SUS-108: o reset desmarcava as caixas
+ * dos exames escolhidos depois da action, e a tela mostrava outra seleção que a do JSON). A seleção vem da lista do prontuário; um
  * exame da cópia que não está mais nela (excluído) sai da seleção com o aviso proposto da spec v0.5 (desvio 10).
  */
 export function ParecerForm({ patientId, docId, conteudo, exames, declaracao, motivo = null }: { patientId: string; docId: string; conteudo: ConteudoParecer; exames: ExameParaEscolher[]; declaracao: string; motivo?: string | null }) {
@@ -59,7 +61,7 @@ export function ParecerForm({ patientId, docId, conteudo, exames, declaracao, mo
     </div>
   );
   return (
-    <form action={action} className="space-y-6" data-guia="editor-parecer">
+    <form action={action} ref={semResetAutomatico} className="space-y-6" data-guia="editor-parecer">
       <input type="hidden" name="conteudo" value={JSON.stringify({ exameIds, ...textos })} />
       {motivo !== null && <MotivoRetificacao valor={motivoRet} aoMudar={setMotivoRet} erro={e.motivoRetificacao} />}
       {/* só aria-describedby: aria-invalid não vale num grupo (fieldset) */}

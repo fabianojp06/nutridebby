@@ -180,4 +180,6 @@ export const MSG_NO_APP = {
   envios: (n: number) => plural(n, 'envio de exame', 'envios de exame'),
   diario: (n: number) => `${plural(n, 'registro', 'registros')} nos últimos 30 dias`,
   iaNutri: { ligada: 'Ligada para este paciente', desligada: 'Desligada' },
+  /** Plano 22 (T6, RN-387): os exames marcados "Mostrar no app" na linha Exames. Texto novo, rascunho para a Debby. */
+  examesLiberados: (n: number) => plural(n, 'exame liberado', 'exames liberados'),
 } as const;

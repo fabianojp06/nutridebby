@@ -628,8 +628,9 @@ sem o autor) e `notaDeInterpretacao` (a em vigor, de `exam_interpretacoes`, `nul
 entra na cópia dos dados que o paciente pedir."). Só no escopo da equipe, `notasAnteriores` (`versao`, `texto` — nulo =
 "Apagar nota" — e `criadoEm`, sem o autor). São duas consultas a mais, depois da de `exams` (`montarDados`,
 `exportacao-job.ts:475`, `:487`; montagem em `:664-666`; tipo em `:239-260`). A nota não vai ao `prontuario.pdf`. Depois da
-anonimização, a nota e a justificativa saem nulas ([§2.5.13](02-banco-de-dados.md#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)). O `mostradoNoAppEm` da spec (RN-399) é do
-PR 3 (divergência #22 abaixo).
+anonimização, a nota e a justificativa saem nulas ([§2.5.13](02-banco-de-dados.md#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)). Plano 22, PR 3
+(RN-385, RN-399): cada exame leva também `mostradoNoAppEm` — o instante da liberação no app em ISO, `null` quando o exame
+não aparece (nunca liberado ou retirado); quem ligou e quem retirou ficam no `audit_log` ([§4.2.13](#4213-mostrar-no-app-plano-22-pr-3)).
 
 Validade do link: 24 h (`EXPORTACAO_VALIDADE_MS`, `exportacao.ts:14`). O ZIP não vai para o backup de `/data` (Plano 03, decisão do dono).
 
@@ -1208,6 +1209,41 @@ Testes em `src/modules/mensagens/lgpd.test.ts`, `src/modules/pacientes/lgpd.test
 
 ---
 
+### 4.2.13 "Mostrar no app" (Plano 22, PR 3)
+
+US-375, RN-385 a RN-387, EP-D22, EP-D45; o lado do portal está no [§5.5.15](05-agenda-portal-conteudo.md#5515-resultados-liberados-plano-22-pr-3-us-375-rn-385-a-rn-387-ep-d22-ep-d23).
+
+| Função | O que faz | Onde |
+|---|---|---|
+| `mostrarNoApp(ctx, patientId, exameId)` | `exigirNutri` antes da transação; `carregarPacienteParaEscrita` (`FOR UPDATE`, recusa bloqueado e anonimizado) → exame `FOR NO KEY UPDATE` pelos dois ids (sem linha → "Exame não encontrado.") → `UPDATE` **só** de `mostrar_no_app_em = now()` (nunca `updated_at`: o resumo da IA não fica "desatualizado" e uma edição aberta com `lidoEm` não é recusada, R-383) → `recordAudit({ acao: 'alterar', entidade: 'exame_no_app_liberado', entidadeId: exameId, patientId })`. Já liberado: nada muda e nada é gravado (a data da primeira liberação fica). Devolve `pacienteUsaApp` (`patients.user_id` preenchido, o estado de `situacaoDoAcesso`) | `src/modules/exames/edicao.ts` (`mudarNoApp`) |
+| `retirarDoApp(ctx, patientId, exameId)` | As mesmas travas; `mostrar_no_app_em = null` e `recordAudit` de `exame_no_app_retirado`. Não liberado: nada | idem |
+
+- **Histórico de acessos (M5, aceito):** cada liberação ou retirada deixa **duas** linhas — "Alterou · Exames" (gatilho
+  `audit_row_change` de `exams`) e "Liberou exame no app · Exames"/"Retirou exame do app · Exames" (`rotuloDaAcao`, com
+  `ENTIDADE_ROTULO` "Exames" para as duas entidades novas, `src/modules/plataforma/audit.ts`). Sem filtro novo em
+  `visivelNoHistorico`.
+- **Actions** (`[exameId]/actions.ts`): `mostrarNoAppAction`/`retirarDoAppAction(patientId, exameId, _prev, f)` com
+  `requireNutri`, devolvendo `{ ok?: true; pacienteUsaApp?: boolean; erro?: string }`; bloqueado → `MSG_BLOQUEADO`; exame que
+  sumiu → "Não foi possível mudar o app do paciente. Tente de novo."; paciente de outro consultório → 404. Revalidam a
+  ficha e não redirecionam.
+- **Tela:** `NoAppDoExame` (`[exameId]/no-app.tsx`), logo abaixo do título do detalhe: "Mostrar no app do paciente"
+  (botão, não `role=switch`) com a confirmação no `DialogoConfirmar`; liberado, o selo "No app" e "Retirar do app"
+  (imediato). A região `<p role="status">` fica sempre montada, fora do bloco trocado ("O exame aparece no app do
+  paciente.", mais "Este paciente ainda não usa o app. O exame aparece quando ele entrar." sem conta; "O exame saiu do app
+  do paciente."); o erro em `role="alert"` ligado ao botão. O botão é o mesmo elemento nos dois estados (o foco fica nele).
+  Paciente bloqueado: só o selo. Na lista da aba, o selo "No app" ao lado do título e, no exame liberado, "Excluir" pelo
+  `DialogoConfirmar` com "Este exame está no app do paciente. Ao excluir, ele some de lá." (os outros exames continuam com
+  a confirmação de antes, que os E2E da conferência usam).
+- **"No app" da ficha** (RN-387, RN-279 v2): `secaoExames.noApp = noAppPor(exams, exams.id, …)` (`src/modules/ficha/secoes/exames.ts`),
+  contado no contexto do paciente que `no-app.ts` abre — a política faz o filtro. A página `[id]/app` mostra na linha
+  "Exames" "{n} exame(s) liberado(s)" (`MSG_NO_APP.examesLiberados`), com a mesma regra do menu do app (recebimento ligado,
+  envio ou exame liberado). Paridade com `examesLiberadosDoPaciente` em `src/modules/ficha/no-app.test.ts`.
+- **Exportação:** `mostradoNoAppEm` (ISO ou `null`) em `exames[]` do `dados.json`, nos dois escopos ([§4.2.9](#429-exportação-zip-us-018-us-046)).
+
+**Testes:** `src/modules/exames/exames-no-app.test.ts`, `src/app/painel/pacientes/[id]/exames/[exameId]/actions.test.ts`,
+`src/modules/plataforma/audit.test.ts`, `src/app/painel/pacientes/[id]/app/page.test.ts` e
+`src/modules/pacientes/exportacao.test.ts`.
+
 ## 4.3 Alimentos
 
 ### 4.3.1 TACO 4ª ed. e seed (INT-04, US-020)
@@ -1524,7 +1560,7 @@ Plano 22, PR 2 (catálogo, edição com versão, detalhe, nota, comparativo e ex
 22. **Pendências do PR 3 (Tarefa 6, "Mostrar no app").** A spec já descreve, e o código ainda não tem: o botão "Mostrar no
     app do paciente" no detalhe, o `mostradoNoAppEm` em `exames[]` do `dados.json` (RN-399) e os rótulos
     `exame_no_app_liberado`/`exame_no_app_retirado` (cap. 2, #14). A coluna, a política e os avisos de edição e exclusão
-    já existem. Pendência, não erro.
+    já existem. Pendência, não erro. *(Resolvida no PR 3, [§4.2.13](#4213-mostrar-no-app-plano-22-pr-3).)*
 23. **EP-D61: "Apagar nota" no Histórico de acessos.** Uma ação deixa duas linhas: "Criou · Nota de interpretação do
     exame" (o gatilho, pela linha de texto nulo, `entidade_id` = id da linha) e "Excluiu · Nota de interpretação do exame"
     (`recordAudit` de `apagarNota`, `interpretacao.ts:94`, `entidade_id` = id do exame). O `criar` fica porque é a
@@ -1534,3 +1570,18 @@ Plano 22, PR 2 (catálogo, edição com versão, detalhe, nota, comparativo e ex
     é o nome do paciente. As telas do hub (`/painel/exames/*`) têm h1.
 25. **RN-384: "empate pela criação".** O código desempata também pelo id (`comparativo.ts:43`) e recusa mais de 30 ids na
     URL antes do banco (`IDS_MAX_NA_URL`, `:30`), com o mesmo `{ erro: 'quantidade' }`.
+
+Plano 22, PR 3 ("Mostrar no app", Tarefa 6; [§4.2.13](#4213-mostrar-no-app-plano-22-pr-3)):
+
+26. **Texto novo na página `[id]/app`.** A spec não traz o texto da contagem dos exames liberados; o código usa
+    "{n} exame liberado"/"{n} exames liberados" (`MSG_NO_APP.examesLiberados`, rascunho para a Debby), na linha "Exames"
+    junto de "{n} envio(s) de exame".
+27. **Excluir na lista da aba.** O plano pede a confirmação do exame no app pelo `DialogoConfirmar`; só o exame liberado
+    ganhou o diálogo (o mesmo componente do detalhe, `ExcluirExame`). Os outros seguem com o `ConfirmarBotao` de antes,
+    de que os E2E da conferência dependem.
+28. **Paciente bloqueado nas actions.** O plano dá um texto só de erro ("Não foi possível mudar o app do paciente. Tente
+    de novo."); com o paciente bloqueado, a action devolve a recusa de hoje (`MSG_BLOQUEADO`), como a nota.
+29. **`temExameLiberado` em `/p/exames`.** A RN-386 diz que a página mostra a seção "quando `temExameLiberado`"; a página
+    chama direto `examesLiberadosDoPaciente`, que já só grava o `auditRead` com itens (uma consulta a menos, mesmo
+    efeito). `temExameLiberado` fica com a moldura.
+30. **EP-D59.** A solicitação de exames (Tarefa 8) ainda não está na `main`: o cenário dela em `no-app.test.ts` entra na T8.

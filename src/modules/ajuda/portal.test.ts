@@ -12,11 +12,11 @@ const FONTES = ['src/app/p', 'src/components/portal']
   .join('\n');
 
 describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
-  it('id no formato do progresso e fora dos guias do painel; versão 4 (Plano 25: as Mensagens); 5 passos com "1 de 5"', () => {
+  it('id no formato do progresso e fora dos guias do painel; versão 5 (Plano 22: os resultados liberados em Exames; Plano 25: as Mensagens); 5 passos com "1 de 5"', () => {
     expect(GUIA_PORTAL.id).toBe('portal-novidades');
     expect(GUIA_PORTAL.id).toMatch(ID_GUIA);
     expect(GUIAS.map((g) => g.id)).not.toContain(GUIA_PORTAL.id);
-    expect(GUIA_PORTAL.versao).toBe(4);
+    expect(GUIA_PORTAL.versao).toBe(5);
     expect(GUIA_PORTAL.passos).toHaveLength(5);
   });
   it('todo alvo do tour existe numa tela do portal (data-guia); a faixa, o mural, as respostas, as ações e a seção Eu', () => {
@@ -43,6 +43,8 @@ describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
     );
     const onde = GUIA_PORTAL.ajuda.secoes.find((s) => s.titulo === 'Onde fica cada coisa')?.itens ?? [];
     expect(onde).toContain('Plano: as refeições do dia, o PDF, a lista de compras, os conteúdos e, quando liberada, a IA Nutri.');
+    // Plano 22 (T6, EP-D52): Exames também mostra os resultados que a nutricionista liberar (o menu aparece com eles)
+    expect(onde).toContain('Exames: enviar um exame (quando o consultório recebe exames pelo app), acompanhar os que você enviou e ver os resultados que a sua nutricionista liberar.');
     const tudo = JSON.stringify(GUIA_PORTAL);
     expect(tudo).not.toContain('canal de conversa');
     expect(tudo).not.toContain('o pedido de autorização aparece em Eu');
@@ -58,8 +60,9 @@ describe('manual guiado do portal (Plano 16, RN-212, US-199)', () => {
     expect(avisoDoGuia({}, true)).toBe(AVISO_PORTAL.pergunta); // já usava o app e nunca viu o guia (Plano 16, G-D17)
     expect(avisoDoGuia({}, false)).toBe(AVISO_PORTAL.boasVindas);
     expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 2, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 17: a versão 2 já é anterior
-    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 3, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 25: a versão 3 já é anterior
-    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 4, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 3, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 22: a versão 3 já é anterior
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 4, estado: 'visto' } }, true)).toBe(AVISO_PORTAL.atualizado); // Plano 25: a versão 4 já é anterior
+    expect(avisoDoGuia({ [GUIA_PORTAL.id]: { v: 5, estado: 'visto' } }, true)).not.toBe(AVISO_PORTAL.atualizado);
     expect(avisoDoGuia({ outro: { v: 1, estado: 'visto' } }, false)).toBe(AVISO_PORTAL.boasVindas); // o progresso de outro guia não conta
   });
 

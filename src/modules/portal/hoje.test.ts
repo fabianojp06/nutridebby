@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { and, count, eq, sql } from 'drizzle-orm';
 import { consultaDireta } from '../../../test/agenda';
@@ -6,6 +8,8 @@ import { envioNoBanco } from '../../../test/exames-enviados';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { accessEvents, auditLog, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
+import { mostrarNoApp } from '@/modules/exames/edicao';
+import { criarExame } from '@/modules/pacientes/exames';
 import { definirPesoOculto } from '@/modules/pacientes/peso-oculto';
 import { somarDias } from '@/modules/pacientes/datas';
 import { jaUsavaOApp } from './acesso';
@@ -66,6 +70,18 @@ describe('faixaDeHoje (P08-13, D2 do Plano 16: a faixa de Hoje numa transação)
     expect(await leituras(T, novo.id)).toEqual({}); // sem peso, nada lido da antropometria
     await app.db.update(tenants).set({ examesPacienteAtivadoEm: new Date() }).where(eq(tenants.id, T.tenantId));
     expect((await faixaDeHoje(ctx, await tenantDe(T.tenantId), agora, hoje, app.db)).exames).toBe(true);
+  });
+
+  it('Plano 22 (RN-386, EP-D23): recebimento desligado, sem envio e com exame liberado → "Exames" aparece, na transação da faixa; o não liberado não conta', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const ctx = ctxPaciente(T.tenantId, p.id);
+    const exameId = await criarExame(T.ctx, T.tenant, p.id, { titulo: 'Rotina', data: '2026-09-01', valores: [], arquivo: null }, { db: app.db });
+    expect((await faixaDeHoje(ctx, await tenantDe(T.tenantId), agora, hoje, app.db)).exames).toBe(false);
+    await mostrarNoApp(T.ctx, p.id, exameId, { db: app.db });
+    expect((await faixaDeHoje(ctx, await tenantDe(T.tenantId), agora, hoje, app.db)).exames).toBe(true);
+    // a mesma consulta da moldura, dentro da transação da faixa (P08-13): nenhuma transação a mais
+    expect(readFileSync(path.resolve('src/modules/portal/hoje.ts'), 'utf8')).toMatch(/examesVisiveis\(\s*tenant,\s*\(\) => temEnvioVisivelNaTransacao\(tx, patientId\),\s*\(\) => temExameLiberadoNaTransacao\(tx, patientId\),?\s*\)/);
   });
 
   it('peso oculto (RN-203): a faixa não lê a antropometria nem audita', async () => {

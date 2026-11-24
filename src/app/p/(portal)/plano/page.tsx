@@ -1,3 +1,4 @@
+import { headers } from 'next/headers';
 import Link from 'next/link';
 import { getEnv } from '@/env';
 import { requirePaciente } from '@/lib/paciente-session';
@@ -11,6 +12,7 @@ import { MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import { MSG_PLANO_PACIENTE, planoDoPaciente, versaoDaCopiaOffline } from '@/modules/portal/plano';
 import { Faixa } from '@/components/portal/faixa';
 import { MSG_G } from '@/components/portal/textos';
+import { CABECALHO_PEDIDO_DA_COPIA, MARCA_DA_COPIA } from '@/app/sw-regras';
 import { GuardarPlano } from '../../plano-guardado';
 import { molduraDaSecao } from '../../moldura';
 import { AbrirRefeicaoDaUrl } from './abrir-refeicao-da-url';
@@ -38,6 +40,9 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
   const [plano, entrada] = await Promise.all([planoDoPaciente(ctx, tenant.fuso), entradaDoPaciente(ctx, tenant, configIA(getEnv()))]);
   const comIaNutri = entrada === 'conversa' || entrada === 'decidir' || entrada === 'texto_mudou' || entrada === 'indisponivel';
   const { pdf, 'ia-nutri': iaNutri } = await searchParams;
+  // SUS-112: a busca do service worker que grava a cópia offline (guardarPlano) leva o cabeçalho; só esse HTML ganha a marca,
+  // e só ele recarrega quando a rede volta (sw-provider.tsx). A navegação do paciente nunca o leva.
+  const copia = (await headers()).get(CABECALHO_PEDIDO_DA_COPIA) === '1';
   const agora = new Date();
   const minutosAgora = partesNoFuso(agora, tenant.fuso).minutos;
   const minutosAte = (horario: string) => {
@@ -52,6 +57,7 @@ export default async function MeuPlano({ searchParams }: PageProps<'/p/plano'>) 
         {/* D6: plano novo = id novo (e US-054: sugestões de receita mudaram = versão nova); o service worker só busca de
             novo se a versão ou o dono mudarem, ou 1 vez por dia */}
         <GuardarPlano dono={vinculo.patientId} versao={versaoDaCopiaOffline(plano)} />
+        {copia && <span hidden {...{ [MARCA_DA_COPIA]: '' }} />}
         <AbrirRefeicaoDaUrl />
         {iaNutri === 'indisponivel' && <AvisoIaNutri texto={MSG_IA_NUTRI.naoDisponivel} />}
         {!plano ? (

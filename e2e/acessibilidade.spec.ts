@@ -11,7 +11,8 @@ import { avaliar, entradasDoPlano, marcarParaPaciente, pacienteNoPortal, publica
 // Bloco de IP deste spec (o limite de login é por IP): 10.9.10.21 a 10.9.10.30; Plano 10A (T16): 10.9.14.79 (a nutricionista
 // dos documentos, E2E_DOCS, com 2FA) e 10.9.14.80 (as páginas sem login do documento); Plano 15 (T13): 10.9.29.64 (a paciente
 // liberada para a IA Nutri e sem o consentimento, da tela "Antes de usar a IA Nutri"); Plano 17 (P17-08): 10.9.10.25 (a
-// paciente sem lembretes, de Eu › Lembretes vazia).
+// paciente sem lembretes, de Eu › Lembretes vazia); Plano 22 (revisão da P22-06): 10.9.10.26 (a conta MULTI no "Consultório
+// E2E 2", com o exame liberado da semente, em /p/exames).
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const MULTI = { email: 'multi-e2e@nutridebby.test', senha: 'Multi2026segura' }; // scripts/e2e-seed.ts: 3 consultórios, o "3" sem o termo
 test.describe.configure({ mode: 'serial' });
@@ -571,6 +572,38 @@ test('conta com três consultórios: axe em /p/escolher e /p/termo; trocar de nu
   await expect(page.getByText('Acompanhamento com Consultório E2E 2')).toBeVisible();
   await expect.poll(() => entradasDoPlano(page)).toBe(0);
   await page.context().close();
+});
+
+// Plano 22 (T6, US-375, RN-386; revisão da P22-06): /p/exames com um exame liberado. A paciente das ROTAS não tem exame
+// liberado, então a seção "Resultados liberados" (h2, cartão com h3, <dl> com dois <dd> por marcador, o Selo "Fora da
+// referência" sobre o cartão e o Aviso) só é varrida aqui: a conta MULTI no "Consultório E2E 2" (scripts/e2e-seed.ts: o
+// exame "Exames de rotina da semente", liberado, com uma linha fora da referência e uma referência longa). Aparelho claro e
+// escuro, a 360 px e a 320 px com o texto a 200% (nada rola na horizontal).
+test('Plano 22: axe em /p/exames com exame liberado (conta MULTI no Consultório E2E 2), claro e escuro, a 360 px e a 320 px com o texto a 200%', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const page = await entrarComo(browser, MULTI.email, MULTI.senha, '10.9.10.26');
+  try {
+    await expect(page).toHaveURL(/\/p\/escolher/);
+    await page.getByRole('button', { name: 'Consultório E2E 2', exact: true }).click();
+    await expect(page).toHaveURL(/\/p\/inicio$/);
+    const cartao = page.getByRole('listitem').filter({ has: page.getByRole('heading', { level: 3, name: 'Exames de rotina da semente' }) });
+    for (const modo of ['light', 'dark'] as const) {
+      for (const largura of [360, 320]) {
+        await page.emulateMedia({ colorScheme: modo });
+        await page.setViewportSize({ width: largura, height: 780 });
+        await page.goto('/p/exames');
+        await expect(page.getByRole('heading', { level: 2, name: 'Resultados liberados' })).toBeVisible();
+        await expect(page.getByText('Não é diagnóstico. Converse com sua nutricionista.')).toBeVisible();
+        await expect(cartao.getByText('Fora da referência', { exact: true })).toBeVisible(); // o Selo está mesmo na página
+        await page.waitForLoadState('networkidle');
+        expect(await violacoes(page), `/p/exames com exame liberado: ${modo}, ${largura} px`).toEqual([]);
+        if (largura === 320) await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${modo}, ${largura} px`).toBe(true);
+      }
+    }
+  } finally {
+    await page.context().close();
+  }
 });
 
 // Plano 10A (T16, RNF-144): as telas novas fora do painel (o painel entra pelo ROTAS_DO_PAINEL, e /p/documentos, com a

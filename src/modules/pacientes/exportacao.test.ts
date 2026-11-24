@@ -40,7 +40,7 @@ import { gravarCadastro } from './cadastro';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
 import { registrarAtendimento } from './atendimentos';
 import { salvarEtiquetasDoPaciente } from './etiquetas';
-import { editarExame, exameParaEditar } from '@/modules/exames/edicao';
+import { editarExame, exameParaEditar, mostrarNoApp, retirarDoApp } from '@/modules/exames/edicao';
 import { apagarNota, salvarNota } from '@/modules/exames/interpretacao';
 import { criarExame } from './exames';
 import {
@@ -644,7 +644,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         anamneses: [{ data: '2026-09-01', modelo: 'Longa', respostas }],
         antropometria: [],
         gastoEnergetico: [],
-        exames: [{ data: '2026-09-01', titulo: 'Painel', temLaudo: false, laudo: null, valores, versoesAnteriores: [], notaDeInterpretacao: null }],
+        exames: [{ data: '2026-09-01', titulo: 'Painel', temLaudo: false, laudo: null, valores, versoesAnteriores: [], notaDeInterpretacao: null, mostradoNoAppEm: null }],
         atendimentos: [],
         planos: [],
         pedidosLgpd: [],
@@ -1091,6 +1091,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
             valores: [{ nome: 'Marcador', valor: 0.0000001, unidade: 'mg/L', referencia: null }],
             versoesAnteriores: [],
             notaDeInterpretacao: null,
+            mostradoNoAppEm: null,
           },
         ],
         atendimentos: [],
@@ -1506,6 +1507,27 @@ describe('Plano 22 (T5a, RN-383, RN-399, EP-D19; Review Focus 6) — nota de int
     const pdf = textoDoPdf(await renderizarProntuario(equipe, 'Debby Silva'));
     expect(pdf).not.toContain('Rever a ingest');
     expect(pdf).not.toContain('Investigar a ingest');
+  });
+});
+
+describe('Plano 22 (T6, RN-385, RN-399; Review Focus 6) — "Mostrar no app" no dados.json', () => {
+  it('mostradoNoAppEm: o instante da liberação em ISO no exame liberado e null no não liberado (e no retirado), nos dois escopos', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const liberado = await criarExame(T.ctx, T.tenant, p.id, { titulo: 'Liberado', data: '2026-09-01', valores: [], arquivo: null }, deps);
+    await criarExame(T.ctx, T.tenant, p.id, { titulo: 'Nunca liberado', data: '2026-08-01', valores: [], arquivo: null }, deps);
+    const retirado = await criarExame(T.ctx, T.tenant, p.id, { titulo: 'Retirado', data: '2026-07-01', valores: [], arquivo: null }, deps);
+    await mostrarNoApp(T.ctx, p.id, liberado, { db: app.db });
+    await mostrarNoApp(T.ctx, p.id, retirado, { db: app.db });
+    await retirarDoApp(T.ctx, p.id, retirado, { db: app.db });
+    const [gravado] = await withTenant(T.ctx, (tx) => tx.select({ em: exams.mostrarNoAppEm }).from(exams).where(eq(exams.id, liberado)), app.db);
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
+      const de = (titulo: string) => dados.exames.find((e) => e.titulo === titulo)!;
+      expect(de('Liberado').mostradoNoAppEm, escopo).toBe(gravado.em!.toISOString());
+      expect(de('Nunca liberado').mostradoNoAppEm, escopo).toBeNull();
+      expect(de('Retirado').mostradoNoAppEm, escopo).toBeNull();
+    }
   });
 });
 

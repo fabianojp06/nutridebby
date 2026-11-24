@@ -18,7 +18,7 @@ vi.mock('./actions', () => ({
   avaliarAction: async () => ({}),
   encaminharAction: async () => ({}),
 }));
-const { Conversa, MENSAGENS_NA_TELA, alvoDoFoco, chamar, chegouResposta, encaminharNoItem, estadoDoRetorno, inicioVisivel, proximoIntervalo, textoDoStatus } = await import('./conversa');
+const { Conversa, MENSAGENS_NA_TELA, alvoDoFoco, avisoAoVoltarARede, chamar, chegouResposta, encaminharNoItem, estadoDoRetorno, inicioVisivel, proximoIntervalo, textoDoStatus } = await import('./conversa');
 const tela = (o: { mensagens?: MensagemDoPaciente[]; textoInicial?: string | null; podePerguntar?: boolean } = {}) =>
   renderToStaticMarkup(createElement(Conversa, { tenantId: 't1', mensagens: o.mensagens ?? [], podePerguntar: o.podePerguntar ?? true, sessaoNova: false, textoInicial: o.textoInicial ?? null }));
 
@@ -185,5 +185,20 @@ describe('a conversa no app (US-172, RNF-160, RNF-167)', () => {
     expect(fonte.match(/router\.refresh\(\)/g)).toHaveLength(1);
     expect(fonte).toMatch(/fetch\('\/api\/p\/ia-nutri\/situacao', CONSULTA_AUTOMATICA\)/);
     expect(fonte).not.toMatch(/localStorage|sessionStorage/); // nada da pergunta guardado no aparelho
+  });
+});
+
+// SUS-112: o portal não recarrega mais a página viva quando a rede volta — o "Sem conexão…" da pergunta que falhou sem rede
+// (chamar) sairia só com o reload; agora sai quando useOnline() volta a true
+describe('SUS-112: o aviso "Sem conexão…" sai quando a rede volta', () => {
+  it('avisoAoVoltarARede: só o "Sem conexão…" sai; os outros avisos ficam', async () => {
+    const semRede = await chamar(async () => Promise.reject(new TypeError('Failed to fetch')), () => false);
+    expect(semRede.aviso).toBe(MSG_IA_NUTRI.semConexao);
+    expect(avisoAoVoltarARede(semRede.aviso!)).toBe('');
+    for (const a of [MSG_IA_NUTRI.naoDisponivel, MSG_IA_NUTRI.respostaChegou, MSG_IA_NUTRI.pensando, '']) expect(avisoAoVoltarARede(a)).toBe(a);
+  });
+  it('a tela compara o online na renderização e limpa o aviso só na volta a true', () => {
+    const fonte = readFileSync(path.resolve('src/app/p/(portal)/plano/ia/conversa.tsx'), 'utf8');
+    expect(fonte).toMatch(/const \[onlineAntes, setOnlineAntes\] = useState\(online\);\n  if \(onlineAntes !== online\) \{\n    setOnlineAntes\(online\);\n    if \(online && aviso !== avisoAoVoltarARede\(aviso\)\) setAviso\(avisoAoVoltarARede\(aviso\)\);/);
   });
 });

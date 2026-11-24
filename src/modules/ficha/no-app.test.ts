@@ -15,16 +15,19 @@ import { sha256 } from '@/lib/crypto';
 import { textoDoAcesso } from '@/app/painel/pacientes/valores';
 import { idTaco } from '@/modules/alimentos/taco';
 import { documentosDoPaciente } from '@/modules/documentos/portal';
+import { mostrarNoApp } from '@/modules/exames/edicao';
 import { lembretesDoPaciente } from '@/modules/lembretes/equipe';
 import { desligarMeuLembrete, pausarMeusLembretes } from '@/modules/lembretes/paciente';
 import { listarAntropometrias } from '@/modules/pacientes/antropometria';
 import { situacaoDoAcesso } from '@/modules/pacientes/convite-paciente';
+import { criarExame } from '@/modules/pacientes/exames';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { definirPesoOculto } from '@/modules/pacientes/peso-oculto';
 import { feedDeConteudos } from '@/modules/portal/conteudos';
 import { diarioDoPaciente } from '@/modules/portal/diario';
 import { evolucaoParaPaciente } from '@/modules/portal/evolucao';
 import { meusEnvios } from '@/modules/portal/exames-enviados';
+import { examesLiberadosDoPaciente } from '@/modules/portal/exames-liberados';
 import { jornadaDoPaciente } from '@/modules/portal/jornada';
 import { listaDoPlano } from '@/modules/portal/lista-compras';
 import { planoDoPaciente } from '@/modules/portal/plano';
@@ -133,6 +136,14 @@ async function montar() {
     await tx.execute(sql`update signed_documents set anonimizado_em = now() where id = ${anonimizado.id}`);
   });
 
+  // Plano 22 (T6, RN-387, EP-D22): um exame da nutricionista liberado no app e um não liberado (a política
+  // paciente_exame_liberado decide o que a sessão do paciente lê; nenhum filtro em TypeScript)
+  const exame = (titulo: string, data: string) =>
+    criarExame(T.ctx, { fuso: FUSO }, ana.id, { titulo, data, valores: [{ nome: 'Glicemia de jejum', valor: '95', unidade: 'mg/dL', referencia: '70 a 99' }], arquivo: null }, { db: app.db });
+  const exameLiberado = await exame('Liberado', '2026-10-01');
+  const exameNaoLiberado = await exame('Não liberado', '2026-11-01');
+  await mostrarNoApp(T.ctx, ana.id, exameLiberado, { db: app.db });
+
   const envioCancelado = await envioNoBanco(app.db, T.ctx, ana.id, { status: 'cancelado' });
   const envioRecebido = await envioNoBanco(app.db, T.ctx, ana.id, { status: 'recebido' });
 
@@ -200,6 +211,7 @@ async function montar() {
       planos: [arquivado, publicado],
       documentos: [emitido.id, cancelado.id, rascunho.id, anonimizado.id],
       envios: [envioCancelado, envioRecebido],
+      exames: [exameLiberado, exameNaoLiberado],
       avaliacoes: [av1.id, av2.id],
       atendimentos: [at1.id, at2.id],
       paraTodos: paraTodos.id,
@@ -243,6 +255,14 @@ const CASOS: Record<string, Caso> = {
       return { total: d.length, ids: d.map((x) => x.id) };
     },
   },
+  // Plano 22 (T6, RN-387, RN-279 v2): os exames da nutricionista marcados "Mostrar no app" = "Resultados liberados" do portal
+  exames: {
+    pedidos: (c) => c.ids.exames,
+    portal: async (c) => {
+      const e = await examesLiberadosDoPaciente(c.ctxAna, app.db);
+      return { total: e.length, ids: e.map((x) => x.id) };
+    },
+  },
   'exames-enviados': {
     pedidos: (c) => c.ids.envios,
     portal: async (c) => {
@@ -259,7 +279,7 @@ describe('noAppDoPaciente (Plano 18, D16, RN-281)', () => {
   it('cobertura: toda seção de SECOES_DA_FICHA com `noApp` tem o caso no cenário de paridade (RNF-263 b)', () => {
     const comNoApp = SECOES_DA_FICHA.filter((s) => s.noApp).map((s) => s.id);
     expect(semOrdem(Object.keys(CASOS))).toEqual(semOrdem(comNoApp));
-    expect(comNoApp).toEqual(expect.arrayContaining(['plano-alimentar', 'antropometria', 'atendimentos', 'documentos', 'exames-enviados']));
+    expect(comNoApp).toEqual(expect.arrayContaining(['plano-alimentar', 'antropometria', 'atendimentos', 'documentos', 'exames-enviados', 'exames']));
   });
 
   it('paridade: cada contagem e cada selo = o que a função do portal devolve à Ana na sessão dela (Review Focus 2)', async () => {
@@ -274,7 +294,8 @@ describe('noAppDoPaciente (Plano 18, D16, RN-281)', () => {
       expect(semOrdem(r.visiveis[id] ?? []), id).toEqual(semOrdem(pedidos.filter((i) => portal.ids.includes(i))));
     }
     // os casos do cenário, para o teste não passar com tudo zerado
-    expect(r.contagens).toMatchObject({ 'plano-alimentar': 1, antropometria: 2, atendimentos: 2, documentos: 2, 'exames-enviados': 1 });
+    expect(r.contagens).toMatchObject({ 'plano-alimentar': 1, antropometria: 2, atendimentos: 2, documentos: 2, 'exames-enviados': 1, exames: 1 });
+    expect(r.visiveis.exames).toEqual([c.ids.exames[0]]); // Plano 22: só o liberado tem o selo
     expect(r.visiveis['plano-alimentar']).toEqual([c.ids.planos[1]]); // o arquivado (que a RLS entrega) fica sem selo
     expect(semOrdem(r.visiveis.documentos)).toEqual(semOrdem(c.ids.documentos.slice(0, 2))); // sem o rascunho e o anonimizado
     expect(r.visiveis['exames-enviados']).toEqual([c.ids.envios[1]]); // sem o cancelado

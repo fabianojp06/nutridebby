@@ -131,6 +131,16 @@ describe('página "No app do paciente" (§8.5)', () => {
     expect(linha(await render(), 'Exames')).toBe('0 envios de exame');
   });
 
+  it('Plano 22 (T6, RN-387): os exames liberados entram na linha Exames — também sem o recebimento ligado e sem envio (o menu do app aparece com eles)', async () => {
+    estado.noApp = { ...ATIVO, contagens: { ...ATIVO.contagens!, 'exames-enviados': 0, exames: 2 } };
+    expect(linha(await render(), 'Exames')).toBe('2 exames liberados');
+    estado.noApp = { ...ATIVO, contagens: { ...ATIVO.contagens!, 'exames-enviados': 1, exames: 1 } };
+    expect(linha(await render(), 'Exames')).toBe('1 envio de exame · 1 exame liberado');
+    estado.tenant = { ...estado.tenant, examesPacienteAtivadoEm: new Date() };
+    estado.noApp = { ...ATIVO, contagens: { ...ATIVO.contagens!, 'exames-enviados': 0, exames: 0 } };
+    expect(linha(await render(), 'Exames')).toBe('0 envios de exame'); // sem exame liberado, a linha de antes
+  });
+
   it('convite pendente: "Ainda não entrou no app. {texto do convite}" e nenhuma contagem', async () => {
     estado.noApp = { ...ATIVO, acesso: { estado: 'pendente', ultimoAcesso: null, textoDoConvite: 'Convite enviado por e-mail. Vale até 20/11/2026, 10:00.' }, contagens: null };
     const html = await render();

@@ -64,7 +64,8 @@ async function guardarPlano(dono: string, versao: string, o: { prazoMs?: number 
     : null;
   if (!precisaBuscarPlano(guardado, { dono, versao, build: BUILD }, Date.now())) return;
   if (guardado && guardado.dono !== dono) await esquecerPlanoGuardado();
-  // Plano 25 (RN-473): o cabeçalho diz ao servidor que é a cópia — o link "Mensagens" da faixa sai sem contador
+  // SUS-112: o cabeçalho faz o servidor desenhar a marca da cópia (MARCA_DA_COPIA) — só a cópia recarrega quando a rede volta.
+  // Plano 25 (RN-473): e o link "Mensagens" da faixa sai sem contador
   const r = await fetch(URL_PLANO, { credentials: 'same-origin', cache: 'no-store', headers: { [CABECALHO_PEDIDO_DA_COPIA]: '1' }, signal: o.prazoMs ? AbortSignal.timeout(o.prazoMs) : undefined });
   if (saiuDoPlano(r, origem)) {
     await esquecerPlanoGuardado();

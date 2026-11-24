@@ -5,15 +5,23 @@ import type { PacienteAccess } from '@/lib/paciente-session';
 import { mensagensNaFaixa } from '@/modules/mensagens/conversa';
 import { getTenantBrand, type MarcaTenant } from '@/modules/plataforma/marca';
 import { examesVisiveis, temEnvioVisivel } from '@/modules/portal/exames-enviados';
+import { temExameLiberado } from '@/modules/portal/exames-liberados';
 import { CABECALHO_PEDIDO_DA_COPIA } from '../sw-regras';
 import { secoesDoPortal, type SecaoPortal } from './navegacao';
 
 /**
  * Plano 16 (D10, RN-192): o que a faixa de uma seção precisa — a marca, as seções que este paciente vê e (Plano 25) o link
- * "Mensagens" da faixa.
+ * "Mensagens" da faixa. Plano 22 (RN-386): "Exames" também aparece com exame liberado pela nutricionista.
  */
 export async function molduraDaSecao(a: Pick<PacienteAccess, 'tenant' | 'ctx'>): Promise<Moldura> {
-  const [exames, mensagens] = await Promise.all([examesVisiveis(a.tenant, () => temEnvioVisivel(a.ctx)), mensagensDaFaixa(a.ctx)]);
+  const [exames, mensagens] = await Promise.all([
+    examesVisiveis(
+      a.tenant,
+      () => temEnvioVisivel(a.ctx),
+      () => temExameLiberado(a.ctx),
+    ),
+    mensagensDaFaixa(a.ctx),
+  ]);
   return molduraComExames(a.tenant, exames, mensagens);
 }
 

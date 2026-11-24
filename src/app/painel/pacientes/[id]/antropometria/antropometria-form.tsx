@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useState, type ChangeEvent } from 'react';
+import { semResetAutomatico } from '@/lib/form-sem-reset';
 import { formatarDecimal, lerDecimal } from '@/lib/numero';
 import { CIRCUNFERENCIAS, MSG_ANTROPO } from '@/modules/pacientes/antropometria-constantes'; // nunca de antropometria.ts (servidor)
 import { idadeEm } from '@/modules/pacientes/datas';
@@ -18,8 +19,9 @@ type Props = {
 
 export function AntropometriaForm({ acao, hoje, sexo, dataNascimento, somenteLeitura, consultationId }: Props) {
   const [state, action, pendente] = useActionState<AntropometriaState, FormData>(acao, {});
+  // SUS-108: o reset automático cancelado (os outros campos são controlados), para não depender de toda resposta trazer `envio`
   return (
-    <form action={action} className="space-y-4">
+    <form action={action} ref={semResetAutomatico} className="space-y-4">
       {consultationId && <input type="hidden" name="consultationId" value={consultationId} />}
       {consultationId && <p className="text-sm text-suave">Esta avaliação fica ligada ao atendimento.</p>}
       <fieldset disabled={somenteLeitura}>
@@ -72,7 +74,11 @@ function Campos(props: { inicial: Record<string, string>; erros: Record<string, 
       </fieldset>
       <div className="space-y-1">
         <label htmlFor="protocolo" className="block font-medium">Protocolo de dobras</label>
-        <select id="protocolo" name="protocolo" value={protocolo} onChange={mudar('protocolo')} className="rounded-xl border border-campo bg-cartao p-2 text-texto">
+        {/* SUS-108: não controlado. O React 19 faz form.reset() depois de toda action, e um <select value> montado no cliente
+            não tem opção defaultSelected: voltava a "Nenhum" com as dobras do protocolo escolhido na tela. Com defaultValue
+            (e a remontagem dos Campos a cada resposta, `envio`), o select nasce no protocolo devolvido; e o form cancela o reset
+            (`semResetAutomatico`), então sem remontagem ele continua no que foi escolhido, o mesmo do estado. */}
+        <select id="protocolo" name="protocolo" defaultValue={protocolo} onChange={mudar('protocolo')} className="rounded-xl border border-campo bg-cartao p-2 text-texto">
           <option value="nenhum">Nenhum</option>
           <option value="jp3">JP 3 dobras</option>
           <option value="jp7">JP 7 dobras</option>

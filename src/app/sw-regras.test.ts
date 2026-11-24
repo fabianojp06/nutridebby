@@ -2,35 +2,38 @@ import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MSG_PORTAL_MENSAGENS } from '@/modules/mensagens/constantes';
 import {
-  CABECALHO_PEDIDO_DA_COPIA,
   CABECALHO_BUILD,
   CABECALHO_DONO,
   CABECALHO_GUARDADO_EM,
+  CABECALHO_PEDIDO_DA_COPIA,
   CABECALHO_VERSAO,
   cabecalhosDaCopia,
   CACHE_PLANO,
+  deveRecarregarAoVoltar,
+  EVENTO_REDE_VOLTOU,
   ehConversaDoPortal,
+  ehCopiaOffline,
   ehNavegacaoDoPortal,
   ehPaginaDoPlano,
   esquecerPlanoGuardadoForaDe,
   idDoBuild,
   lerMensagem,
+  MARCA_DA_COPIA,
   mensagemDaPropriaOrigem,
-  deveRecarregarAoVoltar,
-  SAINDO_SEM_DESCARREGAR_MS,
-  vigiarSaida,
   paginaSemConexao,
-  recarregaAoVoltarARede,
   planoValido,
   podeGuardarPlano,
   precisaBuscarPlano,
+  recarregarCopiaAoVoltar,
   RENOVAR_PLANO_MS,
+  SAINDO_SEM_DESCARREGAR_MS,
   saiuDoPlano,
   TEXTO_SEM_CONEXAO,
   TEXTO_URGENCIA,
   URL_PLANO,
   urlDaNotificacao,
   VALIDADE_PLANO_MS,
+  vigiarSaida,
 } from './sw-regras';
 
 const O = 'https://nutri.exemplo.com';
@@ -288,81 +291,237 @@ describe('Plano 25 (T7): /p/mensagens fora do cache e do plano guardado', () => 
   });
 });
 
-// Correção do E2E "rodada T6b (I4)" (o mesmo padrão no portal): ao reconectar, o Serwist recarregava a página inteira
-describe('Plano 25: a rede que volta não recarrega a conversa (o rascunho fica)', () => {
-  it('recarrega as outras páginas do portal (a cópia do plano vira a página de verdade), nunca /p/mensagens', () => {
-    expect(recarregaAoVoltarARede('/p/inicio')).toBe(true);
-    expect(recarregaAoVoltarARede('/p/plano')).toBe(true);
-    expect(recarregaAoVoltarARede('/p/mensagens')).toBe(false);
-    expect(recarregaAoVoltarARede('/p/mensagens/')).toBe(false);
+// SUS-112: o `reloadOnOnline` padrão do Serwist recarregava qualquer página do portal quando a rede voltava e apagava o que o
+// paciente digitava. A regra é por PERMISSÃO: só o documento que é a cópia offline de "Meu plano" recarrega — nunca uma lista
+// de rotas excluídas (a do Plano 25 só excluía /p/mensagens, e o questionário do Plano 27 continuava perdendo as respostas).
+const COPIA = `<main><span hidden="" ${MARCA_DA_COPIA}=""></span><h2>Plano de outubro</h2><button disabled>Comi assim</button></main>`;
+/** Um `document` mínimo sobre o HTML: `querySelector('[atributo]')` acha o elemento se o atributo está numa tag. */
+const temAtributo = (html: string, seletor: string) => {
+  const atributo = /^\[([a-z-]+)\]$/.exec(seletor)?.[1];
+  if (!atributo) throw new Error(`seletor inesperado: ${seletor}`);
+  return new RegExp(`<[a-z]+[^>]*\\s${atributo}(=|\\s|>|/)`).test(html) ? {} : null;
+};
+const documentoDe = (html: string) => ({ querySelector: (seletor: string) => temAtributo(html, seletor) });
+
+describe('SUS-112: ao voltar a rede, recarrega só a cópia offline (lista de permissão)', () => {
+  const voltou = (html: string, o: { saindo?: boolean; online?: boolean } = {}) =>
+    deveRecarregarAoVoltar({ copia: ehCopiaOffline(documentoDe(html)), saindo: o.saindo ?? false, online: o.online ?? true });
+
+  it('a cópia do plano recarrega quando a rede volta (a mesma marca em /p/plano do NetworkFirst ou em /p/inicio do handlerDidError)', () => {
+    expect(ehCopiaOffline(documentoDe(COPIA))).toBe(true);
+    expect(voltou(COPIA)).toBe(true);
   });
-  it('sw-provider.tsx: o reloadOnOnline do Serwist desligado e refeito com a exceção', () => {
-    const f = readFileSync('src/app/p/sw-provider.tsx', 'utf8');
-    expect(f).toMatch(/<SerwistProvider[^>]*reloadOnOnline=\{false\}/);
-    expect(f).toMatch(/addEventListener\('online', aoVoltar\)/);
+
+  it.each([
+    ['/p/diario', '<form><label for="texto">O que você comeu?</label><textarea id="texto" name="texto">Arroz e feijão</textarea><button>Registrar</button></form>'],
+    ['/p/questionarios/x', '<form><fieldset><legend>Como foi a semana?</legend><input type="radio" name="q1" checked><textarea name="q2">Dormi mal</textarea></fieldset></form>'],
+    ['/p/exames (envio de exame)', '<form><input type="file" name="arquivos"><input type="text" name="descricao" value="Hemograma"><button>Enviar</button></form>'],
+    ['/p/inicio', '<main><h1>Olá, Paula</h1><a href="/p/diario">Registrar refeição</a></main>'],
+    ['/p/plano aberto da rede', '<main><h2>Plano de outubro</h2><button>Comi assim</button></main>'],
+    ['/p/mensagens', '<form><textarea name="texto">Oi</textarea></form>'],
+  ])('%s, página viva (não é a cópia): nunca recarrega — com ou sem formulário, com rede e ficando', (_rota, html) => {
+    expect(ehCopiaOffline(documentoDe(html))).toBe(false);
+    expect(voltou(html)).toBe(false);
+  });
+
+  it('a cópia que está saindo (beforeunload/pagehide) não recarrega: o reload atropelaria a navegação em curso (P09-04)', () => {
+    expect(voltou(COPIA, { saindo: true })).toBe(false);
+  });
+
+  it('sem rede de fato não recarrega — defensivo: o `online` chega com navigator.onLine verdadeiro, mas a decisão não confia no evento', () => {
+    expect(voltou(COPIA, { online: false })).toBe(false);
+  });
+
+  it('a regra não olha o endereço: nenhum pathname entra na decisão (permissão pela marca, não exclusão por rota)', () => {
+    const provider = readFileSync('src/app/p/sw-provider.tsx', 'utf8');
+    expect(provider).toMatch(/reloadOnOnline=\{false\}/);
+    expect(provider).toMatch(/recarregarCopiaAoVoltar\(\{ janela: window, documento: document, online: \(\) => navigator\.onLine, recarregar: \(\) => window\.location\.reload\(\) \}\)/);
+    expect(provider).not.toMatch(/location\.pathname/);
+    expect(provider.match(/location\.reload\(\)/g)).toHaveLength(1); // um caminho só de recarregar
+    expect(readFileSync('src/app/sw-regras.ts', 'utf8')).not.toMatch(/export function deveRecarregarAoVoltar\(o: \{[^}]*pathname/);
+  });
+
+  it('só a busca da cópia (guardarPlano, no service worker) leva o cabeçalho que faz o servidor desenhar a marca', () => {
+    expect(CABECALHO_PEDIDO_DA_COPIA).toBe('x-nd-copia');
+    expect(MARCA_DA_COPIA).toBe('data-nd-copia-offline');
+    const sw = readFileSync('src/app/sw.ts', 'utf8');
+    expect(sw).toMatch(/fetch\(URL_PLANO, \{[^}]*headers: \{ \[CABECALHO_PEDIDO_DA_COPIA\]: '1' \}/);
+    expect(sw.match(/CABECALHO_PEDIDO_DA_COPIA\]/g)).toHaveLength(1);
   });
 });
 
-// E2E "rodada T7 (I4) … nunca o plano": o `online` chegava à página da cópia do plano no meio da saída para /p/mensagens, e
-// o reload dela passava por cima da navegação — a conversa virava o plano
-describe('Plano 25: o reload ao reconectar nunca atropela uma navegação em curso', () => {
-  it('recarrega só com a rede de volta, a página ficando e fora da conversa', () => {
-    expect(deveRecarregarAoVoltar({ pathname: '/p/plano', saindo: false, online: true })).toBe(true);
-    expect(deveRecarregarAoVoltar({ pathname: '/p/plano', saindo: true, online: true })).toBe(false); // saindo (beforeunload/pagehide)
-    expect(deveRecarregarAoVoltar({ pathname: '/p/plano', saindo: false, online: false })).toBe(false); // evento sem rede de fato
-    expect(deveRecarregarAoVoltar({ pathname: '/p/mensagens', saindo: false, online: true })).toBe(false);
-  });
-  it('sw-provider.tsx: a saída vigiada (beforeunload, pagehide e a volta do bfcache) decide antes do reload', () => {
-    const f = readFileSync('src/app/p/sw-provider.tsx', 'utf8');
-    expect(f).toMatch(/const saida = vigiarSaida\(window\)/);
-    expect(f).toMatch(/saida\.parar\(\)/);
-    expect(f).toMatch(/deveRecarregarAoVoltar\(\{ pathname: window\.location\.pathname, saindo: saida\.saindo\(\), online: navigator\.onLine \}\)/);
-  });
-});
-
-// /code-review do PR 2 (nit 6): um `beforeunload` que não descarrega a página (download, `tel:`, `mailto:`) deixava
-// `saindo` verdadeiro para sempre — a página nunca mais recarregava ao voltar a rede
-describe('Plano 25: vigiarSaida (o "saindo" do reload ao reconectar)', () => {
-  const janela = () => {
-    const t = new EventTarget();
-    const evento = (tipo: string, persisted?: boolean) => t.dispatchEvent(Object.assign(new Event(tipo), persisted === undefined ? {} : { persisted }));
-    return { t, evento };
+/** `window` e `document` de mentira: EventTargets com o HTML da página, o `visibilityState` e os ouvintes contados. */
+const pagina = (html: string) => {
+  const contar = (t: EventTarget) => {
+    const ouvintes = new Map<string, number>();
+    const add = t.addEventListener.bind(t);
+    const rem = t.removeEventListener.bind(t);
+    t.addEventListener = (tipo: string, f: EventListenerOrEventListenerObject | null, op?: boolean | AddEventListenerOptions) => {
+      ouvintes.set(tipo, (ouvintes.get(tipo) ?? 0) + 1);
+      add(tipo, f, op);
+    };
+    t.removeEventListener = (tipo: string, f: EventListenerOrEventListenerObject | null, op?: boolean | EventListenerOptions) => {
+      ouvintes.set(tipo, (ouvintes.get(tipo) ?? 0) - 1);
+      rem(tipo, f, op);
+    };
+    return ouvintes;
   };
+  const janela = new EventTarget();
+  const documento = Object.assign(new EventTarget(), { visibilityState: 'visible', querySelector: (s: string) => temAtributo(html, s) });
+  const ouvintes = { janela: contar(janela), documento: contar(documento) };
+  const evento = (alvo: EventTarget, tipo: string, persisted?: boolean) => alvo.dispatchEvent(Object.assign(new Event(tipo), persisted === undefined ? {} : { persisted }));
+  const ativos = () => [...ouvintes.janela.values(), ...ouvintes.documento.values()].reduce((a, b) => a + b, 0);
+  return { janela, documento, evento, ativos, ouvintes };
+};
+
+describe('SUS-112: recarregarCopiaAoVoltar (ouvintes só na cópia, um caminho de recarregar, pendência)', () => {
+  afterEach(() => vi.useRealTimers());
+  const montar = (html: string, rede = { online: true }) => {
+    const p = pagina(html);
+    const recarregar = vi.fn();
+    const vigia = recarregarCopiaAoVoltar({ janela: p.janela, documento: p.documento, online: () => rede.online, recarregar, relogio: globalThis });
+    return { ...p, recarregar, vigia, rede };
+  };
+
+  it('página viva: nenhum ouvinte (nem beforeunload: o Firefox continua usando o bfcache) e nunca recarrega', () => {
+    const v = montar('<form><textarea name="texto">Arroz</textarea></form>');
+    expect(v.vigia).toBeNull();
+    expect(v.ativos()).toBe(0);
+    v.evento(v.janela, 'online');
+    v.evento(v.janela, EVENTO_REDE_VOLTOU);
+    expect(v.recarregar).not.toHaveBeenCalled();
+  });
+
+  it('cópia: o `online` recarrega uma vez só, mesmo com o ping recuperado logo depois (um caminho)', () => {
+    const v = montar(COPIA);
+    expect(v.ouvintes.janela.get('beforeunload')).toBe(1);
+    v.evento(v.janela, 'online');
+    v.evento(v.janela, EVENTO_REDE_VOLTOU);
+    v.evento(v.janela, 'online');
+    expect(v.recarregar).toHaveBeenCalledTimes(1);
+    v.vigia!.parar();
+    expect(v.ativos()).toBe(0);
+  });
+
+  it('cópia servida pelo NetworkFirst com navigator.onLine verdadeiro: o ping recuperado (EVENTO_REDE_VOLTOU) recarrega', () => {
+    const v = montar(COPIA);
+    v.evento(v.janela, EVENTO_REDE_VOLTOU);
+    expect(v.recarregar).toHaveBeenCalledTimes(1);
+  });
+
+  it('sem rede de fato o evento não recarrega nem deixa pendência; o próximo `online` com rede recarrega', () => {
+    vi.useFakeTimers();
+    const v = montar(COPIA, { online: false });
+    v.evento(v.janela, 'online');
+    vi.advanceTimersByTime(60_000);
+    expect(v.recarregar).not.toHaveBeenCalled();
+    v.rede.online = true;
+    v.evento(v.janela, 'online');
+    expect(v.recarregar).toHaveBeenCalledTimes(1);
+  });
+
+  it('pulado porque estava saindo (beforeunload sem descarregar): tenta de novo quando o prazo de 5 s zera o "saindo"', () => {
+    vi.useFakeTimers();
+    const v = montar(COPIA);
+    v.evento(v.janela, 'beforeunload');
+    v.evento(v.janela, 'online');
+    expect(v.recarregar).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(SAINDO_SEM_DESCARREGAR_MS - 1);
+    expect(v.recarregar).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(v.recarregar).toHaveBeenCalledTimes(1);
+  });
+
+  it('pagehide sem descarregar (iOS/PWA ao trocar de app): o pageshow SEM persisted zera o "saindo" e a pendência recarrega', () => {
+    const v = montar(COPIA);
+    v.evento(v.janela, 'pagehide');
+    v.evento(v.janela, 'online');
+    expect(v.recarregar).not.toHaveBeenCalled();
+    v.evento(v.janela, 'pageshow', false);
+    expect(v.recarregar).toHaveBeenCalledTimes(1);
+  });
+
+  it('pagehide sem descarregar: o visibilitychange para visible zera o "saindo" e a pendência recarrega (hidden não)', () => {
+    const v = montar(COPIA);
+    v.evento(v.janela, 'pagehide');
+    v.evento(v.janela, EVENTO_REDE_VOLTOU);
+    v.documento.visibilityState = 'hidden';
+    v.evento(v.documento, 'visibilitychange');
+    expect(v.recarregar).not.toHaveBeenCalled();
+    v.documento.visibilityState = 'visible';
+    v.evento(v.documento, 'visibilitychange');
+    expect(v.recarregar).toHaveBeenCalledTimes(1);
+  });
+
+  it('sem pendência, "saindo" que zera não recarrega sozinho (só a rede de volta decide)', () => {
+    vi.useFakeTimers();
+    const v = montar(COPIA);
+    v.evento(v.janela, 'beforeunload');
+    vi.advanceTimersByTime(SAINDO_SEM_DESCARREGAR_MS);
+    v.evento(v.janela, 'pageshow', true);
+    expect(v.recarregar).not.toHaveBeenCalled();
+  });
+});
+
+// Um `beforeunload` que não descarrega a página (download, `tel:`, `mailto:`) deixaria `saindo` verdadeiro para sempre — a
+// cópia nunca mais recarregaria ao voltar a rede. Molde: Plano 25 (04afaea), com o pageshow e o visibilitychange do SUS-112.
+describe('SUS-112: vigiarSaida (o "saindo" do reload ao reconectar)', () => {
   afterEach(() => vi.useRealTimers());
 
-  it('beforeunload sem descarregar: "saindo" vence sozinho depois do prazo curto, e a página volta a recarregar ao reconectar', () => {
+  it('beforeunload sem descarregar: "saindo" zera sozinho em 5 s e avisa (aoFicar)', () => {
     vi.useFakeTimers();
-    const j = janela();
-    const s = vigiarSaida(j.t, globalThis);
+    const p = pagina(COPIA);
+    const aoFicar = vi.fn();
+    const s = vigiarSaida(p.janela, { documento: p.documento, relogio: globalThis, aoFicar });
     expect(s.saindo()).toBe(false);
-    j.evento('beforeunload');
-    expect(s.saindo()).toBe(true); // a troca de documento em curso (5d2e3b7) continua protegida
-    expect(deveRecarregarAoVoltar({ pathname: '/p/plano', saindo: s.saindo(), online: true })).toBe(false);
+    p.evento(p.janela, 'beforeunload');
+    expect(s.saindo()).toBe(true);
     vi.advanceTimersByTime(SAINDO_SEM_DESCARREGAR_MS - 1);
     expect(s.saindo()).toBe(true);
     vi.advanceTimersByTime(1);
-    expect(s.saindo()).toBe(false); // o `tel:`/download não descarregou: a página ficou
-    expect(deveRecarregarAoVoltar({ pathname: '/p/plano', saindo: s.saindo(), online: true })).toBe(true);
-    expect(SAINDO_SEM_DESCARREGAR_MS).toBeLessThanOrEqual(10_000);
+    expect(s.saindo()).toBe(false);
+    expect(aoFicar).toHaveBeenCalledTimes(1);
+    expect(SAINDO_SEM_DESCARREGAR_MS).toBe(5_000);
     s.parar();
   });
 
-  it('pagehide marca de vez (sem prazo); pageshow da volta do bfcache desmarca; parar tira os ouvintes e o temporizador', () => {
+  it('pagehide marca sem prazo; qualquer pageshow (com ou sem persisted) desmarca; parar tira os ouvintes e o temporizador', () => {
     vi.useFakeTimers();
-    const j = janela();
-    const s = vigiarSaida(j.t, globalThis);
-    j.evento('beforeunload');
-    j.evento('pagehide');
+    const p = pagina(COPIA);
+    const s = vigiarSaida(p.janela, { documento: p.documento, relogio: globalThis });
+    p.evento(p.janela, 'beforeunload');
+    p.evento(p.janela, 'pagehide');
     vi.advanceTimersByTime(60_000);
     expect(s.saindo()).toBe(true);
-    j.evento('pageshow', false);
-    expect(s.saindo()).toBe(true);
-    j.evento('pageshow', true);
+    p.evento(p.janela, 'pageshow', false);
     expect(s.saindo()).toBe(false);
-    j.evento('beforeunload');
+    p.evento(p.janela, 'pagehide');
+    p.evento(p.janela, 'pageshow', true); // de volta do bfcache
+    expect(s.saindo()).toBe(false);
+    p.evento(p.janela, 'beforeunload');
     s.parar();
     expect(vi.getTimerCount()).toBe(0);
-    j.evento('pageshow', true);
+    expect(p.ativos()).toBe(0);
+    p.evento(p.janela, 'pageshow', true);
     expect(s.saindo()).toBe(true); // sem ouvintes: nada mais o muda
+  });
+});
+
+// Plano 25 (RN-473, US-443 "Sem internet"; E2E "rodada T6b (I4)"): a rede que volta não recarrega a conversa — o rascunho
+// escrito sem rede fica. Desde o SUS-112 vale pela regra de permissão: a conversa é página viva, nunca a cópia (sem a marca).
+describe('Plano 25: a rede que volta não recarrega a conversa (o rascunho fica), pela regra do SUS-112', () => {
+  it('a conversa com rascunho não é a cópia e não recarrega — com rede de volta e a página ficando', () => {
+    const conversa = '<main><h1>Mensagens</h1><form><label for="texto">Mensagem</label><textarea id="texto" name="texto">Oi, posso trocar o lanche?</textarea><button>Enviar</button></form></main>';
+    expect(ehCopiaOffline(documentoDe(conversa))).toBe(false);
+    expect(deveRecarregarAoVoltar({ copia: ehCopiaOffline(documentoDe(conversa)), saindo: false, online: true })).toBe(false);
+  });
+
+  it('a tela da conversa nunca desenha a marca da cópia nem lê o cabeçalho da busca da cópia; e sem o selo offline', () => {
+    const dir = 'src/app/p/(portal)/mensagens';
+    for (const f of ['page.tsx', 'conversa-portal.tsx', 'lista.tsx', 'socorro.tsx']) {
+      const src = readFileSync(`${dir}/${f}`, 'utf8');
+      expect(src, f).not.toMatch(/MARCA_DA_COPIA|data-nd-copia-offline|CABECALHO_PEDIDO_DA_COPIA/);
+    }
+    expect(readFileSync(`${dir}/page.tsx`, 'utf8')).toMatch(/seloOffline=\{false\}/);
   });
 });

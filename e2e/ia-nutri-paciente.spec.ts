@@ -108,8 +108,10 @@ test('7. sem rede, com a conversa aberta: "Perguntar" desabilitado e "Sem conex�
   } finally {
     await paciente.context().setOffline(false);
   }
-  // de volta à rede, o portal recarrega a página (SerwistProvider, reloadOnOnline) e o aviso sai
+  // SUS-112: de volta à rede, a página viva NÃO recarrega (só a cópia offline do plano): o aviso sai pelo useOnline e o
+  // texto digitado continua no campo
   await expect(statusDaConversa(paciente)).not.toHaveText('Sem conexão. Pergunte quando voltar.');
+  await expect(paciente.getByLabel('Sua dúvida')).toHaveValue('quanto de banana no lanche?');
 });
 
 test('5. painel: "Mensagens" › "Dúvidas da IA Nutri (n)", o risco no topo com "Sinal de risco" → abrir → "Marcar como vista" → no portal, "Sua dúvida foi vista no consultório."', async () => {
