@@ -2045,8 +2045,8 @@ preenchido e a tela não mostra o campo.
 Financeiro), `src/app/painel/relatorios/page.test.ts` (abas, filtros, erro do período, estados, Ranking, nenhuma linha no
 `audit_log` com controle positivo), `src/app/painel/relatorios/imprimir/page.test.ts` (o `exportar` do render, título,
 origem), `src/app/api/painel/relatorios/csv/route.test.ts` (cabeçalhos, BOM, exportações, redirects, origem, log da
-falha), `e2e/relatorios.spec.ts` (IPs `10.9.36.1`–`.9`) e o `e2e/acessibilidade-painel-2.spec.ts` (as sete rotas em
-`ROTAS_DO_PAINEL`, a 1280 e a 360 px, claro e escuro; a 1280 px também nos laços de todas as telas das duas partes).
+falha), `e2e/relatorios.spec.ts` (IPs `10.9.36.1`–`.9`) e o laço do `e2e/acessibilidade-painel.spec.ts` (as sete rotas em
+`ROTAS_DO_PAINEL`, a 1280 e a 360 px, claro e escuro).
 
 ---
 

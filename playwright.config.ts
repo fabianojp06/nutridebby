@@ -30,7 +30,7 @@ export default defineConfig({
     // RNF-09 / RNF-10: as telas do PWA no tamanho de um Android (Chrome) — o Safari do iOS fica no teste manual do runbook
     { name: 'celular', use: { ...devices['Pixel 7'] }, testMatch: /acessibilidade\.spec\.ts/ },
     // D25 (Plano 08): o painel da nutricionista, em tela de computador, nos modos claro, escuro e "igual ao aparelho".
-    // SUS-125: em partes (acessibilidade-painel.spec.ts e acessibilidade-painel-2.spec.ts), que os 2 workers rodam juntas
+    // SUS-125: em duas partes (acessibilidade-painel-base.spec.ts e acessibilidade-painel.spec.ts), que os 2 workers rodam juntas
     { name: 'painel', use: { ...devices['Desktop Chrome'] }, testMatch: /acessibilidade-painel(-[a-z0-9]+)?\.spec\.ts/ },
   ],
   webServer: [

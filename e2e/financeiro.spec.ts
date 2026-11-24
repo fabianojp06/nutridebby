@@ -11,7 +11,7 @@ import { escolherTema, irPeloMenu } from './painel';
  * repetível e as asserções valem só para o que esta execução cria — nunca para os totais do consultório do E2E. O tema é
  * da conta (D17): esta spec só troca o da E2E_FIN_NOVO, nunca o da nutricionista compartilhada.
  * IPs (limite de login por IP): bloco 10.9.20.x (sufixo = número do plano, decisão da orquestradora) — 10.9.20.1 aqui;
- * 10.9.20.2 é a E2E_FIN_AXE do acessibilidade-painel-2.spec.
+ * 10.9.20.2 é a E2E_FIN_AXE do acessibilidade-painel.spec.
  */
 const FIN_NOVO = { email: 'fin-novo-e2e@nutridebby.test', senha: 'Nutri2026segura' }; // copiada: importar o seed roda o seed
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];

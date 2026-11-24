@@ -1,25 +1,33 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { contrasteIncerto as incertosDoContraste } from './painel';
+import { escolherTema as escolherTemaDaConta, contrasteIncerto as incertosDoContraste } from './painel';
 import { ROTAS_DO_PAINEL, type IdsDoPainel } from './painel-rotas';
 
 /**
- * RNF-10 (D25): o que as duas partes do axe do painel dividem — `acessibilidade-painel.spec.ts` (parte 0) e
- * `acessibilidade-painel-2.spec.ts` (parte 1). SUS-125: era um arquivo só, em série, com 40% a 50% do tempo do E2E (11 a
- * 15 min); em duas partes, os 2 workers do CI as rodam ao mesmo tempo. Cada parte entra com a sua sessão, prepara as suas
- * linhas (`prepararTelasComId`, com a `parte`) e usa os seus IPs (o limite de login é por IP):
- * - parte 0: 10.9.13.84 (nutri), 10.9.13.83 (paciente do preparo), 10.9.29.51 (a segunda paciente da IA Nutri, Plano 15);
- * - parte 1: 10.9.13.87 (nutri), 10.9.13.88 (paciente do preparo), 10.9.29.52 (a segunda paciente da IA Nutri),
- *   10.9.20.2 (a conta E2E_FIN_AXE, Plano 20 e D17), 10.9.13.85 (o "outro aparelho" do D17) e 10.9.29.31 (o paciente que
- *   autoriza a IA, Plano 14B-2).
+ * RNF-10 (D25): o que as duas partes do axe do painel dividem — `acessibilidade-painel-base.spec.ts` (o começo do antigo
+ * arquivo único: os laços de todas as telas nos três modos e os estados abertos) e `acessibilidade-painel.spec.ts` (do
+ * Plano 20 em diante, na ordem de sempre; caso novo entra no fim dele). SUS-125: era um arquivo só, em série, com 40% a 50%
+ * do tempo do E2E (11 a 15 min); em duas partes, os 2 workers do CI as rodam ao mesmo tempo. Cada parte entra com a sua
+ * sessão, prepara as suas linhas (`prepararTelasComId`, com a `parte`) e usa os seus IPs (o limite de login é por IP):
+ * - base (`parte` 0): 10.9.13.87 (nutri), 10.9.13.88 (paciente do preparo), 10.9.29.52 (a segunda paciente da IA Nutri);
+ * - acessibilidade-painel.spec (`parte` 1): 10.9.13.84 (nutri), 10.9.13.83 (paciente do preparo), 10.9.29.51 (a segunda
+ *   paciente da IA Nutri, Plano 15), 10.9.20.2 (a conta E2E_FIN_AXE, Plano 20 e D17), 10.9.13.85 (o "outro aparelho" do
+ *   D17) e 10.9.29.31 (o paciente que autoriza a IA, Plano 14B-2).
  */
-export const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
-// Plano 20: consultório novo a cada `pnpm e2e:seed`, nunca configurado (copiada: importar o seed roda o seed)
-export const FIN_AXE = { email: 'fin-axe-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 export const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
 export type TemaDoPainel = 'Claro' | 'Escuro' | 'Igual ao aparelho';
 const DATA_TEMA: Record<TemaDoPainel, string> = { Claro: 'claro', Escuro: 'escuro', 'Igual ao aparelho': 'sistema' };
+const temaDaPagina = new WeakMap<Page, TemaDoPainel>();
+
+/**
+ * O `escolherTema` de e2e/painel.ts (grava o tema da conta), guardando o modo escolhido para a página: o `violacoes` garante
+ * esse modo em cada tela (garantirTema) sem o teste repetir o tema a cada chamada.
+ */
+export async function escolherTema(page: Page, tema: TemaDoPainel): Promise<void> {
+  await escolherTemaDaConta(page, tema);
+  temaDaPagina.set(page, tema);
+}
 
 /** Todas as telas do painel (ROTAS_DO_PAINEL, conferida pela guarda rotas-axe.test.ts) e a Segurança da conta. */
 export function rotasDoPainel(ids: IdsDoPainel): string[] {
@@ -42,9 +50,10 @@ export async function garantirTema(page: Page, tema: TemaDoPainel): Promise<void
   await page.evaluate((v) => document.querySelector('[data-tema]')?.setAttribute('data-tema', v), esperado);
 }
 
-/** `tema`: o modo do teste, garantido na tela antes do axe (garantirTema). */
+/** `tema`: o modo do teste, garantido na tela antes do axe (garantirTema); sem ele, o último `escolherTema` da página. */
 export async function violacoes(page: Page, incluir?: string, opcoes: { ignorarForaDaTela?: boolean; tema?: TemaDoPainel } = {}): Promise<string[]> {
-  if (opcoes.tema) await garantirTema(page, opcoes.tema);
+  const tema = opcoes.tema ?? temaDaPagina.get(page);
+  if (tema) await garantirTema(page, tema);
   const axe = new AxeBuilder({ page }).withTags(TAGS);
   const r = await (incluir ? axe.include(incluir) : axe).analyze();
   expect(r.passes.length, 'o axe rodou regras na página').toBeGreaterThan(0);

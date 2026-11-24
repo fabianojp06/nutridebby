@@ -376,7 +376,7 @@ que o CI cobra; "nenhuma" quer dizer que só a revisão pega o esquecimento.
 | 5 | Entrada em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts:14`) | `e2e/painel-rotas.ts` | `rotas-axe.test.ts:8` |
 | 6 | Tela com `[id]`: campo novo em `IdsDoPainel` (`e2e/painel-rotas.ts:2`) e a criação do registro pela UI em `prepararTelasComId` (`e2e/painel.ts:126`) | `e2e/` | `pnpm typecheck` (o `tsconfig.json` inclui `e2e/`): campo usado em `ROTAS_DO_PAINEL` e não devolvido por `prepararTelasComId` não compila |
 | 7 | Cores só por token (sem `bg-white`, `text-gray-…`); sem cabeçalho próprio (o layout desenha) | `.tsx` | `cores.test.ts`, `cabecalho.test.ts` |
-| 8 | Se a tela é um destino: item em `ITENS_DO_MENU` (8 itens fixos desde o Plano 26 — 7 no Plano 20 —, `src/app/painel/navegacao.ts:6`) ou cartão no hub de Configurações (`DO_HUB`, `navegacao.ts:35`) | `navegacao.ts` | `navegacao.test.ts:10` fixa os 8 itens e o teste do teclado de `e2e/acessibilidade-painel.spec.ts` os 10 com os condicionais (`:167`): item novo no menu exige decisão (P08 D20; o "Financeiro" foi decisão do dono, RN-327; o "Relatórios", da spec do Plano 26, §4.1) |
+| 8 | Se a tela é um destino: item em `ITENS_DO_MENU` (8 itens fixos desde o Plano 26 — 7 no Plano 20 —, `src/app/painel/navegacao.ts:6`) ou cartão no hub de Configurações (`DO_HUB`, `navegacao.ts:35`) | `navegacao.ts` | `navegacao.test.ts:10` fixa os 8 itens e o teste do teclado de `e2e/acessibilidade-painel.spec.ts` os 10 com os condicionais (`:331`): item novo no menu exige decisão (P08 D20; o "Financeiro" foi decisão do dono, RN-327; o "Relatórios", da spec do Plano 26, §4.1) |
 | 9 | Guia do manual, se couber: entrada em `GUIAS` (`src/modules/ajuda/conteudo.ts:17`) | `conteudo.ts` | `conteudo.test.ts:54` (nomes de botão) |
 | 10 | Dado de saúde devolvido: `auditRead(tx, …)` na mesma transação (`src/modules/plataforma/audit.ts:28`, regra 8) | módulo | nenhuma |
 
@@ -416,7 +416,7 @@ por tela (ex.: `src/app/p/(portal)/plano/page.test.ts`), não como varredura. O 
 |---|---|---|
 | `chromium` | Desktop Chrome | Todos, menos os de acessibilidade do portal e do painel |
 | `celular` | Pixel 7 | `acessibilidade.spec.ts` (PWA no tamanho de Android; RNF-09, RNF-10) |
-| `painel` | Desktop Chrome | `acessibilidade-painel.spec.ts` e `acessibilidade-painel-2.spec.ts` (Plano 08, D25; em duas partes desde o SUS-125, que os 2 workers rodam juntas) |
+| `painel` | Desktop Chrome | `acessibilidade-painel-base.spec.ts` e `acessibilidade-painel.spec.ts` (Plano 08, D25; em duas partes desde o SUS-125, que os 2 workers rodam juntas) |
 
 O Safari do iOS fica no teste manual do runbook (comentário em `playwright.config.ts:16`; checklist
 `docs/operacao/go-live.md`, "Produto e acessibilidade").
@@ -475,7 +475,7 @@ apontado para produção.
 | Spec | Projeto | Tags do axe | Cobertura |
 |---|---|---|---|
 | `e2e/acessibilidade.spec.ts` | `celular` | `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` | 10 rotas do portal, cada uma num teste; modo escuro do aparelho no portal e no painel; foco sobre a cor do consultório (contraste ≥ 3:1); 360 px e 320 px sem rolagem horizontal; alvo de toque ≥ 44 px; telas avulsas (consulta, exportação, sem acesso, escolher consultório, termo); paciente não alcança o painel |
-| `e2e/acessibilidade-painel.spec.ts` (parte 0) e `e2e/acessibilidade-painel-2.spec.ts` (parte 1) | `painel` | as mesmas + `wcag22aa` (alvo de toque) | **Todas** as telas do painel (`ROTAS_DO_PAINEL` + `/conta/seguranca`) nos modos **claro** e **escuro** (parte 0) e **"igual ao aparelho" com o aparelho escuro** (parte 1); menu da conta aberto e erros de formulário; 768 px sem rolagem horizontal (parte 0) |
+| `e2e/acessibilidade-painel-base.spec.ts` e `e2e/acessibilidade-painel.spec.ts` | `painel` | as mesmas + `wcag22aa` (alvo de toque) | **Todas** as telas do painel (`ROTAS_DO_PAINEL` + `/conta/seguranca`) nos modos **claro**, **escuro** e **"igual ao aparelho" com o aparelho escuro**; menu da conta aberto e erros de formulário (os dois no `-base`); 768 px sem rolagem horizontal e os casos de cada plano (no `acessibilidade-painel.spec.ts`) |
 
 Detalhes que evitam falso verde:
 
@@ -483,14 +483,20 @@ Detalhes que evitam falso verde:
 - No painel, os `incomplete` de `color-contrast` contam como falha (fundo com transparência cai em "incompleto"). A
   única tolerância é a linha "Conectado como …" do menu aberto, documentada no próprio teste.
 - `prepararTelasComId` (`e2e/painel.ts`) cria pela interface real uma linha de cada tela com id (paciente, consulta,
-  plano, conteúdo…) antes do laço. SUS-125: cada parte prepara as próprias linhas (`parte` 0 ou 1: outro paciente, a
-  consulta noutro bloco de semanas) com os próprios IPs (lista no topo de `e2e/acessibilidade-painel.ts`); a dúvida da
+  plano, conteúdo…) antes do laço. SUS-125: cada parte prepara as próprias linhas (`parte` 0 no `-base`, 1 no
+  `acessibilidade-painel.spec.ts`: outro paciente, a consulta noutro bloco de semanas) com os próprios IPs (lista no topo
+  de `e2e/acessibilidade-painel.ts`); a dúvida da
   segunda paciente da IA Nutri é reaproveitada se a fila já tem uma dela (no máximo 3 abertas por paciente).
 - **Tema garantido em cada tela (SUS-125).** O tema é da conta (D17), e a `nutri-e2e` é a mesma nas duas partes e nas
   specs que trocam o tema dela no outro worker (cadastro, ficha, lembretes). `garantirTema` (`e2e/acessibilidade-painel.ts`)
   confere o `data-tema` da tela antes do axe e, se outra spec trocou o tema da conta no meio, põe o do modo do teste, como
   o botão de tema faz na hora (as cores, o `dark:` e o `color-scheme` saem só desse atributo); a troca fica anotada no
-  relatório do teste. O D17 usa a conta `E2E_FIN_AXE`, que só a parte 1 usa.
+  relatório do teste. O `escolherTema` de `e2e/acessibilidade-painel.ts` guarda o modo escolhido em cada página, e o
+  `violacoes` garante esse modo sem o teste repeti-lo. O D17 usa a conta `E2E_FIN_AXE`, que só o
+  `acessibilidade-painel.spec.ts` usa (o Plano 20, antes dele, em série).
+- **Divisão (SUS-125).** O `-base` é o começo do antigo arquivo único (os laços de todas as telas nos três modos e os
+  estados abertos); o `acessibilidade-painel.spec.ts` continua com o resto, na ordem de sempre, para os casos novos de cada
+  plano entrarem no fim dele sem conflito com os PRs abertos.
 
 ### Specs
 
@@ -512,8 +518,8 @@ Detalhes que evitam falso verde:
 | `csp.spec.ts` | 3 | CSP e cabeçalhos |
 | `health.spec.ts` | 1 | `/api/health` (o que o monitor externo confere) |
 | `acessibilidade.spec.ts` | 11 (+ laço) | Portal |
-| `acessibilidade-painel.spec.ts` (parte 0) | 5 (+ laço de 2 modos) | Painel, modos claro e escuro (SUS-125: as duas partes eram um arquivo só, de 11 a 15 min em série); estados abertos; desde o Plano 18, a faixa de 13 abas da ficha a 1280 px sem rolar e sem "incomplete", com o cadastro no Perfil; os modelos sugeridos pela IA (Plano 14B-1); 768 px; o menu com 9 itens no teclado (10 desde o Plano 26, com "Relatórios") |
-| `acessibilidade-painel-2.spec.ts` (parte 1) | 5 (+ laço de 1 modo) | Painel, modo "igual ao aparelho" (aparelho escuro); desde o Plano 18 (PR 2), Início, Perfil, lista e "No app do paciente" a 1280 e 360 px, claro e escuro; desde o Plano 20, o Financeiro não configurado (conta `E2E_FIN_AXE`, `10.9.20.2`), o detalhe de pendências vazio e o lançamento com erro, claro e escuro, 1280 e 360 px, e as telas do Financeiro também a 360 px; o resumo e o rascunho da IA com a tarefa pronta (Plano 14B-2); o D17 (tema na conta, com a `E2E_FIN_AXE`); os Relatórios a 1280 e 360 px (Plano 26) |
+| `acessibilidade-painel-base.spec.ts` | 1 (+ laço de 3 modos) | Painel: todas as telas nos modos claro, escuro e "igual ao aparelho" (aparelho escuro) e os estados abertos (menu da conta e erros de formulário). SUS-125: o começo do antigo arquivo único (de 11 a 15 min em série), que o outro worker roda junto com o `acessibilidade-painel.spec.ts` |
+| `acessibilidade-painel.spec.ts` | 9 | Painel, do Plano 20 em diante (o começo foi para o `-base`, SUS-125); desde o Plano 18, a faixa de 13 abas da ficha a 1280 px sem rolar e sem "incomplete", com o cadastro no Perfil, e (PR 2) Início, Perfil, lista e "No app do paciente" a 1280 e 360 px, claro e escuro; desde o Plano 20, o Financeiro não configurado (conta `E2E_FIN_AXE`, `10.9.20.2`), o detalhe de pendências vazio e o lançamento com erro, claro e escuro, 1280 e 360 px, e as telas do Financeiro também a 360 px; os modelos sugeridos pela IA (Plano 14B-1) e o resumo e o rascunho da IA com a tarefa pronta (Plano 14B-2); 768 px; o D17 (tema na conta, com a `E2E_FIN_AXE`); o menu com 9 itens no teclado (10 desde o Plano 26, com "Relatórios"); os Relatórios a 1280 e 360 px (Plano 26) |
 | `documentos.spec.ts` (Plano 10A) | 1 | Receita de ponta a ponta pela digitalizada (rascunho → preparar → fotos + 2FA → portal: abrir e confirmar → situação no painel → verificação pública sem dado do paciente), com axe nos cartões "Aguardando assinatura" e "Documento assinado"; `acessibilidade.spec.ts` ganhou o axe de `/p/documentos`, `/v/<código>` e `/documento/<token>` (claro, escuro, 360 px) |
 
 | `painel-pwa.spec.ts` (Plano 09) | 1 | Painel instalável: manifest próprio, nenhum service worker, HTML sem cache (P09-05) |

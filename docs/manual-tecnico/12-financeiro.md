@@ -499,7 +499,7 @@ com nome único por chamada; `fin_lancamentos` como entrada com paciente, sem co
   no Financeiro." → "Marcar como recebido" com Pix → "Recebimento registrado." → sai de "Pagamentos pendentes" → aparece no
   Resumo), com axe da seção "Cobrança" nos dois temas a 1280 e 360 px; CSV (13 meses → alerta sem baixar; 1 mês → download
   sem a coluna Paciente). As asserções são sobre o paciente da execução, nunca sobre os totais do consultório.
-- `e2e/acessibilidade-painel-2.spec.ts` (parte 1 do axe do painel desde o SUS-125): o teste "Plano 20" (conta `E2E_FIN_AXE` em `10.9.20.2`) passa o axe no Financeiro
+- `e2e/acessibilidade-painel.spec.ts`: o teste "Plano 20" (conta `E2E_FIN_AXE` em `10.9.20.2`) passa o axe no Financeiro
   **não configurado** (Resumo, pendências e Configurações), no detalhe de pendências vazio e no formulário de lançamento com
   erro ("Informe o valor." e "Escolha a forma de pagamento."), claro e escuro, 1280 e 360 px (a 360 px, sem rolagem lateral),
   e as telas do Financeiro de `ROTAS_DO_PAINEL` também a 360 px; o teste do teclado no menu passou a 9 itens (10 desde o Plano 26).
