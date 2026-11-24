@@ -17,6 +17,23 @@ if (!process.env.CI && existsSync(ENV_LOCAL)) {
 // PF-N16: 3000 é o painel do Easypanel na VPS; 3100 em dev/E2E local, 3000 em CI/containers.
 const baseURL = process.env.APP_URL ?? (process.env.CI ? 'http://localhost:3000' : 'http://localhost:3100');
 
+// SUS-117: os specs do portal do paciente que rodam também no WebKit (Safari do iPhone). Lista explícita, por arquivo:
+// entra o spec cujo assunto é o portal (entrar, Hoje, diário, plano, PWA e offline); os do painel ficam só no Chromium.
+// Fora, de propósito: `lembretes.spec.ts` (3 dos 4 testes são o axe do painel, com o tema da conta da nutricionista),
+// `exames-enviados.spec.ts` e `ia-nutri-paciente.spec.ts` (o lado do paciente não se separa da revisão no painel, em
+// testes `serial`). Nesses specs, a nutricionista entra com `painelNoComputador` (e2e/helpers.ts): o painel em tela de
+// computador, no mesmo navegador. O job `e2e-webkit` do ci.yml roda este projeto num banco só dele.
+const SPECS_DO_PORTAL = [
+  'portal.spec.ts',
+  'sessao-portal.spec.ts',
+  'app-paciente.spec.ts',
+  'nada-some.spec.ts',
+  'sus-112-recarregar-ao-voltar.spec.ts',
+  'fontes-portal.spec.ts',
+  // Os próximos (questionário e metas do Plano 27, mensagens do Plano 25) entram aqui no PR que os traz, com a
+  // nutricionista por `painelNoComputador` — nunca antes, para não rodarem no WebKit sem esse ajuste.
+];
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -27,10 +44,16 @@ export default defineConfig({
   use: { baseURL, trace: 'retain-on-failure' },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /acessibilidade(-painel)?\.spec\.ts/ },
-    // RNF-09 / RNF-10: as telas do PWA no tamanho de um Android (Chrome) — o Safari do iOS fica no teste manual do runbook
+    // RNF-09 / RNF-10: as telas do PWA no tamanho de um Android (Chrome); o Safari do iOS, no projeto `webkit` abaixo
     { name: 'celular', use: { ...devices['Pixel 7'] }, testMatch: /acessibilidade\.spec\.ts/ },
     // D25 (Plano 08): o painel da nutricionista, em tela de computador, nos modos claro, escuro e "igual ao aparelho"
     { name: 'painel', use: { ...devices['Desktop Chrome'] }, testMatch: /acessibilidade-painel\.spec\.ts/ },
+    // SUS-117 (RNF-09): o portal do paciente no WebKit do Playwright, como o Safari do iPhone (o mais novo da 1.63). O que
+    // o Playwright não faz no WebKit (CDP, app instalado) sai por `test.skip(browserName === 'webkit', …)` só no teste.
+    // O aparelho de verdade continua no runbook para instalar, push, VoiceOver e foto HEIC (docs/operacao/go-live.md).
+    // Só com E2E_WEBKIT=1 (o job `e2e-webkit` do ci.yml a define): o host da VPS não tem as dependências de sistema do
+    // WebKit, e assim nem o `pnpm test:e2e` local das sessões nem o job `e2e` precisam de lista de projetos.
+    ...(process.env.E2E_WEBKIT ? [{ name: 'webkit', use: { ...devices['iPhone 17'] }, testMatch: SPECS_DO_PORTAL }] : []),
   ],
   webServer: [
     {

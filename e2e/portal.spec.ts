@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { corDaFaixa } from '@/lib/tema/marca-tema';
-import { entrarComo } from './helpers';
+import { entrarComo, painelNoComputador } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 import { avaliar, entradasDoPlano, marcarParaPaciente, mostrarPercGordura, pacienteNoPortal, publicarPlanoSimples } from './portal';
 
@@ -13,7 +13,7 @@ let nutri: Page;
 test.beforeAll(async ({ browser }) => {
   // O limite de login é por IP: cada spec usa o seu bloco (R6: portal.spec = 10.9.10.x — nutri em 10.9.10.1 e cada
   // pacienteNoPortal com um IP só seu, de 10.9.10.2 a 10.9.10.20)
-  nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.10.1');
+  nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.10.1', painelNoComputador(browser));
   await expect(nutri).toHaveURL(/\/painel$/);
 });
 test.afterAll(async () => {
@@ -203,8 +203,14 @@ test('acesso do dia: abrir o portal registra o dia e renova o cookie de sessão 
   await p.page.context().close();
 });
 
-test('sem as chaves do VAPID no app, "Ativar notificações" não aparece e Eu explica', async ({ browser }) => {
+test('sem as chaves do VAPID no app, "Ativar notificações" não aparece e Eu explica', async ({ browser, browserName }) => {
   test.skip(!!process.env.VAPID_PUBLIC_KEY, 'o E2E com push de verdade precisa de um serviço de push real');
+  // SUS-117: no iPhone, fora da tela de início, o portal pede para instalar antes de falar de notificações (estado
+  // "instale", src/app/p/notificacoes.tsx); a falta da chave só aparece no app instalado, que o Playwright não emula
+  test.skip(
+    browserName === 'webkit',
+    'o Playwright não emula o app instalado (display-mode: standalone) no WebKit: https://playwright.dev/docs/api/class-page#page-emulate-media',
+  );
   const p = await pacienteNoPortal(browser, nutri, '10.9.10.7');
   // Plano 16 (RN-201): Hoje só mostra o cartão quando dá para ativar; a explicação fica em Eu › Notificações
   await p.page.goto('/p/perfil');

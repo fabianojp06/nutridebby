@@ -7,6 +7,12 @@ run-name: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}-{1}', git
 
 on:
   pull_request:
+  # SUS-117: o portal no WebKit (job `e2e-webkit`) toda noite na main, às 09h UTC (06h de Brasília, longe do backup das 03h
+  # e antes do expediente), e à mão. Nesses dois eventos só o `mudancas` e o `e2e-webkit` rodam (os outros jobs
+  # ficam de fora pela condição `github.event_name` de cada um).
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
   workflow_call:
     outputs:
       codigo:
@@ -39,6 +45,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       codigo: ${{ steps.filtro.outputs.codigo }}
+      portal: ${{ steps.filtro.outputs.portal }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -50,16 +57,27 @@ jobs:
         run: |
           set -euo pipefail
           codigo=true
+          portal=true
           if [[ -n "${BASE:-}" && ! "$BASE" =~ ^0+$ ]] && git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
             arquivos="$(git diff --name-only "${BASE}...${HEAD}")"
             if [[ -n "$arquivos" ]] && ! grep -qEv '^(docs/|\.claude/agents/)|\.md$' <<<"$arquivos"; then
               codigo=false
             fi
+            # SUS-117: o `e2e-webkit` roda no PR que toca o que o portal usa: as telas, a API e o módulo do portal, os avisos,
+            # o service worker e o manifesto, o login e o convite (todo teste do webkit passa por eles), o layout raiz e o
+            # CSS, os componentes e o lib comuns, o proxy e o next.config (CSP), o public, a semente e os helpers do E2E, os
+            # specs do projeto `webkit`, a config e as dependências do Playwright e o ci.yml. Os módulos só do painel ficam
+            # de fora (o runner é um só). Na dúvida (base ausente, diff vazio), roda.
+            if [[ -n "$arquivos" ]] && ! grep -qE '^(src/app/p/|src/app/n/|src/app/sw|src/app/api/p/|src/modules/portal/|src/app/entrar/|src/app/convite/|src/app/serwist|src/app/manifest|src/app/layout\.tsx$|src/app/globals\.css$|src/components/|src/lib/|src/proxy\.ts$|next\.config\.ts$|public/|scripts/e2e-seed\.ts$|e2e/[^/]+\.ts$|playwright\.config\.ts$|\.github/workflows/ci\.yml$|package\.json$|pnpm-lock\.yaml$)' <<<"$(grep -vE '^e2e/[^/]+\.spec\.ts$' <<<"$arquivos"; grep -E '^e2e/(portal|sessao-portal|app-paciente|nada-some|sus-112-recarregar-ao-voltar|fontes-portal)\.spec\.ts$' <<<"$arquivos")"; then
+              portal=false
+            fi
           fi
-          echo "Mudança com código: ${codigo}"
+          echo "Mudança com código: ${codigo}; no portal: ${portal}"
           echo "codigo=${codigo}" >> "$GITHUB_OUTPUT"
+          echo "portal=${portal}" >> "$GITHUB_OUTPUT"
 
   quality:
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: [self-hosted, nutri-ci]
     timeout-minutes: 20
     container:
@@ -76,7 +94,7 @@ jobs:
 
   test:
     needs: mudancas
-    if: needs.mudancas.outputs.codigo == 'true'
+    if: needs.mudancas.outputs.codigo == 'true' && github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: [self-hosted, nutri-ci]
     timeout-minutes: 25
     container:
@@ -122,7 +140,7 @@ jobs:
 
   e2e:
     needs: mudancas
-    if: needs.mudancas.outputs.codigo == 'true'
+    if: needs.mudancas.outputs.codigo == 'true' && github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: [self-hosted, nutri-ci]
     timeout-minutes: 45
     container:
@@ -171,14 +189,105 @@ jobs:
       - run: pnpm db:migrate
       - run: pnpm e2e:seed
       - run: pnpm build
-      - run: pnpm test:e2e
+      - run: pnpm test:e2e   # o projeto webkit só existe com E2E_WEBKIT (job e2e-webkit)
       - if: failure()
         uses: actions/upload-artifact@v4
         with: { name: playwright-report, path: playwright-report }
 
+  # SUS-117: o portal do paciente no WebKit (Safari do iPhone; projeto `webkit` do playwright.config.ts). Job próprio, e não
+  # mais um projeto no `e2e`: a estimativa (55 testes do portal, os mais pesados da suíte, com o WebKit mais lento que o
+  # Chromium) passa dos 5 min, e um banco só dele evita que os mesmos specs rodem duas vezes contra as mesmas contas fixas
+  # (MULTI, tema e cor do consultório da nutricionista) e os mesmos IPs do limite de login. Mesmo contêiner, serviços e
+  # ambiente do `e2e`; a imagem do Playwright já traz o WebKit e as dependências dele.
+  e2e-webkit:
+    needs: mudancas
+    # Só no PR que toca o portal, toda noite na main e à mão; nunca no deploy (workflow_call).
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && needs.mudancas.outputs.portal == 'true')
+    runs-on: [self-hosted, nutri-ci]
+    timeout-minutes: 45
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --cpus 4 --memory 8g --shm-size 1g -v nutri-ci-pnpm:/pnpm-store
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: owner, POSTGRES_PASSWORD: owner, POSTGRES_DB: nutri }
+        options: >-
+          --health-cmd "pg_isready -U owner -d nutri" --health-interval 5s --health-timeout 5s --health-retries 20
+      mailpit:
+        image: axllent/mailpit:v1.27
+    env:
+      NODE_ENV: production
+      APP_URL: http://localhost:3000   # localhost do contêiner do job (não o painel do Easypanel)
+      # Serviços pelo nome, na rede do job (o runner próprio não publica portas)
+      DATABASE_URL: postgres://nutri_app:ci-app@postgres:5432/nutri
+      DATABASE_URL_MIGRATOR: postgres://owner:owner@postgres:5432/nutri
+      AUTH_SECRET: ci-secret-with-at-least-32-characters-long
+      # TEST-NET-1: validação de produção satisfeita sem confiar em nenhum IP; o E2E manda um único X-Forwarded-For
+      TRUSTED_PROXIES: 192.0.2.0/24
+      EMAIL_FROM: 'NutriDebby <nao-responda@nutridebby.test>'
+      EMAIL_TRANSPORT: mailpit
+      MAILPIT_URL: http://mailpit:8025
+      FILE_URL_SECRET: ci-file-url-secret-with-at-least-32-chars
+      DATA_DIR: /tmp/nd-data   # /tmp do contêiner do job, descartado no fim
+      TURNSTILE_SITE_KEY: 1x00000000000000000000AA
+      TURNSTILE_SECRET_KEY: 1x0000000000000000000000000000000AA
+      # Plano 05 (D1): WhatsApp pelo sandbox (Mailpit); o E2E assina os webhooks com o segredo
+      WHATSAPP_SANDBOX: '1'
+      EVOLUTION_WEBHOOK_SECRET: ci-webhook-secret-with-at-least-32-characters
+      # Plano 11 (RNF-107): IA de laudos pelo sandbox — respostas fixas, nenhuma chamada à API real
+      IA_PROVEDOR: sandbox
+      # Plano 14A (A-D4): retenção zero só no E2E/dev, com o sandbox
+      IA_RETENCAO_ZERO: '1'
+      CI: 'true'
+    steps:
+      # ENCRYPTION_KEY gerada a cada execução (32 bytes aleatórios): só cifra o banco descartável deste job, e assim
+      # não fica nenhuma chave literal no arquivo (o GitGuardian acusava a cópia da chave fictícia do job `e2e`).
+      - run: echo "ENCRYPTION_KEY=$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64"))')" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - run: pnpm install --frozen-lockfile --store-dir /pnpm-store
+      - run: pnpm exec playwright install webkit   # a imagem já traz as dependências do sistema
+      - run: pnpm db:migrate
+      - run: pnpm e2e:seed
+      - run: pnpm build
+      - run: pnpm test:e2e --project=webkit
+        env: { E2E_WEBKIT: '1' }
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: playwright-report-webkit, path: playwright-report }
+
+  # SUS-117: falha no agendado da noite não passa em silêncio. Abre (ou comenta, se já aberta) a issue fixa "E2E WebKit
+  # noturno falhou" (label ci) com o link da execução. No runner HOSPEDADO, e só depois de falhar: o runner próprio nunca
+  # recebe permissão de escrita nem o token (guarda em test/runner-proprio.test.ts); aqui, segundos de Actions por falha.
+  avisar-webkit:
+    needs: e2e-webkit
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EXECUCAO: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          titulo='E2E WebKit noturno falhou'
+          corpo="O job e2e-webkit do agendado da noite falhou: ${EXECUCAO}"
+          n="$(gh issue list --state open --limit 200 --json number,title --jq ".[] | select(.title == \"${titulo}\") | .number" | head -1)"
+          if [[ -n "$n" ]]; then
+            gh issue comment "$n" --body "$corpo"
+          else
+            gh issue create --title "$titulo" --body "$corpo" --label ci || gh issue create --title "$titulo" --body "$corpo"
+          fi
+
   image:
     needs: mudancas
-    if: needs.mudancas.outputs.codigo == 'true'
+    if: needs.mudancas.outputs.codigo == 'true' && github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: [self-hosted, nutri-ci]   # no host do runner; DOCKER_HOST vem do .env do runner (daemon rootless)
     timeout-minutes: 30
     steps:

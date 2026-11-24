@@ -6,7 +6,9 @@ import { entrarComo } from './helpers';
 // e é a primeira tela da conta com três consultórios do seed (E2E_MULTI).
 const MULTI = { email: 'multi-e2e@nutridebby.test', senha: 'Multi2026segura' };
 
-test('fontes do portal: só do próprio app e até 160 KB de woff2 no primeiro carregamento (RNF-193)', async ({ browser }) => {
+test('fontes do portal: só do próprio app e até 160 KB de woff2 no primeiro carregamento (RNF-193)', async ({ browser, browserName }) => {
+  // SUS-117: o cache do navegador é desligado pelo CDP (Network.setCacheDisabled), que só existe no Chromium
+  test.skip(browserName === 'webkit', 'sessão CDP só no Chromium: https://playwright.dev/docs/api/class-cdpsession');
   const page = await entrarComo(browser, MULTI.email, MULTI.senha, '10.9.19.6');
   await expect(page).toHaveURL(/\/p\/escolher/);
   // Espera a carga do redirecionamento do login terminar (senão o reload deixa respostas sem corpo) e desliga o cache

@@ -155,7 +155,7 @@ Um repositório, **uma imagem Docker**, três processos possíveis — **app** (
 | Decisão | Motivo | Fonte |
 |---|---|---|
 | Monólito modular em Next.js, não microsserviços | Um dev, uma VPS compartilhada, deploy simples; módulos por domínio mantêm a separação | Spec §4, §4.1; D-04 |
-| Worker na **mesma imagem** | Mesmo código de domínio no app e nos jobs; uma imagem só no GHCR gratuito (500 MB para 2 versões) | Plano 01, "Architecture"; `.github/workflows/ci.yml:191-209` (orçamento da imagem) |
+| Worker na **mesma imagem** | Mesmo código de domínio no app e nos jobs; uma imagem só no GHCR gratuito (500 MB para 2 versões) | Plano 01, "Architecture"; `.github/workflows/ci.yml:255-275` (orçamento da imagem) |
 | Fila no **Postgres** (pg-boss), sem Redis | Um serviço a menos; o envio do job entra na **mesma transação** da escrita (`enqueueEmail(msg, { tx })`) | Spec §4; Plano 02, "Fila de e-mail" |
 | Isolamento por **RLS forçada** no banco | Um erro de código não expõe outro consultório nem outro paciente | RNF-07; Plano 01, Global Constraints |
 | Código pesado **só no worker** (PDF, ZIP, web-push, HEIC) | Mantém o grafo do Next leve e evita processamento longo na requisição | Plano 03, "PDF e ZIP"; Plano 05, D19; Plano 06, D10 |

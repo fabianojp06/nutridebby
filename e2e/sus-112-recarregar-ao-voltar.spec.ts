@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { MARCA_DA_COPIA } from '@/app/sw-regras';
-import { entrarComo } from './helpers';
+import { entrarComo, painelNoComputador } from './helpers';
 import { entradasDoPlano, pacienteNoPortal, publicarPlanoSimples } from './portal';
 
 /**
@@ -13,7 +13,7 @@ test.describe.configure({ mode: 'serial' });
 let nutri: Page;
 
 test.beforeAll(async ({ browser }) => {
-  nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.112.1');
+  nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.112.1', painelNoComputador(browser));
   await expect(nutri).toHaveURL(/\/painel$/);
 });
 test.afterAll(async () => {
