@@ -1,6 +1,14 @@
 import { expect, type Browser, type BrowserContextOptions, type Page } from '@playwright/test';
 import { TOTP } from 'otpauth';
 
+/**
+ * SUS-125: prazo dos `expect` que esperam o servidor — a resposta de uma server action, uma gravação, a navegação depois de
+ * salvar, o service worker que guarda a página. Sob carga a VPS perde de 20% a 50% da CPU para o hipervisor (SUS-97) e os
+ * 5 s padrão do Playwright estouraram nesses pontos no CI. Vale só onde o servidor trabalha: o `expect.timeout` global e o
+ * prazo por teste continuam os padrões, para a espera da tela não esconder lentidão.
+ */
+export const ESPERA_DO_SERVIDOR = 15_000;
+
 const segredos = new Map<string, string>();
 
 /** `opcoes`: o contexto herda o dispositivo do projeto (celular); o painel da nutricionista pede o desktop. */

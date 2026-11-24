@@ -1,4 +1,5 @@
 import { expect, type Browser, type BrowserContextOptions, type Page } from '@playwright/test';
+import { ESPERA_DO_SERVIDOR } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 import { criarPacientePeloFormulario } from './pacientes-form';
 
@@ -120,7 +121,7 @@ export async function marcarParaPaciente(nutri: Page, nome: string, email: strin
   await nutri.getByLabel('Paciente').selectOption({ label: `${nome} (${email})` });
   await nutri.getByLabel('Hora').fill(hora);
   await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
-  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
 }
 
 /** Quantas páginas há no cache do "Meu plano" no aparelho (0 se o cache nem existe). */

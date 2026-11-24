@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
-import { entrarComo } from './helpers';
+import { entrarComo, ESPERA_DO_SERVIDOR } from './helpers';
 import { criarPacientePeloFormulario } from './pacientes-form';
 import { irPeloMenu } from './painel';
 
@@ -50,7 +50,7 @@ test.beforeAll(async ({ browser }) => {
     marcada = await nutri
       .getByRole('status')
       .filter({ hasText: 'Consulta marcada.' })
-      .waitFor({ timeout: 5_000 })
+      .waitFor({ timeout: ESPERA_DO_SERVIDOR }) // SUS-125: lenta não é recusa (um novo sorteio marcaria outra consulta)
       .then(() => true)
       .catch(() => false);
   }
@@ -81,7 +81,8 @@ test('menu "Relatórios" → Pacientes; o período escolhido continua ao trocar 
   await expect(abas.getByRole('link', { name: 'Agenda' })).toHaveAttribute('aria-current', 'page');
   await expect(nutri.getByLabel('De', { exact: true })).toHaveValue(DE);
   await expect(nutri.getByLabel('Até', { exact: true })).toHaveValue(ATUAL);
-  await expect(nutri.getByRole('columnheader', { name: 'Taxa de faltas' })).toBeVisible();
+  // SUS-125: a tabela da Agenda vem da consulta do período no servidor (estourou os 5 s no CI)
+  await expect(nutri.getByRole('columnheader', { name: 'Taxa de faltas' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
 });
 
 test('período inválido: o erro junto do "De", com o foco no aviso, e os números do padrão (RN-481)', async () => {

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { entrarComo } from './helpers';
+import { entrarComo, ESPERA_DO_SERVIDOR } from './helpers';
 import { esperarEmail, primeiroLink } from './mailpit';
 import { criarPacientePeloFormulario } from './pacientes-form';
 import { conexaoDoConsultorio, idDoTenant, lembreteDeWhatsappAgora, webhookAssinado } from './whatsapp';
@@ -9,6 +9,14 @@ const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 // segunda tentativa do arquivo colidiria com os dados da primeira (horários repetidos, bloqueio já gravado).
 test.describe.configure({ mode: 'serial', retries: 0 });
 let nutri: Page;
+
+// SUS-125: o arquivo roda uma vez por `pnpm e2e:seed` (a semente esvazia a agenda do consultório do E2E). Com
+// `--repeat-each`, a segunda repetição marcava de novo nos mesmos dias (as datas saem de hoje) e esbarrava nas consultas
+// da primeira — na medição do SUS-97, "Fora do seu horário de atendimento" virou "Conflito com a consulta de Dora … às
+// 19:00" só na repetição 1, em qualquer hora do dia. A repetição é pulada com o motivo, em vez de falhar enganando.
+test.beforeEach(() => {
+  test.skip(test.info().repeatEachIndex > 0, 'agenda.spec roda uma vez por pnpm e2e:seed: a repetição colidiria com as consultas da primeira');
+});
 
 /** 'AAAA-MM-DD' da segunda-feira a partir de hoje + `dias` (o teste só compara texto). */
 function segundaDepoisDe(dias: number): string {
@@ -81,16 +89,21 @@ test('agenda da nutricionista: marcar, conflito, avisos, semana e alterar (US-03
   const carla = `Carla Agenda ${sufixo} (carla-${sufixo}@ex.com)`;
   const dora = `Dora Agenda ${sufixo} (dora-${sufixo}@ex.com)`;
   await marcar(carla, SEGUNDA_LIVRE, '09:00');
-  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   await expect(nutri.getByRole('heading', { name: `Consulta de Carla Agenda ${sufixo}` })).toBeVisible();
   await marcar(dora, SEGUNDA_LIVRE, '09:30');
   // o anunciador de rota do Next também tem role="alert" (R5): filtra pelo texto do conflito
   await expect(nutri.getByRole('alert').filter({ hasText: 'Conflito com a consulta de' })).toHaveText(`Conflito com a consulta de Carla Agenda ${sufixo} às 09:00`);
+  // 19:00 fica fora da grade de seg. a sex., 08:00–18:00, que o teste anterior grava (a semente começa sem nenhuma), em
+  // qualquer hora em que o E2E rode: SEGUNDA_LIVRE é uma segunda-feira daqui a 37 a 43 dias e o aviso compara só o
+  // horário da consulta com a grade (`avisosDoHorario`, src/modules/agenda/consultas.ts), nunca com a hora atual. O
+  // conflito é conferido antes: só uma consulta já marcada às 19:00 desse dia (de uma execução anterior sem nova
+  // semente) trocaria o aviso pelo "Conflito com a consulta de …" (SUS-125; ver o beforeEach).
   await nutri.getByLabel('Hora').fill('19:00');
   await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
-  await expect(nutri.getByText('Fora do seu horário de atendimento')).toBeVisible();
+  await expect(nutri.getByText('Fora do seu horário de atendimento')).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   await marcar(dora, somar(SEMANA_BLOQUEADA, 1), '10:00');
-  await expect(nutri.getByText('Consulta dentro de um bloqueio').first()).toBeVisible();
+  await expect(nutri.getByText('Consulta dentro de um bloqueio').first()).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   await nutri.goto(`/painel/agenda?visao=semana&data=${SEGUNDA_LIVRE}`);
   await expect(nutri.getByRole('link', { name: `Carla Agenda ${sufixo}` })).toBeVisible();
   await nutri.getByRole('link', { name: `Carla Agenda ${sufixo}` }).click();
@@ -176,7 +189,7 @@ test('link da consulta fora do prazo (RN-04): só "Avisar que preciso remarcar";
   );
   await novoPaciente(`Eva Agenda ${sufixo}`, `eva-${sufixo}@ex.com`);
   await marcar(`Eva Agenda ${sufixo} (eva-${sufixo}@ex.com)`, `${p.year}-${p.month}-${p.day}`, `${p.hour}:00`);
-  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   const consultaNoPainel = nutri.url();
   const paciente = await (await browser.newContext()).newPage();
   // o convite (cadastro) e a "Consulta marcada" vão para o mesmo endereço, em ordem que varia: espera a da consulta pelo assunto
@@ -268,7 +281,7 @@ test('lembrete por WhatsApp no sandbox e resposta "1" pelo webhook: "Confirmada 
   const quinta = somar(SEGUNDA_LIVRE, 3);
   await novoPaciente(`Fabi Zap ${sufixo}`, `fabi-${sufixo}@ex.com`, `(11) 9${oito.slice(0, 4)}-${oito.slice(4)}`);
   await marcar(`Fabi Zap ${sufixo} (fabi-${sufixo}@ex.com)`, quinta, '10:00');
-  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   const consultaId = /\/painel\/agenda\/consultas\/([0-9a-f-]{36})/.exec(nutri.url())![1];
   const tenantId = await idDoTenant('e2e-consultorio');
 
@@ -346,6 +359,9 @@ function noFusoDoConsultorio(instante: Date): { data: string; hora: string } {
 }
 
 test('presença: consulta que já começou → "Faltou"; "Iniciar atendimento" → "Realizada"; indicadores no painel (US-037)', async () => {
+  // SUS-125: dois pacientes, duas consultas, um atendimento e o Início — estourou os 30 s padrão na medição do SUS-97
+  // (steal de 47%)
+  test.setTimeout(90_000);
   // rodada 1: independente dos outros testes — pacientes próprios e horários relativos a agora (no passado, onde
   // nenhum outro teste marca: os outros usam a semana livre/bloqueada daqui a ~30 dias e a quinta seguinte)
   const hana = `Hana Presenca ${sufixo}`;
@@ -356,12 +372,12 @@ test('presença: consulta que já começou → "Faltou"; "Iniciar atendimento" �
   const faltou = noFusoDoConsultorio(new Date(minuto - 2 * 3_600_000)); // 60 min, terminou há 1 h
   const atendida = noFusoDoConsultorio(new Date(minuto - 4 * 3_600_000)); // 60 min, terminou há 3 h
   await marcar(`${hana} (hana-${sufixo}@ex.com)`, faltou.data, faltou.hora);
-  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   await nutri.getByRole('button', { name: 'Faltou' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Presença registrada.' })).toBeVisible();
   await expect(nutri.getByRole('list', { name: 'Situação' }).getByText('Faltou')).toBeVisible();
   await marcar(`${iara} (iara-${sufixo}@ex.com)`, atendida.data, atendida.hora);
-  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   const urlDaConsulta = nutri.url().split('?')[0];
   await nutri.getByRole('link', { name: 'Iniciar atendimento' }).click();
   await expect(nutri.getByText(/^Atendimento da consulta de /)).toBeVisible();

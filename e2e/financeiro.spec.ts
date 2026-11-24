@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { entrarComo } from './helpers';
+import { entrarComo, ESPERA_DO_SERVIDOR } from './helpers';
 import { criarPacientePeloFormulario } from './pacientes-form';
 import { escolherTema, irPeloMenu } from './painel';
 
@@ -11,7 +11,7 @@ import { escolherTema, irPeloMenu } from './painel';
  * repetível e as asserções valem só para o que esta execução cria — nunca para os totais do consultório do E2E. O tema é
  * da conta (D17): esta spec só troca o da E2E_FIN_NOVO, nunca o da nutricionista compartilhada.
  * IPs (limite de login por IP): bloco 10.9.20.x (sufixo = número do plano, decisão da orquestradora) — 10.9.20.1 aqui;
- * 10.9.20.2 é a E2E_FIN_AXE do acessibilidade-painel.spec.
+ * 10.9.20.2 é a E2E_FIN_AXE do acessibilidade-painel-2.spec.
  */
 const FIN_NOVO = { email: 'fin-novo-e2e@nutridebby.test', senha: 'Nutri2026segura' }; // copiada: importar o seed roda o seed
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
@@ -90,7 +90,7 @@ test('da consulta realizada ao recebido na mesma tela, sem digitar o valor; sai 
   await nutri.getByLabel('Paciente').selectOption({ label: `${paciente.nome} (${paciente.email})` });
   await nutri.getByLabel('Hora').fill(inicio.hora);
   await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
-  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   const consulta = new URL(nutri.url()).pathname;
 
   await nutri.getByRole('button', { name: 'Realizada' }).click();
@@ -122,7 +122,7 @@ test('da consulta realizada ao recebido na mesma tela, sem digitar o valor; sai 
   await nutri.getByLabel('Paciente').selectOption({ label: `${paciente.nome} (${paciente.email})` });
   await nutri.getByLabel('Hora').fill(segunda.hora);
   await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
-  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
   const consultaAberta = new URL(nutri.url()).pathname;
   await nutri.getByRole('button', { name: 'Realizada' }).click();
   await expect(nutri.getByRole('status').filter({ hasText: 'Presença registrada. Cobrança de R$ 250,00 criada no Financeiro.' })).toBeVisible();

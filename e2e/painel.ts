@@ -2,7 +2,7 @@ import type AxeBuilder from '@axe-core/playwright';
 import { expect, type Browser, type Page } from '@playwright/test';
 import { PDFDocument } from 'pdf-lib';
 import type { IdsDoPainel } from './painel-rotas';
-import { entrarComo } from './helpers';
+import { entrarComo, ESPERA_DO_SERVIDOR } from './helpers';
 import { avaliar, marcarParaPaciente, pacienteNoPortal, publicarPlanoSimples } from './portal';
 
 type IncompletoDoAxe = Awaited<ReturnType<AxeBuilder['analyze']>>['incomplete'][number];
@@ -90,17 +90,24 @@ export const IA_NUTRI_2 = { email: 'ia-nutri-2-e2e@nutridebby.test', senha: 'Nut
  * nutricionista" (sem o worker) — e o id dela na fila do painel. A linha é localizada pelo NOME da paciente, nunca "a
  * primeira": a fila põe o risco no topo e o ia-nutri-paciente.spec deixa mensagens de risco da primeira paciente. Abrir essa
  * dúvida no axe grava `aberta_pela_nutri_em` e não apaga nada (dúvida direta, sem risco).
+ * SUS-125: se a fila já tem uma dúvida dela (a outra parte do acessibilidade-painel, a tentativa anterior do CI ou o
+ * ia-nutri-paciente.spec, que também só envia direto), usa essa: a paciente tem no máximo 3 dúvidas abertas
+ * (`LIMITE_DUVIDAS_ABERTAS`), e cada envio a mais gastaria uma.
  */
 async function duvidaDiretaDaSegunda(browser: Browser, nutri: Page, ip: string): Promise<string> {
-  const p = await entrarComo(browser, IA_NUTRI_2.email, IA_NUTRI_2.senha, ip);
-  await expect(p).toHaveURL(/\/p\//);
-  await p.goto('/p/plano/ia');
-  await p.getByLabel('Sua dúvida').fill(`Posso trocar a banana do lanche? ${Date.now().toString(36)}`);
-  await p.getByRole('button', { name: 'Enviar direto para minha nutricionista' }).click();
-  await expect(p.getByRole('status').filter({ hasText: 'Pronto! Sua pergunta foi enviada ao consultório.' })).toBeVisible();
-  await p.context().close();
+  const abrir = nutri.getByRole('row').filter({ hasText: IA_NUTRI_2.nome }).getByRole('link', { name: /^Abrir dúvida/ }).first();
   await nutri.goto('/painel/duvidas');
-  const href = await nutri.getByRole('row').filter({ hasText: IA_NUTRI_2.nome }).getByRole('link', { name: /^Abrir dúvida/ }).first().getAttribute('href');
+  if (!(await abrir.count())) {
+    const p = await entrarComo(browser, IA_NUTRI_2.email, IA_NUTRI_2.senha, ip);
+    await expect(p).toHaveURL(/\/p\//);
+    await p.goto('/p/plano/ia');
+    await p.getByLabel('Sua dúvida').fill(`Posso trocar a banana do lanche? ${Date.now().toString(36)}`);
+    await p.getByRole('button', { name: 'Enviar direto para minha nutricionista' }).click();
+    await expect(p.getByRole('status').filter({ hasText: 'Pronto! Sua pergunta foi enviada ao consultório.' })).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
+    await p.context().close();
+    await nutri.goto('/painel/duvidas');
+  }
+  const href = await abrir.getAttribute('href');
   const m = new RegExp(`^/painel/duvidas/(${UUID})$`).exec(href ?? '');
   expect(m, `link "Abrir dúvida" da ${IA_NUTRI_2.nome}: ${href}`).not.toBeNull();
   return m![1];
@@ -113,9 +120,10 @@ async function duvidaDiretaDaSegunda(browser: Browser, nutri: Page, ip: string):
  * Privacidade; a tela abre "em preparo" sem o worker), conteúdo (Plano 07), receita (Plano 10A, rascunho), lançamento do
  * paciente (Plano 20, "Nova entrada"), exame enviado pelo paciente (Plano 12, na fila depois do worker) e dúvida da IA Nutri
  * (Plano 15, a segunda paciente do seed) — e devolve os ids.
- * `ip`: o IP só do paciente (o limite de login é por IP); `ipIaNutri`: o da segunda paciente da IA Nutri.
+ * `ip`: o IP só do paciente (o limite de login é por IP); `ipIaNutri`: o da segunda paciente da IA Nutri; `parte`: a parte
+ * do acessibilidade-painel que prepara (SUS-125: as duas preparam ao mesmo tempo, cada uma com as suas linhas).
  */
-export async function prepararTelasComId(browser: Browser, nutri: Page, ip: string, ipIaNutri: string): Promise<IdsDoPainel> {
+export async function prepararTelasComId(browser: Browser, nutri: Page, ip: string, ipIaNutri: string, parte: 0 | 1): Promise<IdsDoPainel> {
   const sufixo = Date.now().toString(36);
   const paciente = await pacienteNoPortal(browser, nutri, ip);
   const p = paciente.prontuario;
@@ -130,8 +138,10 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
   await expect(nutri.getByRole('status').filter({ hasText: 'Modelo salvo.' })).toBeVisible();
 
   // semana ≥ 2 (portal.spec usa 0, acessibilidade.spec 1) e variável por execução: o seed não apaga consultas, e repetir o
-  // mesmo dia e hora da execução anterior dá "Conflito com a consulta de …"
-  await marcarParaPaciente(nutri, paciente.nome, paciente.email, 2 + (Math.floor(Date.now() / 60_000) % 50));
+  // mesmo dia e hora da execução anterior dá "Conflito com a consulta de …". SUS-125: cada parte do acessibilidade-painel
+  // no seu bloco de 25 semanas (parte 0: 2 a 26; parte 1: 27 a 51) — as duas começam no mesmo minuto, e a hora sai de um
+  // contador do módulo, que recomeça em cada worker
+  await marcarParaPaciente(nutri, paciente.nome, paciente.email, 2 + 25 * parte + (Math.floor(Date.now() / 60_000) % 25));
   const consulta = idDaUrl(nutri, new RegExp(`/painel/agenda/consultas/(${UUID})$`));
   await avaliar(nutri, p, '2026-08-01', '80');
 
