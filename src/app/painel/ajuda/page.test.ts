@@ -28,6 +28,9 @@ describe('/painel/ajuda por papel (RE-D42)', () => {
     expect(secoes(html)).toEqual(guiasDoPapel('recepcao').map((g) => g.id));
     expect(secoes(html)).toEqual(expect.arrayContaining(['recepcao-inicio', 'recepcao-seguranca']));
     expect(secoes(html).filter((id) => !id.startsWith('recepcao-'))).toEqual([]);
+    // revisão final do PR 2: o índice ("Nesta página") também só aponta para os dois guias dela
+    const indice = html.match(/<nav aria-labelledby="indice"[\s\S]*?<\/nav>/)?.[0] ?? '';
+    expect([...indice.matchAll(/href="#([^"]+)"/g)].map((m) => m[1])).toEqual(['recepcao-inicio', 'recepcao-seguranca']);
     for (const id of ['boas-vindas', 'seguranca', 'pacientes', 'prontuario', 'plano-alimentar', 'documentos', 'ia-nutri', 'agenda', 'diarios', 'configuracoes', 'equipe', 'financeiro', 'relatorios'])
       expect(html, id).not.toContain(`id="${id}"`);
     expect(espiao.chamadas).toEqual([]);

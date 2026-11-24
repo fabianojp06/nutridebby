@@ -640,6 +640,19 @@ export const E2E_RECEPCAO_FIN = { email: 'recepcao-fin-e2e@nutridebby.test', pas
 // `E2E_RECEPCAO_CONTRATO` (RN-501): a recepção de um consultório só dela, com o DPA numa versão antiga a cada execução —
 // toda tela a leva a "Contrato do consultório pendente" (a nutricionista desse consultório não existe: ninguém aceita).
 export const E2E_RECEPCAO_CONTRATO = { email: 'recepcao-contrato-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Contrato E2E' };
+// Revisão final do PR 2 (RNF-481): as duas contas da recepção que só abrem /conta/acesso-desativado, num consultório só
+// delas (com o DPA em vigor; a nutricionista desse consultório não existe, como no do contrato): `E2E_RECEPCAO_DESATIVADA`
+// (linha de equipe_membros desativada a cada execução, com `desativada_em` pelo gatilho — RN-503) e
+// `E2E_RECEPCAO_SEM_TERMO` (ativa, sem o aceite do termo de confidencialidade: o aviso `termoPendente`, RN-500). Fora do
+// consultório principal: não contam nas 3 ativas dele nem aparecem na tela Equipe da nutricionista do E2E.
+export const E2E_RECEPCAO_DESATIVADA = { email: 'recepcao-desativada-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Desativada E2E' };
+export const E2E_RECEPCAO_SEM_TERMO = { email: 'recepcao-sem-termo-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Sem Termo E2E' };
+const [semAcesso] = await db
+  .insert(tenants)
+  .values({ slug: 'e2e-recepcao-sem-acesso', nomeExibicao: 'Consultório E2E Sem Acesso', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date() })
+  .onConflictDoUpdate({ target: tenants.slug, set: { status: 'ativa', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date() } })
+  .returning({ id: tenants.id });
+const atorSemAcesso = randomUUID();
 const [contratoPendente] = await db
   .insert(tenants)
   .values({ slug: 'e2e-contrato-pendente', nomeExibicao: 'Consultório E2E Contrato', dpaVersao: '0.1-provisorio', dpaAceitoEm: new Date() })
@@ -649,6 +662,8 @@ for (const [cred, financeiro, tenantId, ator] of [
   [E2E_RECEPCAO, false, consultorio.id, nutriId],
   [E2E_RECEPCAO_FIN, true, consultorio.id, nutriId],
   [E2E_RECEPCAO_CONTRATO, false, contratoPendente.id, randomUUID()],
+  [E2E_RECEPCAO_DESATIVADA, false, semAcesso.id, atorSemAcesso],
+  [E2E_RECEPCAO_SEM_TERMO, false, semAcesso.id, atorSemAcesso],
 ] as const) {
   const senha = await hashPassword(cred.password);
   const [ja] = await db.select({ id: user.id }).from(user).where(eq(user.email, cred.email));
@@ -670,14 +685,20 @@ for (const [cred, financeiro, tenantId, ator] of [
   });
   await withTenant(
     { tenantId, role: 'nutri', actorUserId: ator },
-    (tx) =>
-      tx
+    async (tx) => {
+      await tx
         .insert(equipeMembros)
         .values({ tenantId, userId: id, papel: 'recepcao', financeiro, convidadaPor: ator })
-        .onConflictDoUpdate({ target: equipeMembros.userId, set: { financeiro, desativadaEm: null, desativadaPor: null, updatedAt: new Date() } }),
+        .onConflictDoUpdate({ target: equipeMembros.userId, set: { financeiro, desativadaEm: null, desativadaPor: null, updatedAt: new Date() } });
+      // o gatilho equipe_membros_regras grava `desativada_em` (relógio do banco) e `desativada_por` (a usuária da sessão)
+      if (cred === E2E_RECEPCAO_DESATIVADA)
+        await tx.update(equipeMembros).set({ desativadaEm: new Date(), desativadaPor: ator, updatedAt: new Date() }).where(eq(equipeMembros.userId, id));
+    },
     db,
   );
-  await db.insert(consents).values({ userId: id, tenantId, termoVersao: SIGILO_EQUIPE_TERMO, ip: null }).onConflictDoNothing();
+  // `E2E_RECEPCAO_SEM_TERMO` nunca recebe o aceite (consents não se apaga: a conta é só dela)
+  if (cred !== E2E_RECEPCAO_SEM_TERMO)
+    await db.insert(consents).values({ userId: id, tenantId, termoVersao: SIGILO_EQUIPE_TERMO, ip: null }).onConflictDoNothing();
   await db.update(user).set({ guia: cred === E2E_RECEPCAO_FIN ? {} : TUDO_VISTO }).where(eq(user.id, id));
 }
 

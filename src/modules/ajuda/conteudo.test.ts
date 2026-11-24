@@ -377,7 +377,7 @@ describe('Plano 26 (T8, RE-D42): manual guiado por papel', () => {
   });
   it('a recepção não vê nenhum guia clínico nem da nutricionista: só os `recepcao-*`', () => {
     const ids = guiasDoPapel('recepcao').map((g) => g.id);
-    expect(ids).toEqual(expect.arrayContaining(['recepcao-inicio', 'recepcao-seguranca']));
+    expect(ids).toEqual(['recepcao-inicio', 'recepcao-seguranca']); // revisão final do PR 2: o índice do manual dela, exato
     expect(ids.filter((id) => !id.startsWith('recepcao-'))).toEqual([]);
     for (const rota of ['/painel/pacientes', `/painel/pacientes/${UUID}`, `/painel/pacientes/${UUID}/plano-alimentar`, '/painel/agenda', '/painel/diarios', '/painel/configuracoes', '/painel/financeiro', '/painel/relatorios'])
       expect(guiaDaRota(rota, 'recepcao'), rota).toBeNull();

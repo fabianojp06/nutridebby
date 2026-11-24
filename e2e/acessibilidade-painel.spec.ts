@@ -551,3 +551,109 @@ test('Plano 26: Início da recepção, "Sem permissão" e "Contrato pendente" co
   }
   expect(falhas).toEqual([]);
 });
+
+/**
+ * Revisão final do PR 2 do Plano 26 (RNF-481): o resto das telas da recepção, com a conta dela, a 1280 e a 360 px, claro e
+ * escuro — `/conta/seguranca` (o guia próprio, aberto e fechado, e o "Sair" de 44 px; a Segurança sem o 2FA, com o aviso,
+ * fica no equipe-primeiro-acesso.spec, a única conta da recepção sem o 2FA), `/painel/ajuda` (o índice só com os guias
+ * dela, nunca os clínicos), `/conta/outro-papel` vinda do portal (`/p/inicio`) e do admin (`/admin`) e
+ * `/conta/acesso-desativado` com os dois textos: `E2E_RECEPCAO_DESATIVADA` (linha desativada, RN-503) e
+ * `E2E_RECEPCAO_SEM_TERMO` (ativa, sem o termo de confidencialidade, RN-500). As duas não abrem o painel: o tema delas é o
+ * da semente ("Igual ao aparelho"), e o claro e o escuro vêm do aparelho (`emulateMedia`). IPs 10.9.36.17 a .19 (RE-D50).
+ */
+const RECEPCAO_DESATIVADA_AXE = { email: 'recepcao-desativada-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
+const RECEPCAO_SEM_TERMO_AXE = { email: 'recepcao-sem-termo-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
+
+test('Plano 26: Segurança, manual, "outra conta" e "Acesso desativado" com as contas da recepção, claro e escuro, 1280 e 360 px', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const rec = await entrarComoRecepcao(browser, RECEPCAO_AXE, '10.9.36.17', /\/painel$/);
+  const desativada = await entrarComoRecepcao(browser, RECEPCAO_DESATIVADA_AXE, '10.9.36.18', /\/conta\/acesso-desativado$/);
+  const semTermo = await entrarComoRecepcao(browser, RECEPCAO_SEM_TERMO_AXE, '10.9.36.19', /\/conta\/acesso-desativado$/);
+
+  // as contas sem acesso não abrem nenhuma outra tela: nem o painel, nem a Segurança (a página do aviso vence o 2FA)
+  for (const p of [desativada, semTermo]) {
+    for (const rota of ['/painel', '/painel/ajuda', '/conta/seguranca', '/p/inicio']) {
+      await p.goto(rota);
+      await expect(p, rota).toHaveURL(/\/conta\/acesso-desativado$/);
+    }
+  }
+  // o manual da recepção: o índice só com os guias dela (RN-513, RE-D42) — nenhum guia clínico nem da nutricionista
+  await rec.goto('/painel/ajuda');
+  const indice = rec.getByRole('navigation', { name: 'Nesta página' });
+  await expect(indice.getByRole('link')).toHaveText(['Início da recepção', 'Segurança da conta (recepção)']);
+  // e as seções do manual (cada uma rotulada pelo próprio título, `<id>-titulo`) são só essas duas
+  const secoesDoManual = await rec.evaluate(() =>
+    [...document.querySelectorAll('section[id][aria-labelledby]')].filter((s) => s.getAttribute('aria-labelledby') === `${s.id}-titulo`).map((s) => s.id),
+  );
+  expect(secoesDoManual).toEqual(['recepcao-inicio', 'recepcao-seguranca']);
+  // a tela de outra conta, vinda do portal e do admin (RE-D67): só os rótulos dos papéis
+  await rec.goto('/p/inicio');
+  await expect(rec).toHaveURL(/\/conta\/outro-papel\?esperado=paciente$/);
+  await expect(rec.getByRole('status')).toHaveText('Este aparelho está conectado como recepção. Saia e entre com a conta de paciente.');
+  await rec.goto('/admin');
+  await expect(rec).toHaveURL(/\/conta\/outro-papel\?esperado=admin$/);
+  await expect(rec.getByRole('status')).toHaveText('Este aparelho está conectado como recepção. Saia e entre com a conta de administrador.');
+  await expect(rec.getByRole('link', { name: 'Ir para o painel' })).toHaveAttribute('href', '/painel');
+
+  const h1 = (nome: string) => async (p: Page) => {
+    await expect(p.getByRole('heading', { level: 1, name: nome })).toBeVisible();
+  };
+  const sair44 = async (p: Page) => {
+    const caixa = await p.getByRole('button', { name: 'Sair' }).boundingBox();
+    expect(caixa?.height ?? 0, `${p.url()}: o "Sair" com 44 px`).toBeGreaterThanOrEqual(44);
+  };
+  const estados: { page: Page; url: string; pronta: (p: Page) => Promise<void> }[] = [
+    { page: rec, url: '/conta/seguranca', pronta: async (p) => {
+      await h1('Segurança da conta')(p);
+      await expect(p.getByText('A verificação em duas etapas está ativa.')).toBeVisible();
+      await sair44(p);
+    } },
+    { page: rec, url: '/conta/seguranca#guia-aberto', pronta: async (p) => {
+      await h1('Segurança da conta')(p);
+      await p.locator('summary', { hasText: 'Como funciona' }).click(); // o guia próprio da recepção, aberto
+      await expect(p.getByText('Na recepção ela é obrigatória: o painel só abre depois de ativá-la.')).toBeVisible();
+    } },
+    { page: rec, url: '/painel/ajuda', pronta: h1('Manual do NutriDebby') },
+    { page: rec, url: '/conta/outro-papel?esperado=paciente', pronta: async (p) => {
+      await h1('Conectado com outra conta')(p);
+      await sair44(p);
+    } },
+    { page: rec, url: '/conta/outro-papel?esperado=admin', pronta: h1('Conectado com outra conta') },
+    { page: desativada, url: '/conta/acesso-desativado', pronta: async (p) => {
+      await h1('Acesso desativado')(p);
+      await expect(p.getByText('Seu acesso a este consultório foi desativado. Fale com a nutricionista.')).toBeVisible();
+      await sair44(p);
+    } },
+    { page: semTermo, url: '/conta/acesso-desativado', pronta: async (p) => {
+      await h1('Acesso desativado')(p);
+      await expect(p.getByText('Seu acesso ainda não foi liberado: falta aceitar o Termo de confidencialidade da equipe. Fale com a nutricionista.')).toBeVisible();
+      await sair44(p);
+    } },
+  ];
+  const falhas: string[] = [];
+  try {
+    for (const [modo, escuro] of [['claro', false], ['escuro', true]] as const) {
+      // a recepção ativa muda o tema da conta pelo botão do cabeçalho do painel; as sem acesso seguem o aparelho
+      await rec.goto('/painel');
+      await temaPeloCabecalho(rec, escuro);
+      for (const p of [desativada, semTermo]) await p.emulateMedia({ colorScheme: escuro ? 'dark' : 'light' });
+      for (const [largura, altura] of [[1280, 720], [360, 800]] as const) {
+        for (const t of estados) {
+          await t.page.setViewportSize({ width: largura, height: altura });
+          await t.page.goto(t.url);
+          await t.pronta(t.page);
+          await t.page.waitForLoadState('networkidle');
+          for (const v of await violacoes(t.page, undefined, { ignorarForaDaTela: largura < 1280 })) falhas.push(`${modo} ${largura} px ${t.url} — ${v}`);
+          if (largura === 360 && !(await t.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${modo} 360 px ${t.url} — rola na horizontal`);
+        }
+      }
+      for (const p of [rec, desativada, semTermo]) await p.setViewportSize({ width: 1280, height: 720 });
+    }
+  } finally {
+    await rec.setViewportSize({ width: 1280, height: 720 });
+    await rec.goto('/painel');
+    await temaPeloCabecalho(rec, false);
+    for (const p of [rec, desativada, semTermo]) await p.context().close();
+  }
+  expect(falhas).toEqual([]);
+});

@@ -66,6 +66,18 @@ test('a pessoa da recepção abre o convite, aceita o termo, cria a senha, confi
   await page.getByRole('button', { name: 'Criar senha e entrar' }).click();
   await expect(page).toHaveURL(/\/conta\/seguranca/);
   await expect(page.getByText('A recepção precisa da verificação em duas etapas. Configure agora para continuar.')).toBeVisible();
+  // revisão final do PR 2 (RNF-481): a Segurança da recepção sem o 2FA (esta é a única conta dela sem o 2FA no E2E) — o
+  // aviso, o guia próprio (fechado e aberto) e o "Sair" de 44 px —, claro e escuro (a conta nova segue o aparelho), 1280 e 360 px
+  const sair = await page.getByRole('button', { name: 'Sair' }).boundingBox();
+  expect(sair?.height ?? 0, 'o "Sair" da Segurança com 44 px').toBeGreaterThanOrEqual(44);
+  await semViolacoes(page, '/conta/seguranca (recepção, sem o 2FA)');
+  await page.locator('summary', { hasText: 'Como funciona' }).click();
+  await expect(page.getByText('Na recepção ela é obrigatória: o painel só abre depois de ativá-la.')).toBeVisible();
+  await semViolacoes(page, '/conta/seguranca (recepção, sem o 2FA, guia aberto)');
+  await page.setViewportSize({ width: 360, height: 800 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '360 px: /conta/seguranca').toBe(true);
+  await semViolacoes(page, '/conta/seguranca (recepção, sem o 2FA, 360 px)');
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/painel');
   await expect(page).toHaveURL(/\/conta\/seguranca/);
   await page.getByLabel('Confirme sua senha').fill(SENHA);
