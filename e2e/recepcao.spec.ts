@@ -112,7 +112,12 @@ test('primeiro acesso da recepção: o tour é o dela (nunca o boas-vindas), o m
   await expect(page.getByText(`${RECEPCAO_FIN.nome} · Recepção`)).toBeVisible();
   await expect(page.getByRole('link', { name: 'Rever o tour', exact: true })).toHaveAttribute('href', '/painel?tour=recepcao-inicio');
   await expect(page.getByRole('link', { name: 'Perfil e marca' })).toHaveCount(0);
+  // "Rever o tour" reabre o dela; Esc fecha e o ?tour= sai da URL (revisão da P26-08)
+  await page.getByRole('link', { name: 'Rever o tour', exact: true }).click();
+  await expect(tour).toBeVisible();
   await page.keyboard.press('Escape');
+  await expect(tour).toBeHidden();
+  await expect(page).toHaveURL(/\/painel$/);
   // concluído: recarregar não reabre o tour
   await page.reload();
   await page.waitForLoadState('networkidle');

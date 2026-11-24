@@ -4,7 +4,7 @@ import type { TenantContext } from '@/db/tenant';
 import { Cartao } from '@/components/ui/cartao';
 import type { Consulta } from '@/modules/agenda/consultas';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
-import { MSG_INICIO } from '@/modules/agenda/inicio';
+import { MSG_INICIO, MSG_INICIO_RECEPCAO, TITULOS_DAS_NOVIDADES } from '@/modules/agenda/inicio';
 import { inicioDaRecepcao } from '@/modules/agenda/inicio-recepcao';
 import { primeiroNome } from '@/modules/notificacoes/mensagens';
 import { MSG_RECEPCAO } from '@/modules/plataforma/equipe-textos';
@@ -12,15 +12,6 @@ import { selosDaConsulta } from './agenda/periodo';
 
 const LINK = 'inline-flex min-h-11 items-center text-link underline';
 const ITEM = 'flex min-h-11 flex-wrap items-center gap-x-3 rounded-xl px-2 hover:bg-linha';
-
-/** Textos do Início da recepção sem fonte na spec (§6.2): RASCUNHO, vão à tabela de textos do Plano 26 na T12. */
-export const MSG_INICIO_RECEPCAO = {
-  semPresenca: 'Nenhuma consulta sem registro de presença.',
-  semNovidades: 'Nada de novo na agenda nos últimos 7 dias.',
-  verAgenda: 'Ver a agenda',
-  verPendencias: 'Ver todas as pendências',
-  responder: 'Responder',
-} as const;
 
 /**
  * Plano 26 (RN-514, RE-D63, spec §7.4): o Início da recepção — o trabalho do dia: "Agenda de hoje", "Presença a registrar"
@@ -32,16 +23,12 @@ export const MSG_INICIO_RECEPCAO = {
 export async function InicioDaRecepcao({ nome, ctx, tenant }: { nome: string; ctx: TenantContext; tenant: Pick<TenantRow, 'fuso' | 'antecedenciaMinH'> }) {
   const { agendaDeHoje, presenca, solicitacoes, novidades } = await inicioDaRecepcao(ctx, tenant, new Date());
   const hora = (d: Date) => partesNoFuso(d, tenant.fuso).hora;
-  const listas: [string, Consulta[]][] = [
-    ['Pedidos de remarcação', novidades.pedidosRemarcacao],
-    ['Marcadas pelo paciente (últimos 7 dias)', novidades.marcadasPeloPaciente],
-    ['Canceladas pelo paciente (últimos 7 dias)', novidades.canceladasPeloPaciente],
-  ];
+  const listas = (Object.keys(TITULOS_DAS_NOVIDADES) as (keyof typeof TITULOS_DAS_NOVIDADES)[]).map((k): [string, Consulta[]] => [TITULOS_DAS_NOVIDADES[k], novidades[k]]);
   return (
     <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
       <h1 className="font-titulo text-3xl font-extrabold">{`Seu dia, ${primeiroNome(nome)}`}</h1>
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
-        <Cartao id="agenda-hoje" titulo={`Agenda de hoje (${agendaDeHoje.length})`} className="md:col-span-2" data-guia="agenda-hoje" acao={<Link href="/painel/agenda" className={LINK}>{MSG_INICIO_RECEPCAO.verAgenda}</Link>}>
+        <Cartao id="agenda-hoje" titulo={`Agenda de hoje (${agendaDeHoje.length})`} className="md:col-span-2" data-guia="agenda-hoje" acao={<Link href="/painel/agenda" aria-label={MSG_INICIO_RECEPCAO.verAgendaRotulo} className={LINK}>{MSG_INICIO_RECEPCAO.verAgenda}</Link>}>
           {agendaDeHoje.length ? (
             <ul className="space-y-1">
               {agendaDeHoje.map((c) => (
@@ -78,7 +65,7 @@ export async function InicioDaRecepcao({ nome, ctx, tenant }: { nome: string; ct
           <p className="mt-2 text-sm text-suave">{MSG_RECEPCAO.presenca}</p>
         </Cartao>
 
-        <Cartao id="solicitacoes" titulo={`Solicitações (${solicitacoes})`} acao={solicitacoes > 0 ? <Link href="/painel/agenda/solicitacoes" className={LINK}>{MSG_INICIO_RECEPCAO.responder}</Link> : undefined}>
+        <Cartao id="solicitacoes" titulo={`Solicitações (${solicitacoes})`} acao={solicitacoes > 0 ? <Link href="/painel/agenda/solicitacoes" aria-label={MSG_INICIO_RECEPCAO.responderRotulo} className={LINK}>{MSG_INICIO_RECEPCAO.responder}</Link> : undefined}>
           <p className="text-sm text-suave">{MSG_RECEPCAO.pedidosPessoaNova}</p>
         </Cartao>
 

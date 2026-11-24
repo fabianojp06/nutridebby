@@ -25,6 +25,27 @@ export const MSG_INICIO = {
   semProximaHoje: 'Nenhuma consulta pela frente hoje.',
 } as const;
 
+/** Os títulos das listas de "O que o paciente fez na agenda" (o Início da nutricionista e o da recepção, Plano 26). */
+export const TITULOS_DAS_NOVIDADES = {
+  pedidosRemarcacao: 'Pedidos de remarcação',
+  marcadasPeloPaciente: 'Marcadas pelo paciente (últimos 7 dias)',
+  canceladasPeloPaciente: 'Canceladas pelo paciente (últimos 7 dias)',
+} as const satisfies Record<keyof Novidades, string>;
+
+/**
+ * Plano 26 (RN-514): textos do Início da recepção sem fonte na spec (§6.2). RASCUNHO: vão à tabela de textos do Plano 26 na
+ * T12. Os `aria-label` contêm o texto visível (WCAG 2.5.3).
+ */
+export const MSG_INICIO_RECEPCAO = {
+  semPresenca: 'Nenhuma consulta sem registro de presença.',
+  semNovidades: 'Nada de novo na agenda nos últimos 7 dias.',
+  verAgenda: 'Ver a agenda',
+  verAgendaRotulo: 'Ver a agenda de hoje',
+  verPendencias: 'Ver todas as pendências',
+  responder: 'Responder',
+  responderRotulo: 'Responder solicitações',
+} as const;
+
 /** Cartão "Próxima consulta" vazio: se já houve consulta hoje (todas passaram), "Nenhuma consulta hoje." seria falso. */
 export const textoSemProxima = (hoje: ResumoDoDia['hoje']): string => (hoje.total > 0 ? MSG_INICIO.semProximaHoje : MSG_INICIO.semConsultaHoje);
 

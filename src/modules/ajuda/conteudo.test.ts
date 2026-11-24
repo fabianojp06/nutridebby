@@ -28,6 +28,7 @@ const SEM_AJUDA: Record<string, string> = {
   '/conta/acesso-desativado': 'Plano 26 (RN-503): tela de aviso, sem tarefa — uma frase e o "Sair"',
 };
 const UUID = '0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b';
+const textosDoGuia = (g: (typeof GUIAS)[number]) => [g.titulo, g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => [s.titulo, ...s.itens]), ...g.passos.flatMap((p) => [p.titulo, p.texto])];
 // D18 (Plano 10A): as páginas de /conta (Segurança) também têm guia, mostrado na própria tela (fora do layout do painel)
 const PAGINAS = ['painel', 'conta'].flatMap((raiz) =>
   readdirSync(path.resolve('src/app', raiz), { recursive: true, withFileTypes: true })
@@ -314,9 +315,17 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/versoes`)?.id).toBe('prontuario');
   });
 
-  it('Plano 26 (RE-D20): o guia da Segurança diz que, para a recepção, a verificação em duas etapas é obrigatória', () => {
-    const g = GUIAS.find((x) => x.id === 'seguranca')!;
-    expect(g.ajuda.secoes.flatMap((s) => s.itens)).toContain('Para a recepção, a verificação em duas etapas é obrigatória: o painel só abre depois de ativá-la.');
+  it('Plano 26 (RE-D20, revisão da P26-08): a recepção tem a Segurança dela (`recepcao-seguranca`, 2FA obrigatório); a da nutricionista fica como estava (v1, só dela)', () => {
+    const g = GUIAS.find((x) => x.id === 'recepcao-seguranca')!;
+    expect(g).toMatchObject({ versao: 1, papeis: ['recepcao'] });
+    expect(g.ajuda.resumo).toContain('o painel só abre depois de ativá-la');
+    expect(guiaDaRota('/conta/seguranca', 'recepcao')?.id).toBe('recepcao-seguranca');
+    expect(guiaDaRota('/conta/seguranca', 'nutri')?.id).toBe('seguranca');
+    const nutri = GUIAS.find((x) => x.id === 'seguranca')!;
+    expect(nutri.versao).toBe(1);
+    expect(papeisDoGuia(nutri)).toEqual(['nutri']);
+    expect(textosDoGuia(nutri).join(' ')).not.toMatch(/recepção/i);
+    expect(textosDoGuia(g).join(' ')).not.toMatch(/assin/i); // assinar documentos é da nutricionista
   });
   it('Plano 26 (T6): as telas de aviso da recepção ficam sem guia (SEM_AJUDA)', () => {
     for (const rota of ['/painel/sem-permissao', '/painel/contrato-pendente', '/conta/acesso-desativado']) {
@@ -366,13 +375,13 @@ describe('Plano 26 (T8, RE-D42): manual guiado por papel', () => {
     expect(alvos.filter((a) => !['menu', 'agenda-hoje', 'presenca', 'tema', 'ajuda', 'conta'].includes(a))).toEqual([]);
     expect(GUIAS.at(-1)?.id).toBe('financeiro'); // o Financeiro continua o último
   });
-  it('a recepção não vê nenhum guia clínico nem da nutricionista: só os `recepcao-*` e a Segurança', () => {
+  it('a recepção não vê nenhum guia clínico nem da nutricionista: só os `recepcao-*`', () => {
     const ids = guiasDoPapel('recepcao').map((g) => g.id);
-    expect(ids).toContain('recepcao-inicio');
-    expect(ids.filter((id) => !id.startsWith('recepcao-') && id !== 'seguranca')).toEqual([]);
+    expect(ids).toEqual(expect.arrayContaining(['recepcao-inicio', 'recepcao-seguranca']));
+    expect(ids.filter((id) => !id.startsWith('recepcao-'))).toEqual([]);
     for (const rota of ['/painel/pacientes', `/painel/pacientes/${UUID}`, `/painel/pacientes/${UUID}/plano-alimentar`, '/painel/agenda', '/painel/diarios', '/painel/configuracoes', '/painel/financeiro', '/painel/relatorios'])
       expect(guiaDaRota(rota, 'recepcao'), rota).toBeNull();
-    expect(guiaDaRota('/conta/seguranca', 'recepcao')?.id).toBe('seguranca');
+    expect(guiaDaRota('/conta/seguranca', 'recepcao')?.id).toBe('recepcao-seguranca');
     expect(guiasDoPapel('nutri').map((g) => g.id)).not.toContain('recepcao-inicio');
   });
   it.each(daRecepcao.map((g) => [g.id]))('o guia %s, que a recepção vê, não cita Configurações, Realizada, Iniciar atendimento, Ver bloqueados, Etiqueta nem Arquivar', (id) => {

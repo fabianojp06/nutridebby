@@ -8,7 +8,7 @@ import { CINZA_SOBRE_DESTAQUE } from '@/lib/tema/marca-tema';
 import { requireEquipe } from '@/lib/tenant-session';
 import type { Consulta } from '@/modules/agenda/consultas';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
-import { lerInicio, MSG_INICIO, textoSemProxima } from '@/modules/agenda/inicio';
+import { lerInicio, MSG_INICIO, textoSemProxima, TITULOS_DAS_NOVIDADES } from '@/modules/agenda/inicio';
 import { MSG_PRESENCA, textoTaxa } from '@/modules/agenda/presenca';
 import { provedorDoApp } from '@/modules/notificacoes/whatsapp/conexao';
 import { primeiroNome } from '@/modules/notificacoes/mensagens';
@@ -36,11 +36,7 @@ export default async function PainelHome() {
   // tudo numa transação só: com leituras em paralelo, o Início de duas nutricionistas ocupava o pool (achado 3)
   const { whatsapp, cota, indicadores: ind, pendentes, novidades: nov, pedidos, dia, naoVistos, metricas: cs, documentosAguardando } = await lerInicio(ctx, tenant, agora, { whatsappLigado: provedorDoApp() !== null });
   const hora = (d: Date) => partesNoFuso(d, tenant.fuso).hora;
-  const novidades: [string, Consulta[]][] = [
-    ['Pedidos de remarcação', nov.pedidosRemarcacao],
-    ['Marcadas pelo paciente (últimos 7 dias)', nov.marcadasPeloPaciente],
-    ['Canceladas pelo paciente (últimos 7 dias)', nov.canceladasPeloPaciente],
-  ];
+  const novidades = (Object.keys(TITULOS_DAS_NOVIDADES) as (keyof typeof TITULOS_DAS_NOVIDADES)[]).map((k): [string, Consulta[]] => [TITULOS_DAS_NOVIDADES[k], nov[k]]);
   const uso = nivelDeUso(tenant.armazenamentoBytes);
   const p = dia.proxima;
   const maxBarra = Math.max(1, ...cs.cs02.porDia.map((d) => d.n));

@@ -453,8 +453,7 @@ export const GUIAS: readonly Guia[] = [
   {
     id: 'seguranca',
     versao: 1,
-    // Plano 26 (RE-D42): a Segurança é da nutricionista e da recepção (o admin vê a da nutricionista, como antes: AjudaSeguranca)
-    papeis: ['nutri', 'recepcao'],
+    // Plano 26 (RE-D42): só da nutricionista (o admin vê esta, como antes: AjudaSeguranca); a recepção tem a `recepcao-seguranca`
     padrao: /^\/conta\/seguranca$/,
     titulo: 'Segurança da conta',
     ajuda: {
@@ -475,8 +474,6 @@ export const GUIAS: readonly Guia[] = [
             'Ao enviar um documento assinado à mão (digitalizado), o sistema pede o código do aplicativo a cada envio.',
             'Depois de 5 códigos errados, espere 15 minutos para tentar de novo.',
             'Se o código não confere, confira se a hora do celular está automática.',
-            // Plano 26 (RE-D20, RN-500): o 2FA obrigatório da recepção
-            'Para a recepção, a verificação em duas etapas é obrigatória: o painel só abre depois de ativá-la.',
           ],
         },
       ],
@@ -595,6 +592,39 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'ajuda', titulo: 'Ajuda em cada tela', texto: 'Em qualquer tela, este botão explica o que dá para fazer ali e abre o manual.' },
       { alvo: 'conta', titulo: 'Sua conta', texto: 'Segurança, o manual, este tour e o Sair ficam aqui.' },
     ],
+  },
+  // Plano 26 (RE-D20, RN-500, revisão da P26-08): a Segurança da conta da recepção, com o 2FA obrigatório e sem o que é da
+  // nutricionista (assinatura de documentos). RASCUNHO, sem fonte na spec (§6.2): vai à tabela de textos do Plano 26 na T12.
+  {
+    id: 'recepcao-seguranca',
+    versao: 1,
+    papeis: ['recepcao'],
+    padrao: /^\/conta\/seguranca$/,
+    titulo: 'Segurança da conta (recepção)',
+    ajuda: {
+      resumo: 'A verificação em duas etapas pede, além da senha, um código de 6 dígitos do aplicativo autenticador do celular. Na recepção ela é obrigatória: o painel só abre depois de ativá-la.',
+      secoes: [
+        {
+          titulo: 'Passo a passo',
+          itens: [
+            'Instale um aplicativo autenticador no celular (Google Authenticator, Authy, 1Password…).',
+            'Clique em "Ativar verificação em duas etapas" e confirme a sua senha.',
+            'Leia o QR Code com o aplicativo e digite o código de 6 dígitos que ele mostra.',
+            'Guarde os códigos de recuperação num lugar seguro: cada um funciona uma vez, se você perder o celular.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'A cada entrada, depois da senha, o NutriDebby pede o código de 6 dígitos do aplicativo.',
+            'Sem o celular, use um dos códigos de recuperação. Se não tiver mais nenhum, fale com a nutricionista.',
+            'Depois de 5 códigos errados, espere 15 minutos para tentar de novo.',
+            'Se o código não confere, confira se a hora do celular está automática.',
+          ],
+        },
+      ],
+    },
+    passos: [{ alvo: 'ativar-2fa', titulo: 'Ativar', texto: 'Confirme a senha, leia o QR Code com o aplicativo autenticador e digite o código de 6 dígitos.' }],
   },
   {
     // Plano 20: no FIM da lista (o Plano 18 insere guias antes de 'prontuario'). Textos finais do revisor-interface

@@ -23,7 +23,7 @@ export function MenuConta({ nome, email, papel = 'nutri' }: { nome: string; emai
       </summary>
       <div className="absolute right-0 z-30 mt-2 w-72 rounded-2xl border border-borda bg-cartao p-2 text-texto shadow-lg">
         {recepcao && <p className="px-3 pt-2 font-semibold">{MSG_RECEPCAO.menuDaConta(nome)}</p>}
-        <p className="px-3 py-2 text-sm text-suave">{`Conectado como ${email}.`}</p>
+        <p className="px-3 py-2 text-sm text-suave">{recepcao ? MSG_RECEPCAO.emailDaConta(email) : `Conectado como ${email}.`}</p>
         <ul>
           {!recepcao && <li><Link href="/painel/configuracoes/perfil" className={ITEM}>Perfil e marca</Link></li>}
           <li><Link href="/conta/seguranca" className={ITEM}>Segurança</Link></li>

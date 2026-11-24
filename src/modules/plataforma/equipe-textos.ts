@@ -33,6 +33,8 @@ export const MSG_RECEPCAO = {
   doisFatoresObrigatorio: 'A recepção precisa da verificação em duas etapas. Configure agora para continuar.',
   /** Plano 26 (T8, §6.2 "Menu da conta"): o nome e o papel no menu da conta da recepção. */
   menuDaConta: (nome: string) => `${nome} · Recepção`,
+  /** Revisão da P26-08: o e-mail no menu da conta, neutro em gênero (o "Conectado como" é da nutricionista). RASCUNHO, sem fonte na spec (§6.2). */
+  emailDaConta: (email: string) => `E-mail da conta: ${email}.`,
   /** RE-D59 (§6.2 "Solicitações (recepção)"): os pedidos de pessoa nova ficam com a nutricionista. */
   pedidosPessoaNova: 'Pedidos de pessoas ainda sem cadastro ficam com a nutricionista.',
   /** RN-509 (§6.2 "Presença (recepção)"): ela só registra "Faltou". */

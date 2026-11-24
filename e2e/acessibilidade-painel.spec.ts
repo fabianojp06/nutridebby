@@ -490,6 +490,19 @@ async function temaPeloCabecalho(page: Page, escuro: boolean): Promise<void> {
 
 test('Plano 26: Início da recepção, "Sem permissão" e "Contrato pendente" com a conta dela, claro e escuro, 1280 e 360 px', async ({ browser }) => {
   test.setTimeout(240_000);
+  // revisão da P26-08: o Início dela com conteúdo — a nutricionista marca uma consulta de hoje (no fuso do consultório) para
+  // um paciente desta execução; o horário varia por execução (o seed não apaga consultas: o mesmo horário daria conflito)
+  const sufixo = Date.now().toString(36);
+  const nomeHoje = `Paciente Recepção Axe ${sufixo}`;
+  await criarPacientePeloFormulario(nutri, { nome: nomeHoje, email: `rec-axe-${sufixo}@nutridebby.test` });
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  const minutos = Math.floor(Date.now() / 60_000);
+  const hora = `${String(19 + (minutos % 4)).padStart(2, '0')}:${String((Math.floor(minutos / 4) % 4) * 15).padStart(2, '0')}`;
+  await nutri.goto(`/painel/agenda/nova?data=${hoje}`);
+  await nutri.getByLabel('Paciente').selectOption({ label: `${nomeHoje} (rec-axe-${sufixo}@nutridebby.test)` });
+  await nutri.getByLabel('Hora').fill(hora);
+  await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
+  await expect(nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' })).toBeVisible();
   const rec = await entrarComoRecepcao(browser, RECEPCAO_AXE, '10.9.36.15', /\/painel$/);
   const contrato = await entrarComoRecepcao(browser, RECEPCAO_CONTRATO_AXE, '10.9.36.16', /\/painel\/contrato-pendente$/);
   // teclado (RN-514): o Tab percorre o menu dela, na ordem da tela, sem os itens da nutricionista (sem a permissão do Financeiro)
@@ -505,7 +518,10 @@ test('Plano 26: Início da recepção, "Sem permissão" e "Contrato pendente" co
   expect(await rec.evaluate(() => !!document.activeElement?.closest('nav[aria-label="Menu do painel"]')), 'o 5º Tab já sai do menu').toBe(false);
   const h1 = (nome: string | RegExp) => (p: Page) => expect(p.getByRole('heading', { level: 1, name: nome })).toBeVisible();
   const estados: { page: Page; url: string; pronta: (p: Page) => Promise<void> }[] = [
-    { page: rec, url: '/painel', pronta: h1(/^Seu dia, /) },
+    { page: rec, url: '/painel', pronta: async (p) => {
+      await h1(/^Seu dia, /)(p);
+      await expect(p.locator('[data-guia="agenda-hoje"]').getByText(nomeHoje)).toBeVisible();
+    } },
     { page: rec, url: '/painel/sem-permissao?motivo=nutri', pronta: h1('Sem permissão') },
     { page: rec, url: '/painel/sem-permissao?motivo=financeiro', pronta: h1('Sem permissão') },
     { page: contrato, url: '/painel/contrato-pendente', pronta: h1('Contrato do consultório pendente') },

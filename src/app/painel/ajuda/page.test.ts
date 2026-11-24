@@ -22,12 +22,13 @@ beforeEach(() => {
 });
 
 describe('/painel/ajuda por papel (RE-D42)', () => {
-  it('a recepção vê só os guias dela (o Início dela e a Segurança), sem nenhum guia clínico nem da nutricionista', async () => {
+  it('a recepção vê só os guias dela (o Início e a Segurança dela), sem nenhum guia clínico nem da nutricionista', async () => {
     const html = renderToStaticMarkup(await AjudaPage());
     expect(sessao.chamadas).toEqual([['/painel/ajuda']]);
     expect(secoes(html)).toEqual(guiasDoPapel('recepcao').map((g) => g.id));
-    expect(secoes(html)).toContain('recepcao-inicio');
-    for (const id of ['boas-vindas', 'pacientes', 'prontuario', 'plano-alimentar', 'documentos', 'ia-nutri', 'agenda', 'diarios', 'configuracoes', 'equipe', 'financeiro', 'relatorios'])
+    expect(secoes(html)).toEqual(expect.arrayContaining(['recepcao-inicio', 'recepcao-seguranca']));
+    expect(secoes(html).filter((id) => !id.startsWith('recepcao-'))).toEqual([]);
+    for (const id of ['boas-vindas', 'seguranca', 'pacientes', 'prontuario', 'plano-alimentar', 'documentos', 'ia-nutri', 'agenda', 'diarios', 'configuracoes', 'equipe', 'financeiro', 'relatorios'])
       expect(html, id).not.toContain(`id="${id}"`);
     expect(espiao.chamadas).toEqual([]);
   });

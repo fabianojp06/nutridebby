@@ -62,6 +62,8 @@ describe('Início da recepção (RN-514)', () => {
     expect(html).toContain('O que os pacientes fizeram na agenda');
     expect(html).toContain('data-guia="agenda-hoje"');
     expect(html).toContain('data-guia="presenca"');
+    // o nome acessível contém o texto visível (WCAG 2.5.3)
+    expect(html).toMatch(/<a [^>]*href="\/painel\/agenda"[^>]*aria-label="Ver a agenda de hoje"[^>]*>Ver a agenda<\/a>|<a [^>]*aria-label="Ver a agenda de hoje"[^>]*href="\/painel\/agenda"[^>]*>Ver a agenda<\/a>/);
     // RE-D63 e RN-514: nem indicadores do mês, nem armazenamento, WhatsApp, IA, exames, dúvidas, diários ou documentos
     expect(html).not.toMatch(/Taxa de faltas|Consultas do mês|Critérios de sucesso|armazenamento|WhatsApp|Diários|Exames|Dúvidas|Documentos aguardando|Pedidos do titular|Abrir prontuário|Próxima consulta/);
     // os atalhos da nutricionista (Novo paciente, Agendar, Novo conteúdo) não estão no Início dela no PR 2

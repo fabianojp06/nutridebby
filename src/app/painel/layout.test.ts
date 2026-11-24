@@ -61,6 +61,8 @@ describe('layout do painel na sessão da recepção (RN-514)', () => {
   it('menu da conta: "{nome} · Recepção", "Segurança", "Manual", "Rever o tour" (o dela) e "Sair"; sem "Perfil e marca"', async () => {
     const html = await render();
     expect(html).toContain('Carla Lima · Recepção');
+    expect(html).toContain('E-mail da conta: carla@ex.com.'); // neutro em gênero (revisão da P26-08)
+    expect(html).not.toContain('Conectado como');
     expect(html).toMatch(/href="\/conta\/seguranca"[^>]*>Segurança</);
     expect(html).toMatch(/href="\/painel\/ajuda"[^>]*>Manual</);
     expect(html).toMatch(/href="\/painel\?tour=recepcao-inicio"[^>]*>Rever o tour</);

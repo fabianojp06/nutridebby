@@ -27,7 +27,7 @@ export async function GET(req: Request): Promise<Response> {
 
 /**
  * P12-14: uso real na tela (tecla, clique, rolagem, toque) em qualquer aba do painel ou do admin, e o botão "Continuar
- * conectada" do aviso. A tela chama no máximo 1 vez a cada 5 min (sincronizada entre as abas); aqui a renovação segue a
+ * na sessão" do aviso (RE-D70, Plano 26: o texto de toda a equipe). A tela chama no máximo 1 vez a cada 5 min (sincronizada entre as abas); aqui a renovação segue a
  * mesma cadência de requireUser. Sessão já expirada nunca é renovada (401).
  */
 export async function POST(req: Request): Promise<Response> {
