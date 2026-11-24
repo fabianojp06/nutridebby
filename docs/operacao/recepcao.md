@@ -51,7 +51,7 @@ As políticas novas só pegam a sessão `recepcao` (RESTRICTIVE com `app_current
 
 - Merge só com OK do dono (merge = deploy; a migration roda no boot do `nutri_app`), **fora das 03h–07h30 BRT** e fora do
   horário de uso.
-- **OK do dono ao texto do termo `sigilo-equipe-1.0`** antes do merge (RE-D72: texto legal novo, revisado pelo
+- ~~**OK do dono ao texto do termo `sigilo-equipe-1.0`**~~ **feito em 24/11/2026** (cl. 8 neutra, cl. 7 com as cópias de segurança, versão de 24/11/2026). Era: antes do merge (RE-D72: texto legal novo, revisado pelo
   `normas-cfn-lgpd`, com as perguntas no pacote do advogado, E-09). Mudar o texto depois do merge sobe a versão: a recepção
   já ativa aceita a nova em `/conta/acesso-desativado` (seção "Versão nova do termo de confidencialidade", abaixo).
 - **Sem snapshot da Hostinger** (congela a VPS, `CLAUDE.md` do servidor, regra 5): a migration é aditiva e o backup restic

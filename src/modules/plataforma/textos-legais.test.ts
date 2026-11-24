@@ -244,10 +244,11 @@ describe('Termo de confidencialidade da equipe 1.0 (Plano 26, RN-500, PM-R3)', (
     expect(depois).toContain('(LGPD, art. 47)');
     // (7) os dados dela: nome, e-mail, IP, autoria no Histórico, "Último acesso" visível à nutricionista (arts. 6º, VI, e 9º)
     for (const x of ['nome', 'e-mail', 'IP', 'Histórico de acessos', 'último acesso', 'tela Equipe', 'arts. 6º, VI, e 9º', 'em nome da nutricionista', 'como operador', 'LGPD, art. 18']) expect(dados).toContain(x);
-    // (8) Res. 599, art. 20, I e, a partir de 23/01/2027, arts. 23 e 36 da Res. 856
+    // (8) Res. 599, art. 20, I e o Código de Ética que a substituir (Res. 856, quando entrar em vigor) — opção 2, texto neutro, aprovada pelo dono em 24/11/2026
     expect(normas).toContain('Res. CFN 599/2018');
     expect(normas).toContain('art. 20, I');
-    expect(normas).toContain('a partir de 23/01/2027, aos arts. 23 e 36 da Res. CFN 856/2026');
+    expect(normas).toContain('ao Código de Ética que a substituir (Res. CFN 856/2026, quando entrar em vigor)');
+    expect(normas).not.toContain('23/01/2027');
     expect(normas).toContain('impedir o manuseio de documentos sujeitos ao sigilo profissional por pessoas não obrigadas ao mesmo compromisso');
     expect(normas).toContain('pode levar à desativação');
   });
@@ -256,6 +257,6 @@ describe('Termo de confidencialidade da equipe 1.0 (Plano 26, RN-500, PM-R3)', (
     const { createHash } = await import('node:crypto');
     const t = await import('./textos-versionados');
     const hash = createHash('sha256').update(JSON.stringify(t.SIGILO_EQUIPE_TEXTOS['1.0'].paragrafos.slice(0, 8))).digest('hex');
-    expect(hash).toBe('a83a792522fabe7128f798d6c877b3be46d1dc7a779363dfac452d1d54bf5d0d');
+    expect(hash).toBe('ce6ddd46e7a00b5078f22d98592feff64a68c55cf7d0ccf5e841173155d51e6d'); // 1.0 aprovada pelo dono em 24/11/2026 (cláusulas 7 e 8 ajustadas)
   });
 });
