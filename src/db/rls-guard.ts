@@ -123,6 +123,8 @@ export const STAFF_ONLY: Record<string, string> = {
   exam_interpretacoes: 'Plano 22 (EP-D18, EP-D19): nota de interpretação — fora do app; o titular recebe pela exportação (inclusão explícita)',
   exam_versoes: 'Plano 22 (EP-D41): versões anteriores do exame — só a equipe; o titular recebe pela exportação, sem a justificativa',
   locais_atendimento: 'link da sala: fora do paciente e do público; projeções `app_locais_para_agendamento`/`app_local_da_consulta` (Plano 23, AG-D4)',
+  recados: 'Plano 25 (RN-462): o recado do consultório e o filtro (etiquetas) — só a equipe; o paciente lê a cópia na própria conversa',
+  chat_avisos_nutri: 'Plano 25 (CH-D70, RN-458): preferência e marca do último aviso por e-mail à nutricionista — pela data da marca, o paciente saberia que outro paciente escreveu nas últimas 2 h; a sessão de paciente só passa pela função app_chat_aviso_nutri_devido',
 };
 
 export async function findStaffOnlyViolations(db: Pool | PoolClient): Promise<RlsViolation[]> {
@@ -212,6 +214,8 @@ export const PACIENTE_ESCREVE: Record<string, { comandos: readonly ComandoEscrit
   ia_nutri_consentimentos: { comandos: ['insert'], motivo: 'Plano 15 (RN-171, US-171): o paciente dá o próprio consentimento da IA Nutri no app (paciente_consentimento_proprio, 0116); a revogação só por app_ia_nutri_revogar; UPDATE, DELETE e TRUNCATE revogados' },
   lembretes_rotina: { comandos: ['update'], motivo: 'Plano 17 (§5.3): o paciente desliga e religa o próprio lembrete — só desligado_pelo_paciente_em, com o relógio do banco (gatilho lembretes_rotina_regras, 0119); não cria, não edita a configuração nem apaga' },
   aniversario_autorizacoes: { comandos: ['insert'], motivo: 'Plano 23 (RN-433, US-414): o paciente autoriza ou retira a própria autorização de mensagens de aniversário no app (origem app, com a própria conta) ou só retira pelo link do e-mail (origem link, sem conta) — política paciente_aniversario_proprio; UPDATE, DELETE e TRUNCATE revogados' },
+  chat_mensagens: { comandos: ['insert'], motivo: 'Plano 25 (US-443, RN-443): o paciente envia na própria conversa liberada e não pausada — política paciente_chat_envio e gatilho chat_mensagens_regras; UPDATE, DELETE e TRUNCATE revogados' },
+  chat_leituras: { comandos: ['insert', 'update'], motivo: 'Plano 25 (RN-448): o paciente avança o próprio marcador de leitura — políticas paciente_leitura_propria_insert/_update' },
 };
 
 /** B-5 (P06-12): o texto que o Postgres guarda da negação de app_deny_paciente_escrita, sem espaços e parênteses. */

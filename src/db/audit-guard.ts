@@ -18,6 +18,7 @@ export const AUDIT_EXCEPTIONS: Record<string, string> = {
   ia_nutri_consentimentos: 'Plano 15 (RN-171, D26): prova só de inclusão do consentimento da IA Nutri (evento, versão, destino, data, conta, IP e user-agent na própria linha), como ia_autorizacoes e consents; não é dado de saúde',
   lembretes_rotina_envios: 'registro técnico de envio (último horário enviado); nenhum dado clínico — a configuração fica em lembretes_rotina, que é auditada',
   aniversario_autorizacoes: 'prova só de inclusão: quem, quando, origem e forma na própria linha, como `consents` e `ia_autorizacoes` (Plano 23, RN-433)',
+  chat_leituras: 'Plano 25 (RN-448): marcador técnico de até onde cada lado leu, como access_events; não é prontuário — a leitura do conteúdo é auditada por auditRead',
 };
 
 /** Tabelas de dado de saúde (com patient_id, ou a própria `patients`) sem o gatilho audit_row_change. */
