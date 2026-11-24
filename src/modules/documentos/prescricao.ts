@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { DocumentoError } from './erros';
 import type { CopiaDoDocumento } from './perfil-profissional';
 
@@ -141,7 +142,8 @@ export function exigeHabilitacao(tipo: string): boolean {
   return tipo === 'fitoterapico' || tipo === 'formula_fitoterapica';
 }
 
-const esp = (s: string) => s.trim().replace(/\s+/g, ' ');
+/** Uma linha: espaços repetidos viram um; sem NUL nem surrogate sem par (SUS-109: o jsonb recusaria e levaria o texto ao log). */
+const esp = (s: string) => semInvalidosNoBanco(s).trim().replace(/\s+/g, ' ');
 const obrig = (rotulo: string, min: number, max: number) =>
   z.string({ message: `Informe ${rotulo} (até ${max} caracteres).` }).transform(esp).pipe(z.string().min(min, `Informe ${rotulo} (até ${max} caracteres).`).max(max, `Informe ${rotulo} (até ${max} caracteres).`));
 const opc = (max: number) => z.string().optional().transform((s) => (s ? esp(s) : '')).pipe(z.string().max(max, `Use no máximo ${max} caracteres.`));

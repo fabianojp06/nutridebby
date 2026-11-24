@@ -2,6 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { signedDocumentNotes, signedDocuments } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { MSG_RETIFICACAO, type StatusDocumento } from './constantes';
 import { DocumentoError, DocumentoNaoEncontradoError, TransicaoInvalidaError } from './erros';
@@ -19,9 +20,9 @@ export async function retificacaoEmAndamento(tx: Tx, documentoId: string): Promi
   return r ?? null;
 }
 
-/** Q13-1 ★: o motivo da retificação (até 500; vazio = null — o preparo é que o exige). */
+/** Q13-1 ★: o motivo da retificação (até 500; vazio = null — o preparo é que o exige). Sem NUL nem surrogate sem par (SUS-109). */
 export function lerMotivoRetificacao(v: unknown): string | null {
-  const m = typeof v === 'string' ? v.replace(/\r\n?/g, '\n').trim() : '';
+  const m = typeof v === 'string' ? semInvalidosNoBanco(v).replace(/\r\n?/g, '\n').trim() : '';
   if (m.length > 500) throw new DocumentoError({ motivoRetificacao: MSG_RETIFICACAO.motivo });
   return m || null;
 }

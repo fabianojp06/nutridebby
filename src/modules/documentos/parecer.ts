@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { DocumentoError } from './erros';
 import type { CopiaDoDocumento } from './perfil-profissional';
 import type { ConteudoReceita } from './prescricao';
@@ -48,9 +49,12 @@ export type ConteudoParecer = {
 };
 export type ConteudoDocumento = ConteudoReceita | ConteudoParecer;
 
-/** O navegador manda a quebra de linha do <textarea> como \r\n: normalizar antes de contar (o maxLength da tela conta 1). */
+/**
+ * O navegador manda a quebra de linha do <textarea> como \r\n: normalizar antes de contar (o maxLength da tela conta 1).
+ * Sem NUL nem surrogate sem par (SUS-109): o jsonb recusaria (22P05/22P02) e levaria o texto ao log.
+ */
 const texto = (max: number, msg: string) =>
-  z.string().optional().transform((s) => (s ?? '').replace(/\r\n?/g, '\n').trim()).pipe(z.string().max(max, msg));
+  z.string().optional().transform((s) => semInvalidosNoBanco(s ?? '').replace(/\r\n?/g, '\n').trim()).pipe(z.string().max(max, msg));
 const rascunho = z.object({
   // G5: z.guid() aceita o mesmo formato do tipo uuid do Postgres (z.uuid() exige a versão RFC), como src/app/admin/actions.ts:19
   exameIds: z.array(z.guid({ message: MSG_PARECER.exameExcluido }), { message: MSG_PARECER.exameExcluido }).max(PARECER_MAX_EXAMES, MSG_PARECER.examesDemais).default([]),
