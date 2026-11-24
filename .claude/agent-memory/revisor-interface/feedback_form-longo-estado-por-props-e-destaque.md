@@ -22,3 +22,13 @@ metadata:
 
 **How to apply:** em formulário novo, grep `text-destaque` fora de `bg-destaque`, `valoresVistos`/`!== v` com campo controlado, e
 procure foco no erro. Ver [[react19-reset-formulario]].
+
+6. Plano 27 T2 (23/11/2026, commit db486909): cartão "Envio automático" (`EnvioAutomaticoForm`) com `useState(inicial.*)` e sem `key`.
+   O "Arquivar" do modelo automático faz `revalidatePath` sem redirect: o texto do servidor vira "desligado", mas a caixa "Enviar
+   sozinho" segue marcada ("Ligado") porque o estado do cliente não relê as props. Cartão de configuração com estado controlado
+   precisa de `key` derivada do estado salvo (ou `key={JSON.stringify(inicial)}`) na página que o monta.
+
+7. Plano 27 T7b (24/11/2026, commit 9cca5640): `NovaMeta`/`FormularioDaMeta` (`plano-alimentar/metas/nova-meta.tsx`) com `useState` controlado e o sucesso por
+   `redirect(...?meta=adicionada#metas-titulo)` na mesma rota: o componente não remonta, então o formulário segue aberto e preenchido depois de
+   "Meta adicionada." (duplo clique em "Adicionar meta" cria a segunda). Em formulário de criação controlado, dê `key` que muda com o resultado
+   (ex.: id da meta mais nova ou contagem) ou limpe o estado no sucesso. O E2E só lê o status e não vê isso.

@@ -465,3 +465,78 @@ Plano 23, re-revisão do /code-review do PR #59 (17/11/2026): os 5 itens resolvi
   bloqueios; borda `<=` × `<` entre validade SQL e TS. Cruzar sempre com o EXCLUDE, o leitor TS e a borda do TS.
 - Junção de linhas desdobradas por chave de horário (juntarPares) vale só enquanto o par não pode nascer: quando a tarefa
   seguinte liberar regras por local na mesma faixa, a junção e o "apaga a outra metade" passam a apagar regra legítima.
+
+Plano 27, T1b (gatilhos de envio/recordatório/metas, 23/11/2026): limpa na lente banco. Resíduos a lembrar em gatilhos de transição:
+- Coluna de data do evento (`cancelado_em`) deixada ao valor mandado enquanto a autora (`cancelado_por`) é conferida: data
+  forjável e, se omitida, 23514 alcançável pela sessão (a linha vai ao log do Postgres). Sugerir `:= clock_timestamp()` no ramo.
+- Teste de CHECK "que o gatilho já recusa" provado com `set local session_replication_role = replica` (dono): desliga também
+  as FKs (RI são gatilhos) — só serve para CHECK; conferir que nenhum 23503 é provado por esse caminho.
+Plano 27, T1c (isolamento, semente e endurecimentos, 23/11/2026): limpa na lente banco. Resíduos a lembrar:
+- Endurecimento "42501 antes do CHECK" feito para um CHECK só (via/respostas nulas) deixa os irmãos alcançáveis pela mesma
+  sessão (jsonb não objeto, tamanho): conferir todos os CHECKs da linha que o papel alcança, não só o que a revisão citou.
+- Gatilho novo que olha `app_current_role()` acrescentado depois da spec: a lista "as N funções" para a guarda de outro plano
+  (`FUNCOES_COM_PAPEL` do 26) fica velha no texto da spec/plano. Conferir a contagem nas seções de coordenação.
+Plano 27, revisão final do PR 1 (fundação, 23/11/2026): limpa na lente banco (seis gatilhos, RLS, listas, Histórico, e2e-seed).
+- Endurecimento "data do evento pelo relógio do banco" aplicado a um ramo (cancelado_em) e esquecido nos irmãos da mesma
+  migration (metas_paciente.encerrada_em, questionario_envios.enviado_em no INSERT): conferir TODA coluna *_em de transição.
+Plano 27, T1d (endurecimentos, 23/11/2026): limpa na lente banco. Resíduos a lembrar:
+- "Congela o prontuário do bloqueado" posto só na mãe (recordatorios) e não na filha (itens: INSERT/UPDATE/DELETE livres à
+  nutri): vale só porque o módulo sempre grava a mãe na mesma transação. Conferir mãe E filhas em todo congelamento.
+- Termo da spec reusado com outro sentido no SQL ("meta terminada" = ativa com fim passado, editável, QP-D55 × encerrada).
+- 42501 novo no ramo do worker (realinhar para consulta cancelada): o job futuro tem de tratá-lo no SAVEPOINT como o 23505.
+Plano 27, T1f (itens congelados com o titular bloqueado, 23/11/2026): limpa na lente banco. Molde aceito para "congelar a filha":
+- Gatilho próprio BEFORE INSERT OR UPDATE OR DELETE, só 'nutri', `RETURN OLD` no DELETE, titular `FOR KEY SHARE` pela
+  (tenant_id, patient_id) da filha — válido só porque a FK composta da filha para a mãe inclui patient_id. Conferir a FK.
+- Matcher de teste "do gatilho" = qualquer 42501 sem "row-level security": não distingue entre gatilhos irmãos; conferir que
+  só um gatilho pode disparar no cenário (papel e colunas) antes de aceitar a prova.
+Plano 27, T3 (envio do questionário, avisos, 24/11/2026): limpa na lente banco (paciente FOR UPDATE → envio → consulta KEY SHARE,
+igual à agenda; e-mail e push na transação; auditRead só lista/abertura; seção e bloco sem conteúdo). Resíduos a lembrar:
+- Helper de aviso exportado "para o worker da próxima tarefa" (`avisarEnvio`) sem reconferir situação/e-mail do titular: a
+  guarda fica só no chamador. Conferir na tarefa do worker que ele trava e relê o paciente antes de chamar.
+- Tipo novo de notificação/e-mail: na janela do deploy o worker ANTIGO pega o job (push → null/falhou; e-mail → throw + retry).
+Plano 27, T4 (resposta pelo link e no app, 24/11/2026): limpo na lente banco (semConta só em link.ts, MAC com o e-mail
+lido sob a trava, paciente KEY SHARE antes do UPDATE, gatilho fecha canal app/link por app_current_user, recordAudit nos
+dois canais, filtro do Histórico exato). Pontos de atenção que se repetem:
+- `catch` de 42501 num SAVEPOINT para traduzir a recusa do gatilho em estado de negócio também engole o 42501 do WITH CHECK
+  da RLS: uma regressão de política vira "fechado" em silêncio. Pedir para conferir a origem (mensagem/código do gatilho).
+- Função de "estado do registro" que devolve o estado terminal (respondido) ANTES de conferir titular/consultório: a ordem
+  dos retornos decide qual texto o titular bloqueado vê. Conferir a ordem contra a lista de casos da spec.
+
+Revisão do Plano 27 T5 (worker questionarios-automaticos, 24/11/2026):
+- Job em fases "criar antes de manter" (QP-D52) com filtro de "aberto" que ignora envio de consulta cancelada (ENVIO_VISIVEL):
+  a criação manda envio NOVO para a consulta remarcada antes de a manutenção levar o antigo para ela; a manutenção então
+  cancela o antigo (e-mail duplicado, RN-535 anulada). Conferir se a fase 1 exclui o que a fase 2 vai mover, e se o teste
+  da remarcação roda com o automático LIGADO e a nova dentro da janela.
+- Manutenção em UMA transação com várias fases (d/e/b/c), cada mudança num SAVEPOINT: o SAVEPOINT liberado não solta a
+  trava da linha. Com dois envios do mesmo titular mexidos em fases diferentes × um UPDATE único do bloqueio (RN-536) que
+  trava as linhas noutra ordem → 40P01. Os testes "nenhum 40P01" só usam UM envio por titular.
+
+Plano 27, T6 (cópia para a anamnese e LGPD do questionário, 24/11/2026):
+- UPDATE novo em atenderPedidoExclusao posto "depois de cancelarTarefas" esquece que cancelarFuturasPelaExclusao (antes) já
+  trava as consultas futuras FOR UPDATE; o worker que pega a linha com FOR UPDATE SKIP LOCKED e depois lê a consulta FOR KEY
+  SHARE (gatilho e FK) espera → ciclo 40P01. SKIP LOCKED só na linha não basta: conferir cada trava que o gatilho/FK do worker
+  pega DEPOIS e o que a exclusão já segura antes (ordem real: paciente → consultas → tenant → linhas).
+Plano 27, revisão final do PR 2 (questionário, 24/11/2026): limpa na lente banco (semConta só em link.ts com MAC sob a trava,
+SKIP LOCKED envio → consulta na manutenção, UPDATE da RN-536 depois de cancelarTarefas, auditRead nos pontos da spec).
+- Repetiu "CLAUDE.md sem o contrato LGPD/travas do plano": a regra 8 ganhou só as leituras auditadas; a exclusão que cancela
+  os abertos (ordem paciente → consultas → tenant → envios), a anonimização que não toca e a exportação ficaram só no manual.
+- Varredura que cria registro e reconfere titular/consulta DEPOIS do INSERT sem trava na consulta (status muda com NO KEY
+  UPDATE, que não espera o KEY SHARE da FK): o aviso sai para consulta cancelada no meio. Conferir o que o KEY SHARE NÃO barra.
+Plano 27, T7b (metas na ficha, 24/11/2026): limpa na lente banco (escritas sob carregarPacienteParaEscrita, limite contado
+sob a trava, bloqueio só `situacao` depois dos envios, auditRead só com metas, Início/No app sem auditRead). Resíduo a lembrar:
+- Teste de paridade do "No app" escrito ANTES da função do portal compara o filtro exportado com ele mesmo (tautológico):
+  conferir na tarefa do portal que o caso passou a chamar a função real (metasDeHoje/minhasMetas).
+Plano 27, T8 (metas no portal, 24/11/2026): limpa na lente banco (titular KEY SHARE antes do INSERT, meta sem trava, dia do
+banco, paridade do "No app" já com metasDeHoje). Resíduo:
+- `INSERT … ON CONFLICT DO UPDATE` sem `setWhere … IS DISTINCT FROM`: o gatilho "UPDATE sem mudança passa" deixa passar,
+  mas o `audit_row_change` grava um `alterar` a cada toque repetido (o audit não compara OLD/NEW). Conferir em todo upsert
+  de tabela auditada feito pelo portal/carga.
+Plano 27, revisão final do PR 3 (metas, 24/11/2026): limpa na lente banco (equipe FOR UPDATE → limite sob a trava com teste
+concorrente real; portal titular KEY SHARE → meta sem trava → upsert com dia do banco; bloqueio só `situacao` depois dos
+envios; auditRead só com metas; Início/No app sem auditRead; exportação dois escopos; CLAUDE.md com refs de linha certas).
+- Resíduo a lembrar: equipe calcula "hoje" no TS (hojeNoFuso) para limite/faixa e o portal no banco (app_hoje_do_tenant):
+  na virada do dia as duas telas podem divergir por segundos. Só vira defeito se uma regra de escrita depender dos dois.
+Plano 27, T8d (guarda da virada do dia no registro de metas, 24/11/2026): limpa na lente banco (hoje da tela por bind,
+mesmo now() do INSERT, recusa antes de gravar e depois do nao_encontrada; runbook só leitura, superusuário, só ids).
+- "Dia que a tela leu" vindo de fonte diferente da leitura dos dados (TS `hojeNoFuso` antes da transação × registros por
+  `app_hoje_do_tenant()`): na virada, recusa espúria por ms. Pedir que a página use o dia devolvido pela própria leitura.

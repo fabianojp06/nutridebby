@@ -83,9 +83,25 @@ isolamento, divergência #3).
   de linhas (`:415`→`:437`, `:437`→`:459`) colide: aplique em ordem decrescente.
 - Versão nova de texto legal (DPA, termo): conferir a volta atrás — `registrarAceiteDpa` não regrava o tenant se o aceite da
   versão antiga já existe (onConflictDoNothing), e a imagem anterior prende o painel em `/painel/dpa`.
+- Runbook que manda "procurar a mensagem X no log do worker": erro de job passa por `semDetalhe` (vira `falha no job
+  <fila> (<código>)` no pg-boss e vai ao Sentry com a mensagem filtrada) — nenhuma linha de log tem o texto. Conferir se
+  há `logger.*` com a frase antes de aceitar a checagem; senão, Sentry pela tag `fila` (P27 PR 2, 24/11/2026).
+- Chave "a última" de `DadosExportacao` muda a cada plano que acrescenta seção (Plano 27 pôs `questionarios` depois de
+  `financeiro`): `grep -n "a última" docs/manual-tecnico/*.md`.
 - Plano com prefixo próprio de decisões (F-Dn, F-Pn no Plano 20) entra na tabela "Identificadores" do README.
 - Material do manual do usuário sem acesso ao Docs: na coluna "trecho atual", usar o texto antigo da tela tirado do código
   (`git show <base>:arquivo`), e dizer isso no topo do material.
 - Rebase entre planos paralelos (Plano 20 sobre o PR 2 do Plano 18, 17/11/2026): os dois fechamentos numeraram
   divergências do README a partir do mesmo último número (#138–#141 dos dois lados). Renumerar as do plano que entra
   depois (e as referências "#N a #M" do capítulo dele e das memórias), e a linha da divergência no cap. 2 que mudou de número.
+- P27 PR 3 (24/11/2026): o remapeador precisa resolver nomes ambíguos (`lgpd.ts` = pacientes × `ia/nutri-paciente`,
+  `conteudo.ts`, `route.ts`, `index.ts`, `paciente.ts`) por uma tabela de preferência, senão casa o arquivo errado do diff;
+  citações com vírgula (`exportacao-job.ts:616,624,923-924`) e `:N` solto **antes** do arquivo na linha escapam — conferir à
+  mão. Runbook de volta atrás que diz "a Debby encerra/edita pela ficha": conferir `carregarPacienteParaEscrita` (bloqueado
+  é só consulta) e o "No app" (bloqueado não conta nada). Contagens de `test(` no cap. 7 estavam velhas: contar com
+  `grep -c '^\s*test('`.
+- Revisão final do PR 3 do P27 (24/11/2026): a `origin/main` andou (Planos 22 PR 2/3 e 23 mesclados) e já ocupa §4.2.12,
+  §4.2.13, §5.5.15, README #154–#160 e cap. 4 até #30, e as migrations 0127–0131. Antes de numerar seção/divergência num
+  branch de plano longo, conferir `git show origin/main:docs/manual-tecnico/README.md` (a `main` local do worktree pode
+  estar velha: usar `origin/main`). O "remapeamento" de citações do fechamento preservou erros antigos de novo
+  (`exportacao-job.ts:97/:503/:118`, `lgpd.ts:584`, `exportacao.test.ts:1133`): conferir pelo símbolo, não pelo deslocamento.
