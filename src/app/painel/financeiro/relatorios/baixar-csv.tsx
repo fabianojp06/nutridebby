@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Campo } from '@/components/campo';
 import { Botao } from '@/components/ui/botao';
+import { MSG_FILTRO_LOCAL } from '@/modules/agenda/constantes';
 import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
 import { periodoValido } from '@/modules/financeiro/meses';
+import { SEM_LOCAL } from '@/modules/financeiro/tipos';
 import { dataValida } from '@/modules/pacientes/datas';
 import { AlertaDoCsv } from './alerta-do-csv';
 
@@ -28,18 +30,24 @@ function errosDoPeriodo(de: string, ate: string): Erros {
  * com `?erro=periodo` (`erroDoServidor`: o erro junto do "Até", que recebe o foco na montagem — a página chega do zero, no
  * topo). "Incluir o nome dos pacientes" desmarcado não vai na URL (`pacientes` = 0). `?erro=origem` sem `csv=fluxo`
  * (`erroDeOrigem`: a rota não conseguiu confirmar que o pedido veio de Relatórios) → `AlertaDoCsv` junto do botão, ligado
- * a ele por `aria-describedby`, e o foco no botão.
+ * a ele por `aria-describedby`, e o foco no botão. Plano 23 (US-416, RN-437): "Local" (`local`, o mesmo filtro de
+ * Lançamentos), começando no local escolhido em Relatórios; "Todos os locais" vai vazio (sem filtro).
  */
 export function BaixarCsv({
   de,
   ate,
   erroDoServidor,
   erroDeOrigem = false,
+  locais = [],
+  local = '',
 }: {
   de: string;
   ate: string;
   erroDoServidor: boolean;
   erroDeOrigem?: boolean;
+  locais?: { id: string; nome: string }[];
+  /** O local escolhido em Relatórios (um id ou `sem_local`), ou ''. */
+  local?: string;
 }) {
   const [erros, setErros] = useState<Erros>(erroDoServidor ? { ate: E.periodoLongo } : {});
   const form = useRef<HTMLFormElement>(null);
@@ -68,6 +76,20 @@ export function BaixarCsv({
       <div className="grid gap-3 sm:max-w-xl sm:grid-cols-2">
         <Campo id="csv-de" name="de" type="date" rotulo={C.de} defaultValue={de} erro={erros.de} />
         <Campo id="csv-ate" name="ate" type="date" rotulo={C.ate} defaultValue={ate} erro={erros.ate} />
+      </div>
+      <div className="space-y-1 sm:max-w-xs">
+        <label htmlFor="csv-local" className="block font-medium">
+          {MSG_FILTRO_LOCAL.local}
+        </label>
+        <select id="csv-local" name="local" defaultValue={local} className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto">
+          <option value="">{MSG_FILTRO_LOCAL.todosOsLocais}</option>
+          {locais.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.nome}
+            </option>
+          ))}
+          <option value={SEM_LOCAL}>{MSG_FILTRO_LOCAL.semLocal}</option>
+        </select>
       </div>
       <div>
         <div className="flex min-h-11 items-center gap-2">

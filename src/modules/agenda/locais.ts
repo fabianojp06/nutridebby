@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { fkViolation, uniqueViolation } from '@/db/errors';
 import { locaisAtendimento, tenants, TIPOS_DE_LOCAL, type LocalRow, type TenantRow, type TipoDeLocal } from '@/db/schema';
@@ -344,6 +344,29 @@ export async function locaisDoPainel(ctx: TenantContext, deps: Deps = {}): Promi
 /** `locaisAtivos` no formato dos seletores do painel, na transação de quem chama (sessão `nutri`). */
 export async function locaisDoSeletor(tx: Tx): Promise<LocalDoSeletor[]> {
   return (await locaisAtivos(tx)).map(({ id, nome, tipo, linkSala, principal }) => ({ id, nome, tipo: tipo as TipoDeLocal, linkSala, principal }));
+}
+
+/** Plano 23 (US-415, US-416): uma opção do filtro "Local" fora da agenda — só id e nome (nunca a sala nem o endereço). */
+export type LocalDoFiltro = { id: string; nome: string };
+
+/**
+ * Plano 23 (US-415, US-416): as opções do filtro "Local" da lista de pacientes e do Financeiro, como as da agenda (a
+ * mesma ordem; os ativos e o escolhido, mesmo arquivado — o filtro de um local arquivado continua aparecendo escolhido).
+ * Não cria os locais iniciais (é só leitura). Id inválido no `selecionado` é ignorado.
+ */
+export async function locaisParaFiltro(ctx: TenantContext, selecionado?: string, deps: Deps = {}): Promise<LocalDoFiltro[]> {
+  exigirNutri(ctx);
+  return withTenant(ctx, (tx) => locaisDoFiltro(tx, selecionado), deps.db ?? getDb());
+}
+
+/** `locaisParaFiltro` na transação de quem chama (sessão `nutri`: as telas do Financeiro, RNF-301). */
+export function locaisDoFiltro(tx: Tx, selecionado?: string): Promise<LocalDoFiltro[]> {
+  const ativo = isNull(locaisAtendimento.arquivadoEm);
+  return tx
+    .select({ id: locaisAtendimento.id, nome: locaisAtendimento.nome })
+    .from(locaisAtendimento)
+    .where(idValido(selecionado) ? or(ativo, eq(locaisAtendimento.id, selecionado)) : ativo)
+    .orderBy(...ORDEM);
 }
 
 /** Locais ativos, o principal primeiro (sessão `nutri`: seletores do painel). */

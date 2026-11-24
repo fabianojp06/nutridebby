@@ -13,7 +13,7 @@ vi.mock('@/components/confirmar-botao', () => ({
 const { MenuDaLinha } = await import('./menu-da-linha');
 
 const ID = '00000000-0000-4000-8000-0000000000a1';
-const CAMPOS = { aba: 'todos', busca: 'ana', etiqueta: '', ordem: 'recentes' };
+const CAMPOS = { aba: 'todos', busca: 'ana', etiqueta: '', ordem: 'recentes', local: '' };
 const render = (status: 'ativo' | 'arquivado' | 'bloqueado', nome = 'Ana Souza') =>
   renderToStaticMarkup(createElement(MenuDaLinha, { id: ID, nome, status, campos: CAMPOS }));
 const itens = (html: string) => [...html.matchAll(/<li>[\s\S]*?<(?:a|button)[^>]*>([^<]*)<\/(?:a|button)>/g)].map((m) => m[1]);

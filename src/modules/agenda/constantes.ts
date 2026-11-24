@@ -213,6 +213,17 @@ export const MSG_VISOES = {
 } as const;
 
 /**
+ * Plano 23 (US-415, US-416, RN-436, RN-437, §6.2): o filtro "Local" fora da agenda — lista de pacientes e Financeiro
+ * (Lançamentos, Relatórios e o CSV). "Local" e "Todos os locais" são os da agenda; "Sem local" (lançamento sem consulta
+ * ou de consulta antiga) só no Financeiro. O Resumo, o saldo e o fluxo de caixa não se dividem e dizem "Todos os locais".
+ */
+export const MSG_FILTRO_LOCAL = {
+  local: MSG_VISOES.local,
+  todosOsLocais: MSG_VISOES.todosOsLocais,
+  semLocal: 'Sem local',
+} as const;
+
+/**
  * Plano 23 (AG-D41): com a chave dos pedidos ligada, o portal e a página pública só oferecem horários que começam pelo
  * menos `antecedencia_min_h` + 12 h depois de agora — todo pedido dá ao menos 12 h para a resposta. O vencimento continua
  * em `inicio − antecedencia_min_h` (RN-427).

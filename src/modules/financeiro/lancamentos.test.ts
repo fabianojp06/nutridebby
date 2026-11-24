@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as esperar } from 'node:timers/promises';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { sql } from 'drizzle-orm';
+import { consultaDireta, novoLocal } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { finLancamentos } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { PacienteNaoEncontradoError } from '@/modules/pacientes/base';
 import { gravarCadastro } from '@/modules/pacientes/cadastro';
@@ -23,6 +25,7 @@ import {
   pacientesParaLancamento,
 } from './lancamentos';
 import { pagamentosPendentes, pendenciasDoPaciente } from './resumo';
+import { SEM_LOCAL } from './tipos';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
@@ -516,5 +519,75 @@ describe('Plano 18 (D7, RN-266): o nome de exibição nas telas do Financeiro; o
     expect(csv).toContain('Ana Souza');
     expect(csv).toContain('Bia Lima');
     expect(csv).not.toContain('Joana Souza');
+  });
+});
+
+describe('Plano 23 (US-416, RN-437, AG-D12): filtro "Local" em Lançamentos e no CSV', () => {
+  /**
+   * Cinco lançamentos de novembro: um da consulta na Clínica Centro, um da consulta no Consultório, um de consulta antiga
+   * (sem local), uma entrada sem consulta e uma saída. "Sem local" = sem consulta ou de consulta sem local.
+   */
+  async function comLocais() {
+    const C = await cenario();
+    const centro = await novoLocal(app.db, C.ctx, { nome: 'Clínica Centro' });
+    const consultorio = await novoLocal(app.db, C.ctx, { nome: 'Consultório' });
+    const consulta = (dia: string, localId: string | null) => consultaDireta(app.db, C.ctx, C.p, new Date(`${dia}T13:00:00Z`), 60, { localId, status: 'realizada' });
+    const daConsulta = async (dia: string, valor: number, localId: string | null) => {
+      const appointmentId = await consulta(dia, localId);
+      const [l] = await withTenant(
+        C.ctx,
+        (tx) =>
+          tx
+            .insert(finLancamentos)
+            .values({ tenantId: C.tenantId, tipo: 'entrada', categoriaId: C.consultas, valorCentavos: valor, vencimento: dia, patientId: C.p, appointmentId, criadoPor: C.nutriId })
+            .returning({ id: finLancamentos.id }),
+        app.db,
+      );
+      return l.id;
+    };
+    const noCentro = await daConsulta('2026-11-03', 10_000, centro);
+    const noConsultorio = await daConsulta('2026-11-04', 20_000, consultorio);
+    const antiga = await daConsulta('2026-11-05', 40_000, null);
+    const avulsa = (await entrada(C, { valor: '800,00', vencimento: '2026-11-06' })).id;
+    const aluguel = (await saida(C, { valor: '1.600,00', vencimento: '2026-11-07' })).id;
+    return { C, centro, consultorio, noCentro, noConsultorio, antiga, avulsa, aluguel };
+  }
+  const ids = (r: { linhas: { id: string }[] }) => r.linhas.map((l) => l.id).sort();
+
+  it('por local, só os lançamentos das consultas daquele local; "Sem local", os sem consulta e os de consulta antiga; totais do filtro', async () => {
+    const { C, centro, consultorio, noCentro, noConsultorio, antiga, avulsa, aluguel } = await comLocais();
+    const lista = (localId?: string) => listarLancamentos(C.ctx, C.tenant, { mes: '2026-11', localId }, deps);
+    expect(ids(await lista(centro))).toEqual([noCentro]);
+    expect(ids(await lista(consultorio))).toEqual([noConsultorio]);
+    expect(ids(await lista(SEM_LOCAL))).toEqual([antiga, avulsa, aluguel].sort());
+    expect((await lista(centro)).totais).toEqual({ entradas: { recebido: 0, aReceber: 10_000 }, saidas: { pago: 0, aPagar: 0 } });
+    expect((await lista(SEM_LOCAL)).totais).toEqual({ entradas: { recebido: 0, aReceber: 120_000 }, saidas: { pago: 0, aPagar: 160_000 } });
+    // sem filtro (ou com valor inválido, ignorado como os outros filtros da URL): todos
+    expect(ids(await lista())).toHaveLength(5);
+    expect(ids(await lista('x'))).toHaveLength(5);
+    // local de outro consultório: nada (a consulta do lançamento nunca é dele)
+    const B = await cenario();
+    expect(ids(await lista(await novoLocal(app.db, B.ctx)))).toEqual([]);
+  });
+
+  it('combina com o paciente e com o tipo; com paciente, o mesmo "ler" de sempre (RN-318), sem leitura nova pelo local', async () => {
+    const { C, centro, noCentro } = await comLocais();
+    expect(ids(await listarLancamentos(C.ctx, C.tenant, { pacienteId: C.p, localId: centro }, deps))).toEqual([noCentro]);
+    expect(ids(await listarLancamentos(C.ctx, C.tenant, { mes: '2026-11', tipo: 'saida', localId: centro }, deps))).toEqual([]);
+    expect(await leituras(C.tenantId)).toEqual([expect.objectContaining({ entidade: 'financeiro', entidade_id: null, patient_id: C.p })]);
+    await listarLancamentos(C.ctx, C.tenant, { mes: '2026-11', localId: centro }, deps);
+    expect(await leituras(C.tenantId)).toHaveLength(1);
+  });
+
+  it('CSV com `localId`: só as linhas do local (ou "Sem local"), com o mesmo `exportar`', async () => {
+    const { C, centro } = await comLocais();
+    const csv = (localId?: string) => exportarLancamentosCsv(C.ctx, C.tenant, { de: '2026-11-01', ate: '2026-11-30', comPacientes: false, localId }, deps);
+    const linhas = (texto: string) => texto.split('\r\n').slice(1, -1);
+    expect(linhas(await csv(centro))).toHaveLength(1);
+    expect(linhas(await csv(centro))[0]).toContain('100,00');
+    expect(linhas(await csv(SEM_LOCAL))).toHaveLength(3);
+    expect(linhas(await csv())).toHaveLength(5);
+    const exportacoes = await contar(`select count(*)::int as n from audit_log where tenant_id = $1 and acao = 'exportar' and entidade = 'financeiro'`, C.tenantId);
+    expect(exportacoes).toBe(4);
   });
 });

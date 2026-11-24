@@ -248,6 +248,11 @@ export type FiltroDaLista = {
   /** Padrão: `nome`. */
   ordem?: OrdemInterna;
   // Ponto de extensão (Plano 18, D11): outros planos acrescentam aqui campos opcionais (o local de atendimento, Plano 23).
+  /**
+   * Plano 23 (US-415, RN-436, AG-D11): quem tem consulta neste local fora de `cancelada` e `solicitada` — derivado das
+   * consultas, nunca coluna no paciente. Id inválido → lista vazia, como a etiqueta.
+   */
+  localId?: string;
 };
 export type PacienteNaLista = Pick<PatientRow, 'id' | 'nome' | 'email' | 'status' | 'dataNascimento' | 'userId' | 'origem' | 'createdAt'> & {
   nomeSocial: string | null;
@@ -278,7 +283,13 @@ export function filtroDaUrl(sp: Record<string, string | string[] | undefined>): 
           ? 'inativos'
           : 'ativos';
   const ordem: OrdemDaLista = (ORDENS_DA_URL as readonly string[]).includes(v('ordem')) ? (v('ordem') as OrdemDaLista) : 'nome';
-  return { aba, ...(v('busca') ? { busca: v('busca') } : {}), ...(v('etiqueta') ? { etiquetaId: v('etiqueta') } : {}), ordem };
+  return {
+    aba,
+    ...(v('busca') ? { busca: v('busca') } : {}),
+    ...(v('etiqueta') ? { etiquetaId: v('etiqueta') } : {}),
+    ...(v('local') ? { localId: v('local') } : {}), // Plano 23 (US-415)
+    ordem,
+  };
 }
 
 /** Classe dos curingas do LIKE (`\`, `%`, `_`) e a troca de cada um por ele mesmo escapado, para o `regexp_replace`. */
@@ -294,9 +305,17 @@ const CURINGA_ESCAPADO = '\\\\\\1';
  */
 export async function listarPacientes(ctx: TenantContext, filtro: FiltroDaLista, db: Db = getDb()): Promise<PacienteNaLista[]> {
   if (filtro.etiquetaId !== undefined && !idValido(filtro.etiquetaId)) return [];
+  if (filtro.localId !== undefined && !idValido(filtro.localId)) return [];
   const conds: SQL[] = [inArray(patients.status, STATUS_DA_ABA[filtro.aba ?? 'ativos'])];
   if (filtro.etiquetaId) {
     conds.push(sql`exists (select 1 from patient_tag_links l where l.patient_id = ${patients.id} and l.tag_id = ${filtro.etiquetaId})`);
+  }
+  if (filtro.localId) {
+    // Plano 23 (RN-436): a consulta cancelada e o pedido ainda não aceito não ligam o paciente ao local (§4.3); pelo
+    // appointments_local_idx (tenant_id, local_id, inicio). Sem `auditRead`: nome e local, como a agenda (RN-414)
+    conds.push(
+      sql`exists (select 1 from appointments a where a.tenant_id = ${patients.tenantId} and a.patient_id = ${patients.id} and a.local_id = ${filtro.localId} and a.status not in ('cancelada', 'solicitada'))`,
+    );
   }
   const busca = filtro.busca?.trim();
   if (busca) {

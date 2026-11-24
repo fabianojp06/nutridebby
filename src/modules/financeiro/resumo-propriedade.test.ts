@@ -1,17 +1,21 @@
 import { eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { novoLocal } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import type { Db } from '@/db/client';
-import { finConfiguracoes, finLancamentos, type TipoLancamento } from '@/db/schema';
+import { appointments, finConfiguracoes, finLancamentos, type TipoLancamento } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { listarCategorias, salvarConfiguracoes } from './configuracoes';
 import { MSG_FINANCEIRO } from './constantes';
 import { csvLancamentos } from './csv';
+import { exportarLancamentosCsv } from './exportacao';
 import { listarLancamentos } from './lancamentos';
 import { intervaloDoMes, mesDe, mesesDoAno, ultimos12Meses } from './meses';
 import { entradasESaidas12Meses, fluxoDeCaixaDoAno, resumoDoMes } from './resumo';
 import { ROTULO_SITUACAO } from './situacao';
+import { telaDeRelatorios } from './telas';
+import { SEM_LOCAL } from './tipos';
 
 /**
  * CS-301: os totais do Resumo, do fluxo de caixa, dos 12 meses e do CSV do mês batem, centavo a centavo, com a soma feita
@@ -243,4 +247,122 @@ async function conferir(db: Db, s: ReturnType<typeof sortear>, contexto: string)
       }
     });
   }
+}
+
+/**
+ * Plano 23 (RN-437, US-416, CS): o filtro "Local" só reparte — a soma dos locais com "Sem local" é o total sem filtro, em
+ * Lançamentos (linhas e totais), no CSV e nas "Entradas e saídas nos últimos 12 meses"; o Resumo e o fluxo de caixa não
+ * aceitam o filtro (tipo e valor: com ele, o mesmo resultado de sem). Lançamentos ligados a consultas na Clínica Centro,
+ * no Consultório, a consultas antigas (sem local) e sem consulta; cada rodada numa transação desfeita.
+ */
+const RODADAS_LOCAL = 40;
+type Onde = 'centro' | 'consultorio' | 'antiga' | 'nenhum';
+
+describe('RN-437 — propriedade: soma dos locais + "Sem local" = total sem filtro', () => {
+  it(`${RODADAS_LOCAL} rodadas (semente ${SEMENTE + 23})`, { timeout: 180_000 }, async () => {
+    const centro = await novoLocal(app.db, T.ctx, { nome: 'Clínica Centro' });
+    const consultorio = await novoLocal(app.db, T.ctx, { nome: 'Consultório' });
+    const localDe: Record<Onde, string | null> = { centro, consultorio, antiga: null, nenhum: null };
+    const r = gerador(SEMENTE + 23);
+    for (let rodada = 0; rodada < RODADAS_LOCAL; rodada++) {
+      const s = sortear(r);
+      const onde: Onde[] = s.lancamentos.map((l) => (l.paciente ? r.um(['centro', 'consultorio', 'antiga', 'nenhum'] as const) : 'nenhum'));
+      const contexto = `rodada ${rodada}: hoje ${s.hoje} (${s.agora.toISOString()})`;
+      await withTenant(
+        T.ctx,
+        async (tx) => {
+          await tx.update(finConfiguracoes).set({ saldoInicialCentavos: s.saldo, saldoInicialEm: s.saldoInicialEm }).where(eq(finConfiguracoes.tenantId, T.tenantId));
+          // uma consulta por lançamento ligado, em horários que não se cruzam (o EXCLUDE vale para o consultório inteiro)
+          const consultas: (string | null)[] = [];
+          for (const [i, l] of s.lancamentos.entries()) {
+            if (onde[i] === 'nenhum') {
+              consultas.push(null);
+              continue;
+            }
+            const inicio = new Date(Date.UTC(2030, 0, 1) + i * 2 * 3_600_000);
+            const [c] = await tx
+              .insert(appointments)
+              .values({ tenantId: T.tenantId, patientId: l.paciente!, inicio, fim: new Date(inicio.getTime() + 3_600_000), modalidade: 'presencial', origem: 'nutri', status: 'realizada', localId: localDe[onde[i]] })
+              .returning({ id: appointments.id });
+            consultas.push(c.id);
+          }
+          const ids = await tx
+            .insert(finLancamentos)
+            .values(
+              s.lancamentos.map((l, i) => ({
+                tenantId: T.tenantId,
+                tipo: l.tipo,
+                categoriaId: l.categoria,
+                valorCentavos: l.valor,
+                vencimento: l.vencimento,
+                pagoEm: l.pagoEm,
+                formaPagamento: l.pagoEm ? ('pix' as const) : null,
+                patientId: l.paciente,
+                appointmentId: consultas[i],
+                criadoPor: T.nutriId,
+              })),
+            )
+            .returning({ id: finLancamentos.id });
+          const cancelados = ids.filter((_, i) => s.lancamentos[i].cancelado).map((x) => x.id);
+          if (cancelados.length)
+            await tx.update(finLancamentos).set({ canceladoEm: s.agora, canceladoPor: T.nutriId, motivoCancelamento: 'Teste' }).where(inArray(finLancamentos.id, cancelados));
+          await conferirLocais(tx as unknown as Db, s, onde, { centro, consultorio }, contexto);
+          throw new Desfazer();
+        },
+        app.db,
+      ).catch((e: unknown) => {
+        if (!(e instanceof Desfazer)) throw e;
+      });
+    }
+  });
+});
+
+async function conferirLocais(db: Db, s: ReturnType<typeof sortear>, onde: Onde[], locais: { centro: string; consultorio: string }, contexto: string) {
+  const deps = { db, agora: s.agora };
+  const FILTROS = [locais.centro, locais.consultorio, SEM_LOCAL] as const;
+  const mes = mesDe(s.hoje);
+  const { de: inicio, ate: fim } = intervaloDoMes(mes);
+
+  // Lançamentos: linhas e totais de cada filtro, contra a soma em memória e contra o total sem filtro
+  const total = await listarLancamentos(T.ctx, T.tenant, { mes }, deps);
+  const partes: (typeof total)[] = [];
+  for (const localId of FILTROS) partes.push(await listarLancamentos(T.ctx, T.tenant, { mes, localId }, deps));
+  expect(partes.reduce((n, p) => n + p.linhas.length, 0), contexto).toBe(total.linhas.length);
+  expect(new Set(partes.flatMap((p) => p.linhas.map((l) => l.id))).size, contexto).toBe(total.linhas.length);
+  const somaTotais = (campo: (t: (typeof total)['totais']) => number) => partes.reduce((n, p) => n + campo(p.totais), 0);
+  for (const campo of [(t: typeof total.totais) => t.entradas.recebido, (t: typeof total.totais) => t.entradas.aReceber, (t: typeof total.totais) => t.saidas.pago, (t: typeof total.totais) => t.saidas.aPagar])
+    expect(somaTotais(campo), contexto).toBe(campo(total.totais));
+  const noMes = s.lancamentos.filter((l, i) => onde[i] === 'centro' && (l.pagoEm ?? l.vencimento) >= inicio && (l.pagoEm ?? l.vencimento) <= fim);
+  expect(partes[0].linhas.length, contexto).toBe(noMes.length);
+
+  // CSV do mês (com os nomes): linhas e valores
+  const csv = async (localId?: string) => lerCsv(await exportarLancamentosCsv(T.ctx, T.tenant, { de: inicio, ate: fim, comPacientes: true, localId }, deps));
+  const csvTotal = await csv();
+  const csvPartes: (typeof csvTotal)[] = [];
+  for (const localId of FILTROS) csvPartes.push(await csv(localId));
+  expect(csvPartes.reduce((n, p) => n + p.length, 0), contexto).toBe(csvTotal.length);
+  const somaCsv = (ls: { valor: number }[]) => ls.reduce((n, x) => n + x.valor, 0);
+  expect(csvPartes.reduce((n, p) => n + somaCsv(p), 0), contexto).toBe(somaCsv(csvTotal));
+
+  // 12 meses: mês a mês
+  const doze = await entradasESaidas12Meses(T.ctx, T.tenant, deps);
+  const dozePartes: (typeof doze)[] = [];
+  for (const localId of FILTROS) dozePartes.push(await entradasESaidas12Meses(T.ctx, T.tenant, deps, { localId }));
+  doze.forEach((m, i) => {
+    for (const campo of ['entradas', 'saidas', 'resultado'] as const)
+      expect(dozePartes.reduce((n, p) => n + p[i][campo], 0), `${contexto} — ${m.mes} ${campo}`).toBe(m[campo]);
+  });
+
+  // Resumo e fluxo de caixa: sem filtro de local (o tipo recusa; em tempo de execução, o mesmo resultado)
+  const ano = +s.hoje.slice(0, 4);
+  // @ts-expect-error — RN-437: o Resumo não aceita o filtro de local
+  expect(await resumoDoMes(T.ctx, T.tenant, { db, agora: s.agora, localId: locais.centro }), contexto).toEqual(await resumoDoMes(T.ctx, T.tenant, deps));
+  // @ts-expect-error — RN-437: o fluxo de caixa não aceita o filtro de local
+  expect(await fluxoDeCaixaDoAno(T.ctx, T.tenant, ano, { db, agora: s.agora, localId: locais.centro }), contexto).toEqual(await fluxoDeCaixaDoAno(T.ctx, T.tenant, ano, deps));
+  // a tela de Relatórios com o local: o fluxo é o de todos os locais; os 12 meses, os do local
+  const tela = await telaDeRelatorios(T.ctx, T.tenant, { ano: String(ano), localId: locais.centro }, deps);
+  if (!tela.config) throw new Error('sem configuração');
+  expect(tela.fluxo, contexto).toEqual(await fluxoDeCaixaDoAno(T.ctx, T.tenant, ano, deps));
+  expect(tela.dozeMeses, contexto).toEqual(dozePartes[0]);
+  expect(tela.localId, contexto).toBe(locais.centro);
 }

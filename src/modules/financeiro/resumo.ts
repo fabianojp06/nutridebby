@@ -8,7 +8,7 @@ import { auditRead } from '@/modules/plataforma/audit';
 import { configuracaoNaTransacao, type Configuracao } from './configuracoes';
 import { centavos } from './dinheiro';
 import { exigirNutri } from './erros';
-import { naTela, selecionarNaTela, situacaoDoPaciente } from './lancamentos';
+import { filtroDeLocal, naTela, selecionarNaTela, situacaoDoPaciente } from './lancamentos';
 import { intervaloDoMes, mesDe, mesesDoAno, ultimos12Meses } from './meses';
 import { cadastroDoPaciente, nomeDeExibicao } from './nome';
 import type { FluxoDoAno, LancamentoNaTela, LinhaFluxo } from './tipos';
@@ -206,22 +206,26 @@ export async function fluxoNaTransacao(tx: Tx, tenantId: string, ano: number, co
   };
 }
 
-/** US-306 "Entradas e saídas nos últimos 12 meses": recebidos e pagos, não cancelados, do mês de hoje e dos 11 anteriores. */
-export async function entradasESaidas12Meses(ctx: TenantContext, tenant: Tenant, deps: Deps = {}): Promise<EntradasESaidasDoMes[]> {
+/**
+ * US-306 "Entradas e saídas nos últimos 12 meses": recebidos e pagos, não cancelados, do mês de hoje e dos 11 anteriores.
+ * Plano 23 (US-416, RN-437): `filtro.localId` (um local ou `SEM_LOCAL`) recorta como a lista (`filtroDeLocal`) — o único
+ * agregado com o filtro de local; o Resumo, o saldo e o fluxo de caixa não o aceitam.
+ */
+export async function entradasESaidas12Meses(ctx: TenantContext, tenant: Tenant, deps: Deps = {}, filtro: { localId?: string } = {}): Promise<EntradasESaidasDoMes[]> {
   exigirNutri(ctx);
   const hoje = hojeNoFuso(tenant.fuso, deps.agora ?? new Date());
-  return withTenant(ctx, (tx) => dozeMesesNaTransacao(tx, ctx.tenantId, hoje), deps.db ?? getDb());
+  return withTenant(ctx, (tx) => dozeMesesNaTransacao(tx, ctx.tenantId, hoje, filtro.localId), deps.db ?? getDb());
 }
 
 /** `entradasESaidas12Meses` na transação de quem chama (a tela de Relatórios, RNF-301). */
-export async function dozeMesesNaTransacao(tx: Tx, tenantId: string, hoje: string): Promise<EntradasESaidasDoMes[]> {
+export async function dozeMesesNaTransacao(tx: Tx, tenantId: string, hoje: string, localId?: string): Promise<EntradasESaidasDoMes[]> {
   const meses = ultimos12Meses(hoje);
   const de = `${meses[0]}-01`;
   const { ate } = intervaloDoMes(meses[11]);
   const porMes = await tx
     .select({ mes: mesDoPagamento, entradas: soma(entrada), saidas: soma(saida) })
     .from(L)
-    .where(and(eq(L.tenantId, tenantId), ativo, pago, entre(L.pagoEm, de, ate)))
+    .where(and(eq(L.tenantId, tenantId), ativo, pago, entre(L.pagoEm, de, ate), filtroDeLocal(localId)))
     .groupBy(mesDoPagamento);
   const doMes = new Map(porMes.map((m) => [m.mes, m]));
   return meses.map((mes) => {

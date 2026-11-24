@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import { makeDb } from '../../../../../test/db';
+import { novoLocal } from '../../../../../test/agenda';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../../../test/pacientes';
 
 /** US-306 (Plano 20, T8): "Relatórios" — fluxo de caixa do ano, 12 meses e o formulário do CSV, com o banco de verdade. */
@@ -161,3 +162,31 @@ describe('Relatórios (US-306)', () => {
     expect(t).not.toContain('Fluxo de caixa de');
   });
 });
+
+describe('Plano 23 (US-416, RN-437): "Local" em Relatórios', () => {
+  it('"Local" com "Todos os locais", os locais e "Sem local"; ?local= escolhe aqui e no CSV; o fluxo diz "Todos os locais"', async () => {
+    const C = await cenario();
+    const centro = await novoLocal(app.db, C.ctx, { nome: 'Clínica Centro' });
+    const opcoes = (html: string, id: string) =>
+      [...html.match(new RegExp(`<select[^>]*id="${id}"[\\s\\S]*?</select>`))![0].matchAll(/<option value="([^"]*)"( selected="")?>([^<]*)<\/option>/g)].map((m) => [m[1], m[3], !!m[2]]);
+    const sem = await render();
+    expect(sem).toMatch(/<label for="local"[^>]*>Local<\/label>/);
+    expect(opcoes(sem, 'local')).toEqual([['', 'Todos os locais', true], [centro, 'Clínica Centro', false], ['sem_local', 'Sem local', false]]);
+    expect(opcoes(sem, 'csv-local')).toEqual([['', 'Todos os locais', true], [centro, 'Clínica Centro', false], ['sem_local', 'Sem local', false]]);
+    const fluxo = sem.match(/<section[^>]*aria-labelledby="fluxo-titulo"[\s\S]*?<\/section>/)![0];
+    expect(texto(fluxo)).toContain('Todos os locais');
+    const com = await render({ local: centro });
+    expect(opcoes(com, 'local').find((o) => o[2])?.[1]).toBe('Clínica Centro');
+    expect(opcoes(com, 'csv-local').find((o) => o[2])?.[1]).toBe('Clínica Centro');
+    // as entradas do cenário não têm consulta: com o local, os 12 meses ficam zerados; com "Sem local", elas voltam
+    const doze = (html: string) => texto(html.match(/<section[^>]*aria-labelledby="doze-titulo"[\s\S]*?<\/section>/)![0]);
+    expect(doze(sem)).toMatch(/R\$\s250,00/);
+    expect(doze(com)).not.toMatch(/R\$\s250,00/);
+    expect(doze(await render({ local: 'sem_local' }))).toMatch(/R\$\s250,00/);
+    // o fluxo de caixa não se divide: com o local, o mesmo de sem
+    expect(texto(com.match(/<section[^>]*aria-labelledby="fluxo-titulo"[\s\S]*?<\/section>/)![0])).toBe(texto(fluxo));
+    // valor inválido: sem filtro
+    expect(opcoes(await render({ local: 'x' }), 'local').find((o) => o[2])?.[1]).toBe('Todos os locais');
+  });
+});
+

@@ -26,6 +26,16 @@ vi.mock('@/modules/pacientes/convite-paciente', () => ({
     new Map(ps.map((p) => [p.id, p.userId ? { estado: 'ativo' } : { estado: 'pendente', expiraEm: new Date('2026-11-20T15:00:00Z') }])),
 }));
 vi.mock('./actions', () => ({ arquivarDaListaAction: vi.fn(), reativarDaListaAction: vi.fn() }));
+// Plano 23 (US-415): as opções do filtro "Local" (os ativos e o escolhido, mesmo arquivado)
+const L1 = '00000000-0000-4000-8000-00000000c001';
+const L2 = '00000000-0000-4000-8000-00000000c002';
+const pedidosDeLocais: unknown[] = [];
+vi.mock('@/modules/agenda/locais', () => ({
+  locaisParaFiltro: async (_ctx: unknown, selecionado: unknown) => {
+    pedidosDeLocais.push(selecionado);
+    return [{ id: L1, nome: 'Consultório' }, { id: L2, nome: 'Clínica Centro' }];
+  },
+}));
 const { default: PacientesPage } = await import('./page');
 
 async function render(sp: Record<string, string> = {}): Promise<string> {
@@ -136,5 +146,43 @@ describe('lista de pacientes (Plano 18, §8.1)', () => {
     expect(html).toContain('Nenhum paciente arquivado.');
     expect(regiao(html)?.[1]).toBe('Paciente reativado.');
     expect(await render({ aba: 'inativos', busca: 'x' })).toContain('Nenhum paciente encontrado.');
+  });
+});
+
+describe('Plano 23 (US-415, RN-436): filtro "Local" da lista', () => {
+  beforeEach(() => {
+    lista = [linha()];
+    pedidos.length = 0;
+    pedidosDeLocais.length = 0;
+  });
+
+  it('"Local" com "Todos os locais" e os locais do consultório; sem `local` na URL, nada no filtro', async () => {
+    const html = await render();
+    const form = html.match(/<form [^>]*method="get"[\s\S]*?<\/form>/)![0];
+    expect(form).toMatch(/<label for="local"[^>]*>Local<\/label>/);
+    const select = form.match(/<select[^>]*name="local"[\s\S]*?<\/select>/)![0];
+    expect([...select.matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g)].map((m) => [m[1], m[2]])).toEqual([
+      ['', 'Todos os locais'],
+      [L1, 'Consultório'],
+      [L2, 'Clínica Centro'],
+    ]);
+    expect(pedidos).toEqual([{ aba: 'ativos', ordem: 'nome' }]);
+    expect(pedidosDeLocais).toEqual([undefined]);
+  });
+
+  it('o local da URL vai ao filtro (junto da aba, da busca e da etiqueta), fica escolhido, e as abas e o menu da linha o levam', async () => {
+    const html = await render({ aba: 'todos', busca: 'ana', etiqueta: 'e1', local: L2 });
+    expect(pedidos).toEqual([{ aba: 'todos', busca: 'ana', etiquetaId: 'e1', localId: L2, ordem: 'nome' }]);
+    expect(pedidosDeLocais).toEqual([L2]);
+    expect(html).toMatch(new RegExp(`<option value="${L2}" selected="">Clínica Centro</option>`));
+    expect(hrefDaAba(html, 'Inativos')).toBe(`/painel/pacientes?aba=inativos&busca=ana&etiqueta=e1&local=${L2}`);
+    expect(hrefDaAba(html, 'Ver bloqueados')).toBe(`/painel/pacientes?situacao=bloqueados&busca=ana&etiqueta=e1&local=${L2}`);
+    // Arquivar/Reativar pela lista volta para a mesma lista, com o local
+    expect(html).toContain(`<input type="hidden" name="local" value="${L2}"/>`);
+  });
+
+  it('Inativos com filtro de local e sem resultado: "Nenhum paciente encontrado." (não o vazio de arquivados)', async () => {
+    lista = [];
+    expect(await render({ aba: 'inativos', local: L1 })).toContain('Nenhum paciente encontrado.');
   });
 });

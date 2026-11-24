@@ -144,6 +144,7 @@ export function urlDaLista(filtro: FiltroDaLista, extra: { ok?: 'arquivado' | 'r
   const busca = filtro.busca?.trim();
   if (busca) q.set('busca', busca);
   if (filtro.etiquetaId) q.set('etiqueta', filtro.etiquetaId);
+  if (filtro.localId) q.set('local', filtro.localId); // Plano 23 (US-415)
   if (filtro.ordem && filtro.ordem !== 'nome' && filtro.ordem !== 'registro') q.set('ordem', filtro.ordem);
   if (extra.ok) q.set('ok', extra.ok);
   // D26: marcador de cada ação (`filtroDaUrl` o ignora); muda a cada volta, para a região de status anunciar de novo

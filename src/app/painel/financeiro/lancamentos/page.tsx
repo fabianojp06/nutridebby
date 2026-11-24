@@ -40,6 +40,7 @@ export default async function Lancamentos({
     categoriaId: f.categoria,
     forma: f.forma,
     pacienteId: f.paciente,
+    localId: f.local,
   });
   if (!tela.config) {
     return (
@@ -55,7 +56,7 @@ export default async function Lancamentos({
     );
   }
 
-  const { config, lista: r, categorias, paciente } = tela;
+  const { config, lista: r, categorias, paciente, locais } = tela;
   const hoje = hojeNoFuso(tenant.fuso);
   // o mês efetivo: o da URL; sem ele, todos ('') com paciente, ou o atual no fuso
   const mes = f.mes ?? (paciente ? '' : mesDe(hoje));
@@ -89,6 +90,7 @@ export default async function Lancamentos({
         filtros={filtros}
         meses={r.meses}
         categorias={categorias}
+        locais={locais}
         paciente={paciente}
       />
       <div className="space-y-1 rounded-2xl border border-borda bg-cartao p-3">

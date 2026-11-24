@@ -1,6 +1,7 @@
 import { getDb, type Db } from '@/db/client';
 import type { FinCategoriaRow, TipoLancamento } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { locaisDoFiltro, type LocalDoFiltro } from '@/modules/agenda/locais';
 import { idValido } from '@/modules/pacientes/base';
 import { hojeNoFuso } from '@/modules/pacientes/datas';
 import { categoriasNaTransacao, configuracaoNaTransacao, type Configuracao } from './configuracoes';
@@ -22,7 +23,7 @@ import {
   type EntradasESaidasDoMes,
   type PagamentoPendente,
 } from './resumo';
-import type { FiltrosLista, FluxoDoAno, LancamentoNaTela } from './tipos';
+import { SEM_LOCAL, type FiltrosLista, type FluxoDoAno, type LancamentoNaTela } from './tipos';
 
 /**
  * RNF-301: "cada tela em uma transação". As telas dos lançamentos (Plano 20, T6), de Pagamentos pendentes e de Relatórios
@@ -36,11 +37,17 @@ export type CategoriaDoFormulario = { id: string; nome: string };
 
 export type TelaDeLancamentos =
   | { config: null }
-  | { config: Configuracao; lista: ListaDeLancamentos; categorias: FinCategoriaRow[]; paciente: PacienteDoFinanceiro | null };
+  | { config: Configuracao; lista: ListaDeLancamentos; categorias: FinCategoriaRow[]; paciente: PacienteDoFinanceiro | null; locais: LocalDoFiltro[] };
+
+/**
+ * Plano 23 (US-416, RN-437): o filtro de local válido (um id ou `SEM_LOCAL`), ou null — o mesmo critério de `filtroDeLocal`.
+ */
+export const localDoFiltro = (localId: string | undefined): string | null => (localId === SEM_LOCAL || idValido(localId) ? localId : null);
 
 /**
  * A lista (US-302, RN-306). Sem configuração (RN-301), só a configuração nula — o primeiro acesso não mostra mais nada.
- * Com ela: o paciente do filtro (chip, sem `auditRead`), a lista com o `ler` da RN-318 e as categorias do filtro.
+ * Com ela: o paciente do filtro (chip, sem `auditRead`), a lista com o `ler` da RN-318 e as categorias do filtro. Plano 23
+ * (US-416): e as opções do filtro "Local" (os ativos e o escolhido, só id e nome).
  */
 export async function telaDeLancamentos(ctx: TenantContext, tenant: Tenant, filtros: FiltrosLista, deps: Deps = {}): Promise<TelaDeLancamentos> {
   exigirNutri(ctx);
@@ -53,7 +60,8 @@ export async function telaDeLancamentos(ctx: TenantContext, tenant: Tenant, filt
       const paciente = idValido(filtros.pacienteId) ? await pacienteNaTransacao(tx, filtros.pacienteId) : null;
       const lista = await listaNaTransacao(tx, ctx.tenantId, hoje, filtros);
       const categorias = await categoriasNaTransacao(tx);
-      return { config, lista, categorias, paciente };
+      const locais = await locaisDoFiltro(tx, filtros.localId);
+      return { config, lista, categorias, paciente, locais };
     },
     deps.db ?? getDb(),
   );
@@ -173,14 +181,25 @@ export type TelaDeRelatorios =
       anos: number[];
       fluxo: FluxoDoAno;
       dozeMeses: EntradasESaidasDoMes[];
+      /** Plano 23 (US-416): as opções do filtro "Local" e o filtro válido pedido (um id ou `SEM_LOCAL`), ou null. */
+      locais: LocalDoFiltro[];
+      localId: string | null;
     };
 
 /**
  * "Relatórios" (US-306): o fluxo de caixa do ano e as entradas e saídas dos últimos 12 meses, na mesma transação (RNF-301).
- * `anoPedido` vem da URL (`?ano=`): fora da lista, o ano atual no fuso. Sem `auditRead` (RN-318).
+ * `pedido.ano` vem da URL (`?ano=`): fora da lista, o ano atual no fuso. Sem `auditRead` (RN-318). Plano 23 (US-416,
+ * RN-437): `pedido.localId` (`?local=`) recorta só os 12 meses; o fluxo de caixa e o saldo são de todos os locais.
  */
-export async function telaDeRelatorios(ctx: TenantContext, tenant: Tenant, anoPedido: string | undefined, deps: Deps = {}): Promise<TelaDeRelatorios> {
+export async function telaDeRelatorios(
+  ctx: TenantContext,
+  tenant: Tenant,
+  pedido: { ano?: string; localId?: string },
+  deps: Deps = {},
+): Promise<TelaDeRelatorios> {
   exigirNutri(ctx);
+  const anoPedido = pedido.ano;
+  const localId = localDoFiltro(pedido.localId);
   const hoje = hojeNoFuso(tenant.fuso, deps.agora ?? new Date());
   const atual = Number(hoje.slice(0, 4));
   return withTenant(
@@ -194,8 +213,9 @@ export async function telaDeRelatorios(ctx: TenantContext, tenant: Tenant, anoPe
       const pedido = Number(anoPedido);
       const ano = anoPedido && /^\d{4}$/.test(anoPedido) && anos.includes(pedido) ? pedido : atual;
       const fluxo = await fluxoNaTransacao(tx, ctx.tenantId, ano, config);
-      const dozeMeses = await dozeMesesNaTransacao(tx, ctx.tenantId, hoje);
-      return { config, ano, anos, fluxo, dozeMeses };
+      const dozeMeses = await dozeMesesNaTransacao(tx, ctx.tenantId, hoje, localId ?? undefined);
+      const locais = await locaisDoFiltro(tx, localId ?? undefined);
+      return { config, ano, anos, fluxo, dozeMeses, locais, localId };
     },
     deps.db ?? getDb(),
   );

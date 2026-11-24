@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq } from 'drizzle-orm';
+import { consultaDireta, novoLocal, pedidoDireto } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
@@ -351,5 +352,73 @@ describe('filtroDaUrl (RN-270, RN-271)', () => {
     expect(filtroDaUrl({ aba: 'bloqueados' }).aba).toBe('ativos');
     expect(filtroDaUrl({ ordem: 'registro' }).ordem).toBe('nome');
     expect(filtroDaUrl({ aba: ['todos', 'inativos'], busca: ['a', 'b'] })).toEqual({ aba: 'ativos', ordem: 'nome' });
+  });
+});
+
+describe('Plano 23 (US-415, RN-436, AG-D11): filtro "Local" da lista de pacientes', () => {
+  const nomes = (r: { nome: string }[]) => r.map((x) => x.nome);
+  /** Cada consulta num horário próprio (o EXCLUDE vale para o consultório inteiro). */
+  let hora = 0;
+  const proxima = () => new Date(Date.UTC(2027, 0, 4, 11) + hora++ * 2 * 3_600_000);
+
+  async function cenario() {
+    hora = 0;
+    const T = await novoTenant(app.db);
+    const centro = await novoLocal(app.db, T.ctx, { nome: 'Clínica Centro' });
+    const consultorio = await novoLocal(app.db, T.ctx, { nome: 'Consultório' });
+    const p = async (nome: string, extra: Record<string, unknown> = {}) => (await novoPaciente(app.db, T.ctx, { nome, ...extra })).id;
+    const ana = await p('Ana Agendada');
+    const bia = await p('Bia Cancelada');
+    const caio = await p('Caio Pedido');
+    const duda = await p('Duda Arquivada', { status: 'arquivado' });
+    const edu = await p('Edu Outro Local');
+    const fabi = await p('Fabi Sem Local');
+    const gil = await p('Gil Faltou');
+    const consulta = (patientId: string, extra: Record<string, unknown>) => consultaDireta(app.db, T.ctx, patientId, proxima(), 60, extra);
+    await consulta(ana, { localId: centro });
+    await consulta(ana, { localId: consultorio, status: 'cancelada', canceladoPor: 'nutri', canceladaEm: new Date() });
+    await consulta(bia, { localId: centro, status: 'cancelada', canceladoPor: 'nutri', canceladaEm: new Date() });
+    await pedidoDireto(app.db, T, caio, proxima(), 60, { localId: centro });
+    await consulta(duda, { localId: centro, status: 'realizada' });
+    await consulta(edu, { localId: consultorio, status: 'confirmada' });
+    await consulta(fabi, {});
+    await consulta(gil, { localId: centro, status: 'faltou' });
+    return { T, centro, consultorio, ana, edu };
+  }
+
+  it('só quem tem consulta no local fora de cancelada e solicitada; a aba vale junto', async () => {
+    const { T, centro, consultorio } = await cenario();
+    expect(nomes(await listarPacientes(T.ctx, { localId: centro }, app.db))).toEqual(['Ana Agendada', 'Gil Faltou']);
+    expect(nomes(await listarPacientes(T.ctx, { localId: centro, aba: 'todos' }, app.db))).toEqual(['Ana Agendada', 'Duda Arquivada', 'Gil Faltou']);
+    expect(nomes(await listarPacientes(T.ctx, { localId: centro, aba: 'inativos' }, app.db))).toEqual(['Duda Arquivada']);
+    // a consulta cancelada de Ana no Consultório não conta; a confirmada de Edu conta
+    expect(nomes(await listarPacientes(T.ctx, { localId: consultorio }, app.db))).toEqual(['Edu Outro Local']);
+    // sem filtro, todos os ativos (o filtro não muda nada sem o local)
+    expect(await listarPacientes(T.ctx, {}, app.db)).toHaveLength(6);
+  });
+
+  it('combina com a busca e com a etiqueta', async () => {
+    const { T, centro, ana, edu } = await cenario();
+    expect(nomes(await listarPacientes(T.ctx, { localId: centro, busca: 'gil' }, app.db))).toEqual(['Gil Faltou']);
+    expect(await listarPacientes(T.ctx, { localId: centro, busca: 'edu' }, app.db)).toEqual([]);
+    const [tag] = await withTenant(T.ctx, (tx) => tx.insert(patientTags).values({ tenantId: T.tenantId, nome: `local-${s()}` }).returning(), app.db);
+    await withTenant(T.ctx, (tx) => tx.insert(patientTagLinks).values([ana, edu].map((patientId) => ({ tenantId: T.tenantId, patientId, tagId: tag.id }))), app.db);
+    expect(nomes(await listarPacientes(T.ctx, { localId: centro, etiquetaId: tag.id }, app.db))).toEqual(['Ana Agendada']);
+  });
+
+  it('local de outro consultório ou id inválido: lista vazia; o filtro de local não grava leitura auditada', async () => {
+    const { T, ana } = await cenario();
+    const B = await novoTenant(app.db);
+    const deOutro = await novoLocal(app.db, B.ctx, { nome: 'Clínica Centro' });
+    expect(await listarPacientes(T.ctx, { localId: deOutro }, app.db)).toEqual([]);
+    expect(await listarPacientes(T.ctx, { localId: 'x' }, app.db)).toEqual([]);
+    const leituras = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.patientId, ana), eq(auditLog.acao, 'ler'))), app.db);
+    expect(leituras).toEqual([]);
+  });
+
+  it('filtroDaUrl lê `local`; vazio ou repetido fica de fora', () => {
+    expect(filtroDaUrl({ local: 'l1', aba: 'todos' })).toEqual({ aba: 'todos', localId: 'l1', ordem: 'nome' });
+    expect(filtroDaUrl({ local: '' })).toEqual({ aba: 'ativos', ordem: 'nome' });
+    expect(filtroDaUrl({ local: ['a', 'b'] })).toEqual({ aba: 'ativos', ordem: 'nome' });
   });
 });

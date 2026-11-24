@@ -7,6 +7,7 @@ import { recordAudit } from '@/modules/plataforma/audit';
 import { configuracaoNaTransacao } from './configuracoes';
 import { csvFluxo, csvLancamentos } from './csv';
 import { exigirNutri } from './erros';
+import { filtroDeLocal } from './lancamentos';
 import { periodoValido } from './meses';
 import { fluxoNaTransacao } from './resumo';
 import { situacaoDoLancamento } from './situacao';
@@ -29,16 +30,17 @@ const referencia = sql<string>`coalesce(${L.pagoEm}, ${L.vencimento})`;
  * cancelados incluídos com a situação, do mais antigo ao mais novo. O nome do paciente é o **nome civil**
  * (`patients.nome`: documento fiscal) e vem em toda linha com paciente — sem `comPacientes`, `csvLancamentos` tira a coluna
  * e esvazia a descrição dessas linhas. `exportar`: um por paciente presente no arquivo com `comPacientes`; senão (ou sem
- * nenhum paciente no período), um sem paciente.
+ * nenhum paciente no período), um sem paciente. Plano 23 (US-416, RN-437): `localId` (um local ou `SEM_LOCAL`) recorta as
+ * linhas como a lista (`filtroDeLocal`); o `exportar` é o mesmo.
  */
 export async function exportarLancamentosCsv(
   ctx: TenantContext,
   tenant: Tenant,
-  pedido: { de: string; ate: string; comPacientes: boolean },
+  pedido: { de: string; ate: string; comPacientes: boolean; localId?: string },
   deps: Deps = {},
 ): Promise<string> {
   exigirNutri(ctx);
-  const { de, ate, comPacientes } = pedido;
+  const { de, ate, comPacientes, localId } = pedido;
   if (!periodoValido(de, ate)) throw new RangeError('financeiro: período do CSV inválido');
   const hoje = hojeNoFuso(tenant.fuso, deps.agora ?? new Date());
   return withTenant(
@@ -49,7 +51,7 @@ export async function exportarLancamentosCsv(
         .from(L)
         .innerJoin(finCategorias, and(eq(finCategorias.tenantId, L.tenantId), eq(finCategorias.id, L.categoriaId)))
         .leftJoin(patients, and(eq(patients.tenantId, L.tenantId), eq(patients.id, L.patientId)))
-        .where(and(eq(L.tenantId, ctx.tenantId), sql`${referencia} between ${de} and ${ate}`))
+        .where(and(eq(L.tenantId, ctx.tenantId), sql`${referencia} between ${de} and ${ate}`, filtroDeLocal(localId)))
         .orderBy(asc(referencia), asc(L.createdAt), asc(L.id));
       const presentes = [...new Set(linhas.flatMap((r) => (r.l.patientId ? [r.l.patientId] : [])))];
       await recordAudit(
