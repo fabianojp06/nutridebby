@@ -1,25 +1,32 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CABECALHO_BUILD,
   CABECALHO_DONO,
   CABECALHO_GUARDADO_EM,
+  CABECALHO_PEDIDO_DA_COPIA,
   CABECALHO_VERSAO,
   cabecalhosDaCopia,
   CACHE_PLANO,
+  deveRecarregarAoVoltar,
+  ehCopiaOffline,
   ehNavegacaoDoPortal,
   ehPaginaDoPlano,
   esquecerPlanoGuardadoForaDe,
   idDoBuild,
   lerMensagem,
+  MARCA_DA_COPIA,
   mensagemDaPropriaOrigem,
   planoValido,
   podeGuardarPlano,
   precisaBuscarPlano,
   RENOVAR_PLANO_MS,
+  SAINDO_SEM_DESCARREGAR_MS,
   saiuDoPlano,
   URL_PLANO,
   urlDaNotificacao,
   VALIDADE_PLANO_MS,
+  vigiarSaida,
 } from './sw-regras';
 
 const O = 'https://nutri.exemplo.com';
@@ -218,5 +225,112 @@ describe('P09-05 (D8): as regras do service worker nunca tratam o painel', () =>
       expect(ehNavegacaoDoPortal(new URL(`${O}${p}`), 'navigate', O), p).toBe(false);
       expect(ehPaginaDoPlano(new URL(`${O}${p}`), 'navigate', O), p).toBe(false);
     }
+  });
+});
+
+// SUS-112: o `reloadOnOnline` padrão do Serwist recarregava qualquer página do portal quando a rede voltava e apagava o que o
+// paciente digitava. A regra é por PERMISSÃO: só o documento que é a cópia offline de "Meu plano" recarrega — nunca uma lista
+// de rotas excluídas (a do Plano 25 só excluía /p/mensagens, e o questionário do Plano 27 continuava perdendo as respostas).
+describe('SUS-112: ao voltar a rede, recarrega só a cópia offline (lista de permissão)', () => {
+  /** Um `document` mínimo sobre o HTML: `querySelector('[atributo]')` acha o elemento se o atributo está numa tag. */
+  const documentoDe = (html: string) => ({
+    querySelector: (seletor: string) => {
+      const atributo = /^\[([a-z-]+)\]$/.exec(seletor)?.[1];
+      if (!atributo) throw new Error(`seletor inesperado: ${seletor}`);
+      return new RegExp(`<[a-z]+[^>]*\\s${atributo}(=|\\s|>|/)`).test(html) ? {} : null;
+    },
+  });
+  const COPIA = `<main><span hidden="" ${MARCA_DA_COPIA}=""></span><h2>Plano de outubro</h2><button disabled>Comi assim</button></main>`;
+  const voltou = (html: string, o: { saindo?: boolean; online?: boolean } = {}) =>
+    deveRecarregarAoVoltar({ copia: ehCopiaOffline(documentoDe(html)), saindo: o.saindo ?? false, online: o.online ?? true });
+
+  it('a cópia do plano (em /p/plano ou servida sem rede em outro endereço do portal) recarrega quando a rede volta', () => {
+    expect(ehCopiaOffline(documentoDe(COPIA))).toBe(true);
+    expect(voltou(COPIA)).toBe(true); // /p/plano servida do cache (NetworkFirst)
+    expect(voltou(COPIA)).toBe(true); // /p/inicio, /p/diario… sem rede caem na cópia (handlerDidError)
+  });
+
+  it.each([
+    ['/p/diario', '<form><label for="texto">O que você comeu?</label><textarea id="texto" name="texto">Arroz e feijão</textarea><button>Registrar</button></form>'],
+    ['/p/questionarios/x', '<form><fieldset><legend>Como foi a semana?</legend><input type="radio" name="q1" checked><textarea name="q2">Dormi mal</textarea></fieldset></form>'],
+    ['/p/exames (envio de exame)', '<form><input type="file" name="arquivos"><input type="text" name="descricao" value="Hemograma"><button>Enviar</button></form>'],
+    ['/p/inicio', '<main><h1>Olá, Paula</h1><a href="/p/diario">Registrar refeição</a></main>'],
+    ['/p/plano aberto da rede', '<main><h2>Plano de outubro</h2><button>Comi assim</button></main>'],
+    ['/p/mensagens', '<form><textarea name="texto">Oi</textarea></form>'],
+  ])('%s, página viva (não é a cópia): nunca recarrega — com ou sem formulário, com rede e ficando', (_rota, html) => {
+    expect(ehCopiaOffline(documentoDe(html))).toBe(false);
+    expect(voltou(html)).toBe(false);
+  });
+
+  it('a cópia que está saindo (beforeunload/pagehide) não recarrega: o reload atropelaria a navegação em curso (P09-04)', () => {
+    expect(voltou(COPIA, { saindo: true })).toBe(false);
+  });
+
+  it('sem rede de fato (o `online` chegou com navigator.onLine falso) não recarrega, nem a cópia', () => {
+    expect(voltou(COPIA, { online: false })).toBe(false);
+    expect(deveRecarregarAoVoltar({ copia: false, saindo: false, online: false })).toBe(false);
+  });
+
+  it('a regra não olha o endereço: nenhum pathname entra na decisão (permissão pela marca, não exclusão por rota)', () => {
+    const provider = readFileSync('src/app/p/sw-provider.tsx', 'utf8');
+    expect(provider).toMatch(/reloadOnOnline=\{false\}/);
+    expect(provider).toMatch(/deveRecarregarAoVoltar\(\{ copia: ehCopiaOffline\(document\), saindo: saida\.saindo\(\), online: navigator\.onLine \}\)/);
+    expect(provider).not.toMatch(/pathname/);
+    expect(readFileSync('src/app/sw-regras.ts', 'utf8')).not.toMatch(/export function deveRecarregarAoVoltar\(o: \{[^}]*pathname/);
+  });
+
+  it('só a busca da cópia (guardarPlano, no service worker) leva o cabeçalho que faz o servidor desenhar a marca', () => {
+    expect(CABECALHO_PEDIDO_DA_COPIA).toBe('x-nd-copia');
+    expect(MARCA_DA_COPIA).toBe('data-nd-copia-offline');
+    const sw = readFileSync('src/app/sw.ts', 'utf8');
+    expect(sw).toMatch(/fetch\(URL_PLANO, \{[^}]*headers: \{ \[CABECALHO_PEDIDO_DA_COPIA\]: '1' \}/);
+    expect(sw.match(/CABECALHO_PEDIDO_DA_COPIA\]/g)).toHaveLength(1);
+  });
+});
+
+// Um `beforeunload` que não descarrega a página (download, `tel:`, `mailto:`) deixaria `saindo` verdadeiro para sempre — a
+// cópia nunca mais recarregaria ao voltar a rede. Molde: Plano 25 (04afaea).
+describe('SUS-112: vigiarSaida (o "saindo" do reload ao reconectar)', () => {
+  const janela = () => {
+    const t = new EventTarget();
+    const evento = (tipo: string, persisted?: boolean) => t.dispatchEvent(Object.assign(new Event(tipo), persisted === undefined ? {} : { persisted }));
+    return { t, evento };
+  };
+  afterEach(() => vi.useRealTimers());
+
+  it('beforeunload sem descarregar: "saindo" zera sozinho em 5 s, e a cópia volta a recarregar ao reconectar', () => {
+    vi.useFakeTimers();
+    const j = janela();
+    const s = vigiarSaida(j.t, globalThis);
+    expect(s.saindo()).toBe(false);
+    j.evento('beforeunload');
+    expect(s.saindo()).toBe(true);
+    expect(deveRecarregarAoVoltar({ copia: true, saindo: s.saindo(), online: true })).toBe(false);
+    vi.advanceTimersByTime(SAINDO_SEM_DESCARREGAR_MS - 1);
+    expect(s.saindo()).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(s.saindo()).toBe(false); // o `tel:`/download não descarregou: a página ficou
+    expect(SAINDO_SEM_DESCARREGAR_MS).toBe(5_000);
+    expect(deveRecarregarAoVoltar({ copia: true, saindo: s.saindo(), online: true })).toBe(true);
+    s.parar();
+  });
+
+  it('pagehide marca de vez (sem prazo); o pageshow da volta do bfcache desmarca; parar tira os ouvintes e o temporizador', () => {
+    vi.useFakeTimers();
+    const j = janela();
+    const s = vigiarSaida(j.t, globalThis);
+    j.evento('beforeunload');
+    j.evento('pagehide');
+    vi.advanceTimersByTime(60_000);
+    expect(s.saindo()).toBe(true);
+    j.evento('pageshow', false);
+    expect(s.saindo()).toBe(true);
+    j.evento('pageshow', true); // de volta do bfcache
+    expect(s.saindo()).toBe(false);
+    j.evento('beforeunload');
+    s.parar();
+    expect(vi.getTimerCount()).toBe(0);
+    j.evento('pageshow', true);
+    expect(s.saindo()).toBe(true); // sem ouvintes: nada mais o muda
   });
 });

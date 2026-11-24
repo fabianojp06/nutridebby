@@ -22,6 +22,75 @@ export function ehNavegacaoDoPortal(url: URL, modo: RequestMode, origem: string)
   return modo === 'navigate' && url.origin === origem && url.pathname.startsWith('/p/');
 }
 
+/** O documento na tela é a cópia offline de "Meu plano"? Pela marca que só o HTML guardado leva (MARCA_DA_COPIA). */
+export function ehCopiaOffline(documento: { querySelector: (seletor: string) => unknown }): boolean {
+  return documento.querySelector(`[${MARCA_DA_COPIA}]`) != null;
+}
+
+/**
+ * SUS-112: quando a rede volta, o portal recarrega SÓ a cópia offline (lista de permissão, nunca de rotas excluídas): é o
+ * único documento que precisa virar a página de verdade. Uma página viva (diário, questionário, envio de exame, Hoje…)
+ * nunca recarrega — o que o paciente digitava se perdia (o `reloadOnOnline` padrão do Serwist recarregava qualquer página).
+ * E só com a rede de fato de volta (`navigator.onLine`) e a página ficando: no Chrome sem rede o `online` chega entre o
+ * `beforeunload` e a troca de documento, e o reload passava por cima da navegação em curso (o "navega sozinha" do P09-04).
+ */
+export function deveRecarregarAoVoltar(o: { copia: boolean; saindo: boolean; online: boolean }): boolean {
+  return o.copia && o.online && !o.saindo;
+}
+
+/**
+ * Quanto o `beforeunload` vale como "saindo" sem a página descarregar. Um `beforeunload` que não descarrega (download,
+ * `tel:`, `mailto:`) deixaria `saindo` verdadeiro para sempre, e a cópia nunca mais recarregaria ao voltar a rede. A troca
+ * de documento que a marca protege leva bem menos que isto (sem rede, o service worker responde).
+ */
+export const SAINDO_SEM_DESCARREGAR_MS = 5_000;
+
+type Relogio = { setTimeout: (f: () => void, ms: number) => unknown; clearTimeout: (t: never) => void };
+
+/**
+ * A página está saindo? `beforeunload` marca e, se a página não descarregar em `SAINDO_SEM_DESCARREGAR_MS`, desmarca;
+ * `pagehide` marca de vez (a página foi embora, ou para o bfcache); `pageshow` com `persisted` (a volta do bfcache)
+ * desmarca. Sem DOM: os eventos chegam por `janela` (a `window`; injetável nos testes). Devolve a leitura e o "parar".
+ */
+export function vigiarSaida(janela: EventTarget, relogio: Relogio = globalThis as unknown as Relogio): { saindo: () => boolean; parar: () => void } {
+  let saindo = false;
+  let timer: unknown;
+  const limpar = () => {
+    if (timer !== undefined) relogio.clearTimeout(timer as never);
+    timer = undefined;
+  };
+  const aoAvisarSaida = () => {
+    saindo = true;
+    limpar();
+    timer = relogio.setTimeout(() => {
+      timer = undefined;
+      saindo = false;
+    }, SAINDO_SEM_DESCARREGAR_MS);
+  };
+  const aoEsconder = () => {
+    limpar();
+    saindo = true;
+  };
+  const aoMostrar = (e: Event) => {
+    if ((e as Event & { persisted?: boolean }).persisted) {
+      limpar();
+      saindo = false; // de volta do bfcache: a página ficou
+    }
+  };
+  janela.addEventListener('beforeunload', aoAvisarSaida);
+  janela.addEventListener('pagehide', aoEsconder);
+  janela.addEventListener('pageshow', aoMostrar);
+  return {
+    saindo: () => saindo,
+    parar: () => {
+      limpar();
+      janela.removeEventListener('beforeunload', aoAvisarSaida);
+      janela.removeEventListener('pagehide', aoEsconder);
+      janela.removeEventListener('pageshow', aoMostrar);
+    },
+  };
+}
+
 export function podeGuardarPlano(r: { status: number; type: ResponseType; redirected: boolean; url: string; headers: Headers }, origem: string): boolean {
   if (r.status !== 200 || r.type !== 'basic' || r.redirected) return false;
   const u = urlOuNull(r.url);
@@ -58,6 +127,17 @@ export const CABECALHO_GUARDADO_EM = 'x-nd-guardado-em';
  * deploy troca o service worker, que apaga do precache os estáticos antigos — a cópia de outro build não abre offline.
  */
 export const CABECALHO_BUILD = 'x-nd-build';
+/**
+ * Vai NA BUSCA que guardarPlano faz de /p/plano (nunca na navegação do paciente). Com ele, o servidor desenha a marca da
+ * cópia (MARCA_DA_COPIA) no HTML que fica guardado no aparelho. O mesmo cabeçalho do Plano 25 (CABECALHO_PEDIDO_DA_COPIA).
+ */
+export const CABECALHO_PEDIDO_DA_COPIA = 'x-nd-copia';
+/**
+ * SUS-112: atributo do elemento que só existe no HTML da cópia offline de "Meu plano" (desenhado quando a busca leva
+ * CABECALHO_PEDIDO_DA_COPIA). A página aberta da rede nunca o tem; a cópia, servida em qualquer endereço do portal sem
+ * rede, sempre.
+ */
+export const MARCA_DA_COPIA = 'data-nd-copia-offline';
 /** O mesmo prazo da sessão (que desliza, P06-11): uma cópia mais velha que isto não tem sessão viva por trás. */
 export const VALIDADE_PLANO_MS = 30 * 24 * 60 * 60 * 1000;
 /** Cópia com mais de 1 dia é buscada de novo na visita a "Meu plano" (mesmo dono e versão): a validade anda junto com a sessão. */

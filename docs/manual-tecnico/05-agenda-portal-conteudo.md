@@ -1045,6 +1045,8 @@ Só "Meu plano" fica no aparelho. Regras em `src/app/sw-regras.ts`, usadas pelo 
 | Rota "Meu plano" | `NetworkFirst`, 4 s de espera, não grava (`cacheWillUpdate: null`) |
 | Outras navegações em `/p/` sem rede | `NetworkOnly` com `handlerDidError` → a cópia guardada |
 | Selo | "Offline — exibindo última versão" quando `navigator.onLine` é falso ou o `GET /api/p/ping` falha em 5 s (`src/app/p/selo-offline.tsx`) |
+| Marca da cópia (SUS-112) | A busca de `guardarPlano` leva `x-nd-copia: 1` (`CABECALHO_PEDIDO_DA_COPIA`); só então `/p/plano` desenha `<span hidden data-nd-copia-offline>` (`MARCA_DA_COPIA`). A navegação do paciente nunca leva o cabeçalho |
+| Quando a rede volta (SUS-112) | `reloadOnOnline={false}` no `SerwistProvider`; `RecarregarAoVoltar` (`src/app/p/sw-provider.tsx`) recarrega **só** o documento com a marca (`ehCopiaOffline`), com `navigator.onLine` e a página ficando (`deveRecarregarAoVoltar`, `vigiarSaida`: `beforeunload` marca a saída por 5 s, `pagehide` de vez, `pageshow` do bfcache desmarca). Lista de permissão: página viva (diário, envio de exame, Hoje…) nunca recarrega, e o que o paciente digita fica |
 
 A cópia **sai**:
 

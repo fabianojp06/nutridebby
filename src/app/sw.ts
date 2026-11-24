@@ -4,6 +4,7 @@ import {
   CABECALHO_BUILD,
   CABECALHO_DONO,
   CABECALHO_GUARDADO_EM,
+  CABECALHO_PEDIDO_DA_COPIA,
   CABECALHO_VERSAO,
   CACHE_PLANO,
   URL_PLANO,
@@ -61,7 +62,8 @@ async function guardarPlano(dono: string, versao: string, o: { prazoMs?: number 
     : null;
   if (!precisaBuscarPlano(guardado, { dono, versao, build: BUILD }, Date.now())) return;
   if (guardado && guardado.dono !== dono) await esquecerPlanoGuardado();
-  const r = await fetch(URL_PLANO, { credentials: 'same-origin', cache: 'no-store', signal: o.prazoMs ? AbortSignal.timeout(o.prazoMs) : undefined });
+  // SUS-112: o cabeçalho faz o servidor desenhar a marca da cópia (MARCA_DA_COPIA) — só a cópia recarrega quando a rede volta
+  const r = await fetch(URL_PLANO, { credentials: 'same-origin', cache: 'no-store', headers: { [CABECALHO_PEDIDO_DA_COPIA]: '1' }, signal: o.prazoMs ? AbortSignal.timeout(o.prazoMs) : undefined });
   if (saiuDoPlano(r, origem)) {
     await esquecerPlanoGuardado();
     return;
