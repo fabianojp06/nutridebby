@@ -4,26 +4,35 @@ import { lerAvisos, lerVisao, periodoDaVisao, selosDaConsulta } from './periodo'
 
 const base: Consulta = {
   id: '1', patientId: 'p', paciente: 'Ana Souza', pacienteNovoPublico: false, inicio: new Date(), fim: new Date(), modalidade: 'presencial', linkOnline: null,
-  status: 'agendada', origem: 'nutri', confirmadaVia: null, canceladoPor: null, pedidoRemarcacaoEm: null, remarcadaDe: null,
+  status: 'agendada', origem: 'nutri', confirmadaVia: null, canceladoPor: null, pedidoRemarcacaoEm: null, remarcadaDe: null, localId: null, local: null,
 };
 
-describe('período da agenda', () => {
+const o = { comPaciente: false, hoje: '2026-10-16' };
+
+describe('período da agenda (reexportado de @/modules/agenda/calendario, Plano 23)', () => {
   it('semana começa na segunda: sexta 16/10/2026 → 12/10 a 18/10; anterior e próxima semana', () => {
-    expect(periodoDaVisao('semana', '2026-10-16')).toEqual({
+    expect(periodoDaVisao('semana', '2026-10-16', o)).toEqual({
       dias: ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17', '2026-10-18'],
+      de: '2026-10-12',
+      ate: '2026-10-18',
       anterior: '2026-10-05',
       proximo: '2026-10-19',
     });
-    expect(periodoDaVisao('semana', '2026-10-18').dias[0]).toBe('2026-10-12'); // domingo fica na semana que começou na segunda
+    expect(periodoDaVisao('semana', '2026-10-18', o).dias[0]).toBe('2026-10-12'); // domingo fica na semana que começou na segunda
   });
-  it('dia e lista (30 dias)', () => {
-    expect(periodoDaVisao('dia', '2026-12-31')).toEqual({ dias: ['2026-12-31'], anterior: '2026-12-30', proximo: '2027-01-01' });
-    const l = periodoDaVisao('lista', '2026-10-16');
+  it('dia, lista (30 dias) e mês', () => {
+    expect(periodoDaVisao('dia', '2026-12-31', o)).toEqual({ dias: ['2026-12-31'], de: '2026-12-31', ate: '2026-12-31', anterior: '2026-12-30', proximo: '2027-01-01' });
+    const l = periodoDaVisao('lista', '2026-10-16', o);
     expect([l.dias.length, l.dias.at(-1), l.proximo]).toEqual([30, '2026-11-14', '2026-11-15']);
+    expect(periodoDaVisao('mes', '2026-10-16', o).de).toBe('2026-10-01');
   });
   it('visão desconhecida vira semana; avisos só os conhecidos', () => {
-    expect([lerVisao('dia'), lerVisao('x'), lerVisao(undefined)]).toEqual(['dia', 'semana', 'semana']);
+    expect([lerVisao('dia'), lerVisao('mes'), lerVisao('x'), lerVisao(undefined)]).toEqual(['dia', 'mes', 'semana', 'semana']);
     expect(lerAvisos('fora_do_horario,xss,dentro_de_bloqueio')).toEqual(['fora_do_horario', 'dentro_de_bloqueio']);
+  });
+  it('um lerVisao só: o painel reexporta o do módulo', async () => {
+    const cal = await import('@/modules/agenda/calendario');
+    expect([lerVisao, periodoDaVisao]).toEqual([cal.lerVisao, cal.periodoDaVisao]);
   });
 });
 

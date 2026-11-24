@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { consultaDireta, em, perdeCorridaNoBanco, semanaToda, SP } from '../../../test/agenda';
+import { consultaDireta, em, novoLocal, perdeCorridaNoBanco, semanaNoLocal, semanaToda, SP } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { varreduraSo } from '../../../test/varredura';
 import { closeDb } from '@/db/client';
-import { appointments, consents, notifications, patientCadastro, patients, publicBookingRequests, tenants, user } from '@/db/schema';
+import { appointments, consents, locaisAtendimento, notifications, patientCadastro, patients, publicBookingRequests, tenants, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { agendarLembretes, avisarPaciente } from '@/modules/notificacoes/agendar';
@@ -31,6 +31,25 @@ vi.mock('@/modules/plataforma/tenant-status', async (importOriginal) => {
   return { ...real, listarTenantsParaVarredura: vi.fn(real.listarTenantsParaVarredura) };
 });
 
+/**
+ * Plano 23 (T4): "entre a tela e o envio" na página pública — `depoisDeEscolher` roda logo depois de `escolherHorario`
+ * (implementação real por baixo), antes da transação que grava. Fora do teste do 42501, não faz nada.
+ */
+const gancho = vi.hoisted(() => ({ depoisDeEscolher: null as null | (() => Promise<unknown>) }));
+vi.mock('./agendamento-paciente', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./agendamento-paciente')>();
+  return {
+    ...real,
+    escolherHorario: async (...a: Parameters<typeof real.escolherHorario>) => {
+      const h = await real.escolherHorario(...a);
+      const f = gancho.depoisDeEscolher;
+      gancho.depoisDeEscolher = null;
+      await f?.();
+      return h;
+    },
+  };
+});
+
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl'));
 afterAll(async () => {
@@ -45,12 +64,17 @@ const r254 = () => Math.floor(Math.random() * 254) + 1;
 const ipUnico = () => `10.${r254()}.${r254()}.${r254()}`;
 const deps = (extra: Partial<DepsPublico> = {}): DepsPublico => ({ db: app.db, agora, ip: ipUnico(), verificarTurnstile: async () => 'ok', appUrl: 'http://localhost:3000', ...extra });
 
-async function consultorio(extra: Partial<typeof tenants.$inferInsert> = {}): Promise<TenantDeTeste & { slug: string }> {
+/**
+ * Plano 23 (T4): o local principal do último `consultorio()` criado — o padrão de `pedido()`. Os testes deste arquivo rodam
+ * em sequência e cada um cria o consultório antes de montar o pedido.
+ */
+let localDoUltimo = '';
+async function consultorio(extra: Partial<typeof tenants.$inferInsert> = {}): Promise<TenantDeTeste & { slug: string; localId: string }> {
   const T = await novoTenant(app.db, 'Debby Silva');
   // migration 0067: a página pública nasce desligada — o consultório destes testes a ligou
   const [t] = await app.db.update(tenants).set({ enderecoConsultorio: 'Rua das Flores, 10', agendamentoPublicoAtivo: true, ...extra }).where(eq(tenants.id, T.tenantId)).returning();
-  await semanaToda(app.db, T.ctx);
-  return { ...T, slug: t.slug };
+  localDoUltimo = await semanaToda(app.db, T.ctx);
+  return { ...T, slug: t.slug, localId: localDoUltimo };
 }
 const pedido = (inicio = em('2026-10-16', '09:00'), extra: Record<string, unknown> = {}) => ({
   nome: 'Ana Souza',
@@ -61,7 +85,7 @@ const pedido = (inicio = em('2026-10-16', '09:00'), extra: Record<string, unknow
   termoVersao: '1.0',
   whatsapp: true,
   inicio: inicio.toISOString(),
-  modalidade: 'presencial',
+  localId: localDoUltimo,
   turnstileToken: 'tok',
   ...extra,
 });
@@ -88,9 +112,9 @@ describe('página pública (US-032, RN-16)', () => {
   it('ativa: nome e horários livres (só horas); desativada: "Agendamento online indisponível. Entre em contato."; inexistente', async () => {
     const T = await consultorio();
     const p = await carregarPaginaPublica(T.slug, { agora, db: app.db, semana: '2026-10-15' });
-    expect(p).toMatchObject({ estado: 'ativa', tenantId: T.tenantId, nome: 'Debby Silva', temOnline: false, semana: '2026-10-12' });
+    expect(p).toMatchObject({ estado: 'ativa', tenantId: T.tenantId, nome: 'Debby Silva', cabecalho: { nome: 'Debby Silva', crn: null }, localInicial: T.localId, semana: '2026-10-12' });
     if (p.estado !== 'ativa') throw new Error();
-    expect(p.horarios[0]).toEqual({ inicio: em('2026-10-15', '08:00').toISOString(), dia: 'qui., 15/10', data: '2026-10-15', hora: '08:00', modalidades: ['presencial'] });
+    expect(p.horarios[0]).toEqual({ inicio: em('2026-10-15', '08:00').toISOString(), dia: 'qui., 15/10', data: '2026-10-15', hora: '08:00', modalidades: ['presencial'], localId: T.localId });
     const D = await consultorio({ agendamentoPublicoAtivo: false });
     expect(await carregarPaginaPublica(D.slug, { agora, db: app.db })).toEqual({ estado: 'desativada', nome: 'Debby Silva' });
     const S = await consultorio({ status: 'suspensa' });
@@ -258,16 +282,16 @@ describe('página pública (US-032, RN-16)', () => {
     expect(r.horarios.filter((h) => h.data === '2026-10-16').map((h) => h.hora)).not.toContain('14:00');
     expect(await pacientesCom(T, e.email)).toEqual([]); // nada gravado na tentativa que não marcou
     // um horário fora da janela (inclusive ano 9999) só devolve a lista de novo, presa à janela — nunca 500
-    const fora = await escolherOutroHorario(T.slug, { pedido: t.pedido, inicio: '9999-12-31T10:00:00.000Z', modalidade: 'presencial' }, deps());
+    const fora = await escolherOutroHorario(T.slug, { pedido: t.pedido, inicio: '9999-12-31T10:00:00.000Z', localId: T.localId }, deps());
     expect(fora.estado).toBe('horario_ocupado');
     if (fora.estado !== 'horario_ocupado') throw new Error();
     expect(fora.horarios.every((h) => h.data <= '2026-12-13')).toBe(true);
-    expect(await escolherOutroHorario(T.slug, { pedido: t.pedido, inicio: em('2026-10-16', '15:00').toISOString(), modalidade: 'presencial' }, deps())).toEqual({
+    expect(await escolherOutroHorario(T.slug, { pedido: t.pedido, inicio: em('2026-10-16', '15:00').toISOString(), localId: T.localId }, deps())).toEqual({
       estado: 'agendada',
       quando: 'sex., 16/10/2026 às 15:00 (horário de Brasília)',
     });
     // concluído: não marca de novo
-    expect((await falha(escolherOutroHorario(T.slug, { pedido: t.pedido, inicio: em('2026-10-16', '16:00').toISOString(), modalidade: 'presencial' }, deps()))).status).toBe(410);
+    expect((await falha(escolherOutroHorario(T.slug, { pedido: t.pedido, inicio: em('2026-10-16', '16:00').toISOString(), localId: T.localId }, deps()))).status).toBe(410);
     // pedido verificado há mais de 30 min (ocupado de novo) não serve mais, nem pelo /confirmar
     const e2 = pedido(em('2026-10-16', '17:00'));
     const t2 = await solicitarCodigo(T.slug, e2, deps());
@@ -275,14 +299,14 @@ describe('página pública (US-032, RN-16)', () => {
     expect((await confirmarCodigo(T.slug, { pedido: t2.pedido, codigo: await codigoDe(e2.email) }, deps())).estado).toBe('horario_ocupado');
     // a borda: exatamente 30 min depois da verificação ainda vale (a mesma regra de app_pedido_aguardar, migrate-owner.test.ts)
     const naBorda = deps({ agora: new Date(agora.getTime() + 30 * 60_000) });
-    expect((await escolherOutroHorario(T.slug, { pedido: t2.pedido, inicio: em('2026-10-16', '17:00').toISOString(), modalidade: 'presencial' }, naBorda)).estado).toBe('horario_ocupado');
+    expect((await escolherOutroHorario(T.slug, { pedido: t2.pedido, inicio: em('2026-10-16', '17:00').toISOString(), localId: T.localId }, naBorda)).estado).toBe('horario_ocupado');
     const depois = deps({ agora: new Date(agora.getTime() + 31 * 60_000) });
-    expect(await falha(escolherOutroHorario(T.slug, { pedido: t2.pedido, inicio: em('2026-10-16', '18:00').toISOString(), modalidade: 'presencial' }, depois))).toEqual({ status: 410, erros: { geral: MSG_PUBLICO.codigoExpirado } });
+    expect(await falha(escolherOutroHorario(T.slug, { pedido: t2.pedido, inicio: em('2026-10-16', '18:00').toISOString(), localId: T.localId }, depois))).toEqual({ status: 410, erros: { geral: MSG_PUBLICO.codigoExpirado } });
     expect(await falha(confirmarCodigo(T.slug, { pedido: t2.pedido, codigo: '000000' }, depois))).toEqual({ status: 410, erros: { geral: MSG_PUBLICO.codigoExpirado } });
     // um pedido não verificado não escolhe outro horário (o código é obrigatório)
     const e3 = pedido(em('2026-10-16', '18:00'));
     const t3 = await solicitarCodigo(T.slug, e3, deps());
-    expect((await falha(escolherOutroHorario(T.slug, { pedido: t3.pedido, inicio: em('2026-10-16', '19:00').toISOString(), modalidade: 'presencial' }, deps()))).status).toBe(410);
+    expect((await falha(escolherOutroHorario(T.slug, { pedido: t3.pedido, inicio: em('2026-10-16', '19:00').toISOString(), localId: T.localId }, deps()))).status).toBe(410);
   });
 
   it('corrida no banco: outro paciente grava o mesmo horário entre a checagem e a gravação → "horário ocupado", sem paciente nem aceite órfão', async () => {
@@ -299,7 +323,7 @@ describe('página pública (US-032, RN-16)', () => {
     expect(r).toMatchObject({ estado: 'horario_ocupado' });
     expect(await pacientesCom(T, e.email)).toEqual([]);
     // o pedido continua verificado: escolher outro horário conclui
-    expect(await escolherOutroHorario(T.slug, { pedido: t.pedido, inicio: em('2026-10-16', '15:00').toISOString(), modalidade: 'presencial' }, deps())).toMatchObject({ estado: 'agendada' });
+    expect(await escolherOutroHorario(T.slug, { pedido: t.pedido, inicio: em('2026-10-16', '15:00').toISOString(), localId: T.localId }, deps())).toMatchObject({ estado: 'agendada' });
   });
 
   it('corrida com a nutricionista cadastrando o mesmo e-mail na mesma hora: a consulta vai para o paciente dela, sem 500', async () => {
@@ -477,7 +501,7 @@ describe('página pública (US-032, RN-16)', () => {
     for (const inicio of [em('2026-10-14', '20:00').toISOString(), em('2026-12-14', '10:00').toISOString(), '9999-12-31T10:00:00.000Z', 'amanhã', 12]) {
       expect(await falha(solicitarCodigo(T.slug, pedido(undefined, { inicio }), deps())), String(inicio)).toEqual({ status: 409, erros: { inicio: MSG_AGENDA.indisponivel } });
     }
-    expect(await falha(solicitarCodigo(T.slug, pedido(undefined, { modalidade: 'online' }), deps()))).toEqual({ status: 409, erros: { inicio: MSG_AGENDA.indisponivel } }); // sem link padrão, sem online
+    expect(await falha(solicitarCodigo(T.slug, pedido(undefined, { localId: randomUUID() }), deps()))).toEqual({ status: 409, erros: { inicio: MSG_AGENDA.indisponivel } }); // local que não é do consultório
   });
 
   it('limpeza diária: pedidos com mais de 24 h somem (LGPD: minimização); os recentes ficam', async () => {
@@ -503,5 +527,115 @@ describe('página pública (US-032, RN-16)', () => {
     expect(await limparPedidosPublicos(app.db, new Date('2001-01-03T00:00:00Z'))).toBe(1);
     const restam = await withTenant(T.ctx, (tx) => tx.select({ email: publicBookingRequests.email }).from(publicBookingRequests), app.db);
     expect(restam.map((r) => r.email)).toEqual([novo]);
+  });
+});
+
+describe('Plano 23: local (US-403, RN-405, RN-406, AG-D40, AG-D60, AG-D62)', () => {
+  const SALA = 'https://meet.google.com/sala-fixa-publica';
+  async function doisLocais() {
+    const T = await consultorio();
+    const video = await novoLocal(app.db, T.ctx, { nome: 'Videoconferência', tipo: 'online', linkSala: SALA });
+    await semanaNoLocal(app.db, T.ctx, video, 'online');
+    return { T, video };
+  }
+
+  it('página com dois locais lista os dois, na ordem (principal primeiro), sem a sala; cada horário traz o local', async () => {
+    const { T, video } = await doisLocais();
+    const p = await carregarPaginaPublica(T.slug, { agora, db: app.db, semana: '2026-10-15' });
+    if (p.estado !== 'ativa') throw new Error(p.estado);
+    expect(p.locais).toEqual([
+      { id: T.localId, nome: 'Consultório', tipo: 'presencial', cidade: null, endereco: null },
+      { id: video, nome: 'Videoconferência', tipo: 'online', cidade: null, endereco: null },
+    ]);
+    expect(JSON.stringify(p)).not.toContain(SALA);
+    expect(JSON.stringify(p)).not.toMatch(/linkSala|link_sala|linkOnline/);
+    expect(new Set(p.horarios.filter((h) => h.data === '2026-10-15' && h.hora === '08:00').map((h) => h.localId))).toEqual(new Set([T.localId, video]));
+    // `?local=` é só o valor inicial: um local que vale é escolhido; o que não vale cai no primeiro
+    expect(await carregarPaginaPublica(T.slug, { agora, db: app.db, local: video })).toMatchObject({ localInicial: video });
+    expect(await carregarPaginaPublica(T.slug, { agora, db: app.db, local: randomUUID() })).toMatchObject({ localInicial: T.localId });
+  });
+
+  it('um local só → um item (a tela não mostra a escolha); local sem agendamento pelo paciente e arquivado não aparecem; endereço só com "Mostrar o endereço"', async () => {
+    const T = await consultorio();
+    const fechado = await novoLocal(app.db, T.ctx, { nome: 'Sala fechada', agendamentoOnline: false });
+    await semanaNoLocal(app.db, T.ctx, fechado);
+    await novoLocal(app.db, T.ctx, { nome: 'Antigo', arquivado: true });
+    const p1 = await carregarPaginaPublica(T.slug, { agora, db: app.db });
+    if (p1.estado !== 'ativa') throw new Error(p1.estado);
+    expect(p1.locais.map((l) => l.id)).toEqual([T.localId]);
+    expect(p1.horarios.every((h) => h.localId === T.localId)).toBe(true);
+    const centro = await novoLocal(app.db, T.ctx, { nome: 'Clínica Centro' });
+    await owner.db.update(locaisAtendimento).set({ endereco: 'Av. Central, 500', cidade: 'Campinas', mostrarEndereco: true }).where(eq(locaisAtendimento.id, centro));
+    await owner.db.update(locaisAtendimento).set({ endereco: 'Rua Escondida, 1', cidade: 'Santos', mostrarEndereco: false }).where(eq(locaisAtendimento.id, T.localId));
+    const p2 = await carregarPaginaPublica(T.slug, { agora, db: app.db });
+    if (p2.estado !== 'ativa') throw new Error(p2.estado);
+    expect(p2.locais).toEqual([
+      { id: T.localId, nome: 'Consultório', tipo: 'presencial', cidade: 'Santos', endereco: null },
+      { id: centro, nome: 'Clínica Centro', tipo: 'presencial', cidade: 'Campinas', endereco: 'Av. Central, 500' },
+    ]);
+    expect(JSON.stringify(p2)).not.toContain('Rua Escondida');
+  });
+
+  it('cabeçalho: "{nome profissional, ou o de exibição} · Nutricionista · {CRN como gravado}" (sem CRN, sem a última parte)', async () => {
+    const T = await consultorio({ nomeProfissional: 'Débora Silva Lima', crn: 'CRN-3 12345/P' });
+    expect(await carregarPaginaPublica(T.slug, { agora, db: app.db })).toMatchObject({ estado: 'ativa', nome: 'Debby Silva', cabecalho: { nome: 'Débora Silva Lima', crn: 'CRN-3 12345/P' } });
+    const S = await consultorio({ crn: '   ' });
+    expect(await carregarPaginaPublica(S.slug, { agora, db: app.db })).toMatchObject({ estado: 'ativa', cabecalho: { nome: 'Debby Silva', crn: null } });
+  });
+
+  it('o pedido guarda o local; a consulta nasce no local escolhido, com a sala copiada pelo gatilho (o pedido nunca a vê)', async () => {
+    const { T, video } = await doisLocais();
+    const e = pedido(em('2026-10-16', '09:00'), { localId: video });
+    const t = await solicitarCodigo(T.slug, e, deps());
+    const [r] = await withTenant(T.ctx, (tx) => tx.select({ localId: publicBookingRequests.localId, modalidade: publicBookingRequests.modalidade }).from(publicBookingRequests).where(eq(publicBookingRequests.email, e.email)), app.db);
+    expect(r).toEqual({ localId: video, modalidade: 'online' });
+    expect(await confirmarCodigo(T.slug, { pedido: t.pedido, codigo: await codigoDe(e.email) }, deps())).toMatchObject({ estado: 'agendada' });
+    const [p] = await pacientesCom(T, e.email);
+    expect((await consultasDe(T, p.id)).map((c) => ({ localId: c.localId, modalidade: c.modalidade, link: c.linkOnline }))).toEqual([{ localId: video, modalidade: 'online', link: SALA }]);
+  });
+
+  it('code-review do PR 2 (I-2): pedido da imagem anterior (sem local) → o local pelo horário e pela modalidade do pedido; sem local que gere o horário, "horário ocupado"', async () => {
+    const { T, video } = await doisLocais();
+    // a imagem do PR 1 grava o pedido sem `local_id`: o pedido é anulado direto no banco, como ela o deixaria
+    const semLocal = async (e: ReturnType<typeof pedido>) => {
+      const t = await solicitarCodigo(T.slug, e, deps());
+      await owner.db.update(publicBookingRequests).set({ localId: null }).where(eq(publicBookingRequests.email, e.email));
+      return t.pedido;
+    };
+    const online = pedido(em('2026-10-16', '09:00'), { localId: video });
+    expect(await confirmarCodigo(T.slug, { pedido: await semLocal(online), codigo: await codigoDe(online.email) }, deps())).toMatchObject({ estado: 'agendada' });
+    const [po] = await pacientesCom(T, online.email);
+    expect((await consultasDe(T, po.id)).map((c) => ({ localId: c.localId, modalidade: c.modalidade, link: c.linkOnline }))).toEqual([{ localId: video, modalidade: 'online', link: SALA }]);
+    const presencial = pedido(em('2026-10-16', '11:00'));
+    expect(await confirmarCodigo(T.slug, { pedido: await semLocal(presencial), codigo: await codigoDe(presencial.email) }, deps())).toMatchObject({ estado: 'agendada' });
+    const [pp] = await pacientesCom(T, presencial.email);
+    expect((await consultasDe(T, pp.id)).map((c) => ({ localId: c.localId, modalidade: c.modalidade }))).toEqual([{ localId: T.localId, modalidade: 'presencial' }]);
+    // nenhum local gera mais o horário (o online deixou de aceitar agendamento): "horário ocupado" de sempre, sem paciente
+    const tarde = pedido(em('2026-10-16', '15:00'), { localId: video });
+    const t = await semLocal(tarde);
+    await owner.db.update(locaisAtendimento).set({ agendamentoOnline: false }).where(eq(locaisAtendimento.id, video));
+    expect(await confirmarCodigo(T.slug, { pedido: t, codigo: await codigoDe(tarde.email) }, deps())).toMatchObject({ estado: 'horario_ocupado' });
+    expect(await pacientesCom(T, tarde.email)).toEqual([]);
+  });
+
+  it('local sem agendamento entre a escolha e a gravação: o 42501 do gatilho vira "Esse horário não está mais disponível. Escolha outro." (outros horários), sem paciente nem consulta', async () => {
+    const T = await consultorio();
+    const centro = await novoLocal(app.db, T.ctx, { nome: 'Clínica Centro' });
+    await semanaNoLocal(app.db, T.ctx, centro);
+    const e = pedido(em('2026-10-16', '09:00'), { localId: centro });
+    const t = await solicitarCodigo(T.slug, e, deps());
+    let rodou = false;
+    gancho.depoisDeEscolher = async () => {
+      await owner.db.update(locaisAtendimento).set({ agendamentoOnline: false }).where(eq(locaisAtendimento.id, centro));
+      rodou = true;
+    };
+    const r = await confirmarCodigo(T.slug, { pedido: t.pedido, codigo: await codigoDe(e.email) }, deps());
+    expect(rodou).toBe(true);
+    expect(r).toMatchObject({ estado: 'horario_ocupado', indisponivel: true });
+    if (r.estado !== 'horario_ocupado') throw new Error();
+    expect(r.horarios.some((h) => h.localId === centro)).toBe(false);
+    expect(await pacientesCom(T, e.email)).toEqual([]);
+    // o pedido continua verificado: outro horário no principal conclui
+    expect(await escolherOutroHorario(T.slug, { pedido: t.pedido, inicio: em('2026-10-16', '10:00').toISOString(), localId: T.localId }, deps())).toMatchObject({ estado: 'agendada' });
   });
 });

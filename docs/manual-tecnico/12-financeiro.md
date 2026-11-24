@@ -446,7 +446,7 @@ cobrança (inclusive "Faltou"); h2 com `tabIndex={-1}` que recebe o foco depois 
 ## 12.9 LGPD (US-307, US-309, F-D16, F-D17, F-D22, F-D23)
 
 - **Exportação do titular** (`financeiroParaExportacao`, `titular.ts:36`, chamada por `montarDados` em
-  `src/modules/pacientes/exportacao-job.ts:435`): chave `financeiro` (a última de `DadosExportacao`), **nos dois escopos**,
+  `src/modules/pacientes/exportacao-job.ts:537`): chave `financeiro` (a última de `DadosExportacao`), **nos dois escopos**,
   por inclusão explícita (`fin_lancamentos` é `staff_only`, como `ia_tarefas`), do vencimento mais antigo ao mais novo, com
   `vencimento`, `pagoEm`, `valorCentavos`, `valor` ("R$ 250,00"), `formaDePagamento` e o rótulo, `situacao` e o rótulo (no
   dia da exportação, no fuso), `categoria` (nome), `descricao`, `consultaInicio`, `canceladoEm` e `motivoCancelamento`.

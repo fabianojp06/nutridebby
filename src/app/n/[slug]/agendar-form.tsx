@@ -6,18 +6,18 @@ import { SeletorHorarios } from '@/components/seletor-horarios';
 import { TurnstileWidget } from '@/components/turnstile-widget';
 import { MSG_TURNSTILE_FORA, MSG_TURNSTILE_INVALIDO } from '@/lib/turnstile';
 import { MSG_AGENDA, MSG_PUBLICO } from '@/modules/agenda/constantes';
-import type { HorarioVisivel, Modalidade } from '@/modules/agenda/horarios';
+import type { HorarioVisivel, LocalVisivel } from '@/modules/agenda/horarios';
 
 type Props = {
   slug: string;
   siteKey: string;
-  modalidadeInicial: Modalidade;
-  temOnline: boolean;
+  locais: LocalVisivel[];
+  localInicial: string | null;
   semana: { rotulo: string; anterior: string | null; proxima: string | null };
   horarios: HorarioVisivel[];
   termo: { titulo: string; paragrafos: string[]; rotulo: string; versao: string };
 };
-type Resposta = { erro?: string; erros?: Record<string, string>; pedido?: string; estado?: 'agendada' | 'horario_ocupado'; quando?: string; horarios?: HorarioVisivel[] };
+type Resposta = { erro?: string; erros?: Record<string, string>; pedido?: string; estado?: 'agendada' | 'horario_ocupado'; quando?: string; horarios?: HorarioVisivel[]; indisponivel?: boolean };
 type Dados = { nome: string; email: string; telefone: string; whatsapp: boolean; maiorDeIdade: boolean; aceitouTermo: boolean };
 
 async function enviar(url: string, corpo: unknown): Promise<{ status: number; r: Resposta }> {
@@ -33,11 +33,12 @@ const texto = (v: FormDataEntryValue | null) => (typeof v === 'string' ? v : '')
 
 /**
  * RN-16 em duas etapas: dados + Turnstile → código de 6 dígitos no e-mail → consulta. Se o horário foi ocupado no meio,
- * o pedido (já verificado) escolhe outro sem novo código.
+ * o pedido (já verificado) escolhe outro sem novo código. Plano 23 (I-13): o local escolhido filtra os horários aqui mesmo
+ * (nada do que foi digitado se perde) e vai junto no pedido; a semana anterior/próxima o mantém (`?local=`).
  */
-export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, semana, horarios, termo }: Props) {
+export function AgendarForm({ slug, siteKey, locais, localInicial, semana, horarios, termo }: Props) {
   const [etapa, setEtapa] = useState<'dados' | 'codigo' | 'outro' | 'pronto'>('dados');
-  const [modalidade, setModalidade] = useState<Modalidade>(modalidadeInicial);
+  const [local, setLocal] = useState<string | null>(localInicial);
   const [token, setToken] = useState<string | null>(null);
   const [widget, setWidget] = useState(0);
   const [erros, setErros] = useState<Record<string, string>>({});
@@ -63,7 +64,7 @@ export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, seman
       setEtapa('pronto');
     } else if (status === 200 && r.estado === 'horario_ocupado') {
       setOutros(r.horarios ?? []);
-      setErro(MSG_AGENDA.ocupado);
+      setErro(r.indisponivel ? MSG_AGENDA.indisponivel : MSG_AGENDA.ocupado);
       setEtapa('outro');
     } else if (status === 410) {
       novoTurnstile();
@@ -85,7 +86,7 @@ export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, seman
     };
     setDados(d);
     setEnviando(true);
-    const { status, r } = await enviar(`/api/n/${slug}/codigo`, { ...d, termoVersao: termo.versao, inicio: f.get('inicio'), modalidade, turnstileToken: token });
+    const { status, r } = await enviar(`/api/n/${slug}/codigo`, { ...d, termoVersao: termo.versao, inicio: f.get('inicio'), localId: f.get('localId'), turnstileToken: token });
     setEnviando(false);
     if (status === 200 && r.pedido) {
       setPedido(r.pedido);
@@ -111,7 +112,8 @@ export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, seman
   async function escolherOutro(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setEnviando(true);
-    const { status, r } = await enviar(`/api/n/${slug}/horario`, { pedido, inicio: new FormData(e.currentTarget).get('inicio'), modalidade });
+    const f = new FormData(e.currentTarget);
+    const { status, r } = await enviar(`/api/n/${slug}/horario`, { pedido, inicio: f.get('inicio'), localId: f.get('localId') });
     setEnviando(false);
     tratar(status, r);
   }
@@ -141,25 +143,15 @@ export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, seman
       <form method="post" onSubmit={escolherOutro} className="space-y-3">
         {alerta}
         <p className="font-medium">Escolha um horário</p>
-        <SeletorHorarios horarios={outros} modalidade={modalidade} erro={erros.inicio} />
+        <SeletorHorarios horarios={outros} locais={locais} local={local} aoTrocarLocal={setLocal} erro={erros.inicio} />
         {botao('Confirmar agendamento')}
       </form>
     );
   }
-  const semanaHref = (s: string) => `/n/${slug}?semana=${s}&modalidade=${modalidade}`;
+  // o id do local vem da projeção (uuid); encodeURIComponent por garantia
+  const semanaHref = (s: string) => `/n/${slug}?semana=${s}${local ? `&local=${encodeURIComponent(local)}` : ''}`;
   return (
     <form method="post" onSubmit={pedirCodigo} className="space-y-4">
-      {temOnline && (
-        <fieldset className="space-y-1">
-          <legend className="font-medium">Escolha a modalidade</legend>
-          {(['presencial', 'online'] as const).map((m) => (
-            <div key={m} className="flex items-center gap-2">
-              <input id={`mod-${m}`} type="radio" name="modalidade" value={m} checked={modalidade === m} onChange={() => setModalidade(m)} />
-              <label htmlFor={`mod-${m}`}>{m === 'presencial' ? 'Presencial' : 'Online'}</label>
-            </div>
-          ))}
-        </fieldset>
-      )}
       <section aria-labelledby="horario" className="space-y-2">
         <h2 id="horario" className="text-lg font-semibold">Escolha o horário</h2>
         <nav aria-label="Semana" className="flex gap-3 text-sm">
@@ -167,7 +159,7 @@ export function AgendarForm({ slug, siteKey, modalidadeInicial, temOnline, seman
           <span>{semana.rotulo}</span>
           {semana.proxima && <Link href={semanaHref(semana.proxima)} className="underline">Próxima semana</Link>}
         </nav>
-        <SeletorHorarios horarios={horarios} modalidade={modalidade} erro={erros.inicio} />
+        <SeletorHorarios horarios={horarios} locais={locais} local={local} aoTrocarLocal={setLocal} erro={erros.inicio} />
       </section>
       <section aria-labelledby="dados" className="max-w-md space-y-3">
         <h2 id="dados" className="text-lg font-semibold">Seus dados</h2>

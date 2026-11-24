@@ -101,23 +101,5 @@ export const urlDoCsv = (secao: Secao, p: Periodo, por: RankingPor) => daExporta
 /** "Ver versão para imprimir": sempre o período dos números da tela. */
 export const urlDaImpressao = (secao: Secao, p: Periodo, por: RankingPor) => daExportacao(ROTA_DA_IMPRESSAO, secao, p, por);
 
-/** A origem da aplicação é a de `valor`? URL inválida → não. */
-function mesmaOrigem(valor: string, appUrl: string): boolean {
-  return URL.canParse(valor) && new URL(valor).origin === new URL(appUrl).origin;
-}
-
-/**
- * RN-493 (molde de `recusaDeOrigem`, RN-321 do Plano 20): o CSV e a impressão gravam `exportar` em nome da nutricionista, e
- * o cookie da sessão (SameSite=Lax) vai junto numa navegação vinda de outro site. Só vale o pedido da própria origem (o
- * link dos Relatórios: `same-origin`) ou digitado na barra de endereço (`none`). Sem `Sec-Fetch-Site` (navegador antigo),
- * vale só com `Origin` — ou, sem ele, `Referer` — da origem do APP_URL. Fora disso, quem chama volta para a seção sem ler
- * nem gravar nada.
- */
-export function navegacaoDaPropriaOrigem(h: Headers, appUrl: string): boolean {
-  const site = h.get('sec-fetch-site');
-  if (site !== null) return site === 'same-origin' || site === 'none';
-  const origin = h.get('origin');
-  if (origin !== null) return mesmaOrigem(origin, appUrl);
-  const referer = h.get('referer');
-  return referer !== null && mesmaOrigem(referer, appUrl);
-}
+/** RN-493: a conferência da origem mora em `@/lib/navegacao-propria` (também a usa a impressão da agenda, Plano 23). */
+export { navegacaoDaPropriaOrigem } from '@/lib/navegacao-propria';

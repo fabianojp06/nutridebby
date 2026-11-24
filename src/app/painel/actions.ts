@@ -36,7 +36,6 @@ export async function salvarPerfilAction(_prev: PerfilState, formData: FormData)
     crn: campoPerfil(formData, 'crn'),
     corPrimaria: campoPerfil(formData, 'corPrimaria'),
     enderecoConsultorio: campoPerfil(formData, 'enderecoConsultorio'),
-    linkOnlinePadrao: campoPerfil(formData, 'linkOnlinePadrao'),
     antecedenciaMinH: campoPerfil(formData, 'antecedenciaMinH'),
     cancelamentoMinH: campoPerfil(formData, 'cancelamentoMinH'),
     fuso: campoPerfil(formData, 'fuso'),

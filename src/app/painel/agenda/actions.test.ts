@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { consultaDireta, tenantAgenda } from '../../../../test/agenda';
+import { consultaDireta, localPrincipal, novoLocal, tenantAgenda } from '../../../../test/agenda';
 import { makeDb } from '../../../../test/db';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../../test/pacientes';
 
@@ -24,7 +24,7 @@ vi.mock('next/navigation', async (orig) => ({
   },
 }));
 
-const { presencaAction } = await import('./actions');
+const { agendarAction, moverAction, presencaAction } = await import('./actions');
 const { default: ConsultaPage } = await import('./consultas/[id]/page');
 const { closeDb } = await import('@/db/client');
 const { withTenant } = await import('@/db/tenant');
@@ -202,5 +202,64 @@ describe('seção "Cobrança": região fixa e foco depois das ações (§7)', ()
     expect(await pagina(C, {})).not.toContain('<div class="space-y-2"><p role="status"');
     await destino(presencaAction(C.c, 'realizada'));
     expect(await pagina(C, { ok: 'cobranca_<b>x</b>', envio: '1' })).toContain('<div class="space-y-2"><p role="status"></p><section');
+  });
+});
+
+describe('Plano 23 (T3, RN-407): o local na Nova consulta e no "Alterar data e hora"', () => {
+  const form = (campos: Record<string, string>) => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(campos)) fd.set(k, v);
+    return fd;
+  };
+  async function tenantComPaciente() {
+    const T = await novoTenant(app.db);
+    sessao.atual = { ctx: T.ctx, tenant: tenantAgenda(T) };
+    const p = (await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' })).id;
+    return { T, p };
+  }
+  const base = (p: string) => ({ patientId: p, data: '2027-03-10', hora: '09:00', duracaoMin: '60' });
+
+  it('agendarAction com o local de outro consultório (ou sem local) → erro no campo do local, com os valores de volta; nada gravado', async () => {
+    const { T, p } = await tenantComPaciente();
+    const outro = await novoTenant(app.db);
+    const deOutro = await localPrincipal(app.db, outro.ctx);
+    const r = await agendarAction({}, form({ ...base(p), localId: deOutro }));
+    expect(r).toEqual({ erros: { localId: 'Escolha o local.' }, valores: expect.objectContaining({ localId: deOutro, patientId: p }) });
+    expect((await agendarAction({}, form(base(p)))).erros).toEqual({ localId: 'Escolha o local.' });
+    expect((await owner.pool.query('select count(*)::int as n from appointments where tenant_id = $1', [T.tenantId])).rows[0].n).toBe(0);
+  });
+
+  it('agendarAction com o local do consultório marca nele e redireciona; moverAction troca o local (online: a sala fixa)', async () => {
+    const { T, p } = await tenantComPaciente();
+    const consultorio = await localPrincipal(app.db, T.ctx);
+    const video = await novoLocal(app.db, T.ctx, { nome: 'Videoconferência', tipo: 'online', linkSala: 'https://sala.exemplo.test/acao' });
+    const url = await destino(agendarAction({}, form({ ...base(p), localId: consultorio, linkOnline: '' })));
+    const id = url.match(/consultas\/([0-9a-f-]{36})\?ok=marcada/)?.[1];
+    expect(id).toBeDefined();
+    await destino(moverAction(id!, {}, form({ data: '2027-03-10', hora: '09:00', duracaoMin: '60', localId: video, linkOnline: '' })));
+    const { rows } = await owner.pool.query('select local_id, modalidade, link_online from appointments where id = $1', [id]);
+    expect(rows).toEqual([{ local_id: video, modalidade: 'online', link_online: 'https://sala.exemplo.test/acao' }]);
+  });
+
+  it('revisão (I-1): consulta num local arquivado — "Alterar" abre sem local marcado, com o aviso; salvar sem escolher devolve "Escolha o local." e nada muda', async () => {
+    const { T, p } = await tenantComPaciente();
+    await localPrincipal(app.db, T.ctx);
+    const video = await novoLocal(app.db, T.ctx, { nome: 'Sala antiga', tipo: 'online', linkSala: 'https://sala.exemplo.test/antiga' });
+    const id = await consultaDireta(app.db, T.ctx, p, new Date(Date.now() + 7 * 86_400_000), 60, { modalidade: 'online', localId: video, linkOnline: 'https://sala.exemplo.test/antiga' });
+    await owner.pool.query('update locais_atendimento set arquivado_em = now(), agendamento_online = false where id = $1', [video]);
+    const html = renderToStaticMarkup(await ConsultaPage({ params: Promise.resolve({ id }), searchParams: Promise.resolve({}) } as never));
+    expect(html).toContain('O local desta consulta foi arquivado.');
+    expect(html).toMatch(/<select[^>]*id="localId"[^>]*aria-describedby="localId-aviso"/);
+    // nenhuma opção marcada além do "Escolha o local" (o arquivado não está entre as opções)
+    const select = html.match(/<select[^>]*id="localId"[\s\S]*?<\/select>/)![0];
+    expect(select).not.toContain(video);
+    expect(select.match(/<option[^>]*selected=""[^>]*>[^<]*<\/option>/g)).toEqual(['<option value="" disabled="" selected="">Escolha o local</option>']);
+    // o detalhe continua dizendo onde a consulta foi marcada
+    expect(html).toContain('Sala antiga');
+    // o placeholder desabilitado não vai no formulário: o servidor pede o local e a consulta fica como estava
+    const r = await moverAction(id, {}, form({ data: '2027-03-10', hora: '09:00', duracaoMin: '60', linkOnline: '' }));
+    expect(r.erros).toEqual({ localId: 'Escolha o local.' });
+    const { rows } = await owner.pool.query('select local_id, modalidade, link_online from appointments where id = $1', [id]);
+    expect(rows).toEqual([{ local_id: video, modalidade: 'online', link_online: 'https://sala.exemplo.test/antiga' }]);
   });
 });

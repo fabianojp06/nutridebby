@@ -540,3 +540,39 @@ Plano 27, T8d (guarda da virada do dia no registro de metas, 24/11/2026): limpa 
 mesmo now() do INSERT, recusa antes de gravar e depois do nao_encontrada; runbook só leitura, superusuário, só ids).
 - "Dia que a tela leu" vindo de fonte diferente da leitura dos dados (TS `hojeNoFuso` antes da transação × registros por
   `app_hoje_do_tenant()`): na virada, recusa espúria por ms. Pedir que a página use o dia devolvido pela própria leitura.
+Plano 23, T3 (local na consulta e nos horários, 23/11/2026): sem Critical; travas locais → regras → local FOR SHARE ok.
+- Formulário de edição com `<select defaultValue>` de um id fora das opções (local arquivado some do seletor): o navegador e o
+  React marcam a 1ª opção habilitada, e "Salvar" grava o registro no outro local/tipo sem escolha explícita. Conferir o
+  valor inicial de todo seletor que filtra arquivados contra o valor gravado no registro editado.
+- Gatilho de cópia pela `origem` (sala → link) também dispara no UPDATE da equipe: sobrescreve o valor que a nutri digitou
+  numa linha nascida no portal. Conferir o gatilho de cópia nos caminhos de edição, não só no INSERT do papel alvo.
+Plano 23, T4 (local fora do painel, 23/11/2026): sem Critical; módulos limpos (projeções, chaves, localRecusado, par início+local).
+- Guarda por AST "select() sem colunas no publico" testada com script à parte (copiar as funções do teste e rodar com node +
+  typescript do projeto): 7 falsos negativos — coluna da sala explícita (`select({ l: appointments.linkOnline })`), alias de
+  import, `schema.appointments`, alias de `locaisAtendimento`, `.returning()` sem colunas no INSERT do publico (devolve a sala
+  copiada pelo gatilho), `sql` cru e ctx publico numa const. Controle positivo só com os casos que a guarda já pega não prova
+  nada sobre o resto: pedir no controle os casos de bypass, não só os acertos.
+Plano 23, revisão final do PR 2 (locais e visões, 24/11/2026): sem Critical; projeções e sala limpas. Repetiram:
+- Página GET que grava `exportar` no render (impressão) sem a guarda de origem que a main já usa (`navegacaoDaPropriaOrigem`,
+  relatórios/imprimir e CSVs): spec escrita antes do molde. Em toda rota/página nova que grava no GET, procurar o molde na main.
+- Impressão com filtro por paciente gravando `exportar` sem `patient_id` enquanto a main (RN-493, Ranking) grava um por titular.
+- Runbook da volta atrás que lista só os efeitos de ESCRITA da imagem antiga: esquecer o que ela OFERECE e MOSTRA sobre o dado
+  novo (horários de local sem agendamento/arquivado, endereço do Perfil nas mensagens, teto antigo de regras).
+Plano 23, revisão final do PR 4 (filtros de local, AG-D79–D82, fechamento, 24/11/2026): sem Critical/Important na lente banco.
+- Repetiu "runbook da volta atrás incompleto": o PR que se descreve como "só lê" também mudava o worker (AG-D81: sem aviso
+  para horário passado, com `prazo_passado` no envio). A imagem anterior manda as notificações que a nova já criou contando
+  com a recusa no envio. Conferir no diff do PR todo arquivo de worker/notificações antes de aceitar "só lê".
+- Critério das opções do filtro ≠ critério do filtro (opção "arquivado com consulta" conta qualquer status; o filtro exclui
+  cancelada/solicitada): opção que devolve lista vazia. Cruzar sempre o EXISTS das opções com o do filtro.
+Plano 23, revisão final do PR 3 (pedidos, retorno, aniversário, 24/11/2026): sem Critical/Important na lente banco (ordem
+trava consultiva do tenant → paciente → consulta coerente em portal/página/aceite/vencimento; exclusão sem a consultiva, sem ciclo).
+- Discriminador lido de tabela de vida curta: `daPagina` (origem do pedido, link do "não confirmado") vem de
+  `public_booking_requests`, que a limpeza apaga 24 h depois da criação enquanto a consulta `solicitada` dura dias. Conferir
+  a retenção de toda tabela usada como "de onde veio" de um registro que vive mais que ela.
+- Tipo novo de notificação com índice "uma por ano": na janela do deploy (ou na volta atrás) o worker antigo marca `falhou`
+  (sem modelo) e a linha ocupa o balde do ano para sempre. Pedir o worker primeiro ou o tratamento no runbook.
+- CLAUDE.md dizendo "semConta só para gravar" quando o módulo também lê com semConta no GET (estado do link): conferir verbo.
+Plano 23, re-revisão escopada das correções do /code-review do PR 2 (24/11/2026): sem Critical/Important.
+- Defesa no servidor mais larga que o gatilho que ela espelha (gatilho só age na troca de local; o código grava a sala
+  sempre): sobrescreve, sem a nutricionista ver, um link antigo ≠ sala atual. Cruzar o "quando" do gatilho com o do código.
+- Fallback "resolver pelo único candidato" (local do pedido sem local): conferir que o teste cobre o caso ambíguo (>1).

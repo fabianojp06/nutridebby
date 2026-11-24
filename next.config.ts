@@ -30,6 +30,8 @@ const nextConfig: NextConfig = {
     // pacientes — nada em cache (a rota do CSV também manda o cabeçalho; aqui vale desde a primeira resposta)
     { source: '/painel/relatorios/imprimir', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
     { source: '/api/painel/relatorios/csv', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
+    // Plano 23 (AG-D71, RN-419): a impressão da agenda tem nome de pacientes e grava um "exportar" a cada render — nada em cache
+    { source: '/painel/agenda/imprimir', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
   ],
 };
 

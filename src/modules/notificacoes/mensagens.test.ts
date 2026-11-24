@@ -5,7 +5,7 @@ import type { AppointmentRow, NotificationRow, PatientRow, TenantRow } from '@/d
 import { sealSecret } from '@/lib/crypto';
 import { chaveDosLinks, lerLinkConsulta } from '@/modules/agenda/link-consulta';
 import type { ContextoEnvio } from './enviar';
-import { emailDaNotificacao, emailMascarado, FINALIDADE_CONTEUDO, primeiroNome, pushDaNotificacao, textoConviteWhatsapp, textoWhatsapp } from './mensagens';
+import { dadosDaConsulta, emailDaNotificacao, emailMascarado, FINALIDADE_CONTEUDO, primeiroNome, pushDaNotificacao, textoConviteWhatsapp, textoWhatsapp } from './mensagens';
 
 const deps = { appUrl: 'https://app.exemplo.com', chaveLinks: chaveDosLinks(Buffer.alloc(32, 9)) };
 const tenant = { id: '0b6f3c1e-8a7d-4c2b-9f10-1a2b3c4d5e6f', nomeExibicao: 'Debby Silva', fuso: 'America/Sao_Paulo', enderecoConsultorio: 'Rua das Flores, 10', cancelamentoMinH: 24 } as TenantRow;
@@ -140,6 +140,47 @@ describe('texto do push (D19: sem dado de saúde; fechamento: neutro, sem o nome
       const p = pushDaNotificacao(c, deps)!;
       const texto = JSON.stringify({ titulo: p.titulo, corpo: p.corpo });
       for (const dado of ['Ana', 'Souza', 'Debby', 'Silva', 'Rua das Flores', 'presencial', 'online', 'meet.google.com']) expect(texto, dado).not.toContain(dado);
+    }
+  });
+});
+
+describe('Plano 23 (T4): o local da consulta nas mensagens (US-402, RN-406, RN-407; push sem local, D19)', () => {
+  const CENTRO = { nome: 'Clínica Centro', tipo: 'presencial' as const, endereco: 'Av. Central, 500' };
+  const noCentro = (c: ContextoEnvio): ContextoEnvio => ({ ...c, consulta: { ...c.consulta!, localId: '7d3f6a2e-1c4b-4e8a-9b0d-2f6e8c1a5b3d' } as AppointmentRow, local: CENTRO });
+
+  it('lembrete por e-mail e WhatsApp com o endereço de "Clínica Centro" (não o do Perfil); o WhatsApp não leva o nome do local', () => {
+    for (const tipo of ['lembrete_24h', 'lembrete_2h', 'consulta_marcada']) {
+      expect(emailDaNotificacao(noCentro(ctx(tipo)), deps), tipo).toMatchObject({ modalidade: 'presencial', local: 'Av. Central, 500' });
+    }
+    for (const tipo of ['lembrete_24h', 'lembrete_2h']) {
+      const w = textoWhatsapp(noCentro(ctx(tipo)))!;
+      expect(w, tipo).toContain('Endereço: Av. Central, 500');
+      expect(w, tipo).not.toContain('Rua das Flores');
+      expect(w, tipo).not.toContain('Clínica Centro');
+    }
+  });
+
+  it('consulta sem local (antiga) → endereço do Perfil; local presencial sem endereço → nenhum endereço (nunca o do Perfil no lugar do local)', () => {
+    expect(dadosDaConsulta({ consulta, tenant }).local).toBe('Rua das Flores, 10');
+    expect(dadosDaConsulta({ consulta, tenant, local: null }).local).toBe('Rua das Flores, 10');
+    const semEndereco = noCentro(ctx('lembrete_24h'));
+    semEndereco.local = { ...CENTRO, endereco: null };
+    expect(emailDaNotificacao(semEndereco, deps)).toMatchObject({ local: null });
+    expect(textoWhatsapp(semEndereco)).not.toContain('Endereço:');
+  });
+
+  it('online num local: o e-mail leva o link da própria consulta (a sala copiada), nunca outro; o WhatsApp não leva link', () => {
+    const c: ContextoEnvio = { ...online(ctx('lembrete_24h')), local: { nome: 'Videoconferência', tipo: 'online', endereco: null } };
+    expect(emailDaNotificacao(c, deps)).toMatchObject({ modalidade: 'online', local: 'https://meet.google.com/abc' });
+    expect(textoWhatsapp(c)).not.toMatch(SEM_URL);
+    expect(textoWhatsapp(c)).not.toContain('Videoconferência');
+  });
+
+  it('push só com o horário: nem nome nem endereço do local', () => {
+    for (const tipo of ['lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada']) {
+      const p = pushDaNotificacao(noCentro(ctx(tipo)), deps)!;
+      const texto = JSON.stringify({ titulo: p.titulo, corpo: p.corpo });
+      for (const dado of ['Clínica Centro', 'Av. Central', 'Rua das Flores', 'presencial']) expect(texto, `${tipo} ${dado}`).not.toContain(dado);
     }
   });
 });

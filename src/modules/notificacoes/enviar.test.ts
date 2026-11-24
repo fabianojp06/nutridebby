@@ -1,12 +1,12 @@
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { consultaDireta, em, SP, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, localPrincipal, novoLocal, SP, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { transporteFalso, type TransporteFalso } from '../../../test/email';
 import { depsDeEnvio } from '../../../test/notificacoes';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, notifications, patients, pushSubscriptions, tenants } from '@/db/schema';
+import { appointments, locaisAtendimento, notifications, patients, pushSubscriptions, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { encryptionKey } from '@/lib/crypto';
@@ -35,7 +35,7 @@ const deps = (agora: Date, transport?: TransporteFalso) => depsDeEnvio(agora, { 
 
 async function marcada(T: TenantDeTeste, extra: Record<string, string> = {}) {
   const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });
-  const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial', ...extra }, { db: app.db, now: marcadaEm });
+  const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: ana.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx), ...extra }, { db: app.db, now: marcadaEm });
   return { ana, id };
 }
 const linha = async (T: TenantDeTeste, id: string, tipo: string, canal: string) =>
@@ -140,7 +140,7 @@ describe('envio das notificações (RN-05, US-034, D6)', () => {
     await processarNotificacoes(deps(marcadaEm, t), { tenantId: T.tenantId });
     const minuto = (n: number) => new Date(marcadaEm.getTime() + n * 60_000);
     for (const [n, hora] of [[1, '15:00'], [2, '14:00']] as const) {
-      await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: minuto(n) });
+      await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now: minuto(n) });
       await processarNotificacoes(deps(minuto(n), t), { tenantId: T.tenantId });
     }
     expect(t.enviados.map((e) => e.subject)).toEqual([
@@ -165,7 +165,7 @@ describe('envio das notificações (RN-05, US-034, D6)', () => {
     const t = transporteFalso();
     await processarNotificacoes(deps(marcadaEm, t), { tenantId: T.tenantId }); // a marcação (14:00) saiu
     for (const hora of ['15:00', '14:00']) {
-      await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: marcadaEm });
+      await moverConsulta(T.ctx, tenantAgenda(T), id, { data: '2026-10-16', hora, duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now: marcadaEm });
     }
     await processarNotificacoes(deps(marcadaEm, t), { tenantId: T.tenantId });
     expect(t.enviados.map((e) => e.subject)).toEqual(Array(2).fill('Consulta marcada: sex., 16/10/2026 às 14:00 (horário de Brasília)'));
@@ -293,6 +293,23 @@ describe('envio das notificações (RN-05, US-034, D6)', () => {
     const pendentes = async (T: TenantDeTeste) => (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.tipo, 'consulta_marcada'), eq(notifications.status, 'pendente'))), app.db)).length;
     expect(await pendentes(pequeno)).toBe(0);
     expect(await pendentes(grande)).toBe(46 - 38);
+  });
+});
+
+describe('Plano 23 (T4): o worker carrega o local da consulta (US-402)', () => {
+  it('"Consulta marcada" num local leva o endereço dele, não o do Perfil', async () => {
+    const T = await novoTenant(app.db);
+    await app.db.update(tenants).set({ enderecoConsultorio: 'Rua do Perfil, 1' }).where(eq(tenants.id, T.tenantId));
+    await localPrincipal(app.db, T.ctx); // o "Consultório" principal antes (o `marcada` o procura)
+    const centro = await novoLocal(app.db, T.ctx, { nome: 'Clínica Centro' });
+    await withTenant(T.ctx, (tx) => tx.update(locaisAtendimento).set({ endereco: 'Av. Central, 500' }).where(eq(locaisAtendimento.id, centro)), app.db);
+    const { ana } = await marcada(T, { localId: centro });
+    const d = deps(marcadaEm);
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    const [e] = d.transport.enviados;
+    expect(e.to).toBe(ana.email);
+    expect(e.text).toContain('Endereço: Av. Central, 500');
+    expect(e.text).not.toContain('Rua do Perfil');
   });
 });
 

@@ -7,7 +7,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { consultaDireta } from '../../../test/agenda';
+import { consultaDireta, novoLocal } from '../../../test/agenda';
 import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
 import { cobrancasDoPaciente } from '../../../test/financeiro';
 import { tarefaNoBanco } from '../../../test/ia';
@@ -169,7 +169,9 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     const MSG_ID = `ID-DA-EVOLUTION-${randomUUID()}`; // rodada 1: provider_msg_id é UNIQUE no banco compartilhado pelos testes
     const inicio = new Date('2026-09-15T12:00:00Z');
     const consulta = await consultaDireta(app.db, T.ctx, p.id, inicio, 60, { status: 'cancelada', canceladoPor: 'nutri', canceladaEm: now, motivoCancelamento: MOTIVO_DA_NUTRI });
-    await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-20T12:00:00Z'), 60, { status: 'cancelada', canceladoPor: 'paciente', canceladaEm: now, motivoCancelamento: 'Remarcada pelo paciente', origem: 'paciente' });
+    // Plano 23 (RN-438): a consulta com local leva o nome dele; a antiga (sem local), null
+    const centro = await novoLocal(app.db, T.ctx, { nome: 'Clínica Centro' });
+    await consultaDireta(app.db, T.ctx, p.id, new Date('2026-09-20T12:00:00Z'), 60, { status: 'cancelada', canceladoPor: 'paciente', canceladaEm: now, motivoCancelamento: 'Remarcada pelo paciente', origem: 'paciente', localId: centro });
     await withTenant(T.ctx, (tx) => tx.insert(notifications).values({
       tenantId: T.tenantId, patientId: p.id, appointmentId: consulta, inicioConsulta: inicio, canal: 'whatsapp', tipo: 'lembrete_24h', status: 'enviada',
       agendadaPara: new Date('2026-09-14T12:00:00Z'), enviadaEm: new Date('2026-09-14T12:00:01Z'), providerJid: JID, providerMsgId: MSG_ID,
@@ -228,8 +230,8 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         refeicoes: [{ nome: 'Almoço', horario: '12:00', observacao: '', sugestaoDeReceita: null, itens: [{ alimento: 'Arroz, tipo 1, cozido', quantidadeG: 100, medida: null, substituiDe: null }] }] },
     ]);
     expect(dados.consultas).toEqual([
-      { inicio: '2026-09-15T12:00:00.000Z', fim: '2026-09-15T13:00:00.000Z', modalidade: 'presencial', status: 'cancelada', origem: 'nutri', canceladoPor: 'nutri', motivoCancelamento: null },
-      { inicio: '2026-09-20T12:00:00.000Z', fim: '2026-09-20T13:00:00.000Z', modalidade: 'presencial', status: 'cancelada', origem: 'paciente', canceladoPor: 'paciente', motivoCancelamento: 'Remarcada pelo paciente' },
+      { inicio: '2026-09-15T12:00:00.000Z', fim: '2026-09-15T13:00:00.000Z', modalidade: 'presencial', status: 'cancelada', origem: 'nutri', canceladoPor: 'nutri', motivoCancelamento: null, local: null },
+      { inicio: '2026-09-20T12:00:00.000Z', fim: '2026-09-20T13:00:00.000Z', modalidade: 'presencial', status: 'cancelada', origem: 'paciente', canceladoPor: 'paciente', motivoCancelamento: 'Remarcada pelo paciente', local: 'Clínica Centro' },
     ]);
     expect(dados.lembretes).toEqual([
       { tipo: 'lembrete_24h', canal: 'whatsapp', status: 'enviada', agendadaPara: '2026-09-14T12:00:00.000Z', enviadaEm: '2026-09-14T12:00:01.000Z', motivoNaoEnviado: null },

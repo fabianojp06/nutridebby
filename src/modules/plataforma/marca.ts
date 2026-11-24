@@ -16,8 +16,6 @@ export const MSG_MARCA = {
   cor: 'Cor muito clara para texto branco',
   corFormato: 'Use o formato #RRGGBB',
   horas: 'Informe um número inteiro de 0 a 72',
-  link: 'Informe um link que comece com https://',
-  linkTamanho: 'Use no máximo 500 caracteres',
   fuso: 'Fuso horário inválido',
   endereco: 'Use no máximo 200 caracteres',
 } as const;
@@ -37,12 +35,8 @@ export const perfilSchema = z.object({
     .regex(/^#[0-9a-fA-F]{6}$/, MSG_MARCA.corFormato)
     .refine((c) => contrasteComBranco(c) >= 4.5, MSG_MARCA.cor),
   enderecoConsultorio: z.string().trim().max(200, MSG_MARCA.endereco).transform(opcional),
-  linkOnlinePadrao: z
-    .string()
-    .trim()
-    .max(500, MSG_MARCA.linkTamanho)
-    .refine((v) => v === '' || (/^https:\/\/\S+$/.test(v) && URL.canParse(v)), MSG_MARCA.link)
-    .transform(opcional),
+  // Plano 23 (AG-D7): o link padrão da consulta online saiu do Perfil (fica em Locais de atendimento); a coluna
+  // tenants.link_online_padrao continua para a imagem anterior e as consultas sem local, mas o Perfil não a lê nem grava
   antecedenciaMinH: horas,
   cancelamentoMinH: horas,
   agendamentoPublicoAtivo: z.boolean(),

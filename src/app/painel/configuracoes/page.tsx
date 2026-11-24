@@ -18,6 +18,7 @@ const CARTOES = [
   { href: '/conta/seguranca', titulo: 'Segurança', texto: 'Senha e verificação em duas etapas.' },
   // Plano 22 (T3, EP-D33): no fim
   { href: '/painel/exames/catalogo', titulo: 'Exames', texto: 'Catálogo de exames, faixas do consultório e modelos de solicitação.' },
+  { href: '/painel/agenda/locais', titulo: 'Locais de atendimento', texto: 'Consultórios, salas de videoconferência e onde cada um aceita agendamento.' }, // Plano 23 (US-400)
 ];
 
 /** D20: hub de Configurações. */

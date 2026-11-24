@@ -4,7 +4,7 @@ import https from 'node:https';
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
 import webpush from 'web-push';
-import { em, tenantAgenda } from '../../../test/agenda';
+import { em, localPrincipal, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { caminhoAte, grafoDeImports, raizesDoNext } from '../../../test/grafo-de-imports';
 import { depsDeEnvio } from '../../../test/notificacoes';
@@ -45,7 +45,7 @@ async function marcadaComInscricoes(T: TenantDeTeste, n: number, hora = '14:00')
   for (const endpoint of endpoints) {
     await withTenant(T.ctx, (tx) => tx.insert(pushSubscriptions).values({ tenantId: T.tenantId, patientId: p.id, endpoint, p256dh: 'a'.repeat(87), auth: 'b'.repeat(22) }), app.db);
   }
-  const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: p.id, data: '2026-10-16', hora, duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: marcadaEm });
+  const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: p.id, data: '2026-10-16', hora, duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now: marcadaEm });
   return { p, id, endpoints };
 }
 /** Inscrição com chaves de verdade (p256dh na curva P-256, auth de 16 bytes) num serviço de push conhecido — só para teste. */

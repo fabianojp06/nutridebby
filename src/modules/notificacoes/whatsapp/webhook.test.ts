@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { consultaDireta, em, tenantAgenda } from '../../../../test/agenda';
+import { consultaDireta, em, localPrincipal, tenantAgenda } from '../../../../test/agenda';
 import { makeDb } from '../../../../test/db';
 import { depsDeEnvio } from '../../../../test/notificacoes';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../../test/pacientes';
@@ -386,7 +386,7 @@ describe('processarEventoWhatsapp (US-035)', () => {
     const T = await tenant();
     const { c } = await lembreteEnviado(T);
     await processar(upsert(`nd-${T.tenantId}`, '1'));
-    await moverConsulta(T.ctx, tenantAgenda(T), c, { data: '2026-10-17', hora: '10:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: agora });
+    await moverConsulta(T.ctx, tenantAgenda(T), c, { data: '2026-10-17', hora: '10:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now: agora });
     expect((await respostas(T, c)).find((n) => n.tipo === 'resposta_confirmacao')).toMatchObject({ status: 'ignorada', motivoIgnorada: 'consulta_remarcada' });
     // a resposta já reservada ("enviando") quando a consulta é cancelada: o envio confere a consulta (como nos lembretes)
     const U = await tenant();

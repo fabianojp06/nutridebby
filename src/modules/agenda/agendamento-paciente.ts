@@ -4,13 +4,14 @@ import { appointments, type PatientRow } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { getEnv } from '@/env';
 import { agendarLembretes, avisarPaciente, dispararEnvio } from '@/modules/notificacoes/agendar';
-import { carregarPacienteParaEscrita } from '@/modules/pacientes/base';
+import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { dataValida } from '@/modules/pacientes/datas';
 import { avisarNutriDaConsulta } from './aviso-nutri';
 import { JANELA_PACIENTE_DIAS, MAX_CONSULTAS_FUTURAS_PUBLICO, MSG_AGENDA } from './constantes';
 import { ConsultaError, ehSobreposicao, horariosLivres, repetirSeDeadlock, STATUS_ATIVOS, type TenantAgenda } from './consultas';
 import { segundaDaSemana, somarDias } from './fuso';
-import type { Horario, Modalidade } from './horarios';
+import type { Horario, LocalVisivel, Modalidade } from './horarios';
+import { locaisParaAgendamento, locaisVisiveis } from './locais';
 
 export type HorarioEscolhido = Horario & { modalidade: Modalidade };
 
@@ -41,18 +42,48 @@ export async function horariosParaPaciente(tenant: TenantAgenda, agora: Date, op
 
 /**
  * O horário que o paciente escolheu precisa ser, agora, um horário livre oferecido (janela, regras, bloqueios,
- * ocupação e modalidade). Qualquer outra coisa — inclusive lixo no campo — é "não está mais disponível".
+ * ocupação e local). Qualquer outra coisa — inclusive lixo no campo — é "não está mais disponível".
+ * Plano 23 (AG-D60): o par início-local escolhido, nunca o primeiro horário do instante (com dois locais no mesmo instante,
+ * o outro local daria "não está mais disponível" ou marcaria no lugar errado); a modalidade é o tipo do local.
  * Lê o banco por uma conexão própria: chamar ANTES de abrir a transação da gravação, nunca dentro dela (o EXCLUDE
  * decide a corrida na gravação).
  */
-export async function escolherHorario(tenant: TenantAgenda, inicio: unknown, modalidade: unknown, agora: Date, opts: { db?: Db; ignorarConsultaId?: string } = {}): Promise<HorarioEscolhido> {
+export async function escolherHorario(tenant: TenantAgenda, inicio: unknown, localId: unknown, agora: Date, opts: { db?: Db; ignorarConsultaId?: string } = {}): Promise<HorarioEscolhido> {
   const indisponivel = () => new ConsultaError({ inicio: MSG_AGENDA.indisponivel });
   const t = typeof inicio === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(inicio) ? Date.parse(inicio) : NaN;
-  if (!Number.isFinite(t) || (modalidade !== 'presencial' && modalidade !== 'online')) throw indisponivel();
+  if (!Number.isFinite(t) || typeof localId !== 'string' || !idValido(localId)) throw indisponivel();
   const alvo = new Date(t);
-  const [h] = await horariosParaPaciente(tenant, agora, { ...opts, de: alvo, ate: new Date(t + 60_000) });
-  if (!h || h.inicio.getTime() !== t || !h.modalidades.includes(modalidade)) throw indisponivel();
-  return { ...h, modalidade };
+  const hs = await horariosParaPaciente(tenant, agora, { ...opts, de: alvo, ate: new Date(t + 60_000) });
+  const h = hs.find((x) => x.inicio.getTime() === t && x.localId === localId);
+  if (!h) throw indisponivel();
+  return { ...h, modalidade: h.modalidades[0] };
+}
+
+/**
+ * Plano 23 (US-403, RN-405, AG-D40): os locais da escolha do portal, da página pública e do link — os ativos com "Aceita
+ * agendamento pelo paciente", pela projeção (sem a sala), no contexto `publico`. Não olha a chave da página pública: o
+ * portal oferece com ela desligada.
+ */
+export async function locaisDoAgendamento(tenant: Pick<TenantAgenda, 'id'>, opts: { db?: Db } = {}): Promise<LocalVisivel[]> {
+  return locaisVisiveis(await withTenant({ tenantId: tenant.id, role: 'publico' }, (tx) => locaisParaAgendamento(tx), opts.db ?? getDb()));
+}
+
+/**
+ * Plano 23 (RN-406): o gatilho `appointments_link_da_sala` recusa (42501) a consulta do paciente num local arquivado ou sem
+ * agendamento pelo paciente — o local mudou entre a tela e o envio. Só esse 42501 (pela mensagem fixa do gatilho, 0127): uma
+ * recusa da RLS continua sendo erro.
+ */
+export function localRecusado(err: unknown): boolean {
+  let e: unknown = err;
+  let codigo = false;
+  let mensagem = false;
+  for (let i = 0; e && typeof e === 'object' && i < 5; i++) {
+    const pg = e as { code?: unknown; message?: unknown; cause?: unknown };
+    if (pg.code === '42501') codigo = true;
+    if (typeof pg.message === 'string' && pg.message.includes('o local não aceita agendamento pelo paciente')) mensagem = true;
+    e = pg.cause;
+  }
+  return codigo && mensagem;
 }
 
 /**
@@ -75,7 +106,11 @@ export async function gravarConsultaDoPaciente(
       inicio: h.inicio,
       fim: h.fim,
       modalidade: h.modalidade,
-      linkOnline: h.modalidade === 'online' ? tenant.linkOnlinePadrao : null,
+      // Plano 23 (RN-406): o local do horário; o link da consulta online é a sala do local, copiada pelo gatilho
+      // appointments_link_da_sala (o local com agendamento pelo paciente sempre tem sala: CHECK locais_atendimento_agendamento);
+      // local arquivado ou sem agendamento entre a escolha e aqui → 42501 do gatilho (`localRecusado`)
+      localId: h.localId,
+      linkOnline: null,
       status: 'agendada',
       origem: 'paciente',
       remarcadaDe: o.remarcadaDe ?? null,
@@ -102,7 +137,7 @@ export async function gravarConsultaDoPaciente(
 export async function agendarComoPaciente(
   ctx: TenantContext,
   tenant: TenantAgenda,
-  input: { inicio: unknown; modalidade: unknown },
+  input: { inicio: unknown; localId: unknown },
   deps: { db?: Db; now?: Date; appUrl?: string } = {},
 ): Promise<{ id: string }> {
   if (ctx.role !== 'paciente' || !ctx.patientId) throw new Error('agendarComoPaciente exige sessão de paciente');
@@ -112,7 +147,7 @@ export async function agendarComoPaciente(
   try {
     // 40P01 na corrida do EXCLUDE: a escolha do horário e a gravação de novo, uma vez (repetirSeDeadlock)
     return await repetirSeDeadlock(async () => {
-      const h = await escolherHorario(tenant, input.inicio, input.modalidade, agora, { db });
+      const h = await escolherHorario(tenant, input.inicio, input.localId, agora, { db });
       return withTenant(
         ctx,
         async (tx) => {
@@ -130,6 +165,7 @@ export async function agendarComoPaciente(
     });
   } catch (e) {
     if (ehSobreposicao(e)) throw new ConsultaError({ inicio: MSG_AGENDA.ocupado }); // RN-03
+    if (localRecusado(e)) throw new ConsultaError({ inicio: MSG_AGENDA.indisponivel }); // Plano 23: local mudou no meio
     throw e;
   }
 }

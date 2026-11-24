@@ -42,7 +42,7 @@ export async function cancelarAction(token: string): Promise<AcaoLinkState> {
 }
 
 export async function remarcarAction(token: string, _prev: AcaoLinkState, fd: FormData): Promise<AcaoLinkState> {
-  return executar(async () => ({ ok: MSG_AGENDA.remarcada((await remarcarPeloLink(token, { inicio: fd.get('inicio'), modalidade: fd.get('modalidade') }, await deps())).quando) }));
+  return executar(async () => ({ ok: MSG_AGENDA.remarcada((await remarcarPeloLink(token, { inicio: fd.get('inicio'), localId: fd.get('localId') }, await deps())).quando) }));
 }
 
 /** US-035: false = o pedido já tinha sido feito ou não cabe mais (consulta cancelada ou começando) — a página se refaz. */

@@ -7,6 +7,7 @@ import { buscarConsulta, motivoDoCancelamentoDaNutri, STATUS_ATIVOS } from '@/mo
 import { listarBloqueios } from '@/modules/agenda/disponibilidade';
 import { formatarQuando, partesNoFuso } from '@/modules/agenda/fuso';
 import { sobrepoe } from '@/modules/agenda/horarios';
+import { locaisDoPainel } from '@/modules/agenda/locais';
 import { consultaParaIniciarAtendimento, MSG_PRESENCA } from '@/modules/agenda/presenca';
 import { cobrancaDaConsulta, type TipoDeResultado } from '@/modules/financeiro/cobranca';
 import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
@@ -80,13 +81,23 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
   const podeAtender = (await consultaParaIniciarAtendimento(ctx, c.patientId, c.id, agora)) !== null;
   // revisão final: o motivo que ela escreveu ao cancelar ("Só você vê.") — só nesta página do painel
   const motivo = c.status === 'cancelada' && c.canceladoPor === 'nutri' ? await motivoDoCancelamentoDaNutri(ctx, c.id) : null;
+  // Plano 23 (US-402, RN-407): o local no detalhe; a consulta anterior ao Plano 23 mostra o endereço do Perfil, como antes
+  const nomeDoLocal = c.local?.nome ?? 'Consultório (endereço do perfil)';
+  const locais = ativa ? await locaisDoPainel(ctx) : [];
+  // a consulta sem local (anterior ao Plano 23) abre "Alterar" no primeiro local do tipo dela (o principal, se for desse tipo)
+  // revisão (I-1): o local arquivado não está entre as opções; sem isto o navegador marcaria a primeira e o "Salvar alteração"
+  // trocaria o local (e a modalidade) sem a nutricionista escolher. Fica o "Escolha o local" e o servidor pede o local.
+  const localArquivado = c.localId !== null && !locais.some((l) => l.id === c.localId);
+  const localInicial = c.localId
+    ? (localArquivado ? '' : c.localId)
+    : ((locais.find((l) => l.tipo === c.modalidade && l.principal) ?? locais.find((l) => l.tipo === c.modalidade))?.id ?? '');
   return (
     <>
       <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
         <p className="text-sm"><Link href={`/painel/agenda?data=${p.data}`} className="text-link underline">Agenda</Link></p>
         <header className="space-y-1">
           <h1 id={ID_TITULO_CONSULTA} tabIndex={-1} className="font-titulo text-2xl font-semibold">{`Consulta de ${c.paciente}`}</h1>
-          <p>{`${formatarQuando(c.inicio, tenant.fuso)}–${partesNoFuso(c.fim, tenant.fuso).hora} · ${ROTULO_MODALIDADE[c.modalidade]}`}</p>
+          <p>{`${formatarQuando(c.inicio, tenant.fuso)}–${partesNoFuso(c.fim, tenant.fuso).hora} · ${ROTULO_MODALIDADE[c.modalidade]} · ${nomeDoLocal}`}</p>
           {c.linkOnline && <p className="text-sm">Link da chamada: <a href={c.linkOnline} className="text-link underline" rel="noreferrer" target="_blank">{c.linkOnline}</a></p>}
           <ul className="flex flex-wrap gap-1 text-sm" aria-label="Situação">
             {selosDaConsulta(c, emBloqueio).map((s) => <li key={s} className="rounded bg-linha px-1.5">{s}</li>)}
@@ -119,8 +130,8 @@ export default async function ConsultaPage({ params, searchParams }: PageProps<'
         {ativa && (
           <section aria-labelledby="alterar" className="space-y-2">
             <h2 id="alterar" className="text-lg font-semibold">Alterar data e hora</h2>
-            <ConsultaForm acao={moverAction.bind(null, c.id)} linkPadrao={tenant.linkOnlinePadrao} botao="Salvar alteração"
-              inicial={{ data: p.data, hora: p.hora, duracaoMin: String(Math.round((c.fim.getTime() - c.inicio.getTime()) / 60_000)), modalidade: c.modalidade, linkOnline: c.linkOnline ?? '' }} />
+            <ConsultaForm acao={moverAction.bind(null, c.id)} avisoDoLocal={localArquivado ? 'O local desta consulta foi arquivado.' : undefined} locais={locais.map(({ id, nome, tipo, linkSala }) => ({ id, nome, tipo, linkSala }))} doPaciente={c.origem === 'paciente'} botao="Salvar alteração"
+              inicial={{ data: p.data, hora: p.hora, duracaoMin: String(Math.round((c.fim.getTime() - c.inicio.getTime()) / 60_000)), localId: localInicial, linkOnline: c.linkOnline ?? '' }} />
           </section>
         )}
         {ativa && (

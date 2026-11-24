@@ -15,11 +15,11 @@ import { normalizarTelefone } from '@/modules/pacientes/telefone';
 import { TERMO_PACIENTE, TERMO_PACIENTE_VERSAO } from '@/modules/pacientes/termo-paciente';
 import { MSG_TEXTO_ATUALIZADO } from '@/modules/plataforma/textos-versionados';
 import { buscarTenantPorSlug, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
-import { escolherHorario, gravarConsultaDoPaciente, horariosParaPaciente, semanaDaJanela, type HorarioEscolhido } from './agendamento-paciente';
+import { escolherHorario, gravarConsultaDoPaciente, horariosParaPaciente, localRecusado, locaisDoAgendamento, semanaDaJanela, type HorarioEscolhido } from './agendamento-paciente';
 import { MAX_CONSULTAS_FUTURAS_PUBLICO, MSG_AGENDA, MSG_PUBLICO } from './constantes';
 import { ConsultaError, ehSobreposicao, STATUS_ATIVOS } from './consultas';
 import { inicioDoDia, quandoComFuso, somarDias } from './fuso';
-import { horariosVisiveis, type HorarioVisivel } from './horarios';
+import { horariosVisiveis, localInicial, type HorarioVisivel, type LocalVisivel, type Modalidade } from './horarios';
 import { chaveDoLimite, consumirLimite } from './limite-ip';
 
 export { MSG_PUBLICO };
@@ -35,11 +35,25 @@ export class PublicoError extends Error {
   }
 }
 
+/** Plano 23 (US-403): "{nome} · Nutricionista · {crn}" — o nome profissional (ou o de exibição) e o CRN como gravado. */
+export type CabecalhoPublico = { nome: string; crn: string | null };
 export type PaginaPublica =
   | { estado: 'nao_encontrada' }
   | { estado: 'suspensa'; nome: string }
   | { estado: 'desativada'; nome: string }
-  | { estado: 'ativa'; tenantId: string; nome: string; temOnline: boolean; semana: string; primeira: string; ultima: string; horarios: HorarioVisivel[] };
+  | {
+      estado: 'ativa';
+      tenantId: string;
+      nome: string;
+      cabecalho: CabecalhoPublico;
+      /** Plano 23 (I-13): os locais com agendamento pelo paciente, sem a sala; `localInicial` vem de `?local=`. */
+      locais: LocalVisivel[];
+      localInicial: string | null;
+      semana: string;
+      primeira: string;
+      ultima: string;
+      horarios: HorarioVisivel[];
+    };
 /**
  * `ip`: o de quem pediu (auditoria, aceite do termo, Turnstile). `ipDoLimite`: o balde do limite por IP — a rota passa
  * o `clientIpDoLimite` (IPv6: o /64); sem ele, conta pelo próprio `ip`.
@@ -52,7 +66,11 @@ export type DepsPublico = {
   verificarTurnstile: (token: string | null) => Promise<ResultadoTurnstile>;
   appUrl?: string;
 };
-export type ResultadoConfirmacao = { estado: 'agendada'; quando: string } | { estado: 'horario_ocupado'; horarios: HorarioVisivel[] };
+/**
+ * `horario_ocupado`: outro horário a escolher. `indisponivel` (Plano 23): o local deixou de aceitar agendamento entre a
+ * escolha e a gravação — a tela diz "não está mais disponível" em vez de "acabou de ser ocupado".
+ */
+export type ResultadoConfirmacao = { estado: 'agendada'; quando: string } | { estado: 'horario_ocupado'; horarios: HorarioVisivel[]; indisponivel?: true };
 
 const CODIGO_VALIDADE_MS = 10 * 60_000;
 /** Depois do código certo, o pedido ainda escolhe outro horário (se o dele foi ocupado) por 30 min, sem novo código. */
@@ -82,8 +100,17 @@ async function horariosDaSemana(tenant: TenantRow, semana: string, agora: Date, 
   return horariosVisiveis(hs, tenant.fuso);
 }
 
-/** US-032: o que a página pública mostra — nome da nutricionista e horários livres de uma semana da janela (D11: só intervalos). */
-export async function carregarPaginaPublica(slug: string, opts: { semana?: unknown; agora?: Date; db?: Db } = {}): Promise<PaginaPublica> {
+/** Plano 23 (US-403): o nome profissional, ou o de exibição se ele faltar; o CRN como gravado (vazio = sem CRN). */
+export function cabecalhoPublico(t: Pick<TenantRow, 'nomeExibicao' | 'nomeProfissional' | 'crn'>): CabecalhoPublico {
+  return { nome: t.nomeProfissional?.trim() || t.nomeExibicao, crn: t.crn?.trim() || null };
+}
+
+/**
+ * US-032: o que a página pública mostra — nome da nutricionista e horários livres de uma semana da janela (D11: só
+ * intervalos). Plano 23 (US-403, I-13): o cabeçalho com o CRN e os locais com agendamento pelo paciente (sem a sala); cada
+ * horário traz o local e a tela filtra; `?local=` é só o valor inicial.
+ */
+export async function carregarPaginaPublica(slug: string, opts: { semana?: unknown; local?: unknown; agora?: Date; db?: Db } = {}): Promise<PaginaPublica> {
   const db = opts.db ?? getDb();
   const agora = opts.agora ?? new Date();
   const t = await buscarTenantPorSlug(db, slug);
@@ -91,7 +118,9 @@ export async function carregarPaginaPublica(slug: string, opts: { semana?: unkno
   if (t.status !== 'ativa') return { estado: 'suspensa', nome: t.nomeExibicao }; // RN-15
   if (!t.agendamentoPublicoAtivo) return { estado: 'desativada', nome: t.nomeExibicao };
   const { semana, primeira, ultima } = semanaDaJanela(opts.semana, hojeNoFuso(t.fuso, agora));
-  return { estado: 'ativa', tenantId: t.id, nome: t.nomeExibicao, temOnline: !!t.linkOnlinePadrao, semana, primeira, ultima, horarios: await horariosDaSemana(t, semana, agora, db) };
+  const locais = await locaisDoAgendamento(t, { db });
+  const horarios = await horariosDaSemana(t, semana, agora, db);
+  return { estado: 'ativa', tenantId: t.id, nome: t.nomeExibicao, cabecalho: cabecalhoPublico(t), locais, localInicial: localInicial(locais, horarios, opts.local), semana, primeira, ultima, horarios };
 }
 
 type DadosDoPedido = { nome: string; email: string; telefone: string | null; whatsapp: boolean };
@@ -142,7 +171,7 @@ export async function solicitarCodigo(slug: string, input: Record<string, unknow
   if (t !== 'ok') throw new PublicoError(403, { geral: MSG_TURNSTILE_INVALIDO });
   let h: HorarioEscolhido;
   try {
-    h = await escolherHorario(tenant, input.inicio, input.modalidade, agora, { db }); // conexão própria: antes da transação
+    h = await escolherHorario(tenant, input.inicio, input.localId, agora, { db }); // conexão própria: antes da transação
   } catch (e) {
     if (e instanceof ConsultaError) throw new PublicoError(409, { inicio: MSG_AGENDA.indisponivel });
     throw e;
@@ -173,6 +202,7 @@ export async function solicitarCodigo(slug: string, input: Record<string, unknow
         whatsappOptin: v.whatsapp,
         inicio: h.inicio,
         modalidade: h.modalidade,
+        localId: h.localId, // Plano 23: o local escolhido (a projeção não tem a sala; a cópia é do gatilho, no aceite)
         termoVersao: TERMO_PACIENTE,
         ip: deps.ip,
         expiraEm: new Date(agora.getTime() + CODIGO_VALIDADE_MS),
@@ -246,17 +276,18 @@ async function reconferirPaciente(tx: Tx, patientId: string): Promise<void> {
 }
 
 /** Confere o horário (antes da transação: uma conexão por vez) e grava; ocupado → outros horários da mesma semana. */
-async function concluir(tenant: TenantRow, r: PedidoRow, escolha: { inicio: unknown; modalidade: unknown }, deps: DepsPublico, db: Db, agora: Date): Promise<ResultadoConfirmacao> {
-  const outros = async (): Promise<ResultadoConfirmacao> => {
+async function concluir(tenant: TenantRow, r: PedidoRow, escolha: { inicio: unknown; localId: unknown }, deps: DepsPublico, db: Db, agora: Date): Promise<ResultadoConfirmacao> {
+  const outros = async (indisponivel = false): Promise<ResultadoConfirmacao> => {
     // a semana do horário pedido, presa à janela (o valor vem do visitante: nunca uma data sem teto)
     const ref = typeof escolha.inicio === 'string' ? Date.parse(escolha.inicio) : NaN;
     const { semana } = semanaDaJanela(Number.isFinite(ref) ? hojeNoFuso(tenant.fuso, new Date(ref)) : null, hojeNoFuso(tenant.fuso, agora));
-    return { estado: 'horario_ocupado', horarios: await horariosDaSemana(tenant, semana, agora, db) };
+    const horarios = await horariosDaSemana(tenant, semana, agora, db);
+    return indisponivel ? { estado: 'horario_ocupado', horarios, indisponivel: true } : { estado: 'horario_ocupado', horarios };
   };
   for (let tentativa = 0; ; tentativa++) {
     let h: HorarioEscolhido;
     try {
-      h = await escolherHorario(tenant, escolha.inicio, escolha.modalidade, agora, { db });
+      h = await escolherHorario(tenant, escolha.inicio, escolha.localId, agora, { db });
     } catch (e) {
       if (e instanceof ConsultaError) return outros();
       throw e;
@@ -265,6 +296,9 @@ async function concluir(tenant: TenantRow, r: PedidoRow, escolha: { inicio: unkn
       return await withTenant(comoPublico(tenant, deps), (tx) => gravarPedido(tx, tenant, r, h, deps, agora), db);
     } catch (e) {
       if (ehSobreposicao(e)) return outros(); // RN-03 / D9: ocupado entre a checagem e a gravação — o EXCLUDE decide
+      // Plano 23 (RN-406): o local foi arquivado ou deixou de aceitar agendamento entre a checagem e a gravação (42501 do
+      // gatilho appointments_link_da_sala): "não está mais disponível", com os outros horários
+      if (localRecusado(e)) return outros(true);
       // a nutricionista marcava o mesmo paciente (travado, FOR UPDATE) num horário que se sobrepõe a este: a FK da consulta
       // nova esperou por ela e ela, pelo EXCLUDE desta. O `publico` não trava o paciente antes (não tem a política de
       // UPDATE); o Postgres desfaz uma das duas (40P01). Se for esta, o horário fica com a nutricionista; se for a dela,
@@ -304,7 +338,21 @@ export async function confirmarCodigo(slug: string, input: Record<string, unknow
     db,
   );
   if ('erro' in r) throw r.erro;
-  return concluir(tenant, r.pedido, { inicio: r.pedido.inicio.toISOString(), modalidade: r.pedido.modalidade }, deps, db, agora);
+  const localId = r.pedido.localId ?? (await localDoPedidoSemLocal(tenant, r.pedido, agora, db));
+  return concluir(tenant, r.pedido, { inicio: r.pedido.inicio.toISOString(), localId }, deps, db, agora);
+}
+
+/**
+ * Code-review do PR 2 (Plano 23): o pedido gravado pela imagem anterior não tem `local_id`. O local é o que gera agora o
+ * horário do pedido na modalidade dele, entre os ativos com agendamento pelo paciente (`horariosParaPaciente`, RN-410a); só
+ * com exatamente um. Sem nenhum (ou com mais de um), `null`: `escolherHorario` recusa e a pessoa recebe o "horário ocupado"
+ * de sempre, com os outros horários.
+ */
+async function localDoPedidoSemLocal(tenant: TenantRow, p: PedidoRow, agora: Date, db: Db): Promise<string | null> {
+  const t = p.inicio.getTime();
+  const hs = await horariosParaPaciente(tenant, agora, { db, de: p.inicio, ate: new Date(t + 60_000) });
+  const locais = new Set(hs.filter((h) => h.inicio.getTime() === t && h.modalidades.includes(p.modalidade as Modalidade)).map((h) => h.localId));
+  return locais.size === 1 ? [...locais][0] : null;
 }
 
 /** Depois de "horário ocupado": o pedido já verificado escolhe outro horário sem novo código (até 30 min). */
@@ -314,7 +362,7 @@ export async function escolherOutroHorario(slug: string, input: Record<string, u
   if (!token) throw pedidoExpirado();
   const [p] = await withTenant(comoPublico(tenant, deps), (tx) => tx.select().from(publicBookingRequests).where(eq(publicBookingRequests.tokenHash, sha256(token))), db);
   if (!p || p.concluidoEm || !verificadoValido(p, agora)) throw pedidoExpirado();
-  return concluir(tenant, p, { inicio: input.inicio, modalidade: input.modalidade }, deps, db, agora);
+  return concluir(tenant, p, { inicio: input.inicio, localId: input.localId }, deps, db, agora);
 }
 
 /** Diário (agenda-limpeza): pedidos com mais de 24 h somem (LGPD: minimização). */

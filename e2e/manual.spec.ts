@@ -112,7 +112,7 @@ test('Ajuda na Agenda: a gaveta mostra o texto da tela; o tour da tela marca o a
   await expect(gaveta).toBeVisible();
   await semViolacoes();
   await gaveta.getByRole('button', { name: 'Ver o tour desta tela' }).click();
-  await expect(page.getByRole('dialog', { name: 'Dia, semana ou lista' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Dia, semana, mês ou lista' })).toBeVisible();
   const alvo = (await page.locator('[data-guia="periodo-agenda"]').boundingBox())!;
   const luz = (await page.locator('[data-holofote]').boundingBox())!;
   expect(Math.abs(luz.x - (alvo.x - 6))).toBeLessThanOrEqual(2);

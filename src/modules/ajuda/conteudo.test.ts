@@ -23,6 +23,7 @@ const SEM_AJUDA: Record<string, string> = {
   '/painel/ajuda': 'é o próprio manual',
   '/conta/outro-papel': 'aviso de aparelho conectado com outro papel (P09-03): uma frase e o botão Sair, sem fluxo para ensinar',
   '/painel/relatorios/imprimir': 'Plano 26 (RN-495): página de impressão, sem menu; o guia é o dos Relatórios, de onde se chega a ela',
+  '/painel/agenda/imprimir': 'Plano 23 (US-406): página de impressão, sem fluxo para ensinar',
 };
 const UUID = '0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b';
 // D18 (Plano 10A): as páginas de /conta (Segurança) também têm guia, mostrado na própria tela (fora do layout do painel)
@@ -78,6 +79,16 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('"Exames recebidos" aparece também');
     expect(guiaDaRota('/painel/exames-recebidos')?.id).toBe('exames-recebidos');
     expect(guiaDaRota(`/painel/exames-recebidos/${UUID}`)?.id).toBe('exames-recebidos');
+  });
+  it('Plano 23: o guia da agenda cita o Mês e o de horários pede o local da regra, com a versão nova (quem já viu o tour, vê de novo)', () => {
+    const agenda = GUIAS.find((x) => x.id === 'agenda')!;
+    expect(agenda.versao).toBe(3);
+    expect(agenda.passos.find((p) => p.alvo === 'periodo-agenda')?.titulo).toBe('Dia, semana, mês ou lista');
+    const horarios = GUIAS.find((x) => x.id === 'horarios')!;
+    expect(horarios.versao).toBe(2);
+    const textos = horarios.ajuda.secoes.flatMap((s) => s.itens).join(' ');
+    expect(textos).toContain('com início, fim, duração e local.');
+    expect(textos).not.toContain('modalidade');
   });
   it('Plano 13: o guia de documentos cita o parecer e a retificação e subiu de versão (quem já viu o tour, vê de novo)', () => {
     const g = GUIAS.find((x) => x.id === 'documentos')!;
@@ -161,9 +172,9 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(g.versao).toBeGreaterThanOrEqual(4); // 5 desde o Plano 26 (abaixo)
     expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('Financeiro');
   });
-  it('Plano 20 (T7): o guia da Agenda cita a cobrança criada ao marcar "Realizada" e a versão sobe para 2', () => {
+  it('Plano 20 (T7): o guia da Agenda cita a cobrança criada ao marcar "Realizada" e a versão sobe para 2 (3 desde o Plano 23, a visão Mês)', () => {
     const g = GUIAS.find((x) => x.id === 'agenda')!;
-    expect(g.versao).toBe(2);
+    expect(g.versao).toBeGreaterThanOrEqual(2); // 3 desde o Plano 23 (acima)
     const passos = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens.join(' ');
     expect(passos).toContain('Realizada');
     expect(passos).toContain('cobrança');

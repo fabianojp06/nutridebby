@@ -37,14 +37,19 @@ test('horários de atendimento e bloqueio (US-030)', async () => {
   await nutri.getByLabel('Fim').fill('08:00');
   await nutri.getByRole('button', { name: 'Adicionar horário' }).click();
   await expect(nutri.getByText('O fim deve ser depois do início')).toBeVisible();
+  // Plano 23 (US-401, RN-410): a regra é de um local; no presencial, "Também atender por videoconferência nestes horários"
+  // grava a metade online no local de videoconferência (AG-D59: "Consultório E2E" principal e "Videoconferência E2E")
+  const horarios = nutri.getByRole('region', { name: 'Horários da semana' });
   for (const dia of ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira']) {
+    await nutri.getByLabel('Local', { exact: true }).selectOption({ label: 'Consultório E2E (Presencial)' });
     await nutri.getByLabel('Dia da semana').selectOption({ label: dia });
     await nutri.getByLabel('Início').fill('08:00');
     await nutri.getByLabel('Fim').fill('18:00');
     await nutri.getByLabel('Duração').selectOption('60');
-    await nutri.getByLabel('Modalidade').selectOption('ambas');
+    await nutri.getByLabel('Também atender por videoconferência nestes horários').check();
     await nutri.getByRole('button', { name: 'Adicionar horário' }).click();
-    await expect(nutri.getByText(`${dia}, 08:00–18:00, 60 min, Presencial ou online`)).toBeVisible();
+    await expect(horarios.getByText(`${dia}, 08:00–18:00, 60 min, Presencial`)).toBeVisible();
+    await expect(horarios.getByText(`${dia}, 08:00–18:00, 60 min, Online`)).toBeVisible();
   }
   await nutri.getByLabel('Data inicial').fill(SEMANA_BLOQUEADA);
   await nutri.getByLabel('Data final').fill(somar(SEMANA_BLOQUEADA, 4));
@@ -92,6 +97,7 @@ test('agenda da nutricionista: marcar, conflito, avisos, semana e alterar (US-03
   await marcar(dora, somar(SEMANA_BLOQUEADA, 1), '10:00');
   await expect(nutri.getByText('Consulta dentro de um bloqueio').first()).toBeVisible();
   await nutri.goto(`/painel/agenda?visao=semana&data=${SEGUNDA_LIVRE}`);
+  // Plano 23 (US-404): o item da grade é um link nomeado pelo conteúdo visível (horário, paciente, tipo, local e situação)
   await expect(nutri.getByRole('link', { name: `Carla Agenda ${sufixo}` })).toBeVisible();
   await nutri.getByRole('link', { name: `Carla Agenda ${sufixo}` }).click();
   // exact: a seção "Alterar data e hora" (aria-labelledby) também casaria com 'Hora' por trecho
@@ -101,21 +107,23 @@ test('agenda da nutricionista: marcar, conflito, avisos, semana e alterar (US-03
   await expect(nutri.getByText(/às 11:00–12:00 · Presencial/)).toBeVisible();
 });
 
-test('nova consulta: depois de um erro, o formulário mantém paciente, hora, duração, modalidade e link (US-031)', async () => {
+test('nova consulta: depois de um erro, o formulário mantém paciente, hora, duração, local e link (US-031, US-402)', async () => {
   await nutri.goto(`/painel/agenda/nova?data=${SEGUNDA_LIVRE}`);
   const paciente = nutri.getByLabel('Paciente');
   await paciente.selectOption({ index: 1 }); // 0 é "Selecione o paciente"
   const escolhido = await paciente.inputValue();
   await nutri.getByLabel('Hora').fill('16:00');
   await nutri.getByLabel('Duração').selectOption('45');
-  await nutri.getByLabel('Online').check();
+  // Plano 23 (RN-407): o "Local" no lugar da modalidade; num local de videoconferência aparece "Link da chamada"
+  const local = nutri.getByLabel('Local', { exact: true });
+  await local.selectOption({ label: 'Videoconferência E2E (Videoconferência)' });
   await nutri.getByLabel('Link da chamada').fill('http://sem-https.example');
   await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
   await expect(nutri.getByRole('alert').filter({ hasText: 'Informe o link da chamada' })).toBeVisible();
   await expect(paciente).toHaveValue(escolhido);
   await expect(nutri.getByLabel('Hora')).toHaveValue('16:00');
   await expect(nutri.getByLabel('Duração')).toHaveValue('45');
-  await expect(nutri.getByLabel('Online')).toBeChecked();
+  await expect(local.locator('option:checked')).toHaveText('Videoconferência E2E (Videoconferência)');
   await expect(nutri.getByLabel('Link da chamada')).toHaveValue('http://sem-https.example');
 });
 
@@ -139,11 +147,13 @@ test('link da consulta: confirmar, remarcar (US-033, US-035) e cancelamento pela
   const resposta = await paciente.goto(link);
   // D20: o token está na URL — Referrer-Policy também por cabeçalho, além da <meta>
   expect(resposta?.headers()['referrer-policy']).toBe('no-referrer');
-  await expect(paciente.getByText(`Com Consultório E2E · seg., ${br(SEGUNDA_LIVRE)} às 11:00 (horário de Brasília) · Presencial`)).toBeVisible();
+  // Plano 23 (RN-407): o nome do local depois da modalidade
+  await expect(paciente.getByText(`Com Consultório E2E · seg., ${br(SEGUNDA_LIVRE)} às 11:00 (horário de Brasília) · Presencial · Consultório E2E`)).toBeVisible();
   await paciente.getByRole('button', { name: 'Confirmar presença' }).click();
   await expect(paciente.getByRole('status').filter({ hasText: 'Presença confirmada. Até lá!' })).toBeVisible();
   await nutri.goto(`/painel/agenda?visao=dia&data=${SEGUNDA_LIVRE}`);
-  await expect(nutri.getByText('Confirmada pelo link')).toBeVisible();
+  // Plano 23: a grade e a lista do celular estão as duas no HTML (uma escondida); o texto é procurado na versão visível
+  await expect(nutri.getByTestId('agenda-grade').getByText('Confirmada pelo link')).toBeVisible();
 
   await paciente.goto(`${link}?semana=${SEGUNDA_LIVRE}`);
   await paciente.getByRole('group', { name: `ter., ${br(somar(SEGUNDA_LIVRE, 1)).slice(0, 5)}` }).getByRole('radio', { name: '14:00' }).check();
@@ -151,7 +161,8 @@ test('link da consulta: confirmar, remarcar (US-033, US-035) e cancelamento pela
   await expect(paciente.getByText(`Consulta remarcada para ter., ${br(somar(SEGUNDA_LIVRE, 1))} às 14:00 (horário de Brasília).`)).toBeVisible();
   // a página se refaz: o link é da consulta antiga, agora cancelada (remarcar = cancelar + marcar outra, D17)
   await expect(paciente.getByRole('status').filter({ hasText: 'Esta consulta foi cancelada.' })).toBeVisible();
-  await nutri.goto(`/painel/agenda?visao=semana&data=${SEGUNDA_LIVRE}`);
+  // Plano 23 (RN-413): canceladas ficam fora da grade; só a Lista as mostra
+  await nutri.goto(`/painel/agenda?visao=lista&data=${SEGUNDA_LIVRE}`);
   await expect(nutri.getByText('Cancelada pelo paciente')).toBeVisible();
 
   // a nutricionista cancela a nova; a paciente recebe o aviso
@@ -209,7 +220,8 @@ test('página pública: horário, Turnstile, código por e-mail e "Novo paciente
   await expect(visitante.getByRole('heading', { name: 'Agendar consulta com Consultório E2E' })).toBeVisible();
   // quem já tem sessão vai direto à agenda do portal (sem pedir a senha nem apagar o plano offline); sem sessão, o proxy leva ao login
   await expect(visitante.getByRole('link', { name: 'Entrar (já sou paciente)' })).toHaveAttribute('href', /^\/p\/agenda\?v=[0-9a-f-]{36}$/); // ?v= = o consultório da página (S-5)
-  await expect(visitante.getByRole('group', { name: 'Escolha a modalidade' }).getByLabel('Presencial')).toBeChecked();
+  // Plano 23 (US-403): com mais de um local com agendamento, a escolha do local (o principal vem marcado)
+  await expect(visitante.getByRole('group', { name: 'Onde você quer ser atendido?' }).getByRole('radio', { name: /^Consultório E2E/ })).toBeChecked();
   await visitante.getByRole('group', { name: `qua., ${br(quarta).slice(0, 5)}` }).getByRole('radio', { name: '16:00' }).check();
   await visitante.getByLabel('Nome').fill(`Eva Publica ${sufixo}`);
   await visitante.getByLabel('E-mail').fill(email);
@@ -233,8 +245,9 @@ test('página pública: horário, Turnstile, código por e-mail e "Novo paciente
   await expect(visitante.getByText(`Consulta marcada para qua., ${br(quarta)} às 16:00 (horário de Brasília). Enviamos a confirmação para o seu e-mail.`)).toBeVisible();
   await esperarEmail(email, { assunto: `Consulta marcada: qua., ${br(quarta)} às 16:00 (horário de Brasília)` });
   await nutri.goto(`/painel/agenda?visao=dia&data=${quarta}`);
-  await expect(nutri.getByText('Novo paciente via agendamento online')).toBeVisible();
-  await expect(nutri.getByText('Completar cadastro')).toBeVisible();
+  const grade = nutri.getByTestId('agenda-grade'); // Plano 23: a versão visível (a lista do celular fica escondida)
+  await expect(grade.getByText('Novo paciente via agendamento online')).toBeVisible();
+  await expect(grade.getByText('Completar cadastro')).toBeVisible();
   await visitante.context().close();
 });
 
@@ -290,7 +303,7 @@ test('lembrete por WhatsApp no sandbox e resposta "1" pelo webhook: "Confirmada 
   expect(r.status()).toBe(200);
   await expect(async () => {
     await nutri.goto(`/painel/agenda?visao=dia&data=${quinta}`);
-    await expect(nutri.getByText('Confirmada via WhatsApp')).toBeVisible({ timeout: 1000 });
+    await expect(nutri.getByTestId('agenda-grade').getByText('Confirmada via WhatsApp')).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 30_000 });
   // e recebe a resposta automática (uma só)
   await expect.poll(async () => (await esperarEmail(`${numero}@whatsapp.sandbox`, { depoisDe: respondidoEm })).texto, { timeout: 30_000 }).toContain('Presença confirmada. Até lá!');

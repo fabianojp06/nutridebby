@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { consultaDireta, em, SP, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, localPrincipal, SP, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { transporteFalso } from '../../../test/email';
 import { depsDeEnvio } from '../../../test/notificacoes';
@@ -36,7 +36,7 @@ const comWhats = { telefoneE164: '+5511912345678', whatsappOptinEm: marcadaEm, w
 const deps = (agora: Date, whatsapp: DepsEnvio['whatsapp'], transport = transporteFalso()) => depsDeEnvio(agora, { db: app.db, whatsapp, transport });
 async function marcada(T: TenantDeTeste, paciente: Record<string, unknown> = comWhats) {
   const p = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza', ...paciente });
-  const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: p.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: marcadaEm });
+  const { id } = await agendarPelaNutri(T.ctx, tenantAgenda(T), { patientId: p.id, data: '2026-10-16', hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, T.ctx) }, { db: app.db, now: marcadaEm });
   return { p, id };
 }
 const linha = async (T: TenantDeTeste, id: string, tipo: string, canal: string) =>
@@ -210,7 +210,7 @@ describe('WhatsApp nos lembretes (INT-01 adaptado, D6)', () => {
       const consultas: Record<string, string> = {};
       for (const X of [T, U]) {
         const q = await novoPaciente(app.db, X.ctx, comWhats);
-        consultas[X.tenantId] = (await agendarPelaNutri(X.ctx, tenantAgenda(X), { patientId: q.id, data: '2026-10-20', hora: '10:00', duracaoMin: '60', modalidade: 'presencial' }, { db: app.db, now: agora })).id;
+        consultas[X.tenantId] = (await agendarPelaNutri(X.ctx, tenantAgenda(X), { patientId: q.id, data: '2026-10-20', hora: '10:00', duracaoMin: '60', localId: await localPrincipal(app.db, X.ctx) }, { db: app.db, now: agora })).id;
       }
       const w = whatsappFalso();
       const t = transporteFalso();

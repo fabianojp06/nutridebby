@@ -32,19 +32,22 @@ beforeEach(() => {
   sessao.revalidados = [];
 });
 
+/** Plano 23: o local do último `cenario()` (o principal, onde valem as regras da semana). */
+const formularioDe = { localId: '' };
 async function cenario() {
   const T = await novoTenant(db);
-  await semanaToda(db, T.ctx);
+  const localId = await semanaToda(db, T.ctx);
   const ana = await novoPaciente(db, T.ctx, { nome: 'Ana Souza' });
   const tenant: TenantAgenda = tenantAgenda(T);
   sessao.atual = { ctx: ctxPaciente(T.tenantId, ana.id), tenant };
+  formularioDe.localId = localId;
   return { T, ana, tenant };
 }
 const H = 3_600_000;
 const formulario = (inicio: Date) => {
   const fd = new FormData();
   fd.set('inicio', inicio.toISOString());
-  fd.set('modalidade', 'presencial');
+  fd.set('localId', formularioDe.localId);
   return fd;
 };
 const consulta = async (T: Awaited<ReturnType<typeof novoTenant>>, id: string) => {

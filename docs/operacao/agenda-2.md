@@ -26,3 +26,49 @@ Se o PR 1 der problema em produção:
 3. Mudança de configuração do serviço (imagem, variáveis) só pelo Easypanel (`CLAUDE.md` do servidor, regra 1); antes
    de qualquer mudança arriscada, lembrar do snapshot no hPanel **e** do risco atual: o snapshot congela a VPS e exige
    reboot manual (aviso de 06/11/2026) — não tirar snapshot com a produção no ar sem decidir isso antes.
+
+---
+
+## PR 2 (locais e visões) — Volta atrás
+
+O PR 2 não tem migration: voltar é trocar a imagem pela do **PR 1** (nunca pela anterior ao PR 1, acima). O banco fica como
+o PR 2 o deixou, e a imagem do PR 1 roda sobre ele com sete efeitos conhecidos:
+
+1. **Alterar consulta num local (o `moverConsulta` do PR 1).** A imagem do PR 1 ainda troca a modalidade (presencial ↔
+   online) sem trocar o local. Numa consulta gravada pelo PR 2, que tem `local_id`, a FK composta
+   `(tenant_id, local_id, modalidade)` recusa a troca: o `UPDATE` cai em **23503** e a tela dá erro 500. Mudar a data, a
+   hora ou a duração sem trocar a modalidade continua funcionando. Enquanto a imagem do PR 1 estiver no ar, a
+   nutricionista troca a modalidade cancelando a consulta e marcando outra.
+2. **Perfil e marca.** A tela do PR 1 volta a mostrar e a gravar o "Link padrão da videoconferência"
+   (`tenants.link_online_padrao`), que o PR 2 deixou de editar: o valor que aparece é o de antes do PR 2, **já
+   desatualizado** — a sala de cada local, em "Locais de atendimento", é o que o PR 2 usava. Avise a nutricionista para não
+   confiar nesse campo até voltar ao PR 2 (a coluna fica, AG-D7; nada é apagado).
+3. **Pedido da página pública sem local.** A imagem do PR 1 grava o pedido de pessoa nova (`public_booking_requests`) sem
+   `local_id`. Se a imagem do PR 2 voltar ao ar com um desses pedidos aberto (o código vale 10 minutos; o pedido
+   verificado, 30), a confirmação não acha o horário (`escolherHorario` do PR 2 exige o local) e a pessoa vê "horário
+   ocupado" com os outros horários da semana: escolhe de novo, sem pedir outro código. Nada fica gravado pela metade; o
+   pedido que não for concluído sai na limpeza de sempre.
+4. **Horários de locais sem agendamento pelo paciente ou arquivados.** A imagem do PR 1 não conhece a opção "Aceita
+   agendamento pelo paciente" nem o arquivamento do local: no portal e na página pública ela oferece também os horários
+   dos locais em que a nutricionista desligou essa opção e os dos locais arquivados, e a consulta marcada por ali nasce
+   com o local nulo. Se houver algum local sem agendamento pelo paciente (ou arquivado com horários), **desligue a página
+   pública** enquanto a imagem do PR 1 estiver no ar, e peça à nutricionista para conferir as consultas marcadas pelo
+   portal nesse período (local vazio na agenda) e ajustá-las ao voltar ao PR 2.
+5. **Endereço do Perfil em consulta de outro local.** Os lembretes de 24 h e de 2 h, a página `/consulta/[token]` e o
+   portal da imagem do PR 1 mostram o endereço do Perfil do consultório em toda consulta presencial, também na de outro
+   local presencial cadastrado no PR 2. O mesmo acontece por alguns minutos em qualquer troca de imagem, enquanto a web
+   nova convive com o worker antigo (ou o contrário). Avise os pacientes com consulta presencial em outros locais
+   (o endereço certo é o do local na agenda) enquanto a imagem do PR 1 estiver no ar.
+6. **Consulta online sem a sala do local.** A consulta online marcada pela imagem do PR 1 leva o "Link padrão da
+   videoconferência" do Perfil (`tenants.link_online_padrao`), parado desde o PR 2 (item 2), e não a sala do local. Antes
+   de voltar, ou logo depois, a nutricionista confere o link de cada consulta online marcada nesse período e o corrige ao
+   voltar ao PR 2 (ou envia a sala certa ao paciente).
+7. **Teto de 30 horários na tela antiga.** O PR 2 aceita até 60 horários por consultório (cada linha conta). A tela de
+   horários do PR 1 conta o teto de 30 com `juntarPares` (o par presencial + online do mesmo início e fim conta como um) e
+   recusa regra nova quando essa conta chega a 30: com mais de 30 linhas gravadas pelo PR 2, a nutricionista não cria
+   horário novo pela tela do PR 1. Os horários que já existem continuam valendo; para criar outro, exclua um que não usa
+   ou espere voltar ao PR 2.
+
+As visões (Dia, Semana, Mês e Lista), os filtros, a legenda, o marcador de aniversário e a impressão não gravam nada além do
+`exportar` da impressão no `audit_log` (RN-419): voltar não deixa dado para trás. Os registros `exportar` da entidade
+`agenda` ficam no `audit_log` como o resto do histórico.

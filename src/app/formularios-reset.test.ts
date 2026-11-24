@@ -111,9 +111,10 @@ const CORRIGIDOS: Record<string, 'ref' | 'ref+defaultValue' | 'defaultChecked'> 
   'src/app/painel/pacientes/[id]/documentos/[docId]/parecer-form.tsx': 'ref',
   'src/app/painel/anamnese/modelos/modelo-editor.tsx': 'ref',
   'src/app/painel/pacientes/[id]/plano-alimentar/lembretes/form-lembrete.tsx': 'ref',
-  'src/app/consulta/[token]/acoes.tsx': 'defaultChecked',
   'src/app/convite/paciente/[token]/form.tsx': 'defaultChecked',
-  'src/app/p/(portal)/agenda/agendar-form.tsx': 'defaultChecked',
+  // Plano 23 (T4): o rádio de modalidade de acoes.tsx e do agendar-form do portal virou o rádio de local, no componente
+  'src/components/seletor-horarios.tsx': 'defaultChecked',
+  'src/app/painel/agenda/locais/local-form.tsx': 'defaultChecked',
   'src/app/p/(portal)/perfil/whatsapp-form.tsx': 'defaultChecked',
   'src/app/p/termo/termo-form.tsx': 'defaultChecked',
   'src/app/painel/conteudos/conteudo-form.tsx': 'defaultChecked',

@@ -28,3 +28,8 @@
 - [Filtro da lista e Perfil em grid](feedback_filtro-da-lista-e-perfil-grid.md) — PR2 Plano 18: CAMPO local sem min-h-11; Cadastro salvo montado com o texto; ordem visual do Perfil
 - [sr-only em região rolável e rollback do DPA](feedback_sr-only-em-regiao-rolavel.md) — sr-only sem relative estica a página a 360 px; subir versão do DPA prende o painel na volta de imagem
 - [Comportamento prometido ao E2E](feedback_comportamento-prometido-ao-e2e.md) — unitário delega ao E2E que não cobre; autoFocus em dialog só vale no HTML do servidor
+- [Locais T2 (Plano 23)](feedback_locais-t2-plano23.md) — lista com redirect sem foco no h1 (precedente FocoNoTitulo existe); texto de link padrao velho entre tarefas
+- [Rodapé fixo corta linha na impressão](feedback_impressao-rodape-fixo-corta-linha.md) — print:fixed cobre a última linha por página (verificado em PDF); tfoot resolve
+- [PR 2 do Plano 23, revisão final](feedback_pr2-plano23-revisao-final.md) — 0C/0I; Minors: useState fora do key, GET form + Limpar, aria-label x rótulo, guia velho
+- [Rebase desfaz guia de outro plano](feedback_rebase-desfaz-guia-de-outro-plano.md) — PR 4 do 23: T12 apagou guia relatorios e v5 do boas-vindas; testes velhos/typo
+- [PR 3 do Plano 23, revisão final](feedback_pr3-plano23-revisao-final.md) — 0C/3I: correções que ficaram no PR 4 (sr-only relative, EXCECOES SUS-108); consentimento do portal sem status

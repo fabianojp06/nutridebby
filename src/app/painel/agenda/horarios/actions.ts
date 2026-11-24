@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireNutri } from '@/lib/tenant-session';
+import { MSG_AGENDA } from '@/modules/agenda/constantes';
 import { criarBloqueio, criarRegra, DisponibilidadeError, excluirBloqueio, excluirRegra } from '@/modules/agenda/disponibilidade';
 
 export type FormAgendaState = { erros?: Record<string, string>; valores?: Record<string, string>; ok?: string; envio?: number };
@@ -10,7 +11,8 @@ const valores = (fd: FormData, campos: string[]) => Object.fromEntries(campos.ma
 
 export async function criarRegraAction(_prev: FormAgendaState, fd: FormData): Promise<FormAgendaState> {
   const { ctx } = await requireNutri(CAMINHO);
-  const v = valores(fd, ['diaSemana', 'inicio', 'fim', 'duracaoMin', 'modalidade']);
+  // Plano 23 (RN-410): o local e a marca "Também atender por videoconferência nestes horários" no lugar da modalidade
+  const v = valores(fd, ['diaSemana', 'inicio', 'fim', 'duracaoMin', 'localId', 'tambemOnline']);
   try {
     await criarRegra(ctx, v);
   } catch (e) {
@@ -18,7 +20,7 @@ export async function criarRegraAction(_prev: FormAgendaState, fd: FormData): Pr
     throw e;
   }
   revalidatePath(CAMINHO);
-  return { ok: 'Horário adicionado.', envio: Date.now() };
+  return { ok: MSG_AGENDA.horarioCriado, envio: Date.now() };
 }
 
 export async function excluirRegraAction(id: string): Promise<void> {
