@@ -29,8 +29,15 @@ export { validarListaDeExames } from '@/modules/documentos/solicitacao';
 
 export class CatalogoError extends Error {
   override name = 'CatalogoError';
-  constructor(readonly erros: Record<string, string>) {
-    super(Object.values(erros)[0] ?? 'Exame do catálogo inválido.');
+  /**
+   * `tecnica`: a mensagem do erro quando o texto do campo cita o que foi digitado (o nome repetido): o nome do exame fica
+   * só em `erros`, para a tela, e nunca na mensagem nem na pilha (RNF-370, `exames/log.test.ts`).
+   */
+  constructor(
+    readonly erros: Record<string, string>,
+    tecnica?: string,
+  ) {
+    super(tecnica ?? Object.values(erros)[0] ?? 'Exame do catálogo inválido.');
   }
 }
 

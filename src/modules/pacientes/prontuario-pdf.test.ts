@@ -32,6 +32,8 @@ function dados(atendimentos: number, exames: number): DadosExportacao {
       temLaudo: false,
       laudo: null,
       valores: Array.from({ length: 8 }, (_, j) => ({ nome: `Marcador ${j + 1}`, valor: j, unidade: 'mg/dL', referencia: null })),
+      versoesAnteriores: [], // Plano 22: não vão ao PDF
+      notaDeInterpretacao: null,
     })),
     atendimentos: Array.from({ length: atendimentos }, (_, i) => ({
       data: '2026-09-01',

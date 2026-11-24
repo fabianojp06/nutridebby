@@ -16,6 +16,8 @@ const CARTOES = [
   { href: '/painel/planos/modelos', titulo: 'Modelos de plano', texto: 'Planos prontos para começar mais rápido.' },
   { href: '/painel/anamnese/modelos', titulo: 'Modelos de anamnese', texto: 'Perguntas da primeira consulta.' },
   { href: '/conta/seguranca', titulo: 'Segurança', texto: 'Senha e verificação em duas etapas.' },
+  // Plano 22 (T3, EP-D33): no fim
+  { href: '/painel/exames/catalogo', titulo: 'Exames', texto: 'Catálogo de exames, faixas do consultório e modelos de solicitação.' },
 ];
 
 /** D20: hub de Configurações. */

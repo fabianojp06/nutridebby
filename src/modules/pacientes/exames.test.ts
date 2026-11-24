@@ -12,7 +12,8 @@ import { withTenant } from '@/db/tenant';
 import { signFileUrl, verifyFileUrl } from '@/lib/signed-url';
 import { apagarArquivo } from '@/modules/plataforma/armazenamento';
 import { PacienteBloqueadoError, PacienteNaoEncontradoError } from './base';
-import { agruparMarcadores, criarExame, EXAME_MAX_BYTES, ExameError, excluirExame, lerValores, listarExames, marcadoresDoPaciente, MSG_EXAME } from './exames';
+import { MSG_EXAMES } from '@/modules/exames/constantes';
+import { agruparMarcadores, criarExame, EXAME_MAX_BYTES, ExameError, excluirExame, lerValores, lerValoresComErros, listarExames, marcadoresDoPaciente, MSG_EXAME } from './exames';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const dataDir = mkdtempSync(path.join(tmpdir(), 'nd-exames-'));
@@ -73,7 +74,8 @@ describe('exames (US-015)', () => {
     expect(await erros(criarExame(T.ctx, T.tenant, p.id, { titulo: '', data: '2026-10-09', valores: [{ nome: 'G', valor: 'x' }], arquivo: null }, deps))).toEqual({
       titulo: MSG_EXAME.titulo,
       data: MSG_EXAME.futuro,
-      valores: MSG_EXAME.valores,
+      // Plano 22 (T4, R22-02): o erro vai para o campo da linha (lerValoresComErros)
+      'valores.0.valor': MSG_EXAME.valores,
     });
   });
 
@@ -175,5 +177,73 @@ describe('exames (US-015)', () => {
     }
     expect(await listarExames(T.ctx, p.id, app.db)).toHaveLength(5);
     expect(await usado(T.tenantId)).toBe(5 * 500);
+  });
+});
+
+describe('Plano 22 (T4, RN-376, R22-02) — faixa do laudo nas linhas', () => {
+  const F = MSG_EXAMES.lancamentoErros;
+  const linha = (o: object) => ({ nome: 'Glicemia de jejum', valor: '105', unidade: 'mg/dL', referencia: '', ...o });
+
+  it('faixa 70–99 com a referência vazia grava referencia = "70 a 99"; com texto, o texto fica; só um limite → "até"/"a partir de"', async () => {
+    expect(lerValoresComErros([linha({ refMin: '70', refMax: '99' })])).toEqual({
+      valores: [{ nome: 'Glicemia de jejum', valor: 105, unidade: 'mg/dL', referencia: '70 a 99', refMin: 70, refMax: 99 }],
+    });
+    expect(lerValoresComErros([linha({ referencia: '70 a 99 mg/dL', refMin: '70', refMax: '99' })])).toEqual({
+      valores: [{ nome: 'Glicemia de jejum', valor: 105, unidade: 'mg/dL', referencia: '70 a 99 mg/dL', refMin: 70, refMax: 99 }],
+    });
+    expect(lerValoresComErros([linha({ refMax: '200' })])).toEqual({ valores: [expect.objectContaining({ referencia: 'até 200', refMax: 200 })] });
+    expect(lerValoresComErros([linha({ refMin: '4,5' })])).toEqual({ valores: [expect.objectContaining({ referencia: 'a partir de 4,5', refMin: 4.5 })] });
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await criarExame(T.ctx, T.tenant, p.id, { titulo: 'Rotina', data: '2026-09-01', valores: [linha({ refMin: '70', refMax: '99' })], arquivo: null }, deps);
+    const [e] = await listarExames(T.ctx, p.id, app.db);
+    expect(e.valores).toEqual([{ nome: 'Glicemia de jejum', valor: 105, unidade: 'mg/dL', referencia: '70 a 99', refMin: 70, refMax: 99 }]);
+  });
+
+  it('"de" 120 e "até" 99 → "O início da faixa deve ser menor ou igual ao fim." na chave valores.{i}.refMin da linha', async () => {
+    expect(lerValoresComErros([linha({}), linha({ refMin: '120', refMax: '99' })])).toEqual({ erros: { 'valores.1.refMin': F.faixaInvertida } });
+    expect(lerValoresComErros([linha({ refMin: '99', refMax: '99' })])).toHaveProperty('valores');
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    expect(await erros(criarExame(T.ctx, T.tenant, p.id, { titulo: 'X', data: '2026-09-01', valores: [linha({ refMin: '120', refMax: '99' })], arquivo: null }, deps))).toEqual({
+      'valores.0.refMin': F.faixaInvertida,
+    });
+    expect(await listarExames(T.ctx, p.id, app.db)).toEqual([]);
+  });
+
+  it('faixa que não é número ("abc", "4.5.1", "1e3", |x| ≥ 1e15) → "Faixa inválida. Use só números, como 70 ou 4,5." no campo; vírgula e ponto decimal valem (lerDecimal)', () => {
+    for (const ruim of ['abc', '4.5.1', '1e3', '70 mg', '1000000000000000']) {
+      expect(lerValoresComErros([linha({ refMin: ruim })]), ruim).toEqual({ erros: { 'valores.0.refMin': F.faixaInvalida } });
+      expect(lerValoresComErros([linha({ refMax: ruim })]), ruim).toEqual({ erros: { 'valores.0.refMax': F.faixaInvalida } });
+      expect(lerValores([linha({ refMin: ruim })]), ruim).toBeNull();
+    }
+    expect(lerValoresComErros([linha({ refMin: '4.5', refMax: '6,0' })])).toEqual({ valores: [expect.objectContaining({ refMin: 4.5, refMax: 6 })] });
+  });
+
+  it('linha só com faixa (sem nome nem valor) é erro, nunca some calada; a linha sem nome, valor e faixa continua ignorada', () => {
+    expect(lerValoresComErros([{ nome: '', valor: '', refMin: '70', refMax: '99' }])).toEqual({
+      erros: { 'valores.0.nome': MSG_EXAME.valores, 'valores.0.valor': MSG_EXAME.valores },
+    });
+    expect(lerValores([{ nome: '', valor: '', refMin: '70', refMax: '99' }])).toBeNull();
+    expect(lerValoresComErros([{ nome: '', valor: '', unidade: '', referencia: '', refMin: '', refMax: '' }])).toEqual({ valores: [] });
+  });
+
+  it('lerValores (envoltório) devolve o mesmo de hoje sem faixa e null nos mesmos casos de erro', () => {
+    expect(lerValores([{ nome: ' Glicemia de jejum ', valor: '110', unidade: 'mg/dL', referencia: '70–99' }])).toEqual([
+      { nome: 'Glicemia de jejum', valor: 110, unidade: 'mg/dL', referencia: '70–99' },
+    ]);
+    expect(lerValores([linha({ refMin: '120', refMax: '99' })])).toBeNull();
+    expect(lerValoresComErros('lixo')).toEqual({ erros: { valores: MSG_EXAME.valores } });
+    expect(lerValoresComErros(Array.from({ length: 51 }, () => linha({})))).toEqual({ erros: { valores: MSG_EXAME.valores } });
+  });
+
+  it('iaTarefaId no bruto do POST é descartado: só o servidor grava a origem da IA', async () => {
+    const forjado = randomUUID();
+    expect(lerValoresComErros([linha({ iaTarefaId: forjado })])).toEqual({ valores: [{ nome: 'Glicemia de jejum', valor: 105, unidade: 'mg/dL', referencia: null }] });
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await criarExame(T.ctx, T.tenant, p.id, { titulo: 'Rotina', data: '2026-09-01', valores: [linha({ iaTarefaId: forjado })], arquivo: null }, deps);
+    const [e] = await listarExames(T.ctx, p.id, app.db);
+    expect(e.valores[0]).not.toHaveProperty('iaTarefaId');
   });
 });

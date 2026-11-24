@@ -66,7 +66,8 @@ test('IA: autorização no app → laudo → "Ler valores com IA" → conferir �
 
   await expect(nutri.getByRole('status').filter({ hasText: 'Valores salvos.' })).toBeVisible();
   await expect(nutri.getByText(/^IA · conferido em /).first()).toBeVisible();
-  await expect(nutri.getByRole('cell', { name: 'HBsAg' })).toHaveCount(0); // a linha não marcada não entrou
+  // a linha não marcada não entrou (Plano 22, T5b: o marcador da tabela de valores é o cabeçalho da linha)
+  await expect(nutri.getByRole('rowheader', { name: 'HBsAg' })).toHaveCount(0);
 
   // US-007: o envio aparece no histórico
   await nutri.goto(`${p}/historico`);

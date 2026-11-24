@@ -134,6 +134,19 @@ export const MSG_EXAMES = {
     adicionar: 'Adicionar ao catálogo',
     colunas: { exame: 'Exame', unidade: 'Unidade', faixas: 'Faixas', acao: 'Ação' },
     painel: (n: number) => `Painel (${exames(n)})`,
+    /** Texto novo (T3): retorno de "Adicionar ao catálogo" (a §6.2 não traz). Rascunho para a Debby. */
+    adicionados: (n: number) => (n === 1 ? '1 exame adicionado ao catálogo.' : `${n} exames adicionados ao catálogo.`),
+    /** Texto novo (T3): "Adicionar ao catálogo" sem nenhum nome marcado. Rascunho para a Debby. */
+    nenhumMarcado: 'Marque ao menos um nome.',
+    /** Texto novo (T3): o link de volta para o hub. */
+    voltar: 'Configurações',
+    /** Texto novo (T3): título do formulário de um exame novo (spec §4.1, h1). */
+    tituloNovo: 'Novo exame do catálogo',
+    /** Texto novo (T3): legenda da coluna "Faixas" sem faixa. */
+    semFaixas: 'Nenhuma',
+    /** Texto novo (T3): nome acessível do link de cada exame e do "Excluir" na lista. */
+    editarRotulo: (nome: string) => `Editar ${nome}`,
+    excluirRotulo: (nome: string) => `Excluir ${nome}`,
   },
   exameDoCatalogo: {
     nome: 'Nome',
@@ -164,6 +177,11 @@ export const MSG_EXAMES = {
     remover: 'Remover faixa',
     fonteDe: (fonte: string) => `Fonte: ${fonte}`,
     atualizadaEm: (data: string) => `atualizada em ${data}`,
+    /** Texto novo (T3): o grupo de cada faixa no formulário e o nome acessível de "Remover faixa". Rascunho para a Debby. */
+    rotuloFaixa: (n: number) => `Faixa ${n}`,
+    removerRotulo: (n: number) => `Remover faixa ${n}`,
+    /** Texto novo (T3): a opção vazia de "Categoria" (como "Grupo" em Alimentos). */
+    escolha: 'Escolha…',
   },
   modelosNota: {
     titulo: 'Modelos de nota de interpretação',
@@ -202,6 +220,8 @@ export const MSG_EXAMES = {
     sexo: 'Escolha Todos, Feminino ou Masculino.',
     /** Componente do painel repetido (RN-373): o mesmo texto da lista da solicitação (§6.2). */
     componenteRepetido: 'Este exame já está na lista.',
+    /** Texto novo (T3): o exame do catálogo foi excluído em outra aba (o mesmo texto da aba Exames). Rascunho para a Debby. */
+    naoEncontrado: 'Exame não encontrado.',
   },
   lancamento: {
     adicionarDoCatalogo: 'Adicionar do catálogo',
@@ -226,6 +246,10 @@ export const MSG_EXAMES = {
     usarFaixa: (a: string, b: string) => `Usar ${a} a ${b}`,
     usarFaixaRotulo: (a: string, b: string, n: number) => `Usar ${a} a ${b} (linha ${n})`,
     faixaDiverge: 'A faixa numérica não bate com o texto da referência. Confira no laudo.',
+    /** "Editar exame": a linha que veio da IA continua com "IA · conferido em…" (spec §"Editar exame"); sem a marca, sem data. */
+    iaConferido: (data: string | null) => (data ? `IA · conferido em ${data}` : 'IA · conferido'),
+    /** Texto novo (revisão da T4): por que nome, valor e unidade da linha da IA não mudam. Rascunho para a Debby. */
+    iaFixa: 'Marcador, valor e unidade vieram do laudo e não mudam. Para corrigir, remova a linha e lance outra.',
   },
   /** Linha "Lançamento: erros" (as mensagens de hoje de `exames.ts` continuam). */
   lancamentoErros: {
@@ -250,6 +274,18 @@ export const MSG_EXAMES = {
     apoioComparar: 'Escolha de 2 a 6 exames para comparar.',
     avisoEditarNoApp: 'Este exame está no app do paciente. O que você salvar aparece lá na hora.',
     avisoExcluirNoApp: 'Este exame está no app do paciente. Ao excluir, ele some de lá.',
+    /** Texto novo (T4): "Versões anteriores" de um exame nunca editado. Rascunho para a Debby. */
+    semVersoes: 'Este exame ainda não foi editado.',
+    /** Texto novo (T4): o nome acessível do "Editar" de cada exame na lista (nomes únicos). */
+    editarRotulo: (titulo: string, data: string) => `Editar ${titulo} de ${data}`,
+    /** Texto novo (T4): rótulos de "Versões anteriores". Rascunho para a Debby. */
+    justificativaDe: (texto: string) => `Justificativa: ${texto}`,
+    semJustificativa: 'Só acrescentou linhas (sem justificativa).',
+    valoresDaVersao: (n: number) => `Valores da versão ${n}`,
+    /** Texto novo (T5a): o detalhe de um exame sem linhas (o aceito do app antes do lançamento). Rascunho para a Debby. */
+    semValores: 'Nenhum valor lançado neste exame.',
+    /** Texto novo (T5a): a legenda da tabela do detalhe (só para o leitor de tela). */
+    valoresDoExame: (titulo: string) => `Valores do exame ${titulo}`,
   },
   classificacao: {
     abaixo: 'Abaixo da referência',
@@ -269,6 +305,11 @@ export const MSG_EXAMES = {
     linhaFaixa: (publico: string, idade: string, limites: string, categoria: string) => `${publico}, ${idade}: ${limites} — ${categoria}`,
     fonte: (fonte: string, data: string) => `Fonte: ${fonte} · atualizada em ${data}`,
     semReferencia: 'Sem referência.',
+    /** Texto novo (T5a): a idade e os limites de "{público}, {idade}: {limites}" (a §6.2 só traz o molde). Rascunho para a Debby. */
+    idade: (de: number | null, ate: number | null) => (de !== null && ate !== null ? `${de} a ${ate} anos` : de !== null ? `a partir de ${de} anos` : `até ${ate} anos`),
+    qualquerIdade: 'qualquer idade',
+    limites: (aPartirDe: string | null, abaixoDe: string | null) =>
+      aPartirDe !== null && abaixoDe !== null ? `a partir de ${aPartirDe} e abaixo de ${abaixoDe}` : aPartirDe !== null ? `a partir de ${aPartirDe}` : `abaixo de ${abaixoDe}`,
   },
   nota: {
     titulo: 'Nota de interpretação',
@@ -283,6 +324,10 @@ export const MSG_EXAMES = {
     apagada: 'Nota apagada.',
     anteriores: 'Notas anteriores',
     max: 'A nota tem no máximo 2000 caracteres.',
+    /** Texto novo (T5a): "Salvar nota" com o campo vazio (para tirar a nota, "Apagar nota"). Rascunho para a Debby. */
+    vazia: 'Escreva a nota antes de salvar.',
+    /** Texto novo (T5a): a versão anterior que foi um "Apagar nota", em "Notas anteriores". Rascunho para a Debby. */
+    versaoApagada: 'A nota foi apagada nesta versão.',
   },
   comparativo: {
     titulo: 'Comparativo de exames',
@@ -332,7 +377,20 @@ export const MSG_EXAMES = {
       semExames: 'Inclua ao menos um exame.',
       max: 'O modelo pode ter até 40 exames.',
       exameRepetido: 'Este exame já está na lista.',
+      /** O mesmo texto da solicitação (§6.2, "Solicitação: erros"). */
+      orientacoes: 'As orientações têm no máximo 1000 caracteres.',
+      /** Texto novo (T3): o modelo foi excluído em outra aba. Rascunho para a Debby. */
+      naoEncontrado: 'Modelo não encontrado.',
     },
+    /** Texto novo (T3): nomes acessíveis da lista e do formulário. */
+    editarRotulo: (nome: string) => `Editar o modelo ${nome}`,
+    excluirRotulo: (nome: string) => `Excluir o modelo ${nome}`,
+    confirmarExcluir: (nome: string) => `Excluir o modelo ${nome}? As solicitações já feitas não mudam.`,
+    tituloNovo: 'Novo modelo de solicitação',
+    removerRotulo: (nome: string) => `Remover ${nome}`,
+    nomeDoExame: 'Nome do exame',
+    adicionar: 'Adicionar',
+    examesN: (n: number) => (n === 1 ? '1 exame' : `${n} exames`),
   },
   /** Linha "Estados vazios e erros genéricos" (os de exames; "Nenhum item salvo." é de MSG_MODELOS, PR 4). */
   vazios: {

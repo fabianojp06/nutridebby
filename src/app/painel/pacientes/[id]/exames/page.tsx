@@ -6,6 +6,10 @@ import { Selo } from '@/components/ui/selo';
 import { getEnv } from '@/env';
 import { signFileUrl } from '@/lib/signed-url';
 import { casasDecimais, formatarDecimal } from '@/lib/numero';
+import { expandirParaAnalise } from '@/modules/exames/catalogo-regras';
+import { classificarLinha, indiceDoCatalogo } from '@/modules/exames/classificacao';
+import { MSG_EXAMES } from '@/modules/exames/constantes';
+import { bibliotecasParaExames } from '@/modules/exames/modelos-solicitacao';
 import { motivoDoPaciente, situacaoIaDoPaciente } from '@/modules/ia/autorizacao';
 import { abrirSugestao } from '@/modules/ia/conferencia';
 import { MSG_IA } from '@/modules/ia/constantes';
@@ -22,6 +26,8 @@ import { descartarSugestaoAction, excluirExameAction } from './actions';
 import { ConferenciaIa } from './conferencia-ia';
 import { ExameForm } from './exame-form';
 import { IaDoExame, iaNoExame } from './ia-exame';
+import { BotaoComparar, CaixaComparar, SelecaoParaComparar } from './comparar-exames';
+import { AvisosDaClassificacao, TabelaClassificada, type LinhaClassificada } from './tabela-classificada';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +36,14 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
   const { ctx, tenant, paciente } = await carregarProntuario(id);
   const lista = await listarExames(ctx, paciente.id);
   const bloqueado = paciente.status === 'bloqueado';
+  // Plano 22 (T4, RNF-371): catálogo e modelos de solicitação numa transação só, lidos uma vez; as faixas do consultório
+  // vão ao formulário só para o "Ver referência" das linhas (T5a, RN-382). T5b: o catálogo também classifica a lista
+  // (neutra, categoria e "Ver referência", em memória), por isso é lido mesmo com o paciente bloqueado (só leitura)
+  const bibliotecas = await bibliotecasParaExames(ctx);
+  const indice = indiceDoCatalogo(bibliotecas.catalogo);
+  const catalogo = bloqueado ? [] : bibliotecas.catalogo.map(({ nome, unidade, sinonimos, componentes, faixas }) => ({ nome, unidade, sinonimos, componentes, faixas }));
+  const modelos = bloqueado ? [] : bibliotecas.modelos.map((m) => ({ id: m.id, nome: m.nome, linhas: expandirParaAnalise(m.exames, indice) }));
+  const doPacienteParaCategoria = { sexo: paciente.sexo, dataNascimento: paciente.dataNascimento };
   const busca = await searchParams;
   const ia = configIA(getEnv());
   const estadoIa = estadoIaComPaciente(tenant, ia);
@@ -51,6 +65,30 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
   const iaExame = iaNoExame({ estadoIa, motivo: motivoDoPaciente(paciente, situacaoIa, 'leitura_laudos'), situacao: situacaoIa, cota });
   const conferir = typeof busca.conferir === 'string' && mostrarIa ? await abrirSugestao(ctx, paciente.id, busca.conferir) : null;
   const pediuConferir = typeof busca.conferir === 'string';
+  // T5b (RN-379, RN-380, RN-382): a classificação de cada linha da lista, calculada na leitura (nada gravado, EP-D11)
+  const marcaDaIa = (iaTarefaId: string | undefined) =>
+    iaTarefaId ? (marcas.get(iaTarefaId) ? `IA · conferido em ${formatarDataNoFuso(marcas.get(iaTarefaId)!, tenant.fuso)}` : 'IA · conferido') : undefined;
+  const classificadas = new Map(
+    lista.map((e) => [
+      e.id,
+      e.valores.map((v): LinhaClassificada => {
+        const c = classificarLinha(v, indice, doPacienteParaCategoria, e.data);
+        return {
+          nome: v.nome,
+          valor: v.valor,
+          unidade: v.unidade,
+          referencia: v.referencia,
+          neutra: c.neutra,
+          categoria: c.categoria?.nome ?? null,
+          ref: { referencia: v.referencia, refMin: v.refMin, refMax: v.refMax, faixas: c.casado?.faixas ?? [], unidadeDoCatalogo: c.casado?.unidade ?? null },
+          marca: marcaDaIa(v.iaTarefaId),
+        };
+      }),
+    ]),
+  );
+  const todas = [...classificadas.values()].flat();
+  const comClassificacao = todas.some((l) => l.neutra || l.categoria);
+  const AVISOS = { classificacao: 'exames-aviso-classificacao', gestacao: 'exames-aviso-gestacao' };
   return (
     <div className="space-y-8">
       <FocoNaAncora />
@@ -98,63 +136,60 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
         </section>
       )}
       {!bloqueado && (
-        <section aria-labelledby="novo-exame" className="max-w-4xl space-y-3">
+        <section aria-labelledby="novo-exame" className="max-w-6xl space-y-3">
           <h2 id="novo-exame" tabIndex={-1} className="text-lg font-semibold">Novo exame</h2>
-          <ExameForm patientId={paciente.id} hoje={hojeNoFuso(tenant.fuso)} />
+          <ExameForm patientId={paciente.id} hoje={hojeNoFuso(tenant.fuso)} catalogo={catalogo} modelos={modelos} />
         </section>
       )}
       <section aria-labelledby="exames" className="space-y-4">
         <h2 id="exames" className="text-lg font-semibold">Exames</h2>
         {lista.length === 0 && <p>Nenhum exame registrado.</p>}
-        {lista.map((e) => (
-          <article key={e.id} aria-labelledby={`exame-${e.id}`} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
-                {doPaciente.has(e.id) && <Selo>{MSG_REVISAO.selo}</Selo>}
+        {comClassificacao && <AvisosDaClassificacao ids={AVISOS} comCategoria={todas.some((l) => l.categoria)} />}
+        <SelecaoParaComparar>
+          {lista.map((e) => (
+            <article key={e.id} aria-labelledby={`exame-${e.id}`} className="space-y-2 rounded-2xl border border-borda bg-cartao p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
+                  {doPaciente.has(e.id) && <Selo>{MSG_REVISAO.selo}</Selo>}
+                </div>
+                <div className="flex flex-wrap gap-4">
+                  {lista.length >= 2 && <CaixaComparar exameId={e.id} rotulo={MSG_EXAMES.exame.compararRotulo(e.titulo, formatarData(e.data))} />}
+                  <Link href={`/painel/pacientes/${paciente.id}/exames/${e.id}`} aria-label={MSG_EXAMES.exame.abrirRotulo(e.titulo, formatarData(e.data))} className="inline-flex min-h-11 items-center text-link underline">
+                    {MSG_EXAMES.exame.abrir}
+                  </Link>
+                  {e.arquivoPath && (
+                    <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="text-link underline">Baixar laudo</a>
+                  )}
+                  {e.arquivoPath && mostrarIa && (
+                    <IaDoExame patientId={paciente.id} exame={{ id: e.id, titulo: e.titulo }} situacao={situacoes.get(e.id)} ia={iaExame} agora={agora} />
+                  )}
+                  {!bloqueado && (
+                    <Link href={`/painel/pacientes/${paciente.id}/exames/${e.id}/editar`} aria-label={MSG_EXAMES.exame.editarRotulo(e.titulo, formatarData(e.data))} className="inline-flex min-h-11 items-center text-link underline">
+                      {MSG_EXAMES.exame.editar}
+                    </Link>
+                  )}
+                  {!bloqueado && (
+                    <form action={excluirExameAction.bind(null, paciente.id, e.id)}>
+                      <ConfirmarBotao mensagem="Excluir este exame e o laudo?" rotulo={`Excluir o exame ${e.titulo} de ${formatarData(e.data)}`}>Excluir</ConfirmarBotao>
+                    </form>
+                  )}
+                </div>
               </div>
-              <div className="flex gap-4">
-                {e.arquivoPath && (
-                  <a href={signFileUrl(e.arquivoPath)} rel="noreferrer" className="text-link underline">Baixar laudo</a>
-                )}
-                {e.arquivoPath && mostrarIa && (
-                  <IaDoExame patientId={paciente.id} exame={{ id: e.id, titulo: e.titulo }} situacao={situacoes.get(e.id)} ia={iaExame} agora={agora} />
-                )}
-                {!bloqueado && (
-                  <form action={excluirExameAction.bind(null, paciente.id, e.id)}>
-                    <ConfirmarBotao mensagem="Excluir este exame e o laudo?" rotulo={`Excluir o exame ${e.titulo} de ${formatarData(e.data)}`}>Excluir</ConfirmarBotao>
-                  </form>
-                )}
-              </div>
-            </div>
-            {e.valores.length > 0 && (
-              <table className="w-full text-left">
-                <caption className="sr-only">{`Valores do exame ${e.titulo}`}</caption>
-                <thead className="text-sm text-suave">
-                  <tr>
-                    <th scope="col">Marcador</th>
-                    <th scope="col">Valor</th>
-                    <th scope="col">Referência</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {e.valores.map((v, i) => (
-                    <tr key={`${i}-${v.nome}`} className="border-t border-linha">
-                      <td>{v.nome}</td>
-                      <td>
-                        {`${formatarDecimal(v.valor, casasDecimais(v.valor))}${v.unidade ? ` ${v.unidade}` : ''}`}
-                        {v.iaTarefaId && (
-                          <span className="ml-2 text-sm text-suave">{marcas.get(v.iaTarefaId) ? `IA · conferido em ${formatarDataNoFuso(marcas.get(v.iaTarefaId)!, tenant.fuso)}` : 'IA · conferido'}</span>
-                        )}
-                      </td>
-                      <td>{v.referencia ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </article>
-        ))}
+              {/* "Editar exame" volta com ?editado={id}#exame-salvo: a confirmação fica no exame editado e recebe o foco
+                  (FocoNaAncora), à vista e lida pelo leitor de tela — não no topo da página, acima do "Novo exame" */}
+              {busca.editado === e.id && (
+                <Aviso tipo="ok" id="exame-salvo" focavel>
+                  {MSG_EXAMES.exame.salvo}
+                </Aviso>
+              )}
+              {e.valores.length > 0 && (
+                <TabelaClassificada id={`exame-${e.id}-valores`} legenda={MSG_EXAMES.exame.valoresDoExame(e.titulo)} linhas={classificadas.get(e.id) ?? []} avisosDeFora={AVISOS} />
+              )}
+            </article>
+          ))}
+          {lista.length >= 2 && <BotaoComparar acao={`/painel/pacientes/${paciente.id}/exames/comparativo`} />}
+        </SelecaoParaComparar>
       </section>
     </div>
   );

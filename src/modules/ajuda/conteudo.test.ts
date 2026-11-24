@@ -10,7 +10,7 @@ const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
   .join('\n');
 
 // Rótulos que vêm de módulos (opções da agenda, filtros): citados no manual, desenhados fora do .tsx
-const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes', 'src/modules/ficha', 'src/modules/financeiro']
+const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes', 'src/modules/ficha', 'src/modules/financeiro', 'src/modules/exames']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.ts') && !d.name.endsWith('.test.ts')).map((d) => path.join(d.parentPath, d.name)))
   // Plano 16: os rótulos da resposta do diário ("Comeu como no plano") vêm de uma constante do portal (sem import de servidor)
   .concat(path.resolve('src/modules/portal/diario-constantes.ts'))
@@ -69,7 +69,7 @@ describe('conteúdo do manual (P08-10)', () => {
     const g = GUIAS.find((x) => x.id === 'prontuario')!;
     const textos = [g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)];
     expect(textos.filter((t) => /documento/i.test(t))).toEqual([]);
-    expect(g.versao).toBe(3); // 2 no Plano 14A pela autorização de IA (item novo nas perguntas comuns), 3 no Plano 18 pelas abas Início e Perfil; nunca pela aba Documentos
+    expect(g.versao).toBeGreaterThanOrEqual(3); // 2 no Plano 14A pela autorização de IA (item novo nas perguntas comuns), 3 no Plano 18 pelas abas Início e Perfil, 4 no Plano 22 (abaixo); nunca pela aba Documentos
   });
   it('Plano 12: o passo do menu do boas-vindas cita "Exames recebidos" e o guia subiu de versão (quem já viu o tour, vê de novo)', () => {
     const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
@@ -104,7 +104,7 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(itens('prontuario')).toContain(
       '"Resumo do histórico (IA)": um resumo do prontuário antes da consulta, com cada frase ligada ao registro de onde veio. Só com a autorização do paciente; as notas privadas só vão se você marcar "Incluir notas privadas".',
     );
-    expect(GUIAS.find((x) => x.id === 'prontuario')!.versao).toBe(3); // Plano 18: abas Início e Perfil
+    expect(GUIAS.find((x) => x.id === 'prontuario')!.versao).toBeGreaterThanOrEqual(3); // Plano 18: abas Início e Perfil; 4 desde o Plano 22 (abaixo)
     expect(itens('plano-alimentar')).toContain(
       '"Gerar rascunho com IA": informe a meta, os macronutrientes e as refeições; a IA escolhe alimentos da TACO e da sua tabela, e todas as contas são do sistema. O plano publicado leva o selo "Elaborado com apoio de IA e revisado pela nutricionista".',
     );
@@ -120,7 +120,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 15: o aditivo 1.2 e a IA Nutri em Configurações (versão 8, com o passo da subseção); a 1.2 não invalida autorização nenhuma', () => {
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
-    expect(config.versao).toBe(8);
+    expect(config.versao).toBeGreaterThanOrEqual(8); // 9 desde o Plano 22 (o cartão "Exames", abaixo)
     const ia = config.ajuda.secoes.find((s) => s.titulo === 'Inteligência artificial (IA)')!.itens;
     expect(ia).toContain(
       'O aditivo está na versão 1.2, que inclui o resumo do histórico, o rascunho de plano alimentar e a IA Nutri para pacientes. Quem aceitou a versão 1.1 continua usando a leitura de laudos, o resumo, o rascunho e os modelos; só a IA Nutri pede o aceite da 1.2 ("Aceitar a versão atual").',
@@ -194,7 +194,7 @@ describe('conteúdo do manual (P08-10)', () => {
 
   it('Plano 18 (§8.2): o guia do prontuário na versão 3, com o cabeçalho e as abas Início e Perfil; o resumo e o passo a passo citam os dois', () => {
     const g = GUIAS.find((x) => x.id === 'prontuario')!;
-    expect(g.versao).toBe(3);
+    expect(g.versao).toBeGreaterThanOrEqual(3); // 4 desde o Plano 22 (a aba Exames, abaixo)
     expect(g.passos.find((p) => p.alvo === 'cabecalho-paciente')?.texto).toBe(
       'Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o paciente está arquivado ou bloqueado.',
     );
@@ -266,5 +266,27 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(precisaDoGuia({}, g, ['concluido', 'dispensado'])).toBe(true);
     expect(precisaDoGuia({ [g.id]: { v: g.versao, estado: 'dispensado' } }, g, ['concluido', 'dispensado'])).toBe(false);
     expect(precisaDoGuia({ [g.id]: { v: g.versao - 1, estado: 'concluido' } }, g, ['concluido', 'dispensado'])).toBe(true);
+  });
+  it('Plano 22 (T3): o guia "exames-do-consultorio" cobre as telas de /painel/exames; "configuracoes" sobe (+1) e o passo dos cartões cita "Exames"', () => {
+    const g = GUIAS.find((x) => x.id === 'exames-do-consultorio')!;
+    expect(g.versao).toBe(1);
+    for (const r of ['/painel/exames/catalogo', '/painel/exames/catalogo/novo', `/painel/exames/catalogo/${UUID}`, '/painel/exames/modelos', '/painel/exames/modelos/novo', `/painel/exames/modelos/${UUID}`]) {
+      expect(guiaDaRota(r)?.id, r).toBe('exames-do-consultorio');
+    }
+    expect(guiaDaRota('/painel/exames-recebidos')?.id).toBe('exames-recebidos');
+    expect(g.passos.map((p) => p.alvo)).toEqual(['secoes-exames', 'nomes-para-comecar', 'novo-exame-catalogo', 'faixas-consultorio', 'modelos-nota']);
+    const config = GUIAS.find((x) => x.id === 'configuracoes')!;
+    expect(config.versao).toBe(9); // Plano 22: o cartão "Exames" (+1 sobre a main)
+    expect(config.passos.find((p) => p.alvo === 'cartoes-configuracoes')?.texto).toContain('"Exames"');
+  });
+
+  it('Plano 22 (T4, EP-D52): o guia do prontuário cita "Adicionar do catálogo" e "Editar" na aba Exames e sobe para a versão 4; editar e versões ficam no guia do prontuário', () => {
+    const g = GUIAS.find((x) => x.id === 'prontuario')!;
+    expect(g.versao).toBe(4);
+    const passo = g.ajuda.secoes.find((s) => s.titulo === 'Passo a passo')!.itens.join(' ');
+    expect(passo).toContain('"Adicionar do catálogo"');
+    expect(passo).toContain('"Editar"');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/editar`)?.id).toBe('prontuario');
+    expect(guiaDaRota(`/painel/pacientes/${UUID}/exames/${UUID}/versoes`)?.id).toBe('prontuario');
   });
 });
