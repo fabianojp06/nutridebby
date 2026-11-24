@@ -297,10 +297,15 @@ export async function temEnvioVisivel(ctx: TenantContext, db: Db = getDb()): Pro
 
 /**
  * RN-192 num lugar só (molduraDaSecao e faixaDeHoje): "Exames" aparece com o recebimento ligado no consultório ou, desligado,
- * com envio visível do paciente (`temEnvio` só é chamado nesse caso).
+ * com envio visível do paciente (`temEnvio` só é chamado nesse caso). Plano 22 (RN-386, EP-D23): ou com exame liberado pela
+ * nutricionista — o terceiro termo, avaliado por último (`temLiberado` só é chamado quando os outros dois deram falso).
  */
-export async function examesVisiveis(tenant: { examesPacienteAtivadoEm: Date | null }, temEnvio: () => Promise<boolean>): Promise<boolean> {
-  return Boolean(tenant.examesPacienteAtivadoEm) || (await temEnvio());
+export async function examesVisiveis(
+  tenant: { examesPacienteAtivadoEm: Date | null },
+  temEnvio: () => Promise<boolean>,
+  temLiberado: () => Promise<boolean>,
+): Promise<boolean> {
+  return Boolean(tenant.examesPacienteAtivadoEm) || (await temEnvio()) || (await temLiberado());
 }
 
 /** P08-13: o mesmo, dentro da transação da faixa de Hoje (faixaDeHoje). Só numa transação de sessão de paciente. */

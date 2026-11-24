@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useActionState, useState, type ReactNode } from 'react';
 import { Botao } from '@/components/ui/botao';
+import { semResetAutomatico } from '@/lib/form-sem-reset';
 import { CATEGORIAS, MODOS_PREPARO, MSG_PRESCRICAO, TIPOS_ITEM, UNIDADES, VIAS, type ConteudoReceita } from '@/modules/documentos/prescricao';
 import { prepararAction, salvarRascunhoAction, type EstadoForm } from '../actions';
 import { MotivoRetificacao } from './motivo-retificacao';
@@ -38,8 +39,10 @@ function doConteudo(c: ConteudoReceita): ItemForm[] {
 
 /**
  * US-142 + US-143: o editor e o preparo são UM formulário (revisão da T6). "Preparar para assinatura" manda o que está na
- * tela (a ação grava e prepara), e os erros dos dois botões voltam aos campos. Tudo controlado: o React 19 reseta campos
- * não controlados depois de cada action, e a justificativa e a declaração voltariam ao valor salvo depois de um erro.
+ * tela (a ação grava e prepara), e os erros dos dois botões voltam aos campos. Tudo controlado (o estado é a fonte, e o
+ * JSON escondido sai dele) e o reset automático do React 19 cancelado (`semResetAutomatico`, SUS-108): o `form.reset()`
+ * depois de cada action levava os <select> à primeira opção e as caixas ao estado da montagem — a tela mostrava outra
+ * coisa que o JSON que se salva.
  */
 export function ReceitaForm({ patientId, docId, conteudo, justificativa: justificativaSalva, habilitada, declaracao, motivo = null }: { patientId: string; docId: string; conteudo: ConteudoReceita; justificativa: string; habilitada: boolean; declaracao: string; motivo?: string | null }) {
   const [s, action, pendente] = useActionState<Estado, FormData>(async (prev, f) => {
@@ -190,7 +193,7 @@ export function ReceitaForm({ patientId, docId, conteudo, justificativa: justifi
     </div>
   );
   return (
-    <form action={action} className="space-y-6" data-guia="editor-receita">
+    <form action={action} ref={semResetAutomatico} className="space-y-6" data-guia="editor-receita">
       <input type="hidden" name="conteudo" value={JSON.stringify({ itens, orientacoes })} />
       {editor}
       {s.intencao !== 'preparar' && aviso}

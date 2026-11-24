@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -32,5 +33,26 @@ describe('FormLembrete: ajuda fixa ligada ao campo de texto (NORMAS-F2, TRI-17-2
     expect(ajuda).toBeDefined();
     expect(paragrafo(html, ajuda!)).toBe(AJUDA_SUPLEMENTO);
     expect(html).not.toContain(AJUDA_LIVRE);
+  });
+});
+
+describe('FormLembrete: o reset automático do React 19 não desencontra a tela do estado (SUS-108)', () => {
+  const DIR = 'src/app/painel/pacientes/[id]/plano-alimentar/lembretes';
+
+  it('o erro não remonta o formulário (a action só devolve `envio` no sucesso), por isso o <form> cancela o reset', () => {
+    // A remontagem pela `envio` não protege: no erro a chave fica igual (o foco continua no Salvar), e o form.reset() depois
+    // da action levava o <select> do intervalo à opção do HTML do servidor e os dias aos da montagem — o reenvio mandava o
+    // que a tela mostrava (reproduzido no navegador: intervalo 1 h → 2 h, domingo marcado → desmarcado).
+    const a = readFileSync(`${DIR}/actions.ts`, 'utf8');
+    const corpo = a.slice(a.indexOf('export async function salvarLembreteAction'), a.indexOf('/** Erros de `ligarLembrete`'));
+    const erros = corpo.match(/return \{ erros[^\n]*/g) ?? [];
+    expect(erros).toHaveLength(2);
+    for (const r of erros) expect(r).not.toContain('envio');
+    expect(corpo).toMatch(/return \{ ok: 'Lembrete salvo\.', envio: Date\.now\(\), id \}/);
+    const f = readFileSync(`${DIR}/form-lembrete.tsx`, 'utf8');
+    expect(f).toMatch(/<form key=\{state\.envio\} ref=\{semResetAutomatico\} action=\{enviar\}/);
+    // os campos continuam controlados pelo estado (o reset cancelado não deixa nada "solto")
+    expect(f).toMatch(/<select id=\{id\} name=\{nome\} value=\{valor\} onChange=/);
+    expect(f).toMatch(/\schecked=\{dias\.includes\(d\.valor\)\}/);
   });
 });

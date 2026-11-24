@@ -897,3 +897,9 @@ integração (Testcontainers) de cada tarefa e pelo código; o E2E do PR 2 (`e2e
 - Sessões paralelas: `docs/operacao/sessoes-paralelas.md` (branch `docs/sessoes-paralelas`, PR #50), §§3–7.
 - Plano 19: `nutridebby-b/docs/superpowers/specs/2026-11-16-nutridebby-19-plano-alimentar-2-design.md` (§9, §13). Plano 20: `nutridebby-c/docs/superpowers/specs/2026-11-16-nutridebby-20-financeiro-design.md` (US-308, F-09, DEP-F8, R-302).
 - Código citado na revisão: `drizzle/0000_base_roles_e_rls.sql` (`app_enable_patient_rls`), `src/modules/portal/{plano,conteudos,exames-enviados,diario}.ts`, `src/modules/plano-alimentar/carregar.ts`, `src/modules/portal/conteudos.test.ts` (guarda da liberação), `src/components/confirmar-botao.tsx`, `src/modules/ajuda/conteudo.ts`, `src/modules/pacientes/prontuario-pdf.tsx`, `src/app/painel/pacientes/[id]/{abas.tsx,layout.tsx,impressao.test.ts,anamnese/,documentos/page.tsx}`.
+
+---
+
+## Acréscimos de outros planos
+
+- **RN-279 v2 (Plano 22, EP-D22, 23/11/2026):** os exames da nutricionista marcados "Mostrar no app" contam no "No app" — a seção `exames` do Início ganha `noApp` por `noAppPor(exams, …)` no contexto de paciente, e a política RESTRICTIVE `paciente_exame_liberado` faz o banco contar só os liberados (nenhum filtro em TypeScript, RN-281); o selo "No app" sai só no exame liberado e a contagem da página `[id]/app` entra na linha "Exames" ("{n} exame(s) liberado(s)") — a mesma regra do item "Exames" do menu do app (recebimento ligado, envio visível ou exame liberado). A frase "exames da nutricionista … não têm `noApp`" da RN-279 vale até o Plano 22 PR 3; o resto da RN-279 não muda. Paridade com "Resultados liberados" (`examesLiberadosDoPaciente`) em `src/modules/ficha/no-app.test.ts` (RNF-263 b).

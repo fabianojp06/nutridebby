@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -71,5 +72,17 @@ describe('editor da receita: erros visíveis e ligados ao campo (revisão da T6)
     expect(tag(html, 'declaracao')).toContain('aria-describedby="declaracao-erro"');
     expect(html).toContain('data-guia="preparar-documento"');
     expect(html).toContain('data-guia="editor-receita"');
+  });
+});
+
+describe('editor da receita: o reset automático do React 19 não desencontra a tela do JSON (SUS-108)', () => {
+  it('o <form> cancela o reset (semResetAutomatico) e o JSON escondido sai do mesmo estado que os campos mostram', () => {
+    // Reproduzido no navegador: depois do erro do "Preparar" (e até do "Rascunho salvo."), a tela mostrava Categoria
+    // "Nutriente", Unidade "g", Via "Oral" e "Manipulado" desmarcado, e o JSON salvava enzima/U/sublingual/manipulado.
+    const f = readFileSync('src/app/painel/pacientes/[id]/documentos/[docId]/receita-form.tsx', 'utf8');
+    expect(f).toMatch(/<form action=\{action\} ref=\{semResetAutomatico\}/);
+    expect(f).toMatch(/<input type="hidden" name="conteudo" value=\{JSON\.stringify\(\{ itens, orientacoes \}\)\} \/>/);
+    const p = readFileSync('src/app/painel/pacientes/[id]/documentos/[docId]/parecer-form.tsx', 'utf8');
+    expect(p).toMatch(/<form action=\{action\} ref=\{semResetAutomatico\}/);
   });
 });

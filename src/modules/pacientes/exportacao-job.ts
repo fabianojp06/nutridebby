@@ -259,6 +259,11 @@ export type DadosExportacao = {
     notaDeInterpretacao: string | null;
     /** Só no escopo da equipe: as versões da nota antes da em vigor (`texto` nulo = "Apagar nota"), sem o autor. */
     notasAnteriores?: { versao: number; texto: string | null; criadoEm: string }[];
+    /**
+     * Plano 22 (RN-385, RN-399; Review Focus 6): desde quando o exame aparece no app do paciente ("Mostrar no app"), em
+     * ISO; `null` = não aparece. Quem ligou e quem retirou ficam no audit_log, não aqui.
+     */
+    mostradoNoAppEm: string | null;
   }[];
   /** Só as orientações: notas privadas (staff_only) nunca saem (US-016). */
   atendimentos: { data: string; orientacoes: string | null }[];
@@ -674,6 +679,7 @@ export async function montarDados(
       versoesAnteriores: versoesPorExame.get(e.id) ?? [],
       notaDeInterpretacao: notasPorExame.get(e.id)?.[0]?.texto ?? null,
       ...(escopo === 'equipe' ? { notasAnteriores: (notasPorExame.get(e.id) ?? []).slice(1) } : {}),
+      mostradoNoAppEm: e.mostrarNoAppEm?.toISOString() ?? null,
     })),
     atendimentos: at,
     planos,

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Aviso } from '@/components/ui/aviso';
+import { Selo } from '@/components/ui/selo';
 import { signFileUrl } from '@/lib/signed-url';
 import { RetornoDaTela } from '@/app/painel/exames/retorno';
 import { MSG_EXAMES } from '@/modules/exames/constantes';
@@ -10,6 +11,7 @@ import { formatarData } from '@/modules/pacientes/datas';
 import { carregarProntuario } from '../../prontuario';
 import { TabelaClassificada, type LinhaClassificada } from '../tabela-classificada';
 import { ExcluirExame } from './excluir-exame';
+import { NoAppDoExame } from './no-app';
 import { NotaForm, type ModeloDeNota } from './nota-form';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +27,8 @@ const ID_DO_TITULO = 'exame-titulo';
  * "Editar", "Versões anteriores", "Baixar laudo", "Excluir". Lê só por `abrirExame` (pelos dois ids, com o `auditRead`);
  * exame de outro paciente → 404. Paciente bloqueado: só leitura. O título do prontuário (h1) é o nome do paciente; o desta
  * tela é o h2 que recebe o foco depois de salvar ou apagar a nota.
+ * T6 (US-375, RN-385): "Mostrar no app do paciente"/"Retirar do app" com o selo "No app", logo abaixo do título; com o
+ * paciente bloqueado, só o selo.
  */
 export default async function ExamePage({ params, searchParams }: PageProps<'/painel/pacientes/[id]/exames/[exameId]'>) {
   const { id, exameId } = await params;
@@ -57,6 +61,7 @@ export default async function ExamePage({ params, searchParams }: PageProps<'/pa
         {`${e.titulo} — ${data}`}
       </h2>
       <RetornoDaTela texto={retorno} marcador={marcador} focarTitulo={ID_DO_TITULO} />
+      {bloqueado ? e.noAppEm && <Selo>{MSG_EXAMES.app.selo}</Selo> : <NoAppDoExame patientId={paciente.id} exameId={e.id} noApp={!!e.noAppEm} />}
       <div className="flex flex-wrap items-center gap-4">
         {!bloqueado && (
           <Link href={`${base}/${e.id}/editar`} aria-label={X.editarRotulo(e.titulo, data)} className="inline-flex min-h-11 items-center text-link underline">
