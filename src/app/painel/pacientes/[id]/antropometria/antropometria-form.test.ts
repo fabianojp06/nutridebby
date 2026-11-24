@@ -16,6 +16,8 @@ describe('antropometria: o protocolo escolhido sobrevive ao reset automático do
     expect(select[0]).toMatch(/\sdefaultValue=\{protocolo\}/);
     expect(select[0]).not.toMatch(/\svalue=\{/);
     // a remontagem que põe o valor devolvido no defaultValue: a chave dos Campos é a `envio` da resposta, e os valores vêm dela
+    // e o form cancela o reset (cinto e suspensório: não depende de toda resposta trazer `envio`)
+    expect(f).toMatch(/<form action=\{action\} ref=\{semResetAutomatico\}/);
     expect(f).toMatch(/<Campos key=\{state\.envio \?\? 0\} inicial=\{state\.valores \?\?/);
     // toda resposta da action (sucesso e os dois erros que voltam à tela) muda a `envio`
     const a = readFileSync(`${DIR}/actions.ts`, 'utf8');

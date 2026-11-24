@@ -9,7 +9,8 @@
  *  - `<input type="checkbox|radio" checked>` volta ao `checked` da montagem (o React só atualiza o `defaultChecked` de
  *    quem não é controlado).
  * (`<input value>` e `<textarea value>` escapam: o React copia o valor para o `defaultValue` a cada renderização.)
- * O `form.reset()` dispara o evento `reset`, cancelável: esta ref o cancela, e a tela continua mostrando o estado.
+ * O `form.reset()` dispara o evento `reset`, cancelável: esta ref o cancela, e a tela continua mostrando o estado. Cancela
+ * também o de um `<button type="reset">` do mesmo formulário (nenhum dos que a usam tem um): para limpar, mude o estado.
  *
  * Use SEMPRE esta função, nunca uma ref nova a cada renderização (`ref={(el) => …}`): o React desliga e religa uma ref
  * que mudou em todo commit, e o reset roda justamente entre o desligar e o religar — sem o ouvinte. Formulário com campo
