@@ -1,7 +1,17 @@
-import { expect, type Browser, type BrowserContextOptions, type Page } from '@playwright/test';
+import { devices, expect, type Browser, type BrowserContextOptions, type Page } from '@playwright/test';
 import { TOTP } from 'otpauth';
 
 const segredos = new Map<string, string>();
+
+/**
+ * SUS-117: o painel da nutricionista em tela de computador, no navegador do projeto. Nos specs do portal que rodam também
+ * no projeto `webkit` (iPhone), o contexto herdaria o celular; o painel ali é só preparo, e o assunto é o portal. No
+ * `chromium`, é o próprio dispositivo do projeto (nada muda).
+ */
+export function painelNoComputador(browser: Browser): BrowserContextOptions {
+  const d = browser.browserType().name() === 'webkit' ? devices['Desktop Safari'] : devices['Desktop Chrome'];
+  return { userAgent: d.userAgent, viewport: d.viewport, deviceScaleFactor: d.deviceScaleFactor, isMobile: d.isMobile, hasTouch: d.hasTouch };
+}
 
 /** `opcoes`: o contexto herda o dispositivo do projeto (celular); o painel da nutricionista pede o desktop. */
 export async function entrarComo(browser: Browser, email: string, senha: string, ip: string, opcoes: BrowserContextOptions = {}): Promise<Page> {

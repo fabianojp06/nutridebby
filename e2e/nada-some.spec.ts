@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { entrarComo } from './helpers';
+import { entrarComo, painelNoComputador } from './helpers';
 import { marcarParaPaciente, pacienteNoPortal, publicarPlanoDoDia } from './portal';
 
 // Plano 16 (CS-190): toda função do portal de antes do layout G é alcançável a partir de Hoje no número de toques da
@@ -43,7 +43,7 @@ let nutri: Page;
 let paciente: Awaited<ReturnType<typeof pacienteNoPortal>>;
 test.describe.configure({ mode: 'serial' });
 test.beforeAll(async ({ browser }) => {
-  nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.19.76');
+  nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.19.76', painelNoComputador(browser));
   await expect(nutri).toHaveURL(/\/painel$/);
   paciente = await pacienteNoPortal(browser, nutri, '10.9.19.77');
   await publicarPlanoDoDia(nutri, paciente.prontuario);

@@ -405,7 +405,7 @@ por tela (ex.: `src/app/p/(portal)/plano/page.test.ts`), não como varredura. O 
 | `fullyParallel` | `false` | Os specs dividem um banco e um consultório de teste; vários são `serial` |
 | `retries` | 1 no CI, 0 local | Absorve uma oscilação de rede sem esconder falha repetida |
 | `workers` (`:12`) | 2 no CI; local, o padrão do Playwright | No runner próprio, o contêiner do job enxerga 8 núcleos numa cota de 4: o padrão (metade dos núcleos vistos) daria 4 workers e estouraria prazos. 2, como no runner hospedado de 4 vCPU |
-| `trace` | `retain-on-failure` | O CI sobe `playwright-report` quando falha (`ci.yml`, último passo do job `e2e`) |
+| `trace` | `retain-on-failure` | O CI sobe `playwright-report` quando falha (`ci.yml`, último passo do job `e2e`; `playwright-report-webkit` no `e2e-webkit`) |
 | `webServer[0]` | `next start` na porta da `baseURL` | E2E roda o **build de produção**, não o `next dev` |
 | `webServer[1]` | `pnpm worker`, espera `worker iniciado` no stdout (`src/worker/index.ts:218`) | E-mails e lembretes são enviados pelo worker |
 
@@ -416,9 +416,34 @@ por tela (ex.: `src/app/p/(portal)/plano/page.test.ts`), não como varredura. O 
 | `chromium` | Desktop Chrome | Todos, menos os dois de acessibilidade |
 | `celular` | Pixel 7 | `acessibilidade.spec.ts` (PWA no tamanho de Android; RNF-09, RNF-10) |
 | `painel` | Desktop Chrome | `acessibilidade-painel.spec.ts` (Plano 08, D25) |
+| `webkit` | iPhone 17 (WebKit) | Só os do portal do paciente, numa lista explícita (`SPECS_DO_PORTAL`): `portal`, `sessao-portal`, `app-paciente`, `nada-some`, `sus-112-recarregar-ao-voltar` e `fontes-portal`; e, quando chegarem à `main`, `questionario`, `metas`, `mensagens*` e `site-opinioes` (o Enter do editor do site) |
 
-O Safari do iOS fica no teste manual do runbook (comentário em `playwright.config.ts:16`; checklist
-`docs/operacao/go-live.md`, "Produto e acessibilidade").
+**Projeto `webkit` (SUS-117).** O Safari do iPhone é o navegador de boa parte dos pacientes, e o motor dele (WebKit) é
+outro: service worker, cache, toque, foco no toque e as regras do iOS no portal (o tutorial "Adicionar à Tela de Início"
+no lugar do "Ativar notificações", `src/app/p/notificacoes.tsx`). O projeto roda no WebKit do Playwright com o
+dispositivo `iPhone 17` (o iPhone mais novo da 1.63: agente do iPhone, 402 × 681, toque) os specs cujo assunto é o portal.
+Ficam de fora os do painel e os mistos em que o lado do paciente não se separa da revisão no painel (`lembretes`,
+`exames-enviados`, `ia-nutri-paciente`). Regras:
+
+- **A nutricionista entra com `painelNoComputador(browser)`** (`e2e/helpers.ts`): o contexto criado por
+  `browser.newContext()` herda o dispositivo do projeto, e o painel ali é só preparo. No WebKit, `Desktop Safari`; no
+  Chromium, `Desktop Chrome` (o próprio dispositivo do projeto: nada muda). Spec novo na lista faz o mesmo.
+- **O que o Playwright não faz no WebKit sai só no teste**, com `test.skip(browserName === 'webkit', '<motivo e link>')`,
+  sem afrouxar asserção: `fontes-portal.spec.ts` (desliga o cache pelo CDP, que só existe no Chromium) e, no
+  `portal.spec.ts`, "sem as chaves do VAPID…" (no iPhone fora da tela de início o portal manda instalar antes, e o
+  Playwright não emula o app instalado, `display-mode: standalone`). Os testes de offline e do service worker não usam
+  `context.serviceWorkers()` nem o evento `serviceworker` (só Chromium): rodam no WebKit.
+- **Job próprio no CI (`e2e-webkit`).** Estimativa do SUS-117: os 54 testes que rodam (55 com o pulado), pela média do
+  Chromium na última execução verde do CI (272 testes em 22,5 min com 2 workers) e com o peso dos specs do portal (cada
+  teste cria um paciente pelo painel e aceita o convite pelo Mailpit), dão 7 a 10 min no WebKit, mais o build: acima dos
+  5 min combinados. O job tem o banco e o Mailpit dele, então os mesmos specs não rodam duas vezes, ao mesmo tempo,
+  contra as contas fixas do seed e os IPs do limite de login. O tempo medido sai do CI do PR do SUS-117.
+- **O host da VPS não abre o WebKit** (faltam as bibliotecas do sistema; instalar é com o dono): local, só
+  `pnpm exec playwright test --list --project=webkit`. A imagem do CI (`mcr.microsoft.com/playwright:v1.63.0-noble`) já
+  traz o navegador e as dependências.
+
+O aparelho de verdade continua no teste manual do runbook (checklist `docs/operacao/go-live.md`, "Produto e
+acessibilidade") para o que o Playwright não alcança: instalar, push real, VoiceOver e a foto HEIC do iPhone.
 
 ### Dados do E2E: `scripts/e2e-seed.ts`
 
@@ -557,7 +582,7 @@ Comentários com `eslint-disable` existem e explicam o motivo na mesma linha (ex
 
 ### `ci.yml` (todo pull request e chamado pelo deploy)
 
-Desde 12/10/2026, os cinco jobs do `ci.yml` rodam no **runner próprio** da VPS (`runs-on: [self-hosted, nutri-ci]`), não
+Desde 12/10/2026, os jobs do `ci.yml` (seis desde o SUS-117) rodam no **runner próprio** da VPS (`runs-on: [self-hosted, nutri-ci]`), não
 mais no `ubuntu-latest` do GitHub. O runner tem uma instância só: os jobs entram em fila e rodam **um por vez**. Como o
 runner é montado e por que, em "Runner próprio na VPS", abaixo.
 
@@ -566,14 +591,15 @@ runner é montado e por que, em "Runner próprio na VPS", abaixo.
 | `mudancas` (`ci.yml:37-60`) | 5 min | No host do runner, sem `container:` | `git diff --name-only` contra a base | Plano 12 (R-D1): diz se a mudança tem código (saída `codigo`); ver "Mudança só de documentação", abaixo |
 | `quality` (`:62-75`) | 20 min | Contêiner `mcr.microsoft.com/playwright:v1.63.0-noble` (`--cpus 4 --memory 6g`) | `pnpm install --frozen-lockfile --store-dir /pnpm-store`, `lint`, `typecheck` | Node 24 pelo `setup-node`, sem o cache do GHA: o store do pnpm fica no volume `nutri-ci-pnpm`, montado em `/pnpm-store`. Roda sempre |
 | `test` (`:77-118`) | 25 min | Contêiner do Playwright (`--cpus 4 --memory 8g`), **sem** `DAC_OVERRIDE` e `DAC_READ_SEARCH`; com o socket do Docker rootless do CI e o `docker` e o `rclone` do host montados só leitura | Confere que o `rclone` e o `docker` existem, que o daemon é o rootless e sem Swarm, e liga o contêiner do job à rede `bridge`; baixa o `jq` 1.7.1 (binário estático da release, conferido pelo sha256); `pnpm install`; `pnpm test`; `pnpm test:tempo` (os testes de tempo, depois e sozinhos) | Inclui todas as guardas. Postgres do Testcontainers pelo IP do contêiner (`NUTRI_CI_REDE_DIRETA=1`) e Ryuk desligado (`TESTCONTAINERS_RYUK_DISABLED`); 3 workers do Vitest. Só com `codigo == 'true'` |
-| `e2e` (`:120-174`) | 45 min | Contêiner do Playwright (`--cpus 4 --memory 8g --shm-size 1g`); serviços `postgres:16-alpine` e `axllent/mailpit:v1.27` **sem** `ports:` | `playwright install chromium` (sem `--with-deps`: a imagem já traz as dependências do sistema), `db:migrate`, `e2e:seed`, `build`, `test:e2e` | Serviços pelo nome na rede do job (`postgres:5432`, `mailpit:8025`); `APP_URL` é o `localhost:3000` do contêiner do job, não o painel do Easypanel. `NODE_ENV=production`, `CI=true`, `WHATSAPP_SANDBOX=1`, `EMAIL_TRANSPORT=mailpit`; 2 workers do Playwright; relatório do Playwright como artefato na falha. Só com `codigo == 'true'` |
-| `image` (`:176-250`) | 30 min | No host do runner, no Docker rootless do CI (`DOCKER_HOST` vem do `.env` do runner) | `setup-buildx-action` com `driver: docker`; `build-push-action` com `push: false` e `load: true`, sem cache do GHA; o orçamento; os testes de fumaça da IA e da rasterização; `docker image rm -f nutridebby:ci` no fim (`if: always()`) | **Só build e provas, sem push:** a imagem que vai para o GHCR é montada de novo no `publish`, hospedado. A imagem comprimida tem de caber em **265 MB** (`set -euo pipefail`, MB arredondado para cima; conta abaixo); depois, `node --import tsx` na imagem, sem rede, prepara um PDF (thread do `pdf-lib`), cria o cliente do SDK e (Plano 12) rasteriza uma página no processo filho do PDFium — confere a poda do Dockerfile. Só com `codigo == 'true'` |
+| `e2e` (`:123-177`) | 45 min | Contêiner do Playwright (`--cpus 4 --memory 8g --shm-size 1g`); serviços `postgres:16-alpine` e `axllent/mailpit:v1.27` **sem** `ports:` | `playwright install chromium` (sem `--with-deps`: a imagem já traz as dependências do sistema), `db:migrate`, `e2e:seed`, `build`, `test:e2e --project=chromium --project=celular --project=painel` | Serviços pelo nome na rede do job (`postgres:5432`, `mailpit:8025`); `APP_URL` é o `localhost:3000` do contêiner do job, não o painel do Easypanel. `NODE_ENV=production`, `CI=true`, `WHATSAPP_SANDBOX=1`, `EMAIL_TRANSPORT=mailpit`; 2 workers do Playwright; relatório do Playwright como artefato na falha. Só com `codigo == 'true'` |
+| `e2e-webkit` (`:179-238`) | 45 min | Igual ao `e2e` (contêiner, serviços e variáveis) | `playwright install webkit`, `db:migrate`, `e2e:seed`, `build`, `test:e2e --project=webkit` | SUS-117: o portal do paciente no WebKit (projeto `webkit`, iPhone 17), num banco só dele; relatório `playwright-report-webkit` na falha. Só com `codigo == 'true'` |
+| `image` (`:240-316`) | 30 min | No host do runner, no Docker rootless do CI (`DOCKER_HOST` vem do `.env` do runner) | `setup-buildx-action` com `driver: docker`; `build-push-action` com `push: false` e `load: true`, sem cache do GHA; o orçamento; os testes de fumaça da IA e da rasterização; `docker image rm -f nutridebby:ci` no fim (`if: always()`) | **Só build e provas, sem push:** a imagem que vai para o GHCR é montada de novo no `publish`, hospedado. A imagem comprimida tem de caber em **265 MB** (`set -euo pipefail`, MB arredondado para cima; conta abaixo); depois, `node --import tsx` na imagem, sem rede, prepara um PDF (thread do `pdf-lib`), cria o cliente do SDK e (Plano 12) rasteriza uma página no processo filho do PDFium — confere a poda do Dockerfile. Só com `codigo == 'true'` |
 
 Variáveis do job `test` (só nomes; `ci.yml:93-99`): `DOCKER_HOST` e `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE` (o socket
 rootless do CI, `/run/user/1500/docker.sock`), `NUTRI_CI_REDE_DIRETA` e `TESTCONTAINERS_RYUK_DISABLED`. O Docker do CI
 não vê os contêineres de produção.
 
-Variáveis do job `e2e` (só nomes): `NODE_ENV`, `APP_URL`, `DATABASE_URL`, `DATABASE_URL_MIGRATOR`, `AUTH_SECRET`,
+Variáveis dos jobs `e2e` e `e2e-webkit` (as mesmas; só nomes): `NODE_ENV`, `APP_URL`, `DATABASE_URL`, `DATABASE_URL_MIGRATOR`, `AUTH_SECRET`,
 `ENCRYPTION_KEY`, `TRUSTED_PROXIES`, `EMAIL_FROM`, `EMAIL_TRANSPORT`, `MAILPIT_URL`, `FILE_URL_SECRET`, `DATA_DIR` (`/tmp`
 do contêiner do job, descartado no fim), `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `WHATSAPP_SANDBOX`,
 `EVOLUTION_WEBHOOK_SECRET`, `IA_PROVEDOR` (`sandbox`; desde o Plano 11), `IA_RETENCAO_ZERO` (Plano 14A), `CI`. Todos
@@ -622,7 +648,7 @@ O que mudou nos testes por causa do runner (seção 0 do runbook):
 4. **E2E sem cair no padrão de dev.** No runner próprio, os padrões de dev apontariam para o Mailpit e o banco de dev da
    VPS. Com `CI` definida, `e2e/mailpit.ts` lança erro sem `MAILPIT_URL`, e `e2e/whatsapp.ts` (`doAmbiente`) lança erro
    sem `EVOLUTION_WEBHOOK_SECRET` ou `DATABASE_URL`.
-5. **Orçamento da imagem com a mesma conta em qualquer Docker** (`ci.yml:191-209`). O Docker 29 do runner (armazenamento
+5. **Orçamento da imagem com a mesma conta em qualquer Docker** (`ci.yml:255-275`). O Docker 29 do runner (armazenamento
    do containerd) salva as camadas já em gzip, e o `gzip -6` por cima dava 266–267 MB. A conta extrai o `docker save`,
    descomprime cada camada em gzip e comprime o pacote inteiro de uma vez: 263 MB, o mesmo número do runner hospedado
    (12/10/2026).
@@ -997,7 +1023,7 @@ merge: merge é deploy e precisa do OK do dono.
 | # | Fonte | O que diz | O que o código faz |
 |---|---|---|---|
 | 1 | Spec §9.7, "Merge na `main`" | "no container do app, `migrate` roda antes do `start` (o worker espera a versão do schema)" | **Resolvida no Plano 09 (P09-02 a):** o worker espera a versão do schema (`esperarVersaoDoSchema`, §6.2.1). Antes dela: nenhuma espera. `startWorker` (`src/worker/index.ts:48`) sobe o pg-boss e registra os jobs direto; o modo `worker` do `docker-entrypoint.sh` não consulta migrations; `deploy.yml` chama os webhooks do app e do worker em seguida. A proteção real é o padrão expand/contract |
-| 2 | Spec §9.7, "Pull request" | Pipeline em sequência: lint → `tsc` → Vitest → testes de RLS/isolamento → build → Playwright | Jobs separados (`mudancas`, `quality`, `test`, `e2e`, `image`); no runner próprio (desde 12/10/2026), um por vez, na ordem em que o runner os pega. Os testes de RLS e isolamento estão dentro do `pnpm test`; o build está dentro do job `e2e`; o job `image` (orçamento de 265 MB) e o `mudancas` (Plano 12) não aparecem na spec |
+| 2 | Spec §9.7, "Pull request" | Pipeline em sequência: lint → `tsc` → Vitest → testes de RLS/isolamento → build → Playwright | Jobs separados (`mudancas`, `quality`, `test`, `e2e`, `e2e-webkit` desde o SUS-117, `image`); no runner próprio (desde 12/10/2026), um por vez, na ordem em que o runner os pega. Os testes de RLS e isolamento estão dentro do `pnpm test`; o build está dentro do job `e2e`; o job `image` (orçamento de 265 MB) e o `mudancas` (Plano 12) não aparecem na spec |
 | 3 | Spec §9.7, "Merge na `main`" | Push para o GHCR "com tag = SHA do commit" | Também publica `:latest` e poda o pacote para as 2 versões mais recentes (`deploy.yml:103-121`) |
 | 4 | Spec RNF-10 (v1.11) | Axe em "42 rotas de `ROTAS_DO_PAINEL`" | 43 entradas em `ROTAS_DO_PAINEL`, uma por `page.tsx` de `src/app/painel` (43), mais `/conta/seguranca` = 44 telas. O Plano 08, D25, fala em "~43" |
 | 5 | Spec §9.2 | `@sentry/cli` como dependência de dev "para source maps"; `web-push` na mesma linha de dependências de dev | `@sentry/cli` não está no `package.json` (a própria v1.11 diz que não há source maps do navegador); `web-push` é dependência de produção (`dependencies`) |

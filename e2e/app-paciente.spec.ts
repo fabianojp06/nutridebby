@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { entrarComo } from './helpers';
+import { entrarComo, painelNoComputador } from './helpers';
 import { avaliar, entradasDoPlano, pacienteNoPortal, publicarPlanoDoDia } from './portal';
 
 // Plano 16 (US-191 a US-195). IPs (bloco da execução do Plano 16, 10.9.19.76 a 10.9.19.80; o limite de login é por IP):
@@ -9,7 +9,7 @@ const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 test.describe.configure({ mode: 'serial' });
 let nutri: Page;
 test.beforeAll(async ({ browser }) => {
-  nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.19.76');
+  nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.19.76', painelNoComputador(browser));
   await expect(nutri).toHaveURL(/\/painel$/);
 });
 test.afterAll(async () => {
