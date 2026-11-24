@@ -58,6 +58,10 @@ const EXCECOES: Record<string, { n: number; motivo: string }> = {
   'src/modules/portal/agenda.ts': { n: 4, motivo: 'Minhas consultas: o pedido entra em "Próximas" (STATUS_OCUPA, §4.3); alterar só em STATUS_ATIVOS; "Desistir do pedido" só no `solicitada` no prazo (US-408, T8)' },
   'src/modules/portal/mural.ts': { n: 2, motivo: 'mural: STATUS_ATIVOS (o pedido não aparece, §4.3) e "Confirmar presença" só agendada' },
   'src/modules/portal/jornada.ts': { n: 1, motivo: 'jornada: STATUS_ATIVOS (o pedido não aparece, §4.3)' },
+  // Plano 26 (Relatórios, na main antes do 23 PR 3): o pedido não conta em nenhum número (§4.3)
+  'src/modules/relatorios/agenda.ts': { n: 7, motivo: 'Relatórios › Agenda: realizadas, faltas e canceladas por status literal; marcadas, iniciadas e Retornos excluem cancelada e solicitada (o pedido não conta, §4.3); retorno pelo `realizada` anterior' },
+  'src/modules/relatorios/atendimentos.ts': { n: 1, motivo: 'Relatórios › Atendimentos: só `realizada` (o pedido não conta, §4.3)' },
+  'src/modules/relatorios/ranking.ts': { n: 1, motivo: 'Relatórios › Ranking: só `realizada` (o pedido não conta, §4.3)' },
   'src/modules/pacientes/atendimentos.ts': { n: 1, motivo: 'o atendimento leva a consulta a realizada (a regra do pedido mora em motivoParaNaoIniciarAtendimento)' },
   'src/modules/plataforma/metricas-sucesso.ts': { n: 2, motivo: 'métricas do admin: só `realizada` (o pedido nunca é realizado; o recorte do pedido está nas funções SQL da 0127, R-410)' },
   'src/modules/financeiro/cobranca.ts': { n: 2, motivo: 'Plano 20: só a consulta realizada é cobrada (o pedido nunca é realizado)' },
