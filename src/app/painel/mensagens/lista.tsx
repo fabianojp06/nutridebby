@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { Selo } from '@/components/ui/selo';
 import type { ItemDaCaixa, TipoDaUltima } from '@/modules/mensagens/caixa';
 import { MSG_MENSAGENS, rotuloDoQuando } from '@/modules/mensagens/constantes';
@@ -19,7 +20,8 @@ export function paginaDaUrl(v: unknown): number {
 }
 
 /** `?busca=`: texto, sem espaços nas pontas, até 100 caracteres. */
-export const buscaDaUrl = (v: unknown): string => (typeof v === 'string' ? v.trim().slice(0, 100) : '');
+/** A busca vira parâmetro de SQL: sem NUL nem surrogate sem par (SUS-109; o 22021 levaria o termo ao log). */
+export const buscaDaUrl = (v: unknown): string => (typeof v === 'string' ? semInvalidosNoBanco(v).trim().slice(0, 100) : '');
 
 /** O endereço com os parâmetros que valem (sem os padrões: filtro "todas", busca vazia, página 1). */
 export function comParametros(base: string, p: { filtro?: string; busca?: string; pagina?: number }): string {

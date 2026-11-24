@@ -94,6 +94,17 @@ describe('Plano 25 — enviarComoNutri (RN-443, RN-447, RN-475)', () => {
   });
 });
 
+describe('Plano 25 — texto com caractere que o Postgres recusa (SUS-109, regra 3)', () => {
+  it('NUL e surrogate sem par saem antes de gravar, nos dois lados; nenhum erro do banco (22021) leva o texto ao log', async () => {
+    const T = await consultorio();
+    const c = await pacienteDoChat(app.db, T);
+    expect(await enviarComoNutri(T.ctx, c.p, { texto: 'Bom\u0000 dia\ud800!' }, app.db)).toEqual({ id: expect.any(String) });
+    expect(await enviarComoPaciente(c.P, { texto: 'Tudo\u0000 bem\udc00?' }, app.db)).toEqual({ id: expect.any(String), textoFixo: null });
+    expect((await mensagensDe(T, c.p)).map((m) => m.texto)).toEqual(['Bom dia!', 'Tudo bem?']);
+    expect(await enviarComoNutri(T.ctx, c.p, { texto: '\u0000\ud800' }, app.db)).toEqual({ erro: 'vazio', mensagem: MSG_MENSAGENS.erros.semConteudo });
+  });
+});
+
 describe('Plano 25 — enviarComoPaciente (RN-443, RN-447, RN-449)', () => {
   it('grava a mensagem do paciente sem carimbo, em nome da conta; sem risco, textoFixo nulo', async () => {
     const T = await consultorio();

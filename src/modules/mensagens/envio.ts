@@ -8,6 +8,7 @@
  * com outra nutricionista, sem segurar o FOR KEY SHARE que o INSERT do paciente e o marcador de leitura tomam pela FK).
  */
 import { sql } from 'drizzle-orm';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { chatConversas, chatMensagens, patients, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
@@ -44,10 +45,10 @@ const erroPortal = (erro: keyof typeof ERROS_PORTAL): ErroDeEnvio => ({ erro, me
 
 /**
  * RN-444: o texto sem espaços nas pontas, de 1 a 2.000 caracteres contados como o Postgres conta (pontos de código, como o
- * CHECK chat_mensagens_texto_tamanho). O NUL sai (o Postgres não guarda NUL em `text`: 22021).
+ * CHECK chat_mensagens_texto_tamanho). O NUL e o surrogate sem par saem antes (SUS-109: o 22021 levaria o texto ao log).
  */
 function textoDoEnvio(texto: unknown): string | 'vazio' | 'longo' {
-  const t = typeof texto === 'string' ? texto.replaceAll('\u0000', '').trim() : '';
+  const t = typeof texto === 'string' ? semInvalidosNoBanco(texto).trim() : '';
   if (!t) return 'vazio';
   return [...t].length > TEXTO_MAX ? 'longo' : t;
 }
