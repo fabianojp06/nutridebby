@@ -1,6 +1,7 @@
 /**
  * D20: os itens do topo. O resto das configurações fica no hub "Configurações". Puro (o MenuPainel é cliente). Plano 20
- * (RN-327): "Financeiro" para toda nutricionista, entre "Conteúdos" e "Configurações", sem contador.
+ * (RN-327): "Financeiro" para toda nutricionista, entre "Conteúdos" e "Configurações", sem contador. Plano 26 (§4.1):
+ * "Relatórios" entre "Financeiro" e "Configurações".
  */
 export const ITENS_DO_MENU = [
   { href: '/painel', rotulo: 'Início' },
@@ -9,6 +10,8 @@ export const ITENS_DO_MENU = [
   { href: '/painel/diarios', rotulo: 'Diários' },
   { href: '/painel/conteudos', rotulo: 'Conteúdos' },
   { href: '/painel/financeiro', rotulo: 'Financeiro' },
+  // Plano 26 (§4.1): "Relatórios" entre "Financeiro" e "Configurações"; marca também a página de impressão
+  { href: '/painel/relatorios', rotulo: 'Relatórios' },
   { href: '/painel/configuracoes', rotulo: 'Configurações' },
 ] as const;
 

@@ -358,8 +358,9 @@ cobrança (inclusive "Faltou"); h2 com `tabIndex={-1}` que recebe o foco depois 
   quando a URL chega com `ok=`; `?envio=<n>` (só dígitos) faz cada salvamento focar e anunciar de novo. Erros em
   `role="alert"` junto do campo; o formulário devolve `valores` e remonta com `key={envio}` (no React 19 os campos não
   controlados voltam ao padrão depois da action).
-- **Menu** (`ITENS_DO_MENU`, `src/app/painel/navegacao.ts:5-13`): sete itens fixos, com "Financeiro" antes de
-  "Configurações"; com "Exames recebidos" e "Dúvidas dos pacientes", nove (o cabeçalho quebra a linha, R-310). `itemAtual`
+- **Menu** (`ITENS_DO_MENU`, `src/app/painel/navegacao.ts:6-16`): sete itens fixos no Plano 20, com "Financeiro" antes de
+  "Configurações"; com "Exames recebidos" e "Dúvidas dos pacientes", nove (o cabeçalho quebra a linha, R-310). Desde o
+  Plano 26, oito fixos ("Relatórios" entre "Financeiro" e "Configurações") e dez com os condicionais. `itemAtual`
   marca "Financeiro" em todo `/painel/financeiro/…`.
 - **Manual guiado** (`src/modules/ajuda/conteudo.ts`): guia novo `financeiro` (v1, último de `GUIAS`, `padrao`
   `^/painel/financeiro(/.*)?$`, 12 passos com os alvos `financeiro-secoes`, `-cartoes`, `-saldo`, `-valor-consulta`,
@@ -501,7 +502,7 @@ com nome único por chamada; `fin_lancamentos` como entrada com paciente, sem co
 - `e2e/acessibilidade-painel.spec.ts`: o teste "Plano 20" (conta `E2E_FIN_AXE` em `10.9.20.2`) passa o axe no Financeiro
   **não configurado** (Resumo, pendências e Configurações), no detalhe de pendências vazio e no formulário de lançamento com
   erro ("Informe o valor." e "Escolha a forma de pagamento."), claro e escuro, 1280 e 360 px (a 360 px, sem rolagem lateral),
-  e as telas do Financeiro de `ROTAS_DO_PAINEL` também a 360 px; o teste do teclado no menu passou a 9 itens.
+  e as telas do Financeiro de `ROTAS_DO_PAINEL` também a 360 px; o teste do teclado no menu passou a 9 itens (10 desde o Plano 26).
 - `e2e/painel-rotas.ts`: oito rotas do Financeiro em `ROTAS_DO_PAINEL`; `prepararTelasComId` (`e2e/painel.ts`) cria pela
   tela "Nova entrada" um lançamento do paciente e devolve `lancamento` em `IdsDoPainel`.
 - **Semente** (`scripts/e2e-seed.ts`): o consultório do E2E sai configurado (saldo de R$ 1.000,00 no dia 1º do mês corrente
