@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useRef, useState } from 'react';
+import { semResetAutomatico } from '@/lib/form-sem-reset';
 import { TIPOS_PERGUNTA, type Pergunta, type TipoPergunta } from '@/modules/pacientes/anamnese-tipos';
 import type { ModeloState } from './actions';
 
@@ -18,7 +19,11 @@ type Props = {
   inicial: { nome: string; perguntas: Pergunta[] };
 };
 
-/** Editor de modelo (US-012): o modelo vai inteiro, em JSON, num campo escondido; o servidor valida tudo de novo. */
+/**
+ * Editor de modelo (US-012): o modelo vai inteiro, em JSON, num campo escondido; o servidor valida tudo de novo. Tudo
+ * controlado, com o reset automático do React 19 cancelado (`semResetAutomatico`, SUS-108): depois de um erro, o reset
+ * levava o "Tipo da pergunta" à primeira opção e a "obrigatória" ao estado da montagem, e o JSON salvava outra coisa.
+ */
 export function ModeloEditor({ acao, inicial }: Props) {
   const [state, action, pendente] = useActionState<ModeloState, FormData>(acao, {});
   const [nome, setNome] = useState(inicial.nome);
@@ -39,7 +44,7 @@ export function ModeloEditor({ acao, inicial }: Props) {
     perguntas: perguntas.map((p) => ({ id: p.id, tipo: p.tipo, rotulo: p.rotulo, obrigatoria: p.obrigatoria, unidade: p.unidade, opcoes: p.opcoes.split('\n') })),
   });
   return (
-    <form action={action} className="space-y-4">
+    <form action={action} ref={semResetAutomatico} className="space-y-4">
       <input type="hidden" name="modelo" value={json} />
       <div className="space-y-1">
         <label htmlFor="nome-modelo" className="block font-medium">Nome do modelo</label>

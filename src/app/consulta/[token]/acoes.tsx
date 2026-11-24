@@ -32,7 +32,9 @@ export function AcoesConsulta({ token, ativa, confirmada, podeAlterar, pedidoRem
   const [canc, cancelar, cancelando] = useActionState<AcaoLinkState>(cancelarAction.bind(null, token), {});
   const [avis, avisar, avisando] = useActionState<AcaoLinkState>(avisarAction.bind(null, token), {});
   const [rem, remarcar, remarcando] = useActionState<AcaoLinkState, FormData>(remarcarAction.bind(null, token), {});
-  // sem link padrão de chamada, só há horário presencial (US-031)
+  // sem link padrão de chamada, só há horário presencial (US-031). SUS-108: o rádio vai com `defaultChecked` do estado (o
+  // React o atualiza a cada renderização): o reset automático do formulário depois da action mantém a modalidade escolhida,
+  // a mesma que filtra os horários; `checked` controlado voltava à da montagem.
   const [mod, setMod] = useState<Modalidade>(temOnline ? modalidade : 'presencial');
   if (!ativa) {
     return (
@@ -62,7 +64,7 @@ export function AcoesConsulta({ token, ativa, confirmada, podeAlterar, pedidoRem
                   <legend className="font-medium">Modalidade</legend>
                   {(['presencial', 'online'] as const).map((m) => (
                     <div key={m} className="flex items-center gap-2">
-                      <input id={`mod-${m}`} type="radio" name="modalidade" value={m} checked={mod === m} onChange={() => setMod(m)} />
+                      <input id={`mod-${m}`} type="radio" name="modalidade" value={m} defaultChecked={mod === m} onChange={() => setMod(m)} />
                       <label htmlFor={`mod-${m}`}>{m === 'presencial' ? 'Presencial' : 'Online'}</label>
                     </div>
                   ))}

@@ -19,8 +19,9 @@ export function AceiteForm({ acao, pedeSenha, temTelefone, whatsappMarcado }: Pr
   const [senha, setSenha] = useState('');
   const [confirmacao, setConfirmacao] = useState('');
   const [termo, setTermo] = useState(false);
-  // controlada: o React 19 reseta campos não controlados depois de cada action, e um opt-in desmarcado
-  // voltaria marcado após um erro de senha (consentimento sem intenção)
+  // o React 19 reseta o formulário depois de cada action, e um opt-in desmarcado voltaria marcado após um erro de senha
+  // (consentimento sem intenção). SUS-108: as caixas vão com `defaultChecked` do estado (o React o atualiza a cada
+  // renderização, e o reset o mantém); `checked` controlado voltava ao da montagem.
   const [whatsapp, setWhatsapp] = useState(whatsappMarcado);
   const senhaInvalida = state.campo === 'senha' || state.campo === 'confirmacao';
   return (
@@ -39,13 +40,13 @@ export function AceiteForm({ acao, pedeSenha, temTelefone, whatsappMarcado }: Pr
         </>
       )}
       <div className="flex items-start gap-2">
-        <input id="termo" name="termo" type="checkbox" className="mt-1" checked={termo} onChange={(e) => setTermo(e.target.checked)}
+        <input id="termo" name="termo" type="checkbox" className="mt-1" defaultChecked={termo} onChange={(e) => setTermo(e.target.checked)}
           aria-invalid={state.campo === 'termo' ? true : undefined} aria-describedby={state.campo === 'termo' ? ERRO_ID : undefined} />
         <label htmlFor="termo">{TERMO_PACIENTE_ROTULO}</label>
       </div>
       {temTelefone && (
         <div className="flex items-start gap-2">
-          <input id="whatsapp" name="whatsapp" type="checkbox" className="mt-1" checked={whatsapp} onChange={(e) => setWhatsapp(e.target.checked)} />
+          <input id="whatsapp" name="whatsapp" type="checkbox" className="mt-1" defaultChecked={whatsapp} onChange={(e) => setWhatsapp(e.target.checked)} />
           <label htmlFor="whatsapp">Quero receber lembretes por WhatsApp</label>
         </div>
       )}

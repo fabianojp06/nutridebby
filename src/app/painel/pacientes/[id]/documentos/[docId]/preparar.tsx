@@ -4,7 +4,8 @@ import { Botao } from '@/components/ui/botao';
 /**
  * US-143: a declaração (D5 da spec, rascunho) com a caixa obrigatória. Fica DENTRO do formulário do editor (ReceitaForm,
  * revisão da T6): o botão envia os itens e a justificativa que estão na tela, não a última versão salva. A caixa é
- * controlada pelo editor (o reset do React 19 a desmarcaria depois de um erro).
+ * controlada pelo editor, e o formulário do editor cancela o reset automático do React 19 (`semResetAutomatico`, SUS-108),
+ * que a levaria de volta ao estado da montagem depois de um erro.
  */
 export function Preparar({ declaracao, marcada, aoMarcar, erro, aviso, pendente }: {
   declaracao: string; marcada: boolean; aoMarcar: (v: boolean) => void; erro?: string; aviso: ReactNode; pendente: boolean;

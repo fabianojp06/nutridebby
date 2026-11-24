@@ -72,7 +72,10 @@ function Campos(props: { inicial: Record<string, string>; erros: Record<string, 
       </fieldset>
       <div className="space-y-1">
         <label htmlFor="protocolo" className="block font-medium">Protocolo de dobras</label>
-        <select id="protocolo" name="protocolo" value={protocolo} onChange={mudar('protocolo')} className="rounded-xl border border-campo bg-cartao p-2 text-texto">
+        {/* SUS-108: não controlado. O React 19 faz form.reset() depois de toda action, e um <select value> montado no cliente
+            não tem opção defaultSelected: voltava a "Nenhum" com as dobras do protocolo escolhido na tela. Com defaultValue
+            (e a remontagem dos Campos a cada resposta, `envio`), o padrão do nó é o protocolo devolvido, e o reset o mantém. */}
+        <select id="protocolo" name="protocolo" defaultValue={protocolo} onChange={mudar('protocolo')} className="rounded-xl border border-campo bg-cartao p-2 text-texto">
           <option value="nenhum">Nenhum</option>
           <option value="jp3">JP 3 dobras</option>
           <option value="jp7">JP 7 dobras</option>
