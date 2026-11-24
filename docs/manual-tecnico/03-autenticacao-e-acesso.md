@@ -670,13 +670,29 @@ laudo mostra o mesmo aviso no lugar de "Ler valores com IA" (`iaNoExame`, `exame
 **Termo de confidencialidade da equipe (Plano 26, RN-500, PM-R3).** Quarto tipo de aceite em `consents`:
 `sigilo-equipe-<versão>` (`SIGILO_EQUIPE_TERMO`, `src/modules/plataforma/textos-versionados.ts`; versão `1.0`, de
 23/11/2026, texto sem a revisão do advogado, como o DPA 1.0), da pessoa da recepção, **com** o `tenant_id` do consultório e
-o IP, gravado só no aceite do convite (`aceitarConvite`), no lugar do DPA. O texto tem oito cláusulas (partes e aceite,
+o IP, gravado só por `registrarAceiteDoSigilo` (`membro-da-equipe.ts`): no aceite do convite (`aceitarConvite`), no lugar
+do DPA, e no aceite da versão em vigor em `/conta/acesso-desativado` (`aceitarTermoPendente`, abaixo). O texto tem oito cláusulas (partes e aceite,
 o que é confidencial, finalidade, proibições e credenciais, incidentes, sigilo depois da desativação, os dados da própria
 pessoa e normas — Res. CFN 599/2018, art. 20, I; LGPD, art. 47) e fica também na página pública `/termos/sigilo-equipe`
 (fora de `PROTECTED`). A sessão exige o aceite da versão em vigor neste consultório (`lerMembroDaEquipe`, `termoAceito`):
-sem ele, a recepção cai em "Acesso desativado" com o aviso do termo pendente. O merge do PR 2 espera o OK do dono ao texto 1.0 (RE-D72, texto legal novo; runbook `docs/operacao/recepcao.md`, "Deploy"). Versão nova segue a mesma receita abaixo
-(`SIGILO_EQUIPE_TEXTOS`), mas **não há tela de novo aceite**: subir a versão levaria toda a recepção a "Acesso desativado"
-sem caminho de volta pela tela (o reenvio do convite recusa a conta que já tem senha). Pendência anotada nas divergências (#12).
+sem ele, a recepção cai em `/conta/acesso-desativado`. O merge do PR 2 espera o OK do dono ao texto 1.0 (RE-D72, texto legal novo; runbook `docs/operacao/recepcao.md`, "Deploy").
+
+**Novo aceite do termo (code review do PR 2; divergência #12, resolvida).** Em `/conta/acesso-desativado`
+(`src/app/conta/acesso-desativado/page.tsx`), a conta `recepcao` com a linha **ativa** em `equipe_membros`, o 2FA ativo e
+sem o aceite da versão em vigor vê "Aceite o termo para continuar", o termo inteiro (`TextoLegalView`), a caixa do convite
+("Li e aceito o Termo de confidencialidade da equipe") e o botão "Aceitar e continuar" (`aceite-do-termo.tsx`; textos
+RASCUNHO em `MSG_RECEPCAO.acessoDesativado.aceiteDoTermo`). A conta desativada de verdade (`desativada_em`, ou sem linha) vê
+só "Seu acesso a este consultório foi desativado. Fale com a nutricionista."; a ativa sem o 2FA, só o aviso do termo pendente
+(a página abre sem o 2FA, e o aceite pede a pessoa verificada). A action `aceitarTermoAction`
+(`src/app/conta/acesso-desativado/actions.ts`, em `FORA_DO_PAINEL` como `…/actions.ts#aceitarTermoAction`) confere tudo no
+servidor: `requireUserComTenant(['recepcao'], …)` (outro papel: a sessão recusa e redireciona); a conta desativada recebe o
+aviso de desativada; o aceite já feito vai direto a `/painel`; sem o 2FA, o aviso do termo pendente; a versão lida contra
+`SIGILO_EQUIPE_VERSAO` (`leuAVersaoEmVigor`, `MSG_TEXTO_ATUALIZADO`); a caixa desmarcada, "Para entrar na equipe, aceite o
+termo de confidencialidade." (a do convite). Então `aceitarTermoPendente` (`membro-da-equipe.ts`) relê a linha de
+`equipe_membros` na sessão `recepcao` e grava o aceite na mesma transação (a desativada no meio do caminho recebe
+`sem_acesso`, e nada é gravado); depois, `/painel`. Testes em `src/app/conta/recepcao.test.ts`; E2E (escrito) em
+`e2e/recepcao.spec.ts`, com a conta `E2E_RECEPCAO_TERMO_NOVO` da semente (conta nova a cada execução: `consents` não se
+apaga). Como subir a versão: runbook `docs/operacao/recepcao.md`, "Versão nova do termo de confidencialidade".
 
 **Como publicar uma versão nova** (P08-06; a 1.0 saiu assim em 15/10/2026 e a 1.1 do DPA no Plano 20, sem o advogado, na linha da A-D27): acrescentar a versão em `DPA_TEXTOS` ou `TERMO_PACIENTE_TEXTOS`, com a data, sem apagar as anteriores (mostram o que cada um leu), e trocar `DPA_VERSAO`/`DPA_VERSAO_DATA` ou `TERMO_PACIENTE_VERSAO`/`TERMO_PACIENTE_VERSAO_DATA`. **Congele a versão anterior** antes de trocar: a data e o último parágrafo dela viram literais e a chave do mapa uma constante própria (como `DPA_VERSAO_1_0` no Plano 20) — senão ela some do mapa ou muda de data junto com a nova. Na próxima requisição, toda nutricionista vai para `/painel/dpa` (API do painel: 403) e todo paciente para `/p/termo`, uma vez por consultório (API do portal: 403). As linhas antigas de `consents` ficam como prova. Não precisa de migration. A guarda `src/modules/plataforma/textos-legais.test.ts` confere a versão, o rodapé e os suboperadores citados, e que as telas de aceite (`/n/[slug]`, `/convite/paciente/[token]`, `/convite/[token]` e `/painel/dpa`) mostram o texto inteiro na página, sem caixa de altura fixa com rolagem própria (como `/p/termo`). A 1.0 diz que o servidor (Hostinger) fica no Brasil (Campinas/SP, conferido em 15/10/2026) e que a cópia de segurança (Backblaze B2, sem região no Brasil) fica fora, criptografada antes de sair. O canal de privacidade da operadora é `EMAIL_PRIVACIDADE` (`src/modules/plataforma/privacidade.ts`; o e-mail do dono, decisão de 16/10/2026 — trocá-lo pede versão nova dos dois textos), citado no termo (parágrafo da operadora) e no DPA (cláusulas 5 e 15). Em `/p/termo`, quem já aceitou outra versão do termo naquele consultório (`aceitouVersaoAnterior`, `src/modules/portal/termo.ts`) vê `TERMO_PACIENTE_MUDOU`, como o `DPA_MUDOU` de `/painel/dpa`.
 
@@ -835,4 +851,4 @@ Só os nomes. Os valores ficam no Easypanel.
 | 9 | Spec do Plano 26, §4.2: `membroAtivo(tx, userId)` em `equipe.ts` | `lerMembroDaEquipe(db, tenantId, userId)` em `src/modules/plataforma/membro-da-equipe.ts`, que a sessão importa sem o módulo da Equipe; devolve também `termoAceito` (lê `consents` na mesma transação) | — |
 | 10 | Spec do Plano 26, RN-500: o 2FA obrigatório e o termo; não fala do "Esqueci minha senha" | A conta `recepcao` sem senha não recebe o link de redefinição (`sendResetPassword`, revisão da P26-07): sem isso, o `/reset-password` criaria a senha sem o termo | A resposta do endpoint não muda (US-002) |
 | 11 | RE-D70 (decisão da orquestradora, fora da spec do Plano 26 §14): o botão do aviso de inatividade passa a "Continuar na sessão" para toda a equipe | **Resolvida (`bfe38520`):** código, comentário de `src/app/api/sessao/ativa/route.ts`, RNF-06 e US-003 dizem "Continuar na sessão" (`session-rules.ts:49`) | A RE-D70 entra na §14 da spec no fechamento (T12, README) |
-| 12 | Spec do Plano 26, RN-500: aceite "obrigatório" do termo `sigilo-equipe-1.0` no primeiro acesso; versão nova não está prevista | A sessão exige o aceite da versão **em vigor** (`SIGILO_EQUIPE_TERMO`, `membro-da-equipe.ts:30`), mas só o convite grava o aceite, e o reenvio do convite recusa quem já tem senha (`equipe.ts:184`): uma versão 1.1 do termo deixaria toda recepção já ativa em "Acesso desativado", sem tela de novo aceite | Antes de subir a versão do termo, criar a tela de novo aceite (como `/painel/dpa` e `/p/termo`) |
+| 12 | Spec do Plano 26, RN-500: aceite "obrigatório" do termo `sigilo-equipe-1.0` no primeiro acesso; versão nova não está prevista | **Resolvida (code review do PR 2):** a sessão exige o aceite da versão **em vigor** (`SIGILO_EQUIPE_TERMO`); a recepção ativa, com o 2FA, sem esse aceite, aceita em `/conta/acesso-desativado` (`aceitarTermoAction` → `aceitarTermoPendente`, `membro-da-equipe.ts`), que grava como o convite (`registrarAceiteDoSigilo`) e leva ao painel; a desativada vê só o aviso dela (§3.12, "Novo aceite do termo") | Textos novos RASCUNHO (`MSG_RECEPCAO.acessoDesativado.aceiteDoTermo`), sem fonte na spec §6.2; como subir a versão no runbook `docs/operacao/recepcao.md` |

@@ -35,9 +35,13 @@ describe('/painel/ajuda por papel (RE-D42)', () => {
       expect(html, id).not.toContain(`id="${id}"`);
     expect(espiao.chamadas).toEqual([]);
   });
-  it('a nutricionista vê o manual dela inteiro, sem o guia da recepção', async () => {
+  it('a nutricionista vê o manual dela inteiro, sem o guia da recepção e, com a Equipe desligada (RE-D52), sem o guia `equipe`', async () => {
     sessao.papel = 'nutri';
     const html = renderToStaticMarkup(await AjudaPage());
-    expect(secoes(html)).toEqual(GUIAS.filter((g) => !g.id.startsWith('recepcao-')).map((g) => g.id));
+    expect(secoes(html)).toEqual(GUIAS.filter((g) => !g.id.startsWith('recepcao-') && g.id !== 'equipe').map((g) => g.id));
+    // code review do PR 2: nem a seção nem o índice ("Nesta página") apontam para a Equipe desligada
+    const indice = html.match(/<nav aria-labelledby="indice"[\s\S]*?<\/nav>/)?.[0] ?? '';
+    expect(indice).not.toContain('href="#equipe"');
+    expect(html).not.toContain('id="equipe"');
   });
 });

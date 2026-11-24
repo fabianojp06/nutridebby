@@ -24,6 +24,15 @@ export const ROTAS_DA_RECEPCAO: readonly string[] = [
 /**
  * RE-D67: fora do painel não há `requireEquipe`; estas rotas aceitam a recepção pela lista de papéis de
  * `requireUser`/`requireApiUser`/`lerSessaoApi` (guarda de fonte: src/app/papeis-fora-do-painel.test.ts, com a decisão de
- * cada arquivo de src/app fora do painel). A regra "toda entrada chama requireEquipe" não vale aqui.
+ * cada arquivo de src/app fora do painel). A regra "toda entrada chama requireEquipe" não vale aqui. A action, pelo arquivo a
+ * partir de src/app e o nome, como em `ROTAS_DA_RECEPCAO`.
  */
-export const FORA_DO_PAINEL: readonly string[] = ['/conta/seguranca', '/conta/acesso-desativado', '/inicio', '/conta/outro-papel', '/api/sessao/ativa'];
+export const FORA_DO_PAINEL: readonly string[] = [
+  '/conta/seguranca',
+  '/conta/acesso-desativado',
+  '/inicio',
+  '/conta/outro-papel',
+  '/api/sessao/ativa',
+  // revisão do code review do PR 2 (RN-500): o aceite da versão em vigor do termo de confidencialidade, na página do aviso
+  '/conta/acesso-desativado/actions.ts#aceitarTermoAction',
+];

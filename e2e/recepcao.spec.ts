@@ -11,7 +11,8 @@ import { criarPacientePeloFormulario } from './pacientes-form';
  * da E2E_DOCS (o Better Auth usa os bytes UTF-8 dele: `Secret.fromUTF8`).
  * IPs (limite de login por IP): bloco 10.9.36.x (RE-D50) — 10.9.36.10 (recepção), .12 (nutricionista), .13 (a recepção
  * do consultório com o contrato pendente) e .14 (a recepção com o Financeiro, no tour do primeiro acesso, T8) aqui; .11 no
- * sessao-equipe.spec; .15 e .16 no acessibilidade-painel.spec (axe da recepção, T8); .17 a .19 ficam para a sessão e o convite.
+ * sessao-equipe.spec; .15 e .16 no acessibilidade-painel.spec (axe da recepção, T8); .17 a .19 ficam para a sessão e o convite;
+ * .20 aqui (o aceite da versão nova do termo, code review do PR 2).
  */
 const RECEPCAO = { email: 'recepcao-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção E2E' };
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
@@ -19,6 +20,9 @@ const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
 const RECEPCAO_FIN = { email: 'recepcao-fin-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Financeiro E2E' };
 // RN-501: a recepção de um consultório com o DPA numa versão antiga (a semente o põe assim a cada execução)
 const RECEPCAO_CONTRATO = { email: 'recepcao-contrato-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
+// Code review do PR 2 (RN-500): a recepção que só aceitou uma versão antiga do termo de confidencialidade — conta nova a cada
+// execução, com o mesmo e-mail (a semente arquiva a anterior: o aceite em `consents` não se apaga)
+const RECEPCAO_TERMO_NOVO = { email: 'recepcao-termo-novo-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
 test.describe.configure({ mode: 'serial', retries: 0 });
 
 /** Login da recepção: senha e o desafio do 2FA; devolve a página e os caminhos pedidos como documento no caminho. */
@@ -135,5 +139,24 @@ test('primeiro acesso da recepção: o tour é o dela (nunca o boas-vindas), o m
     await page.getByRole('button', { name: 'Modo escuro' }).click();
     await expect(page.getByRole('button', { name: 'Modo escuro' })).toHaveAttribute('aria-pressed', 'false');
   }
+  await page.context().close();
+});
+
+test('termo de confidencialidade numa versão nova: a recepção lê, aceita pelo formulário do aviso e chega ao Início (RN-500)', async ({ browser }) => {
+  const { page } = await entrarComoRecepcao(browser, '10.9.36.20', RECEPCAO_TERMO_NOVO, /\/conta\/acesso-desativado$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Aceite o termo para continuar' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Termo de confidencialidade da equipe' })).toBeVisible();
+  await expect(page.getByText('2. O que é confidencial.', { exact: false })).toBeVisible();
+  // sem a caixa: a mensagem do convite, e nada muda (o anunciador de rotas também é alert: filtrado pelo texto)
+  await page.getByRole('button', { name: 'Aceitar e continuar' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Para entrar na equipe, aceite o termo de confidencialidade.' })).toBeVisible();
+  await expect(page).toHaveURL(/\/conta\/acesso-desativado$/);
+  await page.getByLabel('Li e aceito o Termo de confidencialidade da equipe').check();
+  await page.getByRole('button', { name: 'Aceitar e continuar' }).click();
+  await expect(page).toHaveURL(/\/painel$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Seu dia, Recepção' })).toBeVisible();
+  // aceito: a página do aviso não abre mais
+  await page.goto('/conta/acesso-desativado');
+  await expect(page).toHaveURL(/\/painel$/);
   await page.context().close();
 });

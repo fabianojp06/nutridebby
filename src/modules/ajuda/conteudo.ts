@@ -1,3 +1,5 @@
+import { EQUIPE_LIGADA } from '@/modules/plataforma/equipe-textos';
+
 /** P08-10 (D26): o manual guiado. Texto RASCUNHO até o dono e a Debby aprovarem (P08-08); espelhado na spec (US-057). Nenhum dado de saúde nos exemplos. */
 export type Passo = { alvo?: string; titulo: string; texto: string };
 /** Plano 26 (RE-D42): os papéis do painel que têm manual guiado (a nutricionista e a recepção). */
@@ -617,7 +619,8 @@ export const GUIAS: readonly Guia[] = [
           titulo: 'Perguntas comuns',
           itens: [
             'A cada entrada, depois da senha, o NutriDebby pede o código de 6 dígitos do aplicativo.',
-            'Sem o celular, use um dos códigos de recuperação. Se não tiver mais nenhum, fale com a nutricionista.',
+            // code review do PR 2: a nutricionista não reinicia o 2FA — quem reinicia é o suporte (o admin, P09-02). RASCUNHO
+            'Sem o celular, use um dos códigos de recuperação. Se não tiver mais nenhum, fale com a nutricionista para pedir ao suporte que reinicie a verificação.',
             'Depois de 5 códigos errados, espere 15 minutos para tentar de novo.',
             'Se o código não confere, confira se a hora do celular está automática.',
           ],
@@ -678,8 +681,13 @@ export const GUIAS: readonly Guia[] = [
 /** Plano 26 (RE-D42): sem `papeis`, o guia é só da nutricionista. */
 export const PAPEIS_PADRAO: readonly PapelDoGuia[] = ['nutri'];
 export const papeisDoGuia = (g: Guia): readonly PapelDoGuia[] => g.papeis ?? PAPEIS_PADRAO;
-/** Plano 26 (RE-D42): os guias que o papel vê, na ordem de GUIAS (o manual completo de `/painel/ajuda`). */
-export const guiasDoPapel = (papel: PapelDoGuia): Guia[] => GUIAS.filter((g) => papeisDoGuia(g).includes(papel));
+/**
+ * Code review do PR 2 do Plano 26 (RE-D52): o guia de uma tela desligada fica fora do manual completo (o índice e as seções
+ * de `/painel/ajuda`) até a tela ligar. O guia continua em GUIAS e em `guiaDaRota` (a tela desligada dá 404 antes do guia).
+ */
+const desligado = (g: Guia): boolean => g.id === 'equipe' && !EQUIPE_LIGADA;
+/** Plano 26 (RE-D42): os guias que o papel vê, na ordem de GUIAS (o manual completo de `/painel/ajuda`), sem os de tela desligada. */
+export const guiasDoPapel = (papel: PapelDoGuia): Guia[] => GUIAS.filter((g) => !desligado(g) && papeisDoGuia(g).includes(papel));
 
 /**
  * O guia da tela: o primeiro da lista que casar com o caminho, entre os do papel (Plano 26, RE-D42). Todo chamador passa o

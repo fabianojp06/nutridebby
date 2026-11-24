@@ -116,6 +116,12 @@ describe('/painel/configuracoes/equipe (US-488, §7.2)', () => {
     for (const t of ['Convite enviado.', 'Acesso desativado.', 'A senha já foi criada']) expect(html).not.toContain(t);
   });
 
+  it.each(['toString', 'constructor', '__proto__', 'hasOwnProperty', 'valueOf'])('code review do PR 2: ?erro=%s (chave herdada do protótipo) é fora da lista — a tela abre, sem aviso de erro', async (erro) => {
+    const html = await render({ erro, r: 'abcdef12' });
+    expect(html).toContain('Convidar recepcionista');
+    expect(html).not.toContain('id="erro-equipe"');
+  });
+
   it('revisão da P26-07: ?erro=limite com o limite atingido — o texto aparece uma vez só (o aviso fixo)', async () => {
     estado.equipe = { membros: [1, 2, 3].map((n) => pessoa(n, {})), ativas: 3, limiteAtingido: true };
     const html = await render({ erro: 'limite', r: 'abcdef12' });

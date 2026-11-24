@@ -643,7 +643,8 @@ export const E2E_RECEPCAO_CONTRATO = { email: 'recepcao-contrato-e2e@nutridebby.
 // Revisão final do PR 2 (RNF-481): as duas contas da recepção que só abrem /conta/acesso-desativado, num consultório só
 // delas (com o DPA em vigor; a nutricionista desse consultório não existe, como no do contrato): `E2E_RECEPCAO_DESATIVADA`
 // (linha de equipe_membros desativada a cada execução, com `desativada_em` pelo gatilho — RN-503) e
-// `E2E_RECEPCAO_SEM_TERMO` (ativa, sem o aceite do termo de confidencialidade: o aviso `termoPendente`, RN-500). Fora do
+// `E2E_RECEPCAO_SEM_TERMO` (ativa, com o 2FA, sem o aceite do termo de confidencialidade, RN-500: desde o code review do
+// PR 2, o formulário do aceite da versão em vigor; o axe nunca aceita — quem aceita é a `E2E_RECEPCAO_TERMO_NOVO`). Fora do
 // consultório principal: não contam nas 3 ativas dele nem aparecem na tela Equipe da nutricionista do E2E.
 export const E2E_RECEPCAO_DESATIVADA = { email: 'recepcao-desativada-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Desativada E2E' };
 export const E2E_RECEPCAO_SEM_TERMO = { email: 'recepcao-sem-termo-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Sem Termo E2E' };
@@ -700,6 +701,41 @@ for (const [cred, financeiro, tenantId, ator] of [
   if (cred !== E2E_RECEPCAO_SEM_TERMO)
     await db.insert(consents).values({ userId: id, tenantId, termoVersao: SIGILO_EQUIPE_TERMO, ip: null }).onConflictDoNothing();
   await db.update(user).set({ guia: cred === E2E_RECEPCAO_FIN ? {} : TUDO_VISTO }).where(eq(user.id, id));
+}
+
+// Code review do PR 2 do Plano 26 (RN-500): `E2E_RECEPCAO_TERMO_NOVO`, a recepção ativa, com o 2FA, que aceitou só uma
+// versão ANTIGA do termo de confidencialidade (`sigilo-equipe-0.9`) e aceita a versão em vigor pelo formulário de
+// /conta/acesso-desativado (e2e/recepcao.spec.ts). O aceite fica em `consents`, que é só de inclusão (0009: DELETE e UPDATE
+// revogados) — a semente não tem como devolver a conta ao estado "sem termo". Por isso, a cada execução, uma conta NOVA com o
+// mesmo e-mail num consultório NOVO (com o DPA em vigor; a nutricionista dele não existe, só o ator da linha de
+// `equipe_membros`): a conta da execução anterior fica no banco com o e-mail trocado para um arquivado (`user` e
+// `equipe_membros` não se apagam). `E2E_RECEPCAO_SEM_TERMO` continua como está (nunca aceita: o axe do formulário).
+export const E2E_RECEPCAO_TERMO_NOVO = { email: 'recepcao-termo-novo-e2e@nutridebby.test', password: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Termo Novo E2E' };
+{
+  const cred = E2E_RECEPCAO_TERMO_NOVO;
+  const [anterior] = await db.select({ id: user.id }).from(user).where(eq(user.email, cred.email));
+  if (anterior) await db.update(user).set({ email: `recepcao-termo-novo-arquivada-${anterior.id}@nutridebby.test` }).where(eq(user.id, anterior.id));
+  const [t] = await db
+    .insert(tenants)
+    .values({ slug: `e2e-termo-novo-${sufixo}`, nomeExibicao: 'Consultório E2E Termo Novo', dpaVersao: DPA_VERSAO, dpaAceitoEm: new Date() })
+    .returning({ id: tenants.id });
+  const id = randomUUID();
+  const ator = randomUUID();
+  await db.insert(user).values({ id, name: cred.nome, email: cred.email, emailVerified: true, appRole: 'recepcao', tenantId: t.id, twoFactorEnabled: true, guia: TUDO_VISTO });
+  await db.insert(account).values({ id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(cred.password) });
+  await db.insert(twoFactor).values({
+    id: randomUUID(),
+    userId: id,
+    verified: true,
+    secret: await symmetricEncrypt({ key: chave, data: cred.totp }),
+    backupCodes: await symmetricEncrypt({ key: chave, data: JSON.stringify([]) }),
+  });
+  await withTenant(
+    { tenantId: t.id, role: 'nutri', actorUserId: ator },
+    (tx) => tx.insert(equipeMembros).values({ tenantId: t.id, userId: id, papel: 'recepcao', financeiro: false, convidadaPor: ator }),
+    db,
+  );
+  await db.insert(consents).values({ userId: id, tenantId: t.id, termoVersao: 'sigilo-equipe-0.9', ip: null });
 }
 
 // Plano 26 (T7, RE-D69): o primeiro acesso da recepção (e2e/equipe-primeiro-acesso.spec.ts) num consultório NOVO por

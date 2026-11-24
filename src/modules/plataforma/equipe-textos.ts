@@ -23,6 +23,16 @@ export const MSG_RECEPCAO = {
      * convite). RASCUNHO, sem fonte na spec (§6.2): vai à tabela de textos do Plano 26 na T12.
      */
     termoPendente: 'Seu acesso ainda não foi liberado: falta aceitar o Termo de confidencialidade da equipe. Fale com a nutricionista.',
+    /**
+     * Revisão do code review do PR 2 (RN-500): a conta ativa, com o 2FA, sem o aceite da versão em vigor do termo (a versão
+     * subiu, ou a senha veio de fora do convite) aceita aqui mesmo — o termo inteiro, a caixa do convite
+     * (`MSG_EQUIPE.convite.rotuloTermo`) e o botão. RASCUNHO, sem fonte na spec (§6.2): vai à tabela de textos do Plano 26.
+     */
+    aceiteDoTermo: {
+      titulo: 'Aceite o termo para continuar',
+      texto: 'Para continuar usando o NutriDebby, leia o Termo de confidencialidade da equipe e aceite a versão em vigor.',
+      botao: 'Aceitar e continuar',
+    },
   },
   /** RN-501 (RE-D29): o DPA do consultório pendente. */
   contratoPendente: {

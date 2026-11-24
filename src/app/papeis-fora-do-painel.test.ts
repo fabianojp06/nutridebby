@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arquivosDe, arquivosDoApp, blocosDeTopo, rotaDoArquivo, semComentarios, type Arquivo } from '../../test/fonte';
+import { analisarTopo, arquivosDe, arquivosDoApp, blocosDeTopo, ehDeServerActions, rotaDoArquivo, semComentarios, type Arquivo } from '../../test/fonte';
 import { FORA_DO_PAINEL } from './painel/rotas-da-recepcao';
 
 /**
@@ -15,6 +15,8 @@ const PAPEIS_FORA_DO_PAINEL: Record<string, Decisao> = {
   'conta/outro-papel/page.tsx': 'aceita',
   'conta/seguranca/page.tsx': 'aceita',
   'conta/acesso-desativado/page.tsx': 'aceita',
+  // revisão do code review do PR 2 (RN-500): o aceite da versão em vigor do termo de confidencialidade
+  'conta/acesso-desativado/actions.ts': 'aceita',
   'api/sessao/ativa/route.ts': 'aceita',
   // administração da plataforma: só o admin
   'admin/actions.ts': 'recusa',
@@ -68,9 +70,13 @@ function violacoesForaDoPainel(arquivos: Arquivo[], decisoes: Record<string, Dec
     const comRecepcao = listas.filter((l) => l?.includes('recepcao')).length;
     if (decisao === 'aceita') {
       if (comRecepcao !== listas.length) v.push(`${arquivo}: aceita a recepção, mas nem toda chamada tem 'recepcao'`);
+      // a página e a rota da API pela rota; o arquivo de actions ('use server') por action exportada, como em ROTAS_DA_RECEPCAO
       const rota = rotaDoArquivo(arquivo);
-      if (!fora.includes(rota)) v.push(`${arquivo}: aceita a recepção e ${rota} não está em FORA_DO_PAINEL`);
-      aceitas.add(rota);
+      const chaves = ehDeServerActions(fonte) ? analisarTopo(fonte).blocos.filter((b) => b.exportado).map((b) => `${rota}#${b.publico}`) : [rota];
+      for (const chave of chaves) {
+        if (!fora.includes(chave)) v.push(`${arquivo}: aceita a recepção e ${chave} não está em FORA_DO_PAINEL`);
+        aceitas.add(chave);
+      }
     } else if (comRecepcao > 0) v.push(`${arquivo}: recusa a recepção, mas uma chamada tem 'recepcao'`);
   }
   for (const rota of fora) if (!aceitas.has(rota)) v.push(`${rota}: está em FORA_DO_PAINEL e nenhum arquivo aceita a recepção`);
@@ -115,6 +121,14 @@ describe('PAPEIS_FORA_DO_PAINEL (RE-D67): decisão explícita para a recepção 
       expect(violacoesForaDoPainel(com(rota), { ...PAPEIS_FORA_DO_PAINEL, 'api/rascunho/route.ts': 'recusa' }, FORA_DO_PAINEL)).toEqual([
         'api/rascunho/route.ts: chama requireEquipe fora do painel',
       ]);
+    });
+    it('arquivo de actions que aceita a recepção: cada action exportada em FORA_DO_PAINEL, pelo arquivo e o nome', () => {
+      const acoes = { arquivo: 'rascunho/actions.ts', fonte: "'use server';\nexport type Estado = { erro?: string };\nexport async function umaAction() {\n  await requireUserComTenant(['recepcao'], '/rascunho');\n}\nexport async function outraAction() {}\n" };
+      const decisoes = { ...PAPEIS_FORA_DO_PAINEL, 'rascunho/actions.ts': 'aceita' as const };
+      expect(violacoesForaDoPainel(com(acoes), decisoes, [...FORA_DO_PAINEL, '/rascunho/actions.ts#umaAction'])).toEqual([
+        'rascunho/actions.ts: aceita a recepção e /rascunho/actions.ts#outraAction não está em FORA_DO_PAINEL',
+      ]);
+      expect(violacoesForaDoPainel(com(acoes), decisoes, [...FORA_DO_PAINEL, '/rascunho/actions.ts#umaAction', '/rascunho/actions.ts#outraAction'])).toEqual([]);
     });
     it('rota de FORA_DO_PAINEL sem arquivo que aceite → violação', () => {
       expect(violacoesForaDoPainel(FORA, PAPEIS_FORA_DO_PAINEL, [...FORA_DO_PAINEL, '/conta/nova'])).toEqual(['/conta/nova: está em FORA_DO_PAINEL e nenhum arquivo aceita a recepção']);

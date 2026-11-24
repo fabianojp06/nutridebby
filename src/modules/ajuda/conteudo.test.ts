@@ -1,8 +1,21 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ID_GUIA } from '@/modules/plataforma/preferencias-tipos';
+import { EQUIPE_LIGADA } from '@/modules/plataforma/equipe-textos';
 import { GUIAS, guiaDaRota, guiasDoPapel, ID_BOAS_VINDAS, ID_TOUR_DO_INICIO, papeisDoGuia, precisaDoGuia } from './conteudo';
+
+// code review do PR 2 do Plano 26: o valor real de EQUIPE_LIGADA, salvo quando um teste liga (`equipe.ligada`)
+const equipe = vi.hoisted(() => ({ ligada: null as boolean | null }));
+vi.mock('@/modules/plataforma/equipe-textos', async (orig) => {
+  const real = await orig<typeof import('@/modules/plataforma/equipe-textos')>();
+  return {
+    ...real,
+    get EQUIPE_LIGADA() {
+      return equipe.ligada ?? real.EQUIPE_LIGADA;
+    },
+  };
+});
 
 const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.tsx')).map((d) => path.join(d.parentPath, d.name)))
@@ -25,7 +38,8 @@ const SEM_AJUDA: Record<string, string> = {
   '/painel/relatorios/imprimir': 'Plano 26 (RN-495): página de impressão, sem menu; o guia é o dos Relatórios, de onde se chega a ela',
   '/painel/sem-permissao': 'Plano 26 (RE-D47): tela de aviso, sem tarefa — uma frase e o "Voltar ao início"',
   '/painel/contrato-pendente': 'Plano 26 (RN-501): tela de aviso, sem tarefa — a recepção espera a nutricionista aceitar o contrato',
-  '/conta/acesso-desativado': 'Plano 26 (RN-503): tela de aviso, sem tarefa — uma frase e o "Sair"',
+  '/conta/acesso-desativado':
+    'Plano 26 (RN-503): tela de aviso, sem tarefa — uma frase e o "Sair"; com o termo de confidencialidade pendente (code review do PR 2, RN-500), o próprio termo, a caixa e o botão',
 };
 const UUID = '0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b';
 const textosDoGuia = (g: (typeof GUIAS)[number]) => [g.titulo, g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => [s.titulo, ...s.itens]), ...g.passos.flatMap((p) => [p.titulo, p.texto])];
@@ -348,6 +362,28 @@ describe('Plano 26 (T7): o guia da Equipe', () => {
       ['convidar', 'Convide a pessoa da recepção. Ela cuida da agenda e do cadastro e não vê dados de saúde.'],
       ['permissao-financeiro', 'Marque se ela também cuida do Financeiro.'],
     ]);
+  });
+});
+
+describe('code review do PR 2 do Plano 26 (RE-D52): o guia da Equipe fora do manual enquanto a tela estiver desligada', () => {
+  it('com EQUIPE_LIGADA = false (o valor do PR 2): fora de guiasDoPapel (o índice e as seções de /painel/ajuda), mas ainda em GUIAS', () => {
+    expect(EQUIPE_LIGADA).toBe(false);
+    expect(guiasDoPapel('nutri').map((g) => g.id)).not.toContain('equipe');
+    expect(guiasDoPapel('recepcao').map((g) => g.id)).not.toContain('equipe');
+    expect(GUIAS.map((g) => g.id)).toContain('equipe');
+    // só a Equipe sai: o resto do manual da nutricionista continua inteiro, na ordem de GUIAS
+    expect(guiasDoPapel('nutri').map((g) => g.id)).toEqual(GUIAS.filter((g) => papeisDoGuia(g).includes('nutri') && g.id !== 'equipe').map((g) => g.id));
+  });
+  it('com a Equipe ligada, o guia volta ao manual da nutricionista, antes do de Configurações', () => {
+    equipe.ligada = true;
+    try {
+      const ids = guiasDoPapel('nutri').map((g) => g.id);
+      expect(ids).toContain('equipe');
+      expect(ids.indexOf('equipe')).toBeLessThan(ids.indexOf('configuracoes'));
+      expect(guiasDoPapel('recepcao').map((g) => g.id)).not.toContain('equipe');
+    } finally {
+      equipe.ligada = null;
+    }
   });
 });
 

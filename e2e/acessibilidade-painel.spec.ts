@@ -558,7 +558,8 @@ test('Plano 26: Início da recepção, "Sem permissão" e "Contrato pendente" co
  * fica no equipe-primeiro-acesso.spec, a única conta da recepção sem o 2FA), `/painel/ajuda` (o índice só com os guias
  * dela, nunca os clínicos), `/conta/outro-papel` vinda do portal (`/p/inicio`) e do admin (`/admin`) e
  * `/conta/acesso-desativado` com os dois textos: `E2E_RECEPCAO_DESATIVADA` (linha desativada, RN-503) e
- * `E2E_RECEPCAO_SEM_TERMO` (ativa, sem o termo de confidencialidade, RN-500). As duas não abrem o painel: o tema delas é o
+ * `E2E_RECEPCAO_SEM_TERMO` (ativa, com o 2FA, sem o termo de confidencialidade, RN-500: desde o code review do PR 2, o termo
+ * inteiro, a caixa e o botão "Aceitar e continuar" — o axe não aceita). As duas não abrem o painel: o tema delas é o
  * da semente ("Igual ao aparelho"), e o claro e o escuro vêm do aparelho (`emulateMedia`). IPs 10.9.36.17 a .19 (RE-D50).
  */
 const RECEPCAO_DESATIVADA_AXE = { email: 'recepcao-desativada-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
@@ -625,8 +626,11 @@ test('Plano 26: Segurança, manual, "outra conta" e "Acesso desativado" com as c
       await sair44(p);
     } },
     { page: semTermo, url: '/conta/acesso-desativado', pronta: async (p) => {
-      await h1('Acesso desativado')(p);
-      await expect(p.getByText('Seu acesso ainda não foi liberado: falta aceitar o Termo de confidencialidade da equipe. Fale com a nutricionista.')).toBeVisible();
+      await h1('Aceite o termo para continuar')(p);
+      await expect(p.getByRole('heading', { level: 2, name: 'Termo de confidencialidade da equipe' })).toBeVisible();
+      await expect(p.getByLabel('Li e aceito o Termo de confidencialidade da equipe')).toBeVisible();
+      const aceitar = await p.getByRole('button', { name: 'Aceitar e continuar' }).boundingBox();
+      expect(aceitar?.height ?? 0, 'o "Aceitar e continuar" com 44 px').toBeGreaterThanOrEqual(44);
       await sair44(p);
     } },
   ];

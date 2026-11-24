@@ -29,8 +29,8 @@ As políticas novas só pegam a sessão `recepcao` (RESTRICTIVE com `app_current
 - Merge só com OK do dono (merge = deploy; a migration roda no boot do `nutri_app`), **fora das 03h–07h30 BRT** e fora do
   horário de uso.
 - **OK do dono ao texto do termo `sigilo-equipe-1.0`** antes do merge (RE-D72: texto legal novo, revisado pelo
-  `normas-cfn-lgpd`, com as perguntas no pacote do advogado, E-09). Mudar o texto depois do merge sobe a versão e, sem tela
-  de novo aceite, tranca a recepção já ativa (manual técnico, cap. 3, divergência #12).
+  `normas-cfn-lgpd`, com as perguntas no pacote do advogado, E-09). Mudar o texto depois do merge sobe a versão: a recepção
+  já ativa aceita a nova em `/conta/acesso-desativado` (seção "Versão nova do termo de confidencialidade", abaixo).
 - **Sem snapshot da Hostinger** (congela a VPS, `CLAUDE.md` do servidor, regra 5): a migration é aditiva e o backup restic
   diário cobre a volta. Conferir antes, em `/var/log/backup.log`, que o último backup do `nutri_db` saiu bem.
 
@@ -124,5 +124,33 @@ Conferências pela tela e pelos logs do serviço (subagente não consulta o banc
 - Telas: convite, primeiro acesso, desativar/reativar, permissão do Financeiro; `EQUIPE_LIGADA`.
 - O que conferir em produção depois do deploy do PR 3 (convite real, primeiro acesso, desativação), sem consultar o banco de
   produção por subagente.
-- Se a versão do Termo de confidencialidade da equipe subir: não há tela de novo aceite (a recepção já ativa cairia em
-  "Acesso desativado" sem caminho de volta; manual técnico, cap. 3, divergência #12).
+- Versão nova do Termo de confidencialidade da equipe: resolvida no code review do PR 2 (seção abaixo; manual técnico,
+  cap. 3, divergência #12).
+
+## Versão nova do termo de confidencialidade
+
+O texto mudou (advogado, norma nova, canal de privacidade): sobe a versão. Não precisa de migration.
+
+1. Em `src/modules/plataforma/textos-versionados.ts`, **congele a versão em vigor**: a data e o rodapé dela viram literais
+   e a chave do mapa uma constante própria (como `DPA_VERSAO_1_0` no Plano 20), para não mudar junto com a nova.
+2. Acrescente a versão nova em `SIGILO_EQUIPE_TEXTOS`, sem apagar as anteriores (mostram o que cada pessoa leu), e troque
+   `SIGILO_EQUIPE_VERSAO` e `SIGILO_EQUIPE_VERSAO_DATA`. `SIGILO_EQUIPE_TERMO` e `SIGILO_EQUIPE_TEXTO` seguem a versão em
+   vigor sozinhos.
+3. Texto legal novo: revisão do `normas-cfn-lgpd` e OK do dono antes do merge (como a RE-D72 da 1.0).
+4. Merge = deploy (OK do dono, fora das 03h–07h30 BRT).
+
+O que acontece depois do deploy, na próxima requisição de cada pessoa da recepção:
+
+- A conta ativa, com o 2FA, vai a `/conta/acesso-desativado` e vê "Aceite o termo para continuar", o termo novo inteiro, a
+  caixa "Li e aceito o Termo de confidencialidade da equipe" e o botão "Aceitar e continuar". Aceito, `consents` ganha a
+  linha `sigilo-equipe-<versão nova>` (conta, consultório e IP) e ela volta ao painel. As linhas antigas ficam como prova.
+- A página aberta antes do deploy recusa o aceite com "O texto mudou enquanto esta página estava aberta…": recarregar.
+- A conta desativada continua só com o aviso de desativada.
+- A conta ativa **sem o 2FA** (aceitou o convite e saiu antes de configurar a verificação) fica no aviso do termo pendente,
+  sem formulário: o aceite pede a pessoa verificada, e a Segurança não abre antes do termo. Hoje não há caminho pela tela
+  para ela (o reenvio do convite recusa quem já tem senha); conferir antes de subir a versão se existe conta assim e tratar
+  caso a caso com o dono.
+- A nutricionista e o paciente não mudam (o termo é só da recepção).
+
+Conferir depois do deploy, sem consultar o banco de produção por subagente: uma conta da recepção (de teste) entra, vê o
+formulário, aceita e chega ao Início.

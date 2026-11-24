@@ -42,7 +42,8 @@ export default async function EquipePage({ searchParams }: PageProps<'/painel/co
   if (!EQUIPE_LIGADA) notFound();
   const sp = await searchParams;
   const ok = OKS.find((o) => o === sp.ok) ?? null;
-  const erro = typeof sp.erro === 'string' && sp.erro in ERROS ? (sp.erro as keyof typeof ERROS) : null;
+  // só as chaves do próprio objeto: `in` aceitaria as herdadas do protótipo (`?erro=toString` quebrava a tela)
+  const erro = typeof sp.erro === 'string' && Object.hasOwn(ERROS, sp.erro) ? (sp.erro as keyof typeof ERROS) : null;
   const marcador = (ok || erro) && typeof sp.r === 'string' && /^[0-9a-f]{8}$/.test(sp.r) ? sp.r : '';
   const { membros, limiteAtingido } = await listarEquipe(ctx);
   const daLinha = typeof sp.m === 'string' && UUID.test(sp.m) && membros.some((m) => m.id === sp.m) ? sp.m : null;

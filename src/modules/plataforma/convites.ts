@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, gt, inArray, isNull } from 'drizzle-orm';
 import { getDb, type Db, type Queryable } from '@/db/client';
-import { account, consents, invites, tenants, user } from '@/db/schema';
+import { account, invites, tenants, user } from '@/db/schema';
 import { randomToken, sha256 } from '@/lib/crypto';
 import { validatePasswordPolicy } from '@/lib/password-policy';
 import { commonPasswords, hashPassword } from '@/lib/password.server';
 import { DPA_NAO_ACEITO, registrarAceiteDpa } from './dpa';
 import { urlDoApp } from '@/lib/url-do-app';
 import { MSG_EQUIPE } from './equipe-textos';
-import { SIGILO_EQUIPE_TERMO } from './textos-versionados';
+import { registrarAceiteDoSigilo } from './membro-da-equipe';
 
 export const CONVITE_NUTRI_VALIDADE_MS = 72 * 60 * 60 * 1000; // US-001: 72 h
 export const CONVITE_EXPIRADO = 'Convite expirado. Peça um novo ao suporte.';
@@ -144,7 +144,7 @@ export async function aceitarConvite(
     await tx.update(user).set({ emailVerified: true }).where(eq(user.id, antes.userId));
     if (antes.tipo === 'recepcao') {
       // RN-500: o termo de confidencialidade da equipe, com o consultório e o IP; o DPA do consultório não muda
-      await tx.insert(consents).values({ userId: antes.userId, tenantId: u.tenantId, termoVersao: SIGILO_EQUIPE_TERMO, aceitoEm: now, ip: input.ip }).onConflictDoNothing();
+      await registrarAceiteDoSigilo(tx, { userId: antes.userId, tenantId: u.tenantId, ip: input.ip, now });
     } else {
       await registrarAceiteDpa(tx, { userId: antes.userId, tenantId: u.tenantId, ip: input.ip, now });
     }

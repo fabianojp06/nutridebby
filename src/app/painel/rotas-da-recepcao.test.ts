@@ -103,7 +103,14 @@ describe('ROTAS_DA_RECEPCAO (RN-513): negação por padrão no app', () => {
         '/painel/sem-permissao',
       ].sort(),
     );
-    expect(FORA_DO_PAINEL).toEqual(['/conta/seguranca', '/conta/acesso-desativado', '/inicio', '/conta/outro-papel', '/api/sessao/ativa']);
+    expect(FORA_DO_PAINEL).toEqual([
+      '/conta/seguranca',
+      '/conta/acesso-desativado',
+      '/inicio',
+      '/conta/outro-papel',
+      '/api/sessao/ativa',
+      '/conta/acesso-desativado/actions.ts#aceitarTermoAction',
+    ]);
   });
 
   it('a guarda enxerga as actions de todo arquivo com "use server", inclusive as que chamam a sessão por uma função local', () => {
