@@ -371,6 +371,20 @@ async function aposEnvio(tx: Tx, tenant: TenantRow, n: NotificationRow, agora: D
   }
 }
 
+/**
+ * Plano 23 (P23-10, decisão da orquestradora): a nova tentativa da mensagem de aniversário nunca leva a linha para outro ano
+ * UTC — o ano do índice `notifications_aniversario_unique` (uma por paciente por ano); mudar de balde bloquearia a mensagem
+ * do ano seguinte. Se `desejada` cai em outro ano UTC que o da `agendada_para` atual, fica no último segundo do ano atual
+ * (`min(desejada, fim do ano − 1 s)`); se esse instante já passou, `null` (a linha vira `falhou`). Os outros tipos não mudam.
+ */
+export function novaTentativa(n: Pick<NotificationRow, 'tipo' | 'agendadaPara'>, desejada: Date, agora: Date): Date | null {
+  if (n.tipo !== 'aniversario') return desejada;
+  const ano = n.agendadaPara.getUTCFullYear();
+  if (desejada.getUTCFullYear() === ano) return desejada;
+  const limite = new Date(Date.UTC(ano + 1, 0, 1) - 1000);
+  return limite.getTime() >= agora.getTime() ? limite : null;
+}
+
 async function registrarResultado(ctx: TenantContext, tenant: TenantRow, n: NotificationRow, r: Resultado, deps: DepsEnvio): Promise<void> {
   const agora = deps.agora();
   await withTenant(
@@ -391,11 +405,16 @@ async function registrarResultado(ctx: TenantContext, tenant: TenantRow, n: Noti
         return;
       }
       const esperas = ESPERAS_S[n.canal as Canal];
+      let erro = 'erro' in r ? r.erro : null;
       if (r.status === 'repetir' && n.tentativas <= esperas.length) {
-        await tx.update(notifications).set({ status: 'pendente', agendadaPara: new Date(agora.getTime() + esperas[n.tentativas - 1] * 1000), erro: r.erro, updatedAt: agora }).where(onde);
-        return;
+        const para = novaTentativa(n, new Date(agora.getTime() + esperas[n.tentativas - 1] * 1000), agora);
+        if (para) {
+          await tx.update(notifications).set({ status: 'pendente', agendadaPara: para, erro: r.erro, updatedAt: agora }).where(onde);
+          return;
+        }
+        erro = 'virada_do_ano'; // Plano 23 (P23-10): o aniversário não muda de ano UTC; motivo técnico, sem dado pessoal
       }
-      const [f] = await tx.update(notifications).set({ status: 'falhou', erro: r.erro, conteudoSelado: null, updatedAt: agora }).where(onde).returning();
+      const [f] = await tx.update(notifications).set({ status: 'falhou', erro, conteudoSelado: null, updatedAt: agora }).where(onde).returning();
       if (f) await fallbackPorEmail(tx, f, agora);
     },
     deps.db,

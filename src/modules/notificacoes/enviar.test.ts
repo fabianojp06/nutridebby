@@ -11,12 +11,13 @@ import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { encryptionKey } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
+import { enviarMensagensDeAniversario } from '@/modules/agenda/aniversarios';
 import { agendarPelaNutri, moverConsulta } from '@/modules/agenda/consultas';
 import { lerLinkDeSaida } from '@/modules/agenda/aniversario-link';
 import { chaveDosLinks, lerLinkConsulta } from '@/modules/agenda/link-consulta';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { partesNoFuso } from '@/modules/agenda/fuso';
-import { LOTE_POR_EXECUCAO, ordemDaRodada, processarNotificacoes, TRAVADA_MS } from './enviar';
+import { LOTE_POR_EXECUCAO, novaTentativa, ordemDaRodada, processarNotificacoes, TRAVADA_MS } from './enviar';
 import { textoWhatsapp } from './mensagens';
 import type { ProvedorPush } from './push';
 
@@ -488,3 +489,52 @@ describe('Plano 23 (T10): a mensagem de aniversário no envio (RN-431, RN-432, R
     expect(textoWhatsapp({ n, paciente: ana, consulta: null, tenant, agora: em(`${ano}-03-15`, '09:00') })).toBeNull();
   });
 });
+
+describe('Plano 23 (P23-10): a nova tentativa do aniversário não cruza o ano UTC do índice', () => {
+  const RB = 'America/Rio_Branco';
+  /** Consultório em Rio Branco, paciente autorizada, a mensagem de 31/12 às 9h locais (14h UTC, balde de 2026). */
+  async function emRioBranco() {
+    const T = await novoTenant(app.db);
+    await app.db.update(tenants).set({ fuso: RB }).where(eq(tenants.id, T.tenantId));
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Rio Branco', dataNascimento: '1990-12-31' });
+    await withTenant(T.ctx, (tx) => tx.insert(aniversarioAutorizacoes).values({ tenantId: T.tenantId, patientId: ana.id, evento: 'autorizou', origem: 'nutri', forma: 'escrito', registradoPor: T.nutriId }), app.db);
+    const [n] = await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: ana.id, tipo: 'aniversario', canal: 'email', agendadaPara: em('2026-12-31', '09:00', RB) }).returning(), app.db);
+    return { T, ana, n };
+  }
+  const linha = async (T: TenantDeTeste, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.id, id)), app.db))[0];
+
+  it('falha passageira às 18h59min30s locais (23h59min30s UTC): a espera de 1 min cruzaria o ano → a nova tentativa fica em 31/12 23:59:59 UTC (mesmo ano) e sai na volta seguinte', async () => {
+    const { T, n } = await emRioBranco();
+    const agora = new Date('2026-12-31T23:59:30Z');
+    const d = deps(agora, transporteFalso({ falhar: 1 }));
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    const l = await linha(T, n.id);
+    expect(l).toMatchObject({ status: 'pendente', tentativas: 1, erro: 'email' });
+    expect(l.agendadaPara.toISOString()).toBe('2026-12-31T23:59:59.000Z');
+    const depois = deps(new Date('2027-01-01T00:00:30Z'));
+    await processarNotificacoes(depois, { tenantId: T.tenantId });
+    expect(await linha(T, n.id)).toMatchObject({ status: 'enviada' });
+    expect(depois.transport.enviados.map((e) => e.subject)).toEqual(['Uma mensagem da sua nutricionista']);
+  });
+
+  it('falha passageira às 20h58 locais de 31/12 (01h58 UTC de 01/01): o fim do ano UTC já passou → `falhou` (virada_do_ano), sem dado pessoal; o 31/12 do ano seguinte é agendado normalmente', async () => {
+    const { T, ana, n } = await emRioBranco();
+    const d = deps(em('2026-12-31', '20:58', RB), transporteFalso({ falhar: 1 }));
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    const l = await linha(T, n.id);
+    expect(l).toMatchObject({ status: 'falhou', erro: 'virada_do_ano', tentativas: 1 });
+    expect(l.agendadaPara.toISOString()).toBe(em('2026-12-31', '09:00', RB).toISOString());
+    const rb = tenantAgenda(T, { fuso: RB });
+    expect(await enviarMensagensDeAniversario(T.ctx, rb, [ana.id], { db: app.db, agora: em('2027-12-31', '10:00', RB) })).toEqual({ agendadas: 1, agora: 1 });
+  });
+
+  it('novaTentativa: só o aniversário é limitado; os outros tipos seguem a espera de sempre', () => {
+    const desejada = new Date('2027-01-01T00:02:00Z');
+    const agora = new Date('2026-12-31T23:58:00Z');
+    expect(novaTentativa({ tipo: 'lembrete_24h', agendadaPara: new Date('2026-12-31T12:00:00Z') }, desejada, agora)).toBe(desejada);
+    expect(novaTentativa({ tipo: 'aniversario', agendadaPara: new Date('2026-12-31T12:00:00Z') }, desejada, agora)?.toISOString()).toBe('2026-12-31T23:59:59.000Z');
+    expect(novaTentativa({ tipo: 'aniversario', agendadaPara: new Date('2026-12-31T12:00:00Z') }, new Date('2026-12-31T23:59:00Z'), agora)?.toISOString()).toBe('2026-12-31T23:59:00.000Z');
+    expect(novaTentativa({ tipo: 'aniversario', agendadaPara: new Date('2026-12-31T12:00:00Z') }, new Date('2027-01-01T02:00:00Z'), new Date('2027-01-01T01:58:00Z'))).toBeNull();
+  });
+});
+
