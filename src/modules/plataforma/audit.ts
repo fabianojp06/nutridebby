@@ -84,6 +84,9 @@ export const ENTIDADE_ROTULO: Record<string, string> = {
   // Histórico. Sem o nome das tabelas aqui: este arquivo é alcançável pela IA (guarda da RN-399, exames/guardas.test.ts)
   exames_versoes: 'Versões do exame',
   exames_nota: 'Nota de interpretação do exame',
+  // Plano 22 (T6, RN-385, EP-D45): "Mostrar no app" (recordAudit do módulo); a ação sai na coluna Ação (rotuloDaAcao)
+  exame_no_app_liberado: 'Exames',
+  exame_no_app_retirado: 'Exames',
 };
 
 export type AccessHistoryItem = {
@@ -132,6 +135,9 @@ export function rotuloDaAcao(i: Pick<AccessHistoryItem, 'acao' | 'entidade' | 't
   // alterar o cadastro — evita dois "Criou" ao criar o paciente e o "Criou" no primeiro preenchimento de um paciente antigo.
   // O `excluir` da anonimização continua "Excluiu".
   if (i.entidade === 'patients' && i.acao === 'criar' && i.patientId !== undefined && i.entidadeId !== i.patientId) return ACAO_ROTULO.alterar;
+  // Plano 22 (T6, RN-385, EP-D45): liberar e retirar o exame do app (recordAudit do módulo, ao lado do "Alterou" do gatilho)
+  if (i.entidade === 'exame_no_app_liberado' && i.acao === 'alterar') return 'Liberou exame no app';
+  if (i.entidade === 'exame_no_app_retirado' && i.acao === 'alterar') return 'Retirou exame do app';
   return ACAO_ROTULO[i.acao];
 }
 

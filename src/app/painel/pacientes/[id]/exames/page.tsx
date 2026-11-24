@@ -23,6 +23,7 @@ import { MSG_REVISAO } from '@/modules/pacientes/exames-enviados-constantes';
 import { mensagemIaDaChave } from '@/modules/pacientes/exames-enviados-ia';
 import { carregarProntuario } from '../prontuario';
 import { descartarSugestaoAction, excluirExameAction } from './actions';
+import { ExcluirExame } from './[exameId]/excluir-exame';
 import { ConferenciaIa } from './conferencia-ia';
 import { ExameForm } from './exame-form';
 import { IaDoExame, iaNoExame } from './ia-exame';
@@ -152,6 +153,7 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 id={`exame-${e.id}`} className="font-semibold">{`${e.titulo} · ${formatarData(e.data)}`}</h3>
                   {doPaciente.has(e.id) && <Selo>{MSG_REVISAO.selo}</Selo>}
+                  {e.mostrarNoAppEm && <Selo>{MSG_EXAMES.app.selo}</Selo>}
                 </div>
                 <div className="flex flex-wrap gap-4">
                   {lista.length >= 2 && <CaixaComparar exameId={e.id} rotulo={MSG_EXAMES.exame.compararRotulo(e.titulo, formatarData(e.data))} />}
@@ -169,7 +171,10 @@ export default async function ExamesPage({ params, searchParams }: PageProps<'/p
                       {MSG_EXAMES.exame.editar}
                     </Link>
                   )}
-                  {!bloqueado && (
+                  {/* Plano 22 (T6): o exame no app pede a confirmação com o aviso no DialogoConfirmar; os outros seguem com a
+                      confirmação de hoje (os E2E da conferência dependem dela) */}
+                  {!bloqueado && e.mostrarNoAppEm && <ExcluirExame patientId={paciente.id} exameId={e.id} rotulo={`Excluir o exame ${e.titulo} de ${formatarData(e.data)}`} noApp />}
+                  {!bloqueado && !e.mostrarNoAppEm && (
                     <form action={excluirExameAction.bind(null, paciente.id, e.id)}>
                       <ConfirmarBotao mensagem="Excluir este exame e o laudo?" rotulo={`Excluir o exame ${e.titulo} de ${formatarData(e.data)}`}>Excluir</ConfirmarBotao>
                     </form>

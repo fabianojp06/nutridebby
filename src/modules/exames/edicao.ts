@@ -6,7 +6,7 @@ import { normalizarTexto } from '@/lib/text';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { dataValida, hojeNoFuso } from '@/modules/pacientes/datas';
 import { ExameError, lerLinhasComErros, MSG_EXAME, type ValorExame } from '@/modules/pacientes/exames';
-import { auditRead, nomesDosAtores } from '@/modules/plataforma/audit';
+import { auditRead, nomesDosAtores, recordAudit } from '@/modules/plataforma/audit';
 import { catalogoParaLancamentoNaTransacao, exigirNutri, type ItemParaLancamento } from './catalogo';
 import { MSG_EXAMES } from './constantes';
 
@@ -212,4 +212,48 @@ export async function versoesDoExame(
       em: v.alteradoEm,
     })),
   };
+}
+
+/**
+ * Plano 22 (T6, US-375, RN-385, EP-D22, EP-D45): "Mostrar no app do paciente" e "Retirar do app". Ordem de travas da
+ * edição: paciente (`carregarPacienteParaEscrita`, `FOR UPDATE`, recusa bloqueado e anonimizado) → exame `FOR NO KEY
+ * UPDATE` pelos dois ids (sem linha → "Exame não encontrado."). O UPDATE muda **só** `mostrar_no_app_em` — nunca
+ * `updated_at`: o resumo da IA não fica "desatualizado" e uma edição aberta (`lidoEm`) não é recusada (R-383). Na mesma
+ * transação, o `recordAudit` próprio (`exame_no_app_liberado`/`_retirado`, com o ator da sessão), porque o `alterar` do
+ * gatilho de `exams` não diz o que mudou e a retirada zera a data (LGPD art. 37). O gatilho grava também o `alterar` de
+ * `exames`: cada liberação ou retirada deixa duas linhas no Histórico (M5, aceito). Liberar o já liberado e retirar o que
+ * não está: nada muda e nada é gravado (a data da primeira liberação fica).
+ */
+async function mudarNoApp(ctx: TenantContext, patientId: string, exameId: string, liberar: boolean, deps: { db?: Db; agora?: Date }): Promise<{ pacienteUsaApp: boolean }> {
+  exigirNutri(ctx);
+  if (!idValido(exameId)) throw new ExameError({ geral: NAO_ENCONTRADO });
+  return withTenant(
+    ctx,
+    async (tx) => {
+      const p = await carregarPacienteParaEscrita(tx, patientId);
+      const doExame = and(eq(exams.id, exameId), eq(exams.patientId, p.id));
+      const [e] = await tx.select({ id: exams.id, noAppEm: exams.mostrarNoAppEm }).from(exams).where(doExame).for('no key update');
+      if (!e) throw new ExameError({ geral: NAO_ENCONTRADO });
+      if (liberar !== (e.noAppEm !== null)) {
+        await tx
+          .update(exams)
+          .set({ mostrarNoAppEm: liberar ? (deps.agora ?? sql`now()`) : null })
+          .where(doExame);
+        await recordAudit(tx, { acao: 'alterar', entidade: liberar ? 'exame_no_app_liberado' : 'exame_no_app_retirado', entidadeId: e.id, patientId: p.id });
+      }
+      // o estado de `situacaoDoAcesso` (RN-279 do 18): sem conta ligada, o paciente ainda não usa o app
+      return { pacienteUsaApp: p.userId !== null };
+    },
+    deps.db ?? getDb(),
+  );
+}
+
+/** "Mostrar no app do paciente" (RN-385): `pacienteUsaApp` falso → "Este paciente ainda não usa o app…". */
+export async function mostrarNoApp(ctx: TenantContext, patientId: string, exameId: string, deps: { db?: Db; agora?: Date } = {}): Promise<{ pacienteUsaApp: boolean }> {
+  return mudarNoApp(ctx, patientId, exameId, true, deps);
+}
+
+/** "Retirar do app" (RN-385): imediato e reversível. */
+export async function retirarDoApp(ctx: TenantContext, patientId: string, exameId: string, deps: { db?: Db } = {}): Promise<void> {
+  await mudarNoApp(ctx, patientId, exameId, false, deps);
 }
