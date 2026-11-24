@@ -771,10 +771,10 @@ prontuário e sai na hora.
   `lembretes_rotina_sem_apagar` só deixa a sessão `nutri` apagar o desligado pelo paciente com o titular `bloqueado`) e
   **depois** da trava do tenant de `cancelarTarefas` (ordem paciente → tenant → linhas, porque o `marcar` do worker segura o
   tenant `FOR SHARE` antes de gravar a marca; apagar antes faria um ciclo).
-- **Anonimização** (`anonimizarVencidos`, contexto `worker`): limpa a pausa (`lgpd.ts:578`) e apaga os lembretes gravados
-  depois do bloqueio (`:583`).
-- **Exportação** (`montarDados`, `src/modules/pacientes/exportacao-job.ts`): `paciente.lembretesPausadosEm` (`:197`) e a
-  chave nova `lembretesDeRotina` (`:282`: `tipo`, `config`, `texto`, `ligado`, `desligadoPeloPacienteEm`, `criadoEm`), nos
+- **Anonimização** (`anonimizarVencidos`, contexto `worker`): limpa a pausa (`lgpd.ts:580`) e apaga os lembretes gravados
+  depois do bloqueio (`:585`).
+- **Exportação** (`montarDados`, `src/modules/pacientes/exportacao-job.ts`): `paciente.lembretesPausadosEm` (`:200`) e a
+  chave nova `lembretesDeRotina` (`:308`: `tipo`, `config`, `texto`, `ligado`, `desligadoPeloPacienteEm`, `criadoEm`), nos
   dois escopos (equipe e titular), sem a marca de envio nem quem criou. A chave `lembretes` continua sendo a das mensagens
   das consultas (Plano 05).
 
@@ -1740,7 +1740,7 @@ Plano 18, PR 2 (cadastro em seções, lista e "No app", [§4.2.11](04-modulos-cl
   §8.1 e §8.4). Passos `novo-paciente` (sem mudança), `busca-pacientes` ("Ache um paciente pelo nome ou pelo e-mail. As
   abas separam ativos e arquivados; os bloqueados ficam em Ver bloqueados."), o novo `acoes-paciente` ("Em Ações você
   abre a ficha, edita o cadastro, arquiva ou reativa o paciente sem sair da lista."; alvo no cabeçalho da coluna
-  "Ações", `src/app/painel/pacientes/page.tsx:107`) e o novo `cadastro-paciente` ("O cadastro fica em seções. Só nome,
+  "Ações", `src/app/painel/pacientes/page.tsx:122`) e o novo `cadastro-paciente` ("O cadastro fica em seções. Só nome,
   nascimento, sexo e e-mail são obrigatórios; o resto completa o registro da primeira consulta."; alvo no `<form>` de
   `paciente-form.tsx:107`, que só existe em "Novo paciente": na lista o passo aparece centralizado). A gaveta trocou "no
   filtro de situação" por "os arquivados ficam na aba Inativos" e "prontuário" por "ficha".
@@ -1757,7 +1757,7 @@ Plano 18, PR 2 (cadastro em seções, lista e "No app", [§4.2.11](04-modulos-cl
 
 Plano 20 (Financeiro, [§12.6](12-financeiro.md#126-telas-navegação-e-manual-guiado)):
 
-- **Guia novo `financeiro`**, versão 1, o **último** de `GUIAS` (`conteudo.ts:442`; o Plano 18 insere guias antes do
+- **Guia novo `financeiro`**, versão 1, o **último** de `GUIAS` (`conteudo.ts:539`; o Plano 18 insere guias antes do
   `prontuario`), título "Financeiro", `padrao` `^/painel/financeiro(/.*)?$`: cobre as oito telas novas (nada em
   `SEM_AJUDA`). Ajuda com "Para começar" e "Perguntas comuns"; 12 passos com os alvos `financeiro-secoes`,
   `financeiro-cartoes`, `financeiro-saldo`, `financeiro-valor-consulta`, `financeiro-categorias`, `financeiro-filtros`,
@@ -1799,7 +1799,7 @@ O texto é **rascunho** até o dono e a Debby aprovarem (P08-08), sem dado de sa
 
 Plano 22, PR 2 (exames do consultório, [§4.2.12](04-modulos-clinicos.md#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2)):
 
-- **Guia novo `exames-do-consultorio`** (o 20º de `GUIAS`, no fim da lista), na versão 1 (`conteudo.ts:431`), título "Exames do consultório", `padrao`
+- **Guia novo `exames-do-consultorio`** (o 20º de `GUIAS`; desde o rebase sobre o Plano 20, logo antes do `financeiro`), na versão 1 (`conteudo.ts:500`), título "Exames do consultório", `padrao`
   `^/painel/exames(/.*)?$`: as seis telas do hub (catálogo, exame do catálogo, modelos de solicitação). O
   `/painel/exames-recebidos` continua no guia `exames-recebidos` (o padrão exige `/` ou o fim depois de `exames`). Cinco
   passos, com os alvos `secoes-exames` (`src/app/painel/exames/secoes.tsx`), `nomes-para-comecar`
@@ -1807,7 +1807,7 @@ Plano 22, PR 2 (exames do consultório, [§4.2.12](04-modulos-clinicos.md#4212-e
   (`catalogo/exame-catalogo-form.tsx`; os dois últimos só no formulário do exame). Resumo: "O catálogo com os exames que
   você pede e lê, com as suas faixas e os modelos de nota, e os modelos de solicitação. Nada daqui aparece para o
   paciente." Rascunho para o `revisor-interface` e a Debby (PM-E12).
-- **`configuracoes` na v9** (`conteudo.ts:349`, +1 sobre a `main`, EP-D52): o resumo cita "exames do consultório", e o
+- **`configuracoes` na v9** (`conteudo.ts:407`, +1 sobre a `main`, EP-D52): o resumo cita "exames do consultório", e o
   passo `cartoes-configuracoes` termina com "Em "Exames" ficam o catálogo de exames, as suas faixas e os modelos de
   solicitação.".
 - **`prontuario` na v4** (`conteudo.ts:215`): o quarto item do "Passo a passo", "Na aba Exames, "Adicionar do catálogo"
@@ -2200,17 +2200,17 @@ só as mensagens fixas de `MSG_LOCAIS` (`src/modules/agenda/constantes.ts:118`).
 | `arquivarLocal` (`:256`) | Recusa o principal ("Defina outro local como principal antes de arquivar este.") e desliga `agendamento_online` na mesma gravação (o CHECK exige) |
 | `reativarLocal` (`:274`) | Devolve o local **sem** o agendamento pelo paciente; nome em uso por outro ativo → "Já existe um local com este nome." |
 | `excluirLocal` (`:297`) | Só sem uso e nunca o principal; o uso que nasce numa corrida cai na FK (23503) e vira "Este local tem consultas ou horários. Arquive em vez de excluir." |
-| `locaisDoPainel(ctx)` / `locaisDoSeletor(tx)` / `locaisAtivos(tx)` (`:326`, `:340`, `:345`) | Seletores do painel (Nova consulta, Alterar, Horários): ativos, principal primeiro, com a sala. Só a sessão `nutri` |
-| `locaisParaAgendamento(tx)` (`:353`) | Sessões `publico` e `paciente`: só `app_locais_para_agendamento()`; outro papel recebe vazio |
-| `locaisVisiveis(ls)` (`:365`) | O que a escolha do portal, da página pública e do link mostra: só os com agendamento e nome, com a lista fechada `id`, `nome`, `tipo`, `cidade`, `endereco` (`LocalVisivel`, `src/modules/agenda/horarios.ts:107`) |
-| `localDaConsulta(tx, id)` (`:379`) e `localParaOPaciente(l, c, enderecoDoPerfil)` (`:373`) | O local da própria consulta pela projeção; a consulta antiga (sem local) presencial mostra o endereço do Perfil; nunca a sala |
-| `linkSugerido(local)` (`:387`) | A sala fixa do local online, se houver |
+| `locaisDoPainel(ctx)` / `locaisDoSeletor(tx)` / `locaisAtivos(tx)` (`:326`, `:340`, `:386`) | Seletores do painel (Nova consulta, Alterar, Horários): ativos, principal primeiro, com a sala. Só a sessão `nutri` |
+| `locaisParaAgendamento(tx)` (`:394`) | Sessões `publico` e `paciente`: só `app_locais_para_agendamento()`; outro papel recebe vazio |
+| `locaisVisiveis(ls)` (`:406`) | O que a escolha do portal, da página pública e do link mostra: só os com agendamento e nome, com a lista fechada `id`, `nome`, `tipo`, `cidade`, `endereco` (`LocalVisivel`, `src/modules/agenda/horarios.ts:107`) |
+| `localDaConsulta(tx, id)` (`:420`) e `localParaOPaciente(l, c, enderecoDoPerfil)` (`:414`) | O local da própria consulta pela projeção; a consulta antiga (sem local) presencial mostra o endereço do Perfil; nunca a sala |
+| `linkSugerido(local)` (`:428`) | A sala fixa do local online, se houver |
 
 **Tela `/painel/agenda/locais`** (`src/app/painel/agenda/locais/`): `page.tsx` com h1 "Locais de atendimento"
 (`id="titulo-locais"`, `tabIndex={-1}`), as abas, "Novo local" e "Ver arquivados"/"Ver ativos"; lista em cartões em
 todas as larguras (um DOM só); ações "Editar", "Definir como principal", "Arquivar", "Excluir" (com `ConfirmarBotao`,
 "Excluir este local?") ou "Em uso: arquive", e "Reativar" nos arquivados, todas com `aria-label` com o nome do local.
-"Arquivar" some do principal quando o consultório tem um local só (`page.tsx:57`). O aviso do link divergente aparece só
+"Arquivar" some do principal quando o consultório tem um local só (`page.tsx:59`). O aviso do link divergente aparece só
 no cartão do local online chamado "Videoconferência". `local-form.tsx` (cliente, `useActionState`): os rádios "Tipo"
 trocam os campos; local em uso mostra o tipo em texto; no online, o aviso de telenutrição (RN-404, sem o número da
 resolução até o DOU, PM-A2) e, com sala, o da sala de espera; "Aceita agendamento pelo paciente" nasce desmarcado.
@@ -2222,7 +2222,7 @@ de novo; `foco.tsx` monta a região `role="status"` sempre e foca o h1 depois da
 `tablist`), só "Agenda · Pendências · Horários · Locais" no PR 2 (AG-D72: nenhum link para página que ainda não existe);
 desde o PR 3, "Solicitações ({n})" e "Aniversariantes" depois de "Agenda" (§5.12.4, §5.12.8), em Agenda, Pendências, Horários e
 Locais, nunca num `layout.tsx`. Configurações ganha o cartão "Locais de atendimento" no fim de `CARTOES`
-(`src/app/painel/configuracoes/page.tsx:19`). No Perfil (`perfil-form.tsx:20-28`), o endereço vira "Endereço profissional
+(`src/app/painel/configuracoes/page.tsx:21`). No Perfil (`perfil-form.tsx:20-28`), o endereço vira "Endereço profissional
 (documentos)", o campo do link padrão dá lugar ao link "O link da videoconferência agora fica em Locais de atendimento."
 e, sem CRN, a dica do CRN diz "Informe o CRN: ele aparece na página de agendamento."; `linkOnlinePadrao` saiu do
 `perfilSchema` (`src/modules/plataforma/marca.ts:38-39`) e a coluna `tenants.link_online_padrao` fica (AG-D7).
@@ -2285,7 +2285,9 @@ regra 1).
   `locais_atendimento` (RN-406).
 - Telas: `consulta-form.tsx` troca o rádio de modalidade pelo select "Local" (opção vazia "Escolha o local"; na Nova
   consulta, o principal), "Link da chamada" só num local de videoconferência, com a sala no `placeholder` e a dica "Vazio
-  = a sala fixa do local." (`:73`); o link gravado só volta ao campo com o mesmo local (`key` pelo local). Nova consulta
+  = a sala fixa do local." (`:82`); o link gravado só volta ao campo com o mesmo local (`key` pelo local). AG-D82 (PR 4):
+  na consulta de origem `paciente` num local online com sala, o campo fica só leitura com "Sala fixa do local", sem
+  `name` (`:77-79`; §5.13.4). Nova consulta
   sem local ativo mostra o estado vazio "Cadastre um local de atendimento para marcar consultas e definir horários.". O
   detalhe da consulta mostra "… · {modalidade} · {nome do local}" e, sem local, "Consultório (endereço do perfil)"
   (`consultas/[id]/page.tsx:94`); consulta num local arquivado abre o "Alterar" sem local marcado, com "O local desta
@@ -2341,14 +2343,14 @@ comentário do arquivo (`:6-29`). Detalhe na [§7.4.3](07-testes-qualidade-e-pro
 
 ### 5.11.4 Mensagens e exportação (US-402, RN-407, RN-438)
 
-- O worker lê o local junto com a consulta: `carregarContexto` (`src/modules/notificacoes/enviar.ts:319`, leitura em
-  `:325`) põe em `ContextoEnvio.local` (`:29`, opcional) o `LocalDoEnvio` (`:23`: nome, tipo e endereço; nunca a sala).
+- O worker lê o local junto com a consulta: `carregarContexto` (`src/modules/notificacoes/enviar.ts:324`, leitura em
+  `:330`) põe em `ContextoEnvio.local` (`:29`, opcional) o `LocalDoEnvio` (`:23`: nome, tipo e endereço; nunca a sala).
 - `dadosDaConsulta` (`src/modules/notificacoes/mensagens.ts:26`): consulta com local → endereço do **local** (pode ser
   nenhum, `:28`); consulta sem local → endereço do Perfil; online → o `link_online` da própria consulta, como antes.
 - E-mail (`emailDaNotificacao`, `:49`) e WhatsApp (`textoWhatsapp`, `:115`) levam o endereço do local; o WhatsApp nunca
   leva o nome do local nem link (`:120`); o push (`pushDaNotificacao`, `:162`) continua só com o horário.
 - Exportação do titular (`montarDados`, `src/modules/pacientes/exportacao-job.ts`): cada item de `consultas` ganha `local`
-  com o **nome** do local (`:275`; nulo na consulta anterior ao Plano 23), lido numa consulta só pelos ids (`:585`), nos
+  com o **nome** do local (`:299`; nulo na consulta anterior ao Plano 23), lido numa consulta só pelos ids (`:633`), nos
   dois escopos; nunca o endereço nem a sala.
 
 ### 5.11.5 Visões, filtros e legenda (US-404, US-405, RN-411 a RN-417)
@@ -2384,7 +2386,7 @@ min, "09:00 (até 10:30)", bloqueio "Bloqueado: {motivo}", link nomeado pelo con
 dia com `h2`); `grade-mes.tsx` (`caption` "{mês} de {ano}", "{n} consultas", até 3 nomes e "mais {n}", o dia abre a
 visão Dia, "(hoje)" em texto; lista por dia no celular); `legenda.tsx` ("Legenda": Primeira consulta, Retorno, Presença
 a registrar, Bloqueio, Aniversário; a cor e a borda só reforçam, RN-415); `item-consulta.tsx` com o local antes da
-modalidade (também nas Pendências). Textos em `MSG_VISOES` (`src/modules/agenda/constantes.ts:148`).
+modalidade (também nas Pendências). Textos em `MSG_VISOES` (`src/modules/agenda/constantes.ts:153`).
 
 Carga (CS-402, RNF-400): cenário "Mês com marcadores" (`test/carga/seed.ts:362`, 2.000 consultas por consultório,
 nascimentos e previsões; `test/carga/cenario.js:30`, `p(95)<800`), a rodar com a pilha de carga quando o dono liberar a
@@ -2408,8 +2410,8 @@ CPU.
 - `next.config.ts:30`: `Cache-Control: no-store` em `/painel/agenda/imprimir` (um `page.tsx` não define cabeçalho;
   AG-D71; teste em `imprimir/page.test.ts`). Nenhum PDF no servidor nem arquivo novo (regra 9, C-404).
 - Manual guiado: `/painel/agenda/imprimir` está em `SEM_AJUDA` (`src/modules/ajuda/conteudo.test.ts:25`); `/painel/agenda/locais`
-  entra no `padrao` do guia `agenda` (`conteudo.ts:232`), ainda na versão 2 e sem texto sobre locais, visões ou impressão
-  (Tarefa 12). Ambas em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts:78-79`).
+  entra no `padrao` do guia `agenda` (`conteudo.ts:237`); no PR 2, ainda na versão 2 e sem texto sobre locais, visões ou
+  impressão (os passos entram na T12, §5.13 e #44). Ambas em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts:99-100`).
 
 ### 5.11.7 Volta atrás e como estender
 
@@ -2467,12 +2469,17 @@ Spec e plano × código, conferido em `02fb478`:
     só o mesmo arquivo) e acusa alias, namespace, `returning()`, SQL cru e contexto em constante (revisão da T4).
 42. **Gatilho da sala × link digitado.** Numa consulta de origem `paciente` movida pela nutricionista para um local online
     com sala, `appointments_link_da_sala` sobrescreve o link que ela digitou; a dica "Vazio = a sala fixa do local." dá a
-    entender que o digitado vale. Comp. (Minor M2 da T3; decidir no gatilho do PR 1 ou documentar).
+    entender que o digitado vale. Comp. (Minor M2 da T3; decidir no gatilho do PR 1 ou documentar). **Resolvida pela
+    AG-D82 (PR 4):** o banco continua decidindo, e o "Alterar" dessa consulta mostra o "Link da chamada" só leitura com
+    "Sala fixa do local" (§5.13.4).
 43. **`horarioExcluido`** ("Horário excluído.", §6.2) está em `MSG_AGENDA` sem uso: a exclusão de regra não devolve
     mensagem.
 44. **Manual guiado sem a Agenda 2.** O guia `agenda` (v3 desde a revisão final do PR 2: "Dia, semana, mês ou lista") cobre
     `/painel/agenda/locais` pelo `padrao`, mas ainda fala em "consulta presencial ou online"; o `horarios` (v2) já fala em
     "local". Pend.: Tarefa 12 (passos de Locais e o texto da Nova consulta, com nova versão). O PR 3 só acrescentou `solicitacoes` e `aniversariantes` ao `padrao` do guia `agenda`, sem passos (#62).
+    **Resolvida no fechamento (T12):** os guias `agenda` e `horarios` sobem de versão com locais, visões, filtros,
+    legenda, impressão, Solicitações e Aniversariantes, e `/painel/agenda/imprimir` entra em `SEM_AJUDA`
+    (`src/modules/ajuda/conteudo.ts`, `conteudo.test.ts`).
 
 ## 5.12 Agenda 2: solicitações, previsão de retorno e aniversariantes (Plano 23, PR 3)
 
@@ -2509,7 +2516,7 @@ stateDiagram-v2
   UPDATE: `gravarPedido` e `agendarComoPaciente` leem a chave sob a mesma trava, e um pedido em gravação termina com a chave
   de antes (teste de corrida com `pg_blocking_pids`). Desligar não mexe nos pendentes (US-407).
 - Selos da cancelada pelo motivo (AG-D44, `status.ts:32-38`): "Pedido retirado pelo paciente", "Pedido não aceito", "Pedido
-  vencido". No portal (`SITUACAO_NO_PORTAL`, `situacaoNoPortal`, `status.ts:87-118`): "Aguardando confirmação da
+  vencido". No portal (`SITUACAO_NO_PORTAL`, `situacaoNoPortal`, `status.ts:87-116`): "Aguardando confirmação da
   nutricionista", "Não confirmado" (recusado ou vencido, inclusive o vencido ainda não processado — leitura preguiçosa,
   RN-427) e "Pedido cancelado" (retirado por ele). `prazoDoPedido` = `inicio − antecedencia_min_h` (`:105`).
 - Onde o pedido conta (`STATUS_OCUPA`) e onde não conta (`STATUS_ATIVOS`), e a guarda `status-guarda.test.ts`:
@@ -2518,9 +2525,9 @@ stateDiagram-v2
 ### 5.12.2 Pedido do paciente com conta (US-408, RN-421, RN-425, RN-427a)
 
 - `janelaDoPaciente` (`src/modules/agenda/agendamento-paciente.ts:24`): com a chave ligada, a oferta começa em
-  `antecedencia_min_h + JANELA_RESPOSTA_PEDIDO_H` (12 h, `src/modules/agenda/constantes.ts:214`; AG-D41): todo pedido dá ao
+  `antecedencia_min_h + JANELA_RESPOSTA_PEDIDO_H` (12 h, `src/modules/agenda/constantes.ts:238`; AG-D41): todo pedido dá ao
   menos 12 h para a resposta. Vale também na remarcação, que nasce `agendada` (AG-D24, o marcador do gatilho).
-- `agendarComoPaciente` (`:170`) e `remarcarComoPaciente` (`src/modules/agenda/cancelamento.ts`): `travarPedidosDoTenant`
+- `agendarComoPaciente` (`:175`) e `remarcarComoPaciente` (`src/modules/agenda/cancelamento.ts`): `travarPedidosDoTenant`
   (`agendamento-paciente.ts:34`, `pg_advisory_xact_lock(hashtext('agenda-pedidos-tenant'), hashtext(tenant))`, a mesma
   classe de `app_pedido_aguardar`) **no começo** da transação, antes da trava do paciente — ordem global e-mail → tenant →
   paciente → consulta/pedido → notificações (AG-D65); o teto de 3 futuras conta o pedido; `conferirAguardando` (`:44`) recusa
@@ -2532,7 +2539,7 @@ stateDiagram-v2
   pedido entra em "Próximas" com "Aguardando confirmação da nutricionista"; `ConsultaDoPaciente.podeDesistir` (`solicitada`
   no prazo, `src/modules/portal/agenda.ts`) mostra "Desistir do pedido", que abre "Desistir deste pedido?" com o foco
   inicial em "Voltar" (`DesistirDoPedido`, `src/app/p/(portal)/agenda/acoes-consulta.tsx`). `desistirDoPedido`
-  (`solicitacoes.ts:288`, sessão do paciente, trava paciente → consulta, `pedido_desistido`, aviso "Pedido de consulta
+  (`solicitacoes.ts:292`, sessão do paciente, trava paciente → consulta, `pedido_desistido`, aviso "Pedido de consulta
   retirado" com o primeiro nome) e `desistirAction` (`src/app/p/(portal)/agenda/actions.ts:104`) voltam a "Minhas
   consultas" com `?ok=pedido-cancelado` ("Pedido cancelado.") ou, se o pedido mudou no meio, `?ok=pedido-mudou` ("Este
   pedido já foi respondido ou venceu."), numa região `role="status"` fixa que recebe o foco (`aviso-da-lista.tsx`, lista
@@ -2564,7 +2571,7 @@ stateDiagram-v2
   (origem `paciente`; num local online, o gatilho copia a sala), com lembretes, "consulta marcada" e o envio. 23P01 →
   "Esse horário já está ocupado. Recuse o pedido ou combine outro horário com a pessoa."; o 23505 de
   `patients_tenant_email_unique` (a nutricionista cadastrou o mesmo e-mail ao mesmo tempo) repete uma vez
-  (`solicitacoes.ts:212-226`).
+  (`solicitacoes.ts:216-230`).
 - Desistência pelo link (`desistirDoPedidoPublico`, `:555`; página `src/app/n/[slug]/pedido/[token]/page.tsx`, h1 "Seu
   pedido de consulta", "Desistir do pedido de {quando}?"; rota `POST /api/n/[slug]/pedido/[token]`): o GET só mostra
   (`app_pedido_publico_desistir(…, false)`), com limite próprio por IP (`pedido-link-ip`, 30/h, `LIMITE_LINK_PEDIDO_HORA`,
@@ -2582,8 +2589,8 @@ stateDiagram-v2
 |---|---|---|
 | `listarSolicitacoes` | `solicitacoes.ts:68` | Só `nutri`. Pedidos `solicitada` no prazo e pessoas novas aguardando no prazo, do que vence primeiro ao último; da pessoa nova, só nome, horário, local e datas (nunca e-mail, telefone nem IP). `primeiraOnline` pela RN-416 (`tiposDasConsultas`) no pedido online de paciente; na pessoa nova, todo pedido online. Sem `auditRead` (RN-414) |
 | `contarSolicitacoesNaTransacao` / `abaDeSolicitacoes` | `:120`, `:132` | O número das abas e do cartão do Início; a aba "Solicitações ({n})" só com a chave ligada ou com pedido pendente (`null` tira a aba; AG-D72). As telas da agenda contam numa transação curta própria |
-| `aceitarSolicitacao` | `:212` | Trava paciente → consulta (`FOR NO KEY UPDATE`, `FOR UPDATE`; RN-427a); ainda `solicitada` e no prazo, senão `PedidoMudouError` ("Este pedido já foi respondido ou venceu."); paciente arquivado → "Paciente arquivado: desarquive para agendar."; `agendada` + lembretes + "consulta marcada" + envio na mesma transação |
-| `recusarSolicitacao` | `:247` | Paciente: `cancelada`/`pedido_recusado` com o motivo (até 300; só a nutricionista vê, AG-D23), lembretes cancelados e `pedido_nao_confirmado` ao paciente (e-mail e push). Pessoa nova: sem motivo (o recebido é ignorado), `resolucao = 'recusado'` e o e-mail "Seu pedido de consulta não foi confirmado" |
+| `aceitarSolicitacao` | `:216` | Trava paciente → consulta (`FOR NO KEY UPDATE`, `FOR UPDATE`; RN-427a); ainda `solicitada` e no prazo, senão `PedidoMudouError` ("Este pedido já foi respondido ou venceu."); paciente arquivado → "Paciente arquivado: desarquive para agendar."; `agendada` + lembretes + "consulta marcada" + envio na mesma transação |
+| `recusarSolicitacao` | `:251` | Paciente: `cancelada`/`pedido_recusado` com o motivo (até 300; só a nutricionista vê, AG-D23), lembretes cancelados e `pedido_nao_confirmado` ao paciente (e-mail e push). Pessoa nova: sem motivo (o recebido é ignorado), `resolucao = 'recusado'` e o e-mail "Seu pedido de consulta não foi confirmado" |
 | Tela `/painel/agenda/solicitacoes` | `src/app/painel/agenda/solicitacoes/` | h1 "Solicitações" com foco depois das ações; cartões com `h2` (paciente ou "Nova pessoa: {nome}"), horário, "{local} · {App ou Página de agendamento}", "Pedido em", "Responda até {data} às {hora}", aviso "Primeira consulta online: confira o TCLE de telenutrição antes de atender."; "Aceitar" num `<form>` (funciona sem JS) e "Recusar" no `Dialogo` compartilhado ("Recusar o pedido de {nome}?" / "A pessoa recebe um e-mail avisando.", "Motivo (só você vê)" só no paciente, "Cancelar"/"Confirmar recusa"). Voltas por URL de lista fechada (`retornos.ts`: `?ok=aceito|recusado|mudou`, `?erro=inativo|ocupado|arquivado`) e o marcador `envio`. Vazio: "Nenhum pedido aguardando resposta." |
 | Chave em Horários | `src/app/painel/agenda/horarios/chave-form.tsx`, `actions.ts:61` | Seção "Pedidos de consulta", caixa "Confirmar os pedidos antes de marcar" com a ajuda "Os pedidos feitos pelo app e pela página de agendamento esperam a sua resposta em Solicitações.", botão "Salvar configuração" e "Configuração salva." numa região sempre montada |
 | Tela da consulta | `src/app/painel/agenda/consultas/[id]/page.tsx:83-123` | O pedido no prazo (achado pela fila) mostra "Responda até", o aviso do TCLE e "Aceitar"/"Recusar"; sem "Registrar presença", "Alterar" nem "Cancelar"; o motivo do recusado com "Motivo (só você vê):" |
@@ -2591,12 +2598,13 @@ stateDiagram-v2
 
 ### 5.12.5 Vencimento e avisos (RN-427, RN-428, AG-D19, AG-D67, AG-D75)
 
-- `vencerSolicitacoes(db, agora, { tenantId?, appUrl? })` (`solicitacoes.ts:312`) roda no começo de
+- `vencerSolicitacoes(db, agora, { tenantId?, appUrl? })` (`solicitacoes.ts:316`) roda no começo de
   `processarNotificacoes`, por tenant da volta (`vencerComSeguranca`, §6.12.1). Seleciona sem trava; depois **uma
   transação por pedido**, papel `worker`, `lock_timeout` de 2 s (não espera trava alheia: 55P03 cai no log e o pedido volta
   na volta seguinte), trava paciente → consulta, reconfere `solicitada` e o prazo, grava `pedido_vencido`, cancela os
-  lembretes e avisa o paciente **só se ele está `ativo`** (arquivado ou bloqueado vence sem aviso). Pessoa nova: trava do
-  tenant → linha do pedido, `resolucao = 'vencido'` e o e-mail. Log só com `tenantId`, id, nome do erro e SQLSTATE.
+  lembretes e avisa o paciente **só se ele está `ativo`** (arquivado ou bloqueado vence sem aviso) e **o horário ainda não
+  passou** (AG-D81, §5.13.4). Pessoa nova: trava do tenant → linha do pedido, `resolucao = 'vencido'` e o e-mail, também
+  só com o horário por vir. Log só com `tenantId`, id, nome do erro e SQLSTATE.
   Idempotente; o `PedidoMudouError` no meio só pula.
 - AG-D75: o "não confirmado" (recusa e vencimento) que cairia entre 21h e 8h no fuso sai às 08:00 (`quandoAvisar`,
   `:60`): para o paciente, `notifications.agendada_para` (`avisarPaciente(…, quando)`, `src/modules/notificacoes/agendar.ts:122-128`);
@@ -2610,8 +2618,9 @@ stateDiagram-v2
   portal; `/n/<slug>` da pessoa nova só com a página pública ligada). Push: "Seu pedido de consulta não foi confirmado."
   (`src/modules/notificacoes/mensagens.ts:170`). Nada por WhatsApp; o motivo da recusa nunca sai.
 - No envio (`motivoParaIgnorar`, `src/modules/notificacoes/enviar.ts:72`): de consulta ainda `solicitada` nada sai
-  (`consulta_nao_aceita`, "pedido de consulta ainda não aceito"); o `pedido_nao_confirmado` só com a consulta cancelada; ele
-  sai mesmo com o horário já passado (`agendar.ts:131`).
+  (`consulta_nao_aceita`, "pedido de consulta ainda não aceito"); o `pedido_nao_confirmado` só com a consulta cancelada e
+  antes do horário pedido (`:79-82`; AG-D81: depois, `prazo_passado`). `avisarPaciente` ainda cria a linha desse tipo
+  mesmo com o horário passado (`agendar.ts:131`); quem corta é o vencimento e o envio.
 
 ### 5.12.6 Previsão de retorno (US-410, RN-430, AG-D73, AG-D76)
 
@@ -2686,8 +2695,8 @@ paciente vem da sessão).
   expressão e o mesmo `WHERE` do índice `notifications_aniversario_unique` (`ALVO_UM_POR_ANO`, `ONDE_UM_POR_ANO`, `:71-72`):
   a linha ignorada também ocupa o ano; retirar e reautorizar no mesmo ano não reenvia. Devolve `{ agendadas, agora }`
   ("Mensagens agendadas: {n}.").
-- No envio, `motivoDoAniversario` (`src/modules/notificacoes/enviar.ts:97`) reconfere com o último evento da autorização e o
-  nome social lidos por `carregarContexto` (`:338-352`, só no tipo `aniversario`, por projeção): sem nascimento →
+- No envio, `motivoDoAniversario` (`src/modules/notificacoes/enviar.ts:102`) reconfere com o último evento da autorização e o
+  nome social lidos por `carregarContexto` (`:343-357`, só no tipo `aniversario`, por projeção): sem nascimento →
   `paciente_inativo`; menor ou sem a autorização que conta (retirada depois do agendamento) → `sem_autorizacao`; dia passado
   (worker parado) → `prazo_passado`; a partir das 21h → `horario_silencioso`.
 - **Janela entre a leitura e o envio:** a retirada gravada entre `carregarContexto` e `transport.send` (milissegundos) não
@@ -2699,7 +2708,7 @@ paciente vem da sessão).
   List-Unsubscribe=One-Click` (RFC 8058), pelo campo novo `headers?` de `OutgoingEmail` (`src/email/transport.ts:13`,
   repassado ao Resend e ao Mailpit só quando existe). `{nutricionista}` = `nomeDaNutricionista` (o nome profissional, ou o
   de exibição; nunca a tabela `user`). Nada por WhatsApp (`textoWhatsapp` devolve `null`).
-- **Nova tentativa** (`novaTentativa`, `enviar.ts:380`): só no tipo `aniversario`, a falha passageira que levaria a linha a
+- **Nova tentativa** (`novaTentativa`, `enviar.ts:385`): só no tipo `aniversario`, a falha passageira que levaria a linha a
   outro ano **UTC** fica no último segundo do ano atual; se esse instante já passou, `falhou` com `erro = 'virada_do_ano'`
   (sem dado pessoal). Sem isso, a linha mudaria de balde no índice e bloquearia a mensagem do ano seguinte (decisão da
   orquestradora, P23-10).
@@ -2724,10 +2733,10 @@ paciente vem da sessão).
 
 ### 5.12.11 LGPD, exportação e IA (RN-438, RN-439)
 
-- Exportação (`montarDados`, `src/modules/pacientes/exportacao-job.ts`): `atendimentos[].retornoPrevistoEm` (`:478`); a
-  seção nova `aniversario` com `{ evento, origem, forma, data }` (`:368`, `:546-551`, `:732`; nunca `registrado_por`), logo antes de
+- Exportação (`montarDados`, `src/modules/pacientes/exportacao-job.ts`): `atendimentos[].retornoPrevistoEm` (`:526`); a
+  seção nova `aniversario` com `{ evento, origem, forma, data }` (`:392`, `:594-599`, `:783`; nunca `registrado_por`), logo antes de
   `financeiro`; nos dois escopos. Consultas recusadas saem com `motivoCancelamento: null` (o motivo só vai na cancelada pelo
-  paciente, `:672`). `aniversario` e `pedido_nao_confirmado` já iam em `lembretes`.
+  paciente, `:723`). `aniversario` e `pedido_nao_confirmado` já iam em `lembretes`.
 - Exclusão atendida: `cancelarFuturasPelaExclusao` cancela também os pedidos (§2.12.7). Anonimização: `anonimizarVencidos`
   chama `app_anonimizar_autorizacoes_aniversario` (`src/modules/pacientes/lgpd.ts:571`).
 - IA: nada de locais, pedidos, retorno ou aniversário (guarda da §5.12.6).
@@ -2735,10 +2744,10 @@ paciente vem da sessão).
 ### 5.12.12 Manual guiado, volta atrás e como estender
 
 - Manual guiado: `/painel/agenda/solicitacoes` e `/painel/agenda/aniversariantes` entram no `padrao` do guia `agenda`
-  (`src/modules/ajuda/conteudo.ts:232`), ainda na versão 2, sem passos sobre a fila, a chave, a lista ou a autorização; o
-  guia do atendimento não cita "Retorno previsto (opcional)". Versões e passos na Tarefa 12. As páginas novas fora do
+  (`src/modules/ajuda/conteudo.ts:237`); no PR 3, ainda na versão 2, sem passos sobre a fila, a chave, a lista ou a
+  autorização, e o guia do atendimento sem "Retorno previsto (opcional)". Versões e passos entraram na T12 (#44, #62). As páginas novas fora do
   `/painel` (`/n/[slug]/pedido/[token]`, `/aniversario/sair/[token]`) não têm guia; o bloco do portal fica em Eu, já coberto.
-  Rotas novas em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts:80-81`).
+  Rotas novas em `ROTAS_DO_PAINEL` (`e2e/painel-rotas.ts:101-102`).
 - Volta atrás (`docs/operacao/agenda-2.md`, seções "PR 3 (pedidos)" e "PR 3 (previsão de retorno)"): com a chave ligada,
   desligar a chave e responder ou deixar vencer os pendentes antes de trocar a imagem (a do PR 2 agendaria lembretes e
   "consulta marcada" para o pedido, ninguém o venceria e o link de desistência da pessoa nova daria 404); conferir no banco
@@ -2787,14 +2796,18 @@ Spec e plano × código, conferido em `f0122aa`:
     último); no tipo, no fim.
 58. **Retirada pela nutricionista sem confirmação e prévia com "{primeiro nome}".** Escolhas da T10 para decidir: retirar é
     um botão direto (art. 8º, § 5º: retirar tem de ser fácil); a prévia não mostra o nome de cada paciente. Comp.
+    **Resolvida pela AG-D80 (24/11/2026):** retirar continua sem confirmação, no painel e no portal (só a mensagem de que
+    foi feito). A prévia com "{primeiro nome}" fica como está (fora da decisão).
 59. **"Não confirmado" de horário passado.** Depois de uma parada longa do worker, o vencimento ainda manda o
     `pedido_nao_confirmado` de um horário que já passou (`avisarPaciente` não corta esse tipo). Decisão do dono pendente
-    (revisão rls da T6). Comp.
+    (revisão rls da T6). Comp. **Resolvida pela AG-D81 (PR 4):** o vencimento de horário passado só marca o estado, sem
+    e-mail nem push, para o paciente e para a pessoa nova; o envio ignora o que sobrar (`prazo_passado`) (§5.13.4).
 60. **Janela entre `carregarContexto` e `transport.send`.** A retirada gravada nesses milissegundos não impede o e-mail de
     aniversário daquele ano (§5.12.9). Registro.
 61. **Runbook sem a volta atrás do aniversário.** `docs/operacao/agenda-2.md` cobre os pedidos e a previsão, não as linhas
     `aniversario` e `pedido_nao_confirmado` pendentes (na imagem do PR 2, `falhou`/`sem_modelo`) nem a página e a rota de
     saída (404). Pend. (Tarefa 12; [§6.12.6](06-worker-seguranca-operacao.md#6126-divergências-do-plano-23-pr-3), #12).
+    **Resolvida no fechamento (T12):** seção "PR 3 (aniversariantes) — Volta atrás para a imagem do PR 2 (T10)" do runbook.
 62. **Textos e manual guiado.** Textos novos fora da §6.2 à espera da tabela da T12 ("Responda em Solicitações", "Ver na
     agenda", "Desistir do pedido" no e-mail, "Responder em Solicitações", "Salvar configuração", "Cancelar", "Voltar",
     "Motivo (só você vê):", "ou", "Em quantas semanas", "Se preencher as semanas, elas valem no lugar da data.", "Abrir
@@ -2802,4 +2815,147 @@ Spec e plano × código, conferido em `f0122aa`:
     autorizar mensagens de aniversário.", "Autorização registrada.", "Autorização retirada.", os nomes acessíveis e os
     singulares "1 paciente"/"1 marcado"); a ajuda do portal é provisória (AG-D78); os e-mails à pessoa nova e o "não
     confirmado" não citam o consultório (revisão de normas, T6 M4 e T7 M4, E-09); guias `agenda`, `horarios` e o do
-    atendimento sem os passos novos. Pend.
+    atendimento sem os passos novos. Pend. No fechamento (T12) os guias ganharam os passos (ver #44) e os textos foram
+    listados para aprovação em `docs/superpowers/plans/2026-11-17-nutridebby-23-textos-para-aprovacao.md`, com as perguntas ao advogado (E-09); seguem pendentes a aprovação e o E-09.
+
+## 5.13 Agenda 2: filtro de local fora da agenda e decisões do fechamento (Plano 23, PR 4)
+
+Plano `docs/superpowers/plans/2026-11-17-nutridebby-23-agenda-2.md`, Tarefa 11 (P23-11, "Fase B"); spec
+`docs/superpowers/specs/2026-11-17-nutridebby-23-agenda-2-design.md` (US-415, US-416, RN-436, RN-437, AG-D11, AG-D12) e as
+decisões tomadas no fechamento, AG-D79 a AG-D82 (24/11/2026). Conferido no branch `plano-23-agenda-2` em `0ba8869e`, depois
+do rebase sobre a `main` `96d6f94` (Plano 22, PR 2, e SUS-108). **Sem migration**, sem coluna nova em `patients`,
+`patient_cadastro` ou `fin_lancamentos` (o local vem das consultas), sem rota nova e sem tela nova no `/painel`: só campos
+em telas que já têm guia (`pacientes`, `financeiro`; as versões sobem na T12). Banco em
+[§2.12](02-banco-de-dados.md#212-agenda-2-plano-23-migrations-0130-e-0131); worker em
+[§6.13](06-worker-seguranca-operacao.md#613-agenda-2-fechamento-do-plano-pr-4-e-ag-d81).
+
+### 5.13.1 As opções do filtro "Local" (AG-D79)
+
+| Peça | Onde | Regra |
+|---|---|---|
+| `LocalDoFiltro`, `OpcoesDeLocal`, `UsoDoFiltro` | `src/modules/agenda/locais.ts:345-349` | Só `id` e `nome` (nunca a sala nem o endereço); `{ ativos, arquivados }`; o uso é `pacientes` ou `financeiro` |
+| `locaisParaFiltro(ctx, uso)` / `locaisDoFiltro(tx, uso)` | `:359`, `:365` | Só a sessão `nutri` (`exigirNutri`); a segunda roda na transação de quem chama (as telas do Financeiro, RNF-301). Os ativos e, à parte, os arquivados **com histórico**: no uso `pacientes`, alguma consulta no local (qualquer situação); no `financeiro`, algum lançamento ligado a consulta do local. A ordem da agenda (`ORDEM`). Só lê: não cria os locais iniciais |
+| `localDasOpcoes(opcoes, id)` | `:381` | O local pedido, se for um dos ativos ou dos arquivados da lista; senão `null` (o filtro é descartado) |
+| `OpcoesDoFiltroDeLocal` | `src/components/opcoes-de-local.tsx:9` | As `<option>`: "Todos os locais" (valor vazio), os ativos, "Sem local" (só no Financeiro, valor `sem_local`) e o grupo `<optgroup label="Arquivados">`. Sem estado: serve à página do servidor e ao formulário cliente do CSV |
+| Textos | `MSG_FILTRO_LOCAL`, `src/modules/agenda/constantes.ts:219` | "Local" e "Todos os locais" (os da agenda, `MSG_VISOES`), "Sem local", "Arquivados", "Local dos lançamentos", o recorte "Local: {nome}" (a forma da impressão) e "Escolha um local da lista." |
+
+A RN-403 ("o arquivado some dos seletores") vale para os seletores de **marcação** (Nova consulta, Horários, portal,
+página pública); os filtros de histórico trazem também os arquivados com histórico (AG-D79), senão quem deixou de atender
+numa clínica perde o recorte do histórico dela, e "soma dos locais + Sem local = total" (RN-437) não fecha na tela.
+
+### 5.13.2 Lista de pacientes (US-415, RN-436, AG-D11)
+
+- `FiltroDaLista.localId` (`src/modules/pacientes/pacientes.ts:255`), no ponto de extensão do Plano 18 (D11).
+  `filtroDaUrl` (`:276`) lê `?local=` só no formato de id (`idValido`, `:291`); vazio, fora do formato ou repetido fica de
+  fora.
+- `listarPacientes` (`:303`): id fora do formato → lista vazia (`:305`, como a etiqueta); com o local, um `exists` em
+  `appointments` do mesmo tenant e paciente, no local, com `status not in ('cancelada', 'solicitada')` (`:310-316`: a
+  consulta cancelada e o pedido ainda não aceito não ligam o paciente ao local), pelo índice `appointments_local_idx`. Sem
+  `auditRead`: nome e local, como a agenda (RN-414).
+- Tela `/painel/pacientes` (`src/app/painel/pacientes/page.tsx:34-36`): lê as opções (`locaisParaFiltro(ctx,
+  'pacientes')`) e descarta o local pedido que não é uma delas (lista sem filtro). Select "Local" (`id="local"`, `:98`),
+  sem "Sem local", com o grupo "Arquivados"; combina com a aba, a busca, a etiqueta e a ordem. O local vai nas abas
+  (`urlDaLista`, `src/app/painel/pacientes/valores.ts:147`) e nos campos ocultos do menu da linha (`CamposDaLista.local`,
+  `textos.ts`; `arquivarDaListaAction`/`reativarDaListaAction` passam `local` a `filtroDaUrl`,
+  `src/app/painel/pacientes/actions.ts:93`). Com o local, o vazio é o genérico (`MSG_LISTA.vazio`), não o de Inativos.
+  O select encolhe a 360 px (`w-full sm:w-auto sm:max-w-xs`): o nome do local tem até 60 caracteres.
+
+### 5.13.3 Financeiro: Lançamentos, Relatórios e CSV (US-416, RN-437, AG-D12)
+
+- `SEM_LOCAL = 'sem_local'` (`src/modules/financeiro/tipos.ts:52`) e `FiltrosLista.localId` (`:63`).
+- `filtroDeLocal(localId)` (`src/modules/financeiro/lancamentos.ts:401`): um local → os lançamentos cuja consulta
+  (`appointment_id → appointments.local_id`, no tenant do lançamento) é do local; `SEM_LOCAL` → o resto (sem consulta, ou
+  de consulta sem local, anterior aos locais); outro valor → sem filtro. A situação da consulta não entra (o lançamento é da
+  consulta, seja qual for a situação dela). Usado só na lista (`listaNaTransacao`, `:450`), nos 12 meses
+  (`dozeMesesNaTransacao`, `src/modules/financeiro/resumo.ts:221`; `entradasESaidas12Meses`, `:214`, com `filtro.localId`)
+  e no CSV; nunca no Resumo, no saldo nem no fluxo de caixa.
+- `localEscolhido(opcoes, localId)` (`src/modules/financeiro/telas.ts:55`): `sem_local` → `{ id: 'sem_local', nome: "Sem
+  local" }`; senão `localDasOpcoes`. `telaDeLancamentos` (`:66`) e `telaDeRelatorios` (`:209`, agora com `pedido: { ano,
+  localId }`) leem as opções na mesma transação (`locaisDoFiltro(tx, 'financeiro')`, `:75`, `:230`), descartam o pedido fora
+  delas e devolvem `locais` e `local` (o aplicado).
+- **Lançamentos:** `?local=` (`src/app/painel/financeiro/lancamentos/url.ts`: só `sem_local` ou um id no formato); select
+  "Local" com "Sem local" (`filtros.tsx:105`); os links e o select usam o local aplicado (`page.tsx:63-64`).
+- **Relatórios:** select "Local" (`src/app/painel/financeiro/relatorios/page.tsx:82`) que recorta só "Entradas e saídas nos
+  últimos 12 meses", com a linha "Local: {nome ou Todos os locais}" (`:125`); o "Fluxo de caixa do ano" diz "Local: Todos
+  os locais" (`:116`), como o Resumo (`src/app/painel/financeiro/page.tsx:69`).
+- **CSV dos lançamentos:** seletor próprio "Local dos lançamentos" (`id="csv-local"`,
+  `src/app/painel/financeiro/relatorios/baixar-csv.tsx:87-91`; o da página continua "Local", para não haver dois "Local"
+  na mesma tela), que começa no local escolhido em Relatórios. A rota
+  (`src/app/api/painel/financeiro/lancamentos.csv/route.ts:26-37`) aceita `local` = id no formato ou `sem_local`; o resto
+  volta com 303 para Relatórios `?erro=local`. `exportarLancamentosCsv` (`src/modules/financeiro/exportacao.ts:39`) recusa,
+  **antes de ler**, o local que não é "Sem local" nem uma das opções (`LocalDoFiltroInvalidoError`,
+  `src/modules/financeiro/erros.ts:42`; `exportacao.ts:54`: outro consultório, arquivado sem lançamento, desconhecido) e
+  devolve `{ csv, local }`; o `exportar` da RN-321 não muda. Em Relatórios, `?erro=local` mostra "Escolha um local da
+  lista." com `role="alert"`, ligado ao seletor por `aria-describedby`, `aria-invalid` e o foco nele (`baixar-csv.tsx:61`).
+- **Nome do arquivo** (`sufixoDoLocal`, `src/app/api/painel/financeiro/navegacao.ts:82`): `lancamentos-<de>-a-<ate>.csv`
+  ganha `-sem-local` ou `-local-<nome>` (ASCII minúsculo, só letras, dígitos e hífens, até 24 caracteres; nome sem nenhum
+  desses → os 8 primeiros caracteres do id). Nunca texto do usuário cru no `content-disposition`.
+- Auditoria: nada novo. O filtro por local não é a lista de um paciente identificado (RN-318): sem `auditRead`.
+
+### 5.13.4 Decisões AG-D79 a AG-D82
+
+| Decisão | O que vale | Onde no código |
+|---|---|---|
+| AG-D79 (Sessão C, revisão da T11) | Os filtros de histórico listam também os arquivados com histórico, à parte (§5.13.1) | `locaisDoFiltro`, `OpcoesDoFiltroDeLocal`; Pacientes, Lançamentos, Relatórios e o CSV |
+| AG-D80 (orquestradora, com a autonomia do dono) | "Retirar autorização" do aniversário age na hora, sem diálogo de confirmação, no painel e no portal (LGPD art. 8º, § 5º: revogar tão fácil quanto autorizar). Sem mudança de código: já era assim. Resolve a #58 | Painel: `retirarAction` (`src/app/painel/agenda/aniversariantes/actions.ts:59`, volta com "Autorização retirada."); portal: `retirarAniversarioAction` (`src/app/p/(portal)/perfil/actions.ts:120`); ambos chamam `retirarAutorizacao` (`src/modules/agenda/aniversarios.ts:289`) |
+| AG-D81 (orquestradora) | Sem aviso "não confirmado" para horário que já passou: depois de uma parada longa do worker, o vencimento só marca o estado (`cancelada`/`pedido_vencido`, ou `resolvido_em`/`vencido` da pessoa nova), sem e-mail nem push; vale também quando a saída adiada às 08:00 (AG-D75) cairia depois do horário pedido. O envio ignora o que sobrar (`prazo_passado`). Resolve a #59 | `vencerSolicitacoes` (`src/modules/agenda/solicitacoes.ts:358-362`), `resolverPedidoPublico` (`:190`, `:192-193`, `:197-198`), `motivoParaIgnorar` (`src/modules/notificacoes/enviar.ts:79-82`); §6.13 |
+| AG-D82 (orquestradora) | O gatilho `appointments_link_da_sala` continua copiando a sala do local na consulta de origem `paciente` (impede link vindo do paciente); no "Alterar" dessa consulta num local online com sala, o "Link da chamada" fica **só leitura** com "Sala fixa do local", sem `name` (nada a enviar), em vez de aceitar um link que o banco troca. Trocar para outro local volta ao campo normal. Sem migration. Resolve a #42 | `ConsultaForm` com `doPaciente` (`src/app/painel/agenda/consulta-form.tsx:24`, `:77-79`), passado por `consultas/[id]/page.tsx:150` (`c.origem === 'paciente'`); `MSG_LOCAIS.salaFixaDoLocal` (`src/modules/agenda/constantes.ts:123`) |
+
+### 5.13.5 SUS-108 nos formulários do Plano 23
+
+A `main` (PR #71) trouxe `semResetAutomatico` (`src/lib/form-sem-reset.ts`) e a guarda `src/app/formularios-reset.test.ts`:
+o React 19 chama `form.reset()` depois de toda action de `<form action>`, e o `<select value>` e o rádio ou a caixa
+`checked` controlados voltam ao valor da montagem. No rebase (`0ba8869e`), os rádios do Plano 23 que vivem em formulário
+com action passaram a `defaultChecked` (o estado continua no `onChange`): o local em `SeletorHorarios`
+(`src/components/seletor-horarios.tsx:33`, portal, página pública e link) e o "Tipo" de `local-form.tsx` (`:35`), os dois em
+`CORRIGIDOS` da guarda (`formularios-reset.test.ts:120-121`, no lugar de `acoes.tsx` e do `agendar-form` do portal, cujo
+rádio de modalidade saiu na T4). As caixas de `aniversariantes/selecao.tsx` ficam em `EXCECOES` (`:36`): estão fora de
+qualquer `<form action>` e o estado é a fonte ("Selecionar todos", "Limpar seleção").
+
+### 5.13.6 Testes e E2E
+
+- Pacientes: `src/modules/pacientes/pacientes.test.ts:343` (só consultas fora de `cancelada`/`solicitada`; com aba, busca
+  e etiqueta; outro consultório ou id inválido → vazio, sem leitura auditada; `filtroDaUrl`),
+  `src/app/painel/pacientes/page.test.ts:154` (o select com o grupo "Arquivados"), `actions.test.ts:150` (o `local` do
+  campo oculto volta).
+- Financeiro: `src/modules/financeiro/lancamentos.test.ts:526` (lista e CSV por local e "Sem local"; AG-D79: as opções e a
+  recusa do CSV, `:599`, `:610`); `resumo-propriedade.test.ts:262` (propriedade RN-437: soma dos locais + "Sem local" =
+  total sem filtro, em Lançamentos, no CSV e nos 12 meses); `src/app/painel/financeiro/relatorios/page.test.ts` (os dois
+  seletores, o recorte e o alerta de `?erro=local`); `src/app/api/painel/financeiro/csv.test.ts` (o nome do arquivo e o 303).
+- AG-D81: `src/modules/agenda/solicitacoes.test.ts:310`, `:323` e `src/modules/agenda/pedido-publico.test.ts:249`, `:260`.
+  AG-D82: `src/app/painel/agenda/consulta-form.test.ts:29` (teste de componente).
+- E2E: `e2e/agenda-2.spec.ts:240` ("Local" na lista de pacientes, com a busca e a aba) e `e2e/financeiro.spec.ts:173`
+  (Lançamentos e Relatórios, com a cobrança da consulta no local e o fluxo em "Todos os locais").
+
+### 5.13.7 Volta atrás e como estender
+
+- **Manual guiado (T12, `34a2b871`; `src/modules/ajuda/conteudo.ts`, `portal.ts`):** cada guia sobe uma vez no plano,
+  sobre a versão da `main`: `pacientes` v3 (o filtro "Local"), `prontuario` v5 ("Retorno previsto (opcional)" e a seção
+  "Consultas"), `agenda` v3 (`:237`: Dia, Semana, Mês ou Lista, local na Nova consulta, filtros, legenda, abas, Solicitações
+  e Aniversariantes, as duas com a ressalva "se você ligar 'Confirmar os pedidos antes de marcar' em Horários"),
+  `horarios` v2 (o local de cada regra e a chave), `configuracoes` v10 (AG-D55) e `financeiro` v2 (o filtro de local); o
+  guia do portal v4 (o local na marcação, o pedido que espera a confirmação e a mensagem de aniversário em Eu).
+  `/painel/agenda/imprimir` em `SEM_AJUDA` (`src/modules/ajuda/conteudo.test.ts:25`); `locais`, `solicitacoes` e
+  `aniversariantes` no `padrao` do guia `agenda`. Toda tela nova do `/painel` do Plano 23 tem guia ou está em `SEM_AJUDA`.
+- `docs/operacao/agenda-2.md`, "PR 4 (filtro de local em Pacientes e no Financeiro) — Volta atrás (T11)": o PR 4 só lê;
+  voltar é trocar a imagem pela do PR 3 (somem os seletores; o `?local=` salvo é ignorado).
+- Filtro de local numa tela nova de histórico: `locaisParaFiltro`/`locaisDoFiltro` com um `UsoDoFiltro` novo (o histórico
+  que faz o arquivado aparecer), `OpcoesDoFiltroDeLocal` e o descarte do pedido fora das opções na tela. Nunca ler
+  `locais_atendimento` fora da sessão `nutri` (a sala é `staff_only`; o paciente e o público só pelas projeções).
+
+### 5.13.8 Divergências do Plano 23 (PR 4)
+
+Spec e plano × código, conferido em `0ba8869e`:
+
+63. **Arquivado só com consulta cancelada.** No uso `pacientes`, o arquivado entra em "Arquivados" com **qualquer**
+    consulta no local (`locaisDoFiltro`), mas o filtro só conta consultas fora de `cancelada` e `solicitada`: o local
+    arquivado que só teve consulta cancelada ou pedido aparece na lista e dá a lista vazia. Doc.
+64. **Comentário de `avisarPaciente`.** Ainda diz que o `pedido_nao_confirmado` sai "inclusive de horário que já passou"
+    (`src/modules/notificacoes/agendar.ts:118-119`, `:130`); desde a AG-D81 o vencimento não cria a linha nesse caso e o
+    envio a ignora. Doc (comentário).
+65. **Textos fora da §6.2.** "Arquivados", "Local dos lançamentos", "Escolha um local da lista.", "Sala fixa do local" e o
+    recorte "Local: …" em Relatórios e no Resumo (a forma da impressão). Pend.: listados para aprovação do dono e da Debby
+    em `docs/superpowers/plans/2026-11-17-nutridebby-23-textos-para-aprovacao.md` (T12), com os textos fora da §6.2 dos PRs 2 e 3 (#39, #62).
+66. **E2E de Pacientes.** O plano (T11) pedia `e2e/pacientes.spec.ts`; o caso ficou em `e2e/agenda-2.spec.ts:240`. Doc.
+67. **RN-403 × AG-D79.** A RN-403 diz que o local arquivado some dos seletores; os filtros de histórico o mostram, à parte
+    (decisão registrada no plano e na spec). Reg.

@@ -126,7 +126,7 @@ quem enfileira dentro de uma transação segura uma conexão do app enquanto esp
 do app, dez envios assim logo após um deploy ocupavam as 10 conexões e o `start` do pg-boss esperava para sempre.
 
 **Envio transacional.** Todo produtor que grava junto passa `{ db: fromDrizzle(tx, sql) }`: o job só existe se a
-transação do negócio confirmar (`src/email/queue.ts:10-20`). Exemplos: conta criada ⇔ convite enfileirado; pedido de
+transação do negócio confirmar (`src/email/queue.ts:10-25`). Exemplos: conta criada ⇔ convite enfileirado; pedido de
 exportação ⇔ job `exportacao-paciente` (`src/modules/pacientes/exportacao.ts:113-117`).
 
 ### 6.2.3 Filas
@@ -148,8 +148,8 @@ execução); **apaga** = `deleteAfterSeconds`.
 | Fila | Gatilho | O que faz | retry / atraso / expira / apaga | Payload |
 |---|---|---|---|---|
 | `heartbeat` | cron `* * * * *` (`index.ts:81`) | Grava `system_heartbeat(name='worker')` (`recordHeartbeat`) | 0 / — / 60 / — | `{}` |
-| `email` | Produtor `enqueueEmail` (`src/email/queue.ts:14`) | Abre o selo, renderiza e envia (Resend ou Mailpit); ignora tenant suspenso (RN-15); `idempotencyKey` = id do job (`processEmailJob`, `src/email/job.ts`). O `aposEnviar`/`aoDesistir` da ciência do aviso de IA (Plano 11) saiu no Plano 14A (RN-128): um e-mail do tipo legado `aviso_ia` que esteja na fila no deploy termina `ignorado`, sem renderizar, enviar nem gravar (`TIPOS_LEGADOS`, `src/email/job.ts:9`; log só com o id do job, o tipo e o tenant). Tipos novos do Plano 14A: `autorizacao_ia` e `autorizacao_ia_confirmada` | 3 / 60↗ / 60 / 86 400 | `{ tenantId, selado }` |
-| `notificacoes` | cron `* * * * *` (`index.ts:108`) e produtor `dispararEnvio` (`src/modules/notificacoes/agendar.ts:199`) | Motor de lembretes RN-05: varre os tenants (ou um só) e envia e-mail, WhatsApp e push; até `LOTE_POR_EXECUCAO = 40` por execução (`enviar.ts:40`), WhatsApp a no máximo `WHATSAPP_POR_MINUTO = 8` por tenant (`enviar.ts:152`) | 0 / — / 300 / 3 600 | `{ tenantId? }` |
+| `email` | Produtor `enqueueEmail` (`src/email/queue.ts:15`) | Abre o selo, renderiza e envia (Resend ou Mailpit); ignora tenant suspenso (RN-15); `idempotencyKey` = id do job (`processEmailJob`, `src/email/job.ts`). O `aposEnviar`/`aoDesistir` da ciência do aviso de IA (Plano 11) saiu no Plano 14A (RN-128): um e-mail do tipo legado `aviso_ia` que esteja na fila no deploy termina `ignorado`, sem renderizar, enviar nem gravar (`TIPOS_LEGADOS`, `src/email/job.ts:9`; log só com o id do job, o tipo e o tenant). Tipos novos do Plano 14A: `autorizacao_ia` e `autorizacao_ia_confirmada` | 3 / 60↗ / 60 / 86 400 | `{ tenantId, selado }` |
+| `notificacoes` | cron `* * * * *` (`index.ts:108`) e produtor `dispararEnvio` (`src/modules/notificacoes/agendar.ts:209`) | Motor de lembretes RN-05: varre os tenants (ou um só) e envia e-mail, WhatsApp e push; até `LOTE_POR_EXECUCAO = 40` por execução (`enviar.ts:61`), WhatsApp a no máximo `WHATSAPP_POR_MINUTO = 8` por tenant (`enviar.ts:207`) | 0 / — / 300 / 3 600 | `{ tenantId? }` |
 | `lembretes-rotina` | cron `* * * * *` (`index.ts:115`) | Plano 17: lembretes de rotina por push (água, refeições, diário, suplemento, livre). Por tenant ativo: leitura em lote, o slot devido mais antigo de cada paciente (tolerância de 10 min), a marca gravada com upsert condicional sob `pg_advisory_xact_lock('lembretes-rotina', tenant)` e o envio depois do commit, até 10 em paralelo, TTL 1800 s; sem VAPID, nada sai (`processarLembretes`, `src/modules/lembretes/envio.ts:278`; §5.3.9). Sem retry: o estado fica em `lembretes_rotina_envios` e o slot perdido não volta | 0 / — / 120 / 3 600 | `{}` |
 | `agenda-tenant` | Produtor na suspensão/reativação (`src/modules/plataforma/suspensao.ts:11`) | Suspenso: pendentes viram `ignorada`/`tenant_suspenso`; reativado: lembretes de consultas futuras voltam (`ignorarPendentesDoTenant`, `reagendarTenantReativado`) | 3 / 60↗ / 300 / 86 400 | `{ tenantId, evento }` |
 | `whatsapp-evento` | Produtor na rota do webhook (`src/modules/notificacoes/whatsapp/webhook.ts:91`) | Conexão, status de entrega e resposta "1"/"2"; idempotente (`processarEventoWhatsapp`) | 3 / 30↗ / 60 / 86 400 | `{ selado }` |
@@ -158,7 +158,7 @@ execução); **apaga** = `deleteAfterSeconds`.
 | `monitor-disco` | cron `0 * * * *` (`index.ts:159`) | Mede o disco de `DATA_DIR`; ≥ 70% → e-mail aos admins, no máximo 1 a cada 24 h (RNF-13) | 0 / — / 60 / — | `{}` |
 | `retencao-lgpd` | cron `0 4 * * *` (`index.ts:171`) | Anonimiza bloqueados com prazo de guarda vencido (`anonimizarVencidos`) e, mesmo se falhar, apaga exportações vencidas (`expirarExportacoesVencidas`) | 2 / 600 / 900 / — | `{}` |
 | `exportacao-paciente` | Produtor no pedido (`src/modules/pacientes/exportacao.ts:113`) | Gera o ZIP (JSON + PDF), marca "pronta", enfileira o e-mail e o `expirar-exportacao`, tudo na transação do arquivo (`gerarExportacao`) | 2 / 60↗ / 300 / 86 400 | `{ tenantId, exportId }` |
-| `expirar-exportacao` | Produtor com `startAfter` = 24 h (`exportacao-job.ts:918-919`) | Apaga o ZIP e marca "expirada" (`expirarExportacao`) | 3 / 300 / 120 / — | `{ tenantId, exportId }` |
+| `expirar-exportacao` | Produtor com `startAfter` = 24 h (`exportacao-job.ts:984-985`) | Apaga o ZIP e marca "expirada" (`expirarExportacao`) | 3 / 300 / 120 / — | `{ tenantId, exportId }` |
 | `exclusao-atendida` | Produtor no atendimento do pedido (`src/modules/pacientes/lgpd.ts:213`) | Apaga as fotos do diário e só depois manda "pedido de exclusão atendido"; na última tentativa o aviso sai assim mesmo (`concluirExclusaoAtendida`) | 5 / 60↗ / 300 / 86 400 | `{ tenantId, patientId }` |
 | `plano-pdf` | Produtor na publicação (`src/modules/plano-alimentar/publicacao.ts:72,145`) | Gera o PDF do plano publicado (`gerarPdfDoPlano`) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, planId }` |
 | `diario-foto` | Produtor no envio do diário (`src/modules/portal/diario.ts:102`) | Converte para JPEG ≤ 1600 px sem EXIF/GPS e apaga o original (`converterFotoDoDiario`, RN-07) | 2 / 30↗ / 120 / 86 400 | `{ tenantId, entryId }` |
@@ -235,9 +235,9 @@ Finalidades em uso:
 
 | Finalidade | Usada por | Onde |
 |---|---|---|
-| `email-job` | Fila `email` | `src/email/queue.ts:8,19`; aberta em `src/email/job.ts:17` |
+| `email-job` | Fila `email` | `src/email/queue.ts:8,20`; aberta em `src/email/job.ts:17` |
 | `whatsapp-evento` | Fila `whatsapp-evento` | `src/modules/notificacoes/whatsapp/webhook.ts:22,91`; aberta em `src/worker/index.ts:127` |
-| `notificacao-conteudo` | Coluna `notifications.conteudo_selado` (hoje nenhum fluxo grava; o banco só aceita o texto antes do envio) | `src/modules/notificacoes/mensagens.ts:60-65` |
+| `notificacao-conteudo` | Coluna `notifications.conteudo_selado` (hoje nenhum fluxo grava; o banco só aceita o texto antes do envio) | `src/modules/notificacoes/mensagens.ts:83-88` |
 
 As demais filas carregam **só ids** (`tenantId`, `patientId`, `planId`…). O conteúdo é lido do banco na hora do
 job (comentário de `DadosExclusaoAtendida` em `src/modules/pacientes/lgpd.ts`).
@@ -295,9 +295,9 @@ pg-boss real, que o `output` de um job falho não contém `/data/` nem o UUID.
 4. Consumidor: `await work(nome, ...)` em `startWorker` — **nunca** `boss.work` direto. Atualize o mínimo de registros
    na guarda de `sem-detalhe.test.ts`.
 5. Tabela com `tenant_id`: dentro do job, `withTenant({ tenantId, role: 'worker' }, …)` (exemplo:
-   `ignorarPendentesDoTenant`, `src/modules/notificacoes/agendar.ts:210-218`). Varredura entre tenants parte de `tenants`
+   `ignorarPendentesDoTenant`, `src/modules/notificacoes/agendar.ts:220-228`). Varredura entre tenants parte de `tenants`
    (spec §4.1, linha 127).
-6. Job que manda algo ao paciente (e-mail, push, WhatsApp, PDF, exportação) confere o tenant suspenso (RN-15) com `getTenantStatus(tx, tenantId, { aguardarSuspensao: true })` ou `tenantIsActive`, relido sob trava na mesma transação (exemplos: `src/modules/notificacoes/enviar.ts:244-246`, `agendar.ts:214`). O papel `'worker'` só existe em código do worker; rota e Server Action usam o contexto de `requireNutri`/`requirePaciente`.
+6. Job que manda algo ao paciente (e-mail, push, WhatsApp, PDF, exportação) confere o tenant suspenso (RN-15) com `getTenantStatus(tx, tenantId, { aguardarSuspensao: true })` ou `tenantIsActive`, relido sob trava na mesma transação (exemplos: `src/modules/notificacoes/enviar.ts:299-301`, `agendar.ts:224`). O papel `'worker'` só existe em código do worker; rota e Server Action usam o contexto de `requireNutri`/`requirePaciente`.
 7. Log só com ids, contagens e `motivoDoErro(err)`. Nada de mensagem de erro, caminho ou e-mail.
 8. Se o job pode morrer na última tentativa deixando estado intermediário, crie a rede de segurança (seção 6.2.4).
 9. Cron: `boss.schedule(nome, '<cron>', {}, { tz: 'America/Sao_Paulo' })`.
@@ -387,8 +387,8 @@ cookie, redireciona para `/entrar?volta=<caminho>` (`src/proxy.ts:7,22-27`). A d
 |---|---|---|---|---|
 | Better Auth, padrão | 100 / 60 s | IP + rota | Banco (`rate_limit`) | `src/lib/auth.ts:122-126` |
 | Login, 2FA, recuperação de senha, troca de senha, `verify-password`, ativar/desativar 2FA, `/two-factor/get-totp-uri` (`auth.ts:137`), códigos de backup, `delete-user` | 5 / 15 min | IP + rota | Banco | `src/lib/auth.ts:127-140` |
-| Página pública de agendamento: pedido | 10 / h | HMAC do IP (IPv6 pelo /64) | `public_rate_limits` | `src/modules/agenda/agendamento-publico.ts:79,156` |
-| Página pública: código por e-mail | 5 / h | HMAC de tenant + e-mail | `public_rate_limits` | `agendamento-publico.ts:80,191` |
+| Página pública de agendamento: pedido | 10 / h | HMAC do IP (IPv6 pelo /64) | `public_rate_limits` | `src/modules/agenda/agendamento-publico.ts:102,193` |
+| Página pública: código por e-mail | 5 / h | HMAC de tenant + e-mail | `public_rate_limits` | `agendamento-publico.ts:103,231` |
 | Webhook do WhatsApp (anti-repetição) | 1 por janela de aceite | HMAC do JWT + corpo | `public_rate_limits`, na transação do evento | `src/modules/notificacoes/whatsapp/webhook.ts:138` |
 | `POST /api/erro-cliente` | 20 / min | IP (/64 no IPv6) | Memória | `src/app/api/erro-cliente/route.ts:13,25` |
 | `POST /api/csp-relatorio` (só no modo relatório) | 60 / min | IP (/64) | Memória | `src/app/api/csp-relatorio/route.ts:9,20` |
@@ -886,7 +886,7 @@ novo e não lê nem grava `patient_cadastro`. O que muda enquanto ela roda:
 
 - **Anonimização.** A `anonimizarVencidos` da imagem antiga marca `anonimizado_em` sem apagar a linha do cadastro
   complementar (CPF, endereço, observação). A linha fica até a imagem nova voltar: a primeira varredura dela apaga, no
-  início de cada tenant, a linha de todo titular já anonimizado (`apagarCadastrosDosAnonimizados`, `lgpd.ts:652`;
+  início de cada tenant, a linha de todo titular já anonimizado (`apagarCadastrosDosAnonimizados`, `lgpd.ts:654`;
   [§4.2.8](04-modulos-clinicos.md#428-lgpd-arquivar-pedido-de-exclusão-e-anonimização-us-018-rnf-08)). Nenhuma ação
   manual; **nunca** apagar à mão no banco de produção. O gatilho `patient_cadastro_titular_ativo` impede que algo grave
   de novo o cadastro de quem já foi anonimizado.
@@ -969,7 +969,7 @@ antes de trocar. Só os nomes aparecem aqui; os valores ficam no Easypanel e no 
 | Variável | Efeito da troca (no código) | O que refazer |
 |---|---|---|
 | `AUTH_SECRET` | Assina os cookies de sessão (`src/lib/auth.ts:54`): **todas as sessões caem**. É também a chave do segredo TOTP e dos códigos de recuperação em `two_factor` (cifrados pelo Better Auth, `storeBackupCodes: "encrypted"` por padrão; §3.5): **toda conta com 2FA fica sem conseguir entrar**, inclusive o admin, para quem o 2FA é obrigatório (`src/lib/session-rules.ts:57`) | Plano para o 2FA abaixo. Depois, todos entram de novo |
-| `ENCRYPTION_KEY` | (1) Jobs já na fila `email` e `whatsapp-evento` estão selados com a chave antiga e falham com `SealError` (`src/email/job.ts:17`, `src/worker/index.ts:107`, `src/lib/crypto.ts:58`), assim como o convite com conteúdo selado ainda pendente em `notifications` (`src/modules/notificacoes/mensagens.ts:93`). (2) Todo link de consulta já enviado por e-mail deixa de abrir (chave derivada, `src/modules/agenda/link-consulta.ts:14`). (3) Os códigos de agendamento público em andamento deixam de conferir (`src/modules/agenda/agendamento-publico.ts:87`). (4) Os contadores de limite e as marcas anti-repetição do webhook zeram (`src/modules/agenda/limite-ip.ts:13`), inclusive os do 2FA ao assinar e da verificação pública. (5) Plano 10A: todo link de documento já enviado deixa de abrir (`chaveDoLinkDocumento`, `src/modules/documentos/link-documento.ts:26`) e os códigos de 6 dígitos pendentes deixam de conferir | Reenviar os e-mails e convites que falharam; avisar que links de consulta antigos não abrem (o paciente usa o portal ou pede outro); para cada receita entregue por link a paciente sem app, usar "Reenviar link por e-mail" no documento. Trocar no app **e** no worker ao mesmo tempo |
+| `ENCRYPTION_KEY` | (1) Jobs já na fila `email` e `whatsapp-evento` estão selados com a chave antiga e falham com `SealError` (`src/email/job.ts:17`, `src/worker/index.ts:107`, `src/lib/crypto.ts:58`), assim como o convite com conteúdo selado ainda pendente em `notifications` (`src/modules/notificacoes/mensagens.ts:116`). (2) Todo link de consulta já enviado por e-mail deixa de abrir (chave derivada, `src/modules/agenda/link-consulta.ts:14`). (3) Os códigos de agendamento público em andamento deixam de conferir (`src/modules/agenda/agendamento-publico.ts:112`). (4) Os contadores de limite e as marcas anti-repetição do webhook zeram (`src/modules/agenda/limite-ip.ts:13`), inclusive os do 2FA ao assinar e da verificação pública. (5) Plano 10A: todo link de documento já enviado deixa de abrir (`chaveDoLinkDocumento`, `src/modules/documentos/link-documento.ts:26`) e os códigos de 6 dígitos pendentes deixam de conferir | Reenviar os e-mails e convites que falharam; avisar que links de consulta antigos não abrem (o paciente usa o portal ou pede outro); para cada receita entregue por link a paciente sem app, usar "Reenviar link por e-mail" no documento. Trocar no app **e** no worker ao mesmo tempo |
 | `EVOLUTION_WEBHOOK_SECRET` | A chave do JWT do webhook de cada consultório é derivada dele (`src/modules/notificacoes/whatsapp/jwt.ts:8`): os eventos das instâncias atuais passam a ser recusados | Cada consultório reconecta em "Conectar WhatsApp", que reconfigura o webhook (comentário em `jwt.ts:6`) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | As inscrições de push foram criadas com a chave pública antiga (`src/app/p/notificacoes.tsx:78`); o serviço de push recusa os envios (4xx definitivo, `src/modules/notificacoes/push.ts:44`) | Pacientes reativam as notificações no portal. A pública tem de ser igual no app e no worker (§6.7) |
 | `FILE_URL_SECRET` | Só as URLs de arquivo já emitidas deixam de valer; duram 5 min (`FILE_URL_TTL_S`, `src/lib/signed-url.ts:5`) | Nada |
@@ -1091,12 +1091,12 @@ ambiente nova.
 
 ### 6.12.1 Vencimento dentro do job `notificacoes` (RN-427, AG-D19, AG-D67)
 
-- `processarNotificacoes` (`src/modules/notificacoes/enviar.ts:509`) chama `vencerComSeguranca` (`:493`) com a mesma lista
-  de tenants da volta (`:513`), **antes** da varredura de envio: o "não confirmado" de um pedido vencido sai na mesma volta.
+- `processarNotificacoes` (`src/modules/notificacoes/enviar.ts:514`) chama `vencerComSeguranca` (`:498`) com a mesma lista
+  de tenants da volta (`:518`), **antes** da varredura de envio: o "não confirmado" de um pedido vencido sai na mesma volta.
   Vale para o cron de 1 min (todos os tenants da varredura) e para o envio imediato de um tenant (`dispararEnvio` →
   `{ tenantId }`: só aquele consultório vence). Um `try/catch` por tenant: o vencimento nunca derruba os envios; o log
   ("falha ao vencer os pedidos de consulta do tenant") leva só `tenantId`, o nome do erro e o SQLSTATE.
-- `vencerSolicitacoes` (`src/modules/agenda/solicitacoes.ts:312`) faz, por tenant, uma transação curta de leitura (as
+- `vencerSolicitacoes` (`src/modules/agenda/solicitacoes.ts:316`) faz, por tenant, uma transação curta de leitura (as
   consultas `solicitada` e as pessoas novas aguardando com `inicio − antecedencia_min_h ≤ agora`) e depois uma transação
   **por pedido**, papel `worker`, com `set_config('lock_timeout', '2s', true)`: o job de minuto não espera trava alheia (o
   55P03 vai ao log e o pedido vence na volta seguinte). Custo: duas consultas por tenant por minuto, mais uma transação por
@@ -1132,7 +1132,7 @@ os contadores com mais de 1 dia, como os outros.
 
 - `OutgoingEmail.headers?` (`src/email/transport.ts:13`) é repassado ao Resend como `headers` e ao Mailpit como `Headers`, só
   quando existe (`:33`, `:54`); `RenderedEmail.headers?` sai do modelo (`src/email/types.ts`) e é passado pelo motor das
-  notificações (`enviarEmail`, `src/modules/notificacoes/enviar.ts:122`) e pela fila `email` (`src/email/job.ts:27`). Hoje
+  notificações (`enviarEmail`, `src/modules/notificacoes/enviar.ts:127`) e pela fila `email` (`src/email/job.ts:27`). Hoje
   só o modelo `aniversario` o usa (`List-Unsubscribe` e `List-Unsubscribe-Post: List-Unsubscribe=One-Click`).
 - **DKIM a conferir em produção:** Gmail e Yahoo só honram o um clique se os dois cabeçalhos estiverem cobertos pela
   assinatura DKIM. Conferir no primeiro e-mail de aniversário real que o `h=` do `DKIM-Signature` do Resend lista
@@ -1149,7 +1149,7 @@ imagem pela do PR 2 (nunca por uma anterior ao PR 1). Antes, com a chave ligada:
 vencer os pendentes e conferir no banco (só leitura, com o OK do dono) `solicitada` e pessoa nova aguardando = 0; senão a
 imagem antiga agenda lembretes e "consulta marcada" para o pedido, ninguém o vence e o link de desistência dá 404. Na
 imagem do PR 2, editar a data de atendimento com previsão para fora da faixa dá 23514 e o `DETAIL` leva a linha ao log do
-banco (tratar como dado de saúde no log). Falta no runbook a parte do aniversário (§6.12.6, #12).
+banco (tratar como dado de saúde no log). A parte do aniversário entrou no fechamento (T12; §6.12.6, #12).
 
 ### 6.12.6 Divergências do Plano 23 (PR 3)
 
@@ -1159,8 +1159,31 @@ banco (tratar como dado de saúde no log). Falta no runbook a parte do aniversá
     motor antigo não tem modelo para `aniversario` nem para `pedido_nao_confirmado` (`emailDaNotificacao` só conhece os
     tipos de consulta), e a linha pendente vira `falhou` com `erro = 'sem_modelo'`; a de aniversário continua ocupando o ano
     do índice, e a mensagem daquele ano não sai mais, nem depois de voltar ao PR 3. A página e a rota de saída dão 404 (os
-    e-mails já enviados levam esse link). Tarefa 12.
+    e-mails já enviados levam esse link). Tarefa 12. **Resolvida no fechamento (T12):** seção "PR 3 (aniversariantes) —
+    Volta atrás para a imagem do PR 2 (T10)" de `docs/operacao/agenda-2.md`.
 13. **Balde do botão de desistência — nova.** O POST "Desistir do pedido" conta no mesmo limite `ip` (10/h) do pedido de
     código da página pública: quem desiste gasta uma vaga do próprio IP para pedir outro código (spec silenciosa).
 14. **`APP_URL` no vencimento — nova.** `vencerComSeguranca` não repassa o `appUrl` das dependências do worker;
     `vencerSolicitacoes` usa `getEnv().APP_URL` (mesmo valor em produção; só os testes injetam outro).
+
+## 6.13 Agenda 2: fechamento do plano (PR 4 e AG-D81)
+
+Plano 23, Tarefa 11 (PR 4) e as correções das decisões AG-D79 a AG-D82; detalhe funcional na
+[§5.13](05-agenda-portal-conteudo.md#513-agenda-2-filtro-de-local-fora-da-agenda-e-decisões-do-fechamento-plano-23-pr-4).
+Conferido em `0ba8869e` (24/11/2026), depois do rebase sobre a `main` `96d6f94`. Sem migration, sem fila nova e sem
+variável de ambiente nova: continuam as 33 filas da §6.2.3.
+
+- **AG-D81 no vencimento** (`notificacoes`, cron de 1 min, §6.12.1): `vencerSolicitacoes`
+  (`src/modules/agenda/solicitacoes.ts:316`) só cria o `pedido_nao_confirmado` do paciente com o horário ainda por vir
+  (`:358-362`); para a pessoa nova, `resolverPedidoPublico` (`:190`) marca `resolvido_em`/`resolucao` e só enfileira o
+  e-mail se o horário pedido não passou (`:192-193`) nem passaria antes da saída adiada às 08:00 da AG-D75 (`:197-198`). No
+  envio, a linha que sobrar (criada antes da imagem do PR 4, ou pela recusa) termina `ignorada`/`prazo_passado`
+  (`motivoParaIgnorar`, `src/modules/notificacoes/enviar.ts:79-82`). Depois de uma parada longa do worker, a volta só
+  acerta os estados.
+- **Volta atrás.** `docs/operacao/agenda-2.md`, "PR 4 (filtro de local em Pacientes e no Financeiro) — Volta atrás (T11)":
+  o PR 4 só lê; voltar é trocar a imagem pela do PR 3, e um link salvo com `?local=` passa a ser ignorado. Na imagem do
+  PR 3, o vencimento volta a avisar o horário passado (o comportamento da #59 da
+  [§5.12.13](05-agenda-portal-conteudo.md#51213-divergências-do-plano-23-pr-3)).
+- **Regra 3.** O filtro de local não leva nome de local nem de paciente a log; o CSV só leva o recorte no **nome do
+  arquivo** em ASCII (`sufixoDoLocal`, `src/app/api/painel/financeiro/navegacao.ts:82`), nunca texto cru no
+  `content-disposition`.

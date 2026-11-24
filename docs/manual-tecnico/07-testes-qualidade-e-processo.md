@@ -54,7 +54,7 @@ os valores marcados "10A" abaixo. **Atualização do Plano 11** (`2efa27b`, PR #
 | Arquivos de teste do Vitest | **219** (215 em `src/`, ao lado do código; 4 em `test/`); 10A: **244**; 11: **282** | `find src test -name "*.test.ts" \| wc -l` |
 | Casos do Vitest (execução) | **2024**; 10A: **2244**; 11: **2558** | "Resultado da entrega" do Plano 08 (`pnpm test` com 219 arquivos e 2024 testes); relatório das correções do `/code-review high` do PR #19 (244 arquivos, 2244 testes) e do PR #23 (282 arquivos, 2558 testes) |
 | Chamadas `it(`/`test(` no código | 1502 | Contagem estática; a diferença para 2024 vem de laços e `it.each` (21 arquivos usam `it.each`) |
-| Specs do Playwright | **17**; 10A: **18** (`documentos.spec.ts`); 11: **21** (`painel-pwa.spec.ts` do Plano 09, `ia-laudos.spec.ts` e `conferencia-ia.spec.ts`); em 17/11/2026, com o Plano 18, PR 2 (`cadastro.spec.ts`), e o Plano 20 (`financeiro.spec.ts`): **36**; com o Plano 23, PR 2 (`agenda-2.spec.ts`, branch `plano-23-agenda-2`): **37** | `ls e2e/*.spec.ts` |
+| Specs do Playwright | **17**; 10A: **18** (`documentos.spec.ts`); 11: **21** (`painel-pwa.spec.ts` do Plano 09, `ia-laudos.spec.ts` e `conferencia-ia.spec.ts`); em 17/11/2026, com o Plano 18, PR 2 (`cadastro.spec.ts`), e o Plano 20 (`financeiro.spec.ts`): **36**; com o Plano 23, PR 2 (`agenda-2.spec.ts`, branch `plano-23-agenda-2`): **37**; na `main` `96d6f94` (Plano 22 e SUS-108): **39**; com o Plano 23 rebaseado sobre ela (24/11/2026): **40** | `ls e2e/*.spec.ts` |
 | Testes E2E (execução no CI) | **130**, em 10,6 min | "Resultado da entrega" do Plano 08; 120 chamadas `test(` estáticas, o resto vem de laços (ex.: um teste por rota do portal em `e2e/acessibilidade.spec.ts:138-139`) |
 | Migrations | **89** (`0000` a `0088`); 10A: **94** (`0000` a `0093`); 11: **101** (`0000` a `0100`) | `ls drizzle/*.sql`; 24 delas (10A: 25; 11: 26) se chamam `*rls_*` |
 | Fábricas na matriz de isolamento | 36 (34 tabelas do app + 2 tabelas-fixture do `global-setup`); 10A: 40 (38 + 2); 11: 42 (40 + 2) | `FABRICAS`, `test/isolamento.test.ts:24` |
@@ -192,7 +192,7 @@ com a rede direta do runner próprio.
 - **Sem rede.** E-mail, WhatsApp e push entram por injeção de dependência (`depsDeEnvio`, `transporteFalso`,
   `whatsappFalso`). O `web-push` real é exercitado com o `https.request` trocado (`src/modules/notificacoes/push.test.ts`,
   casos "rodada 1" e "rodada 2").
-- **Corridas determinísticas.** `perdeCorridaNoBanco` e `perdeDeadlockNoBanco` (`test/agenda.ts:125` e `:177`) forçam o
+- **Corridas determinísticas.** `perdeCorridaNoBanco` e `perdeDeadlockNoBanco` (`test/agenda.ts:126` e `:178`) forçam o
   caminho em que o banco decide, em vez de torcer para a corrida acontecer.
 - **"A guarda funciona".** Toda guarda tem um teste negativo: cria uma tabela temporária ou remove uma política
   **dentro de uma transação**, confere que a guarda acusa e faz `rollback` (ex.: `audit-guard.test.ts`, caso
@@ -245,9 +245,9 @@ o porquê.
 
 **Por que a guarda confere a expressão e não só o nome.** Uma política `paciente_sem_delete USING (true)` tem o nome
 e o comando certos e não nega nada. A guarda normaliza o texto que o Postgres guarda e compara com a negação
-esperada (`normalizarExpressao` e `NEGA_PACIENTE`, `rls-guard.ts:212-213`; débito B-5 do Plano 06). O mesmo vale para a audiência: uma
+esperada (`normalizarExpressao` e `NEGA_PACIENTE`, `rls-guard.ts:218-219`; débito B-5 do Plano 06). O mesmo vale para a audiência: uma
 `paciente_conteudo_visivel USING (true)` mostraria ao paciente todo conteúdo do tenant (`AUDIENCIA_EXIGE`,
-`HERDA_DE_CONTENTS`, R11 do Plano 07). Os testes "B-5" e "R11" de `src/db/rls-guard.test.ts` (`:170` e `:204`)
+`HERDA_DE_CONTENTS`, R11 do Plano 07). Os testes "B-5" e "R11" de `src/db/rls-guard.test.ts` (`:198` e `:232`)
 provam que essas armadilhas quebram o CI.
 
 **Por que "negar por padrão".** O `publico` (Plano 05, D11) e a escrita do paciente (Plano 06, D1) nascem negados
@@ -271,7 +271,7 @@ Outros testes de banco que funcionam como guarda:
 É o teste do RNF-07: "tenta ler, alterar e excluir dados de outro tenant e de outro paciente do mesmo tenant em
 todas as tabelas 🔒". Nasceu no Plano 02, Tarefa 8, e cada plano acrescentou as suas tabelas.
 
-**Montagem (`beforeAll`, `:278`).** Cria dois tenants, A e B, cada um com dois pacientes (`PAC`). A tem os pacientes
+**Montagem (`beforeAll`, `:312`).** Cria dois tenants, A e B, cada um com dois pacientes (`PAC`). A tem os pacientes
 P1 e P2. Para cada tabela com `tenant_id` fora de `RLS_EXCEPTIONS`, roda a fábrica uma vez por paciente de cada
 tenant, como nutricionista (`withTenant`, papel `nutri`, conexão `nutri_app`). Semear os **dois** tenants faz o teste
 falhar tanto se uma política negar tudo quanto se liberar tudo (PF-F3).
@@ -279,34 +279,34 @@ falhar tanto se uma política negar tudo quanto se liberar tudo (PF-F3).
 | Peça | Linha | O que é |
 |---|---|---|
 | `FABRICAS` | `:24` | Tabela → função `(tenantId, patientId) => SQL` que grava uma linha. Fábrica que precisa de linha-mãe cria a mãe **no mesmo comando** (CTE), ex.: `consultation_notes`, `meal_items`, `recipe_ingredients` |
-| `PAPEL_DA_FABRICA` | `:185` | Plano 17: papel do `beforeAll` quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão); `lembretes_rotina_envios` é semeada como `worker` (o gatilho `lembretes_rotina_envios_do_worker` recusa a equipe) |
-| `SO_INSERE` | `:187` | Tabelas append-only (`audit_log` e, desde o Plano 10A, `signed_document_receipts`; depois `ia_autorizacoes`, Plano 14A, e `ia_nutri_consentimentos`, Plano 15): UPDATE/DELETE já são negados por permissão |
-| `SEM_DELETE`, `DELETE_REVOGADO` | `:197`, `:204` | Plano 11 (D9): em `ia_tarefas` e `ia_uso` o DELETE da equipe é negado (gatilho `ia_tarefas_sem_apagar`; `REVOKE` em `ia_uso`): o teste do tenant B pula o DELETE e confere que nada sumiu; em `ia_uso` a recusa vem da permissão, antes da RLS, para qualquer contexto (inclusive `publico`; R4 do pre-flight). Plano 20: `fin_lancamentos` e `fin_configuracoes` nas duas listas (`REVOKE DELETE, TRUNCATE`, 0123). Limpeza dos Minor (TRI-17-20 #5): `lembretes_rotina_envios` em `SEM_DELETE` (gatilho `lembretes_rotina_envios_sem_apagar`, 0129; as marcas de B saem pela cascata de `lembretes_rotina`, em `ULTIMAS`) |
-| `IMUTAVEIS` | `:216` | Plano 10A (D19): `signed_documents`, `signed_document_notes`, `document_access_codes`; Plano 11 (revisão final): `ia_tarefas`; depois `exam_submissions` (Plano 12), `ia_geracoes_modelos` (14B-1), `ia_nutri_mensagens` (15), `lembretes_rotina` e `lembretes_rotina_envios` (17), `fin_lancamentos` (20) — o gatilho recusa mudar `tenant_id`/`patient_id` com `42501` antes do `WITH CHECK` da RLS (mensagem própria, não "row-level security") |
-| `SO_APAGA` | `:234` | Plano 10A: em `signed_documents` o DELETE de B só apaga rascunhos (os emitidos ficam, pelo gatilho); em `patients`, só os pacientes sem documento nem recibo (FK `NO ACTION`) — e, desde o Plano 20, sem lançamento do Financeiro. Um paciente a mais por tenant, sem documento, faz o filtro casar. Plano 20: `fin_categorias` só sem lançamento e sem `chave` ("Consultas" nunca sai) |
-| `ULTIMAS` | `:255` | Apagadas por último no teste de DELETE, porque as filhas têm FK `NO ACTION`/`RESTRICT` para elas (`foods`), ou cascata que zeraria linhas de B que o teste ainda conta (`contents`, `recipes`); desde o Plano 10A, `signed_documents` e `stored_files` (FKs `NO ACTION` dos PDFs); desde o Plano 17, `lembretes_rotina` (apagar antes zeraria em cascata as marcas de B); `patients` é sempre a última. `fin_categorias` (Plano 20) fica fora: a única filha está em `SEM_DELETE` e o `SO_APAGA` deixa de fora a categoria com lançamento |
-| `COLUNA_TITULAR` | `:324` | Em `patients` o titular é a coluna `id` |
-| `SEM_DELETE_DO_PACIENTE` | `:326` | O paciente nunca é apagado (arquiva, bloqueia, anonimiza) |
-| `UPDATE_DO_PACIENTE` | `:384` | O único UPDATE que a sessão de paciente consegue na própria linha de `data_exports` (`pendente → falhou`); depois `exam_submissions` (Plano 12), `ia_nutri_mensagens` (15) e `lembretes_rotina` (`desligado_pelo_paciente_em = now()`, 17) |
+| `PAPEL_DA_FABRICA` | `:207` | Plano 17: papel do `beforeAll` quando a equipe não pode semear a tabela (as fábricas rodam como `nutri` por padrão); `lembretes_rotina_envios` é semeada como `worker` (o gatilho `lembretes_rotina_envios_do_worker` recusa a equipe) |
+| `SO_INSERE` | `:210` | Tabelas append-only (`audit_log` e, desde o Plano 10A, `signed_document_receipts`; depois `ia_autorizacoes`, Plano 14A, e `ia_nutri_consentimentos`, Plano 15; `exam_interpretacoes` e `exam_versoes`, Plano 22; `aniversario_autorizacoes`, Plano 23): UPDATE/DELETE já são negados por permissão |
+| `SEM_DELETE`, `DELETE_REVOGADO` | `:224`, `:231` | Plano 11 (D9): em `ia_tarefas` e `ia_uso` o DELETE da equipe é negado (gatilho `ia_tarefas_sem_apagar`; `REVOKE` em `ia_uso`): o teste do tenant B pula o DELETE e confere que nada sumiu; em `ia_uso` a recusa vem da permissão, antes da RLS, para qualquer contexto (inclusive `publico`; R4 do pre-flight). Plano 20: `fin_lancamentos` e `fin_configuracoes` nas duas listas (`REVOKE DELETE, TRUNCATE`, 0123). Limpeza dos Minor (TRI-17-20 #5): `lembretes_rotina_envios` em `SEM_DELETE` (gatilho `lembretes_rotina_envios_sem_apagar`, 0129; as marcas de B saem pela cascata de `lembretes_rotina`, em `ULTIMAS`) |
+| `IMUTAVEIS` | `:245` | Plano 10A (D19): `signed_documents`, `signed_document_notes`, `document_access_codes`; Plano 11 (revisão final): `ia_tarefas`; depois `exam_submissions` (Plano 12), `ia_geracoes_modelos` (14B-1), `ia_nutri_mensagens` (15), `lembretes_rotina` e `lembretes_rotina_envios` (17), `fin_lancamentos` (20) — o gatilho recusa mudar `tenant_id`/`patient_id` com `42501` antes do `WITH CHECK` da RLS (mensagem própria, não "row-level security") |
+| `SO_APAGA` | `:264` | Plano 10A: em `signed_documents` o DELETE de B só apaga rascunhos (os emitidos ficam, pelo gatilho); em `patients`, só os pacientes sem documento nem recibo (FK `NO ACTION`) — e, desde o Plano 20, sem lançamento do Financeiro. Um paciente a mais por tenant, sem documento, faz o filtro casar. Plano 20: `fin_categorias` só sem lançamento e sem `chave` ("Consultas" nunca sai) |
+| `ULTIMAS` | `:288` | Apagadas por último no teste de DELETE, porque as filhas têm FK `NO ACTION`/`RESTRICT` para elas (`foods`), ou cascata que zeraria linhas de B que o teste ainda conta (`contents`, `recipes`); desde o Plano 10A, `signed_documents` e `stored_files` (FKs `NO ACTION` dos PDFs); desde o Plano 17, `lembretes_rotina` (apagar antes zeraria em cascata as marcas de B); desde o Plano 23, `locais_atendimento`, logo depois de `appointments` (`appointments`, `availability_rules` e `public_booking_requests` apontam para ela com `NO ACTION`); `patients` é sempre a última. `fin_categorias` (Plano 20) fica fora: a única filha está em `SEM_DELETE` e o `SO_APAGA` deixa de fora a categoria com lançamento |
+| `COLUNA_TITULAR` | `:357` | Em `patients` o titular é a coluna `id` |
+| `SEM_DELETE_DO_PACIENTE` | `:359` | O paciente nunca é apagado (arquiva, bloqueia, anonimiza) |
+| `UPDATE_DO_PACIENTE` | `:420` | O único UPDATE que a sessão de paciente consegue na própria linha de `data_exports` (`pendente → falhou`); depois `exam_submissions` (Plano 12), `ia_nutri_mensagens` (15) e `lembretes_rotina` (`desligado_pelo_paciente_em = now()`, 17) |
 
-**O que cada caso prova (`describe` em `:397`):**
+**O que cada caso prova (`describe` em `:433`):**
 
 | Caso | Prova |
 |---|---|
-| "toda tabela com tenant_id tem fábrica neste teste" (`:398`) | Tabela nova sem fábrica quebra o CI |
-| WITH CHECK do tenant (`:403`) | B não grava linha com o `tenant_id` de A nem move a própria linha para A |
-| WITH CHECK do paciente (`:416`) | P2 não grava linha de P1 nem move a própria para P1 |
-| D1 (`:437`) | Fora de `PACIENTE_ESCREVE`, P2 não cria nem a própria linha |
-| `staff_only` (`:446`) | A sessão de paciente não vê nem grava nada nessas tabelas |
-| `publico` (`:459`) | O visitante só lê e grava o que `PUBLICO_LIBERADO` declara |
-| `conta` (`:480`) | Sem tenant, a conta do paciente não vê nem grava nada (só `patients` da própria conta) |
-| Leitura, alteração e exclusão de B (`:491`) | B só vê e só altera as próprias linhas; as de A ficam intactas (contagem feita com o dono) |
-| Leitura, alteração e exclusão de P2 (`:541`) | P2 só vê e altera as próprias linhas; as de P1 ficam intactas |
+| "toda tabela com tenant_id tem fábrica neste teste" (`:434`) | Tabela nova sem fábrica quebra o CI |
+| WITH CHECK do tenant (`:439`) | B não grava linha com o `tenant_id` de A nem move a própria linha para A |
+| WITH CHECK do paciente (`:452`) | P2 não grava linha de P1 nem move a própria para P1 |
+| D1 (`:473`) | Fora de `PACIENTE_ESCREVE`, P2 não cria nem a própria linha |
+| `staff_only` (`:482`) | A sessão de paciente não vê nem grava nada nessas tabelas |
+| `publico` (`:495`) | O visitante só lê e grava o que `PUBLICO_LIBERADO` declara |
+| `conta` (`:516`) | Sem tenant, a conta do paciente não vê nem grava nada (só `patients` da própria conta) |
+| Leitura, alteração e exclusão de B (`:527`) | B só vê e só altera as próprias linhas; as de A ficam intactas (contagem feita com o dono) |
+| Leitura, alteração e exclusão de P2 (`:577`) | P2 só vê e altera as próprias linhas; as de P1 ficam intactas |
 
 O teste distingue a recusa da RLS (`violaRls`: código `42501` e mensagem de *row-level security*) de outro erro
 qualquer. Uma FK quebrada não conta como isolamento. Desde o Plano 11 (revisão da T1), nos testes negativos de escrita a
 recusa tem de vir da política **da própria tabela** (`violaRlsDe`: a mensagem cita `for table "<tabela>"`); só as
-fábricas de `COM_MAE` (`:350`; desde o Plano 17, também `lembretes_rotina_envios`, que cria o lembrete-mãe no mesmo comando; desde o Plano 20, `fin_lancamentos`, que cria a categoria no mesmo comando — a prova da política da própria tabela no INSERT fica em `src/modules/financeiro/banco.test.ts`), que criam a mãe no mesmo comando, aceitam a recusa da mãe. Tabela nova não entra em
+fábricas de `COM_MAE` (`:383`; desde o Plano 17, também `lembretes_rotina_envios`, que cria o lembrete-mãe no mesmo comando; desde o Plano 20, `fin_lancamentos`, que cria a categoria no mesmo comando — a prova da política da própria tabela no INSERT fica em `src/modules/financeiro/banco.test.ts`), que criam a mãe no mesmo comando, aceitam a recusa da mãe. Tabela nova não entra em
 `COM_MAE`: a fábrica grava só a própria tabela, como a de `ia_tarefas` (`exam_id` nulo, status `falhou`).
 
 ### 7.4.3 Guardas de código (leitura do fonte)
@@ -318,7 +318,7 @@ fábricas de `COM_MAE` (`:350`; desde o Plano 17, também `lembretes_rotina_envi
 | Ações e APIs do painel fora da sessão certa | `src/app/painel/acoes-de-paciente.test.ts`, `src/app/api/painel/acesso-negado.test.ts` | Toda função exportada de todo arquivo `actions.ts` de `src/app/painel` e `src/app/admin` (`acoesDe`, `acoes-de-paciente.test.ts:31-35`), chamada por paciente, volta ao portal; por nutricionista, as do admin voltam ao painel; toda rota de `/api/painel` responde 403 a paciente e a admin. Ação `'use server'` fora de um `actions.ts` (em `page.tsx` ou outro arquivo) **não** é conferida |
 | Origem nas rotas de escrita com cookie (P09-01) | `src/app/api/mesma-origem-rotas.test.ts` | Toda rota de `src/app/api/{painel,p,documento}` (lista lida do disco) chamada em `POST`/`PUT`/`PATCH`/`DELETE` sem cookie e com `Origin: https://evil.example` responde 403: a origem é conferida antes da sessão (uma rota que lesse a sessão primeiro daria 401). Fora, de propósito: `/api/auth`, `/api/n`, `/api/webhooks`, `/api/csp-relatorio`, `/api/erro-cliente` |
 | Liberação das receitas do plano | `src/modules/portal/conteudos.test.ts`, caso "guarda: só 'Meu plano' e o detalhe pelo cartão…" (`:151`) | `liberarReceitasDoPlano` só em `planoDoPaciente` e `conteudoDoPaciente(…, { doPlano: true })` |
-| PDF e ZIP só no worker | `src/modules/pacientes/exportacao.test.ts:1127` | Nada do grafo do Next (`src/app`, `proxy`, `instrumentation`, `next.config`) alcança `exportacao-job`, os PDFs (inclusive `documento-pdf.tsx`, `documento-pdf-job.ts` e `digitalizada-job.tsx`, Plano 10A) ou o `@react-pdf` |
+| PDF e ZIP só no worker | `src/modules/pacientes/exportacao.test.ts:1134` | Nada do grafo do Next (`src/app`, `proxy`, `instrumentation`, `next.config`) alcança `exportacao-job`, os PDFs (inclusive `documento-pdf.tsx`, `documento-pdf-job.ts` e `digitalizada-job.tsx`, Plano 10A) ou o `@react-pdf` |
 | Assinatura sem sessão (Plano 10A, D23) | `src/modules/documentos/registrar-assinatura.test.ts`, caso "D23…" | `registrar-assinatura.ts` (importado pelo worker) não puxa o Better Auth, `confirmar-2fa` nem `tenant-session`, nem pelos imports dos imports |
 | Verificação pública por um arquivo só (Plano 10A) | `src/modules/documentos/verificacao.test.ts` | Nenhum arquivo de `src` além de `verificacao.ts` (e do schema) cita `document_verifications` (`RLS_EXCEPTIONS`) |
 | Listas sem conteúdo (Plano 10A, D17) | `src/modules/documentos/documentos.test.ts`, `portal.test.ts` | As listas do painel e do portal só devolvem tipo, data, situação, assinatura e recibos, nunca itens, orientações ou justificativa (não chamam `auditRead`) |
@@ -337,6 +337,7 @@ fábricas de `COM_MAE` (`:350`; desde o Plano 17, também `lembretes_rotina_envi
 | Financeiro fora da IA (Plano 20, RN-323) | `src/modules/financeiro/guardas.test.ts` | Pelo grafo de imports: nenhum arquivo alcançável a partir de `src/modules/ia/**` é do módulo do Financeiro, e o schema `financeiro.ts` só é alcançado pelo barril `@/db/schema`; pelo texto: nenhum arquivo de `src/modules/ia/**` (testes incluídos) contém `fin_` nem cita as tabelas do Drizzle do Financeiro; `src/app/sw.ts` não cita o Financeiro (RNF-307); `constantes.ts` não alcança drizzle (componentes cliente importam `MSG_FINANCEIRO`) |
 | Financeiro: nada em log, Sentry ou mensagem (Plano 20, RNF-300) | `src/modules/financeiro/log.test.ts` | Erros forçados no módulo e nas actions com valor, descrição, motivo, categoria e nome conhecidos: nada disso chega ao logger, ao `beforeSend` do Sentry nem aos erros devolvidos; os formulários do Financeiro ficam fora dos breadcrumbs |
 | Contexto `publico` sem a sala (Plano 23, RN-406, CS-401) | `src/modules/agenda/publico-guarda.test.ts` | Por AST (API do `typescript`): em `src/modules/agenda/**`, cada função passada a `withTenant` com o papel `publico` (literal, constante do arquivo ou função que o devolve) e, por chamada direta pelo nome, o que ela chama no mesmo arquivo e nos imports de `./…`, `../…` e `@/modules/…` não fazem `.select()` sem colunas de `appointments`, `.returning()` sem colunas numa escrita de `appointments`, nem citam `locaisAtendimento` (também por alias ou namespace), `linkOnline`/`linkSala` ou SQL com `link_online`, `link_sala` ou `locais_atendimento`; controle positivo com um caso sintético por forma e três negativos; limites (chamada por referência, método de objeto, reexportação, imports de fora de `src/modules`, SQL concatenado) no comentário do arquivo ([§5.11.3](05-agenda-portal-conteudo.md#5113-local-fora-do-painel-us-402-us-403-rn-405-rn-406)) |
+| Formulários sem o reset do React 19 (SUS-108, `main` #71) | `src/app/formularios-reset.test.ts` | Todo `<form action>` de `src/app` e `src/components` com `<select value>`, rádio ou caixa `checked` controlados usa `semResetAutomatico` (`src/lib/form-sem-reset.ts`) ou `defaultValue`/`defaultChecked`; os já corrigidos em `CORRIGIDOS`, as exceções com o motivo em `EXCECOES`. Plano 23 (rebase): o rádio do local de `seletor-horarios.tsx` e o "Tipo" de `local-form.tsx` com `defaultChecked`; as caixas de `aniversariantes/selecao.tsx` em `EXCECOES` ([§5.13.5](05-agenda-portal-conteudo.md#5135-sus-108-nos-formulários-do-plano-23)) |
 | `web-push` só no worker | `src/modules/notificacoes/push.test.ts:434` | Nada do grafo do Next alcança `push.ts`, `enviar.ts`, `web-push` nem `heic-decode` |
 | Sentry | `src/lib/sentry-guarda.test.ts` | `Sentry.init` só em `src/lib/sentry.ts`; nenhum SDK de navegador, Replay ou tracing; `@sentry/node` fora de componente de cliente |
 | Erro de job sem detalhe | `src/worker/sem-detalhe.test.ts` | Todo job registra por `workSemDetalhe`; nenhum `boss.work(` direto em `src/worker/index.ts` |
@@ -466,7 +467,7 @@ apontado para produção.
   formulário direto (`novoPaciente` e o teste do convite por WhatsApp); no PR 2 do Plano 18, que trocou os rótulos ("Nome"
   virou "Nome completo", ao lado de "Nome social (opcional)"; o telefone virou "Celular / WhatsApp (opcional)"), o
   `novoPaciente` passou ao helper (`agenda.spec.ts:71`) e o teste do convite por WhatsApp, que precisa de outros campos,
-  usa os rótulos novos com `exact: true` (`:313`; o `getByLabel` casa por trecho e "Nome" pegaria "Nome social"). A
+  usa os rótulos novos com `exact: true` (`:326`; o `getByLabel` casa por trecho e "Nome" pegaria "Nome social"). A
   semente do E2E (`scripts/e2e-seed.ts`) ganhou duas pacientes com cadastro (`SEMENTE_COMPLETA`, com nome social e CPF
   fixo, e `SEMENTE_INCOMPLETA`, `e2e/cadastro.ts`), por *upsert* em `(tenant_id, patient_id)`, sem DELETE.
 
@@ -517,7 +518,7 @@ Detalhes que evitam falso verde:
 | `cadastro.spec.ts` (Plano 18, PR 2) | 10 (2 em laço de 2 temas) | Cadastro com CPF, estado civil e CEP (US-260; o CPF nunca na lista); CPF repetido com a mensagem, o link em nova aba e o digitado mantido, com axe claro e escuro; Perfil (o estado civil e a Observação não voltam atrás, foco no CEP inválido); lista (abas, "Mais recentes" com a busca, `?status=arquivado` → Inativos); menu da linha (Esc, clique fora, Tab depois do último item); arquivar pela lista duas vezes (região de status e foco no título, D26); Início (nota "Cadastro incompleto", selo e cartão "No app"); "No app do paciente" da paciente da semente; impressão com o nome civil antes de "Nome social"; axe do menu aberto e do diálogo Adicionar. IPs `10.9.18.20`–`.29`; repetível no banco de dev (CPF novo a cada execução, sufixo `c18…`) |
 | `exames.spec.ts` (Plano 22, PR 2) | 2 | CS-371: com o catálogo da semente (painel "Hemograma completo" de 20 componentes e "Ferritina", `scripts/e2e-seed.ts`), "Adicionar do catálogo" monta as 20 linhas, a faixa preenchida mostra "Acima da referência" antes de salvar, abrir o exame e salvar a nota; US-374: marcar 2 exames e abrir o comparativo (fora de 2 a 6, o botão fica `aria-disabled`). IP `10.9.22.20` |
 | `acessibilidade-exames.spec.ts` (Plano 22, PR 2) | 11 (2 em laço de 2 temas × 2 larguras) | axe no catálogo e no detalhe (com "Ver referência" e "Inserir modelo") a 1280 e 360 px, claro e escuro; foco do `Dialogo` (Esc, fechar pelo navegador, desmontado aberto), da busca no catálogo, de "Acrescentar faixa"/"Remover faixa", das linhas do exame ("Usar {a} a {b}", "Remover", "Remover todos") e da nota ("Nota salva." com o foco no título). IP `10.9.22.10` |
-| `agenda-2.spec.ts` (Plano 23, PR 2) | 5 (`serial`, sem nova tentativa) | IP `10.9.23.1`; consultas pela Nova consulta daqui a ~120 dias, antes das 09h, sem regra nova (o `EXCLUDE` é do consultório inteiro): Semana em grade com filtro de local por GET, "Próximo" mantendo o filtro, 24 horas, "Ir para data", aniversário e legenda; Mês com "{n} consultas" e "mais {n}" e o dia abrindo a visão Dia, lista por dia a 360 px; impressão com os mesmos filtros, só os campos da RN-418, rodapé e `Cache-Control: no-store`, sem os botões no papel; PDF A4 de 50 consultas lido página a página com `@hyzyla/pdfium` (nenhuma linha some, rodapé em toda página); Locais: criar, arquivar, reativar. O `agenda.spec.ts` foi reescrito para o "Local" (Horários, Nova consulta, página pública) |
+| `agenda-2.spec.ts` (Plano 23, PRs 2 a 4) | 16 (`serial`, sem nova tentativa): 5 do PR 2 (com o de locais), 10 do PR 3 em dois `describe` ("Solicitações", 7, e "Aniversariantes", 3) e 1 do PR 4 ("Local" na lista de pacientes) | IP `10.9.23.1`; consultas pela Nova consulta daqui a ~120 dias, antes das 09h, sem regra nova (o `EXCLUDE` é do consultório inteiro): Semana em grade com filtro de local por GET, "Próximo" mantendo o filtro, 24 horas, "Ir para data", aniversário e legenda; Mês com "{n} consultas" e "mais {n}" e o dia abrindo a visão Dia, lista por dia a 360 px; impressão com os mesmos filtros, só os campos da RN-418, rodapé e `Cache-Control: no-store`, sem os botões no papel; PDF A4 de 50 consultas lido página a página com `@hyzyla/pdfium` (nenhuma linha some, rodapé em toda página); Locais: criar, arquivar, reativar. O `agenda.spec.ts` foi reescrito para o "Local" (Horários, Nova consulta, página pública) |
 
 Os números são de chamadas `test(` no arquivo; laços geram mais casos na execução.
 
@@ -784,7 +785,7 @@ O desenvolvimento acontece na própria VPS (spec §9.4), ao lado da produção. 
 | 3000 | Painel do **Easypanel** (não usar) | `CLAUDE.md` do servidor |
 | 3100 | `pnpm dev` (`next dev -p 3100`) e o E2E local | `package.json`, script `dev`; `playwright.config.ts:4` |
 | 54329 | Postgres 16 de dev | `docker-compose.dev.yml` |
-| 8025 | Mailpit: interface **e** API HTTP usada pelo transporte (`/api/v1/send`, `src/email/transport.ts:43`) | `docker-compose.dev.yml` |
+| 8025 | Mailpit: interface **e** API HTTP usada pelo transporte (`/api/v1/send`, `src/email/transport.ts:45`) | `docker-compose.dev.yml` |
 | 1025 | Mailpit SMTP (exposta, mas o app não usa SMTP) | `docker-compose.dev.yml` |
 | 3200 / 54339 | App e banco da pilha de carga (só com OK do dono) | `docker-compose.carga.yml` |
 
@@ -826,7 +827,7 @@ real está no código e nas guardas; a regra diz onde.
 
 | # | Regra (resumo) | Por quê | Onde o código garante |
 |---|---|---|---|
-| 1 | Toda consulta a tabela com `tenant_id` passa por `withTenant(ctx, fn)`. O admin nunca consulta essas tabelas. `withConta` só em `vinculos.ts`. Exceções nominais para `user`, `consents`, `invites` e as tabelas sem tenant | A RLS só funciona se a transação tiver `app.tenant_id`, `app.role`, `app.patient_id`, `app.user_id` e `app.ip`. Fora de `withTenant` a conexão vê 0 linhas (Plano 01, Review Focus 1). A lista de exceções é nominal para que cada acesso fora da RLS seja auditável por leitura | `withTenant` (`src/db/tenant.ts:86`) com `set_config(..., true)`; `assertContext` recusa papel `admin` e exige `actorUserId` para nutricionista e paciente com login; guardas `sem-tabelas-tenant.test.ts` e `sem-conta-guarda.test.ts` |
+| 1 | Toda consulta a tabela com `tenant_id` passa por `withTenant(ctx, fn)`. O admin nunca consulta essas tabelas. `withConta` só em `vinculos.ts`. Exceções nominais para `user`, `consents`, `invites` e as tabelas sem tenant | A RLS só funciona se a transação tiver `app.tenant_id`, `app.role`, `app.patient_id`, `app.user_id` e `app.ip`. Fora de `withTenant` a conexão vê 0 linhas (Plano 01, Review Focus 1). A lista de exceções é nominal para que cada acesso fora da RLS seja auditável por leitura | `withTenant` (`src/db/tenant.ts:87`) com `set_config(..., true)`; `assertContext` recusa papel `admin` e exige `actorUserId` para nutricionista e paciente com login; guardas `sem-tabelas-tenant.test.ts` e `sem-conta-guarda.test.ts` |
 | 2 | Tabela nova com `tenant_id`: migration custom com `app_enable_tenant_rls` (+ `patient`, `staff_only`, `publico`, escrita do paciente, audiência) e a entrada na lista certa | Isolamento no banco, não na aplicação: um bug de consulta não vaza dado de outro consultório. Negar por padrão faz a tabela nova nascer fechada | `rls-guard.ts` e `rls-guard.test.ts` ([§2.7](02-banco-de-dados.md#27-guardas-no-ci), 7.4.1) |
 | 3 | Senhas, tokens, cookies e dados de saúde nunca vão para log, Sentry ou mensagens | LGPD e sigilo profissional: o log e o Sentry não são lugar de dado sensível, e o Sentry é um serviço de terceiro | `REDACT_KEYS` do pino (`src/lib/logger.ts:4`); `sanitizarErroDeBanco` no `withTenant`; filtro único `src/lib/sentry-filtro.ts`; `sem-detalhe.test.ts` |
 | 4 | Textos de interface em pt-BR, com o texto exato da spec | As histórias têm critérios BDD com o texto exato; o E2E procura por esse texto (`getByRole(..., { name })`) | Specs E2E; tabelas "Textos de interface" nas histórias |

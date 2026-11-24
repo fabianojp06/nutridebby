@@ -120,3 +120,15 @@ isolamento, divergência #3).
   (não "sai sem reconferir"); conferir com `git show <commit do PR anterior>:src/modules/notificacoes/enviar.ts`.
 - Números de divergência: antes de numerar, `git show origin/main:docs/manual-tecnico/<cap>.md | grep "^| [0-9]* |"` —
   outro plano pode já ter ocupado os próximos números na `main`.
+
+- Fechamento do Plano 23 (24/11/2026): remapeador por **blame** (base por commit do manual: linhas da `main` → `main`;
+  linhas dos meus commits → o head pré-rebase delas) funcionou bem; mas o resolvedor de nome-base errou em silêncio
+  (`pacientes.ts` → `src/db/schema/pacientes.ts`; tabela de §5.11 herdando `constantes.ts` em vez de `locais.ts`). Antes de
+  aplicar, listar as citações cujo nome-base é ambíguo **e** algum candidato mudou no plano, e decidir à mão.
+- As listas de `src/db/rls-guard.ts`, `test/isolamento.test.ts` (tabela do §7.4.2) e as funções do cap. 12 estavam velhas
+  na própria `main` (o PR 1 de um plano entra sem mexer no texto comum): refazer pelo símbolo (`grep -n "^const \|^export"`),
+  não pelo remapeador, que preserva o erro.
+- Outro agente comitou código (guias) no meio da minha tarefa: refazer o remapeamento do head que eu conferi para o head
+  novo antes de comitar (`conteudo.ts` desloca a cada guia novo).
+- `git diff --check` acusa "new blank line at EOF" quando acrescento seção no fim com `s + '\n'` sobre texto que já termina
+  em `\n`: normalizar com `rstrip('\n') + '\n'`.
