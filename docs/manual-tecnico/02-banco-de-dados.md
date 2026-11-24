@@ -174,8 +174,10 @@ Plano 22 (PR 1): mais `exames_catalogo`, `exames_modelos_solicitacao`, `exam_int
 sob RLS ([§2.5.13](#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)): **73** tabelas, 57 com `tenant_id` sob RLS (`pgTable(` de `src/db/schema/*.ts`, conferido em
 23/11/2026 no branch `plano-22-exames-prescricao`).
 Plano 22 (PR 4): mais `prescricao_itens_salvos` e `prescricao_modelos`, as duas sob RLS ([§2.5.14](#2514-itens-salvos-e-modelos-de-prescrição-prescricao-modelosts-plano-22-pr-4)):
-**77** tabelas com as duas do Plano 23 (`locais_atendimento`, `aniversario_autorizacoes`), 61 com `tenant_id` sob RLS
-(conferido no rebase sobre a `main` `123b78e`).
+**84** tabelas com as duas do Plano 23 (`locais_atendimento`, `aniversario_autorizacoes`) e as sete do Plano 25
+(`chat_configuracoes`, `chat_horarios`, `chat_conversas`, `chat_mensagens`, `chat_leituras`, `chat_avisos_nutri` e `recados`):
+72 com `tenant_id`, 68 delas sob RLS (contagem dos `pgTable(` de `src/db/schema/*.ts` e do `pg_class` do banco migrado até a 0135,
+conferida no rebase sobre a `main` `c5a4050`, 24/11/2026).
 
 Legenda da coluna "Proteção":
 **T** `tenant_isolation` · **P** `patient_isolation` · **S** `staff_only` · **Pub** comandos liberados ao contexto `publico` · **PE** comandos que a sessão de paciente grava · **A** gatilho de auditoria (entidade) · **X** política própria (ver §2.6.5).
