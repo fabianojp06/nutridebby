@@ -2,6 +2,7 @@
 
 import { useActionState, useRef, useState } from 'react';
 import { semResetAutomatico } from '@/lib/form-sem-reset';
+import { maxLengthPorCaracteres } from '@/lib/text';
 import { TIPOS_PERGUNTA, type Pergunta, type TipoPergunta } from '@/modules/pacientes/anamnese-tipos';
 import type { ModeloState } from './actions';
 
@@ -48,7 +49,7 @@ export function ModeloEditor({ acao, inicial }: Props) {
       <input type="hidden" name="modelo" value={json} />
       <div className="space-y-1">
         <label htmlFor="nome-modelo" className="block font-medium">Nome do modelo</label>
-        <input id="nome-modelo" value={nome} onChange={(ev) => setNome(ev.target.value)} maxLength={80} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto"
+        <input id="nome-modelo" value={nome} onChange={(ev) => setNome(ev.target.value)} maxLength={maxLengthPorCaracteres(80)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto"
           aria-invalid={e.nome ? true : undefined} aria-describedby={e.nome ? 'nome-modelo-erro' : undefined} />
         {e.nome && <p id="nome-modelo-erro" role="alert" className="text-sm text-erro">{e.nome}</p>}
       </div>
@@ -61,7 +62,7 @@ export function ModeloEditor({ acao, inicial }: Props) {
               <div className="grid gap-2 sm:grid-cols-3">
                 <div className="space-y-1 sm:col-span-2">
                   <label htmlFor={`rotulo-${p.id}`} className="block font-medium">{`Texto da pergunta ${n}`}</label>
-                  <input id={`rotulo-${p.id}`} value={p.rotulo} onChange={(ev) => mudar(i, { rotulo: ev.target.value })} maxLength={200} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto"
+                  <input id={`rotulo-${p.id}`} value={p.rotulo} onChange={(ev) => mudar(i, { rotulo: ev.target.value })} maxLength={maxLengthPorCaracteres(200)} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto"
                     aria-invalid={erro ? true : undefined} aria-describedby={erro ? `erro-${p.id}` : undefined} />
                 </div>
                 <div className="space-y-1">
@@ -74,7 +75,7 @@ export function ModeloEditor({ acao, inicial }: Props) {
               {p.tipo === 'numero' && (
                 <div className="space-y-1">
                   <label htmlFor={`unidade-${p.id}`} className="block">{`Unidade da pergunta ${n} (opcional)`}</label>
-                  <input id={`unidade-${p.id}`} value={p.unidade} onChange={(ev) => mudar(i, { unidade: ev.target.value })} maxLength={20} className="rounded-xl border border-campo bg-cartao p-2 text-texto" />
+                  <input id={`unidade-${p.id}`} value={p.unidade} onChange={(ev) => mudar(i, { unidade: ev.target.value })} maxLength={maxLengthPorCaracteres(20)} className="rounded-xl border border-campo bg-cartao p-2 text-texto" />
                 </div>
               )}
               {(p.tipo === 'escolha_unica' || p.tipo === 'multipla_escolha') && (

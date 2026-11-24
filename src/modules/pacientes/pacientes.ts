@@ -281,6 +281,10 @@ export function filtroDaUrl(sp: Record<string, string | string[] | undefined>): 
   return { aba, ...(v('busca') ? { busca: v('busca') } : {}), ...(v('etiqueta') ? { etiquetaId: v('etiqueta') } : {}), ordem };
 }
 
+/** Classe dos curingas do LIKE (`\`, `%`, `_`) e a troca de cada um por ele mesmo escapado, para o `regexp_replace`. */
+const CURINGAS_DO_LIKE = '([\\\\%_])';
+const CURINGA_ESCAPADO = '\\\\\\1';
+
 /**
  * Lista do painel (nome e contato; abrir o prontuário audita). Busca sem acento pelo nome, pelo nome social ou pelo
  * e-mail; `%`, `_` e `\` digitados são literais. Com `etiquetaId`, a lista diz quem tem "diabetes", "gestante": é dado de
@@ -296,9 +300,11 @@ export async function listarPacientes(ctx: TenantContext, filtro: FiltroDaLista,
   }
   const busca = filtro.busca?.trim();
   if (busca) {
+    // SUS-115: o escape vem depois do unaccent, que leva "％", "＿" e "＼" de largura cheia a "%", "_" e "\".
+    const termoSemAcento = sql`'%' || regexp_replace(unaccent(${busca}::text), ${CURINGAS_DO_LIKE}, ${CURINGA_ESCAPADO}, 'g') || '%'`;
     const termo = `%${busca.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     conds.push(
-      sql`(unaccent(${patients.nome}) ilike unaccent(${termo}) or unaccent(${patientCadastro.nomeSocial}) ilike unaccent(${termo}) or ${patients.email}::text ilike ${termo})`,
+      sql`(unaccent(${patients.nome}) ilike ${termoSemAcento} or unaccent(${patientCadastro.nomeSocial}) ilike ${termoSemAcento} or ${patients.email}::text ilike ${termo})`,
     );
   }
   const exibido = sql`unaccent(lower(coalesce(${patientCadastro.nomeSocial}, ${patients.nome})))`;

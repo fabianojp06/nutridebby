@@ -1,6 +1,7 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useState, useSyncExternalStore, type FormEvent } from 'react';
+import { maxLengthPorCaracteres } from '@/lib/text';
 import {
   ENVIO_FOTO_MAX_BYTES, ENVIO_MAX_FOTOS, ENVIO_PDF_MAX_BYTES, ENVIO_TOTAL_MAX_BYTES, MSG_ENVIO, NOME_ENVIO_MAX, OBSERVACAO_ENVIO_MAX,
 } from '@/modules/pacientes/exames-enviados-constantes';
@@ -76,12 +77,12 @@ export function EnvioForm({ hoje }: { hoje: string }) {
       </div>
       <div className="space-y-1">
         <label htmlFor="nome" className="block font-medium">Nome do exame (opcional)</label>
-        <input id="nome" name="nome" maxLength={NOME_ENVIO_MAX} className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...descrito('nome')} />
+        <input id="nome" name="nome" maxLength={maxLengthPorCaracteres(NOME_ENVIO_MAX)} className="min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...descrito('nome')} />
         {erro('nome')}
       </div>
       <div className="space-y-1">
         <label htmlFor="observacao" className="block font-medium">Observação (opcional)</label>
-        <textarea id="observacao" name="observacao" maxLength={OBSERVACAO_ENVIO_MAX} rows={3} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...descrito('observacao', 'observacao-dica')} />
+        <textarea id="observacao" name="observacao" maxLength={maxLengthPorCaracteres(OBSERVACAO_ENVIO_MAX)} rows={3} className="w-full rounded-xl border border-campo bg-cartao p-2 text-texto" {...descrito('observacao', 'observacao-dica')} />
         <p id="observacao-dica" className="text-sm text-suave">{MSG_ENVIO.dicaObservacao}</p>
         {erro('observacao')}
       </div>

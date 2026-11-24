@@ -27,3 +27,4 @@
 - [No app: config sem conta e cartão frágil](feedback_no-app-config-sem-conta.md) — T9 Plano 18: linhas de configuração sob "vê hoje"; cartão no Promise.all do Início
 - [Filtro da lista e Perfil em grid](feedback_filtro-da-lista-e-perfil-grid.md) — PR2 Plano 18: CAMPO local sem min-h-11; Cadastro salvo montado com o texto; ordem visual do Perfil
 - [sr-only em região rolável e rollback do DPA](feedback_sr-only-em-regiao-rolavel.md) — sr-only sem relative estica a página a 360 px; subir versão do DPA prende o painel na volta de imagem
+- [Comportamento prometido ao E2E](feedback_comportamento-prometido-ao-e2e.md) — unitário delega ao E2E que não cobre; autoFocus em dialog só vale no HTML do servidor

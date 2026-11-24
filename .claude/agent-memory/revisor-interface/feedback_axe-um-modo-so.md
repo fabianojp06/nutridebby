@@ -11,3 +11,5 @@ Ao revisar spec E2E de tela nova do painel, conferir se o axe roda nos três mod
 **How to apply:** estado de tela que não está nas `rotas` do `acessibilidade-painel` (query como `?conferir=`, formulário aberto) precisa do laço dos três modos na própria spec. Quando a tela usa só tokens, é Minor. Ver também [[mensagem-sucesso-desmontada]].
 
 Repetiu no Plano 13 T10 (08/10/2026, `e2e/parecer.spec.ts`): conta E2E_DOCS (tema 'sistema' fixo no seed, então só o claro); o brief mandou uma vez. Estados novos do portal/`/v` (substituído) também ficaram fora do `acessibilidade.spec`. Classificado Minor (só tokens).
+
+Plano 27 T6 (24/11/2026): `acessibilidade-painel.spec.ts` (cópia do questionário, nota SIC) e `acessibilidade.spec.ts` (`/questionario/<token>`, `/p/questionarios`) rodam claro e escuro por `escolherTema`/`emulateMedia`, mas não "Igual ao aparelho" (a conta volta a ele no `finally`). Minor: só tokens, sem cor literal. O laço de 360 px aparece só no claro nas telas do portal.

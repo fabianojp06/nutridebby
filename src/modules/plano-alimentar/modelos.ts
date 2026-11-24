@@ -2,7 +2,7 @@ import { and, count, desc, eq, isNotNull, isNull, or } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { mealPlans, meals } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
-import { normalizarTexto } from '@/lib/text';
+import { caracteres, normalizarTexto } from '@/lib/text';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
 import { auditRead } from '@/modules/plataforma/audit';
 import { MSG_MODELO_IA, MSG_PLANO } from './constantes';
@@ -16,7 +16,7 @@ const usavel = or(isNull(mealPlans.iaGeracaoId), isNotNull(mealPlans.aprovadoEm)
 
 function titulo(v: unknown): string {
   const t = normalizarTexto(v);
-  if (!t || t.length > 120) throw new PlanoError({ titulo: MSG_PLANO.titulo });
+  if (!t || caracteres(t) > 120) throw new PlanoError({ titulo: MSG_PLANO.titulo });
   return t;
 }
 

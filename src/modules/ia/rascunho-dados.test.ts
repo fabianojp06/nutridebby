@@ -44,6 +44,9 @@ describe('validarMetas (US-121): os textos do formulário do rascunho', () => {
     expect(erros({ ...base, refeicoes: [{ nome: 'Almoço', horario: '25:00' }] })).toEqual({ 'refeicao:0:horario': 'Horário inválido (use HH:MM)' });
     expect(erros({ ...base, refeicoes: [{ nome: '  ', horario: '12:00' }] })).toEqual({ 'refeicao:0:nome': 'Informe o nome da refeição (até 60 caracteres)' });
     expect(erros({ ...base, refeicoes: [{ nome: 'x'.repeat(61), horario: '12:00' }] })).toEqual({ 'refeicao:0:nome': 'Informe o nome da refeição (até 60 caracteres)' });
+    // SUS-114: o nome conta code points (60 emojis cabem; 61 não)
+    expect(erros({ ...base, refeicoes: [{ nome: '🙂'.repeat(60), horario: '12:00' }] })).toBeNull();
+    expect(erros({ ...base, refeicoes: [{ nome: '🙂'.repeat(61), horario: '12:00' }] })).toEqual({ 'refeicao:0:nome': 'Informe o nome da refeição (até 60 caracteres)' });
     const dezesseis = Array.from({ length: 16 }, (_, i) => ({ nome: `R${i}`, horario: '12:00' }));
     expect(erros({ ...base, refeicoes: dezesseis })).toEqual({ refeicoes: 'O plano pode ter até 15 refeições e 200 itens.' });
   });

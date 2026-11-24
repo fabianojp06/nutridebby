@@ -174,6 +174,9 @@ describe('modelos de plano: limites e isolamento', () => {
     await expect(excluirModelo(B.ctx, modelo, deps)).rejects.toBeInstanceOf(PlanoNaoEncontradoError);
     await expect(criarModelo(A.ctx, ' ', deps)).rejects.toEqual(new PlanoError({ titulo: MSG_PLANO.titulo }));
     await expect(criarModelo(A.ctx, 'x'.repeat(121), deps)).rejects.toEqual(new PlanoError({ titulo: MSG_PLANO.titulo }));
+    // SUS-114: por caractere (code point), como o CHECK e o rascunho
+    await expect(criarModelo(A.ctx, '🙂'.repeat(121), deps)).rejects.toEqual(new PlanoError({ titulo: MSG_PLANO.titulo }));
+    expect(await criarModelo(A.ctx, '🙂'.repeat(120), deps)).toHaveProperty('id');
   });
 
   it('excluir o modelo apaga suas refeições e não mexe nos planos criados a partir dele; paciente com plano arquivado recebe a próxima versão', async () => {

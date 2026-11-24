@@ -41,6 +41,12 @@ describe('validarPlanoIa (RN-121, RN-124, D14): nada do modelo passa sem revalid
   });
 
   it('limites do editor: horário HH:MM, nome ≤ 60, título ≤ 120, orientações ≤ 2000, 15 refeições, 200 itens; meta 500–10000', () => {
+    // SUS-114: título e nome da refeição contam code points (120 e 60 emojis cabem; um a mais não)
+    const com = (titulo: string, nome = 'Almoço') => validarPlanoIa({ titulo, meta_kcal: null, orientacoes: '', refeicoes: [{ nome, horario: '12:00', itens: [item('A1', 50)] }] }, catalogo(alimento(1)));
+    expect(com('🙂'.repeat(120))).not.toBeNull();
+    expect(com('🙂'.repeat(121))).toBeNull();
+    expect(com('T', '🙂'.repeat(60))?.refeicoes).toHaveLength(1);
+    expect(com('T', '🙂'.repeat(61))?.refeicoes).toHaveLength(0);
     expect(validarPlanoIa({ titulo: 'x'.repeat(121), meta_kcal: null, orientacoes: '', refeicoes: [] }, catalogo())).toBeNull();
     expect(validarPlanoIa({ titulo: 'T', meta_kcal: 100, orientacoes: '', refeicoes: [] }, catalogo())).toMatchObject({ metaKcal: null });
     const muitas = Array.from({ length: 16 }, (_, i) => ({ nome: `R${i}`, horario: '08:00', itens: [item('A1', 10)] }));

@@ -43,6 +43,10 @@ beforeAll(async () => {
   await app.db.insert(account).values({
     id: randomUUID(), userId: id, accountId: id, providerId: 'credential', password: await hashPassword(senha),
   });
+  // SUS-107: o produtor do pg-boss sobe aqui, no prazo do gancho. Senão a partida a frio (`start` + `ensureQueues`,
+  // ~0,5 s isolado e vários segundos com a suíte inteira) caía dentro do primeiro `linkPara`, no prazo de 1 s do
+  // `vi.waitFor`, e o teste da recuperação de senha estourava ("Timed out in waitFor") sem nada errado no envio.
+  await getBoss();
 });
 afterAll(async () => {
   await stopBoss();

@@ -3,6 +3,7 @@ import { getDb, type Db, type Tx } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
 import { appointments, consultationNotes, consultations } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { caracteres } from '@/lib/text';
 import { motivoParaNaoIniciarAtendimento } from '@/modules/agenda/presenca';
 import { cobrarConsultaRealizada, type ResultadoCobranca } from '@/modules/financeiro/cobranca';
 import { auditRead } from '@/modules/plataforma/audit';
@@ -40,9 +41,9 @@ function validar(input: Entrada, hoje: string): { data: string; notas: string | 
   // o navegador envia quebra de linha como CRLF, mas o maxLength do textarea conta 1 caractere: normaliza antes de medir
   const limpo = (v: unknown) => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n').trim() : '');
   const notas = limpo(input.notasPrivadas);
-  if (notas.length > 20000) erros.notasPrivadas = MSG_ATENDIMENTO.notas;
+  if (caracteres(notas) > 20000) erros.notasPrivadas = MSG_ATENDIMENTO.notas;
   const orientacoes = limpo(input.orientacoes);
-  if (orientacoes.length > 5000) erros.orientacoes = MSG_ATENDIMENTO.orientacoes;
+  if (caracteres(orientacoes) > 5000) erros.orientacoes = MSG_ATENDIMENTO.orientacoes;
   if (Object.keys(erros).length) throw new AtendimentoError(erros);
   return { data, notas: notas || null, orientacoes: orientacoes || null };
 }

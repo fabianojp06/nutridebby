@@ -1,5 +1,5 @@
 import { lerDecimal } from '@/lib/numero';
-import { normalizarTexto } from '@/lib/text';
+import { caracteres, normalizarTexto } from '@/lib/text';
 import { dataValida } from './datas';
 
 /** US-012: os 7 tipos de pergunta. Arquivo puro: o editor de modelos e o formulário usam no navegador. */
@@ -36,6 +36,8 @@ export const MSG_ANAMNESE = {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LIMITE_PERGUNTAS = 100;
 const texto = normalizarTexto;
+/** Corta em code points (nunca no meio de um par substituto, que gravaria U+FFFD). */
+const cortar = (s: string, n: number): string => [...s].slice(0, n).join('');
 const tipoValido = (t: unknown): t is TipoPergunta => TIPOS_PERGUNTA.some((x) => x.id === t);
 const temOpcoes = (t: TipoPergunta) => t === 'escolha_unica' || t === 'multipla_escolha';
 
@@ -44,7 +46,7 @@ export function validarModelo(input: { nome: unknown; perguntas: unknown }):
   | { ok: true; nome: string; perguntas: Pergunta[] }
   | { ok: false; erros: Record<string, string> } {
   const erros: Record<string, string> = {};
-  const nome = texto(input.nome).slice(0, 80);
+  const nome = cortar(texto(input.nome), 80);
   if (!nome) erros.nome = MSG_ANAMNESE.nomeModelo;
   const brutas: (Record<string, unknown> | null)[] = Array.isArray(input.perguntas) ? input.perguntas : [];
   if (!brutas.length) erros.perguntas = MSG_ANAMNESE.semPerguntas;
@@ -56,19 +58,19 @@ export function validarModelo(input: { nome: unknown; perguntas: unknown }):
     const b = item ?? {};
     const tipo = b.tipo;
     if (!tipoValido(tipo)) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.tipo);
-    const rotulo = texto(b.rotulo).slice(0, 200);
+    const rotulo = cortar(texto(b.rotulo), 200);
     if (!rotulo) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.rotulo);
     let id = typeof b.id === 'string' && UUID.test(b.id) ? b.id.toLowerCase() : crypto.randomUUID();
     if (ids.has(id)) id = crypto.randomUUID();
     ids.add(id);
     const p: Pergunta = { id, tipo, rotulo, obrigatoria: b.obrigatoria === true };
     if (tipo === 'numero') {
-      const unidade = texto(b.unidade).slice(0, 20);
+      const unidade = cortar(texto(b.unidade), 20);
       if (unidade) p.unidade = unidade;
     }
     if (temOpcoes(tipo)) {
       const opcoes = [...new Set((Array.isArray(b.opcoes) ? b.opcoes : []).map((o) => texto(o)).filter(Boolean))];
-      if (opcoes.length > 30 || opcoes.some((o) => o.length > 100)) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.muitasOpcoes);
+      if (opcoes.length > 30 || opcoes.some((o) => caracteres(o) > 100)) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.muitasOpcoes);
       if (opcoes.length < 2) return void (erros[`pergunta_${i}`] = MSG_ANAMNESE.opcoes);
       p.opcoes = opcoes;
     }
@@ -106,7 +108,7 @@ function converter(p: Pergunta, v: unknown): Resposta | undefined {
       const limite = p.tipo === 'texto_curto' ? 200 : 5000;
       // PF3: o navegador envia quebra de linha como CRLF (o maxLength do textarea conta 1 por quebra)
       const t = v.replace(/\r\n?/g, '\n').trim();
-      return t.length <= limite ? t : undefined;
+      return caracteres(t) <= limite ? t : undefined;
     }
     case 'numero': {
       const n = lerDecimal(v);

@@ -50,6 +50,27 @@ describe('validarModelo (US-012)', () => {
     expect(opcoes(['A', 'x'.repeat(101)])).toEqual({ ok: false, erros: { pergunta_0: MSG_ANAMNESE.muitasOpcoes } });
     expect(opcoes(Array.from({ length: 30 }, (_, i) => `op${i}`)).ok).toBe(true);
   });
+  it('SUS-114: a opção conta caracteres (code points): 100 emojis passam, 101 não', () => {
+    const opcoes = (o: string[]) => validarModelo({ nome: 'X', perguntas: [{ tipo: 'escolha_unica', rotulo: 'M', obrigatoria: false, opcoes: o }] });
+    expect(opcoes(['A', '🙂'.repeat(100)])).toMatchObject({ ok: true, perguntas: [{ opcoes: ['A', '🙂'.repeat(100)] }] });
+    expect(opcoes(['A', '🙂'.repeat(101)])).toEqual({ ok: false, erros: { pergunta_0: MSG_ANAMNESE.muitasOpcoes } });
+  });
+});
+
+describe('validarModelo: corte por code point (SUS-114)', () => {
+  it('nome, rótulo e unidade cortados no limite nunca partem um par substituto (sem U+FFFD)', () => {
+    const v = validarModelo({
+      nome: `${'n'.repeat(79)}🙂🙂`,
+      perguntas: [{ tipo: 'numero', rotulo: `${'a'.repeat(199)}🙂🙂`, obrigatoria: false, unidade: `${'u'.repeat(19)}🙂🙂` }],
+    });
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.nome).toBe(`${'n'.repeat(79)}🙂`);
+    expect(v.perguntas[0]!.rotulo).toBe(`${'a'.repeat(199)}🙂`);
+    expect(v.perguntas[0]!.unidade).toBe(`${'u'.repeat(19)}🙂`);
+    for (const s of [v.nome, v.perguntas[0]!.rotulo, v.perguntas[0]!.unidade!]) expect(s).not.toContain('\uFFFD');
+    expect(JSON.stringify(v)).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  });
 });
 
 describe('validarRespostas', () => {
@@ -99,5 +120,21 @@ describe('validarRespostas: quebras de linha (PF3)', () => {
     const linhas = Array.from({ length: 2500 }, () => 'a').join('\r\n'); // 4999 caracteres com \n, 7499 com \r\n
     expect(validarRespostas(p, { [id(1)]: linhas })).toEqual({ ok: true, respostas: { [id(1)]: linhas.replace(/\r\n/g, '\n') } });
     expect(validarRespostas(p, { [id(1)]: `${linhas}\r\nb` }).ok).toBe(false); // 5001 caracteres
+  });
+});
+
+describe('validarRespostas: tamanho por caractere (SUS-114)', () => {
+  it('texto curto (200) e longo (5000) contam code points, como o banco: emojis no limite passam, um a mais não', () => {
+    const p: Pergunta[] = [
+      { id: id(1), tipo: 'texto_curto', rotulo: 'Apelido', obrigatoria: false },
+      { id: id(2), tipo: 'texto_longo', rotulo: 'Histórico', obrigatoria: false },
+    ];
+    const curto = '🙂'.repeat(200);
+    const longo = '🥗'.repeat(5000);
+    expect(validarRespostas(p, { [id(1)]: curto, [id(2)]: longo })).toEqual({ ok: true, respostas: { [id(1)]: curto, [id(2)]: longo } });
+    expect(validarRespostas(p, { [id(1)]: `${curto}🙂`, [id(2)]: `${longo}🥗` })).toEqual({
+      ok: false,
+      erros: { [id(1)]: MSG_ANAMNESE.invalida('Apelido'), [id(2)]: MSG_ANAMNESE.invalida('Histórico') },
+    });
   });
 });

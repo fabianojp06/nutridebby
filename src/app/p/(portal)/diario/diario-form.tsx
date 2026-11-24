@@ -1,6 +1,7 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { maxLengthPorCaracteres } from '@/lib/text';
 import { FOTO_DIARIO_MAX_BYTES, MSG_DIARIO, REFEICOES_DO_DIARIO, ROTULO_RESPOSTA, TEXTO_DIARIO_MAX } from '@/modules/portal/diario-constantes';
 import { linkDaRecusa, recusaDoPortal } from '../../recusa-api';
 
@@ -109,7 +110,7 @@ export function DiarioForm({ refeicaoDoPlano = null, resposta = null, foto: comC
       )}
       <div className="space-y-1">
         <label htmlFor="texto" className="block font-medium">O que você comeu?</label>
-        <textarea id="texto" name="texto" maxLength={TEXTO_DIARIO_MAX} rows={3} className="w-full rounded-xl border border-campo bg-cartao text-texto p-2" {...campoErro('texto')} />
+        <textarea id="texto" name="texto" maxLength={maxLengthPorCaracteres(TEXTO_DIARIO_MAX)} rows={3} className="w-full rounded-xl border border-campo bg-cartao text-texto p-2" {...campoErro('texto')} />
         {erros.texto && <p id="texto-erro" role="alert" className="text-sm text-erro">{erros.texto}</p>}
       </div>
       <div className="space-y-1">
