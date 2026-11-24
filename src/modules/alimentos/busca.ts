@@ -15,7 +15,7 @@ export function palavrasDaBusca(termo: unknown): string[] {
   return termo
     .toLowerCase()
     .split(/[\s,;]+/)
-    .map((w) => w.trim().slice(0, 60))
+    .map((w) => [...w.trim()].slice(0, 60).join(''))
     .filter(Boolean)
     .slice(0, 6);
 }

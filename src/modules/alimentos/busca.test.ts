@@ -47,6 +47,10 @@ describe('busca de alimentos (US-020, D6)', () => {
     for (const t of ['', ' ', 'a', null, 42, '%%', '__', '\\\\']) expect(await buscarAlimentos(T.ctx, t, app.db), String(t)).toEqual([]);
     expect(palavrasDaBusca('  Feijão,  carioca ')).toEqual(['feijão', 'carioca']);
     expect(palavrasDaBusca('x'.repeat(200))[0]).toHaveLength(60);
+    // SUS-114: o corte é por code point; 59 letras + emoji ficam inteiros e o emoji no 61º não deixa metade de um par
+    expect(palavrasDaBusca(`${'a'.repeat(59)}🙂`)[0]).toBe(`${'a'.repeat(59)}🙂`);
+    expect(palavrasDaBusca(`${'a'.repeat(60)}🙂`)[0]).toBe('a'.repeat(60));
+    expect(palavrasDaBusca('🙂'.repeat(61))[0]).toBe('🙂'.repeat(60));
   });
 
   it('SUS-115: "％", "＿" e "＼" de largura cheia são literais depois do app_unaccent (não listam a tabela inteira)', async () => {

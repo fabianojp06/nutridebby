@@ -54,9 +54,10 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
       NUTRI_DB_NAME: inject('pgDatabase'),
       // SUS-107: o banco do Vitest é um só para todos os arquivos, e o dump dele inteiro crescia com os dados dos outros
       // testes (3,8 s com 14 MB, 14,5 s com 254 MB) até estourar o prazo sob carga. Aqui o dump passa só pela tabela que
-      // estes testes controlam — o caminho (pg_dump -Fc no container → crypt → retenção → registro) é o mesmo; o dump do
-      // banco inteiro, restaurado de verdade, é provado em test/restauracao.test.ts. Quem precisa de outros argumentos
-      // (falha no dump) passa os seus.
+      // estes testes controlam — o caminho (pg_dump -Fc no container → crypt → retenção → registro) é o mesmo. O script
+      // com o dump do banco INTEIRO (sem NUTRI_PG_DUMP_ARGS, como roda no host) tem um caso só, o último, com prazo
+      // próprio; o dump inteiro restaurado de verdade é provado em test/restauracao.test.ts (que faz o próprio pg_dump,
+      // sem o script). Quem precisa de outros argumentos (falha no dump) passa os seus.
       NUTRI_PG_DUMP_ARGS: '--table=backup_runs',
     } as unknown as NodeJS.ProcessEnv;
   });
@@ -268,6 +269,23 @@ describe.skipIf(!temRclone)('backup diário no host (RNF-05)', () => {
     expect((await cat('db/globais.sql')).toString()).toBe('CREATE ROLE nutri_app_role; -- copia boa');
     expect(await lsf('db/')).not.toContain('globais.sql.novo');
   });
+
+  // SUS-107 (revisão do #76): único caso que roda o script como no host, com o dump do banco inteiro (sem
+  // NUTRI_PG_DUMP_ARGS). O prazo é próprio porque o dump inteiro cresce com os dados dos outros arquivos de teste:
+  // medido com o banco quase vazio (só este arquivo): 2,0 s isolado e 2,3 s com 6 laços de CPU concorrentes (load ~10);
+  // na suíte inteira o banco chega a 254 MB e o dump inteiro levou 14,5 s sob carga (SUS-107), daí 60 s (~4x).
+  it('dump do banco inteiro (como no host, sem NUTRI_PG_DUMP_ARGS): sai 0, dump cifrado válido e registro ok', async () => {
+    const envInteiro = { ...env };
+    delete envInteiro.NUTRI_PG_DUMP_ARGS;
+    const antes = await referencia();
+    const r = await execFile('bash', [SCRIPT], { env: { ...envInteiro, NUTRI_BACKUP_TODAY: '2026-10-12' } }).then(
+      () => 0,
+      (e: { code?: number }) => e.code ?? 1,
+    ); // 12/10/2026 é segunda: sem semanal
+    expect(r).toBe(0);
+    expect((await cat('db/diario/nutri-2026-10-12.dump')).subarray(0, 5).toString()).toBe('PGDMP');
+    expect(await execucoesDesde(antes)).toEqual([{ tipo: 'arquivos', ok: true }, { tipo: 'banco', ok: true }]);
+  }, 60_000);
 });
 
 describe('regra 10 (CLAUDE.md): o nutri-backup.sh só roda aqui', () => {

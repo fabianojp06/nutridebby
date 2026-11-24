@@ -2,7 +2,7 @@ import { desc, eq } from 'drizzle-orm';
 import type { Tx } from '@/db/client';
 import { anamneses, type AnamneseRow, type PatientRow } from '@/db/schema';
 import { lerDecimal } from '@/lib/numero';
-import { normalizarTexto } from '@/lib/text';
+import { caracteres, normalizarTexto } from '@/lib/text';
 import { hojeNoFuso, idadeEm } from '@/modules/pacientes/datas';
 import { MAX_REFEICOES, META_MAX, META_MIN, MSG_PLANO } from '@/modules/plano-alimentar/constantes';
 import type { Categoria } from './campos-enviados';
@@ -46,7 +46,7 @@ export function validarMetas(bruto: unknown): { ok: true; metas: MetasDoRascunho
     const r = (bruta !== null && typeof bruta === 'object' ? bruta : {}) as Record<string, unknown>;
     const nome = normalizarTexto(r.nome);
     const horario = typeof r.horario === 'string' ? r.horario.trim() : '';
-    if (!nome || nome.length > 60) erros[`refeicao:${i}:nome`] = MSG_PLANO.refeicaoNome;
+    if (!nome || caracteres(nome) > 60) erros[`refeicao:${i}:nome`] = MSG_PLANO.refeicaoNome;
     if (!HORARIO.test(horario)) erros[`refeicao:${i}:horario`] = MSG_PLANO.horario;
     return { nome, horario };
   });

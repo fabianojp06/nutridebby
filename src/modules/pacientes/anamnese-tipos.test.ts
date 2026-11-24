@@ -57,6 +57,22 @@ describe('validarModelo (US-012)', () => {
   });
 });
 
+describe('validarModelo: corte por code point (SUS-114)', () => {
+  it('nome, rótulo e unidade cortados no limite nunca partem um par substituto (sem U+FFFD)', () => {
+    const v = validarModelo({
+      nome: `${'n'.repeat(79)}🙂🙂`,
+      perguntas: [{ tipo: 'numero', rotulo: `${'a'.repeat(199)}🙂🙂`, obrigatoria: false, unidade: `${'u'.repeat(19)}🙂🙂` }],
+    });
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.nome).toBe(`${'n'.repeat(79)}🙂`);
+    expect(v.perguntas[0]!.rotulo).toBe(`${'a'.repeat(199)}🙂`);
+    expect(v.perguntas[0]!.unidade).toBe(`${'u'.repeat(19)}🙂`);
+    for (const s of [v.nome, v.perguntas[0]!.rotulo, v.perguntas[0]!.unidade!]) expect(s).not.toContain('\uFFFD');
+    expect(JSON.stringify(v)).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  });
+});
+
 describe('validarRespostas', () => {
   it('"Obrigatória não preenchida": "Responda: Alergias" (e nada mais é aceito)', () => {
     expect(validarRespostas(P, {})).toEqual({ ok: false, erros: { [id(1)]: 'Responda: Alergias' } });

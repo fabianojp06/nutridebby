@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { caracteres } from '@/lib/text';
 import { gramasDaMedida, QTD_MEDIDA_MAX } from '@/modules/alimentos/medidas-constantes';
 import { lerQuantidade } from '@/modules/plano-alimentar/calculo';
 import { MAX_ITENS, MAX_REFEICOES, MAX_TEXTO, META_MAX, META_MIN } from '@/modules/plano-alimentar/constantes';
@@ -125,13 +126,13 @@ export function validarPlanoIa(bruto: unknown, cat: CatalogoDaTarefa): PlanoIa |
   if (p.data.refeicoes.reduce((n, r) => n + r.itens.length, 0) > MAX_ITENS) return null;
   const titulo = limparLinha(p.data.titulo);
   const orientacoes = limparTexto(p.data.orientacoes ?? '');
-  if (!titulo || titulo.length > MAX_TITULO || orientacoes.length > MAX_TEXTO) return null;
+  if (!titulo || caracteres(titulo) > MAX_TITULO || caracteres(orientacoes) > MAX_TEXTO) return null;
   const meta = p.data.meta_kcal;
   let descartados = 0;
   const refeicoes: RefeicaoIa[] = [];
   for (const r of p.data.refeicoes) {
     const nome = limparLinha(r.nome);
-    if (!nome || nome.length > MAX_NOME_REFEICAO || !HORARIO.test(r.horario)) {
+    if (!nome || caracteres(nome) > MAX_NOME_REFEICAO || !HORARIO.test(r.horario)) {
       descartados += r.itens.length;
       continue;
     }

@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { Botao, classeDoBotao } from '@/components/ui/botao';
+import { maxLengthPorCaracteres } from '@/lib/text';
 import { MSG_RASCUNHO_IA } from '@/modules/ia/constantes';
 import { MAX_REFEICOES } from '@/modules/plano-alimentar/constantes';
 import type { MetasState } from './actions';
@@ -77,7 +78,7 @@ export function MetasForm({ acao, inicial }: { acao: Acao; inicial: { metaKcal: 
                   <input
                     id={`${r.chave}-nome`}
                     name="refeicaoNome"
-                    maxLength={60}
+                    maxLength={maxLengthPorCaracteres(60)}
                     value={r.nome}
                     onChange={(e) => mudar(r.chave, 'nome', e.target.value)}
                     ref={(el) => {
