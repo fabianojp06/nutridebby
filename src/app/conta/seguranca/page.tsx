@@ -25,7 +25,8 @@ export default async function SegurancaPage() {
           {/* quem cai aqui obrigado a ativar o 2FA precisa poder sair sem configurar */}
           <BotaoSair className="inline-flex min-h-11 items-center rounded-full border border-campo px-4" />
         </div>
-        <AjudaSeguranca />
+        {/* Plano 26 (RE-D42): o guia do papel; o admin vê o da nutricionista, como antes */}
+        <AjudaSeguranca papel={user.appRole === 'recepcao' ? 'recepcao' : 'nutri'} />
         {user.twoFactorEnabled ? (
           <p>A verificação em duas etapas está ativa.</p>
         ) : (

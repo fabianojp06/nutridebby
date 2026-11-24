@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ID_GUIA } from '@/modules/plataforma/preferencias-tipos';
-import { GUIAS, guiaDaRota, ID_BOAS_VINDAS, precisaDoGuia } from './conteudo';
+import { GUIAS, guiaDaRota, guiasDoPapel, ID_BOAS_VINDAS, ID_TOUR_DO_INICIO, papeisDoGuia, precisaDoGuia } from './conteudo';
 
 const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.tsx')).map((d) => path.join(d.parentPath, d.name)))
@@ -339,5 +339,52 @@ describe('Plano 26 (T7): o guia da Equipe', () => {
       ['convidar', 'Convide a pessoa da recepção. Ela cuida da agenda e do cadastro e não vê dados de saúde.'],
       ['permissao-financeiro', 'Marque se ela também cuida do Financeiro.'],
     ]);
+  });
+});
+
+describe('Plano 26 (T8, RE-D42): manual guiado por papel', () => {
+  const PROIBIDAS_NA_RECEPCAO = [/Configura[çc][õo]es/i, /Realizada/i, /Iniciar atendimento/i, /Ver bloqueados/i, /etiqueta/i, /\barquivar\b/i];
+  const textosDe = (g: (typeof GUIAS)[number]) => [g.titulo, g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => [s.titulo, ...s.itens]), ...g.passos.flatMap((p) => [p.titulo, p.texto])];
+  const daRecepcao = GUIAS.filter((g) => papeisDoGuia(g).includes('recepcao'));
+
+  it('sem `papeis`, o guia é só da nutricionista; o boas-vindas é só dela e o Início da recepção tem o tour próprio', () => {
+    const boasVindas = GUIAS.find((g) => g.id === ID_BOAS_VINDAS)!;
+    expect(papeisDoGuia(boasVindas)).toEqual(['nutri']);
+    expect(guiaDaRota('/painel', 'nutri')?.id).toBe(ID_BOAS_VINDAS);
+    expect(guiaDaRota('/painel')?.id).toBe(ID_BOAS_VINDAS); // padrão: a nutricionista
+    expect(guiaDaRota('/painel', 'recepcao')?.id).toBe('recepcao-inicio');
+    expect(ID_TOUR_DO_INICIO).toEqual({ nutri: ID_BOAS_VINDAS, recepcao: 'recepcao-inicio' });
+    for (const g of GUIAS.filter((x) => !x.papeis)) expect(papeisDoGuia(g), g.id).toEqual(['nutri']);
+  });
+  it('o guia `recepcao-inicio` (v1, só da recepção, em /painel) aponta para alvos do Início dela e do cabeçalho', () => {
+    const g = GUIAS.find((x) => x.id === 'recepcao-inicio')!;
+    expect(g).toMatchObject({ versao: 1, papeis: ['recepcao'] });
+    expect(g.padrao.test('/painel')).toBe(true);
+    expect(g.padrao.test('/painel/agenda')).toBe(false);
+    const alvos = g.passos.flatMap((p) => (p.alvo ? [p.alvo] : []));
+    expect(alvos).toEqual(expect.arrayContaining(['menu', 'agenda-hoje', 'presenca']));
+    expect(alvos.filter((a) => !['menu', 'agenda-hoje', 'presenca', 'tema', 'ajuda', 'conta'].includes(a))).toEqual([]);
+    expect(GUIAS.at(-1)?.id).toBe('financeiro'); // o Financeiro continua o último
+  });
+  it('a recepção não vê nenhum guia clínico nem da nutricionista: só os `recepcao-*` e a Segurança', () => {
+    const ids = guiasDoPapel('recepcao').map((g) => g.id);
+    expect(ids).toContain('recepcao-inicio');
+    expect(ids.filter((id) => !id.startsWith('recepcao-') && id !== 'seguranca')).toEqual([]);
+    for (const rota of ['/painel/pacientes', `/painel/pacientes/${UUID}`, `/painel/pacientes/${UUID}/plano-alimentar`, '/painel/agenda', '/painel/diarios', '/painel/configuracoes', '/painel/financeiro', '/painel/relatorios'])
+      expect(guiaDaRota(rota, 'recepcao'), rota).toBeNull();
+    expect(guiaDaRota('/conta/seguranca', 'recepcao')?.id).toBe('seguranca');
+    expect(guiasDoPapel('nutri').map((g) => g.id)).not.toContain('recepcao-inicio');
+  });
+  it.each(daRecepcao.map((g) => [g.id]))('o guia %s, que a recepção vê, não cita Configurações, Realizada, Iniciar atendimento, Ver bloqueados, Etiqueta nem Arquivar', (id) => {
+    const textos = textosDe(GUIAS.find((g) => g.id === id)!);
+    for (const p of PROIBIDAS_NA_RECEPCAO) expect(textos.filter((t) => p.test(t)), `${id}: ${p}`).toEqual([]);
+  });
+  it('todo chamador de guiaDaRota fora dos testes passa o papel da sessão (o padrão `nutri` é só para os testes antigos)', () => {
+    const fontes = ['src', 'scripts']
+      .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && /\.tsx?$/.test(d.name) && !/\.test\.tsx?$/.test(d.name)).map((d) => path.join(d.parentPath, d.name)))
+      .filter((f) => !f.endsWith(path.join('modules', 'ajuda', 'conteudo.ts')));
+    const chamadas = fontes.flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/\bguiaDaRota\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g)].map((m) => ({ f: path.relative(process.cwd(), f), args: m[1] })));
+    expect(chamadas.length).toBeGreaterThan(0);
+    expect(chamadas.filter((c) => !c.args.includes(',')).map((c) => `${c.f}: guiaDaRota(${c.args})`)).toEqual([]);
   });
 });

@@ -80,8 +80,8 @@ export async function reenviarAction(formData: FormData): Promise<void> {
 
 /** RN-502: "Salvar permissão" — a caixa "Permitir acesso ao Controle Financeiro" da linha. */
 export async function permissaoAction(formData: FormData): Promise<void> {
-  const financeiro = formData.get('financeiro') === 'on';
-  await acaoDaLinha(formData, 'permissao', (ctx, id) => definirPermissaoFinanceiro(ctx, id, financeiro));
+  // o formulário só é lido depois da sessão (acaoDaLinha): uma sessão de outro papel vai ao aviso, nunca a um erro
+  await acaoDaLinha(formData, 'permissao', (ctx, id) => definirPermissaoFinanceiro(ctx, id, formData.get('financeiro') === 'on'));
 }
 
 /** RN-503: "Desativar" (confirmado no navegador pelo `ConfirmarBotao`). */

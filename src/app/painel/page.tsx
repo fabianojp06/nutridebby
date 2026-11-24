@@ -16,6 +16,7 @@ import { MSG_COTA } from '@/modules/notificacoes/whatsapp/cota';
 import { formatarData } from '@/modules/pacientes/datas';
 import { COTA_BYTES, MSG_COTA_ESGOTADA, nivelDeUso } from '@/modules/plataforma/armazenamento';
 import { DIAS_CS01 } from '@/modules/plataforma/metricas-sucesso';
+import { InicioDaRecepcao } from './inicio-recepcao';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,15 +28,10 @@ const LINK_PILULA = 'inline-flex min-h-11 items-center rounded-full border borde
 
 export default async function PainelHome() {
   const { data, tenant, ctx, papel } = await requireEquipe('/painel');
-  // Plano 26 (RN-514): a recepção tem o Início dela — o h1 de sempre; a T8 traz a agenda do dia e a presença a registrar.
-  // Nada do Início da nutricionista (indicadores, armazenamento, WhatsApp, IA, exames) é lido na sessão dela.
-  if (papel === 'recepcao') {
-    return (
-      <main className="mx-auto w-full max-w-[1360px] space-y-4 p-4 md:p-6">
-        <h1 className="font-titulo text-3xl font-extrabold">{`Seu dia, ${primeiroNome(data.user.name)}`}</h1>
-      </main>
-    );
-  }
+  // Plano 26 (RN-514, RE-D63): a recepção tem o Início dela (o trabalho do dia, inicio-recepcao.tsx). Nada do Início da
+  // nutricionista (indicadores, armazenamento, WhatsApp, IA, exames, diários, documentos) é lido na sessão dela: o espião de
+  // leituras negadas de page.test.ts falha se este ramo chamar algum (R-482).
+  if (papel === 'recepcao') return <InicioDaRecepcao nome={data.user.name} ctx={ctx} tenant={tenant} />;
   const agora = new Date();
   // tudo numa transação só: com leituras em paralelo, o Início de duas nutricionistas ocupava o pool (achado 3)
   const { whatsapp, cota, indicadores: ind, pendentes, novidades: nov, pedidos, dia, naoVistos, metricas: cs, documentosAguardando } = await lerInicio(ctx, tenant, agora, { whatsappLigado: provedorDoApp() !== null });

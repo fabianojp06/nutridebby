@@ -3,7 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Tour } from '@/components/guia/tour';
-import { guiaDaRota, GUIAS, ID_BOAS_VINDAS, precisaDoGuia, type Guia } from '@/modules/ajuda/conteudo';
+import { guiaDaRota, GUIAS, ID_TOUR_DO_INICIO, precisaDoGuia, type Guia, type PapelDoGuia } from '@/modules/ajuda/conteudo';
 import { aplicarMarca, type EstadoGuia, type ProgressoGuia } from '@/modules/plataforma/preferencias-tipos';
 import { marcarGuiaAction } from '../preferencias/actions';
 import { GavetaAjuda } from './gaveta-ajuda';
@@ -24,13 +24,16 @@ function gravar(g: Guia, estado: EstadoGuia) {
  * ao Início pelo menu não o reabre. A gaveta e o tour aberto à mão valem para a tela em que foram abertos: o layout fica
  * montado ao navegar (link do manual, voltar do navegador), e um <dialog> modal aberto cobriria a tela seguinte.
  * Sem efeito que muda estado: o que depende da rota, da busca ou do layout é derivado no render.
+ *
+ * Plano 26 (RE-D42): por papel. A recepção vê só os guias dela (`guiaDaRota(caminho, papel)`), e o tour que abre sozinho no
+ * Início é o `recepcao-inicio`, nunca o `boas-vindas` (`ID_TOUR_DO_INICIO`); o `?tour=` reabre o do papel.
  */
-export function GuiaDoPainel({ progresso: inicial }: { progresso: ProgressoGuia }) {
+export function GuiaDoPainel({ progresso: inicial, papel }: { progresso: ProgressoGuia; papel: PapelDoGuia }) {
   const caminho = usePathname();
   const busca = useSearchParams().toString();
   const router = useRouter();
-  const guia = guiaDaRota(caminho);
-  const boasVindas = GUIAS[0];
+  const guia = guiaDaRota(caminho, papel);
+  const boasVindas = GUIAS.find((g) => g.id === ID_TOUR_DO_INICIO[papel])!;
   const [progresso, setProgresso] = useState<ProgressoGuia>(inicial);
   const [tourManual, setTourManual] = useState<{ guia: Guia; em: string } | null>(null);
   const [gavetaEm, setGavetaEm] = useState<string | null>(null);
@@ -54,12 +57,12 @@ export function GuiaDoPainel({ progresso: inicial }: { progresso: ProgressoGuia 
     if (anterior.inicial !== inicial) setProgresso((local) => ({ ...inicial, ...local }));
     // ao sair da tela, o "visto" (já gravado no servidor) entra no estado local: voltar a ela pelo menu não mostra o aviso de novo
     const a = anterior.guia;
-    if (a !== guia && a && a.id !== ID_BOAS_VINDAS) setProgresso((p) => aplicarMarca(p, a.id, a.versao, 'visto'));
+    if (a !== guia && a && a.id !== boasVindas.id) setProgresso((p) => aplicarMarca(p, a.id, a.versao, 'visto'));
     if (anterior.busca !== busca) setParamFechado(false);
   }
 
   const noInicio = caminho === '/painel';
-  const pedidoNaUrl = noInicio && !paramFechado && new URLSearchParams(busca).get('tour') === ID_BOAS_VINDAS;
+  const pedidoNaUrl = noInicio && !paramFechado && new URLSearchParams(busca).get('tour') === boasVindas.id;
   const tour =
     (tourManual?.em === caminho ? tourManual.guia : null) ??
     (pedidoNaUrl || (noInicio && precisaDoGuia(progresso, boasVindas, ['concluido', 'dispensado'])) ? boasVindas : null);
@@ -71,7 +74,7 @@ export function GuiaDoPainel({ progresso: inicial }: { progresso: ProgressoGuia 
   const fecharAviso = (id: string) => setAvisosFechados((f) => new Set(f).add(id));
   const abrirTour = (g: Guia) => setTourManual({ guia: g, em: caminho });
 
-  const mostrarAviso = !!guia && guia.id !== ID_BOAS_VINDAS && !avisosFechados.has(guia.id) && precisaDoGuia(progresso, guia, ['concluido', 'dispensado', 'visto']);
+  const mostrarAviso = !!guia && guia.id !== boasVindas.id && !avisosFechados.has(guia.id) && precisaDoGuia(progresso, guia, ['concluido', 'dispensado', 'visto']);
   useEffect(() => {
     // D27: o aviso aparece uma vez. Marca no servidor sem tirar o aviso desta visita (ele some ao dispensar ou ao navegar)
     if (mostrarAviso && guia) gravar(guia, 'visto');

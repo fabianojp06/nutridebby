@@ -31,6 +31,12 @@ export const MSG_RECEPCAO = {
   },
   /** RN-500 (RE-D20): o 2FA obrigatório, na Segurança da conta. */
   doisFatoresObrigatorio: 'A recepção precisa da verificação em duas etapas. Configure agora para continuar.',
+  /** Plano 26 (T8, §6.2 "Menu da conta"): o nome e o papel no menu da conta da recepção. */
+  menuDaConta: (nome: string) => `${nome} · Recepção`,
+  /** RE-D59 (§6.2 "Solicitações (recepção)"): os pedidos de pessoa nova ficam com a nutricionista. */
+  pedidosPessoaNova: 'Pedidos de pessoas ainda sem cadastro ficam com a nutricionista.',
+  /** RN-509 (§6.2 "Presença (recepção)"): ela só registra "Faltou". */
+  presenca: 'Para marcar como realizada, a nutricionista registra o atendimento ou marca a presença.',
 } as const;
 
 /**

@@ -1,7 +1,15 @@
 /** P08-10 (D26): o manual guiado. Texto RASCUNHO até o dono e a Debby aprovarem (P08-08); espelhado na spec (US-057). Nenhum dado de saúde nos exemplos. */
 export type Passo = { alvo?: string; titulo: string; texto: string };
+/** Plano 26 (RE-D42): os papéis do painel que têm manual guiado (a nutricionista e a recepção). */
+export type PapelDoGuia = 'nutri' | 'recepcao';
 export type Guia = {
   id: string;
+  /**
+   * Plano 26 (RE-D42): quem vê o guia (no tour, na gaveta e no manual completo). Sem o campo, só a nutricionista
+   * (`PAPEIS_PADRAO`): guia novo de outro plano continua dela sem ninguém lembrar. Os guias da recepção são próprios
+   * (`recepcao-*`), não variantes dos da nutricionista.
+   */
+  papeis?: readonly PapelDoGuia[];
   /** Sobe quando o texto muda de verdade: o aviso "Primeira vez aqui?" volta a aparecer (D27). */
   versao: number;
   /** Caminhos em que o guia vale (o primeiro guia da lista que casar). */
@@ -445,6 +453,8 @@ export const GUIAS: readonly Guia[] = [
   {
     id: 'seguranca',
     versao: 1,
+    // Plano 26 (RE-D42): a Segurança é da nutricionista e da recepção (o admin vê a da nutricionista, como antes: AjudaSeguranca)
+    papeis: ['nutri', 'recepcao'],
     padrao: /^\/conta\/seguranca$/,
     titulo: 'Segurança da conta',
     ajuda: {
@@ -545,6 +555,47 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'exportar', titulo: 'Baixar ou imprimir', texto: 'Baixe em CSV para planilha ou imprima e salve em PDF.' },
     ],
   },
+  // Plano 26 (RE-D42, RN-514, spec §6.2): os guias da recepção são próprios (`recepcao-*`, `papeis: ['recepcao']`), antes do
+  // Financeiro, que continua o último da lista. O PR 2 traz o do Início; os de pacientes, cadastro, agenda e financeiro
+  // chegam com as telas dela no PR 3. Nunca citam Configurações, Realizada, Iniciar atendimento, Ver bloqueados, etiqueta nem
+  // arquivar (guarda em conteudo.test.ts): ela não tem essas telas nem esses botões.
+  {
+    id: 'recepcao-inicio',
+    versao: 1,
+    papeis: ['recepcao'],
+    padrao: /^\/painel$/,
+    titulo: 'Início da recepção',
+    ajuda: {
+      resumo: 'O Início mostra o trabalho do dia na recepção: a agenda de hoje, as consultas com presença a registrar e o que os pacientes fizeram na agenda.',
+      secoes: [
+        {
+          titulo: 'O que dá para fazer aqui',
+          itens: [
+            'Ver as consultas de hoje, com o horário, o paciente e a situação de cada uma.',
+            'Achar as consultas que já passaram e continuam sem registro de presença.',
+            'Acompanhar os pedidos de remarcação e as consultas marcadas ou canceladas pelos pacientes nos últimos 7 dias.',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'A recepção registra a falta do paciente; o atendimento é registrado pela nutricionista.',
+            'Os números do mês, como a taxa de faltas, ficam em Relatórios, na aba Agenda.',
+            'Pedidos de pessoas ainda sem cadastro ficam com a nutricionista.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { titulo: 'Boas-vindas à recepção', texto: 'Um passeio rápido pelo painel da recepção. Você pode pular agora e rever depois no menu da sua conta.' },
+      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Início, Pacientes, Agenda e Relatórios ficam no topo. Com a permissão do Financeiro, o Financeiro aparece também.' },
+      { alvo: 'agenda-hoje', titulo: 'Agenda de hoje', texto: 'As consultas de hoje, com o horário, o paciente e a situação. Abra uma consulta para confirmar, remarcar ou cancelar.' },
+      { alvo: 'presenca', titulo: 'Presença a registrar', texto: 'Consultas que já passaram e continuam sem registro de presença. A recepção marca a falta; o atendimento é registrado pela nutricionista.' },
+      { alvo: 'tema', titulo: 'Claro ou escuro', texto: 'Este botão liga e desliga o modo escuro. A escolha fica salva na sua conta, em qualquer aparelho.' },
+      { alvo: 'ajuda', titulo: 'Ajuda em cada tela', texto: 'Em qualquer tela, este botão explica o que dá para fazer ali e abre o manual.' },
+      { alvo: 'conta', titulo: 'Sua conta', texto: 'Segurança, o manual, este tour e o Sair ficam aqui.' },
+    ],
+  },
   {
     // Plano 20: no FIM da lista (o Plano 18 insere guias antes de 'prontuario'). Textos finais do revisor-interface
     // (17/11/2026). O tour mostra todos os passos em qualquer tela do Financeiro: o passo cujo alvo não está na tela abre
@@ -594,8 +645,21 @@ export const GUIAS: readonly Guia[] = [
   },
 ];
 
-export function guiaDaRota(caminho: string): Guia | null {
-  return GUIAS.find((g) => g.padrao.test(caminho)) ?? null;
+/** Plano 26 (RE-D42): sem `papeis`, o guia é só da nutricionista. */
+export const PAPEIS_PADRAO: readonly PapelDoGuia[] = ['nutri'];
+export const papeisDoGuia = (g: Guia): readonly PapelDoGuia[] => g.papeis ?? PAPEIS_PADRAO;
+/** Plano 26 (RE-D42): os guias que o papel vê, na ordem de GUIAS (o manual completo de `/painel/ajuda`). */
+export const guiasDoPapel = (papel: PapelDoGuia): Guia[] => GUIAS.filter((g) => papeisDoGuia(g).includes(papel));
+
+/**
+ * O guia da tela: o primeiro da lista que casar com o caminho, entre os do papel (Plano 26, RE-D42). Todo chamador passa o
+ * papel da sessão (guarda em conteudo.test.ts); o padrão `'nutri'` é só para os testes antigos, que leem os guias dela.
+ */
+export function guiaDaRota(caminho: string, papel: PapelDoGuia = 'nutri'): Guia | null {
+  return GUIAS.find((g) => papeisDoGuia(g).includes(papel) && g.padrao.test(caminho)) ?? null;
 }
+
+/** Plano 26 (RE-D42): o tour que abre sozinho no primeiro acesso ao Início (e pelo `?tour=` do "Rever o tour"), por papel. */
+export const ID_TOUR_DO_INICIO: Record<PapelDoGuia, string> = { nutri: ID_BOAS_VINDAS, recepcao: 'recepcao-inicio' };
 
 export { precisaDoGuia } from './precisa-do-guia';

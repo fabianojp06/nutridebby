@@ -9,11 +9,14 @@ import { criarPacientePeloFormulario } from './pacientes-form';
  * nenhuma leitura registrada no Histórico de acessos do paciente. As contas vêm da semente (scripts/e2e-seed.ts, criadas
  * uma vez e reaproveitadas — RE-D46, RE-D69), copiadas aqui: importar o seed roda o seed. O 2FA de teste é o mesmo segredo
  * da E2E_DOCS (o Better Auth usa os bytes UTF-8 dele: `Secret.fromUTF8`).
- * IPs (limite de login por IP): bloco 10.9.36.x (RE-D50) — 10.9.36.10 (recepção), .12 (nutricionista) e .13 (a recepção
- * do consultório com o contrato pendente) aqui; .11 no sessao-equipe.spec; .14 a .19 ficam para a sessão e o convite.
+ * IPs (limite de login por IP): bloco 10.9.36.x (RE-D50) — 10.9.36.10 (recepção), .12 (nutricionista), .13 (a recepção
+ * do consultório com o contrato pendente) e .14 (a recepção com o Financeiro, no tour do primeiro acesso, T8) aqui; .11 no
+ * sessao-equipe.spec; .15 e .16 no acessibilidade-painel.spec (axe da recepção, T8); .17 a .19 ficam para a sessão e o convite.
  */
 const RECEPCAO = { email: 'recepcao-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção E2E' };
 const NUTRI = { email: 'nutri-e2e@nutridebby.test', senha: 'Nutri2026segura' };
+// T8 (RE-D42, RE-D46): a recepção com a permissão do Financeiro, com o manual guiado zerado pela semente a cada execução
+const RECEPCAO_FIN = { email: 'recepcao-fin-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', nome: 'Recepção Financeiro E2E' };
 // RN-501: a recepção de um consultório com o DPA numa versão antiga (a semente o põe assim a cada execução)
 const RECEPCAO_CONTRATO = { email: 'recepcao-contrato-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
 test.describe.configure({ mode: 'serial', retries: 0 });
@@ -90,5 +93,41 @@ test('DPA do consultório pendente: toda tela leva a "Contrato do consultório p
   expect((await sair.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await sair.click();
   await expect(page).toHaveURL(/\/entrar/);
+  await page.context().close();
+});
+
+test('primeiro acesso da recepção: o tour é o dela (nunca o boas-vindas), o menu e o menu da conta são os dela e o tema muda pelo cabeçalho (RE-D42, US-490)', async ({ browser }) => {
+  const { page } = await entrarComoRecepcao(browser, '10.9.36.14', RECEPCAO_FIN);
+  await page.waitForLoadState('networkidle'); // o <dialog> só abre depois da hidratação (useLayoutEffect)
+  const tour = page.getByRole('dialog', { name: 'Boas-vindas à recepção' });
+  await expect(tour).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Boas-vindas ao NutriDebby' })).toHaveCount(0);
+  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Próximo' }).click();
+  await expect(page.getByText('7 de 7')).toBeVisible();
+  await page.getByRole('button', { name: 'Concluir' }).click();
+  await expect(page.getByRole('dialog', { name: /Boas-vindas à recepção|Menu do painel|Agenda de hoje|Presença a registrar|Claro ou escuro|Ajuda em cada tela|Sua conta/ })).toBeHidden();
+  // o menu dela, com o Financeiro (a permissão), e o menu da conta dela
+  await expect(page.getByRole('navigation', { name: 'Menu do painel' }).getByRole('link')).toHaveText(['Início', 'Pacientes', 'Agenda', 'Financeiro', 'Relatórios']);
+  await page.getByLabel(/^Conta de /).click();
+  await expect(page.getByText(`${RECEPCAO_FIN.nome} · Recepção`)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Rever o tour', exact: true })).toHaveAttribute('href', '/painel?tour=recepcao-inicio');
+  await expect(page.getByRole('link', { name: 'Perfil e marca' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  // concluído: recarregar não reabre o tour
+  await page.reload();
+  await page.waitForLoadState('networkidle');
+  await expect(tour).toBeHidden();
+  // o tema pelo botão do cabeçalho (alternarTemaAction com requireEquipe): grava na conta e vale ao recarregar
+  const botao = page.getByRole('button', { name: 'Modo escuro' });
+  const escuro = (await botao.getAttribute('aria-pressed')) !== 'true';
+  await botao.click();
+  await expect(botao).toHaveAttribute('aria-pressed', String(escuro));
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Modo escuro' })).toHaveAttribute('aria-pressed', String(escuro));
+  // de volta ao claro (as outras specs esperam o painel claro)
+  if (escuro) {
+    await page.getByRole('button', { name: 'Modo escuro' }).click();
+    await expect(page.getByRole('button', { name: 'Modo escuro' })).toHaveAttribute('aria-pressed', 'false');
+  }
   await page.context().close();
 });

@@ -1,9 +1,12 @@
-import { guiaDaRota } from '@/modules/ajuda/conteudo';
+import { guiaDaRota, type PapelDoGuia } from '@/modules/ajuda/conteudo';
 import { SECURITY_PATH } from '@/lib/session-rules';
 
-/** D18 (Plano 10A): /conta/seguranca não tem o GuiaDoPainel (fora do layout do painel); o guia aparece aqui, aberto ou fechado. */
-export function AjudaSeguranca() {
-  const g = guiaDaRota(SECURITY_PATH);
+/**
+ * D18 (Plano 10A): /conta/seguranca não tem o GuiaDoPainel (fora do layout do painel); o guia aparece aqui, aberto ou
+ * fechado. Plano 26 (RE-D42): o guia do papel da sessão.
+ */
+export function AjudaSeguranca({ papel }: { papel: PapelDoGuia }) {
+  const g = guiaDaRota(SECURITY_PATH, papel);
   if (!g) return null;
   return (
     <details className="rounded-2xl border border-borda bg-cartao p-4">

@@ -154,3 +154,11 @@ export async function consultaParaIniciarAtendimento(ctx: TenantContext, patient
   const [c] = await listarConsultas(ctx, onde, { ordem: 'asc', limite: 1 }, db);
   return c && motivoParaNaoIniciarAtendimento(c, agora) === null ? c : null;
 }
+
+/**
+ * Plano 26 (RN-514): as pendências de presença numa transação já aberta, as `limite` mais antigas (o Início da recepção lê
+ * tudo numa só; a contagem do título vem de `contarPendenciasDePresencaNaTransacao`).
+ */
+export function pendenciasDePresencaNaTransacao(tx: Tx, agora: Date, limite: number): Promise<Consulta[]> {
+  return listarConsultasNaTransacao(tx, semRegistro(agora), { ordem: 'asc', limite });
+}

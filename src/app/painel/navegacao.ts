@@ -21,7 +21,19 @@ export const ITEM_EXAMES = { href: '/painel/exames-recebidos', rotulo: 'Exames r
 /** Plano 15 (US-175): "Dúvidas dos pacientes" — com a IA Nutri ativada ou com dúvida aberta (o layout decide), antes de "Conteúdos". */
 export const ITEM_DUVIDAS = { href: '/painel/duvidas', rotulo: 'Dúvidas dos pacientes' } as const;
 
-export function itensDoMenu(o: { exames: boolean; duvidas?: boolean }): { href: string; rotulo: string }[] {
+/**
+ * Plano 26 (RN-514, §4.1): o menu da recepção — Início, Pacientes, Agenda, Financeiro (só com a permissão) e Relatórios, na
+ * ordem do menu da nutricionista. Nunca Diários, Exames recebidos, Dúvidas dos pacientes, Conteúdos e Configurações; os
+ * contadores clínicos nem são lidos para ela (layout.tsx). Item novo de outro plano fica fora do menu dela por padrão.
+ */
+export const ITENS_DA_RECEPCAO: readonly string[] = ['/painel', '/painel/pacientes', '/painel/agenda', '/painel/financeiro', '/painel/relatorios'];
+
+/**
+ * `papel` e `financeiro` (Plano 26): sem o papel, o menu da nutricionista, como antes (a permissão do Financeiro não se
+ * aplica a ela). Na recepção, `exames` e `duvidas` são ignorados.
+ */
+export function itensDoMenu(o: { exames: boolean; duvidas?: boolean; papel?: 'nutri' | 'recepcao'; financeiro?: boolean }): { href: string; rotulo: string }[] {
+  if (o.papel === 'recepcao') return ITENS_DO_MENU.filter((i) => ITENS_DA_RECEPCAO.includes(i.href) && (i.href !== '/painel/financeiro' || o.financeiro === true));
   const base = o.exames ? [...ITENS_DO_MENU.slice(0, 4), ITEM_EXAMES, ...ITENS_DO_MENU.slice(4)] : [...ITENS_DO_MENU];
   if (!o.duvidas) return base;
   const i = base.findIndex((x) => x.href === '/painel/conteudos');
@@ -38,6 +50,8 @@ const dentro = (caminho: string, base: string) => caminho === base || caminho.st
 
 export function itemAtual(caminho: string): string | null {
   if (caminho === '/painel') return '/painel';
+  // Plano 26 (§4.1): o cadastro do paciente pela recepção (/painel/cadastro/{id}) é da lista de pacientes
+  if (caminho.startsWith('/painel/cadastro/')) return '/painel/pacientes';
   if (DO_HUB.some((b) => dentro(caminho, b))) return '/painel/configuracoes';
   return [...ITENS_DO_MENU, ITEM_EXAMES, ITEM_DUVIDAS].find((i) => i.href !== '/painel' && dentro(caminho, i.href))?.href ?? null;
 }

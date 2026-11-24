@@ -82,4 +82,26 @@ describe('menu do painel (D20)', () => {
     expect(itemAtual('/painel/exames-recebidos')).toBe('/painel/exames-recebidos');
     expect(itemAtual('/painel/exames-recebidos/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b')).toBe('/painel/exames-recebidos');
   });
+
+  it('Plano 26 (RN-514, US-490): o menu da recepção é só Início, Pacientes, Agenda e Relatórios; com a permissão, + Financeiro', () => {
+    const rotulos = (o: Parameters<typeof itensDoMenu>[0]) => itensDoMenu(o).map((i) => i.rotulo);
+    expect(rotulos({ exames: false, papel: 'recepcao', financeiro: false })).toEqual(['Início', 'Pacientes', 'Agenda', 'Relatórios']);
+    expect(rotulos({ exames: false, papel: 'recepcao', financeiro: true })).toEqual(['Início', 'Pacientes', 'Agenda', 'Financeiro', 'Relatórios']);
+    // os itens clínicos e as Configurações nunca entram no dela, nem com o contador ligado (o layout nem lê os contadores)
+    for (const exames of [false, true])
+      for (const duvidas of [false, true])
+        for (const financeiro of [false, true])
+          expect(rotulos({ exames, duvidas, papel: 'recepcao', financeiro }).filter((r) => /^(Diários|Exames recebidos|Dúvidas dos pacientes|Conteúdos|Configurações)$/.test(r)), `${exames}/${duvidas}/${financeiro}`).toEqual([]);
+  });
+  it('Plano 26: o menu da nutricionista não muda com o papel explícito (a permissão do Financeiro não se aplica a ela)', () => {
+    for (const exames of [false, true])
+      for (const duvidas of [false, true])
+        for (const financeiro of [false, true])
+          expect(itensDoMenu({ exames, duvidas, papel: 'nutri', financeiro }), `${exames}/${duvidas}/${financeiro}`).toEqual(itensDoMenu({ exames, duvidas }));
+  });
+  it('Plano 26 (§4.1): o cadastro da recepção (/painel/cadastro/{id}) marca "Pacientes"', () => {
+    for (const caminho of ['/painel/cadastro/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b', '/painel/cadastro/0b8f2a3c-1d2e-4f50-8a9b-0c1d2e3f4a5b/consultas'])
+      expect(itemAtual(caminho), caminho).toBe('/painel/pacientes');
+    expect(itemAtual('/painel/cadastrox')).toBeNull();
+  });
 });

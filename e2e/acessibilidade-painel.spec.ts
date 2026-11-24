@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Browser, type Page } from '@playwright/test';
+import { Secret, TOTP } from 'otpauth';
 import { fichaPelaBusca, SEMENTE_COMPLETA, SEMENTE_INCOMPLETA } from './cadastro';
 import { vigiarCsp } from './csp';
 import { entrarComo } from './helpers';
@@ -452,6 +453,74 @@ test('Plano 26: Relatórios (seções, erro do período e impressão) a 1280 e 3
   } finally {
     await nutri.setViewportSize({ width: 1280, height: 720 });
     await escolherTema(nutri, 'Igual ao aparelho');
+  }
+  expect(falhas).toEqual([]);
+});
+
+/**
+ * Plano 26 (RNF-481, T8): as telas da recepção com a conta DELA — o laço da nutricionista só veria o redirect. O Início da
+ * recepção e "Sem permissão" (os dois textos) com `E2E_RECEPCAO` (manual guiado todo visto pela semente: o tour não cobre a
+ * tela) e "Contrato do consultório pendente" com `E2E_RECEPCAO_CONTRATO` (consultório com o DPA antigo a cada execução), a
+ * 1280 e a 360 px, claro e escuro. A recepção não tem Configurações: o tema muda pelo botão do cabeçalho (`alternarTemaAction`),
+ * que só alterna entre claro e escuro — a conta fica no claro no fim. Contas copiadas da semente (importar o seed roda o
+ * seed); 2FA de teste com o segredo da E2E_DOCS (`Secret.fromUTF8`). IPs 10.9.36.15 e .16 (RE-D50).
+ */
+const RECEPCAO_AXE = { email: 'recepcao-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
+const RECEPCAO_CONTRATO_AXE = { email: 'recepcao-contrato-e2e@nutridebby.test', senha: 'Nutri2026segura', totp: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' };
+
+async function entrarComoRecepcao(browser: Browser, cred: typeof RECEPCAO_AXE, ip: string, destino: RegExp): Promise<Page> {
+  const page = await entrarComo(browser, cred.email, cred.senha, ip, { viewport: { width: 1280, height: 720 } });
+  await expect(page).toHaveURL(/\/entrar\/2fa/);
+  await page.getByLabel('Código do app autenticador').fill(new TOTP({ secret: Secret.fromUTF8(cred.totp), digits: 6, period: 30 }).generate());
+  await page.getByRole('button', { name: 'Verificar' }).click();
+  await expect(page).toHaveURL(destino);
+  return page;
+}
+
+/** O botão "Modo escuro" do cabeçalho (aria-pressed): um clique alterna entre claro e escuro; espera o servidor gravar. */
+async function temaPeloCabecalho(page: Page, escuro: boolean): Promise<void> {
+  await page.goto(page.url());
+  const botao = page.getByRole('button', { name: 'Modo escuro' });
+  if ((await botao.getAttribute('aria-pressed')) === String(escuro)) return;
+  await botao.click();
+  await expect(botao).toHaveAttribute('aria-pressed', String(escuro));
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Modo escuro' })).toHaveAttribute('aria-pressed', String(escuro));
+}
+
+test('Plano 26: Início da recepção, "Sem permissão" e "Contrato pendente" com a conta dela, claro e escuro, 1280 e 360 px', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const rec = await entrarComoRecepcao(browser, RECEPCAO_AXE, '10.9.36.15', /\/painel$/);
+  const contrato = await entrarComoRecepcao(browser, RECEPCAO_CONTRATO_AXE, '10.9.36.16', /\/painel\/contrato-pendente$/);
+  const h1 = (nome: string | RegExp) => (p: Page) => expect(p.getByRole('heading', { level: 1, name: nome })).toBeVisible();
+  const estados: { page: Page; url: string; pronta: (p: Page) => Promise<void> }[] = [
+    { page: rec, url: '/painel', pronta: h1(/^Seu dia, /) },
+    { page: rec, url: '/painel/sem-permissao?motivo=nutri', pronta: h1('Sem permissão') },
+    { page: rec, url: '/painel/sem-permissao?motivo=financeiro', pronta: h1('Sem permissão') },
+    { page: contrato, url: '/painel/contrato-pendente', pronta: h1('Contrato do consultório pendente') },
+  ];
+  const falhas: string[] = [];
+  try {
+    for (const [modo, escuro] of [['claro', false], ['escuro', true]] as const) {
+      for (const p of [rec, contrato]) await temaPeloCabecalho(p, escuro);
+      for (const [largura, altura] of [[1280, 720], [360, 800]] as const) {
+        for (const t of estados) {
+          await t.page.setViewportSize({ width: largura, height: altura });
+          await t.page.goto(t.url);
+          await t.pronta(t.page);
+          await t.page.waitForLoadState('networkidle');
+          for (const v of await violacoes(t.page, undefined, { ignorarForaDaTela: largura < 1280 })) falhas.push(`${modo} ${largura} px ${t.url} — ${v}`);
+          if (largura === 360 && !(await t.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${modo} 360 px ${t.url} — rola na horizontal`);
+        }
+      }
+      for (const p of [rec, contrato]) await p.setViewportSize({ width: 1280, height: 720 });
+    }
+  } finally {
+    for (const p of [rec, contrato]) {
+      await p.setViewportSize({ width: 1280, height: 720 });
+      await temaPeloCabecalho(p, false);
+      await p.context().close();
+    }
   }
   expect(falhas).toEqual([]);
 });
