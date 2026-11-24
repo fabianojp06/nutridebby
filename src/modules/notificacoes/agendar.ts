@@ -116,7 +116,8 @@ export async function agendarLembretes(tx: Tx, c: ConsultaParaLembrete, fuso: st
  * dois "14:00". Quem chama segura a trava da consulta (`lerConsultaParaEscrita`, ou a linha recém-criada na mesma
  * transação): duas chamadas para a mesma consulta não correm juntas.
  * Plano 23 (RN-428): `pedido_nao_confirmado` (recusa e vencimento do pedido), também por e-mail e push — nada por WhatsApp —,
- * inclusive de horário que já passou. `quando` (AG-D75): o "não confirmado" fora do horário silencioso sai às 08:00
+ * mas só de horário que ainda não passou: quem chama não avisa o pedido cujo início já passou (AG-D81, `solicitacoes.ts`) e o
+ * envio ignora o que passou até sair (`prazo_passado`). `quando` (AG-D75): o "não confirmado" fora do horário silencioso sai às 08:00
  * (`agendada_para`); sem ele, já.
  */
 export async function avisarPaciente(
@@ -127,7 +128,8 @@ export async function avisarPaciente(
   quando: Date = agora,
 ): Promise<void> {
   // D22: consulta que já começou — encaixe registrado depois, ou cancelamento que só acerta a agenda — não gera aviso.
-  // Plano 23 (RN-428): o "não confirmado" sai mesmo assim (o pedido vencido com antecedência 0 ou depois de o worker parar)
+  // Plano 23 (RN-428): aqui o "não confirmado" não é barrado pela data — quem chama já decide (AG-D81: o pedido de horário
+  // passado não é avisado) e o envio confere de novo (`prazo_passado`)
   if (tipo !== 'pedido_nao_confirmado' && c.inicio.getTime() <= agora.getTime()) return;
   const naFila = await tx
     .select({ id: notifications.id, canal: notifications.canal, status: notifications.status, inicioConsulta: notifications.inicioConsulta })
