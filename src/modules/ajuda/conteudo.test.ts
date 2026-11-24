@@ -224,7 +224,7 @@ describe('conteúdo do manual (P08-10)', () => {
   it('Plano 18 (§8.3): o guia "Início do paciente" casa só o Início da ficha, vem antes do prontuário e traz os passos da spec', () => {
     const g = GUIAS.find((x) => x.id === 'inicio-paciente')!;
     expect(g.titulo).toBe('Início do paciente');
-    expect(g.versao).toBe(3); // 2 no PR 2 do Plano 18: o cartão No app e o selo; 3 no Plano 20 (a seção Financeiro nas perguntas comuns)
+    expect(g.versao).toBe(2); // 2 no PR 2 do Plano 18: o cartão No app e o selo; o Plano 20 só acrescenta à gaveta (sem subir versão)
     expect(guiaDaRota(`/painel/pacientes/${UUID}`)?.id).toBe('inicio-paciente');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil`)?.id).toBe('perfil-paciente'); // guia próprio desde a Tarefa 7a
     expect(guiaDaRota(`/painel/pacientes/${UUID}/app`)?.id).toBe('prontuario');

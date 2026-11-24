@@ -306,7 +306,9 @@ const NA_FICHA = 3;
  * mais recentes pela data de referência (RN-306), na ordem da lista filtrada por paciente. Cada item só com "Entrada —
  * {categoria}", a data de referência e a situação (RN-305, "hoje" no fuso); nunca valor nem descrição. `podeAdicionar`:
  * nem bloqueado nem anonimizado (RN-315; paciente fora do consultório também não). Sem `auditRead`: o "ler" (RN-318) é o de
- * `inicio.ts`, pela `leitura` da seção.
+ * `inicio.ts`, pela `leitura` da seção. Recebe só `tx` e não confere o papel: só é chamada dentro de `secoesDoInicio`
+ * (`src/modules/ficha/inicio.ts`), que recusa a sessão que não é `nutri` antes da transação — como os outros `*NaTransacao`
+ * (regra 1 do CLAUDE.md: as tabelas `fin_*` são `staff_only`).
  */
 export async function resumoFinanceiroDoPaciente(tx: Tx, patientId: string, fuso: string): Promise<ResumoFinanceiroDoPaciente> {
   const hoje = hojeNoFuso(fuso);

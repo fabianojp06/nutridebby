@@ -150,7 +150,7 @@ export const GUIAS: readonly Guia[] = [
     // Plano 18 (§8.3): só o Início da ficha; antes do `prontuario`, que casa todas as abas (os passos novos só têm alvo aqui).
     // Título "Início do paciente": "Início" é o do guia de boas-vindas (o manual completo lista um h2 por guia).
     id: 'inicio-paciente',
-    versao: 3, // Plano 20: a seção Financeiro nas perguntas comuns (+1 sobre a main no rebase); 2 = Plano 18, PR 2: o cartão No app
+    versao: 2, // Plano 18, PR 2: o cartão No app. O Plano 20 (seção Financeiro) só acrescenta um item à gaveta: sem subir versão (code review do #78)
     padrao: new RegExp(`^/painel/pacientes/${ID}$`),
     titulo: 'Início do paciente',
     ajuda: {

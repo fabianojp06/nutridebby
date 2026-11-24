@@ -52,8 +52,8 @@ export type SecaoDaFicha = {
    */
   disponivel(t: TenantDaSecao, p: PacienteDaSecao, total: number): boolean;
   /**
-   * Contador e os 3 últimos, numa consulta. `podeAdicionar: false` esconde o `adicionar` desta seção (ex.: Financeiro não
-   * configurado, Plano 20); padrão true.
+   * Contador e os 3 últimos, numa consulta. `podeAdicionar: false` esconde o `adicionar` desta seção (ex.: paciente
+   * bloqueado ou anonimizado, no Financeiro do Plano 20); padrão true.
    */
   resumo(tx: Tx, patientId: string, fuso: string): Promise<{ total: number; ultimos: Omit<ItemDaSecao, 'noApp'>[]; podeAdicionar?: boolean }>;
   /**
