@@ -147,3 +147,51 @@ daquele ano não sai, e um novo "Enviar mensagem" para o mesmo paciente no mesmo
 - Depois de um episódio: a linha `falhou`/`sem_modelo` fica como está (o ano do paciente segue ocupado). Liberar o ano
   exige mexer no banco de produção — só com a sua confirmação (regra 3), nunca como rotina deste runbook.
 - O tipo e o índice ficam (expansão, RNF-407); nada a desfazer no banco.
+
+## PR 3 (aniversariantes) — Volta atrás para a imagem do PR 2 (T10)
+
+O PR 3 não tem migration: o tipo `aniversario` e o `pedido_nao_confirmado` de `notifications`, a tabela
+`aniversario_autorizacoes` e o índice "um por ano" (`notifications_aniversario_unique`, por paciente e ano UTC de
+`agendada_para`) já vieram no PR 1. Voltar é trocar a imagem pela do **PR 2**, com estes efeitos:
+
+1. **Mensagens já agendadas.** A imagem do PR 2 não tem modelo para os tipos `aniversario` e `pedido_nao_confirmado`: o job
+   de minuto pega a linha na hora dela e a marca `falhou` com o erro `sem_modelo` (`enviar.ts`), sem mandar nada. Nenhum
+   e-mail sai pela metade.
+2. **A linha do aniversário continua ocupando o ano.** A linha que virou `falhou` segue no índice "um por ano": ao voltar
+   ao PR 3, aquele paciente aparece como "Já enviada este ano" e não recebe outra mensagem no mesmo ano (é a regra do
+   "um por ano, inclusive quando a linha foi ignorada", AG-D34). Não apague a linha para reenviar: decida com o dono.
+3. **Link de saída do e-mail.** A página `/aniversario/sair/[token]` e a rota de um clique `/api/aniversario/sair/[token]`
+   não existem na imagem do PR 2: quem clicar em "Não quero mais receber mensagens de aniversário" num e-mail já enviado
+   vê **404**, e a retirada **não** é gravada. Volte ao PR 3 o quanto antes; se um paciente pedir a retirada nesse
+   intervalo (por e-mail, telefone ou na consulta), a nutricionista registra "Retirar autorização" em Agenda ›
+   Aniversariantes assim que o PR 3 voltar (LGPD, art. 8º, § 5º: a retirada vale desde o pedido).
+4. **Telas.** Somem a aba "Aniversariantes", o cartão "Aniversariantes de hoje" do Início e o bloco "Receber mensagem
+   de aniversário da sua nutricionista" do Perfil do portal (o marcador "Aniversário" da agenda é do PR 2 e fica). As autorizações gravadas
+   ficam no banco (prova só de inclusão) e voltam a valer com o PR 3; a imagem do PR 2 não agenda mensagem nova.
+
+Conferência no banco (só leitura, com o OK do dono, regra 3 do servidor), antes de voltar: `select tipo, count(*) from
+notifications where tipo in ('aniversario', 'pedido_nao_confirmado') and status = 'agendada' group by tipo` mostra o que
+vai virar `falhou`/`sem_modelo`.
+
+## PR 4 (filtro de local em Pacientes e no Financeiro) — Volta atrás (T11)
+
+O PR 4 só lê (filtro "Local" na lista de pacientes, em Lançamentos, Relatórios e no CSV) e não tem migration: voltar é
+trocar a imagem pela do **PR 3**. Somem os seletores; um link salvo com `?local=` passa a ser ignorado. Nada fica no banco.
+
+---
+
+## Pendente: CS-405 com a Debby (Step 4 da T12)
+
+**Critério (CS-405):** a Debby usa a visão Semana em grade e a impressão ("Imprimir ou salvar em PDF") por **2 semanas**
+sem voltar ao Dietbox para ver a agenda.
+
+Situação em 24/11/2026: **pendente**. O dono combina com a Debby o início das 2 semanas depois que o PR 2 (visões e
+impressão) estiver em produção, e registra aqui:
+
+| Campo | Valor |
+|---|---|
+| Início das 2 semanas | (a combinar) |
+| Fim | (a combinar) |
+| Voltou ao Dietbox para ver a agenda? | (a preencher) |
+| O que faltou (se voltou) | (a preencher; vira item de backlog) |
+| Conferido por | (dono) |

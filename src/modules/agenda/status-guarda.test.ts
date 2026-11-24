@@ -63,7 +63,7 @@ const EXCECOES: Record<string, { n: number; motivo: string }> = {
   'src/modules/relatorios/atendimentos.ts': { n: 1, motivo: 'Relatórios › Atendimentos: só `realizada` (o pedido não conta, §4.3)' },
   'src/modules/relatorios/ranking.ts': { n: 1, motivo: 'Relatórios › Ranking: só `realizada` (o pedido não conta, §4.3)' },
   'src/modules/pacientes/atendimentos.ts': { n: 1, motivo: 'o atendimento leva a consulta a realizada (a regra do pedido mora em motivoParaNaoIniciarAtendimento)' },
-  'src/modules/plataforma/metricas-sucesso.ts': { n: 2, motivo: 'métricas do admin: só `realizada` (o pedido nunca é realizado; o recorte do pedido está nas funções SQL da 0127, R-410)' },
+  'src/modules/plataforma/metricas-sucesso.ts': { n: 2, motivo: 'métricas do admin: só `realizada` (o pedido nunca é realizado; o recorte do pedido está nas funções SQL da 0131, R-410)' },
   'src/modules/financeiro/cobranca.ts': { n: 2, motivo: 'Plano 20: só a consulta realizada é cobrada (o pedido nunca é realizado)' },
   'src/modules/documentos/documentos.ts': { n: 1, motivo: 'falso positivo: status do documento assinado, não da consulta' },
   'src/modules/ia/leitura-job.ts': { n: 1, motivo: 'falso positivo: status da tarefa de IA, não da consulta' },
