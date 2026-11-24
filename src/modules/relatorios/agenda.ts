@@ -7,7 +7,9 @@ import type { LinhaAgenda, RelAgenda } from './tipos';
 
 /**
  * US-483 (RN-490), numa consulta a `appointments` (pelo `appointments_inicio_idx`), por mês de `inicio` no fuso:
- * - "Marcadas" = não canceladas, o mesmo "Consultas do mês" do Início (`indicadoresDaAgendaNaTransacao`, CS-482);
+ * - "Marcadas" = não canceladas e não `solicitada` (o pedido do paciente ainda sem resposta não é consulta marcada; Plano 23,
+ *   RN-423, como as métricas do admin na 0131; code review do PR 1), o mesmo "Consultas do mês" do Início
+ *   (`indicadoresDaAgendaNaTransacao`, CS-482) — o Início ainda conta `solicitada` e o 23 o alinha;
  * - "Faltas" e "iniciadas" (não canceladas com `inicio` até agora) dão a "Taxa de faltas" com a conta do Início
  *   (`taxaDeFaltas`, formatada pela tela com `textoTaxa`);
  * - canceladas pelo paciente e pelo consultório (`nutri`); as do `sistema` (exclusão LGPD) em coluna nenhuma;
@@ -36,8 +38,8 @@ export async function relatorioAgenda(ctx: TenantContext, tenant: TenantRel, p: 
                count(*) filter (where retorno)::int as "retornos"
         from (
           select to_char(a.inicio at time zone ${tenant.fuso}, 'YYYY-MM') as mes, a.status, a.cancelado_por, a.origem, a.inicio,
-                 a.status <> 'cancelada' as ativa,
-                 case when a.status = 'cancelada' then false else (
+                 a.status not in ('cancelada', 'solicitada') as ativa,
+                 case when a.status in ('cancelada', 'solicitada') then false else (
                    exists (
                      select 1 from appointments b
                      where b.tenant_id = a.tenant_id and b.patient_id = a.patient_id and b.status = 'realizada' and b.inicio < a.inicio
