@@ -172,10 +172,10 @@ Do registro da execução (`.superpowers/sdd/2026-11-17-nutridebby-23-agenda-2/p
    exportação do titular por decisão do dono. A LGPD (art. 18, II; art. 19, II e § 3º) não traz exceção para anotação
    interna: a decisão se sustenta?
 9. **TCLE eletrônico de telenutrição** (AG-P1, P-B3): texto do termo e se o aceite eletrônico serve de comprovante
-   (também perguntado ao CRN-3, AG-P2). Hoje fica só o aviso no local de videoconferência (AG-D36).
+   (também perguntado ao CRN-4, AG-P2). Hoje fica só o aviso no local de videoconferência (AG-D36).
 10. **Textos ao paciente desta lista** (Parte A, marcados "ao paciente"): portal (A.3, A.6, A.8 e o guia em A.10), link da
     consulta, página pública e e-mails do pedido.
 
-Para o **CRN-3** (AG-P2, não é do advogado; registrado aqui para não se perder): o art. 37 da Res. CFN 856/2026
+Para o **CRN-4** (AG-P2, não é do advogado; registrado aqui para não se perder): o art. 37 da Res. CFN 856/2026
 ("automação nas comunicações") alcança a mensagem de aniversário e os lembretes? A página de agendamento precisa do CRN?
 Pode mostrar o preço da consulta?
