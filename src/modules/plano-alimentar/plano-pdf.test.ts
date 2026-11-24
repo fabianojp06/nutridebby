@@ -78,3 +78,10 @@ describe('PDF do plano: rodapé (SUS-99)', () => {
     }
   });
 });
+
+describe('CRN da nutricionista (SUS-118)', () => {
+  it('o CRN com o sufixo da inscrição secundária sai como foi gravado', async () => {
+    const pdf = await renderizarPlano({ plano: plano(1, 1), nutricionista: { nome: 'Debby Silva', crn: 'CRN-4 12345-S' }, paciente: 'Ana Souza', data: '01/10/2026', cor: '#047857', logo: null });
+    expect(textoDoPdf(pdf)).toContain('CRN-4 12345-S');
+  });
+});
