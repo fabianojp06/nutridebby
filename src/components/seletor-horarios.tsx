@@ -59,7 +59,7 @@ export function SeletorHorarios({
           <legend className="font-medium">{dia}</legend>
           <div className="flex flex-wrap gap-2">
             {lista.filter((h) => h.dia === dia).map((h) => (
-              <label key={`${h.inicio}|${h.localId}`} className="flex items-center gap-1 rounded-full border border-campo bg-cartao px-2 py-1 text-texto">
+              <label key={`${h.inicio}|${h.localId}`} className="flex min-h-11 items-center gap-1 rounded-full border border-campo bg-cartao px-3 text-texto">
                 <input type="radio" name="inicio" value={h.inicio} required /> {h.hora}
               </label>
             ))}

@@ -30,13 +30,31 @@ export function RegraForm({ locais }: { locais: LocalDaRegra[] }) {
   const [state, action, pendente] = useActionState<FormAgendaState, FormData>(criarRegraAction, {});
   const v = state.erros ? (state.valores ?? {}) : {};
   const e = state.erros ?? {};
+  return (
+    <form key={state.envio} action={action} className="grid gap-3 sm:grid-cols-5">
+      <CamposDaRegra locais={locais} v={v} e={e} />
+      <div className="sm:col-span-5">
+        {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
+        {state.ok && <p role="status">{state.ok}</p>}
+        <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Adicionar horário</button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Os campos, com o local escolhido no estado. Ficam dentro do `<form key={state.envio}>`: depois de um horário criado, o
+ * formulário remonta e este estado volta ao principal junto com o `<select>` (no pai, o `useState` guardava o último local
+ * escolhido e a marca do par aparecia ou sumia errado).
+ */
+function CamposDaRegra({ locais, v, e }: { locais: LocalDaRegra[]; v: Record<string, string>; e: Record<string, string> }) {
   const inicial = v.localId || (locais.find((l) => l.principal) ?? locais[0])?.id || '';
   // só decide se a marca do par aparece; quem marca o valor é o `defaultValue` (o reset do formulário volta ao enviado)
   const [localId, setLocalId] = useState(inicial);
   const temOnline = locais.some((l) => l.tipo === 'online');
   const presencial = locais.find((l) => l.id === localId)?.tipo === 'presencial';
   return (
-    <form key={state.envio} action={action} className="grid gap-3 sm:grid-cols-5">
+    <>
       <Selecao id="localId" rotulo="Local" erro={e.localId} valor={inicial} onChange={setLocalId} opcoes={locais.map((l) => [l.id, `${l.nome} (${ROTULO_TIPO_LOCAL[l.tipo]})`])} />
       <Selecao id="diaSemana" rotulo="Dia da semana" erro={e.diaSemana} valor={v.diaSemana} opcoes={DIAS_SEMANA.map((d, i) => [String(i), d])} />
       <Campo id="inicio" rotulo="Início" type="time" required defaultValue={v.inicio} erro={e.inicio} />
@@ -50,11 +68,6 @@ export function RegraForm({ locais }: { locais: LocalDaRegra[] }) {
           </label>
         </div>
       )}
-      <div className="sm:col-span-5">
-        {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
-        {state.ok && <p role="status">{state.ok}</p>}
-        <button disabled={pendente} className="inline-flex min-h-11 items-center justify-center rounded-full bg-destaque px-5 font-semibold text-white hover:brightness-95">Adicionar horário</button>
-      </div>
-    </form>
+    </>
   );
 }

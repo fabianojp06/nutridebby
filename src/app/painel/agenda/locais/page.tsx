@@ -90,7 +90,7 @@ function ItemLocal({ l, arquivados, arquivavel, avisoLink }: { l: LocalNaTela; a
             <Link href={`${CAMINHO}?editar=${l.id}`} className={BOTAO} aria-label={`Editar ${l.nome}`}>Editar</Link>
             {!l.principal && (
               <form action={definirPrincipalAction.bind(null, l.id)}>
-                <button className={BOTAO} aria-label={`Definir ${l.nome} como principal`}>Definir como principal</button>
+                <button className={BOTAO} aria-label={`Definir como principal: ${l.nome}`}>Definir como principal</button>
               </form>
             )}
             {arquivavel && (

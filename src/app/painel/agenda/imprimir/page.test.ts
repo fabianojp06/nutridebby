@@ -1,20 +1,28 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterAll, describe, expect, inject, it, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { afterAll, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 import { consultaDireta, em, localPrincipal, novoLocal, tenantAgenda } from '../../../../../test/agenda';
 import { makeDb } from '../../../../../test/db';
-import { novoPaciente, novoTenant } from '../../../../../test/pacientes';
+import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../../../test/pacientes';
 
 /** Plano 23 (US-406, RN-418, RN-419, AG-D71): a página de impressão da agenda, com o banco de verdade. */
-const sessao = vi.hoisted(() => ({ atual: null as null | { ctx: unknown; tenant: unknown } }));
+const sessao = vi.hoisted(() => ({ atual: null as null | { ctx: unknown; tenant: unknown }, cabecalhos: new Headers({ 'sec-fetch-site': 'same-origin' }) }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/tenant-session', () => ({ requireNutri: vi.fn(async () => sessao.atual) }));
+vi.mock('next/headers', () => ({ headers: async () => sessao.cabecalhos }));
+vi.mock('next/navigation', async (orig) => ({
+  ...(await orig<typeof import('next/navigation')>()),
+  redirect: (url: string) => {
+    throw new Error(`redirect ${url}`);
+  },
+}));
 vi.mock('@serwist/turbopack', () => ({ withSerwist: <T,>(c: T) => c })); // só a configuração do Next, sem o service worker
 
 const { default: ImprimirPage, dynamic } = await import('./page');
 const { default: nextConfig } = await import('../../../../../next.config');
 const { closeDb } = await import('@/db/client');
 const { withTenant } = await import('@/db/tenant');
-const { availabilityBlocks } = await import('@/db/schema');
+const { auditLog, availabilityBlocks } = await import('@/db/schema');
 const { hojeNoFuso } = await import('@/modules/pacientes/datas');
 const { semanaDe } = await import('@/modules/agenda/calendario');
 
@@ -23,6 +31,16 @@ afterAll(async () => {
   await closeDb();
   await app.pool.end();
 });
+
+beforeEach(() => {
+  sessao.cabecalhos = new Headers({ 'sec-fetch-site': 'same-origin' });
+});
+
+/** Os `exportar` da agenda, lidos dentro de `withTenant` na sessão da nutricionista (fora, a RLS esconderia tudo). */
+const exportacoes = async (T: TenantDeTeste) =>
+  (await withTenant(T.ctx, (tx) => tx.select({ acao: auditLog.acao, entidade: auditLog.entidade }).from(auditLog).where(eq(auditLog.tenantId, T.tenantId)), app.db)).filter(
+    (l) => l.acao === 'exportar' && l.entidade === 'agenda',
+  );
 
 const html = async (sp: Record<string, string> = {}) => renderToStaticMarkup(await ImprimirPage({ searchParams: Promise.resolve(sp) } as never));
 const texto = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
@@ -65,6 +83,28 @@ describe('/painel/agenda/imprimir (US-406)', () => {
     }
     // "Imprimir ou salvar em PDF" e "Voltar à agenda" só na tela
     expect(h).toMatch(/<a [^>]*class="[^"]*print:hidden[^"]*"[^>]*>Voltar à agenda<\/a>/);
+  });
+
+  it('pedido de outro site (ou sem como confirmar a origem) volta para a agenda com os mesmos filtros, sem gravar nada; same-origin e none imprimem (RN-419, molde RN-493)', async () => {
+    const T = await novoTenant(app.db);
+    sessao.atual = { ctx: T.ctx, tenant: { ...tenantAgenda(T), enderecoConsultorio: null } };
+    const principal = await localPrincipal(app.db, T.ctx);
+    const [segunda] = semanaDe(hojeNoFuso('America/Sao_Paulo'));
+    const sp = { visao: 'semana', data: segunda, local: principal, horas: '24' };
+    const volta = `redirect /painel/agenda?visao=semana&data=${segunda}&local=${principal}&horas=24`;
+    sessao.cabecalhos = new Headers({ 'sec-fetch-site': 'cross-site' });
+    await expect(html(sp)).rejects.toThrow(volta);
+    sessao.cabecalhos = new Headers({ 'sec-fetch-site': 'same-site' });
+    await expect(html(sp)).rejects.toThrow(volta);
+    sessao.cabecalhos = new Headers(); // navegador antigo, sem Origin nem Referer
+    await expect(html(sp)).rejects.toThrow(volta);
+    expect(await exportacoes(T)).toEqual([]);
+    // controle positivo: o link da própria agenda e o endereço digitado imprimem e gravam
+    sessao.cabecalhos = new Headers({ 'sec-fetch-site': 'same-origin' });
+    expect(await html(sp)).toContain('Contém dados pessoais de pacientes.');
+    sessao.cabecalhos = new Headers({ 'sec-fetch-site': 'none' });
+    expect(await html(sp)).toContain('Contém dados pessoais de pacientes.');
+    expect(await exportacoes(T)).toHaveLength(2);
   });
 
   it('o next.config.ts manda Cache-Control: no-store em /painel/agenda/imprimir, depois da regra /:path* (AG-D71)', async () => {

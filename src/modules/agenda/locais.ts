@@ -4,6 +4,7 @@ import { fkViolation, uniqueViolation } from '@/db/errors';
 import { locaisAtendimento, tenants, TIPOS_DE_LOCAL, type LocalRow, type TenantRow, type TipoDeLocal } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { normalizarTexto } from '@/lib/text';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { idValido } from '@/modules/pacientes/base';
 import { MSG_LOCAIS } from './constantes';
 import type { LocalVisivel } from './horarios';
@@ -165,27 +166,31 @@ const ehTipo = (v: unknown): v is TipoDeLocal => typeof v === 'string' && (TIPOS
 const marcado = (v: unknown) => v === 'on' || v === true;
 const tamanho = (s: string) => [...s].length; // como o char_length do CHECK (pontos de código)
 
+/** SUS-109: sem NUL (22021, com o texto no log) nem surrogate sem par (o driver trocaria por U+FFFD), antes de normalizar. */
+const textoDoCampo = (v: unknown) => normalizarTexto(typeof v === 'string' ? semInvalidosNoBanco(v) : v);
+
 type Valores = { nome: string; tipo: TipoDeLocal; endereco: string | null; cidade: string | null; mostrarEndereco: boolean; linkSala: string | null; agendamentoOnline: boolean };
 
 /** RN-401 / RN-405: valida o formulário. No online, endereço, cidade e "mostrar o endereço" são ignorados; no presencial, a sala. */
 function validar(input: Record<string, unknown>, tipo: unknown): { ok: true; v: Valores } | { ok: false; erros: Record<string, string> } {
   const erros: Record<string, string> = {};
-  const nome = normalizarTexto(input.nome);
+  const nome = textoDoCampo(input.nome);
   if (tamanho(nome) < 2 || tamanho(nome) > 60) erros.nome = MSG_LOCAIS.nomeTamanho;
   if (!ehTipo(tipo)) return { ok: false, erros: { ...erros, tipo: MSG_LOCAIS.tipo } };
   const agendamentoOnline = marcado(input.agendamentoOnline);
   let v: Valores;
   if (tipo === 'presencial') {
-    const endereco = normalizarTexto(input.endereco) || null;
-    const cidade = normalizarTexto(input.cidade) || null;
+    const endereco = textoDoCampo(input.endereco) || null;
+    const cidade = textoDoCampo(input.cidade) || null;
     if (endereco && tamanho(endereco) > 300) erros.endereco = MSG_LOCAIS.enderecoLongo;
     if (cidade && tamanho(cidade) > 80) erros.cidade = MSG_LOCAIS.cidadeLonga;
     v = { nome, tipo, endereco, cidade, mostrarEndereco: marcado(input.mostrarEndereco), linkSala: null, agendamentoOnline };
   } else {
     const linkSala = (typeof input.linkSala === 'string' ? input.linkSala.trim() : '') || null;
     // como appointments_link_online e o CHECK locais_atendimento_link_sala: https://, sem espaço, até 500
+    // SUS-109: link com NUL ou surrogate sem par é link inválido (limpar trocaria o endereço da sala em silêncio)
     if (linkSala && tamanho(linkSala) > 500) erros.linkSala = MSG_LOCAIS.linkLongo;
-    else if (linkSala && !(/^https:\/\/\S+$/.test(linkSala) && URL.canParse(linkSala))) erros.linkSala = MSG_LOCAIS.link;
+    else if (linkSala && (semInvalidosNoBanco(linkSala) !== linkSala || !(/^https:\/\/\S+$/.test(linkSala) && URL.canParse(linkSala)))) erros.linkSala = MSG_LOCAIS.link;
     else if (!linkSala && agendamentoOnline) erros.agendamentoOnline = MSG_LOCAIS.agendamentoSemSala;
     v = { nome, tipo, endereco: null, cidade: null, mostrarEndereco: false, linkSala, agendamentoOnline };
   }

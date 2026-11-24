@@ -8,7 +8,7 @@ import { withTenant } from '@/db/tenant';
 import { agendaParaImprimir, CAMPOS_DA_IMPRESSAO } from './impressao';
 import type { FiltrosDaAgenda } from './visoes';
 
-/** Plano 23 (US-406, RN-418, RN-419): a impressão leva só a lista fechada de campos e grava um `exportar` sem paciente. */
+/** Plano 23 (US-406, RN-418, RN-419): a impressão leva só a lista fechada de campos e grava um `exportar` (com o titular só quando filtrada por paciente). */
 const app = makeDb(inject('appDatabaseUrl'));
 const owner = makeDb(inject('ownerDatabaseUrl')); // só para ler o audit_log do teste
 afterAll(async () => {
@@ -71,15 +71,20 @@ describe('impressão da agenda (US-406)', () => {
     expect(JSON.stringify(todas)).not.toContain('Observação sigilosa');
   });
 
-  it('grava um "exportar" da entidade agenda, sem paciente, com o período e o local em entidade_id (RN-419)', async () => {
+  it('grava um "exportar" da entidade agenda, com o período e o local em entidade_id; com o titular só quando filtrada por paciente (RN-419)', async () => {
     const C = await cenario();
     await agendaParaImprimir(C.ctx, tenantAgenda(C), filtros({ paciente: C.ana.id }), deps);
     await agendaParaImprimir(C.ctx, tenantAgenda(C), filtros({ visao: 'mes', local: C.video }), deps);
+    // paciente que não está entre as opções do consultório (outro consultório: a RLS esconde): como sem filtro
+    const outro = await novoTenant(app.db);
+    const estranho = await novoPaciente(app.db, outro.ctx, { nome: 'Bruno Lima' });
+    await agendaParaImprimir(C.ctx, tenantAgenda(C), filtros({ paciente: estranho.id }), deps);
     expect(await exportacoes(C)).toEqual([
-      { acao: 'exportar', entidade: 'agenda', entidade_id: '2026-11-16..2026-11-22|todos', patient_id: null, actor_user_id: C.nutriId },
+      { acao: 'exportar', entidade: 'agenda', entidade_id: '2026-11-16..2026-11-22|todos|paciente', patient_id: C.ana.id, actor_user_id: C.nutriId },
       { acao: 'exportar', entidade: 'agenda', entidade_id: `2026-11-01..2026-11-30|${C.video}`, patient_id: null, actor_user_id: C.nutriId },
+      { acao: 'exportar', entidade: 'agenda', entidade_id: '2026-11-16..2026-11-22|todos', patient_id: null, actor_user_id: C.nutriId },
     ]);
-    // nenhuma leitura auditada (AG-D30): só os dois "exportar"
+    // nenhuma leitura auditada (AG-D30): só os "exportar"
     const ler = await owner.db.execute(sql`select 1 from audit_log where tenant_id = ${C.tenantId} and acao = 'ler'`);
     expect(ler.rows).toEqual([]);
   });

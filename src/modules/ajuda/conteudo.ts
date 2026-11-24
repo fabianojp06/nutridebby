@@ -230,7 +230,7 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'agenda',
-    versao: 2, // Plano 20: Realizada gera a cobrança (sobe +1 sobre a da main no rebase)
+    versao: 3, // Plano 20: Realizada gera a cobrança; 3 no Plano 23 (a visão Mês)
     padrao: /^\/painel\/agenda(\/(nova|pendencias|locais|consultas\/.+))?$/,
     titulo: 'Agenda',
     ajuda: {
@@ -247,7 +247,7 @@ export const GUIAS: readonly Guia[] = [
       ],
     },
     passos: [
-      { alvo: 'periodo-agenda', titulo: 'Dia, semana ou lista', texto: 'Troque a visão e navegue entre os dias. "Hoje" volta para o dia atual.' },
+      { alvo: 'periodo-agenda', titulo: 'Dia, semana, mês ou lista', texto: 'Troque a visão e navegue entre os dias. "Hoje" volta para o dia atual.' },
       { alvo: 'nova-consulta', titulo: 'Nova consulta', texto: 'Marque uma consulta presencial ou online; o horário respeita os seus horários de atendimento.' },
       // Plano 20: sem alvo (não há `data-guia` na lista nem no "Realizada"): abre no centro em qualquer tela da agenda
       {
@@ -258,10 +258,10 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'horarios',
-    versao: 1,
+    versao: 2, // Plano 23: a regra tem local (não mais a modalidade)
     padrao: /^\/painel\/agenda\/horarios$/,
     titulo: 'Horários de atendimento',
-    ajuda: { resumo: 'Os dias e horários em que os pacientes podem marcar consulta, e os bloqueios (férias, feriados).', secoes: [{ titulo: 'Passo a passo', itens: ['Crie uma regra por dia da semana, com início, fim, duração e modalidade.', 'Use os bloqueios para tirar um período da agenda sem apagar as regras.'] }] },
+    ajuda: { resumo: 'Os dias e horários em que os pacientes podem marcar consulta, e os bloqueios (férias, feriados).', secoes: [{ titulo: 'Passo a passo', itens: ['Crie uma regra por dia da semana, com início, fim, duração e local.', 'Use os bloqueios para tirar um período da agenda sem apagar as regras.'] }] },
     passos: [
       { alvo: 'regras-horario', titulo: 'Regras', texto: 'Cada regra diz o dia, o horário e a duração das consultas.' },
       { alvo: 'bloqueios-horario', titulo: 'Bloqueios', texto: 'Férias e feriados: o período bloqueado some da agenda dos pacientes.' },

@@ -8,7 +8,7 @@ import { hrefDaAgenda, MARCADOR_RETORNO_LIGADO, type AgendaDoPeriodo, type Filtr
  * Plano 23 (US-404, US-405, §4.1, AG-D52): os dois formulários GET da agenda, sem JavaScript — "Filtrar" (local, paciente,
  * marcadores, "Mostrar 24 horas") e "Ir para data" — cada um com os outros parâmetros em campos `hidden`. Só datas, ids de
  * local e de paciente e marcas na URL (sem dado sensível; `GET_PERMITIDOS` de formularios-post.test.ts). "Limpar filtros"
- * volta para a visão e a data, sem o resto.
+ * volta para a visão e a data, sem o resto. Os dois `<form>` levam a chave dos filtros ativos (campos não controlados).
  */
 const CAMPO = 'min-h-11 w-full rounded-xl border border-campo bg-cartao p-2 text-texto';
 const BOTAO = 'inline-flex min-h-11 items-center justify-center rounded-full border border-campo bg-cartao px-5 text-texto hover:bg-linha';
@@ -30,9 +30,12 @@ export function FiltrosDaAgendaForm({ f, opcoes, hoje }: { f: FiltrosDaAgenda; o
   // "Aniversários" não vale na Lista (sem marcadores); "Mostrar 24 horas", só na grade de horas (Dia e Semana)
   const comAniversario = f.visao !== 'lista';
   const com24Horas = f.visao === 'dia' || f.visao === 'semana';
+  // os campos não são controlados: a chave com os filtros ativos remonta os dois formulários quando a URL muda (o "Limpar
+  // filtros" é um Link, e a navegação do cliente manteria o que estava escolhido na tela)
+  const chave = hrefDaAgenda(f);
   return (
     <div className="space-y-3 text-sm">
-      <form method="get" action="/painel/agenda" aria-label={M.formularioFiltros} className="flex flex-wrap items-end gap-3">
+      <form key={`filtros-${chave}`} method="get" action="/painel/agenda" aria-label={M.formularioFiltros} className="flex flex-wrap items-end gap-3">
         <Ocultos
           campos={[
             ['visao', f.visao],
@@ -62,7 +65,7 @@ export function FiltrosDaAgendaForm({ f, opcoes, hoje }: { f: FiltrosDaAgenda; o
         <button className={BOTAO}>{M.filtrar}</button>
         <Link href={hrefDaAgenda({ visao: f.visao, data: f.data })} className="inline-flex min-h-11 items-center text-link underline">{M.limparFiltros}</Link>
       </form>
-      <form method="get" action="/painel/agenda" aria-label={M.formularioData} className="flex flex-wrap items-end gap-3">
+      <form key={`data-${chave}`} method="get" action="/painel/agenda" aria-label={M.formularioData} className="flex flex-wrap items-end gap-3">
         <Ocultos
           campos={[
             ['visao', f.visao],

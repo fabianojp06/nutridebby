@@ -60,8 +60,8 @@ describe('Locais de atendimento (US-400)', () => {
     expect(r).toContain('Excluir Clínica Centro');
     expect(r).not.toContain('Excluir Videoconferência');
     expect(r).not.toContain('Excluir Consultório');
-    expect(r).toContain('Definir Clínica Centro como principal');
-    expect(r).not.toContain('Definir Consultório como principal');
+    expect(r).toContain('Definir como principal: Clínica Centro');
+    expect(r).not.toContain('Definir como principal: Consultório');
     expect(textoDe(h)).toContain('Principal');
   });
 

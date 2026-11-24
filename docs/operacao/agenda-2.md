@@ -32,7 +32,7 @@ Se o PR 1 der problema em produção:
 ## PR 2 (locais e visões) — Volta atrás
 
 O PR 2 não tem migration: voltar é trocar a imagem pela do **PR 1** (nunca pela anterior ao PR 1, acima). O banco fica como
-o PR 2 o deixou, e a imagem do PR 1 roda sobre ele com três efeitos conhecidos:
+o PR 2 o deixou, e a imagem do PR 1 roda sobre ele com sete efeitos conhecidos:
 
 1. **Alterar consulta num local (o `moverConsulta` do PR 1).** A imagem do PR 1 ainda troca a modalidade (presencial ↔
    online) sem trocar o local. Numa consulta gravada pelo PR 2, que tem `local_id`, a FK composta
@@ -48,6 +48,26 @@ o PR 2 o deixou, e a imagem do PR 1 roda sobre ele com três efeitos conhecidos:
    verificado, 30), a confirmação não acha o horário (`escolherHorario` do PR 2 exige o local) e a pessoa vê "horário
    ocupado" com os outros horários da semana: escolhe de novo, sem pedir outro código. Nada fica gravado pela metade; o
    pedido que não for concluído sai na limpeza de sempre.
+4. **Horários de locais sem agendamento pelo paciente ou arquivados.** A imagem do PR 1 não conhece a opção "Aceita
+   agendamento pelo paciente" nem o arquivamento do local: no portal e na página pública ela oferece também os horários
+   dos locais em que a nutricionista desligou essa opção e os dos locais arquivados, e a consulta marcada por ali nasce
+   com o local nulo. Se houver algum local sem agendamento pelo paciente (ou arquivado com horários), **desligue a página
+   pública** enquanto a imagem do PR 1 estiver no ar, e peça à nutricionista para conferir as consultas marcadas pelo
+   portal nesse período (local vazio na agenda) e ajustá-las ao voltar ao PR 2.
+5. **Endereço do Perfil em consulta de outro local.** Os lembretes de 24 h e de 2 h, a página `/consulta/[token]` e o
+   portal da imagem do PR 1 mostram o endereço do Perfil do consultório em toda consulta presencial, também na de outro
+   local presencial cadastrado no PR 2. O mesmo acontece por alguns minutos em qualquer troca de imagem, enquanto a web
+   nova convive com o worker antigo (ou o contrário). Avise os pacientes com consulta presencial em outros locais
+   (o endereço certo é o do local na agenda) enquanto a imagem do PR 1 estiver no ar.
+6. **Consulta online sem a sala do local.** A consulta online marcada pela imagem do PR 1 leva o "Link padrão da
+   videoconferência" do Perfil (`tenants.link_online_padrao`), parado desde o PR 2 (item 2), e não a sala do local. Antes
+   de voltar, ou logo depois, a nutricionista confere o link de cada consulta online marcada nesse período e o corrige ao
+   voltar ao PR 2 (ou envia a sala certa ao paciente).
+7. **Teto de 30 horários na tela antiga.** O PR 2 aceita até 60 horários por consultório (cada linha conta). A tela de
+   horários do PR 1 conta o teto de 30 com `juntarPares` (o par presencial + online do mesmo início e fim conta como um) e
+   recusa regra nova quando essa conta chega a 30: com mais de 30 linhas gravadas pelo PR 2, a nutricionista não cria
+   horário novo pela tela do PR 1. Os horários que já existem continuam valendo; para criar outro, exclua um que não usa
+   ou espere voltar ao PR 2.
 
 As visões (Dia, Semana, Mês e Lista), os filtros, a legenda, o marcador de aniversário e a impressão não gravam nada além do
 `exportar` da impressão no `audit_log` (RN-419): voltar não deixa dado para trás. Os registros `exportar` da entidade

@@ -1,4 +1,8 @@
+import { headers } from 'next/headers';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { getEnv } from '@/env';
+import { navegacaoDaPropriaOrigem } from '@/lib/navegacao-propria';
 import { requireNutri } from '@/lib/tenant-session';
 import { MSG_VISOES } from '@/modules/agenda/constantes';
 import { diaCurto } from '@/modules/agenda/fuso';
@@ -14,7 +18,8 @@ import { BotaoImprimir } from './botao-imprimir';
  * (AG-D71; um `page.tsx` não define cabeçalho). Só o título, o local, a tabela e o rodapé vão ao papel. Uma tabela só, um
  * `<tbody>` por dia (o dia numa linha `th scope="rowgroup"`), e o rodapé no `<tfoot>`: o navegador repete o `<thead>` e o
  * `<tfoot>` em toda página impressa, dentro do fluxo — um rodapé `position: fixed` cobria a última linha de cada página
- * (revisão da T5). Sem abas (spec §4.1).
+ * (revisão da T5). Sem abas (spec §4.1). Pedido de outro site (ou sem como confirmar a origem: molde da RN-493 dos
+ * Relatórios) volta para a agenda com os mesmos filtros, sem ler nem gravar nada.
  */
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +30,7 @@ export default async function ImprimirAgendaPage({ searchParams }: PageProps<'/p
   const { ctx, tenant } = await requireNutri('/painel/agenda/imprimir');
   const hoje = hojeNoFuso(tenant.fuso);
   const f = lerFiltros(await searchParams, hoje);
+  if (!navegacaoDaPropriaOrigem(await headers(), getEnv().APP_URL)) redirect(hrefDaAgenda(f));
   const a = await agendaParaImprimir(ctx, tenant, f);
   return (
     <main className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6 print:max-w-none print:p-0">

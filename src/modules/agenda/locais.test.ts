@@ -104,6 +104,17 @@ describe('locais de atendimento (US-400)', () => {
     expect(await erros(salvarLocal(T.ctx, null, { ...PRESENCIAL, nome: 'X4', tipo: 'drive-thru' }, deps))).toEqual({ tipo: MSG_LOCAIS.tipo });
   });
 
+  it('SUS-109: NUL e surrogate sem par no nome, no endereço e na cidade saem antes de gravar; na sala, a mensagem do link — nunca erro do banco', async () => {
+    const T = await novoTenant(app.db);
+    for (const ch of ['\u0000', '\ud800', '\udc00']) {
+      const p = await salvarLocal(T.ctx, null, { ...PRESENCIAL, nome: `Cl${ch}ínica ${ch.charCodeAt(0)}`, endereco: `Rua${ch} A, 10`, cidade: `Re${ch}cife` }, deps);
+      expect(await linha(T, p.id)).toMatchObject({ nome: `Clínica ${ch.charCodeAt(0)}`, endereco: 'Rua A, 10', cidade: 'Recife' });
+      // curto demais depois da limpeza: a mensagem de tamanho, não o 22021
+      expect(await erros(salvarLocal(T.ctx, null, { ...PRESENCIAL, nome: `A${ch}` }, deps))).toEqual({ nome: MSG_LOCAIS.nomeTamanho });
+      expect(await erros(salvarLocal(T.ctx, null, { ...ONLINE, nome: `Sala ${ch.charCodeAt(0)}`, linkSala: `https://meet.exemplo.test/de${ch}bby` }, deps))).toEqual({ linkSala: MSG_LOCAIS.link });
+    }
+  });
+
   it('"Definir como principal" troca numa transação: duas trocas ao mesmo tempo terminam com um principal só', async () => {
     const T = await novoTenant(app.db);
     await listarLocais(T.ctx, { arquivados: false }, deps); // cria o "Consultório" principal (AG-D45)

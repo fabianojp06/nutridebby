@@ -29,8 +29,9 @@ function tituloDoPeriodo(f: FiltrosDaAgenda, de: string, ate: string): string {
 }
 
 /**
- * Lê a visão (sem marcadores) e grava **um** `exportar` da entidade `agenda`, sem paciente, na mesma transação (RN-419):
- * `entidade_id` = `{de}..{ate}|{localId ou 'todos'}` — o período e o local, sem nome de paciente nem endereço.
+ * Lê a visão (sem marcadores) e grava **um** `exportar` da entidade `agenda` na mesma transação (RN-419): `entidade_id` =
+ * `{de}..{ate}|{localId ou 'todos'}` — o período e o local, sem nome de paciente nem endereço. Sem paciente; filtrada por
+ * um paciente do consultório (entre as opções do filtro), com `patient_id` do titular e o sufixo `|paciente`.
  */
 export async function agendaParaImprimir(
   ctx: TenantContext,
@@ -72,7 +73,10 @@ export async function agendaParaImprimir(
         return linhas.length ? [{ dia, linhas }] : [];
       });
       const local = f.local ? (a.opcoes.locais.find((l) => l.id === f.local)?.nome ?? SEM_LOCAL) : 'Todos os locais';
-      await recordAudit(tx, { acao: 'exportar', entidade: 'agenda', entidadeId: `${a.periodo.de}..${a.periodo.ate}|${f.local ?? 'todos'}`, patientId: null });
+      // com filtro de paciente do próprio consultório (entre as opções já lidas), o `exportar` vai ao Histórico do titular
+      const titular = f.paciente && a.opcoes.pacientes.some((p) => p.id === f.paciente) ? f.paciente : null;
+      const entidadeId = `${a.periodo.de}..${a.periodo.ate}|${f.local ?? 'todos'}${titular ? '|paciente' : ''}`;
+      await recordAudit(tx, { acao: 'exportar', entidade: 'agenda', entidadeId, patientId: titular });
       return { titulo: tituloDoPeriodo(f, a.periodo.de, a.periodo.ate), local, dias };
     },
     deps.db ?? getDb(),
