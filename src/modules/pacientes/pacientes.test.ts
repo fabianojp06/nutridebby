@@ -213,6 +213,21 @@ describe('buscarPaciente e listarPacientes', () => {
     expect((await listarPacientes(T.ctx, { aba: 'inativos' }, app.db)).map((x) => x.nome)).toEqual(['João Arquivado']);
   });
 
+  it('SUS-115: "％", "＿" e "＼" de largura cheia são literais depois do unaccent; "_" no nome continua literal', async () => {
+    const T = await novoTenant(app.db);
+    await novoPaciente(app.db, T.ctx, { nome: 'Ana_Lima' });
+    await novoPaciente(app.db, T.ctx, { nome: 'AnaXLima' });
+    await novoPaciente(app.db, T.ctx, { nome: 'Bia Rocha' });
+    await novoPaciente(app.db, T.ctx, { nome: 'Caio\\Reis' });
+    expect(await listarPacientes(T.ctx, { busca: '％' }, app.db)).toEqual([]);
+    expect(await listarPacientes(T.ctx, { busca: 'Bia％' }, app.db)).toEqual([]);
+    expect((await listarPacientes(T.ctx, { busca: '＿' }, app.db)).map((x) => x.nome)).toEqual(['Ana_Lima']);
+    expect((await listarPacientes(T.ctx, { busca: 'Ana＿Lima' }, app.db)).map((x) => x.nome)).toEqual(['Ana_Lima']);
+    expect((await listarPacientes(T.ctx, { busca: 'Ana_' }, app.db)).map((x) => x.nome)).toEqual(['Ana_Lima']);
+    expect((await listarPacientes(T.ctx, { busca: 'Caio＼R' }, app.db)).map((x) => x.nome)).toEqual(['Caio\\Reis']);
+    expect((await listarPacientes(T.ctx, { busca: 'Caio\\R' }, app.db)).map((x) => x.nome)).toEqual(['Caio\\Reis']);
+  });
+
   it('sessão de paciente só enxerga a própria linha de patients (RLS por paciente)', async () => {
     const T = await novoTenant(app.db);
     const p1 = await novoPaciente(app.db, T.ctx);
