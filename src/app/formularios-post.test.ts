@@ -26,6 +26,8 @@ const GET_PERMITIDOS: Record<string, string> = {
     'Plano 20 (§4.1, RN-321): o download do CSV é navegação GET para a rota do arquivo — só as datas "De"/"Até" e a caixa "Incluir o nome dos pacientes", sem dado de saúde nem texto livre',
   'src/app/painel/relatorios/filtros.tsx':
     'Plano 26 (§4.1, RN-481): o período dos Relatórios ("De"/"Até", meses AAAA-MM) e o critério do Ranking, só opções de <select> e campo oculto (nada digitado); o link se guarda e as abas o levam',
+  'src/app/painel/mensagens/page.tsx': 'Plano 25 (§4.1): busca e filtro da caixa de mensagens (nome do paciente e "Não lidas"), como a lista de pacientes — nunca texto de mensagem',
+  'src/app/painel/mensagens/nova/page.tsx': 'Plano 25 (CH-D66): busca da "Nova conversa" (nome do paciente), como a lista de pacientes',
 };
 
 type Achado = { arquivo: string; linha: number; motivo: string };

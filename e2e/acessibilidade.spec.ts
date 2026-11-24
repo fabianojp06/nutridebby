@@ -135,7 +135,9 @@ async function semViolacoes(page: Page, url: string) {
 
 // Plano 15: /p/plano/ia com a conversa (resposta montada, texto fixo de risco e dúvidas vistas); "Antes de usar a IA Nutri"
 // (/p/plano/ia/autorizar) só abre sem o consentimento — teste próprio, com outra paciente, abaixo
-const ROTAS = ['/p/inicio', '/p/jornada', '/p/plano', '/p/plano/ia', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/perfil/ia', '/p/perfil/lembretes', '/p/documentos', '/p/exames', '/p/ajuda'];
+// Plano 25 (T7): /p/mensagens entra no laço (sem conversa: o texto de "só recados", sem campo); o axe com mensagens, risco
+// e recado na tela fica em e2e/mensagens.spec.ts
+const ROTAS = ['/p/inicio', '/p/jornada', '/p/plano', '/p/plano/ia', '/p/diario', '/p/conteudos', '/p/conteudos?favoritos=1', '/p/evolucao', '/p/compras?dias=7', '/p/agenda', '/p/agenda/nova', '/p/perfil', '/p/perfil/ia', '/p/perfil/lembretes', '/p/documentos', '/p/exames', '/p/ajuda', '/p/mensagens'];
 for (const url of ROTAS) {
   test(`axe sem violações (WCAG 2.1 AA) em ${url}`, async () => {
     await semViolacoes(paciente.page, url);

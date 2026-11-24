@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { requireNutri } from '@/lib/tenant-session';
+import { MSG_MENSAGENS } from '@/modules/mensagens/constantes';
 import { ehTema } from '@/modules/plataforma/preferencias-tipos';
 import { ExamesSecao } from './exames-secao';
 import { IaSecao } from './ia-secao';
@@ -18,6 +19,7 @@ const CARTOES = [
   { href: '/conta/seguranca', titulo: 'Segurança', texto: 'Senha e verificação em duas etapas.' },
   // Plano 22 (T3, EP-D33): no fim
   { href: '/painel/exames/catalogo', titulo: 'Exames', texto: 'Catálogo de exames, faixas do consultório e modelos de solicitação.' },
+  { href: '/painel/configuracoes/mensagens', titulo: MSG_MENSAGENS.configuracao.hubTitulo, texto: MSG_MENSAGENS.configuracao.hubDescricao }, // Plano 25 (US-446)
 ];
 
 /** D20: hub de Configurações. */

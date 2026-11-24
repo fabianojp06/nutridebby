@@ -18,8 +18,37 @@ export function ehPaginaDoPlano(url: URL, modo: RequestMode, origem: string): bo
   return modo === 'navigate' && url.origin === origem && url.pathname === URL_PLANO && url.search === '';
 }
 
+/** Plano 25 (RN-473, CH-D46): a conversa do portal — nunca guardada no aparelho e, sem rede, nunca o plano no lugar dela. */
+export const URL_CONVERSA = '/p/mensagens';
+const ehDaConversa = (pathname: string) => pathname === URL_CONVERSA || pathname.startsWith(`${URL_CONVERSA}/`);
+
 export function ehNavegacaoDoPortal(url: URL, modo: RequestMode, origem: string): boolean {
-  return modo === 'navigate' && url.origin === origem && url.pathname.startsWith('/p/');
+  return modo === 'navigate' && url.origin === origem && url.pathname.startsWith('/p/') && !ehDaConversa(url.pathname);
+}
+
+/** A navegação para a conversa (/p/mensagens): só rede; sem rede, a página do aviso (paginaSemConexao), sem cache. */
+export function ehConversaDoPortal(url: URL, modo: RequestMode, origem: string): boolean {
+  return modo === 'navigate' && url.origin === origem && ehDaConversa(url.pathname);
+}
+
+/** §6.2 "Portal: conversa" (sem internet): o mesmo texto de MSG_PORTAL_MENSAGENS.erros.semInternet (teste de igualdade). */
+export const TEXTO_SEM_CONEXAO = 'Sem conexão. Escreva quando voltar.';
+/** RN-450: o aviso de urgência da conversa — o mesmo texto de MSG_PORTAL_MENSAGENS.avisoUrgencia (teste de igualdade). */
+export const TEXTO_URGENCIA = 'Este canal não é para urgências. Em caso de urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo.';
+
+/** Alvo de toque de 44 px sem CSS do app (a página é montada no service worker; sem Content-Security-Policy própria). */
+const ALVO_44 = 'display:inline-block;min-height:44px;line-height:44px';
+
+/**
+ * RN-473 e US-443 ("Sem internet"): o que a navegação para /p/mensagens recebe sem rede — uma página mínima, montada aqui
+ * (nada vem do cache), com o aviso na região de status, o aviso de urgência da RN-450 (o 192 discável; rodada da T7, CFN
+ * M3) e o "Voltar" para Hoje. Sem script e sem nenhum dado do paciente.
+ */
+export function paginaSemConexao(): Response {
+  // o 192 em linha: padding vertical (44 px de toque) sem mudar a altura da linha nem quebrar a frase (molde ComTelefones)
+  const urgencia = TEXTO_URGENCIA.replace(/\b192\b/, '<a href="tel:192" style="display:inline-block;padding:12px 0">192</a>');
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Mensagens</title></head><body><main><h1>Mensagens</h1><p role="status">${TEXTO_SEM_CONEXAO}</p><p>${urgencia}</p><p><a href="/p/inicio" style="${ALVO_44}">Voltar para Hoje</a></p></main></body></html>`;
+  return new Response(html, { status: 503, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
 }
 
 /** O documento na tela é a cópia offline de "Meu plano"? Pela marca que só o HTML guardado leva (MARCA_DA_COPIA). */
@@ -183,7 +212,8 @@ export const CABECALHO_GUARDADO_EM = 'x-nd-guardado-em';
 export const CABECALHO_BUILD = 'x-nd-build';
 /**
  * Vai NA BUSCA que guardarPlano faz de /p/plano (nunca na navegação do paciente). Com ele, o servidor desenha a marca da
- * cópia (MARCA_DA_COPIA) no HTML que fica guardado no aparelho. O mesmo cabeçalho do Plano 25 (CABECALHO_PEDIDO_DA_COPIA).
+ * cópia (MARCA_DA_COPIA) no HTML que fica guardado no aparelho e (Plano 25, RN-473) o link "Mensagens" da faixa sem o
+ * "({n})": a cópia guardada fica dias no aparelho e o número dela seria velho.
  */
 export const CABECALHO_PEDIDO_DA_COPIA = 'x-nd-copia';
 /**

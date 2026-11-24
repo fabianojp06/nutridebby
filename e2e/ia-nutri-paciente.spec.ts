@@ -114,11 +114,16 @@ test('7. sem rede, com a conversa aberta: "Perguntar" desabilitado e "Sem conex�
   await expect(paciente.getByLabel('Sua dúvida')).toHaveValue('quanto de banana no lanche?');
 });
 
-test('5. painel: "Dúvidas dos pacientes (n)", o risco no topo com "Sinal de risco" → abrir → "Marcar como vista" → no portal, "Sua dúvida foi vista no consultório."', async () => {
+test('5. painel: "Mensagens" › "Dúvidas da IA Nutri (n)", o risco no topo com "Sinal de risco" → abrir → "Marcar como vista" → no portal, "Sua dúvida foi vista no consultório."', async () => {
   await nutri.goto('/painel');
-  // R11 (pre-flight): o contador é do consultório inteiro (o preparo do axe do painel soma dúvidas da segunda paciente)
-  await nutri.getByRole('navigation', { name: 'Menu do painel' }).getByRole('link', { name: /^Dúvidas dos pacientes \(\d+\)$/ }).click();
+  // Plano 25 (CH-D14, CH-D45): a fila é a aba "Dúvidas da IA Nutri" de Mensagens; o item do menu soma as conversas não lidas
+  // e as dúvidas abertas ("Mensagens, {n} não lidas"). R11 (pre-flight): o contador é do consultório inteiro (o preparo do
+  // axe do painel soma dúvidas da segunda paciente)
+  await nutri.getByRole('navigation', { name: 'Menu do painel' }).getByRole('link', { name: /^Mensagens, \d+ não lidas?$/ }).click();
+  await expect(nutri).toHaveURL(/\/painel\/mensagens$/);
+  await nutri.getByRole('navigation', { name: 'Seções de Mensagens' }).getByRole('link', { name: /^Dúvidas da IA Nutri \(\d+\)$/ }).click();
   await expect(nutri).toHaveURL(/\/painel\/duvidas$/);
+  await expect(nutri.getByRole('heading', { level: 1, name: 'Dúvidas da IA Nutri' })).toBeVisible();
   const linhas = nutri.getByRole('row').filter({ hasText: UM.nome });
   await expect(linhas).toHaveCount(2); // a de risco (passo 4) e a encaminhada (passo 3)
   await expect(linhas.first()).toContainText('Sinal de risco');

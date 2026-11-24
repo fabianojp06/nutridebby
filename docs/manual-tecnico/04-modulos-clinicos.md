@@ -1152,6 +1152,61 @@ PDF, à IA nem ao comparativo; sai só no `dados.json` ([§4.2.9](#429-exportaç
 `src/app/painel/pacientes/[id]/exames/{linhas-do-exame,tabela-classificada}.test.ts` e os E2E `e2e/exames.spec.ts` e
 `e2e/acessibilidade-exames.spec.ts` ([§7.5](07-testes-qualidade-e-processo.md#75-e2e-com-playwright)).
 
+### 4.2.13 Mensagens na ficha e no titular (Plano 25, PR 2)
+
+A conversa por mensagens ([§5.12](05-agenda-portal-conteudo.md#512-mensagens-e-recados-plano-25-pr-2)) é prontuário
+(CH-D2): entra na ficha como seção do Início, vai na exportação nos dois escopos, fica no pedido de exclusão e só sai na
+anonimização.
+
+**Seção "Mensagens" do Início** (`secaoMensagens`, `src/modules/ficha/secoes/mensagens.ts`; a nona de
+`SECOES_DA_FICHA`, no fim da lista, `src/modules/ficha/secoes/index.ts:25`; US-451, RN-468): uma consulta (o titular, a
+contagem e os 3 últimos, `LATERAL` pelo índice da conversa). O total são as mensagens do paciente **não lidas** pelo
+consultório (depois do marcador `consultorio`), e o título mostra "Mensagens (2 não lidas)" / "Mensagens (1 não lida)"
+pelo campo novo do contrato, `rotuloDoTotal?: (total) => string` (`src/modules/ficha/tipos.ts:67`; resolvido em
+`inicio.ts:70`); sem ele, as outras seções seguem com "{Título} ({n})". Como o total já não é o número de registros, a
+seção abre quando há itens (`temItens`, `src/app/painel/pacientes/[id]/inicio/secao.tsx:18`), também com 0 não lidas.
+Cada item tem só o rótulo genérico ("Mensagem do paciente", "Mensagem enviada" ou "Recado"), a data no fuso e a situação
+"Sinal de risco" — nunca o texto nem o nome do anexo, e **sem `auditRead`** (abrir a conversa é que lê). "Ver todos" e
+cada item levam a `/painel/mensagens/{id}`; o Adicionar ganha "Enviar mensagem" no grupo Outros, só com o titular ativo e
+não anonimizado (`podeAdicionar`). Sempre disponível.
+
+**`caminhoNaFicha` com `{id}`** (`src/modules/ficha/adicionar.ts:22`, CH-D44): no `href` absoluto em `/painel/`, `{id}`
+vira o id do paciente (`/painel/mensagens/{id}` → `/painel/mensagens/<paciente>`); o relativo continua dentro da ficha.
+Teste em `src/modules/ficha/adicionar.test.ts`.
+
+**Exportação** (`montarDados`, `src/modules/pacientes/exportacao-job.ts:533`, `:709-710`; RN-467, CH-D74): o `dados.json`
+ganha, nos escopos `titular` e `equipe`, as chaves `conversa` e `mensagens`, montadas por `mensagensParaExportacao`
+(`src/modules/mensagens/lgpd.ts`; leitura incluída explicitamente, sem `auditRead` — o registro é o "exportar" da própria
+exportação). `conversa`: `liberadaEm`, `formaDoTcle` (o rótulo de `OPCOES_FORMA_TCLE`), `liberadaPor` e `pausadaPor` como
+`{ nome, crn, profissao: 'Nutricionista' }` (o carimbo gravado na linha, Res. CFN 594/2017, art. 8º, II) e `pausadaEm`;
+`null` sem conversa, e campos da liberação nulos na conversa que só recebeu recados. `mensagens`, em ordem: `criadaEm`,
+`autor` (`paciente`/`nutricionista`), `autorNome`/`autorCrn` só nas da nutricionista, `texto`, `recado`,
+`respostaADuvidaDe` (só na resposta a dúvida da IA Nutri) e `risco` pelo rótulo de `ROTULO_RISCO_EXPORTACAO` ("Sinal de
+risco detectado automaticamente pelo app (emergência | sintoma agudo | alimentação)"). Os anexos no ZIP entram no PR 3.
+
+**Pedido de exclusão atendido** (CH-D25): a conversa **fica**, só para consulta ("Pedido de exclusão atendido: a
+conversa fica só para consulta."); os avisos pendentes do chat saem como `ignorada` pelo caminho de sempre do motor
+(titular inativo).
+
+**Anonimização** (`anonimizarVencidos`, `src/modules/pacientes/lgpd.ts`; RN-466, CH-D41, CH-D59):
+
+1. **Rede de limpeza** no início de cada tenant (`apagarConversasDosAnonimizados`, `lgpd.ts:515`, molde
+   `apagarCadastrosDosAnonimizados`): apaga a conversa de quem já tem `anonimizado_em` — o que a imagem anterior ao PR 2
+   deixaria numa volta atrás (spec §9.9). Erro só no log, com nome e SQLSTATE.
+2. **Por titular vencido** (`apagarConversaDoTitular`, `lgpd.ts:551`; só contexto `worker`): (1) numa transação, o
+   paciente `FOR UPDATE`, a conferência de que ele está na anonimização (bloqueado com `anonimizar_apos` antes de hoje no
+   fuso do consultório, ou já anonimizado — o papel `worker` também roda no processo web, e `bloqueado` dura todo o prazo
+   de guarda) e o anexo em `processando` levado a `falhou`; (2) em duas voltas, primeiro cada original e depois cada
+   anexo convertido, cada um no seu `apagarArquivo` (com o `rm` antes do commit), soltando o ponteiro por
+   `app_chat_soltar_anexo` no `naMesmaTransacao` depois de reler o caminho com a mensagem travada (mudou → desiste sem
+   erro); (3) `app_chat_apagar_do_titular`: marcadores, mensagens (as cópias de recado inclusive; a linha de `recados`
+   fica) e a conversa. Idempotente.
+3. **Reconferência** na transação final, com o paciente travado (`anexosDeChatRestantes`, `lgpd.ts:598`): sobrou
+   mensagem com anexo apontado ou em processamento → nada é anonimizado e o dia seguinte tenta de novo.
+
+Testes em `src/modules/mensagens/lgpd.test.ts`, `src/modules/pacientes/lgpd.test.ts` e
+`src/modules/pacientes/exportacao.test.ts`.
+
 ---
 
 ### 4.2.13 "Mostrar no app" (Plano 22, PR 3)

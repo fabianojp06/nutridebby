@@ -15,8 +15,12 @@ const GRUPOS: readonly GrupoDoAdicionar[] = ['avaliacoes', 'prescricoes', 'outro
  */
 const ORDEM_NO_ADICIONAR: readonly string[] = ['anamneses', 'antropometria', 'gasto-energetico', 'exames', 'atendimentos'];
 
-/** `href` de seção (RN-277): relativo à ficha (sem `/` inicial) ou absoluto em `/painel/`. */
-export const caminhoNaFicha = (patientId: string, href: string): string => (href.startsWith('/painel/') ? href : `/painel/pacientes/${patientId}/${href}`);
+/**
+ * `href` de seção (RN-277): relativo à ficha (sem `/` inicial) ou absoluto em `/painel/`. Plano 25 (CH-D44): no absoluto,
+ * `{id}` vira o paciente (o "Enviar mensagem" vai para `/painel/mensagens/{id}`).
+ */
+export const caminhoNaFicha = (patientId: string, href: string): string =>
+  href.startsWith('/painel/') ? href.replaceAll('{id}', patientId) : `/painel/pacientes/${patientId}/${href}`;
 
 /**
  * Plano 18 (RN-280): os grupos do diálogo Adicionar a partir das seções que o Início mostrou (`secoesDoInicio` já tirou as

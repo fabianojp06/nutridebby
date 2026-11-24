@@ -550,6 +550,7 @@ await withTenant(
   },
   db,
 );
+
 // Plano 25 (T1c; T6, CH-D67, CH-D68): o consultório próprio do E2E do chat, NOVO a cada execução (os outros E2E não veem a
 // conversa nem os recados), com o carimbo profissional (RN-475) — sem ele o gatilho recusa liberar, enviar e o recado. Tudo
 // por withTenant com papel: a sessão `nutri` libera, escreve e manda o recado (o gatilho carimba, põe o relógio e confere o
@@ -568,6 +569,12 @@ await db.delete(user).where(eq(user.email, E2E_CHAT_NUTRI.email));
 const chatNutriId = randomUUID();
 await db.insert(user).values({ id: chatNutriId, name: 'Nutri Chat E2E', email: E2E_CHAT_NUTRI.email, emailVerified: true, appRole: 'nutri', tenantId: consultorioChat.id, guia: TUDO_VISTO, tema: 'sistema' });
 await db.insert(account).values({ id: randomUUID(), userId: chatNutriId, accountId: chatNutriId, providerId: 'credential', password: await hashPassword(E2E_CHAT_NUTRI.password) });
+// /code-review do PR 2 (I1): a segunda nutricionista do consultório do chat — o "Lida" de cada uma é o da própria mensagem
+export const E2E_CHAT_NUTRI_2 = { email: 'chat-nutri-2-e2e@nutridebby.test', password: 'Nutri2026segura' };
+await db.delete(user).where(eq(user.email, E2E_CHAT_NUTRI_2.email));
+const chatNutri2Id = randomUUID();
+await db.insert(user).values({ id: chatNutri2Id, name: 'Nutri Chat Dois E2E', email: E2E_CHAT_NUTRI_2.email, emailVerified: true, appRole: 'nutri', tenantId: consultorioChat.id, guia: TUDO_VISTO, tema: 'sistema' });
+await db.insert(account).values({ id: randomUUID(), userId: chatNutri2Id, accountId: chatNutri2Id, providerId: 'credential', password: await hashPassword(E2E_CHAT_NUTRI_2.password) });
 const senhaChat = await hashPassword(E2E_CHAT_PACIENTE.password);
 const [jaChat] = await db.select({ id: user.id }).from(user).where(eq(user.email, E2E_CHAT_PACIENTE.email));
 const chatPacienteUserId = jaChat?.id ?? randomUUID();
@@ -621,6 +628,36 @@ await withTenant(
     await tx.execute(sql`insert into chat_mensagens (tenant_id, patient_id, autor, autor_user_id, texto, recado_id)
                          values (${consultorioChat.id}, ${chatPacienteId}, 'nutri', ${chatNutriId}, 'O consultório não atende no feriado de sexta-feira.', ${r.rows[0].id as string})`);
   },
+  db,
+);
+
+// Plano 25 (T6b): a segunda paciente do chat, com conta e SEM a conversa liberada — o E2E libera pela tela ("Liberar
+// conversa"), envia e vê o "Lida" depois que ela abre o app. Conta reaproveitada; os vínculos dos consultórios do chat das
+// execuções anteriores vão para "arquivado", como os da primeira.
+export const E2E_CHAT_PACIENTE_2 = { email: 'chat-paciente-2-e2e@nutridebby.test', password: 'Nutri2026segura', nome: 'Paciente Chat Dois E2E' };
+const senhaChat2 = await hashPassword(E2E_CHAT_PACIENTE_2.password);
+const [jaChat2] = await db.select({ id: user.id }).from(user).where(eq(user.email, E2E_CHAT_PACIENTE_2.email));
+const chatPaciente2UserId = jaChat2?.id ?? randomUUID();
+if (jaChat2) {
+  await db.update(account).set({ password: senhaChat2 }).where(eq(account.userId, chatPaciente2UserId));
+} else {
+  await db.insert(user).values({ id: chatPaciente2UserId, name: E2E_CHAT_PACIENTE_2.nome, email: E2E_CHAT_PACIENTE_2.email, emailVerified: true, appRole: 'paciente' });
+  await db.insert(account).values({ id: randomUUID(), userId: chatPaciente2UserId, accountId: chatPaciente2UserId, providerId: 'credential', password: senhaChat2 });
+}
+for (const { id: tenantId } of chatsAntigos) {
+  await withTenant(
+    { tenantId, role: 'worker' },
+    (tx) => tx.update(patients).set({ status: 'arquivado', updatedAt: new Date() }).where(and(eq(patients.userId, chatPaciente2UserId), eq(patients.status, 'ativo'))),
+    db,
+  );
+}
+await db.insert(consents).values({ userId: chatPaciente2UserId, tenantId: consultorioChat.id, termoVersao: TERMO_PACIENTE, ip: null }).onConflictDoNothing();
+await withTenant(
+  ctxChatNutri,
+  (tx) =>
+    tx
+      .insert(patients)
+      .values({ tenantId: consultorioChat.id, userId: chatPaciente2UserId, nome: E2E_CHAT_PACIENTE_2.nome, dataNascimento: '1988-09-03', sexo: 'M', email: E2E_CHAT_PACIENTE_2.email }),
   db,
 );
 

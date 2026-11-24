@@ -318,6 +318,33 @@ Ver 3.8.
 | `requirePaciente` | portal `/p/*` | `paciente` | vínculo, consultório ativo, termo atual; `ctx` | redirect |
 | `requireApiPaciente` | `/api/p/*` | `paciente` | idem | 403 |
 
+### Mensagens: papel antes da transação e no banco (Plano 25, PR 2)
+
+As páginas, as Server Actions e as rotas de Mensagens usam as guardas acima (`requireNutri` em
+`/painel/mensagens/**` e `/painel/configuracoes/mensagens`, `requirePaciente` em `/p/mensagens`,
+`requireApiNutri`/`requireApiPaciente` nas rotas `/api/painel/mensagens/{situacao,contador}` e
+`/api/p/mensagens/situacao`). Por baixo, três camadas:
+
+1. **No módulo, antes de abrir a transação** (RN-440): `exigirNutri` (`src/modules/mensagens/sessao.ts`) lança
+   `Error('mensagens: só a sessão nutri')` se `ctx.role` não for `nutri` — numa sessão de paciente, a RLS deixaria ler
+   parte das tabelas do chat, e o worker não libera, não pausa nem configura —; `exigirPacienteComConta` exige
+   `sessaoDePacienteComConta(ctx)` (`src/db/tenant.ts:80`: papel `paciente` com paciente **e** usuário). `situacao`
+   aceita as duas e ignora o `patientId` recebido na sessão de paciente; `mensagensNaFaixa` devolve `null` sem abrir
+   transação fora da sessão com conta; as funções da anonimização exigem o contexto `worker`.
+2. **Na RLS:** a política RESTRICTIVE `paciente_com_conta` (`FOR ALL`) nas cinco tabelas `chat_*` que o paciente vê nega
+   a sessão de paciente **sem login** (`semConta`: link da consulta, WhatsApp, contexto da IA Nutri, "No app do paciente"),
+   nem as próprias linhas (CH-D47); `recados` e `chat_avisos_nutri` são `staff_only`; a sessão de paciente com conta só
+   grava o que `PACIENTE_ESCREVE` libera — `chat_mensagens` (`insert`, com a `paciente_chat_envio`) e `chat_leituras`
+   (`insert`, `update`, só o lado `paciente`) — ([§2.5.14](02-banco-de-dados.md#2514-mensagens-e-recados-mensagensts-plano-25)).
+3. **Nos gatilhos:** lista fechada de papéis (CH-D57). Devolvem `NEW` onde a RLS já recusa (outro tenant, outro paciente,
+   `publico`, `conta`, a sessão de paciente onde a política a nega); `nutri`, `paciente` e `worker` seguem as regras;
+   qualquer outro valor de `app.role` recebe `42501` — inclusive a `recepcao` do Plano 26, que sem o 26 na `main` nenhuma
+   política nega (CH-D71: quem entrar depois faz o `CREATE OR REPLACE` das quatro funções com `'recepcao'` na lista).
+
+As rotas de situação e do contador são consultas automáticas: o painel chama `requireApiNutri(req, { renovar: false })`
+e o navegador manda o cabeçalho `x-nd-consulta` (`CONSULTA_AUTOMATICA`, `src/lib/consulta-automatica.ts`), que
+`requireApiUser` não conta como uso (P12-14) — a consulta de 15 s não segura aberta a sessão da equipe.
+
 ---
 
 ## 3.8 Sessão do paciente: vínculos, `nd_vinculo` e contexto `conta`

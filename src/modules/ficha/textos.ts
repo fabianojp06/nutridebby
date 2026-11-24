@@ -15,6 +15,7 @@ export const MSG_FICHA = {
     exames: 'Exames',
     examesEnviados: 'Exames enviados pelo paciente',
     documentos: 'Documentos',
+    mensagens: 'Mensagens', // Plano 25 (§4.4)
   },
   /** Rótulos genéricos dos itens (D14: nunca o nome do modelo da anamnese nem o do exame). */
   rotulos: {

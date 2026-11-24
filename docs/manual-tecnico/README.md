@@ -11,6 +11,7 @@ funciona e como operar e estender sem quebrar o isolamento, a LGPD ou a produç�
 | Escopo | Planos 01–08, 09 (itens P09-01 a P09-05 e, pelo Plano 13, a P09-07), 10A, 11, 12 (parte F3-04 e a sessão da equipe) 13 (parecer nutricional e retificação, F3-05), 16 (app do paciente no layout G, G-01 e G-02, com a T17 do `/admin`) 14A (autorização do paciente para IA e provedor AWS na UE), 14B-1 (modelos de plano e de anamnese sugeridos pela IA por área, sem dado de paciente) 14B-2 (resumo do histórico e rascunho de plano pela IA, com dado de paciente pseudonimizado, e textos de IA 1.1) 15 (IA Nutri do paciente, F3-02: conversa sobre o próprio plano com resposta montada pelo sistema, consentimento próprio 1.0 e aditivo 1.2) 17 (lembretes de rotina por push, configurados pela nutricionista por paciente) e 18 (PR 1 e PR 2: ficha do paciente — abas Início e Perfil, cabeçalho e registro de seções — e o cadastro complementar `patient_cadastro`, CPF, formulário em seções, lista nova, "No app do paciente", LGPD e nome social na IA) e 20 (Financeiro do consultório: PR 1 de fundação e PR 2; a seção da ficha, PR 3, ainda não existe), spec do MVP v1.13, spec de documentos assinados v0.6, spec da IA v0.4 (§5.10 com a nota do Plano 13) spec C v0.3 (parte F3-04) e spec G v0.1 (app do paciente) e spec da IA v0.5.1 (parte do 14A) e v0.6 (parte da 14B-1) e v0.7 (parte da 14B-2) e a spec dos lembretes de rotina (13/11/2026) e a da ficha e cadastro (v0.3, 17/11/2026) e a do Financeiro v0.2 (16/11/2026, com a §18), migrations `0000`–`0125` (126 arquivos em `drizzle/`; as `0124`–`0125` são do Plano 18, §2.5.4; as `0122`–`0123` são do Plano 20, §2.5.12 e [cap. 12](12-financeiro.md); as `0118`–`0121` são do Plano 17, §2.5.11; a `0106` é do Plano 16, §5.5.12 e §5.5.14; a `0110` é a migration de dados do prazo de guarda, JUR-01; o cap. 10 cobre `0098`–`0100`, do Plano 14A, `0107`–`0109`, do Plano 14B-1, `0111`–`0112`, do Plano 14B-2, `0113`–`0114` e, do Plano 15, `0115`–`0117`; o cap. 11, `0101`–`0102`, e o cap. 9, `0089`–`0093` e `0104`–`0105`; a `0103` é da sessão da equipe, Tarefa 14 do Plano 12) |
 | Conferido contra (Plano 22) | Os PRs 1 e 2 do Plano 22 (exames do consultório: as quatro tabelas, a coluna e a política de `exams`, o catálogo, os modelos de solicitação, a edição com versão, o detalhe com classificação, a nota de interpretação, o comparativo e a exportação — §2.5.13, §4.2.12, §10.15 e os caps. 1, 2, 4, 5 e 7) contra o branch `plano-22-exames-prescricao` em `829b0a7` (Tarefas 1 a 5b; base `07756c4`, merge do PR #56; o PR 1, #58, ainda fora da `main`), em 23/11/2026, com as migrations `0127`–`0128` (128 arquivos), que mudam no rebase. Os PRs 3 (app do paciente) e 4 (documentos) ainda não existem no código |
 | Segredos | Só **nomes** de variáveis. Nenhum valor de `.env`, senha, token ou chave aparece no manual |
+| Plano 25, PR 2 | Mensagens e recados (conversa de texto: liberação com TCLE, pausa, horário, avisos, caixa, ficha, app do paciente, exportação e anonimização) conferido no branch `plano-25-chat-recados` em `fdeefa0` (Tarefas 2 a 7, com a fundação do PR 1 no mesmo branch; base `main` `5cebcd0`), em 23/11/2026, contra a spec v0.4 e o plano do Plano 25: §5.12 (dono), §2.5.14, §4.2.13 e os caps. 1, 2, 3, 4, 7 e 10. Migrations do PR 1: `0132_mensagens` / `0133_rls_mensagens`; o PR 2 não tem migration. A `0126` (`tenants_gatilho_update`, SUS-102) já está na `main` e só aparece no §2.6.8 |
 
 ---
 
@@ -144,6 +145,11 @@ flowchart LR
 [5.9 Como estender](05-agenda-portal-conteudo.md#59-como-estender-com-segurança) ·
 [5.11 Relatórios (Plano 26)](05-agenda-portal-conteudo.md#511-relatórios-plano-26)
 
+**Mensagens e recados (Plano 25, PR 2)** — [5.12 Mensagens e recados](05-agenda-portal-conteudo.md#512-mensagens-e-recados-plano-25-pr-2) ·
+[2.5.13 Tabelas](02-banco-de-dados.md#2514-mensagens-e-recados-mensagensts-plano-25) ·
+[4.2.12 Ficha e titular](04-modulos-clinicos.md#4213-mensagens-na-ficha-e-no-titular-plano-25-pr-2) ·
+[3.7 Papel antes da transação e no banco](03-autenticacao-e-acesso.md#mensagens-papel-antes-da-transação-e-no-banco-plano-25-pr-2)
+
 **6. Worker, segurança e operação** — [6.2 Worker pg-boss](06-worker-seguranca-operacao.md#62-worker-pg-boss) ·
 [6.3 Segurança](06-worker-seguranca-operacao.md#63-segurança) ·
 [6.4 Observabilidade](06-worker-seguranca-operacao.md#64-observabilidade) ·
@@ -252,6 +258,7 @@ Cada assunto tem um capítulo dono, com o detalhe. Os outros capítulos trazem u
 | Portal do paciente no layout G (seções, mural de Hoje, respostas, Jornada, peso oculto, guia do portal) | [§5.5](05-agenda-portal-conteudo.md#55-portal-do-paciente-p-plano-06-layout-g-no-plano-16), [§5.7.6](05-agenda-portal-conteudo.md#576-portal-tokens-faixa-e-fontes-p08-d18-layout-g-no-plano-16), [§5.8.4](05-agenda-portal-conteudo.md#584-manual-guiado-do-portal-plano-16-t14-us-199-rn-212-pm-g10) | §1.7, §1.10, §4 (exportação), §6.8.1 (voltar atrás), §7.4.5, cap. 11; `docs/operacao/app-paciente.md` (runbook) |
 | Financeiro do consultório (lançamentos, cobrança da consulta, pagamentos pendentes, relatórios, CSV, LGPD do Financeiro, DPA 1.1) | [cap. 12](12-financeiro.md) | §1.6, §1.7, §1.10, §2.5.12, §2.6.8, §2.7, §2.8, §3.7, §3.12, §4.2.6, §4.2.8, §4.2.9, §5.1.8, §5.7.4, §5.8.1, §6.8.1, §7.4, §7.5, §10.8; `docs/operacao/financeiro.md` (runbook) |
 | Exames enviados pelo paciente (envio, rasterização, revisão, memória) | [cap. 11](11-exames-enviados.md) | §6.4 (#3, limites do worker), §7.7 (orçamento da imagem e filtro de documentação); `docs/operacao/exames-enviados.md` (runbook) |
+| Mensagens e recados (liberação com TCLE, pausa, envio, "Lida", caixa e contador, horário, avisos, telas do painel e do app, guias; Plano 25) | [§5.12](05-agenda-portal-conteudo.md#512-mensagens-e-recados-plano-25-pr-2) | §1.5, §1.6, §1.7, §1.10, §2.5.1, §2.5.14, §2.6.8, §2.7, §2.8, §3.7, §4.2.13 (ficha, exportação, anonimização), §5.7.4, §7.3, §7.4, §7.5, §10.14.10 (fila "Dúvidas da IA Nutri"); `docs/operacao/mensagens.md` (runbook) |
 
 ---
 
@@ -369,6 +376,14 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Faixa do consultório | Faixa que a nutricionista define no catálogo, sempre com a fonte (sexo do cadastro, idade em anos completos, "A partir de" inclusivo, "Abaixo de" exclusivo, categoria de uma lista fechada sem nome de doença); mostra a categoria "(faixa do consultório)" ao lado do resultado, só no painel, calculada na leitura (Plano 22, RN-374, RN-380, RN-381, EP-D11) | `src/modules/exames/classificacao.ts` |
 | Classificação neutra | "Abaixo da referência", "Dentro da referência" ou "Acima da referência", pela faixa do laudo, calculada na leitura e nunca gravada (`classificarNeutra`), sempre com o aviso "Classificação automática pela faixa de referência informada. Não é diagnóstico." (Plano 22, RN-379, RN-381) | `src/modules/exames/classificacao.ts:24` |
 | Nota de interpretação | Texto da nutricionista sobre um exame (`exam_interpretacoes`, só de inclusão: cada "Salvar nota" é uma versão nova, "Apagar nota" grava texto nulo); não vai ao app, ao PDF, à IA nem ao comparativo; sai no `dados.json` nos dois escopos (Plano 22, RN-383, EP-D19, EP-D61) | [§4.2.12](04-modulos-clinicos.md#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2) |
+| Mensagens / conversa | A conversa por texto entre a nutricionista e o paciente, no painel (`/painel/mensagens`) e no app (`/p/mensagens`); uma por paciente e consultório (`chat_conversas`), guardada como prontuário até a anonimização; sem tempo real (Plano 25) | [§5.12](05-agenda-portal-conteudo.md#512-mensagens-e-recados-plano-25-pr-2) |
+| Liberar a conversa (TCLE de telenutrição) | O ato da nutricionista que abre a conversa individual, com a forma do aceite — termo assinado ou aceite por escrito, nunca verbal (CH-D3) — e a confirmação de que o paciente (ou o responsável legal) concordou e recebeu o comprovante; o banco guarda quando, quem e o nome e o CRN do momento (CH-D74) | [§5.12.2](05-agenda-portal-conteudo.md#5122-liberação-tcle-pausa-e-retomada-us-440-us-450-rn-441-rn-442-rn-475-ch-d3-ch-d39-ch-d74-ch-d75) |
+| Pausar a conversa | O paciente continua vendo as mensagens, mas nenhum dos lados envia mensagem individual; a retomada não pede novo TCLE | [§5.12.2](05-agenda-portal-conteudo.md#5122-liberação-tcle-pausa-e-retomada-us-440-us-450-rn-441-rn-442-rn-475-ch-d3-ch-d39-ch-d74-ch-d75) |
+| Carimbo profissional | Nome profissional e CRN do consultório (`tenants.nome_profissional`, `tenants.crn`, com o prefixo: "CRN-4 12345") copiados pelo gatilho para cada mensagem e recado da nutricionista e para a liberação e a pausa; sem ele, liberar, pausar e enviar são recusados (RN-475) | [§2.5.14](02-banco-de-dados.md#2514-mensagens-e-recados-mensagensts-plano-25) |
+| Marcador de leitura / "Lida" | `chat_leituras.lida_ate` de cada lado (`consultorio`, `paciente`): a `criada_em` da última mensagem do outro lado que a tela carregou, resolvida no SQL pelo id; só avança. "Lida" é a última mensagem própria que o outro lado já passou (CH-D40, CH-D72) | [§5.12.4](05-agenda-portal-conteudo.md#5124-leitura-lida-e-cursores-rn-446-rn-448-rn-452-rn-453-ch-d40-ch-d72) |
+| Horário de atendimento por mensagens | Faixas por dia da semana que o app mostra ao paciente; só informa (nunca impede o envio) e decide quando sai o e-mail à nutricionista (RN-451, RN-458) | [§5.12.6](05-agenda-portal-conteudo.md#5126-horário-de-atendimento-por-mensagens-us-446-rn-451-rn-472-ch-d70-ch-d73-ch-d76) |
+| Recado | Aviso do consultório a vários pacientes com app, copiado para a conversa de cada um (`recados` + uma cópia em `chat_mensagens` com `recado_id`); as telas e o envio entram no PR 3 do Plano 25 | [§2.5.14](02-banco-de-dados.md#2514-mensagens-e-recados-mensagensts-plano-25) |
+| Fila "Dúvidas da IA Nutri" | O nome, desde o Plano 25, da fila "Dúvidas dos pacientes" do Plano 15: aba de Mensagens em `/painel/duvidas`, com o mesmo comportamento (CH-D45) | [§10.14.10](10-ia.md#101410-telas-textos-fixos-e-manual-guiado) |
 
 ### Isolamento e banco
 
@@ -397,6 +412,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Migrator / `nutri_app_role` | Migrator = role dono do schema (`DATABASE_URL_MIGRATOR`), só nas migrations. `nutri_app_role` = grupo sem login que recebe os privilégios; o role de `DATABASE_URL` é membro dele, sem `BYPASSRLS` | `drizzle/0000_base_roles_e_rls.sql:10-19`; [§2.2](02-banco-de-dados.md#22-roles-e-credenciais) |
 | Expand/contract | Migration em duas fases (acrescenta, depois remove), porque app novo e antigo convivem no deploy `start-first` | Spec §9.7 |
 | `SECURITY DEFINER` | Função SQL que roda com o dono e devolve só o mínimo (métricas do admin, anonimização de aceites…). A anonimização dos documentos (`app_anonimizar_documentos`) é `SECURITY INVOKER` | [§2.6.8](02-banco-de-dados.md#268-funções-security-definer) |
+| `paciente_com_conta` | Política RESTRICTIVE `FOR ALL` que nega a sessão de paciente **sem login** (`semConta`) numa tabela, nem as próprias linhas: `patient_cadastro` (Plano 18) e as cinco `chat_*` que o paciente vê (Plano 25, CH-D47) | `0133_rls_mensagens.sql:81-99` (número provisório); [§2.5.14](02-banco-de-dados.md#2514-mensagens-e-recados-mensagensts-plano-25) |
 
 ### Aplicação e operação
 
@@ -782,6 +798,27 @@ Conferido no branch `runner-proprio` em `bbd7728` (antes do merge; mergeado no P
 | # | Fonte | Diz | Código | Tipo | Cap. |
 |---|---|---|---|---|---|
 | 102 | Spec §9.7 ("Merge na `main`") e RNF-03 | Build da imagem no GitHub Actions, não na VPS, para não consumir CPU e memória do CRM | O CI roda na VPS, no runner próprio, inclusive o build de prova do job `image` (sem push), dentro da `user-1500.slice` (4 de 8 vCPU, 12 GB, sem swap); a imagem publicada segue montada no `publish` hospedado | Doc | 1 #13, 7 #11 |
+
+### Mensagens e recados (Plano 25, PR 2)
+
+Conferido no branch `plano-25-chat-recados` em `fdeefa0` (Tarefas 2 a 7, antes do merge do PR 1 e do rebase; 23/11/2026),
+contra a spec `docs/superpowers/specs/2026-11-17-nutridebby-25-chat-recados-design.md` (v0.4, CH-D70 a CH-D77) e o plano
+`docs/superpowers/plans/2026-11-17-nutridebby-25-chat-recados.md`; detalhe nas divergências 28–36 do
+[cap. 5](05-agenda-portal-conteudo.md#divergências-encontradas), 15 do [cap. 2](02-banco-de-dados.md#divergências-encontradas)
+e 14 do [cap. 1](01-visao-geral-e-arquitetura.md#divergências-encontradas). Números provisórios: outro plano que fechar antes
+na `main` pode tomar a faixa, e o rebase renumera (como no Plano 20). Renumerados no merge da `main` `123b78e` (o Plano 22 ocupou 154–160).
+
+| # | Fonte | Diz | Código | Tipo | Cap. |
+|---|---|---|---|---|---|
+| 161 | RN-458, RN-472 | `aviso_email` e `aviso_nutri_em` em `chat_configuracoes` | Em `chat_avisos_nutri` (`staff_only`, CH-D70, já na §9.4 da spec); `chat_configuracoes` só tem `horario_ativo` | Doc | 5 #28, 2 #15 |
+| 162 | Plano, "Architecture" e "Estrutura de arquivos" | Seis tabelas; lista de arquivos | Sete tabelas; também `sessao.ts`, `src/components/mensagens/`, `contador-de-mensagens.tsx`, `formulario.ts` e os componentes das telas | Doc | 5 #29, 1 #14 |
+| 163 | §6.2 "Menu e abas" | Aba "Recados" | Só "Conversas" e "Dúvidas da IA Nutri" no PR 2; "Recados" na T10 (PR 3) | Pend. | 5 #30 |
+| 164 | RN-472 | Horário no app sempre que `horario_ativo` | Só com o envio aberto (liberada, não pausada, titular ativo; rodada da T7) | Doc | 5 #31 |
+| 165 | RN-473 | "Sem conexão…" no componente da conversa | Também a página mínima do service worker na navegação sem rede (503, aviso de urgência, "Voltar para Hoje"), texto fora da §6.2 | Doc | 5 #32 |
+| 166 | §6.2 "Portal: conversa" | O texto de "só recados" no caso de só recados | Também sem nenhum recado (só pela URL: a faixa esconde o link) | Doc | 5 #33 |
+| 167 | §6.2 "`ENTIDADE_ROTULO` e Histórico" | Rótulos dos atos em `acaoDoItem` | Em `rotuloDaAcao` (`audit.ts:137-140`) | Doc | 5 #34 |
+| 168 | `CLAUDE.md`, regra 9 (frase do Plano 25) | Conversão do anexo na fila `chat-anexo` e `app_chat_soltar_anexo` no `naMesmaTransacao` | A fila e o upload só no PR 3; hoje só a anonimização solta ponteiros | Pend. | 5 #35 |
+| 169 | CH-D45 | Um nome só para a fila ("Dúvidas da IA Nutri") | O e-mail `risco_ia_nutri` ainda diz "Abra as dúvidas dos pacientes no NutriDebby." e "Abrir as dúvidas dos pacientes" | Pend. | 5 #36 |
 
 **Para decidir com o dono** (tipo Comp.): #10, #18, #28, #32, #35, #36, #39, #40, #55, #58, #59, #68, #74 e #153. As de tipo Doc entram na
 próxima versão da spec ou do documento citado.

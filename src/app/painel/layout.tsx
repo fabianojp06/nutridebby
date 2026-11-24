@@ -5,6 +5,7 @@ import { METADADOS_DO_PAINEL } from '@/app/manifesto-painel';
 import { VigiaDeSessao } from '@/components/vigia-sessao';
 import { requireNutri } from '@/lib/tenant-session';
 import { contadorDeDuvidas } from '@/modules/ia/nutri-paciente/duvidas';
+import { contadorDeMensagens } from '@/modules/mensagens/caixa';
 import { contarEnviosRecebidos } from '@/modules/pacientes/exames-enviados';
 import { DPA_VERSAO } from '@/modules/plataforma/dpa';
 import { getTenantBrand } from '@/modules/plataforma/marca';
@@ -31,13 +32,14 @@ export default async function PainelLayout({ children }: LayoutProps<'/painel'>)
   // revalidatePath('/painel', 'layout'), e um envio novo aparece na próxima navegação completa
   const pendentes = completo ? await contarEnviosRecebidos(ctx) : 0;
   const exames = { mostrar: !!tenant.examesPacienteAtivadoEm || pendentes > 0, pendentes };
-  // Plano 15 (US-175): "Dúvidas dos pacientes (n)" com a IA Nutri ativada ou com dúvida aberta (a fila continua depois de
-  // desativar); revalidatePath('/painel', 'layout') nas ações da fila e da ativação
-  const abertas = completo ? await contadorDeDuvidas(ctx) : 0;
-  const duvidas = { mostrar: !!tenant.iaNutriAtivadaEm || abertas > 0, pendentes: abertas };
+  // Plano 25 (RN-459, CH-D43): "Mensagens (n)" sempre, com n = conversas com mensagem do paciente não lida + dúvidas abertas
+  // da IA Nutri (a fila do Plano 15 virou a aba "Dúvidas da IA Nutri"); revalidatePath('/painel', 'layout') nas ações da
+  // fila e da conversa, e a consulta de 60 s do MenuPainel (contador-de-mensagens.tsx) entre uma navegação completa e outra
+  const [naoLidas, abertas] = completo ? await Promise.all([contadorDeMensagens(ctx), contadorDeDuvidas(ctx)]) : [0, 0];
+  const mensagens = { mostrar: true, pendentes: naoLidas + abertas };
   return (
     <div data-tema={tema} style={cores} className={`${FONTES_DO_PAINEL} min-h-dvh bg-fundo font-sans text-texto`}>
-      <CabecalhoPainel marca={marca} nome={data.user.name} email={data.user.email} tema={tema} completo={completo} progresso={progresso} exames={exames} duvidas={duvidas} />
+      <CabecalhoPainel marca={marca} nome={data.user.name} email={data.user.email} tema={tema} completo={completo} progresso={progresso} exames={exames} mensagens={mensagens} />
       {children}
       {/* P12-14: aviso de inatividade e saída automática (30 min sem uso, 8 h de limite) */}
       <VigiaDeSessao />

@@ -9,12 +9,14 @@ import {
   CACHE_PLANO,
   URL_PLANO,
   cabecalhosDaCopia,
+  ehConversaDoPortal,
   ehNavegacaoDoPortal,
   ehPaginaDoPlano,
   esquecerPlanoGuardado,
   idDoBuild,
   lerMensagem,
   mensagemDaPropriaOrigem,
+  paginaSemConexao,
   planoValido,
   podeGuardarPlano,
   precisaBuscarPlano,
@@ -62,7 +64,8 @@ async function guardarPlano(dono: string, versao: string, o: { prazoMs?: number 
     : null;
   if (!precisaBuscarPlano(guardado, { dono, versao, build: BUILD }, Date.now())) return;
   if (guardado && guardado.dono !== dono) await esquecerPlanoGuardado();
-  // SUS-112: o cabeçalho faz o servidor desenhar a marca da cópia (MARCA_DA_COPIA) — só a cópia recarrega quando a rede volta
+  // SUS-112: o cabeçalho faz o servidor desenhar a marca da cópia (MARCA_DA_COPIA) — só a cópia recarrega quando a rede volta.
+  // Plano 25 (RN-473): e o link "Mensagens" da faixa sai sem contador
   const r = await fetch(URL_PLANO, { credentials: 'same-origin', cache: 'no-store', headers: { [CABECALHO_PEDIDO_DA_COPIA]: '1' }, signal: o.prazoMs ? AbortSignal.timeout(o.prazoMs) : undefined });
   if (saiuDoPlano(r, origem)) {
     await esquecerPlanoGuardado();
@@ -134,7 +137,7 @@ self.addEventListener('notificationclick', (e) => {
 });
 
 // D6: os estáticos do build (precache) + só o HTML de "Meu plano" (1 entrada, gravada por guardarPlano). Nada de /api,
-// foto, PDF ou outra página.
+// foto, PDF ou outra página (nem a conversa, /p/mensagens: Plano 25, RN-473).
 new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
@@ -164,7 +167,13 @@ new Serwist({
       }),
     },
     {
-      // Sem rede, qualquer página do portal mostra o último plano guardado (com o selo offline)
+      // Plano 25 (RN-473, CH-D46): a conversa só com rede e nunca no cache; sem rede, a página do aviso (nunca o plano no
+      // lugar da conversa). Antes da regra seguinte, que não casa com /p/mensagens (ehNavegacaoDoPortal) — defesa dupla
+      matcher: ({ request, url }) => ehConversaDoPortal(url, request.mode, origem),
+      handler: new NetworkOnly({ plugins: [{ handlerDidError: async () => paginaSemConexao() }] }),
+    },
+    {
+      // Sem rede, qualquer página do portal mostra o último plano guardado (com o selo offline), menos a conversa
       matcher: ({ request, url }) => ehNavegacaoDoPortal(url, request.mode, origem),
       handler: new NetworkOnly({ plugins: [{ handlerDidError: async () => planoGuardado() }] }),
     },

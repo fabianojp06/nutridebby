@@ -18,7 +18,15 @@ describe('situação do lembrete em texto', () => {
 
 describe('ROTULO_TIPO (W-1)', () => {
   it('tem rótulo para todo tipo do CHECK de notifications', () => {
-    for (const t of ['lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada', 'convite_paciente', 'resposta_confirmacao', 'resposta_remarcar', 'push_teste', 'comentario_diario', 'plano_novo', 'conteudo_novo', 'documento_novo', 'documento_atualizado', 'exame_revisado', 'exame_expirado', 'duvida_vista'])
+    for (const t of ['lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada', 'convite_paciente', 'resposta_confirmacao', 'resposta_remarcar', 'push_teste', 'comentario_diario', 'plano_novo', 'conteudo_novo', 'documento_novo', 'documento_atualizado', 'exame_revisado', 'exame_expirado', 'duvida_vista', 'chat_mensagem', 'recado'])
       expect(ROTULO_TIPO[t as keyof typeof ROTULO_TIPO], t).toBeTruthy();
+  });
+});
+
+describe('Plano 25 (§6.2 "ROTULO_TIPO e motivo")', () => {
+  it('rótulos dos avisos do chat e do motivo "mensagem já lida"', () => {
+    expect(ROTULO_TIPO.chat_mensagem).toBe('Mensagem no app');
+    expect(ROTULO_TIPO.recado).toBe('Recado');
+    expect(situacaoDaNotificacao({ ...base, status: 'ignorada', motivoIgnorada: 'mensagem_lida' }, SP)).toBe('Não enviado: mensagem já lida');
   });
 });

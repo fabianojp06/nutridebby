@@ -14,19 +14,21 @@ import { formatarData } from '@/modules/pacientes/datas';
  */
 export function Secao({ secao, patientId, nota }: { secao: SecaoNoInicio; patientId: string; nota?: string }) {
   const { total, ultimos } = secao.resumo;
+  // Plano 25: a seção "Mensagens" conta as não lidas (`rotuloDoTotal`); com 0 não lidas, os últimos itens continuam
+  const temItens = ultimos.length > 0;
   return (
-    <details open={total > 0} className="group border-t border-linha first-of-type:border-t-0">
+    <details open={temItens} className="group border-t border-linha first-of-type:border-t-0">
       <summary className="block min-h-11 cursor-pointer py-2">
         {/* seta em SVG, não em texto: um "▸" girado (inline-block com transform) é texto de 1 caractere que o axe deixa em
             "incomplete" no color-contrast (E2E acessibilidade-painel); o SVG não entra no contraste de texto */}
         <svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2 inline-block align-[-0.125em] transition-transform group-open:rotate-90">
           <path d="M6 3l5 5-5 5" />
         </svg>
-        <h3 className="inline font-semibold">{MSG_FICHA.secao(secao.titulo, total)}</h3>
+        <h3 className="inline font-semibold">{secao.rotuloDoTotal === undefined ? MSG_FICHA.secao(secao.titulo, total) : `${secao.titulo} (${secao.rotuloDoTotal})`}</h3>
       </summary>
       <div className="space-y-1 pb-3 pl-6">
         {nota && <p className="text-sm text-suave">{nota}</p>}
-        {total === 0 ? (
+        {!temItens ? (
           <p className="text-sm text-suave">{MSG_FICHA.vazio}</p>
         ) : (
           <>

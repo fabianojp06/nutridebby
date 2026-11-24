@@ -327,3 +327,41 @@ describe('Plano 22 (T6, RN-385, EP-D45) — "Mostrar no app" no Histórico de ac
     expect(rotuloDaAcao({ acao: 'alterar', entidade: 'exames' })).toBe('Alterou');
   });
 });
+
+describe('Plano 25 (RN-453, CH-D39) — Mensagens no Histórico de acessos', () => {
+  it('rótulos: as entidades do chat e os atos de liberar, pausar e retomar (recordAudit do módulo)', () => {
+    expect(ENTIDADE_ROTULO.chat).toBe('Mensagens (conversa com o paciente)');
+    expect(ENTIDADE_ROTULO.chat_conversa).toBe('Mensagens — conversa');
+    for (const e of ['chat_liberacao', 'chat_pausa', 'chat_retomada']) expect(ENTIDADE_ROTULO[e]).toBe('Mensagens (conversa com o paciente)');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'chat_liberacao' })).toBe('Liberou a conversa por mensagens');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'chat_pausa' })).toBe('Pausou a conversa por mensagens');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'chat_retomada' })).toBe('Retomou a conversa por mensagens');
+    // a leitura e as escritas das mensagens ficam com os rótulos de sempre
+    expect(rotuloDaAcao({ acao: 'ler', entidade: 'chat' })).toBe('Visualizou');
+    expect(rotuloDaAcao({ acao: 'criar', entidade: 'chat' })).toBe('Criou');
+  });
+
+  it('a entidade neutra chat_conversa (gatilho da linha da conversa) fica no audit_log, fora da tela e da contagem', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const conversaId = randomUUID();
+    await withTenant(
+      T.ctx,
+      (tx) =>
+        recordAudit(tx, [
+          { acao: 'criar', entidade: 'chat_conversa', entidadeId: conversaId, patientId: p.id },
+          { acao: 'alterar', entidade: 'chat_conversa', entidadeId: conversaId, patientId: p.id },
+          { acao: 'criar', entidade: 'chat_liberacao', entidadeId: conversaId, patientId: p.id },
+          { acao: 'ler', entidade: 'chat', entidadeId: null, patientId: p.id },
+        ]),
+      app.db,
+    );
+    const brutos = await withTenant(T.ctx, (tx) => tx.select().from(auditLog).where(eq(auditLog.patientId, p.id)), app.db);
+    expect(brutos.filter((l) => l.entidade === 'chat_conversa')).toHaveLength(2);
+    const h = await listAccessHistory(T.ctx, p.id, 1, app.db);
+    const doChat = h.itens.filter((i) => i.entidade.startsWith('chat'));
+    expect(doChat.map((i) => i.entidade).sort()).toEqual(['chat', 'chat_liberacao']);
+    expect(h.total).toBe(h.itens.length);
+    expect(h.itens.some((i) => i.entidade === 'chat_conversa')).toBe(false);
+  });
+});

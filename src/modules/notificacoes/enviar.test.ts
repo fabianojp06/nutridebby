@@ -5,8 +5,9 @@ import { makeDb } from '../../../test/db';
 import { transporteFalso, type TransporteFalso } from '../../../test/email';
 import { depsDeEnvio } from '../../../test/notificacoes';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
+import { consultorioDoChat, mensagemDoDono, pacienteDoChat } from '../../../test/mensagens';
 import { closeDb } from '@/db/client';
-import { appointments, notifications, patients, pushSubscriptions, tenants } from '@/db/schema';
+import { appointments, notifications, patients, pushSubscriptions, tenants, type NotificationRow, type PatientRow, type TenantRow } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { encryptionKey } from '@/lib/crypto';
@@ -14,7 +15,8 @@ import { logger } from '@/lib/logger';
 import { agendarPelaNutri, moverConsulta } from '@/modules/agenda/consultas';
 import { chaveDosLinks, lerLinkConsulta } from '@/modules/agenda/link-consulta';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
-import { LOTE_POR_EXECUCAO, ordemDaRodada, processarNotificacoes, TRAVADA_MS } from './enviar';
+import { minhaConversa } from '@/modules/mensagens/conversa';
+import { carregarContexto, LOTE_POR_EXECUCAO, motivoParaIgnorar, ordemDaRodada, processarNotificacoes, TRAVADA_MS, type ContextoEnvio } from './enviar';
 import type { ProvedorPush } from './push';
 
 // R14 e a corrida da suspensão: conta as listagens de tenants e devolve uma leitura antiga (implementação real por baixo)
@@ -330,5 +332,54 @@ describe('push sem consulta (Plano 06: push de teste, comentário, plano novo)',
     expect(push.payloads.map((p) => JSON.parse(p))).toEqual([{ titulo: 'NutriDebby', corpo: 'Notificações ativadas ✅', url: `http://localhost:3000/p/inicio?v=${T.tenantId}` }]);
     expect(await situacao(T, ids.arq)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'paciente_inativo' });
     expect(await situacao(T, ids.sem)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'sem_inscricao' });
+  });
+});
+
+describe('Plano 25 — "mensagem_lida" (RN-456, CH-D62): o carregador põe chatNaoLido; motivoParaIgnorar continua puro', () => {
+  const owner = makeDb(inject('ownerDatabaseUrl'));
+  afterAll(() => owner.pool.end());
+
+  it('motivoParaIgnorar decide pelo contexto montado à mão (sem banco): só nos tipos do chat, depois do titular inativo', () => {
+    const base: ContextoEnvio = { n: { tipo: 'chat_mensagem' } as NotificationRow, paciente: { status: 'ativo', anonimizadoEm: null, userId: 'u' } as PatientRow, consulta: null, tenant: {} as TenantRow, agora: new Date() };
+    for (const tipo of ['chat_mensagem', 'recado']) {
+      const n = { tipo } as NotificationRow;
+      expect(motivoParaIgnorar({ ...base, n, chatNaoLido: false }), tipo).toEqual({ status: 'ignorada', motivo: 'mensagem_lida' });
+      expect(motivoParaIgnorar({ ...base, n, chatNaoLido: true }), tipo).toBeNull();
+      expect(motivoParaIgnorar({ ...base, n, paciente: { ...base.paciente, status: 'bloqueado' }, chatNaoLido: false }), tipo).toEqual({ status: 'ignorada', motivo: 'paciente_inativo' });
+    }
+    // os outros tipos não olham o campo
+    expect(motivoParaIgnorar({ ...base, n: { tipo: 'push_teste' } as NotificationRow, chatNaoLido: false })).toBeNull();
+  });
+
+  it('carregarContexto: chatNaoLido só para chat_mensagem e recado — há mensagem da equipe depois do lida_ate do paciente', async () => {
+    const T = await consultorioDoChat(app.db, owner.pool);
+    const c = await pacienteDoChat(app.db, T);
+    const tenant = (await buscarTenant(app.db, T.tenantId))!;
+    const ns = await withTenant(
+      T.ctx,
+      (tx) =>
+        tx
+          .insert(notifications)
+          .values(['push_teste', 'chat_mensagem', 'recado'].map((tipo) => ({ tenantId: T.tenantId, patientId: c.p, canal: 'push', tipo, agendadaPara: marcadaEm })))
+          .returning(),
+      app.db,
+    );
+    const carregar = async () => {
+      const r: Record<string, boolean | 'ausente'> = {};
+      for (const n of ns) {
+        const x = await carregarContexto({ tenantId: T.tenantId, role: 'worker' }, tenant, n, { db: app.db, agora: () => marcadaEm });
+        r[n.tipo] = 'chatNaoLido' in x ? x.chatNaoLido! : 'ausente';
+      }
+      return r;
+    };
+    expect(await carregar()).toEqual({ push_teste: 'ausente', chat_mensagem: false, recado: false }); // nada da equipe
+    await mensagemDoDono(owner.pool, T, c, { autor: 'nutri', texto: 'Primeira' });
+    expect(await carregar()).toEqual({ push_teste: 'ausente', chat_mensagem: true, recado: true });
+    await minhaConversa(c.P, {}, app.db); // o paciente leu
+    expect(await carregar()).toEqual({ push_teste: 'ausente', chat_mensagem: false, recado: false });
+    await mensagemDoDono(owner.pool, T, c, { texto: 'Obrigada' }); // a do próprio paciente não conta
+    expect(await carregar()).toEqual({ push_teste: 'ausente', chat_mensagem: false, recado: false });
+    await mensagemDoDono(owner.pool, T, c, { autor: 'nutri', texto: 'Segunda' }); // US-445: chegou outra depois da leitura
+    expect(await carregar()).toEqual({ push_teste: 'ausente', chat_mensagem: true, recado: true });
   });
 });

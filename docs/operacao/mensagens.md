@@ -50,3 +50,41 @@ tabelas antes do PR 2, elas estão vazias.
 
 Depois que a conversa estiver em uso (PR 2 em diante), voltar para uma imagem anterior ao PR 2 tem os efeitos da §9.9 da
 spec (nada apaga nem expõe dado; a rede de limpeza recolhe ao voltar). Essa parte é escrita nas seções das T5, T8 e T10.
+
+---
+
+## 2. PR 2 — conversa de texto (titular: exportação e anonimização)
+
+O PR 2 não tem migration: usa as tabelas, os gatilhos e as funções do PR 1. Para o titular, o que muda:
+
+- **Exportação** (`dados.json`, nos dois escopos): as seções `conversa` (liberação com nome e CRN de quem liberou, forma
+  do TCLE, pausa) e `mensagens` (autor, carimbo só nas da nutricionista, recado, resposta à dúvida e risco pelo rótulo).
+  Os anexos no ZIP entram no PR 3.
+- **Pedido de exclusão atendido:** a conversa fica, só para consulta (é prontuário, CH-D2/CH-D25); os avisos pendentes do
+  chat viram "ignorada" pelo caminho de sempre.
+- **Anonimização** (job diário `retencao-lgpd`): `apagarConversaDoTitular` marca como `falhou` o anexo ainda em
+  processamento, apaga os originais, depois os anexos convertidos, e chama `app_chat_apagar_do_titular`. A transação
+  final reconfere que não sobrou anexo de chat (se sobrou, nada é anonimizado e o dia seguinte tenta de novo). A **rede
+  de limpeza** (`apagarConversasDosAnonimizados`) roda no início de cada tenant e apaga a conversa de quem já tem
+  `anonimizado_em`.
+
+### Volta atrás (PR 2)
+
+Voltar para a imagem anterior ao PR 2 depois que a conversa estiver em uso (spec §9.9). Nada apaga nem expõe dado, mas:
+
+1. **Anonimização sem o chat.** A imagem antiga anonimiza sem conhecer o chat: grava `anonimizado_em` e deixa a conversa,
+   as mensagens e os anexos desses titulares. Quando a imagem nova voltar, a rede de limpeza
+   (`apagarConversasDosAnonimizados`, no início de cada tenant do job diário) apaga tudo. Não apagar à mão.
+2. **Avisos do chat no worker antigo.** Um worker com imagem anterior ao PR 2 não conhece os tipos `chat_mensagem` e
+   `recado` de `notifications`: ao pegar uma linha dessas, grava `falhou` com o erro `sem_modelo`. Nada vaza (a linha
+   não tem conteúdo), mas **o aviso se perde**: o paciente não recebe aquele push ou e-mail. Depois da volta, as
+   mensagens continuam no app e aparecem como não lidas.
+3. **Exportação sem a conversa.** O ZIP gerado pela imagem antiga sai sem as seções `conversa` e `mensagens`. Se um
+   titular pediu a exportação nessa janela, gerar de novo depois que a imagem nova voltar.
+4. **Anexos em processamento** (só a partir do PR 3) ficam parados até a varredura nova (RN-474).
+5. **Aviso de mensagens à nutricionista com o app novo e o worker antigo.** O job de e-mail `aviso_mensagens_nutri`
+   ("Mensagens novas de pacientes", RN-458), enfileirado pelo app novo, cai no `default` do renderizador do worker antigo
+   ("Tipo de e-mail desconhecido") e se esgota nas 3 tentativas da fila `email`, em cerca de 7 min. Nada vaza (o corpo é
+   fixo, sem conteúdo da conversa), mas **o aviso se perde**: a nutricionista vê as mensagens novas na caixa do painel.
+
+Registrar no incidente a janela (início e fim) em que a imagem antiga ficou no ar.

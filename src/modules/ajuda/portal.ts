@@ -1,4 +1,5 @@
 import { NOME_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
+import { MSG_PORTAL_MENSAGENS } from '@/modules/mensagens/constantes';
 import type { ProgressoGuia } from '@/modules/plataforma/preferencias-tipos';
 import { MSG_MURAL } from '@/modules/portal/mural-regras';
 import type { Guia } from './conteudo';
@@ -12,11 +13,13 @@ import type { Guia } from './conteudo';
  * lembretes de rotina em "Perguntas comuns" (com a ressalva "se a sua nutricionista configurou": o guia é o mesmo para
  * todos); o tour não muda. A subida mostra "O manual do app foi atualizado" uma vez a quem já viu a versão 2.
  * Plano 22: versão 4 (T6, EP-D52) — Exames também mostra os resultados que a nutricionista liberar no app ("Mostrar no app",
- * US-375); o menu passa a ter "Exames" com eles, mesmo sem o recebimento ligado. O tour não muda.
+ * US-375); o menu passa a ter "Exames" com eles, mesmo sem o recebimento ligado. O tour não muda. Versão 5 (Plano 25, T7):
+ * "Mensagens" no passo da faixa ("quando o consultório liberar": o link só aparece com a conversa liberada ou com recado) e
+ * a pergunta da urgência em "Perguntas comuns" (§6.2 "Portal: ajuda", sem prometer prazo de leitura, CH-D73).
  */
 export const GUIA_PORTAL: Guia = {
   id: 'portal-novidades',
-  versao: 4,
+  versao: 5,
   padrao: /^\/p\/inicio$/,
   titulo: 'Como usar o app',
   ajuda: {
@@ -45,12 +48,19 @@ export const GUIA_PORTAL: Guia = {
           `Se o seu consultório usar IA, você pode receber dois pedidos separados: um para os exames (em Eu › Privacidade) e outro para a ${NOME_IA_NUTRI} (em Plano). Cada um é opcional. Recusar ou retirar não muda nada no seu atendimento.`,
           // Plano 17: depende da nutricionista ter configurado (o guia é o mesmo para todos os pacientes)
           'Se a sua nutricionista configurou lembretes, eles ficam em Eu › Lembretes, e você pode desligar qualquer um.',
+          // Plano 25 (§6.2 "Portal: ajuda"): o canal não é para urgências e a conversa fica no prontuário
+          `${MSG_PORTAL_MENSAGENS.ajuda.pergunta} ${MSG_PORTAL_MENSAGENS.ajuda.resposta}`,
         ],
       },
     ],
   },
   passos: [
-    { alvo: 'faixa', titulo: 'Seu acompanhamento', texto: 'No topo ficam o nome do consultório e as partes do app. Em Hoje, um resumo da sua jornada leva à Jornada.' },
+    {
+      alvo: 'faixa',
+      titulo: 'Seu acompanhamento',
+      texto:
+        'No topo ficam o nome do consultório e as partes do app. Em Hoje, um resumo da sua jornada leva à Jornada. Quando o consultório liberar, o link "Mensagens" também fica aqui, para conversar com a sua nutricionista e ler os recados do consultório.',
+    },
     { alvo: 'mural', titulo: 'Hoje', texto: 'Aqui aparecem a próxima refeição, o que você registrou, os comentários da sua nutricionista e os avisos do consultório.' },
     // o alvo só existe com uma refeição na janela de 90 min: o texto não depende de haver uma na tela (sem alvo, o passo aparece centralizado)
     { alvo: 'respostas', titulo: 'Responder à refeição', texto: 'Quando uma refeição estiver perto do horário, ela aparece em Hoje. Toque em "Comi assim" para registrar no diário sem escrever. Se comeu outra coisa, abra a refeição e toque em "Comi outra coisa".' },

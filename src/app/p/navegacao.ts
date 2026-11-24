@@ -6,7 +6,8 @@ export type SecaoPortal = { href: string; rotulo: string; /** Outras telas que m
  * recebimento ligado ou com envio (RN-192, G-D9 ★): `secoesDoPortal`. Conteúdos dentro de Plano (G-D8 ★ = a).
  */
 export const SECOES_DO_PORTAL: readonly SecaoPortal[] = [
-  { href: '/p/inicio', rotulo: 'Hoje', tambem: ['/p/diario'] },
+  // Plano 25 (CH-D15, CH-D48): a conversa (/p/mensagens) é tela de detalhe de Hoje, o destino do "Voltar"
+  { href: '/p/inicio', rotulo: 'Hoje', tambem: ['/p/diario', '/p/mensagens'] },
   { href: '/p/jornada', rotulo: 'Jornada', tambem: ['/p/evolucao', '/p/agenda'] },
   { href: '/p/plano', rotulo: 'Plano', tambem: ['/p/compras', '/p/conteudos'] },
   { href: '/p/exames', rotulo: 'Exames', tambem: [] },

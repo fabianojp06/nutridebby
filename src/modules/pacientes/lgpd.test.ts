@@ -12,6 +12,7 @@ import { novoConteudo } from '../../../test/conteudos';
 import { makeDb } from '../../../test/db';
 import { tarefaNoBanco } from '../../../test/ia';
 import { iaNutriPronta, liberarNoBanco, mensagemNoBanco } from '../../../test/ia-nutri';
+import { consultorioDoChat, pacienteDoChat } from '../../../test/mensagens';
 import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
@@ -29,6 +30,7 @@ import { apagarArquivo, resolverCaminho, salvarArquivo } from '@/modules/platafo
 import { registrarVerificacao, consultarVerificacao } from '@/modules/documentos/verificacao';
 import { anonimizarDocumentosDoPaciente } from '@/modules/documentos/lgpd-documentos';
 import { apagarIaNutriDoTitular } from '@/modules/ia/nutri-paciente/lgpd';
+import { enviarComoNutri, enviarComoPaciente } from '@/modules/mensagens/envio';
 import { listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { entradaDoFormulario, registrarAntropometria } from './antropometria';
 import { registrarAtendimento } from './atendimentos';
@@ -1170,5 +1172,35 @@ describe('Plano 22 — versões e notas do exame na LGPD (§13.3, /code-review d
     await chamar(worker(T));
     await chamar(worker(T)); // idempotente
     expect(await textosDe(T, p.id)).toEqual({ versoes: [{ j: null, titulo: 'Hemograma' }], notas: [{ t: null }] });
+  });
+});
+
+describe('Plano 25 (RN-465; CH-D2, CH-D25) — o pedido de exclusão atendido e a conversa por mensagens', () => {
+  const owner = makeDb(inject('ownerDatabaseUrl'));
+  afterAll(() => owner.pool.end());
+
+  it('a conversa fica (prontuário, só leitura): nada é apagado; o push e o e-mail pendentes do chat ficam "ignorada"', async () => {
+    const T = await consultorioDoChat(app.db, owner.pool);
+    const c = await pacienteDoChat(app.db, T);
+    await enviarComoNutri(T.ctx, c.p, { texto: 'Bom dia, Ana!' }, app.db);
+    await enviarComoPaciente(c.P, { texto: 'Obrigada!' }, app.db);
+    const contar = async () =>
+      (
+        await owner.pool.query<{ conversas: number; mensagens: number }>(
+          'select (select count(*)::int from chat_conversas where patient_id = $1) as conversas, (select count(*)::int from chat_mensagens where patient_id = $1) as mensagens',
+          [c.p],
+        )
+      ).rows[0];
+    expect(await contar()).toEqual({ conversas: 1, mensagens: 2 });
+    await atenderPedidoExclusao(T.ctx, T.tenant, c.p, 'Ana Souza', deps);
+    await concluirExclusaoAtendida({ tenantId: T.tenantId, patientId: c.p }, { db: app.db, dataDir, ultimaTentativa: false });
+    expect(await contar()).toEqual({ conversas: 1, mensagens: 2 });
+    const avisos = await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(and(eq(notifications.patientId, c.p), eq(notifications.tipo, 'chat_mensagem'))), app.db);
+    expect(avisos.map((n) => [n.canal, n.status, n.motivoIgnorada]).sort()).toEqual([
+      ['email', 'ignorada', 'paciente_inativo'],
+      ['push', 'ignorada', 'paciente_inativo'],
+    ]);
+    // só leitura: a nutricionista não envia mais
+    expect(await enviarComoNutri(T.ctx, c.p, { texto: 'Oi' }, app.db)).toMatchObject({ erro: 'conversa' });
   });
 });

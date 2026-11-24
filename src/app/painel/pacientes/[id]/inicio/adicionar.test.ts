@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { montarAdicionar, type GrupoNoAdicionar } from '@/modules/ficha/adicionar';
 import type { SecaoNoInicio } from '@/modules/ficha/inicio';
 import { SECOES_DA_FICHA } from '@/modules/ficha/secoes';
+import { SECOES_DO_PLANO_18 } from '../../../../../../test/ficha';
 import type { SecaoDaFicha } from '@/modules/ficha/tipos';
 import { Adicionar } from './adicionar';
 
@@ -16,7 +17,8 @@ vi.mock('next/navigation', async (importOriginal) => ({ ...(await importOriginal
 const PACIENTE = '00000000-0000-4000-8000-0000000000a1';
 const BASE = `/painel/pacientes/${PACIENTE}`;
 const naTela = (id: string, podeAdicionar = true): Pick<SecaoNoInicio, 'id' | 'podeAdicionar'> => ({ id, podeAdicionar });
-const TODAS = SECOES_DA_FICHA.map((s) => naTela(s.id));
+// as seções do Plano 18 (as de outros planos, como a "Mensagens" do Plano 25, ficam no teste de cada uma, abaixo)
+const TODAS = SECOES_DO_PLANO_18.map((s) => naTela(s.id));
 const acoes = { 'criar-receita': vi.fn(async () => undefined), 'criar-parecer': vi.fn(async () => undefined) };
 const html = (grupos: GrupoNoAdicionar[]) => renderToStaticMarkup(createElement(Adicionar, { grupos, acoes }));
 const rotulos = (grupos: GrupoNoAdicionar[]) => grupos.map((g) => [g.titulo, g.itens.map((i) => i.rotulo)]);
@@ -106,5 +108,13 @@ describe('Adicionar ao prontuário (US-263, RN-280)', () => {
     const links = src.match(/<Link\b[^>]*>/g) ?? [];
     expect(links.length).toBeGreaterThan(0);
     for (const l of links) expect(l).toContain('prefetch={false}');
+  });
+  it('Plano 25 (§4.4, CH-D44): "Enviar mensagem" em "Outros", no fim, com o {id} trocado pelo paciente; some com podeAdicionar: false', () => {
+    expect(SECOES_DA_FICHA.some((s) => s.id === 'mensagens')).toBe(true);
+    const grupos = montarAdicionar(PACIENTE, [...TODAS, naTela('mensagens')]);
+    expect(rotulos(grupos).at(-1)).toEqual(['Outros', ['Enviar mensagem']]);
+    expect(grupos.at(-1)!.itens).toEqual([{ rotulo: 'Enviar mensagem', href: `/painel/mensagens/${PACIENTE}` }]);
+    expect(html(grupos)).toContain(`href="/painel/mensagens/${PACIENTE}"`);
+    expect(rotulos(montarAdicionar(PACIENTE, [...TODAS, naTela('mensagens', false)])).map((g) => g[0])).not.toContain('Outros');
   });
 });

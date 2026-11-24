@@ -3,8 +3,12 @@ import { FocarTitulo } from './focar-titulo';
 import { MSG_G } from './textos';
 import { Voltar } from './voltar';
 
-/** Plano 16 (§4.2): cabeçalho compacto das telas de detalhe — "Voltar" e o título, sem a lista de seções (a seção continua marcada para quem volta). */
-export function CabecalhoDetalhe({ titulo, voltar }: { titulo: string; voltar: { href: string; secao: string } }) {
+/**
+ * Plano 16 (§4.2): cabeçalho compacto das telas de detalhe — "Voltar" e o título, sem a lista de seções (a seção continua
+ * marcada para quem volta). `seloOffline={false}` (Plano 25, /p/mensagens): a tela nunca vem de cópia guardada, e o selo
+ * "exibindo última versão" seria falso.
+ */
+export function CabecalhoDetalhe({ titulo, voltar, seloOffline = true }: { titulo: string; voltar: { href: string; secao: string }; seloOffline?: boolean }) {
   return (
     <>
       <header data-sobre-marca="" className="flex items-center gap-1 bg-faixa px-2 py-2 text-white">
@@ -13,7 +17,7 @@ export function CabecalhoDetalhe({ titulo, voltar }: { titulo: string; voltar: {
           {titulo}
         </h1>
       </header>
-      <SeloOffline />
+      {seloOffline && <SeloOffline />}
       <FocarTitulo />
     </>
   );

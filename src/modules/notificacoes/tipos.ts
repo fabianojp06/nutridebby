@@ -7,12 +7,14 @@ export type TipoLembrete = 'lembrete_24h' | 'lembrete_2h';
 export type TipoNotificacao =
   | TipoLembrete | 'consulta_marcada' | 'consulta_cancelada' | 'convite_paciente' | 'resposta_confirmacao' | 'resposta_remarcar'
   | 'push_teste' | 'comentario_diario' | 'plano_novo' | 'conteudo_novo' | 'documento_novo' | 'documento_atualizado' | 'exame_revisado' | 'exame_expirado'
-  | 'duvida_vista';
+  | 'duvida_vista'
+  | 'chat_mensagem' | 'recado';
 export type StatusNotificacao = 'pendente' | 'enviando' | 'enviada' | 'entregue' | 'lida' | 'falhou' | 'ignorada';
 export type MotivoIgnorada =
   | 'prazo_passado' | 'horario_silencioso' | 'consulta_cancelada' | 'consulta_remarcada' | 'consulta_encerrada' | 'paciente_inativo' | 'tenant_suspenso'
   | 'sem_optin' | 'sem_telefone' | 'whatsapp_desligado' | 'whatsapp_desconectado' | 'cota_esgotada' | 'sem_inscricao' | 'push_desligado'
-  | 'convite_aceito';
+  | 'convite_aceito'
+  | 'mensagem_lida';
 
 export const ehLembrete = (t: string): t is TipoLembrete => t === 'lembrete_24h' || t === 'lembrete_2h';
 
@@ -33,6 +35,9 @@ export const ROTULO_TIPO: Record<TipoNotificacao, string> = {
   exame_revisado: 'Exame revisado',
   exame_expirado: 'Exame expirado',
   duvida_vista: 'Atualização no app',
+  // Plano 25 (§6.2 "ROTULO_TIPO e motivo")
+  chat_mensagem: 'Mensagem no app',
+  recado: 'Recado',
 };
 export const ROTULO_CANAL: Record<Canal, string> = { email: 'E-mail', whatsapp: 'WhatsApp', push: 'Notificação no app' };
 export const ROTULO_MOTIVO: Record<MotivoIgnorada, string> = {
@@ -51,6 +56,7 @@ export const ROTULO_MOTIVO: Record<MotivoIgnorada, string> = {
   sem_inscricao: 'paciente sem notificações no app',
   push_desligado: 'notificações no app não configuradas',
   convite_aceito: 'convite já aceito',
+  mensagem_lida: 'mensagem já lida',
 };
 
 /** O motivo de não envio em texto ("consulta cancelada"…); motivo que o código não conhece não quebra a tela. */
@@ -77,3 +83,10 @@ export function situacaoDaNotificacao(n: Pick<NotificationRow, 'status' | 'motiv
       return n.status;
   }
 }
+
+/**
+ * Plano 25 (RN-456, CH-D62): os avisos do chat — push neutro (e, só em `chat_mensagem`, o e-mail sem conteúdo). O motor
+ * carrega `chatNaoLido` só para eles (`carregarContexto`) e não os manda por WhatsApp (fora de CONTA_COTA, CS-440).
+ */
+export const TIPOS_DO_CHAT = ['chat_mensagem', 'recado'] as const satisfies readonly TipoNotificacao[];
+export const ehAvisoDoChat = (t: string): t is (typeof TIPOS_DO_CHAT)[number] => (TIPOS_DO_CHAT as readonly string[]).includes(t);

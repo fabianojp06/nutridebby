@@ -6,7 +6,16 @@ import { SECOES_DA_FICHA } from './secoes';
 import { LIMITE_DA_SECAO } from './secoes/comum';
 import type { ItemDaSecao, PacienteDaSecao, ResumoDaSecao, SecaoDaFicha, TenantDaSecao } from './tipos';
 
-export type SecaoNoInicio = { id: string; titulo: string; aba: string; verTodos: string /* já resolvido */; resumo: ResumoDaSecao; podeAdicionar: boolean };
+export type SecaoNoInicio = {
+  id: string;
+  titulo: string;
+  aba: string;
+  verTodos: string /* já resolvido */;
+  resumo: ResumoDaSecao;
+  podeAdicionar: boolean;
+  /** Plano 25: o rótulo do total já resolvido (`SecaoDaFicha.rotuloDoTotal`). */
+  rotuloDoTotal?: string;
+};
 
 /** Só as chaves do contrato (RN-277): uma seção não passa adiante coluna que não devia. */
 const comoItem = (i: Omit<ItemDaSecao, 'noApp'>): ItemDaSecao => ({
@@ -58,6 +67,7 @@ export async function secoesDoInicio(
           verTodos: verTodosDa(s, paciente.id),
           resumo: { total: r.total, ultimos: r.ultimos.slice(0, LIMITE_DA_SECAO).map(comoItem) },
           podeAdicionar: r.podeAdicionar !== false,
+          ...(s.rotuloDoTotal ? { rotuloDoTotal: s.rotuloDoTotal(r.total) } : {}),
         });
       }
       return lista;

@@ -1622,6 +1622,10 @@ Guardas: `src/app/painel/cores.test.ts` (sem cor fixa, sem `dark:` espalhado, bo
 - Menu da conta no avatar (`<details>`, `src/app/painel/menu-conta.tsx`): "Perfil e marca", "Segurança", "Manual",
   "Rever o tour de boas-vindas", "Sair".
 - Sem sino de avisos na v1 (P08 D21): os alertas ficam no Início, como `Aviso`.
+- Plano 25 (PR 2): "Dúvidas dos pacientes" sai do menu; no lugar e na posição dele entra **"Mensagens"**, sempre na
+  sessão `nutri` (`ITEM_MENSAGENS`), com o número das conversas não lidas somado ao das dúvidas abertas da IA Nutri e a
+  consulta de 60 s; a fila virou a aba "Dúvidas da IA Nutri" de Mensagens e `/painel/duvidas` marca "Mensagens"
+  ([§5.12.8](#5128-telas-do-painel)). Com "Exames recebidos" e "Relatórios" (Plano 26), o menu tem 10 itens.
 
 ### 5.7.5 Tema da conta (P08 D17)
 
@@ -2050,6 +2054,284 @@ falha), `e2e/relatorios.spec.ts` (IPs `10.9.36.1`–`.9`) e o laço do `e2e/aces
 
 ---
 
+## 5.12 Mensagens e recados (Plano 25, PR 2)
+
+Conversa por mensagens entre a nutricionista e o paciente, no painel (`/painel/mensagens`) e no app (`/p/mensagens`),
+depois que a nutricionista libera a conversa com o registro do TCLE de telenutrição (PD-90, sem anexos). Conferido no
+branch `plano-25-chat-recados` em `fdeefa0` (Tarefas 2 a 7 do PR 2, com a fundação do PR 1 ainda no mesmo branch; base
+`main` `5cebcd0`), em 23/11/2026, contra a spec `docs/superpowers/specs/2026-11-17-nutridebby-25-chat-recados-design.md`
+**v0.4** (decisões CH-D1 a CH-D48 e CH-D70 a CH-D77) e o plano `docs/superpowers/plans/2026-11-17-nutridebby-25-chat-recados.md`
+(CH-D49 a CH-D69). Runbook do dono e volta atrás: [`docs/operacao/mensagens.md`](../operacao/mensagens.md) (§2, "PR 2").
+
+O PR 2 **não tem migration**: usa as sete tabelas, os gatilhos e as funções do PR 1, nas migrations
+`0132_mensagens` / `0133_rls_mensagens` (números provisórios; renumeradas no §5 de `docs/operacao/sessoes-paralelas.md`
+no rebase), descritas em [§2.5.14](02-banco-de-dados.md#2514-mensagens-e-recados-mensagensts-plano-25). Ficam para o
+PR 3: anexos (imagem e PDF da nutricionista, foto do paciente, fila `chat-anexo`, varredura e o ZIP), "Responder na
+conversa" (dúvida da IA Nutri respondida pela conversa, resolução `respondida`) e os recados (telas, `enviarRecado`,
+"Lido por"); para o PR 4, o recado por local de atendimento (só com o Plano 23 PR 2 na `main`). As constantes desses
+textos já existem em `MSG_RECADOS` e nas chaves de anexo de `MSG_MENSAGENS`, mas nenhuma tela as mostra ainda.
+
+**Sem tempo real.** O conteúdo vem sempre do render do servidor, com `auditRead`; o navegador só pergunta "há novas?"
+(contagem) a cada 15 s na conversa aberta e o número do menu a cada 60 s. Marcador de leitura e cursores pelo **id** da
+mensagem, resolvidos no SQL (CH-D40, CH-D72).
+
+### 5.12.1 Peças
+
+| Arquivo | O que faz |
+|---|---|
+| `src/modules/mensagens/constantes.ts` | Puro (sem banco; o cliente importa): `MSG_MENSAGENS`, `MSG_RECADOS`, `MSG_PORTAL_MENSAGENS` (textos da §6.2), limites (`TEXTO_MAX` 2.000, `LIMITE_MENSAGENS_HORA` 30, `LIMITE_MENSAGENS_DIA` 200, `MENSAGENS_POR_PAGINA` 50, `MAX_FAIXAS_POR_DIA` 3, `JANELA_AVISO_NUTRI_MS` 2 h, `ATRASO_EMAIL_PACIENTE_MS` 30 min, `SITUACAO_INTERVALO_MS` 15 s, `SITUACAO_INTERVALO_OCIOSO_MS` 60 s depois de `SITUACAO_OCIOSO_APOS_MS` 5 min, `CONTADOR_INTERVALO_MS` 60 s), `RISCO_DO_TEXTO_FIXO`, `SOCORRO_DO_RISCO`, `SOCORRO_NA_RECUSA` (CH-D77), `OPCOES_FORMA_TCLE`, `ROTULO_FORMA_TCLE`, `TEXTOS_AVISO`, `ERROS_DO_UPLOAD_PAINEL`/`_PORTAL` com `erroDoUpload` (códigos fechados do `?erro=`) e `rotuloDoQuando` ("agora", "há {n} min", "há {n} h", "ontem", "{dd/mm}", "{dd/mm/aaaa}", no fuso do consultório) |
+| `sessao.ts` | `exigirNutri` e `exigirPacienteComConta`: conferem o papel **antes** de abrir a transação (RN-440) |
+| `conversa.ts` | `liberarConversa`, `pausarConversa`, `retomarConversa`, `conversaNoPainel`, `minhaConversa`, `marcarLida`, `situacao` e `mensagensNaFaixa` |
+| `envio.ts` | `enviarComoNutri`, `enviarComoPaciente` e `avisoNoHorario` (puro) |
+| `caixa.ts` | `caixaDeMensagens`, `contadorDeMensagens` e `pacientesParaNovaConversa` (CH-D66) |
+| `avisos.ts` | `quandoAvisar` (puro), `avisarPaciente` e `avisarNutriDeMensagem` |
+| `horario.ts` | `validarFaixas`, `dentroDoHorario` e `resumoDoHorario` (puros), `lerConfiguracao`, `salvarConfiguracao` e `horarioParaPaciente` |
+| `lgpd.ts` | `mensagensParaExportacao`, `apagarConversaDoTitular`, `anexosDeChatRestantes` e `apagarConversasDosAnonimizados` ([§4.2.13](04-modulos-clinicos.md#4213-mensagens-na-ficha-e-no-titular-plano-25-pr-2)) |
+| `src/components/mensagens/` | Peças de cliente dos dois lados: `situacao.ts` (`acompanharSituacao`, `primeiraNovaDepois`, `lidaMaisAdiante`), `leitura.tsx` (`ProvedorDaLeitura`, `EstadoDaMinha`: "Enviada"/"Lida"), `rede.ts` (`seguraFalhaDeRede`: a Server Action que falha por rede vira estado do formulário, com o texto de volta) e `rolagem.ts` |
+| `src/modules/ficha/secoes/mensagens.ts` | Seção "Mensagens" do Início da ficha ([§4.2.13](04-modulos-clinicos.md#4213-mensagens-na-ficha-e-no-titular-plano-25-pr-2)) |
+
+O módulo de Mensagens importa de `src/modules/ia` só `nutri-paciente/sinais-risco.ts` (no PR 3, também `duvidas.ts`), e
+nada alcançável a partir de `src/modules/ia/**` importa o módulo nem cita `chat_mensagens`/`recados` (RN-469; guarda em
+`src/modules/mensagens/guardas.test.ts`, [§7.4.3](07-testes-qualidade-e-processo.md#743-guardas-de-código-leitura-do-fonte)).
+
+### 5.12.2 Liberação (TCLE), pausa e retomada (US-440, US-450; RN-441, RN-442, RN-475; CH-D3, CH-D39, CH-D74, CH-D75)
+
+- **Liberar** (`liberarConversa`, `src/modules/mensagens/conversa.ts:109`): só a sessão `nutri`; a forma do TCLE tem de
+  ser `termo_assinado` ou `aceite_escrito` (sem a forma verbal, que não deixa o comprovante, CH-D3) e a confirmação
+  `true` — senão `Error` (o formulário não produz outra coisa). Na transação: o titular `FOR SHARE`; devolve
+  `titular_inativo` (arquivado, bloqueado ou anonimizado), `ja_liberada` ou `sem_carimbo` (consultório sem
+  `tenants.nome_profissional` ou sem `tenants.crn`, RN-475) sem gravar nada. Grava por `INSERT … ON CONFLICT (tenant_id,
+  patient_id) DO UPDATE … WHERE chat_conversas.liberada_em IS NULL` (a conversa pode já existir, nascida de um recado;
+  duas liberações ao mesmo tempo: a segunda volta `ja_liberada`). O gatilho `chat_conversas_regras` grava `liberada_em`
+  com `clock_timestamp()` e copia `liberada_nome`/`liberada_crn` de `tenants` (CH-D74); o ato vai ao Histórico por
+  `recordAudit` (`chat_liberacao`, "Liberou a conversa por mensagens").
+- **Pausar** (`pausarConversa`, `:159`): o titular `FOR UPDATE` e depois a conversa `FOR NO KEY UPDATE` (ordem da RN-447);
+  `nao_liberada`, `ja_pausada`, `titular_inativo` ou `sem_carimbo` (CH-D74/CH-D75: a pausa também guarda nome e CRN). O
+  gatilho grava `pausada_em`, `pausada_nome` e `pausada_crn`; `recordAudit` de `chat_pausa`. Pausada, nem paciente nem
+  nutricionista enviam mensagem individual; a liberação não se desfaz.
+- **Retomar** (`retomarConversa`, `:184`): sem novo TCLE; o gatilho anula o carimbo da pausa; `recordAudit` de
+  `chat_retomada`.
+- **Telas** (`src/app/painel/mensagens/[patientId]/actions.ts`): `liberarAction`, `pausarAction` e `retomarAction`, com
+  `requireNutri` e `revalidatePath('/painel', 'layout')`; o retorno é `?ok=liberada|pausada|retomada` ou `?erro=retomar`
+  (códigos fechados, com o marcador `r` para a região viva reanunciar). Os diálogos de liberar e de pausar usam o
+  `Dialogo` compartilhado (`src/components/dialogo.tsx`, interface do Plano 22), nunca `window.confirm`. Textos exatos em
+  `MSG_MENSAGENS.liberacao` e `MSG_MENSAGENS.pausa`: o diálogo de liberação mostra o texto da RN-441, o aviso do
+  e-Nutricionista, "Como o paciente (ou o responsável legal) concordou?" e a confirmação; sem carimbo, "Para liberar a
+  conversa, preencha seu nome e seu CRN em Configurações." / "Para pausar a conversa, preencha seu nome e seu CRN em
+  Configurações." com o link ao Perfil; erro inesperado de cada ato com texto próprio (CH-D75).
+
+### 5.12.3 Envio, limites e sinal de risco (US-441, US-443; RN-443, RN-444, RN-447, RN-449; CH-D72, CH-D77)
+
+- **Texto** (`textoDoEnvio`, `envio.ts:49`): sem o caractere NUL, sem espaços nas pontas, de 1 a 2.000 caracteres
+  contados como o Postgres conta (pontos de código, como o CHECK `chat_mensagens_texto_tamanho`). Vazio ou longo volta
+  como erro antes da transação.
+- **Nutricionista** (`enviarComoNutri`, `envio.ts:71`): titular `FOR SHARE`, conversa `FOR NO KEY UPDATE` (serializa com
+  a pausa e com outra nutricionista sem segurar o `FOR KEY SHARE` que o INSERT do paciente e o marcador tomam pela FK);
+  erro `conversa` (titular inativo, conversa não liberada ou pausada) ou `carimbo`. O gatilho grava `autor_nome`,
+  `autor_crn` (de `tenants`) e `criada_em` (`clock_timestamp()`); `avisarPaciente` roda na mesma transação (§5.12.7).
+- **Paciente** (`enviarComoPaciente`, `:190` → `gravarDoPaciente`, `:138`): paciente `FOR UPDATE`; conversa liberada e
+  não pausada; os limites de 30 mensagens na última hora e 200 no dia (no fuso do consultório) contados **no banco**
+  (CTE `materialized` com o limite inferior pronto, para o índice da conversa ler só a janela); `detectarRisco` grava o
+  risco pelo texto fixo (`RISCO_DO_TEXTO_FIXO`: `emergencia`, `sintoma_agudo`, `transtorno_alimentar`); depois
+  `app_chat_aviso_nutri_devido` **antes do INSERT e em todo envio gravado** (CH-D72: o `FOR UPDATE` dela, com a trava do
+  paciente, serializa os envios, e a ordem de `criada_em` segue a ordem de commit), o INSERT e o e-mail à nutricionista.
+  A resposta tem sempre as mesmas chaves (nunca diz se o e-mail saiu, CH-D70). Recusado por "muitas" com sinal de risco
+  no texto, devolve o `textoFixo` mesmo sem gravar.
+- **Socorro** (`src/app/p/(portal)/mensagens/socorro.tsx`): com a mensagem gravada, `SOCORRO_DO_RISCO` logo abaixo dela
+  (recebe o foco); em **qualquer** recusa (muitas, pausada no meio, texto longo, erro inesperado, rede caída), o socorro
+  aparece junto ao campo, calculado no aparelho pelo texto recusado (`detectarRisco` é puro), com `SOCORRO_NA_RECUSA` —
+  que nunca diz "enviada" (CH-D77). Os números viram links `tel:` (`ComTelefones`, o mesmo da IA Nutri).
+- **Server Actions** (`enviarAction` no painel, `enviarMensagemAction` no portal): erro do módulo com o texto da §6.2 e o
+  texto escrito de volta; erro inesperado → "Não foi possível enviar. Tente de novo." e log só com nome, SQLSTATE e ids
+  (RN-470). Sem JS (o campo não manda `js=1`), o sucesso volta pelo redirect POST → GET. O campo é `textarea`: Enter
+  quebra a linha, nada é enviado sozinho.
+
+### 5.12.4 Leitura, "Lida" e cursores (RN-446, RN-448, RN-452, RN-453; CH-D40, CH-D72)
+
+- **Abrir lê e audita.** `conversaNoPainel` (`conversa.ts:326`) e `minhaConversa` (`:350`) devolvem o estado, as últimas
+  50 mensagens (ou as 50 antes de `?antes=`) e o "Lida", e gravam **um** `auditRead` (entidade `chat`, o `patient_id`
+  da linha lida, nunca o da URL) por render; depois, `marcarLida` (`:231`) avança o marcador do lado que leu até a
+  `criada_em` da **última mensagem do outro lado** que a tela carregou — lida no SQL pelo id, com o tenant, o paciente da
+  conversa aberta e o autor do outro lado (a própria mensagem nunca move o marcador; id de outra conversa não grava nada).
+  O upsert usa `greatest`; o gatilho `chat_leituras_regras` corta no relógio do banco e nunca recua. Nenhum `Date` do JS
+  vira filtro de `criada_em`.
+- **Cursores.** `?antes=` e `depois` são ids resolvidos como `(criada_em, id)` no SQL com `tenant_id` e `patient_id`;
+  id que não é uuid ou de outra conversa → lista vazia ou contagem 0. "Ver mensagens anteriores" é um link sem prefetch.
+- **"Lida"** (pela ordem, /code-review do PR 2): cada mensagem da tela leva `lida` — própria (no painel, da usuária da
+  sessão; a de outra nutricionista não conta) e com `criada_em` até o `lida_ate` do outro lado, comparado no SQL. O render
+  manda a última própria lida **da tela** (`ultimaLidaNaTela`, `:309`), o que vale também na página `?antes=` quando a
+  última lida é mais nova que tudo nela; a consulta de situação manda a última própria lida até `depois` (`ultimaLidaAte`,
+  `:389`). A tela mostra "Lida" nessa e "Enviada" nas próprias depois dela (`EstadoDaMinha`); o valor da consulta só avança
+  o do render (`lidaMaisAdiante`).
+- **"Há novas?"** (`situacao`, `:409`): só `{ novas, ultimaLida }`, sem `auditRead`, sem texto, sem mexer no marcador;
+  no portal o paciente vem da sessão e o `patientId` recebido é ignorado. Rotas `GET /api/painel/mensagens/situacao`
+  (`requireApiNutri(req, { renovar: false })`) e `GET /api/p/mensagens/situacao` (`requireApiPaciente`), com
+  `Cache-Control: no-store`. No navegador, `acompanharSituacao` (`src/components/mensagens/situacao.ts`) consulta a cada
+  15 s com a aba visível, a cada 60 s depois de 5 min sem interação, e nada com a aba escondida ou sem rede; com novas,
+  a região viva diz "Nova mensagem de {primeiro nome}." (painel) ou "Nova mensagem da sua nutricionista." (portal) e
+  "Mostrar novas mensagens" refaz a página (o conteúdo só vem do render), com o foco na primeira nova.
+- **Risco residual aceito (CH-D72):** a cópia de recado (PR 3) contra uma mensagem individual da nutricionista
+  commitada antes, e duas nutricionistas escrevendo ao mesmo paciente quase ao mesmo tempo — o "Lida" pode sair errado
+  numa janela curta, mas nada vaza.
+
+### 5.12.5 Caixa, contador do menu e "Nova conversa" (US-442; RN-453, RN-459, RN-463; CH-D42, CH-D43, CH-D66)
+
+- **Caixa** (`caixaDeMensagens`, `caixa.ts:48`): uma consulta; só as conversas **liberadas ou com mensagem individual**
+  (a que só tem recados se acompanha em "Recados", CH-D42), com o nome de registro, o quando e o tipo da última mensagem
+  ("Mensagem do paciente", "Você enviou", "Imagem", "Arquivo PDF", "Recado"), as não lidas (mensagens do paciente
+  depois do marcador `consultorio`) e o selo "Sinal de risco" se alguma não lida tem risco. Ordem: risco não lido,
+  depois a mais recente; 50 por página ("Mostrar mais", `?pagina=`); filtro `todas`/`nao-lidas`; busca com o critério de
+  `listarPacientes` (sem acento, nome, nome social ou e-mail; `%`, `_` e `\` literais). O marcador entra numa subconsulta
+  cercada por `offset 0` (`MARCADOR_DO_CONSULTORIO`): achatada, a RLS de `chat_mensagens` não deixaria a comparação usar
+  o índice `(tenant_id, patient_id, criada_em, id)`.
+- **Contador** (`contadorDeMensagens`, `:106`): conversas com mensagem do paciente não lida. O item "Mensagens" do menu
+  mostra **esse número + `contadorDeDuvidas`** (dúvidas abertas da IA Nutri): no `layout.tsx` do painel (`:38`, a cada
+  render) e pela consulta de 60 s (`useContadorDeMensagens`, `src/app/painel/contador-de-mensagens.tsx:97`, a
+  `GET /api/painel/mensagens/contador`, só `{ n }`), porque o layout não refaz na navegação pelo cliente (CH-D43). Com
+  número, o link ganha o `aria-label` "Mensagens, {n} não lidas" / "Mensagens, 1 não lida".
+- **"Nova conversa"** (`pacientesParaNovaConversa`, `:128`): titulares `ativo` não anonimizados, com ou sem conversa, em
+  ordem alfabética do nome de registro, com a mesma busca, 50 por página; só id, nome e se tem conta ("Sem acesso ao
+  app").
+- Nenhuma dessas leituras chama `auditRead` nem devolve texto de mensagem (teste das chaves em `caixa.test.ts`): abrir a
+  conversa é que lê.
+
+### 5.12.6 Horário de atendimento por mensagens (US-446; RN-451, RN-472; CH-D70, CH-D73, CH-D76)
+
+- `chat_configuracoes.horario_ativo` e as faixas de `chat_horarios` (minutos do dia no fuso do consultório, de 15 em 15,
+  fim `1440` = "24:00", até 3 por dia, sem sobrepor — `validarFaixas`, `horario.ts:36`, e o `EXCLUDE`
+  `chat_horarios_sem_sobreposicao` como rede). A preferência do e-mail à nutricionista (`aviso_email`) fica em
+  `chat_avisos_nutri`, só da equipe (CH-D70). Sem linha, os padrões: horário desligado, aviso ligado, sem faixas.
+- `salvarConfiguracao` (`:141`): faixas validadas antes da transação; cria e trava a linha da configuração (`FOR
+  UPDATE`), apaga e regrava as faixas e faz o upsert do aviso sem tocar em `aviso_nutri_em`. Entrada que o `<select>` não
+  produz é adulteração (`Error`).
+- **Só informa.** O horário nunca impede o envio. No app, aparece só com o envio aberto (`podeEnviar`) e o horário ligado:
+  "Horário de atendimento por mensagens: {resumo}." (`resumoDoHorario`, `:96`: "segunda a sexta, 9h às 12h e 14h às
+  18h"), "Sua nutricionista ainda não definiu o horário de atendimento por mensagens." sem faixas e, fora das faixas,
+  "Agora é fora do horário de atendimento por mensagens. Sua mensagem fica guardada e será lida quando sua nutricionista
+  voltar ao atendimento por mensagens." — sem prometer prazo de leitura (CH-D73). `horarioParaPaciente` (`:169`) devolve
+  só `horarioAtivo` e as faixas (teste das chaves).
+- Tela `/painel/configuracoes/mensagens` (cartão "Atendimento por mensagens" no hub, `src/app/painel/configuracoes/page.tsx:20`):
+  `salvarHorarioAction` com `requireNutri`; erro de faixa junto à faixa ("O fim tem de ser depois do início.", "As faixas
+  do mesmo dia não podem se sobrepor.", "No máximo 3 faixas por dia."); erro inesperado ou rede caída → "Não foi possível
+  salvar. Tente de novo." com a configuração enviada de volta (CH-D76); gravou → `?ok=salva&r=…` e "Configuração salva."
+  na região `role="status"`.
+
+### 5.12.7 Avisos (US-445; RN-456 a RN-458; CS-440; CH-D61, CH-D62, CH-D70)
+
+- **Ao paciente** (`avisarPaciente`, `avisos.ts:188`), na transação do envio da nutricionista: só com conta; se já há
+  `notifications` `pendente` do **mesmo tipo** do paciente (travada `FOR UPDATE`, para não correr com a reserva do motor),
+  nada nasce (agrupado, CH-D61); senão push agora (ou às 8h seguintes, entre 21h e 8h no fuso) e, só em `chat_mensagem`,
+  e-mail 30 min depois do push, também empurrado para as 8h se cair no silêncio (`quandoAvisar`, `:176`). Sem helper novo
+  de horário: `emHorarioSilencioso`/`fimDoSilencio` de `notificacoes/agendar.ts`.
+- **No motor** (`src/modules/notificacoes/enviar.ts`): `carregarContexto` (`:274`) carrega `chatNaoLido` só para os tipos
+  do chat (há mensagem da equipe depois do `lida_ate` do paciente; só sim/não), e `motivoParaIgnorar` (`:52`, puro)
+  ignora com o motivo `mensagem_lida` ("mensagem já lida") quando não há — compara com as não lidas, não com a data do
+  aviso (CH-D62). `ehAvisoDoChat`/`TIPOS_DO_CHAT` em `notificacoes/tipos.ts:91`; `ROTULO_TIPO` "Mensagem no app" e
+  "Recado".
+- **Corpos fixos** (`TEXTOS_AVISO`): push título "NutriDebby", "Você tem uma nova mensagem." ou "Você tem um novo
+  recado.", tela `/p/mensagens` com o `?v=` do consultório (`AVISOS_DO_PORTAL`, `notificacoes/mensagens.ts:130`); e-mail
+  `chat_mensagem` (`:43`) com o primeiro nome, o nome profissional (ou o de exibição) e o link — nunca o texto, o anexo ou
+  o recado. WhatsApp: `textoWhatsapp` devolve `null` para os dois tipos (`:89`); nenhum entra em `CONTA_COTA`.
+- **À nutricionista** (`avisarNutriDeMensagem`, `avisos.ts:212`): o e-mail `aviso_mensagens_nutri` ("Mensagens novas de
+  pacientes", link `/painel/mensagens?filtro=nao-lidas`, sem nome de paciente nem texto) pelo `avisarNutri` de
+  `agenda/aviso-nutri.ts`, só quando `app_chat_aviso_nutri_devido` devolveu `true`: aviso ligado, no horário
+  (`avisoNoHorario`, `envio.ts:125`: dentro das faixas com o horário ligado e alguma faixa; senão fora do silêncio das
+  21h às 8h) e sem outro e-mail nas últimas 2 h. O horário é lido **sem trava e antes** da função (`noHorarioDoAviso`),
+  porque `salvarConfiguracao` trava `chat_configuracoes` e depois `chat_avisos_nutri` — a ordem inversa daria impasse.
+- E-mails no `renderEmail` (`src/email/templates.tsx`) por `comLinkNoFim`: o corpo da spec, de um parágrafo, termina no
+  link, que no HTML vira clicável; o texto puro é o corpo.
+
+### 5.12.8 Telas do painel
+
+- **Menu** (`ITEM_MENSAGENS`, `src/app/painel/navegacao.ts:23`): "Mensagens" sempre, na sessão `nutri`, no lugar e na
+  posição de "Dúvidas dos pacientes" (antes de "Conteúdos", CH-D14); `/painel/duvidas` marca "Mensagens" (`:43`). O
+  `CabecalhoPainel` recebe `mensagens` no lugar de `duvidas`.
+- **`/painel/mensagens`** (caixa): h1 "Mensagens" (o título da aba do navegador é sempre "Mensagens", nunca o nome do
+  paciente); as abas (`AbasDeMensagens`, `src/app/painel/mensagens/abas.tsx`, `<nav aria-label="Seções de Mensagens">`):
+  "Conversas ({n})" e "Dúvidas da IA Nutri ({n})" — esta só com a IA Nutri ativada ou com dúvida aberta (e sempre na
+  própria fila); a aba "Recados" entra na T10 (PR 3); filtro "Todas"/"Não lidas" (links-pílula com `aria-current`), busca
+  por formulário GET (sem JS), "Nova conversa" e "Mostrar mais".
+- **`/painel/mensagens/nova`**: a lista de "Nova conversa" (§5.12.5).
+- **`/painel/mensagens/[patientId]`** (conversa): id inexistente ou de outro consultório → `notFound()`. Cabeçalho com o
+  nome de registro, "Abrir ficha", "Liberada em {dd/mm/aaaa} ({forma})", o selo "Conversa pausada" e "Pausar conversa" ou
+  "Retomar conversa"; estados "A conversa com {nome} ainda não foi liberada." (com "Liberar conversa" ou o texto do
+  carimbo), "{nome} ainda não tem acesso ao app. …", "Paciente arquivado: a conversa fica só para consulta.", "Pedido de
+  exclusão atendido: a conversa fica só para consulta." e, depois da anonimização, só "Paciente anonimizado: a conversa
+  foi apagada junto com os dados do paciente.". A lista (`lista-de-mensagens.tsx`, `<ul aria-label="Mensagens">`): o
+  separador "Hoje"/"Ontem"/"{dd/mm/aaaa}" no fuso, as do paciente à esquerda e as da equipe à direita, o autor no começo
+  do bloco ("Você", o nome gravado na linha ou o primeiro nome do paciente), a hora em `<time datetime>`, o carimbo
+  "{autor_nome} · Nutricionista · {autor_crn}" sob cada bloco da equipe (o CRN já vem com o prefixo, "CRN-4 12345": o
+  modelo nunca escreve "CRN" antes), "Sinal de risco" no selo de alerta (`Selo variante="alerta"`, com ícone; não só cor),
+  a cópia de recado com borda e o rótulo "Recado", "Resposta à dúvida enviada pela IA Nutri em {dd/mm/aaaa}" e
+  "Enviada"/"Lida". Rodapé `sticky` com a região viva sempre montada (`role="status"`) e o campo "Mensagem" com
+  "Enviar"/"Enviando…". Texto como texto: nenhum HTML, nenhum link automático (RNF-444, CH-D34).
+- **`/painel/duvidas`**: h1 "Dúvidas da IA Nutri" e as abas de Mensagens; o detalhe volta por "Voltar para Dúvidas da IA
+  Nutri" (CH-D45). Nada mais muda na fila neste PR ("Marcar como vista" segue; "Responder na conversa" é do PR 3).
+- **`/painel/configuracoes/mensagens`**: §5.12.6.
+- **Ficha**: seção "Mensagens" do Início e "Enviar mensagem" no Adicionar
+  ([§4.2.13](04-modulos-clinicos.md#4213-mensagens-na-ficha-e-no-titular-plano-25-pr-2)).
+- **Prefetch** (RN-473, CH-D46): todo link que abre a conversa (a caixa, a "Nova conversa", a ficha, "Ver mensagens
+  anteriores", a faixa do portal) tem `prefetch={false}` — o prefetch do Next 16 renderizaria a conversa, gravaria o
+  `auditRead` e avançaria o "lido" sem ninguém ver.
+
+### 5.12.9 No app do paciente (US-443; RN-449 a RN-452, RN-463, RN-471 a RN-473; CH-D15, CH-D46, CH-D48)
+
+- **Entrada** (`LinkDeMensagens`, `src/components/portal/faixa.tsx:59`): o link "Mensagens" / "Mensagens ({n})" à direita
+  na linha do consultório da faixa, com o `aria-label` "Mensagens, {n} não lidas" / "Mensagens, 1 não lida", 44 px e sem
+  prefetch. Aparece só com a conversa liberada ou com recado (`mensagensNaFaixa`, `conversa.ts:406`: `null` = sem link;
+  só contagem, sem `auditRead`, sem mexer no marcador). `mensagensDaFaixa` (`src/app/p/moldura.ts:33`) zera o número
+  quando a busca é a da cópia offline de `/p/plano` (cabeçalho `x-nd-copia`, `CABECALHO_PEDIDO_DA_COPIA`): a cópia fica
+  dias no aparelho.
+- **`/p/mensagens`** (`src/app/p/(portal)/mensagens/page.tsx`): tela de detalhe de Hoje (`tambem` de Hoje em
+  `src/app/p/navegacao.ts:10`; `CabecalhoDetalhe` com "Voltar" e sem o selo offline). No topo, "Conversa com {nome
+  profissional}, nutricionista, {crn}" (só com os dois preenchidos) e os contatos do perfil (`contato_email`,
+  `contato_telefone_e164`); o aviso de urgência **sempre**, como texto ("Este canal não é para urgências. Em caso de
+  urgência, ligue para o SAMU no 192 ou vá ao pronto-socorro mais próximo.", RN-450; descreve o campo); o horário
+  (§5.12.6). A lista mostra "Você" nas próprias, "{autor_nome} · Nutricionista · {autor_crn}" nas da nutricionista e
+  "Recado do consultório · {autor_nome} · {autor_crn}" nas cópias de recado, com o socorro sob a mensagem de risco. No
+  rodapé, a região viva e o campo "Escreva sua mensagem"; sem a conversa liberada, "Por enquanto, sua nutricionista só
+  envia recados por aqui. Para falar com o consultório, use os canais de sempre."; pausada, "A conversa por mensagens está
+  pausada pelo consultório. Para falar com sua nutricionista, use os canais de sempre.". Abrir pelo push leva o `?v=` do
+  consultório (o `requirePaciente` escolhe o vínculo).
+- **Sem internet, sem cache** (RN-473): a navegação para `/p/mensagens` é só rede (`NetworkOnly`, `src/app/sw.ts:171`,
+  antes da regra geral do portal, que também a exclui: `ehNavegacaoDoPortal`, `src/app/sw-regras.ts:25`); sem rede, o
+  service worker devolve `paginaSemConexao()` (`:47`, 503, `no-store`): h1 "Mensagens", "Sem conexão. Escreva quando
+  voltar." em `role="status"`, o aviso de urgência com o 192 discável e "Voltar para Hoje" — nunca o plano guardado no
+  lugar da conversa e nenhum dado do paciente. Com a tela aberta e a rede caindo, o campo mostra o mesmo "Sem conexão.
+  Escreva quando voltar." e preserva o texto.
+- **Manual do portal**: `GUIA_PORTAL` na **v4** (`src/modules/ajuda/portal.ts:20`): o passo da faixa cita o link
+  "Mensagens" ("Quando o consultório liberar…") e "Perguntas comuns" ganha "Posso usar as Mensagens numa urgência?" com a
+  resposta da §6.2 (sem prazo de leitura, CH-D73). Quem já viu a v3 recebe "O manual do app foi atualizado. Quer ver o que
+  há de novo?" uma vez (§5.8.4).
+
+### 5.12.10 Auditoria, privacidade e LGPD
+
+- **Auditoria** ([§2.8](02-banco-de-dados.md#28-auditoria)): escritas de `chat_mensagens` pelo gatilho (entidade `chat`,
+  "Mensagens (conversa com o paciente)"); o gatilho de `chat_conversas` grava a entidade neutra `chat_conversa`, fora da
+  tela (`visivelNoHistorico`, `src/modules/plataforma/audit.ts`), porque não distingue liberar, pausar e retomar de uma
+  conversa nascida de recado; os atos aparecem pelo `recordAudit` do módulo, com os rótulos de `rotuloDaAcao`
+  (`audit.ts:137-140`). `auditRead` só ao abrir a conversa (painel e portal); a caixa, o contador, a situação, a faixa,
+  a "Nova conversa" e a seção da ficha não chamam (RN-453).
+- **Nada em log** (RN-470, regra 3): texto, nome de anexo, recado, caminho, nome e e-mail do paciente nunca vão a log,
+  Sentry ou mensagem de erro; as actions logam só `nomeDoErro`, `sqlstateDoErro`, a ação e ids. Guarda de grep em
+  `src/modules/mensagens/guardas.test.ts`.
+- **Titular** (exportação nos dois escopos, conversa mantida no pedido de exclusão, anonimização com rede de limpeza):
+  [§4.2.13](04-modulos-clinicos.md#4213-mensagens-na-ficha-e-no-titular-plano-25-pr-2).
+
+### 5.12.11 Manual guiado do painel
+
+`src/modules/ajuda/conteudo.ts`: guia novo **`mensagens`** v1 (`padrao` `/^\/painel\/mensagens(\/.*)?$/`: a caixa, a nova
+conversa e a conversa; passos `mensagens-abas`, `mensagens-filtro`, `mensagens-caixa`, `nova-conversa`, `liberar-conversa`,
+`conversa-mensagens`, `conversa-campo`, `pausar-conversa` e, por último, `busca-nova-conversa`, que diz a tela); guia
+novo **`configuracoes-mensagens`** v1 (antes do genérico `configuracoes`; passos `mensagens-horario`,
+`mensagens-aviso-email`, `mensagens-faixas`); `configuracoes` **9** (o cartão "Atendimento por mensagens" e a fila "Dúvidas
+da IA Nutri"); `boas-vindas` **5** (o passo do menu cita "Mensagens" no lugar de "Dúvidas dos pacientes"); `duvidas`
+com o título "Dúvidas da IA Nutri" **sem** subir a versão (sobe na T9, CH-D55). `src/modules/mensagens` entrou em
+`TSX_FORA` de `src/modules/ajuda/conteudo.test.ts` (os rótulos citados pelos guias moram em `MSG_*`). As quatro telas
+novas do painel têm guia (nenhuma em `SEM_AJUDA`). Textos em rascunho até o `revisor-interface` e a Debby.
+
+---
+
 ## Divergências encontradas
 
 Spec × código (o código é a referência):
@@ -2135,3 +2417,38 @@ Plano 17 (lembretes de rotina; spec `docs/superpowers/specs/2026-11-13-nutridebb
     enviados." quando outro tipo também foi (`secao.tsx`).
 27. **Exportação.** A spec (§5.5) fala em "configuração" no `dados.json`; o código usa a chave nova `lembretesDeRotina` (a
     `lembretes` já era das mensagens das consultas, Plano 05) e põe `lembretesPausadosEm` dentro de `paciente`.
+
+
+Plano 25, PR 2 (mensagens e recados; spec `docs/superpowers/specs/2026-11-17-nutridebby-25-chat-recados-design.md` v0.4,
+plano `docs/superpowers/plans/2026-11-17-nutridebby-25-chat-recados.md`) × código, conferido em 23/11/2026 no branch
+`plano-25-chat-recados` em `fdeefa0` (§5.12):
+
+28. **Onde fica o aviso à nutricionista.** RN-458 e RN-472 da spec v0.4 ainda põem `aviso_email` e `aviso_nutri_em` em
+    `chat_configuracoes`. O código os tem em `chat_avisos_nutri` (`staff_only`; CH-D70, que a §9.4 da própria spec já
+    registra): `chat_configuracoes` só guarda `horario_ativo`. O texto das duas RNs fica para a T12.
+29. **Seis ou sete tabelas.** O plano ("Architecture" e "Estrutura de arquivos") fala em seis tabelas; são sete, com
+    `chat_avisos_nutri` (CH-D70). A "Estrutura de arquivos" também não lista `src/modules/mensagens/sessao.ts`,
+    `src/components/mensagens/` (`situacao.ts`, `leitura.tsx`, `rede.ts`, `rolagem.ts`), `src/app/painel/contador-de-mensagens.tsx`,
+    `src/app/painel/configuracoes/mensagens/formulario.ts` nem os componentes das telas (`lista.tsx`, `campo.tsx`,
+    `liberar-dialogo.tsx`, `pausar-dialogo.tsx`, `link-do-perfil.tsx`, `situacao.tsx`, `conversa-portal.tsx`, `socorro.tsx`).
+30. **Aba "Recados".** A §6.2 ("Menu e abas") lista a aba "Recados"; no PR 2 as abas são só "Conversas" e "Dúvidas da IA
+    Nutri" (`abas.tsx`). A aba, as telas e o envio do recado entram na T10 (PR 3).
+31. **Horário no app.** A RN-472 mostra o horário ao paciente sempre que `horario_ativo` está ligado. O código o mostra só
+    com o envio aberto (`podeEnviar`: liberada, não pausada, titular ativo): na conversa pausada ou só de recados, "fica
+    guardada e será lida…" enganaria (rodada da T7).
+32. **Página sem conexão.** A RN-473 descreve o aviso "Sem conexão. Escreva quando voltar." no componente da conversa. O
+    código também responde à **navegação** sem rede com uma página mínima do service worker (`paginaSemConexao`, 503):
+    h1 "Mensagens", o aviso, o aviso de urgência com o 192 discável e "Voltar para Hoje" — texto que a §6.2 não lista.
+33. **"Só recados" sem recado.** Sem a conversa liberada, `/p/mensagens` mostra "Por enquanto, sua nutricionista só envia
+    recados por aqui. …" mesmo sem nenhum recado; a faixa não mostra o link nesse caso, então só se chega pela URL
+    (o axe do portal, `e2e/acessibilidade.spec.ts`, passa por esse estado).
+34. **Rótulo dos atos no Histórico.** A §6.2 ("`ENTIDADE_ROTULO` e Histórico") põe os rótulos de liberar, pausar e retomar
+    em `acaoDoItem`; o código os tem em `rotuloDaAcao` (`src/modules/plataforma/audit.ts:137-140`), e as três entidades
+    (`chat_liberacao`, `chat_pausa`, `chat_retomada`) têm o rótulo de entidade "Mensagens (conversa com o paciente)".
+35. **Regra 9 do `CLAUDE.md` adiantada.** A frase do Plano 25 na regra 9 fala da conversão "só no worker (fila
+    `chat-anexo`)" e de `app_chat_soltar_anexo` no `naMesmaTransacao`; a fila e o upload só entram no PR 3 (hoje só a
+    anonimização usa a função, em `apagarConversaDoTitular`). Vale como regra para o PR 3.
+36. **O e-mail de risco da IA Nutri ainda usa o nome antigo da fila.** A CH-D45 dá um nome só à fila ("Dúvidas da IA
+    Nutri") no h1, na aba e no "Voltar para…"; o e-mail `risco_ia_nutri` (`src/email/templates.tsx`, `renderEmail`) segue
+    com o corpo "Abra as dúvidas dos pacientes no NutriDebby." e o botão "Abrir as dúvidas dos pacientes" (o link leva à
+    fila, `/painel/duvidas`). Fora da lista da CH-D45; decidir se entra na T9 ou na T12.

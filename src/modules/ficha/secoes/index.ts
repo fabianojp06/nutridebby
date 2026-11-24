@@ -6,6 +6,7 @@ import { secaoDocumentos } from './documentos';
 import { secaoExames } from './exames';
 import { secaoExamesEnviados } from './exames-enviados';
 import { secaoGastoEnergetico } from './gasto-energetico';
+import { secaoMensagens } from './mensagens';
 import { secaoPlanoAlimentar } from './plano-alimentar';
 
 /**
@@ -21,4 +22,5 @@ export const SECOES_DA_FICHA: readonly SecaoDaFicha[] = [
   secaoExames,
   secaoExamesEnviados,
   secaoDocumentos,
+  secaoMensagens, // Plano 25 (§4.4)
 ];

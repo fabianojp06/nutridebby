@@ -10,7 +10,7 @@ const TSX = ['src/app/painel', 'src/app/conta', 'src/components']
   .join('\n');
 
 // Rótulos que vêm de módulos (opções da agenda, filtros): citados no manual, desenhados fora do .tsx
-const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes', 'src/modules/ficha', 'src/modules/financeiro', 'src/modules/exames', 'src/modules/relatorios']
+const TSX_FORA = ['src/modules/agenda', 'src/modules/conteudo', 'src/modules/documentos', 'src/modules/ia', 'src/modules/pacientes', 'src/modules/ficha', 'src/modules/financeiro', 'src/modules/exames', 'src/modules/relatorios', 'src/modules/mensagens']
   .flatMap((p) => readdirSync(path.resolve(p), { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.ts') && !d.name.endsWith('.test.ts')).map((d) => path.join(d.parentPath, d.name)))
   // Plano 16: os rótulos da resposta do diário ("Comeu como no plano") vêm de uma constante do portal (sem import de servidor)
   .concat(path.resolve('src/modules/portal/diario-constantes.ts'))
@@ -121,20 +121,19 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 15: o aditivo 1.2 e a IA Nutri em Configurações (versão 8, com o passo da subseção); a 1.2 não invalida autorização nenhuma', () => {
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
-    expect(config.versao).toBeGreaterThanOrEqual(8); // 9 desde o Plano 22 (o cartão "Exames", abaixo)
+    expect(config.versao).toBeGreaterThanOrEqual(8); // 9 desde o Plano 22 (o cartão "Exames"), 10 desde o Plano 25 (abaixo)
     const ia = config.ajuda.secoes.find((s) => s.titulo === 'Inteligência artificial (IA)')!.itens;
     expect(ia).toContain(
       'O aditivo está na versão 1.2, que inclui o resumo do histórico, o rascunho de plano alimentar e a IA Nutri para pacientes. Quem aceitou a versão 1.1 continua usando a leitura de laudos, o resumo, o rascunho e os modelos; só a IA Nutri pede o aceite da 1.2 ("Aceitar a versão atual").',
     );
-    expect(ia).toContain('IA Nutri para pacientes: ative em Configurações, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas dos pacientes".');
+    expect(ia).toContain('IA Nutri para pacientes: ative em Configurações, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas da IA Nutri".'); // Plano 25 (CH-D45): o nome novo da fila
     expect(ia.join(' ')).not.toContain('A autorização que o paciente deu na versão anterior também não vale mais');
     expect(ia.join(' ')).not.toContain('versão 1.1, que inclui');
     expect(config.passos.map((p) => p.alvo)).toContain('ia-nutri-secao');
   });
-  it('Plano 15 (★ DO-6): o passo do menu do boas-vindas cita "Dúvidas dos pacientes" e a versão sobe para 3 neste PR', () => {
+  it('Plano 15 (★ DO-6): a versão do boas-vindas subiu para 3 com o item das dúvidas no menu (o Plano 25 troca o item por "Mensagens", abaixo)', () => {
     const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
-    expect(g.versao).toBeGreaterThanOrEqual(3); // 4 desde o Plano 20 (abaixo)
-    expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('"Dúvidas dos pacientes" aparece também, com o número das abertas.');
+    expect(g.versao).toBeGreaterThanOrEqual(3); // 4 desde o Plano 20, 5 desde o Plano 26, 6 desde o Plano 25 (abaixo)
   });
   it('Plano 15: a fila "Dúvidas dos pacientes" e a aba "IA Nutri" da ficha têm guia próprio (a aba antes do guia do prontuário)', () => {
     expect(guiaDaRota('/painel/duvidas')?.id).toBe('duvidas');
@@ -158,7 +157,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 20: o passo do menu do boas-vindas cita "Financeiro" e a versão sobe para 4 (quem já viu o tour, vê de novo)', () => {
     const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
-    expect(g.versao).toBeGreaterThanOrEqual(4); // 5 desde o Plano 26 (abaixo)
+    expect(g.versao).toBeGreaterThanOrEqual(4); // 5 desde o Plano 26, 6 desde o Plano 25 (abaixo)
     expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('Financeiro');
   });
   it('Plano 20 (T7): o guia da Agenda cita a cobrança criada ao marcar "Realizada" e a versão sobe para 2', () => {
@@ -225,7 +224,7 @@ describe('conteúdo do manual (P08-10)', () => {
   it('Plano 18 (§8.3): o guia "Início do paciente" casa só o Início da ficha, vem antes do prontuário e traz os passos da spec', () => {
     const g = GUIAS.find((x) => x.id === 'inicio-paciente')!;
     expect(g.titulo).toBe('Início do paciente');
-    expect(g.versao).toBe(2); // 2 no PR 2 do Plano 18: o cartão No app e o selo
+    expect(g.versao).toBe(3); // 2 no PR 2 do Plano 18: o cartão No app e o selo; 3 no PR 2 do Plano 25: a seção "Mensagens"
     expect(guiaDaRota(`/painel/pacientes/${UUID}`)?.id).toBe('inicio-paciente');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/perfil`)?.id).toBe('perfil-paciente'); // guia próprio desde a Tarefa 7a
     expect(guiaDaRota(`/painel/pacientes/${UUID}/app`)?.id).toBe('prontuario');
@@ -235,7 +234,10 @@ describe('conteúdo do manual (P08-10)', () => {
     for (const alvo of ['cabecalho-paciente', 'abas-prontuario']) expect(g.passos.find((p) => p.alvo === alvo)?.texto).toBe(prontuario.passos.find((p) => p.alvo === alvo)?.texto);
     expect(g.passos.find((p) => p.alvo === 'adicionar-prontuario')?.texto).toBe('Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.');
     // Tarefa 9 (PR 2, versao 2): a frase do selo volta ao passo das seções, e o passo do cartão entra (spec §8.3)
-    expect(g.passos.find((p) => p.alvo === 'secoes-inicio')?.texto).toBe('Cada seção mostra quantos registros há e os três mais recentes. O selo No app marca o que o paciente vê no app.');
+    // Plano 25, PR 2 (versao 3): a seção "Mensagens" conta as não lidas e põe "Enviar mensagem" em "Outros", no Adicionar (§4.4)
+    expect(g.passos.find((p) => p.alvo === 'secoes-inicio')?.texto).toBe(
+      'Cada seção mostra quantos registros há e os três mais recentes; a seção "Mensagens" mostra as não lidas, e "Enviar mensagem" fica em "Outros", no "Adicionar". O selo No app marca o que o paciente vê no app.',
+    );
     expect(g.passos.find((p) => p.alvo === 'no-app-cartao')?.texto).toBe('O que o paciente enxerga no app, contado com as mesmas regras do app.');
     // a explicação da página "No app do paciente" fica nas ajudas deste guia (a página cai no guia `prontuario`)
     expect(g.ajuda.secoes.flatMap((s) => s.itens)).toContainEqual(expect.stringContaining('"No app do paciente"'));
@@ -256,6 +258,66 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota('/painel/pacientes/novo')?.id).toBe('pacientes');
     expect(pacientes.passos).toContainEqual(passo);
   });
+  it('Plano 25 (CH-D55): o passo do menu do boas-vindas cita "Mensagens" (no lugar de "Dúvidas dos pacientes") e a versão sobe para 6 (+1 sobre a 5 do Plano 26)', () => {
+    const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
+    expect(g.versao).toBe(6);
+    const menu = g.passos.find((p) => p.alvo === 'menu')!.texto;
+    expect(menu).toContain('Mensagens');
+    expect(menu).toContain('Diários, Mensagens, Conteúdos, Financeiro, Relatórios e Configurações'); // a ordem do menu (navegacao.ts)
+    expect(menu).not.toContain('Dúvidas dos pacientes');
+    expect(menu).toContain('"Exames recebidos" aparece também'); // o do Plano 12 continua
+  });
+  it('Plano 25 (T6a): o guia "mensagens" (versão 1) vale para a caixa, a nova conversa e a conversa; passos da caixa e da nova conversa com alvo (a T6b acrescenta os da conversa, mesma versão)', () => {
+    const g = GUIAS.find((x) => x.id === 'mensagens')!;
+    expect(g.versao).toBe(1);
+    expect(g.titulo).toBe('Mensagens');
+    for (const r of ['/painel/mensagens', '/painel/mensagens/nova', `/painel/mensagens/${UUID}`]) expect(guiaDaRota(r)?.id, r).toBe('mensagens');
+    expect(guiaDaRota('/painel/mensagensx')?.id).not.toBe('mensagens');
+    expect(g.passos.map((p) => p.alvo)).toEqual(expect.arrayContaining(['mensagens-abas', 'mensagens-filtro', 'mensagens-caixa', 'nova-conversa', 'busca-nova-conversa']));
+  });
+  it('Plano 25 (T6b, CH-D55): o guia "mensagens" ganha a conversa, a liberação e a pausa, ainda na versão 1; "Escolher o paciente" por último, dizendo a tela', () => {
+    const g = GUIAS.find((x) => x.id === 'mensagens')!;
+    expect(g.versao).toBe(1);
+    const alvos = g.passos.map((p) => p.alvo);
+    expect(alvos).toEqual(expect.arrayContaining(['conversa-mensagens', 'liberar-conversa', 'conversa-campo', 'pausar-conversa']));
+    const ultimo = g.passos.at(-1)!;
+    expect(ultimo.alvo).toBe('busca-nova-conversa');
+    expect(ultimo.texto).toContain('Na tela "Nova conversa"');
+    const textos = [g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)].join(' ');
+    expect(textos).toContain('TCLE de telenutrição');
+    expect(textos).not.toMatch(/CRN CRN/);
+  });
+  it('Plano 25 (T6c): o guia "configuracoes-mensagens" (versão 1) casa com a tela antes do genérico; "configuracoes" 9 → 10 cita o cartão e as mensagens', () => {
+    const g = GUIAS.find((x) => x.id === 'configuracoes-mensagens')!;
+    expect(g.versao).toBe(1);
+    expect(g.titulo).toBe('Atendimento por mensagens');
+    expect(guiaDaRota('/painel/configuracoes/mensagens')?.id).toBe('configuracoes-mensagens');
+    expect(guiaDaRota('/painel/configuracoes')?.id).toBe('configuracoes');
+    expect(guiaDaRota('/painel/configuracoes/perfil')?.id).toBe('configuracoes');
+    expect(GUIAS.findIndex((x) => x.id === 'configuracoes-mensagens')).toBeLessThan(GUIAS.findIndex((x) => x.id === 'configuracoes'));
+    // rodada da T6c: na ordem da tela (horário, aviso por e-mail, faixas); o "24:00" junto do passo das faixas
+    expect(g.passos.map((p) => p.alvo)).toEqual(['mensagens-horario', 'mensagens-aviso-email', 'mensagens-faixas']);
+    const textos = [g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.map((p) => p.texto)].join(' ');
+    expect(textos).toContain('24:00');
+    expect(textos).toContain('2 horas');
+    expect(textos).not.toMatch(/próximo horário|em até \d/); // CH-D73: sem prometer prazo de leitura
+    const config = GUIAS.find((x) => x.id === 'configuracoes')!;
+    expect(config.versao).toBe(10); // 9 no Plano 22 (o cartão "Exames"); 10 = Plano 25 (+1 sobre a main)
+    expect(config.passos.find((p) => p.alvo === 'cartoes-configuracoes')?.texto).toContain('"Atendimento por mensagens"');
+    expect(config.ajuda.resumo).toContain('mensagens');
+    expect(config.ajuda.resumo).toContain('"Dúvidas da IA Nutri"');
+  });
+  it('Plano 25 (CH-D45): nenhum guia nem o aviso de ativação da IA Nutri chamam a fila de "Dúvidas dos pacientes"', () => {
+    const textos = GUIAS.flatMap((g) => [g.titulo, g.ajuda.resumo, ...g.ajuda.secoes.flatMap((s) => s.itens), ...g.passos.flatMap((p) => [p.titulo, p.texto])]);
+    expect(textos.filter((t) => t.includes('Dúvidas dos pacientes'))).toEqual([]);
+    expect(readFileSync('src/modules/ia/nutri-paciente/constantes.ts', 'utf8')).not.toMatch(/fila "Dúvidas dos pacientes"/);
+  });
+  it('Plano 25 (CH-D45): o guia da fila de dúvidas com o nome "Dúvidas da IA Nutri", sem subir a versão (sobe na T9, CH-D55)', () => {
+    const g = GUIAS.find((x) => x.id === 'duvidas')!;
+    expect(g.titulo).toBe('Dúvidas da IA Nutri');
+    expect(g.passos.map((p) => p.titulo)).toEqual(['Dúvidas da IA Nutri']);
+    expect(g.versao).toBe(1);
+  });
   it('nenhum título de guia repetido (o manual completo lista um h2 por guia; "Início" é o de boas-vindas)', () => {
     expect(new Set(GUIAS.map((g) => g.titulo)).size).toBe(GUIAS.length);
   });
@@ -264,7 +326,7 @@ describe('conteúdo do manual (P08-10)', () => {
   });
   it('Plano 26 (PR 1): o passo do menu do boas-vindas cita "Relatórios" e a versão sobe para 5 (quem já viu o tour, vê de novo)', () => {
     const g = GUIAS.find((x) => x.id === ID_BOAS_VINDAS)!;
-    expect(g.versao).toBe(5);
+    expect(g.versao).toBeGreaterThanOrEqual(5); // 6 desde o Plano 25 (acima)
     expect(g.passos.find((p) => p.alvo === 'menu')?.texto).toContain('Financeiro, Relatórios e Configurações');
   });
   it('Plano 26 (PR 1): os Relatórios têm guia próprio (versão 1) nas seis seções, com os passos da spec §6.2; a impressão fica em SEM_AJUDA', () => {
@@ -297,7 +359,7 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota('/painel/exames-recebidos')?.id).toBe('exames-recebidos');
     expect(g.passos.map((p) => p.alvo)).toEqual(['secoes-exames', 'nomes-para-comecar', 'novo-exame-catalogo', 'faixas-consultorio', 'modelos-nota']);
     const config = GUIAS.find((x) => x.id === 'configuracoes')!;
-    expect(config.versao).toBe(9); // Plano 22: o cartão "Exames" (+1 sobre a main)
+    expect(config.versao).toBeGreaterThanOrEqual(9); // 9 desde o Plano 22 (o cartão "Exames"); 10 desde o Plano 25 (acima)
     expect(config.passos.find((p) => p.alvo === 'cartoes-configuracoes')?.texto).toContain('"Exames"');
   });
 

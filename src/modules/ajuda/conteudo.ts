@@ -17,8 +17,9 @@ const ID = '[0-9a-f-]{36}';
 export const GUIAS: readonly Guia[] = [
   {
     id: ID_BOAS_VINDAS,
-    versao: 5, // Plano 12: o passo do menu passou a citar "Exames recebidos"; 3 = Plano 15: o passo do menu cita "Dúvidas dos pacientes" (★ DO-6)
-    // 4 = Plano 20: o passo do menu cita "Financeiro" (sobe +1 sobre a da main no rebase); 5 = Plano 26: e "Relatórios" (idem)
+    versao: 6, // Plano 12: o passo do menu passou a citar "Exames recebidos"; 3 = Plano 15: o passo do menu cita "Dúvidas dos pacientes" (★ DO-6)
+    // 4 = Plano 20: o passo do menu cita "Financeiro"; 5 = Plano 26: e "Relatórios"; 6 = Plano 25: "Mensagens" no lugar das dúvidas
+    // (sobe +1 sobre a da main no merge: a main chegou a 5 com o Plano 26)
     padrao: /^\/painel$/,
     titulo: 'Início',
     ajuda: {
@@ -30,7 +31,7 @@ export const GUIAS: readonly Guia[] = [
     },
     passos: [
       { titulo: 'Boas-vindas ao NutriDebby', texto: 'Um passeio rápido pelo painel. Você pode pular agora e rever depois no menu da sua conta.' },
-      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Conteúdos, Financeiro, Relatórios e Configurações ficam no topo. Com o recebimento de exames ligado, "Exames recebidos" aparece também, com o número dos que aguardam. Com a IA Nutri ativada, "Dúvidas dos pacientes" aparece também, com o número das abertas.' },
+      { alvo: 'menu', titulo: 'Menu do painel', texto: 'Pacientes, Agenda, Diários, Mensagens, Conteúdos, Financeiro, Relatórios e Configurações ficam no topo. Com o recebimento de exames ligado, "Exames recebidos" aparece também, com o número dos que aguardam. Em "Mensagens", o número soma as conversas não lidas e as dúvidas abertas da IA Nutri.' },
       { alvo: 'proxima-consulta', titulo: 'Próxima consulta', texto: 'A consulta mais próxima de hoje, com atalhos para o prontuário e para a chamada online.' },
       { alvo: 'atalhos', titulo: 'Atalhos', texto: 'Cadastre um paciente, marque uma consulta ou publique um conteúdo direto do Início.' },
       { alvo: 'tema', titulo: 'Claro ou escuro', texto: 'Este botão liga e desliga o modo escuro. A escolha fica salva na sua conta, em qualquer aparelho.' },
@@ -150,7 +151,7 @@ export const GUIAS: readonly Guia[] = [
     // Plano 18 (§8.3): só o Início da ficha; antes do `prontuario`, que casa todas as abas (os passos novos só têm alvo aqui).
     // Título "Início do paciente": "Início" é o do guia de boas-vindas (o manual completo lista um h2 por guia).
     id: 'inicio-paciente',
-    versao: 2, // Plano 18, PR 2: o cartão No app
+    versao: 3, // Plano 18, PR 2: o cartão No app; Plano 25, PR 2: a seção "Mensagens" (não lidas e "Enviar mensagem" em "Outros")
     padrao: new RegExp(`^/painel/pacientes/${ID}$`),
     titulo: 'Início do paciente',
     ajuda: {
@@ -172,7 +173,7 @@ export const GUIAS: readonly Guia[] = [
       { alvo: 'cabecalho-paciente', titulo: 'O paciente', texto: 'Nome, idade, situação e as medidas da última avaliação, com a data. O selo mostra se o paciente está arquivado ou bloqueado.' },
       { alvo: 'abas-prontuario', titulo: 'Abas do prontuário', texto: 'Início reúne o que já foi feito; Perfil guarda o cadastro. Cada parte do acompanhamento tem a sua aba.' },
       { alvo: 'adicionar-prontuario', titulo: 'Adicionar', texto: 'Um botão só para registrar anamnese, medidas, exames, atendimentos e prescrições.' },
-      { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes. O selo No app marca o que o paciente vê no app.' },
+      { alvo: 'secoes-inicio', titulo: 'Seções', texto: 'Cada seção mostra quantos registros há e os três mais recentes; a seção "Mensagens" mostra as não lidas, e "Enviar mensagem" fica em "Outros", no "Adicionar". O selo No app marca o que o paciente vê no app.' },
       { alvo: 'no-app-cartao', titulo: 'No app do paciente', texto: 'O que o paciente enxerga no app, contado com as mesmas regras do app.' },
     ],
   },
@@ -297,9 +298,9 @@ export const GUIAS: readonly Guia[] = [
   },
   {
     id: 'duvidas',
-    versao: 1,
+    versao: 1, // Plano 25 (CH-D45): só o título virou "Dúvidas da IA Nutri"; a versão sobe na T9 (CH-D55)
     padrao: /^\/painel\/duvidas(\/.*)?$/,
-    titulo: 'Dúvidas dos pacientes',
+    titulo: 'Dúvidas da IA Nutri',
     ajuda: {
       resumo: 'Aqui chegam as perguntas que os pacientes enviaram pela IA Nutri e as mensagens com sinal de risco, que ficam no topo. Abra a dúvida para ler, siga o protocolo nas de risco e toque em "Marcar como vista": o paciente vê no app que a dúvida foi vista. A resposta você dá na consulta ou pelo canal que já usa.',
       secoes: [
@@ -313,7 +314,48 @@ export const GUIAS: readonly Guia[] = [
         },
       ],
     },
-    passos: [{ alvo: 'fila-duvidas', titulo: 'Dúvidas dos pacientes', texto: 'As mensagens com sinal de risco ficam no topo, depois as mais antigas. Abra a dúvida para ler e, depois de tratar, toque em "Marcar como vista".' }],
+    passos: [{ alvo: 'fila-duvidas', titulo: 'Dúvidas da IA Nutri', texto: 'As mensagens com sinal de risco ficam no topo, depois as mais antigas. Abra a dúvida para ler e, depois de tratar, toque em "Marcar como vista".' }],
+  },
+  {
+    id: 'mensagens',
+    versao: 1, // Plano 25 (T6a): a caixa e a nova conversa; a T6b acrescenta os passos da conversa sem subir a versão (CH-D55)
+    padrao: /^\/painel\/mensagens(\/.*)?$/,
+    titulo: 'Mensagens',
+    ajuda: {
+      resumo: 'As conversas por mensagens com os pacientes. A caixa mostra quem escreveu, a conversa mais recente primeiro, e nunca o texto das mensagens: ele só aparece quando você abre a conversa.',
+      secoes: [
+        {
+          titulo: 'O que dá para fazer aqui',
+          itens: [
+            'Ver as conversas e, em "Não lidas", só as que têm mensagem do paciente ainda não lida.',
+            'Achar um paciente pelo nome em "Buscar paciente".',
+            'Começar uma conversa em "Nova conversa": a lista mostra os pacientes ativos, e quem ainda não usa o app aparece com "Sem acesso ao app".',
+          ],
+        },
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'A conversa com mensagem que pode indicar risco fica no topo, com o selo "Sinal de risco", até você abrir a conversa.',
+            'O número ao lado de "Mensagens", no menu, soma as conversas com mensagem não lida e as dúvidas abertas da IA Nutri.',
+            'As dúvidas que a IA Nutri encaminha ficam na aba "Dúvidas da IA Nutri", que aparece quando a IA Nutri está ativa ou quando há dúvida aberta.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      { alvo: 'mensagens-abas', titulo: 'Seções de Mensagens', texto: '"Conversas" reúne as conversas com os pacientes. "Dúvidas da IA Nutri" aparece quando a IA Nutri está ativa ou quando há dúvida aberta.' },
+      { alvo: 'mensagens-filtro', titulo: 'Filtro e busca', texto: 'Escolha "Todas" ou "Não lidas" e busque o paciente pelo nome.' },
+      { alvo: 'mensagens-caixa', titulo: 'Conversas', texto: 'Cada linha mostra o paciente, quando chegou a última mensagem, de que tipo ela é e quantas não foram lidas. O texto só aparece ao abrir a conversa.' },
+      { alvo: 'nova-conversa', titulo: 'Nova conversa', texto: 'Escolha o paciente para abrir a conversa com ele.' },
+      // T6b: a conversa (mesma versão 1, CH-D55: o PR 2 ainda não foi a produção)
+      // rodada da T6b (normas M2/M3, Res. CFN 760/2023, art. 9º, VI, X e parágrafo único)
+      { alvo: 'liberar-conversa', titulo: 'Liberar a conversa', texto: 'A conversa por mensagens é atendimento a distância. Antes de liberar, explique as possibilidades, os limites e as fragilidades, colha o TCLE de telenutrição com o paciente (ou o responsável legal), envie a ele o comprovante e escolha como ele concordou: termo assinado ou aceite por escrito.' },
+      { alvo: 'conversa-mensagens', titulo: 'A conversa', texto: 'As mensagens do paciente ficam à esquerda e as suas à direita, com a hora, o seu nome e o seu CRN. "Lida" aparece quando o paciente já viu; "Enviada", antes disso.' },
+      { alvo: 'conversa-campo', titulo: 'Escrever', texto: 'Escreva em "Mensagem" e toque em "Enviar". A tecla Enter só quebra a linha: nada é enviado sozinho. As mensagens ficam guardadas no prontuário.' },
+      { alvo: 'pausar-conversa', titulo: 'Pausar', texto: 'Em "Pausar conversa", o paciente continua vendo as mensagens, mas não envia novas. Combine com o paciente como o acompanhamento continua. "Retomar conversa" volta ao normal, sem novo TCLE.' },
+      // revisão da T6a (M2): o passo da busca da nova conversa por último, dizendo a tela (o campo não está na caixa)
+      { alvo: 'busca-nova-conversa', titulo: 'Escolher o paciente', texto: 'Na tela "Nova conversa", busque o paciente pelo nome. Quem ainda não usa o app aparece com "Sem acesso ao app".' },
+    ],
   },
   {
     id: 'diarios',
@@ -357,12 +399,40 @@ export const GUIAS: readonly Guia[] = [
     ],
   },
   {
+    id: 'configuracoes-mensagens',
+    versao: 1, // Plano 25 (T6c): antes do genérico `configuracoes`, como /painel/agenda/horarios antes da agenda
+    padrao: /^\/painel\/configuracoes\/mensagens$/,
+    titulo: 'Atendimento por mensagens',
+    ajuda: {
+      resumo: 'O horário em que você atende por mensagens e o aviso por e-mail quando um paciente escreve. O horário só informa o paciente: ele pode escrever a qualquer hora, e a mensagem fica guardada.',
+      secoes: [
+        {
+          titulo: 'Perguntas comuns',
+          itens: [
+            'Com "Mostrar horário de atendimento aos pacientes" ligado, o app mostra o seu horário e, fora dele, avisa que a mensagem será lida quando você voltar ao atendimento por mensagens.',
+            'Cada dia aceita até 3 faixas, sem sobrepor. Para atender até a meia-noite, escolha 24:00 em "Às".',
+            'O aviso por e-mail chega no máximo a cada 2 horas, sem nome de paciente nem o texto da mensagem, e não sai fora do horário de mensagens.',
+          ],
+        },
+      ],
+    },
+    passos: [
+      // rodada da T6c: na ordem da tela; o "24:00" junto das faixas (o alvo próprio não existe sem faixa)
+      { alvo: 'mensagens-horario', titulo: 'Mostrar o horário', texto: 'Ligue para o app mostrar ao paciente o seu horário de atendimento por mensagens. Desligado, as faixas ficam guardadas.' },
+      { alvo: 'mensagens-aviso-email', titulo: 'Aviso por e-mail', texto: 'Com o aviso ligado, você recebe um e-mail quando chega mensagem de paciente, no máximo a cada 2 horas e sem o texto.' },
+      { alvo: 'mensagens-faixas', titulo: 'Faixas por dia', texto: 'Em cada dia, toque em "Acrescentar faixa" e escolha "Das" e "Às", de 15 em 15 minutos. Até 3 faixas por dia, sem sobrepor. Para atender até a meia-noite, escolha 24:00 em "Às".' },
+    ],
+  },
+  {
     id: 'configuracoes',
-    versao: 9, // Plano 22: o cartão "Exames" (+1 sobre a main); 8 = Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); a 7 foi a do aditivo 1.1 (Plano 14B-2), a 6 a dos modelos sugeridos pela IA (Plano 14B-1)
+    // 10 = Plano 25: o cartão "Atendimento por mensagens" e a fila "Dúvidas da IA Nutri" (sobe +1 sobre a da main no rebase);
+    // 9 = Plano 22: o cartão "Exames"; 8 = Plano 15: o aditivo 1.2 e a IA Nutri (texto e passo novos); 7 = o aditivo 1.1 (Plano 14B-2);
+    // 6 = os modelos sugeridos pela IA (Plano 14B-1)
+    versao: 10,
     padrao: /^\/painel\/configuracoes(\/.*)?$/,
     titulo: 'Configurações',
     ajuda: {
-      resumo: 'Perfil e marca, dados para documentos, horários, WhatsApp, alimentos, modelos, segurança, exames do consultório e o tema do painel.',
+      resumo: 'Perfil e marca, dados para documentos, horários, atendimento por mensagens, WhatsApp, alimentos, modelos, segurança, exames do consultório e o tema do painel. As dúvidas da IA Nutri para pacientes chegam à fila "Dúvidas da IA Nutri", em Mensagens.',
       secoes: [
         { titulo: 'Perguntas comuns', itens: ['A cor da marca aparece no painel, no app do paciente e no PDF do plano.', 'O tema (claro, escuro ou igual ao aparelho) fica salvo na sua conta.'] },
         {
@@ -382,20 +452,20 @@ export const GUIAS: readonly Guia[] = [
             'Antes de usar a IA com um paciente, peça a autorização dele (aba Privacidade do paciente, "Uso de IA"): pelo app, pelo link do e-mail ou pelo termo em papel. Recusar ou retirar não muda nada no atendimento, e a retirada vale na hora.',
             'O uso do mês aparece em porcentagem do limite do consultório; com 80% você recebe um aviso, e em 100% a IA para até o dia 1º.',
             'Modelos sugeridos pela IA: escolha a área e a IA prepara 2 modelos de plano e 1 de anamnese com os alimentos da sua tabela, sem nenhum dado de paciente.',
-            'IA Nutri para pacientes: ative em Configurações, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas dos pacientes".',
+            'IA Nutri para pacientes: ative em Configurações, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas da IA Nutri".',
           ],
         },
       ],
     },
     passos: [
-      // Plano 22: o cartão "Exames" (catálogo e modelos de solicitação)
-      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório. Em "Exames" ficam o catálogo de exames, as suas faixas e os modelos de solicitação.' },
+      // Plano 22: o cartão "Exames" (catálogo e modelos de solicitação); Plano 25: o cartão "Atendimento por mensagens"
+      { alvo: 'cartoes-configuracoes', titulo: 'Tudo num lugar', texto: 'Cada cartão abre uma parte das configurações do consultório. Em "Exames" ficam o catálogo de exames, as suas faixas e os modelos de solicitação; em "Atendimento por mensagens", o horário e os avisos das mensagens.' },
       { alvo: 'tema-form', titulo: 'Tema', texto: 'Claro, escuro ou igual ao aparelho.' },
       { alvo: 'dados-documentos', titulo: 'Dados para documentos', texto: 'Em "Perfil e marca", a seção "Dados para documentos" guarda o nome completo, o e-mail e o telefone do carimbo das receitas e dos pareceres. Mudar depois não altera documento já preparado.' },
       // Plano 14B: a seção só aparece com a IA ativa no consultório; sem ela, o passo abre no centro, sem destaque (como o de cima)
       { alvo: 'modelos-ia', titulo: 'Modelos sugeridos pela IA', texto: 'Com a IA ativa, escolha a área e clique em "Gerar modelos": a IA prepara 2 modelos de plano e 1 de anamnese, sem nenhum dado de paciente. Revise e aprove cada um antes de usar com pacientes.' },
       // Plano 15: a subseção só aparece com a IA ativa no consultório (como a dos modelos)
-      { alvo: 'ia-nutri-secao', titulo: 'IA Nutri para pacientes', texto: 'Com a IA ativa, a IA Nutri responde dúvidas dos pacientes sobre o plano publicado. Ative aqui, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas dos pacientes".' },
+      { alvo: 'ia-nutri-secao', titulo: 'IA Nutri para pacientes', texto: 'Com a IA ativa, a IA Nutri responde dúvidas dos pacientes sobre o plano publicado. Ative aqui, libere paciente por paciente na ficha e acompanhe a fila "Dúvidas da IA Nutri".' },
     ],
   },
   {

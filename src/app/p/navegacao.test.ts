@@ -44,6 +44,7 @@ describe('seções do portal (Plano 16, RN-190, §4.1)', () => {
       ['/p/documentos', '/p/perfil'],
       [`/p/meus-dados/exportacoes/${ID}`, '/p/perfil'],
       ['/p/ajuda', '/p/perfil'],
+      ['/p/mensagens', '/p/inicio'], // Plano 25 (CH-D15, CH-D48): tela de detalhe; o "Voltar" leva a Hoje
     ];
     for (const [rota, secao] of casos) expect(itemAtual(rota), rota).toBe(secao);
     expect(itemAtual('/p/iniciozinho')).toBeNull();

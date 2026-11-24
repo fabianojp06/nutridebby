@@ -10,12 +10,16 @@ import { adiarLembrete, ANTECEDENCIA_MS, emHorarioSilencioso, fallbackPorEmail, 
 import { emailDaNotificacao, pushDaNotificacao, textoWhatsapp } from './mensagens';
 import type { ProvedorPush } from './push';
 import { enviarAosDispositivos, inscricoesDosPacientes } from './push-dispositivos';
-import { ehLembrete, type Canal, type MotivoIgnorada, type TipoLembrete } from './tipos';
+import { ehAvisoDoChat, ehLembrete, type Canal, type MotivoIgnorada, type TipoLembrete } from './tipos';
 import { lerConexao } from './whatsapp/conexao';
 import { avisarSeChegou80, CONTA_COTA, contaCota, FORA_DA_COTA, usoDoMes } from './whatsapp/cota';
 import { digitosDoE164, type ProvedorWhatsapp, type ResultadoEnvio } from './whatsapp/provedor';
 
-export type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date };
+/**
+ * Plano 25 (RN-456, CH-D62): `chatNaoLido` só nos avisos do chat — há mensagem da equipe (ou cópia de recado) com `criada_em`
+ * depois do `lida_ate` do paciente. Carregado por `carregarContexto`; `motivoParaIgnorar` continua puro.
+ */
+export type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date; chatNaoLido?: boolean };
 export type Resultado =
   | { status: 'enviada'; providerMsgId?: string; providerJid?: string }
   | { status: 'ignorada'; motivo: MotivoIgnorada }
@@ -49,6 +53,9 @@ export function motivoParaIgnorar(c: ContextoEnvio): Resultado | null {
   if (!c.paciente || c.paciente.status !== 'ativo' || c.paciente.anonimizadoEm) return ignorar('paciente_inativo'); // RN-08, US-018
   // US-010 (rodada 1 da T14): o convite por WhatsApp que ainda estava na fila quando o paciente aceitou pelo e-mail não sai
   if (c.n.tipo === 'convite_paciente' && c.paciente.userId) return ignorar('convite_aceito');
+  // Plano 25 (RN-456, CH-D62): o paciente já leu tudo o que a equipe mandou — compara com as mensagens não lidas, não com a
+  // data do aviso (a mensagem que chegou depois da leitura, com o e-mail agrupado ainda pendente, mantém o e-mail)
+  if (ehAvisoDoChat(c.n.tipo) && c.chatNaoLido === false) return ignorar('mensagem_lida');
   // lembretes, "Consulta marcada" e a resposta a "1"/"2" (T12) falam de uma consulta num horário: conferidos aqui
   if (!c.consulta || !(ehLembrete(c.n.tipo) || c.n.tipo === 'consulta_marcada' || c.n.tipo === 'resposta_confirmacao' || c.n.tipo === 'resposta_remarcar')) return null;
   if (c.consulta.status === 'cancelada') return ignorar('consulta_cancelada');
@@ -263,13 +270,33 @@ async function reservar(ctx: TenantContext, tenant: TenantRow, deps: DepsEnvio, 
   );
 }
 
-async function carregarContexto(ctx: TenantContext, tenant: TenantRow, n: NotificationRow, deps: DepsEnvio): Promise<ContextoEnvio> {
+/** Exportado para o teste do carregador (Plano 25, CH-D62); o motor só o usa em `enviarUma`. */
+export async function carregarContexto(ctx: TenantContext, tenant: TenantRow, n: NotificationRow, deps: Pick<DepsEnvio, 'db' | 'agora'>): Promise<ContextoEnvio> {
   return withTenant(
     ctx,
     async (tx) => {
       const [paciente] = await tx.select().from(patients).where(eq(patients.id, n.patientId));
       const [consulta] = n.appointmentId ? await tx.select().from(appointments).where(eq(appointments.id, n.appointmentId)) : [];
-      return { n, paciente, consulta: consulta ?? null, tenant, agora: deps.agora() };
+      const c: ContextoEnvio = { n, paciente, consulta: consulta ?? null, tenant, agora: deps.agora() };
+      // Plano 25 (RN-456, CH-D62): uma consulta, só nos avisos do chat; nada além de sim/não sai daqui (nem texto, nem data).
+      // O marcador do paciente vem numa subconsulta cercada (`offset 0`), como em mensagens/caixa.ts: com a RLS de
+      // chat_mensagens, só assim `criada_em > lida.ate` entra no índice (tenant_id, patient_id, criada_em, id) — sem a cerca,
+      // o EXISTS leria o histórico da conversa (EXPLAIN no relatório da T3 do Plano 25)
+      if (ehAvisoDoChat(n.tipo)) {
+        const [r] = (
+          await tx.execute<{ nao_lido: boolean }>(sql`
+            select exists (
+              select 1
+                from (select coalesce((select l.lida_ate from chat_leituras l
+                                        where l.tenant_id = ${n.tenantId} and l.patient_id = ${n.patientId} and l.lado = 'paciente' limit 1),
+                                      '-infinity'::timestamptz) as ate
+                      offset 0) lida
+                join chat_mensagens m on m.criada_em > lida.ate
+               where m.tenant_id = ${n.tenantId} and m.patient_id = ${n.patientId} and m.autor = 'nutri') as nao_lido`)
+        ).rows;
+        c.chatNaoLido = r.nao_lido === true;
+      }
+      return c;
     },
     deps.db,
   );

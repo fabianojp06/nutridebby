@@ -103,4 +103,8 @@ export const ROTAS_DO_PAINEL: Record<string, (i: IdsDoPainel) => string> = {
   '/painel/relatorios/financeiro': () => '/painel/relatorios/financeiro',
   '/painel/relatorios/ranking': () => '/painel/relatorios/ranking',
   '/painel/relatorios/imprimir': () => '/painel/relatorios/imprimir?secao=agenda',
+  '/painel/mensagens': () => '/painel/mensagens', // Plano 25 (T6a): a caixa
+  '/painel/mensagens/nova': () => '/painel/mensagens/nova',
+  '/painel/mensagens/[patientId]': (i) => `/painel/mensagens/${i.paciente}`, // Plano 25 (T6b): a conversa (não liberada no consultório principal)
+  '/painel/configuracoes/mensagens': () => '/painel/configuracoes/mensagens', // Plano 25 (T6c): o horário e o aviso por e-mail
 };

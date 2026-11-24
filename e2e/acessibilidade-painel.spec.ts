@@ -110,6 +110,7 @@ for (const [modo, tema, aparelho] of [
   ['igual ao aparelho (aparelho escuro)', 'Igual ao aparelho', 'dark'],
 ] as const) {
   test(`axe sem violações em todas as telas do painel — modo ${modo}`, async () => {
+    test.setTimeout(420_000); // Plano 25: quatro rotas novas no laço (caixa, nova conversa, conversa e configuração)
     await escolherTema(nutri, tema);
     await nutri.emulateMedia({ colorScheme: aparelho });
     const falhas: string[] = [];
@@ -402,21 +403,44 @@ test('D17: o botão de tema alterna, persiste depois de recarregar e em outro ap
   await outro.context().close();
 });
 
+test('Plano 25 (revisão da T6a, I2): o pior caso do menu — 9 itens, com "Exames recebidos" e "Mensagens" — quebra linha sem cobrir o conteúdo, a 1280 e a 360 px', async () => {
+  // o consultório principal da semente liga os exames (9 itens); "Mensagens" com ou sem número
+  const menu = nutri.getByRole('navigation', { name: 'Menu do painel' });
+  for (const width of [1280, 360]) {
+    await nutri.setViewportSize({ width, height: 800 });
+    await nutri.goto('/painel/mensagens');
+    await expect(menu.getByRole('link')).toHaveCount(9);
+    await expect(menu.getByRole('link', { name: 'Exames recebidos', exact: false })).toBeVisible();
+    // com ou sem número (o contador depende do que as outras specs leram): o pior caso de largura é com número, e o rótulo
+    // visível "Mensagens (n)" só cabe a mais; a checagem de sobreposição vale nos dois
+    await expect(menu.getByRole('link', { name: /^Mensagens(, \d+ não lidas?)?$/ })).toBeVisible();
+    const caixa = async (sel: string) => (await nutri.locator(sel).first().boundingBox())!;
+    const cabecalho = await caixa('header');
+    const nav = await caixa('nav[aria-label="Menu do painel"]');
+    const conteudo = await caixa('main');
+    expect(cabecalho.y + cabecalho.height, `${width}px: o cabeçalho acima do <main>`).toBeLessThanOrEqual(conteudo.y + 0.5);
+    expect(nav.y + nav.height, `${width}px: o menu não sobrepõe o <main>`).toBeLessThanOrEqual(conteudo.y + 0.5);
+    expect(await nutri.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${width}px: sem rolagem lateral`).toBe(true);
+  }
+  await nutri.setViewportSize({ width: 1280, height: 720 });
+});
+
 test('teclado: Tab chega aos itens do menu na ordem da tela, e o item atual é anunciado', async () => {
   await nutri.goto('/painel/agenda');
   const menu = nutri.getByRole('navigation', { name: 'Menu do painel' });
   await expect(menu.getByRole('link', { name: 'Agenda', exact: true })).toHaveAttribute('aria-current', 'page');
   const rotulos: string[] = [];
   await menu.getByRole('link', { name: 'Início' }).focus();
-  // Plano 12 (D11): o seed liga o recebimento de exames, então "Exames recebidos" é o 5º item; Plano 15 (US-175): e ativa a
-  // IA Nutri, então "Dúvidas dos pacientes" vem antes de "Conteúdos". Os contadores " (n)" dependem do que as outras specs
-  // deixaram no banco de dev e saem da comparação. Plano 20 (RN-327): "Financeiro" antes de "Configurações", sempre (não
-  // depende de configuração), e o menu chega a 9 itens (R-310); Plano 26: "Relatórios" entre "Financeiro" e "Configurações" (10)
+  // Plano 12 (D11): o seed liga o recebimento de exames, então "Exames recebidos" é o 5º item; Plano 25 (CH-D14):
+  // "Mensagens", sempre, no lugar de "Dúvidas dos pacientes" (Plano 15), antes de "Conteúdos". Os contadores " (n)"
+  // dependem do que as outras specs deixaram no banco de dev e saem da comparação. Plano 20 (RN-327): "Financeiro" antes de
+  // "Configurações", sempre (não depende de configuração), e o menu chega a 9 itens (R-310); Plano 26: "Relatórios" entre
+  // "Financeiro" e "Configurações" (10)
   for (let i = 0; i < 10; i++) {
     rotulos.push((await nutri.evaluate(() => document.activeElement?.textContent ?? '')).trim().replace(/ \(\d+\)$/, ''));
     await nutri.keyboard.press('Tab');
   }
-  expect(rotulos).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Dúvidas dos pacientes', 'Conteúdos', 'Financeiro', 'Relatórios', 'Configurações']);
+  expect(rotulos).toEqual(['Início', 'Pacientes', 'Agenda', 'Diários', 'Exames recebidos', 'Mensagens', 'Conteúdos', 'Financeiro', 'Relatórios', 'Configurações']);
 });
 
 /**

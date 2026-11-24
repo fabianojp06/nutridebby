@@ -11,6 +11,7 @@ import { iaNutriMensagens, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { MSG_IA_NUTRI } from '@/modules/ia/nutri-paciente/constantes';
+import { MSG_MENSAGENS } from '@/modules/mensagens/constantes';
 import { TEXTOS_FIXOS } from '@/modules/ia/nutri-paciente/textos';
 
 // Plano 15 (US-175): a fila "Dúvidas dos pacientes", a tela da dúvida e "Marcar como vista", com o banco de verdade; só a
@@ -70,6 +71,22 @@ describe('/painel/duvidas (US-175 "Fila")', () => {
     expect(await fila({ vista: '1' })).toContain(`<p role="status">${MSG_IA_NUTRI.vista}</p>`);
   });
 
+  it('Plano 25 (CH-D45): h1 "Dúvidas da IA Nutri" e as abas de Mensagens, com a de dúvidas marcada e com o número', async () => {
+    const { T, bia } = await consultorio();
+    await mensagemNoBanco(db, T.tenantId, bia.id, encaminhada());
+    const h = await fila();
+    expect(h).toContain(`<h1 class="font-titulo text-2xl font-semibold">${MSG_MENSAGENS.duvida.nomeDaFila}</h1>`);
+    expect(h).not.toContain('Dúvidas dos pacientes');
+    const abas = /<nav aria-label="Seções de Mensagens"[^>]*>[\s\S]*?<\/nav>/.exec(h)?.[0] ?? '';
+    expect(abas).toMatch(/<a (?=[^>]*\bhref="\/painel\/duvidas")(?=[^>]*\baria-current="page")[^>]*>Dúvidas da IA Nutri \(1\)<\/a>/);
+    expect(abas).toMatch(/<a [^>]*href="\/painel\/mensagens"[^>]*>Conversas<\/a>/);
+  });
+
+  it('Plano 25 (CH-D45): a aba de dúvidas fica na própria fila mesmo sem IA Nutri e sem dúvida aberta', async () => {
+    await consultorio();
+    expect(await fila()).toMatch(/<a (?=[^>]*\bhref="\/painel\/duvidas")(?=[^>]*\baria-current="page")[^>]*>Dúvidas da IA Nutri<\/a>/);
+  });
+
   it('vazia → "Nenhuma dúvida aguardando."', async () => {
     await consultorio();
     expect(await fila()).toContain(MSG_IA_NUTRI.filaVazia);
@@ -112,6 +129,14 @@ describe('/painel/duvidas/[id] e "Marcar como vista" (US-175, D22, D24 = b)', ()
     expect(h).not.toContain(BOTAO_VISTA);
     expect(await existe(T, r)).toBe(false);
     expect(await erro(duvida(r))).toBe('notFound');
+  });
+
+  it('Plano 25 (CH-D45): "Voltar para Dúvidas da IA Nutri", sem as abas (só na fila)', async () => {
+    const { T, bia } = await consultorio();
+    const r = await mensagemNoBanco(db, T.tenantId, bia.id, encaminhada());
+    const h = await duvida(r);
+    expect(h).toMatch(/<a [^>]*href="\/painel\/duvidas"[^>]*>Voltar para Dúvidas da IA Nutri<\/a>/);
+    expect(h).not.toContain('Seções de Mensagens');
   });
 
   it('id inválido ou de outro consultório → 404', async () => {

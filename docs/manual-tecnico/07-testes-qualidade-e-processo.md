@@ -215,6 +215,13 @@ pelo Docker rootless do CI (`DOCKER_HOST`). Fora do CI, sem `rclone`, eles são 
 Sobe um **segundo** container (também por `novoPostgres`/`uriDoPostgres`) e monta o banco como o runbook de produção: o migrator é dono do banco e **não** é
 superusuário (Plano 01, Tarefa 13, Ruling R49). Prova que as migrations rodam assim, que o role da aplicação não
 cria tabela temporária (M5) e que a função `SECURITY DEFINER` das métricas do admin funciona sob `FORCE RLS`.
+Desde o Plano 25 (CH-D51), também o `describe('Plano 25: peças SECURITY DEFINER com dono NOBYPASSRLS')`
+(`src/db/migrate-owner.test.ts:593`): as três funções da `rls_mensagens` são `SECURITY DEFINER` do dono sem superusuário,
+com `search_path` fixo e sem `EXECUTE` do `PUBLIC`; `app_chat_aviso_nutri_devido` cria a linha, marca a janela de 2 h,
+respeita o horário e o aviso desligado, restaura o contexto e recusa (`42501`) as sessões `nutri`, `publico`, `worker` e
+de paciente sem conta; `app_chat_soltar_anexo` e `app_chat_apagar_do_titular` só no `worker`, com as recusas de cada
+ramo e o "hoje" no fuso do consultório (nem `current_date`, nem São Paulo fixo). É o único cluster com dono sem
+superusuário, como em produção.
 
 ### Fora do Vitest
 
@@ -309,6 +316,19 @@ recusa tem de vir da política **da própria tabela** (`violaRlsDe`: a mensagem 
 fábricas de `COM_MAE` (`:350`; desde o Plano 17, também `lembretes_rotina_envios`, que cria o lembrete-mãe no mesmo comando; desde o Plano 20, `fin_lancamentos`, que cria a categoria no mesmo comando — a prova da política da própria tabela no INSERT fica em `src/modules/financeiro/banco.test.ts`), que criam a mãe no mesmo comando, aceitam a recusa da mãe. Tabela nova não entra em
 `COM_MAE`: a fábrica grava só a própria tabela, como a de `ia_tarefas` (`exam_id` nulo, status `falhou`).
 
+**Plano 25 (mensagens e recados; linhas em `fdeefa0`).** Fábricas das sete tabelas (`:190-210`), nenhuma em `COM_MAE`
+(a conversa nasce liberada e, pela ordem de `listTenantTables`, é semeada antes do marcador e das mensagens). O
+`beforeAll` (`:321`) grava o carimbo profissional (`CARIMBO`, `:14`) nos tenants A e B (`:332`), porque os gatilhos do
+chat e dos recados o exigem, e o **corpo** dele mudou (exceção avisada, CH-D58): a fábrica pode rodar como sessão de
+paciente, com o próprio paciente e um ator (`sessao`, `:350`) — `chat_leituras` entra em `PAPEL_DA_FABRICA` (`:213`) como
+`paciente`, porque o lado `paciente` do marcador só é gravado pela sessão dele. `recados` e `chat_mensagens` em
+`SO_INSERE` (`:216`); `chat_conversas`, `chat_leituras` e `chat_avisos_nutri` em `SEM_DELETE` e `DELETE_REVOGADO`
+(`:230`, `:238`); `chat_conversas` e `chat_leituras` em `IMUTAVEIS` e em `SEM_DELETE_DO_PACIENTE` (`:374`: o DELETE da P2
+daria o `42501` da permissão antes da RLS; a prova fica em `src/modules/mensagens/banco.test.ts`); `chat_leituras` em
+`UPDATE_DO_PACIENTE` (`:438`, `lida_ate = lida_ate`); e o filtro de `SO_APAGA.patients` ganhou a linha `and not exists
+(… chat_conversas …)` no fim (`:286`). No rebase, fica o corpo do `beforeAll` da `main` e se reaplica só a troca da
+fábrica de paciente.
+
 ### 7.4.3 Guardas de código (leitura do fonte)
 
 | Guarda | Arquivo | Regra |
@@ -347,6 +367,8 @@ fábricas de `COM_MAE` (`:350`; desde o Plano 17, também `lembretes_rotina_envi
 | Variáveis | `src/env.test.ts` | Validação de cada variável por processo (chaves de teste do Turnstile recusadas em produção fora de `localhost`, `AUTH_SECRET` ≥ 32, `DATABASE_URL_MIGRATOR` nunca exposta ao app…) |
 | Exames fora da IA (Plano 22, RN-399) | `src/modules/exames/guardas.test.ts` | Pelo grafo de imports a partir de cada fonte de `src/modules/ia/**`: nenhum arquivo alcançado (fora de `src/db/schema/**`) contém `examInterpretacoes`, `examVersoes`, `exam_interpretacoes` ou `exam_versoes`, nem é `exames/interpretacao.ts`, `edicao.ts` ou `detalhe.ts` (com controle positivo); `src/modules/ia/nutri-paciente/**` não importa `exams` nem `@/modules/portal/exames-liberados`; `campos-enviados.ts` igual; `src/app/sw.ts` sem `/p/exames` ([§10.15](10-ia.md#1015-exames-do-consultório-fora-da-ia-plano-22-rn-399)) |
 | Exames sem dado em log (Plano 22, RNF-370) | `src/modules/exames/log.test.ts` | Erros forçados em `editarExame`, `salvarNota`, `salvarExameDoCatalogo` e `salvarModeloSolicitacao` com nome, valor, faixa, nota e justificativa marcadores: nada chega ao logger nem ao `beforeSend` de `src/lib/sentry-filtro.ts` |
+| Mensagens: nada em log, texto como texto, nada na IA (Plano 25, RN-470, RNF-444, RN-469) | `src/modules/mensagens/guardas.test.ts` | Nenhuma chamada de logger/Sentry em `src/modules/mensagens` e nas rotas e telas de mensagens leva texto, nome de anexo, recado ou caminho, e nenhum `new Error(` com template interpolado; nenhum `dangerouslySetInnerHTML` nem link automático; pelo grafo de imports, nada alcançável a partir de `src/modules/ia/**` é do módulo de Mensagens, nenhum arquivo da IA (testes incluídos) cita as tabelas do chat ou dos recados, e o módulo importa da IA só `nutri-paciente/sinais-risco.ts` e `duvidas.ts`; `constantes.ts` não alcança `drizzle-orm` nem o barril do schema (os componentes cliente o importam) |
+| Conversa fora do cache e sem prefetch (Plano 25, RN-473, CH-D46) | `src/app/sw-regras.test.ts`; os `page.test.ts` de `src/app/painel/mensagens/**` e de `src/app/p/(portal)/mensagens`, `src/components/portal/faixa.test.ts`, `src/app/painel/pacientes/[id]/inicio/secao.test.ts` e `adicionar.test.ts` | `/p/mensagens` nunca casa com a navegação do portal nem com "Meu plano", só com a regra da conversa (antes da do portal, em `sw.ts`), e sem rede responde a página do aviso; todo `Link` que abre a conversa tem `prefetch={false}` |
 
 O grafo de imports (`test/grafo-de-imports.ts`) usa o parser do TypeScript, segue `import`, `export … from`,
 `import()` e `require`, ignora `import type` e resolve o alias `@/`. Por quê: um `grep` de texto não pega o import
@@ -437,6 +459,12 @@ O Safari do iOS fica no teste manual do runbook (comentário em `playwright.conf
   (R-312); e cria **dois consultórios novos por execução**, sem Financeiro, com as contas `E2E_FIN_NOVO` (o
   `financeiro.spec` configura) e `E2E_FIN_AXE` (o axe do estado não configurado) recriadas apontando para eles — o primeiro
   acesso fica repetível sem apagar a linha de `fin_configuracoes` ([§12.10](12-financeiro.md#1210-testes-e-e2e)).
+- desde o Plano 25 (T1c e T6; CH-D67, CH-D68), cria a cada execução um **consultório próprio do chat** (`e2e-chat-<sufixo>`)
+  com o carimbo profissional (nome profissional e CRN fictícios), a nutricionista `E2E_CHAT_NUTRI` e a paciente do chat
+  (conta reaproveitada; os vínculos com os consultórios do chat das execuções anteriores vão a `arquivado`), e, sempre por
+  `withTenant` com papel (o gatilho carimba, põe o relógio e confere o ator): a conversa liberada (`aceite_escrito`), uma
+  mensagem da nutricionista, a mensagem da paciente com sinal de risco (`sintoma_agudo`) e um recado com a cópia na
+  conversa; também a segunda paciente do chat, com conta e sem a conversa liberada. Os outros specs não veem essa conversa.
 
 As senhas dessas contas são fictícias e fixas no arquivo (o GitGuardian acusou; o backlog manda marcar como
 credencial de teste). Nunca reaproveite essas contas fora do E2E.
@@ -516,6 +544,7 @@ Detalhes que evitam falso verde:
 | `cadastro.spec.ts` (Plano 18, PR 2) | 10 (2 em laço de 2 temas) | Cadastro com CPF, estado civil e CEP (US-260; o CPF nunca na lista); CPF repetido com a mensagem, o link em nova aba e o digitado mantido, com axe claro e escuro; Perfil (o estado civil e a Observação não voltam atrás, foco no CEP inválido); lista (abas, "Mais recentes" com a busca, `?status=arquivado` → Inativos); menu da linha (Esc, clique fora, Tab depois do último item); arquivar pela lista duas vezes (região de status e foco no título, D26); Início (nota "Cadastro incompleto", selo e cartão "No app"); "No app do paciente" da paciente da semente; impressão com o nome civil antes de "Nome social"; axe do menu aberto e do diálogo Adicionar. IPs `10.9.18.20`–`.29`; repetível no banco de dev (CPF novo a cada execução, sufixo `c18…`) |
 | `exames.spec.ts` (Plano 22, PR 2) | 2 | CS-371: com o catálogo da semente (painel "Hemograma completo" de 20 componentes e "Ferritina", `scripts/e2e-seed.ts`), "Adicionar do catálogo" monta as 20 linhas, a faixa preenchida mostra "Acima da referência" antes de salvar, abrir o exame e salvar a nota; US-374: marcar 2 exames e abrir o comparativo (fora de 2 a 6, o botão fica `aria-disabled`). IP `10.9.22.20` |
 | `acessibilidade-exames.spec.ts` (Plano 22, PR 2) | 11 (2 em laço de 2 temas × 2 larguras) | axe no catálogo e no detalhe (com "Ver referência" e "Inserir modelo") a 1280 e 360 px, claro e escuro; foco do `Dialogo` (Esc, fechar pelo navegador, desmontado aberto), da busca no catálogo, de "Acrescentar faixa"/"Remover faixa", das linhas do exame ("Usar {a} a {b}", "Remover", "Remover todos") e da nota ("Nota salva." com o foco no título). IP `10.9.22.10` |
+| `mensagens.spec.ts` (Plano 25, PR 2) | 22 (`serial`) | Bloco de IP **`10.9.25.x`** (CH-D50: o sufixo é o número do plano): T6a `.1`–`.5`, T6b `.6`–`.15`, T6c `.16`–`.19`, T7 `.20`–`.39`. Painel: menu "Mensagens" → caixa (risco no topo, sem o texto) → "Nova conversa" → conversa; menu que quebra linha a 1280 e 360 px; liberar (erro, forma e confirmação) → enviar → "Lida"; mensagem nova anunciada em 15 s e o foco na primeira nova; sem JavaScript; rascunho preservado; rede caída; pausar → retomar na região viva; "Atendimento por mensagens" (sobreposição, salvar, o resumo no app, rede caída); a seção "Mensagens" do Início. App: a faixa "Mensagens (1)", o cabeçalho e o aviso, "Você"/"Enviada"/"Lida"; socorro de sintoma agudo e de emergência; 400 px e alvos de 44 px; sem rede (o aviso, nunca o plano guardado); sem JavaScript; mensagem nova em 15 s. Axe da caixa, da conversa, da configuração e de `/p/mensagens` nos temas (`wcag22aa` no painel) |
 
 Os números são de chamadas `test(` no arquivo; laços geram mais casos na execução.
 
