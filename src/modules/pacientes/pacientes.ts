@@ -296,7 +296,8 @@ export async function listarPacientes(ctx: TenantContext, filtro: FiltroDaLista,
   if (filtro.etiquetaId) {
     conds.push(sql`exists (select 1 from patient_tag_links l where l.patient_id = ${patients.id} and l.tag_id = ${filtro.etiquetaId})`);
   }
-  const busca = filtro.busca?.trim();
+  // SUS-110 (regra 3): o termo vem cru da URL (`filtroDaUrl`); o NUL daria 22021 (um 500) com o termo no erro
+  const busca = filtro.busca === undefined ? undefined : semInvalidosNoBanco(filtro.busca).trim();
   if (busca) {
     const termo = `%${busca.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     conds.push(

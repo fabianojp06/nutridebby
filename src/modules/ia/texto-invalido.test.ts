@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { espiarErrosDoBanco } from '../../../test/erros-do-banco';
+import { espiarErrosDoBanco, INVALIDOS, limpo, semErroDoBanco, sujo } from '../../../test/erros-do-banco';
 import { autorizacaoNoBanco, IA_TESTE, iaPronta, prontuarioCompleto } from '../../../test/ia';
 import { aceiteNoBanco, iaNutriPronta, liberarNoBanco, SEM_PAUSA } from '../../../test/ia-nutri';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
@@ -28,25 +28,6 @@ afterAll(async () => {
   await app.pool.end();
 });
 
-const INVALIDOS = [
-  ['NUL', '\u0000'],
-  ['surrogate alto sem par', '\ud800'],
-  ['surrogate baixo sem par', '\udc00'],
-] as const;
-const sujo = (t: string, c: string) => `${t}${c} baixa 🙂`;
-const limpo = (t: string) => `${t} baixa 🙂`;
-
-async function semErroDoBanco<T>(f: () => Promise<T>): Promise<T> {
-  errosDoBanco.length = 0;
-  const r = await f().then(
-    (v) => ({ ok: true as const, v }),
-    (e: unknown) => ({ ok: false as const, e }),
-  );
-  expect(errosDoBanco).toEqual([]);
-  if (!r.ok) throw r.e;
-  return r.v;
-}
-
 const depsNutri: DepsIaNutri = { ia: IA_TESTE, appUrl: 'https://app.teste', db: app.db, pausa: SEM_PAUSA };
 async function iaNutriDoPaciente() {
   const T = await novoTenant(app.db);
@@ -64,14 +45,14 @@ const textoDaMensagem = async (T: Awaited<ReturnType<typeof novoTenant>>, id: st
 describe('SUS-110: texto com NUL ou surrogate sem par na IA', () => {
   it.each(INVALIDOS)('IA Nutri: a pergunta do paciente com %s vai limpa', async (_nome, ch) => {
     const { T, ctxP } = await iaNutriDoPaciente();
-    const r = await semErroDoBanco(() => perguntar(ctxP, sujo('Quanto de arroz no almoço?', ch), depsNutri));
+    const r = await semErroDoBanco(errosDoBanco, () => perguntar(ctxP, sujo('Quanto de arroz no almoço?', ch), depsNutri));
     expect(r.codigo).toBe('ok');
     expect(await textoDaMensagem(T, r.mensagemId)).toBe(limpo('Quanto de arroz no almoço?'));
   });
 
   it.each(INVALIDOS)('IA Nutri: a dúvida enviada direto à nutricionista com %s vai limpa', async (_nome, ch) => {
     const { T, ctxP } = await iaNutriDoPaciente();
-    const r = await semErroDoBanco(() => enviarANutri(ctxP, sujo('Posso trocar o jantar de dia?', ch), depsNutri));
+    const r = await semErroDoBanco(errosDoBanco, () => enviarANutri(ctxP, sujo('Posso trocar o jantar de dia?', ch), depsNutri));
     expect(r.codigo).toBe('encaminhada');
     expect(await textoDaMensagem(T, r.mensagemId)).toBe(limpo('Posso trocar o jantar de dia?'));
   });
@@ -92,7 +73,7 @@ describe('SUS-110: texto com NUL ou surrogate sem par na IA', () => {
       restricoes: sujo('Sem lactose\r\n', ch),
       considerarAnamnese: false,
     };
-    const id = await semErroDoBanco(() => pedirRascunhoIa(T.ctx, tenant as TenantRow, p.id, metas, { db: app.db, ia: IA_TESTE, avisarTeto: async () => 0 }));
+    const id = await semErroDoBanco(errosDoBanco, () => pedirRascunhoIa(T.ctx, tenant as TenantRow, p.id, metas, { db: app.db, ia: IA_TESTE, avisarTeto: async () => 0 }));
     const [t] = await withTenant(T.ctx, (tx) => tx.select({ parametros: iaTarefas.parametros }).from(iaTarefas).where(eq(iaTarefas.id, id)), app.db);
     expect(t.parametros).toMatchObject({ refeicoes: [{ nome: limpo('Almoço'), horario: '12:00' }], restricoes: limpo('Sem lactose\n') });
   });

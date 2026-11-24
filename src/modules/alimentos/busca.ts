@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { getDb, type Db } from '@/db/client';
 import { foods } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { medidasDeVarios, type MedidaDisponivel } from './medidas';
 
 export type Nutrientes100 = { kcal: number | null; proteinaG: number | null; carboidratoG: number | null; lipidioG: number | null; fibraG: number | null };
@@ -9,13 +10,16 @@ export type AlimentoEncontrado = { id: string; nome: string; grupo: string; orig
 
 export const BUSCA_LIMITE = 20;
 
-/** Palavras da busca: minúsculas, até 6 palavras e 60 caracteres (o resto não muda o resultado). */
+/**
+ * Palavras da busca: minúsculas, até 6 palavras e 60 caracteres (o resto não muda o resultado). SUS-110 (regra 3): sem o
+ * NUL (22021, um 500 com o termo no erro) nem o surrogate sem par, antes e depois do corte (que pode deixar meio emoji).
+ */
 export function palavrasDaBusca(termo: unknown): string[] {
   if (typeof termo !== 'string') return [];
-  return termo
+  return semInvalidosNoBanco(termo)
     .toLowerCase()
     .split(/[\s,;]+/)
-    .map((w) => w.trim().slice(0, 60))
+    .map((w) => semInvalidosNoBanco(w.trim().slice(0, 60)))
     .filter(Boolean)
     .slice(0, 6);
 }

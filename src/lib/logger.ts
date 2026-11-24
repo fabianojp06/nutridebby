@@ -83,3 +83,11 @@ export function sqlstateDoErro(err: unknown): string | undefined {
   }
   return undefined;
 }
+
+/**
+ * Os campos de log de um erro qualquer (regra 3): o nome e o SQLSTATE, nunca a mensagem nem os campos do erro do pg
+ * (`detail`, `where`: o CONTEXT de um jsonb recusado cita o texto). Para quem receberia o erro cru (o `error` do pg-boss).
+ */
+export function camposDoErro(err: unknown): { erro: string; sqlstate: string | undefined } {
+  return { erro: nomeDoErro(err), sqlstate: sqlstateDoErro(err) };
+}

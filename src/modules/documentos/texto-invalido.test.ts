@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { documentoNoBanco, novoConsultorio } from '../../../test/documentos';
-import { espiarErrosDoBanco } from '../../../test/erros-do-banco';
+import { espiarErrosDoBanco, INVALIDOS, limpo, semErroDoBanco, sujo } from '../../../test/erros-do-banco';
 import { novoPaciente } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { signedDocumentNotes, signedDocuments, tenants, type TenantRow } from '@/db/schema';
@@ -28,27 +28,6 @@ afterAll(async () => {
   await closeDb();
   await app.pool.end();
 });
-
-const INVALIDOS = [
-  ['NUL', '\u0000'],
-  ['surrogate alto sem par', '\ud800'],
-  ['surrogate baixo sem par', '\udc00'],
-] as const;
-/** "Ferritina<c> baixa 🙂" → "Ferritina baixa 🙂". */
-const sujo = (t: string, c: string) => `${t}${c} baixa 🙂`;
-const limpo = (t: string) => `${t} baixa 🙂`;
-
-/** Roda a gravação; o erro do banco (se houver) aparece como o SQLSTATE anotado, antes de qualquer outra conferência. */
-async function semErroDoBanco<T>(f: () => Promise<T>): Promise<T> {
-  errosDoBanco.length = 0;
-  const r = await f().then(
-    (v) => ({ ok: true as const, v }),
-    (e: unknown) => ({ ok: false as const, e }),
-  );
-  expect(errosDoBanco).toEqual([]);
-  if (!r.ok) throw r.e;
-  return r.v;
-}
 
 async function consultorio() {
   const c = await novoConsultorio(app.db);
@@ -81,7 +60,7 @@ describe('SUS-109: texto com NUL ou surrogate sem par nos documentos', () => {
     const p = await novoPaciente(app.db, c.T.ctx);
     const docId = await criarParecer(c.T.ctx, p.id, { db: app.db });
     const conteudo = { exameIds: [], avaliacao: sujo('Ferritina\r\n', ch), conduta: sujo('Ferro', ch), encaminhamentos: sujo('Hematologia', ch) };
-    await semErroDoBanco(() => salvarRascunhoParecer(c.T.ctx, p.id, docId, { conteudo }, { db: app.db }));
+    await semErroDoBanco(errosDoBanco, () => salvarRascunhoParecer(c.T.ctx, p.id, docId, { conteudo }, { db: app.db }));
     const d = (await lerDocumento(c.T.ctx, p.id, docId, app.db))!;
     expect(d.conteudo as ConteudoParecer).toMatchObject({ avaliacao: limpo('Ferritina\n'), conduta: limpo('Ferro'), encaminhamentos: limpo('Hematologia') });
   });
@@ -91,7 +70,7 @@ describe('SUS-109: texto com NUL ou surrogate sem par nos documentos', () => {
     const p = await novoPaciente(app.db, c.T.ctx);
     const docId = await criarReceita(c.T.ctx, p.id, { db: app.db });
     const item = { tipo: 'suplemento', categoria: 'nutriente', composicao: [{ nome: sujo('Vitamina D3', ch), quantidade: 2000, unidade: 'UI' }], forma: sujo('Cápsula', ch), via: 'oral', posologia: sujo('1 ao dia', ch), duracao: sujo('30 dias', ch), manipulado: false };
-    await semErroDoBanco(() =>
+    await semErroDoBanco(errosDoBanco, () =>
       salvarRascunhoReceita(c.T.ctx, c.tenant, p.id, docId, { conteudo: { itens: [item], orientacoes: sujo('Com água', ch) }, justificativa: sujo('Deficiência', ch) }, { db: app.db }),
     );
     const d = (await lerDocumento(c.T.ctx, p.id, docId, app.db))!;
@@ -109,7 +88,7 @@ describe('SUS-109: texto com NUL ou surrogate sem par nos documentos', () => {
       await withTenant(c.T.ctx, (tx) => tx.insert(signedDocumentNotes).values({ tenantId: c.T.tenantId, patientId: p.id, documentoId: v1.id }), app.db);
       const v2 = await retificarDocumento(c.T.ctx, p.id, v1.id, { db: app.db });
       const motivoRetificacao = sujo('Dose\r\n', ch);
-      await semErroDoBanco(() =>
+      await semErroDoBanco(errosDoBanco, () =>
         tipo === 'receita'
           ? salvarRascunhoReceita(c.T.ctx, c.tenant, p.id, v2, { conteudo: { itens: [], orientacoes: '' }, justificativa: '', motivoRetificacao }, { db: app.db })
           : salvarRascunhoParecer(c.T.ctx, p.id, v2, { conteudo: { exameIds: [], avaliacao: 'A.' }, motivoRetificacao }, { db: app.db }),
@@ -122,16 +101,16 @@ describe('SUS-109: texto com NUL ou surrogate sem par nos documentos', () => {
     const c = await consultorio();
     const p = await novoPaciente(app.db, c.T.ctx);
     const d = await documentoNoBanco(app.db, c.T.ctx, p.id, { status: 'assinado' });
-    await semErroDoBanco(() => cancelarDocumento(c.T.ctx, p.id, d.id, sujo('Dose digitada errada', ch), { db: app.db, appUrl: 'https://x' }));
+    await semErroDoBanco(errosDoBanco, () => cancelarDocumento(c.T.ctx, p.id, d.id, sujo('Dose digitada errada', ch), { db: app.db, appUrl: 'https://x' }));
     expect((await nota(c.T.ctx, d.id)).motivoCancelamento).toBe(limpo('Dose digitada errada'));
   });
 
   it.each(INVALIDOS)('perfil profissional: o nome e o registro da fitoterapia com %s', async (_nome, ch) => {
     const c = await consultorio();
-    await semErroDoBanco(() =>
+    await semErroDoBanco(errosDoBanco, () =>
       salvarDadosParaDocumentos(c.T.ctx, { nomeProfissional: sujo('Débora Silva', ch), contatoEmail: 'd@x.com', contatoTelefone: '(11) 91234-5678' }, app.db),
     );
-    await semErroDoBanco(() => declararFitoterapia(c.T.ctx, { registro: sujo('CRN-3 12345', ch), confirmo: 'on' }, { db: app.db }));
+    await semErroDoBanco(errosDoBanco, () => declararFitoterapia(c.T.ctx, { registro: sujo('CRN-3 12345', ch), confirmo: 'on' }, { db: app.db }));
     const [t] = await app.db.select().from(tenants).where(eq(tenants.id, c.T.tenantId));
     expect(t).toMatchObject({ nomeProfissional: limpo('Débora Silva'), fitoterapiaRegistro: limpo('CRN-3 12345') });
   });

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { espiarErrosDoBanco } from '../../../test/erros-do-banco';
+import { espiarErrosDoBanco, INVALIDOS, semErroDoBanco } from '../../../test/erros-do-banco';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
 import { lembretesRotina } from '@/db/schema';
@@ -24,23 +24,6 @@ afterAll(async () => {
 const SP = { fuso: 'America/Sao_Paulo' };
 const TODOS = [0, 1, 2, 3, 4, 5, 6];
 
-const INVALIDOS = [
-  ['NUL', '\u0000'],
-  ['surrogate alto sem par', '\ud800'],
-  ['surrogate baixo sem par', '\udc00'],
-] as const;
-
-async function semErroDoBanco<T>(f: () => Promise<T>): Promise<T> {
-  errosDoBanco.length = 0;
-  const r = await f().then(
-    (v) => ({ ok: true as const, v }),
-    (e: unknown) => ({ ok: false as const, e }),
-  );
-  expect(errosDoBanco).toEqual([]);
-  if (!r.ok) throw r.e;
-  return r.v;
-}
-
 describe('SUS-110: texto com NUL ou surrogate sem par nos lembretes', () => {
   it.each(INVALIDOS)('suplemento e texto livre com %s vão limpos', async (_nome, ch) => {
     const T = await novoTenant(app.db);
@@ -49,7 +32,7 @@ describe('SUS-110: texto com NUL ou surrogate sem par nos lembretes', () => {
       ['suplemento', `Vitamina${ch} D 🙂`, 'Vitamina D 🙂'],
       ['livre', `Tomar${ch} sol 🙂`, 'Tomar sol 🙂'],
     ] as const) {
-      const { id } = await semErroDoBanco(() => salvarLembrete(T.ctx, p.id, { tipo, texto, config: { horarios: ['09:00'], dias: TODOS } }, SP, { db: app.db }));
+      const { id } = await semErroDoBanco(errosDoBanco, () => salvarLembrete(T.ctx, p.id, { tipo, texto, config: { horarios: ['09:00'], dias: TODOS } }, SP, { db: app.db }));
       const [l] = await withTenant(T.ctx, (tx) => tx.select({ texto: lembretesRotina.texto }).from(lembretesRotina).where(eq(lembretesRotina.id, id)), app.db);
       expect(l.texto).toBe(esperado);
     }

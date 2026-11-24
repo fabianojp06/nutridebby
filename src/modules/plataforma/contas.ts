@@ -7,6 +7,7 @@ import { account, adminActions, tenants, user } from '@/db/schema';
 import { enqueueEmail } from '@/email/queue';
 import { emProducao, getEnv } from '@/env';
 import { logger } from '@/lib/logger';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
 import { normalizeEmail } from '@/lib/text';
 import { primeiroErroPorCampo } from '@/lib/validacao';
@@ -27,7 +28,8 @@ export const MSG = {
   contaSuspensa: 'Conta suspensa: reative antes de reenviar o convite.',
 } as const;
 
-export const nomeExibicaoSchema = z.string().trim().min(3, MSG.nome).max(80, MSG.nome);
+/** SUS-110 (regra 3): sem o NUL (22021, com o nome no erro) nem o surrogate sem par, antes de aparar e medir. */
+export const nomeExibicaoSchema = z.string().transform(semInvalidosNoBanco).pipe(z.string().trim().min(3, MSG.nome).max(80, MSG.nome));
 export const crnSchema = z.string().trim().regex(CRN_REGEX, MSG.crn).transform((v) => v.toUpperCase());
 
 export const novaContaSchema = z.object({
@@ -191,7 +193,8 @@ function paraResumo(row: LinhaConta, now: Date): ContaResumo {
  * que não existe = primeira página.
  */
 export async function listarContas(db: Db = getDb(), now: Date = new Date(), f: FiltroContas = {}): Promise<PaginaDeContas> {
-  const busca = typeof f.busca === 'string' ? f.busca.trim().slice(0, BUSCA_CONTAS_MAX) : '';
+  // SUS-110 (regra 3): sem o NUL (22021, um 500 com o termo no erro) nem o surrogate sem par, também o que o corte deixar
+  const busca = typeof f.busca === 'string' ? semInvalidosNoBanco(semInvalidosNoBanco(f.busca).trim().slice(0, BUSCA_CONTAS_MAX)) : '';
   const antes = cursor(f.antes);
   const depois = antes ? null : cursor(f.depois);
   const limite = f.limite ?? CONTAS_POR_PAGINA;

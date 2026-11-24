@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { espiarErrosDoBanco } from '../../../test/erros-do-banco';
+import { espiarErrosDoBanco, INVALIDOS, limpo, semErroDoBanco, sujo } from '../../../test/erros-do-banco';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { finCategorias, finLancamentos } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -18,38 +18,19 @@ const errosDoBanco = espiarErrosDoBanco(app.pool);
 afterAll(() => app.pool.end());
 const deps = { db: app.db, agora: new Date('2026-11-18T01:30:00Z') };
 
-const INVALIDOS = [
-  ['NUL', '\u0000'],
-  ['surrogate alto sem par', '\ud800'],
-  ['surrogate baixo sem par', '\udc00'],
-] as const;
-const sujo = (t: string, c: string) => `${t}${c} baixa 🙂`;
-const limpo = (t: string) => `${t} baixa 🙂`;
-
-async function semErroDoBanco<T>(f: () => Promise<T>): Promise<T> {
-  errosDoBanco.length = 0;
-  const r = await f().then(
-    (v) => ({ ok: true as const, v }),
-    (e: unknown) => ({ ok: false as const, e }),
-  );
-  expect(errosDoBanco).toEqual([]);
-  if (!r.ok) throw r.e;
-  return r.v;
-}
-
 describe('SUS-110: texto com NUL ou surrogate sem par no Financeiro', () => {
   it.each(INVALIDOS)('lançamento (descrição e motivo do cancelamento) e categoria (nome) com %s vão limpos', async (_nome, ch) => {
     const T = await novoTenant(app.db);
     await salvarConfiguracoes(T.ctx, T.tenant, { saldoInicialEm: '2026-11-01', saldoInicial: '1.500,00', valorConsulta: '250,00' }, deps);
     const consultas = (await listarCategorias(T.ctx, deps)).find((c) => c.nome === 'Consultas')!.id;
     const p = await novoPaciente(app.db, T.ctx);
-    const { id } = await semErroDoBanco(() =>
+    const { id } = await semErroDoBanco(errosDoBanco, () =>
       criarLancamento(T.ctx, T.tenant, { tipo: 'entrada', valor: '250,00', categoriaId: consultas, vencimento: '2026-11-20', pacienteId: p.id, descricao: sujo('Retorno', ch) }, deps),
     );
-    await semErroDoBanco(() => cancelarLancamento(T.ctx, id, sujo('Lançado em dobro', ch), deps));
+    await semErroDoBanco(errosDoBanco, () => cancelarLancamento(T.ctx, id, sujo('Lançado em dobro', ch), deps));
     const [l] = await withTenant(T.ctx, (tx) => tx.select({ d: finLancamentos.descricao, m: finLancamentos.motivoCancelamento }).from(finLancamentos).where(eq(finLancamentos.id, id)), app.db);
     expect(l).toEqual({ d: limpo('Retorno'), m: limpo('Lançado em dobro') });
-    await semErroDoBanco(() => criarCategoria(T.ctx, { tipo: 'saida', nome: sujo('Cursos', ch) }, deps));
+    await semErroDoBanco(errosDoBanco, () => criarCategoria(T.ctx, { tipo: 'saida', nome: sujo('Cursos', ch) }, deps));
     const cs = await withTenant(T.ctx, (tx) => tx.select({ nome: finCategorias.nome }).from(finCategorias).where(and(eq(finCategorias.tipo, 'saida'), eq(finCategorias.nome, limpo('Cursos')))), app.db);
     expect(cs).toHaveLength(1);
   });

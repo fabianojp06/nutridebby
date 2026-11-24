@@ -37,8 +37,11 @@ export const MSG_ANAMNESE = {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LIMITE_PERGUNTAS = 100;
 const texto = normalizarTexto;
-/** SUS-110: o corte pode deixar meio emoji (surrogate sem par) no fim, que o jsonb do modelo recusaria (22P02) — limpo de novo. */
-const cortado = (v: unknown, max: number) => semInvalidosNoBanco(texto(v).slice(0, max));
+/**
+ * SUS-110: o corte pode deixar meio emoji (surrogate sem par) no fim, que o jsonb do modelo recusaria (22P02) — limpo de
+ * novo, e sem o espaço que ficaria antes dele.
+ */
+const cortado = (v: unknown, max: number) => semInvalidosNoBanco(texto(v).slice(0, max)).trimEnd();
 /**
  * SUS-110 (regra 3): a resposta do formulário sem o NUL e o surrogate sem par, antes de tudo — o jsonb `respostas`
  * recusaria (22P05/22P02) com um trecho da resposta, dado de saúde, no log do Postgres e no erro do app.

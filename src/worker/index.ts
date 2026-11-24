@@ -8,7 +8,7 @@ import { getWorkerEnv, type WorkerEnv } from '@/env';
 import { useBoss } from '@/jobs/boss';
 import { ensureQueues } from '@/jobs/queues';
 import { encryptionKey, openSecret } from '@/lib/crypto';
-import { logger } from '@/lib/logger';
+import { camposDoErro, logger } from '@/lib/logger';
 import { encerrarSentry, iniciarSentry } from '@/lib/sentry';
 import { limparPedidosPublicos } from '@/modules/agenda/agendamento-publico';
 import { limparLimites } from '@/modules/agenda/limite-ip';
@@ -70,7 +70,7 @@ export async function startWorker(env: WorkerEnv, sinal?: AbortSignal): Promise<
     schema: 'pgboss',
     createSchema: false,
   });
-  boss.on('error', (err) => logger.error({ err }, 'pg-boss erro'));
+  boss.on('error', (err) => logger.error(camposDoErro(err), 'pg-boss erro')); // regra 3: nunca o erro cru
   await boss.start();
   await ensureQueues(boss);
   // eslint-disable-next-line react-hooks/rules-of-hooks -- não é hook do React: registra a instância do pg-boss

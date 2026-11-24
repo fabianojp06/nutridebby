@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
-import { espiarErrosDoBanco } from '../../../test/erros-do-banco';
+import { espiarErrosDoBanco, INVALIDOS, limpo, semErroDoBanco, sujo } from '../../../test/erros-do-banco';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import { mealItems, mealPlans, meals } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
@@ -21,25 +21,6 @@ const app = makeDb(inject('appDatabaseUrl'));
 const errosDoBanco = espiarErrosDoBanco(app.pool);
 afterAll(() => app.pool.end());
 const deps = { db: app.db };
-
-const INVALIDOS = [
-  ['NUL', '\u0000'],
-  ['surrogate alto sem par', '\ud800'],
-  ['surrogate baixo sem par', '\udc00'],
-] as const;
-const sujo = (t: string, c: string) => `${t}${c} baixa 🙂`;
-const limpo = (t: string) => `${t} baixa 🙂`;
-
-async function semErroDoBanco<T>(f: () => Promise<T>): Promise<T> {
-  errosDoBanco.length = 0;
-  const r = await f().then(
-    (v) => ({ ok: true as const, v }),
-    (e: unknown) => ({ ok: false as const, e }),
-  );
-  expect(errosDoBanco).toEqual([]);
-  if (!r.ok) throw r.e;
-  return r.v;
-}
 
 async function rascunho() {
   const T = await novoTenant(app.db);
@@ -68,7 +49,7 @@ const corpo = (ch: string, horario = '12:00') => ({
 describe('SUS-110: texto com NUL ou surrogate sem par no plano alimentar', () => {
   it.each(INVALIDOS)('rascunho: título, orientações, refeição (nome, observação) e medida caseira com %s vão limpos', async (_nome, ch) => {
     const { T, id } = await rascunho();
-    await semErroDoBanco(() => salvarRascunho(T.ctx, id, corpo(ch), deps));
+    await semErroDoBanco(errosDoBanco, () => salvarRascunho(T.ctx, id, corpo(ch), deps));
     const [pl] = await withTenant(T.ctx, (tx) => tx.select({ titulo: mealPlans.titulo, orientacoes: mealPlans.orientacoes }).from(mealPlans).where(eq(mealPlans.id, id)), app.db);
     expect(pl).toEqual({ titulo: limpo('Plano'), orientacoes: limpo('Beber água') });
     const [m] = await withTenant(T.ctx, (tx) => tx.select({ nome: meals.nome, observacao: meals.observacao }).from(meals).where(eq(meals.planId, id)), app.db);
