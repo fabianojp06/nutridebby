@@ -449,7 +449,7 @@ apontado para produção.
 
 - **Um bloco de IP por spec.** O login tem limite de 5 tentativas a cada 15 min por IP. Cada spec declara a sua
   faixa no topo (ex.: `e2e/acessibilidade.spec.ts:11`, `10.9.10.21` a `.30`) e o `entrarComo` manda o IP no
-  `x-forwarded-for` (`e2e/helpers.ts:15`). No CI, `TRUSTED_PROXIES` aponta para a TEST-NET-1, que satisfaz a
+  `x-forwarded-for` (`e2e/helpers.ts:16`). No CI, `TRUSTED_PROXIES` aponta para a TEST-NET-1, que satisfaz a
   validação de produção sem confiar em nenhum proxy real (comentário no job `e2e` do `ci.yml`).
 - **E-mail pelo Mailpit.** `esperarEmail` (`e2e/mailpit.ts`) consulta a API do Mailpit em laço, com prazo. Falha do
   Mailpit falha na hora com o status (M4). Com `CI` definida e sem `MAILPIT_URL`, o módulo lança erro em vez de cair no
@@ -489,9 +489,10 @@ Detalhes que evitam falso verde:
   segunda paciente da IA Nutri é reaproveitada se a fila já tem uma dela (no máximo 3 abertas por paciente).
 - **Tema garantido em cada tela (SUS-125).** O tema é da conta (D17), e a `nutri-e2e` é a mesma nas duas partes e nas
   specs que trocam o tema dela no outro worker (cadastro, ficha, lembretes). `garantirTema` (`e2e/acessibilidade-painel.ts`)
-  confere o `data-tema` da tela antes do axe e, se outra spec trocou o tema da conta no meio, põe o do modo do teste, como
-  o botão de tema faz na hora (as cores, o `dark:` e o `color-scheme` saem só desse atributo); a troca fica anotada no
-  relatório do teste. O `escolherTema` de `e2e/acessibilidade-painel.ts` guarda o modo escolhido em cada página, e o
+  confere o `data-tema` da tela antes do axe e, se outra spec trocou o tema da conta no meio, escolhe de novo o tema do
+  modo do teste na conta e abre a tela de novo (o estado aberto, como o menu da conta ou os erros do formulário, é refeito
+  pelo `refazer` do `violacoes`), até 3 vezes; a tela nunca é mexida por fora, e um tema que não pega falha. Cada nova
+  escolha fica anotada no relatório do teste. O `escolherTema` de `e2e/acessibilidade-painel.ts` guarda o modo escolhido em cada página, e o
   `violacoes` garante esse modo sem o teste repeti-lo. O D17 usa a conta `E2E_FIN_AXE`, que só o
   `acessibilidade-painel.spec.ts` usa (o Plano 20, antes dele, em série).
 - **Divisão (SUS-125).** O `-base` é o começo do antigo arquivo único (os laços de todas as telas nos três modos e os

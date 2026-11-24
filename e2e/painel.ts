@@ -99,7 +99,7 @@ async function duvidaDiretaDaSegunda(browser: Browser, nutri: Page, ip: string):
   await nutri.goto('/painel/duvidas');
   if (!(await abrir.count())) {
     const p = await entrarComo(browser, IA_NUTRI_2.email, IA_NUTRI_2.senha, ip);
-    await expect(p).toHaveURL(/\/p\//);
+    await expect(p).toHaveURL(/\/p\//, { timeout: ESPERA_DO_SERVIDOR });
     await p.goto('/p/plano/ia');
     await p.getByLabel('Sua dúvida').fill(`Posso trocar a banana do lanche? ${Date.now().toString(36)}`);
     await p.getByRole('button', { name: 'Enviar direto para minha nutricionista' }).click();
@@ -124,7 +124,7 @@ async function duvidaDiretaDaSegunda(browser: Browser, nutri: Page, ip: string):
  * do acessibilidade-painel que prepara (SUS-125: as duas preparam ao mesmo tempo, cada uma com as suas linhas).
  */
 export async function prepararTelasComId(browser: Browser, nutri: Page, ip: string, ipIaNutri: string, parte: 0 | 1): Promise<IdsDoPainel> {
-  const sufixo = Date.now().toString(36);
+  const sufixo = `${Date.now().toString(36)}p${parte}`; // SUS-125: as duas partes preparam ao mesmo tempo (nomes únicos no consultório)
   const paciente = await pacienteNoPortal(browser, nutri, ip);
   const p = paciente.prontuario;
 
@@ -139,9 +139,9 @@ export async function prepararTelasComId(browser: Browser, nutri: Page, ip: stri
 
   // semana ≥ 2 (portal.spec usa 0, acessibilidade.spec 1) e variável por execução: o seed não apaga consultas, e repetir o
   // mesmo dia e hora da execução anterior dá "Conflito com a consulta de …". SUS-125: cada parte do acessibilidade-painel
-  // no seu bloco de 25 semanas (parte 0: 2 a 26; parte 1: 27 a 51) — as duas começam no mesmo minuto, e a hora sai de um
-  // contador do módulo, que recomeça em cada worker
-  await marcarParaPaciente(nutri, paciente.nome, paciente.email, 2 + 25 * parte + (Math.floor(Date.now() / 60_000) % 25));
+  // no seu bloco de 50 semanas (parte 0: 2 a 51; parte 1: 52 a 101; a mesma semana só se repete depois de 50 min) — as duas
+  // começam no mesmo minuto, e a hora sai de um contador do módulo, que recomeça em cada worker
+  await marcarParaPaciente(nutri, paciente.nome, paciente.email, 2 + 50 * parte + (Math.floor(Date.now() / 60_000) % 50));
   const consulta = idDaUrl(nutri, new RegExp(`/painel/agenda/consultas/(${UUID})$`));
   await avaliar(nutri, p, '2026-08-01', '80');
 

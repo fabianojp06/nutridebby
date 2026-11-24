@@ -35,25 +35,45 @@ export function rotasDoPainel(ids: IdsDoPainel): string[] {
   return [...Object.values(ROTAS_DO_PAINEL).map((f) => f(ids)), '/conta/seguranca'];
 }
 
+const temaDaTela = (page: Page) => page.evaluate(() => document.querySelector('[data-tema]')?.getAttribute('data-tema') ?? null);
+
 /**
  * SUS-125: o tema é da conta (D17), e a nutri-e2e é a mesma nas duas partes e nas specs que trocam o tema dela no outro
  * worker (cadastro, ficha, lembretes). Se outra trocou o tema entre o `escolherTema` do teste e a abertura da tela, a
- * página veio com outro `data-tema` e o axe conferiria o modo errado calado. A tela recebe então o `data-tema` do modo do
- * teste, como o botão de tema faz na hora (src/app/painel/alternar-tema.tsx): as cores, o `dark:` e o `color-scheme` do
- * painel saem só desse atributo (src/app/globals.css). A troca fica anotada no relatório do teste.
+ * página veio com outro `data-tema` e o axe conferiria o modo errado calado. Então o tema do modo do teste é escolhido de
+ * novo na conta e a tela é aberta de novo (com `refazer`, o estado aberto dela é refeito), até 3 vezes; a tela nunca é
+ * mexida por fora, e um defeito real do tema (a conta gravada, a tela com outro) falha aqui. Cada nova escolha fica
+ * anotada no relatório do teste.
  */
-export async function garantirTema(page: Page, tema: TemaDoPainel): Promise<void> {
+export async function garantirTema(page: Page, tema: TemaDoPainel, refazer?: () => Promise<void>): Promise<void> {
   const esperado = DATA_TEMA[tema];
-  const atual = await page.evaluate(() => document.querySelector('[data-tema]')?.getAttribute('data-tema') ?? null);
-  if (atual === null || atual === esperado) return;
-  test.info().annotations.push({ type: 'tema trocado por outra spec', description: `${page.url()}: data-tema="${atual}", conferido em "${esperado}"` });
-  await page.evaluate((v) => document.querySelector('[data-tema]')?.setAttribute('data-tema', v), esperado);
+  let atual = await temaDaTela(page);
+  for (let vez = 1; vez <= 3 && atual !== null && atual !== esperado; vez++) {
+    const url = page.url();
+    test.info().annotations.push({
+      type: 'tema trocado por outra spec',
+      description: `${url}: data-tema="${atual}"; "${tema}" escolhido de novo e a tela aberta de novo (${vez}ª vez)${refazer ? '' : ', sem estado aberto a refazer'}`,
+    });
+    await escolherTemaDaConta(page, tema);
+    await page.goto(url);
+    await page.waitForLoadState('networkidle');
+    await refazer?.();
+    atual = await temaDaTela(page);
+  }
+  expect(atual === null || atual === esperado, `${page.url()}: data-tema="${atual}" depois de escolher "${tema}" (esperado "${esperado}")`).toBe(true);
 }
 
-/** `tema`: o modo do teste, garantido na tela antes do axe (garantirTema); sem ele, o último `escolherTema` da página. */
-export async function violacoes(page: Page, incluir?: string, opcoes: { ignorarForaDaTela?: boolean; tema?: TemaDoPainel } = {}): Promise<string[]> {
+/**
+ * `tema`: o modo do teste, garantido na tela antes do axe (garantirTema); sem ele, o último `escolherTema` da página.
+ * `refazer`: o estado aberto da tela (menu, erros de formulário), refeito se o garantirTema precisar abrir a tela de novo.
+ */
+export async function violacoes(
+  page: Page,
+  incluir?: string,
+  opcoes: { ignorarForaDaTela?: boolean; tema?: TemaDoPainel; refazer?: () => Promise<void> } = {},
+): Promise<string[]> {
   const tema = opcoes.tema ?? temaDaPagina.get(page);
-  if (tema) await garantirTema(page, tema);
+  if (tema) await garantirTema(page, tema, opcoes.refazer);
   const axe = new AxeBuilder({ page }).withTags(TAGS);
   const r = await (incluir ? axe.include(incluir) : axe).analyze();
   expect(r.passes.length, 'o axe rodou regras na página').toBeGreaterThan(0);

@@ -37,10 +37,17 @@ test.beforeAll(async ({ browser }) => {
   rotas = [...Object.values(ROTAS_DO_PAINEL).map((f) => f(ids)), '/conta/seguranca'];
 });
 test.afterAll(async () => {
-  await escolherTema(nutri, 'Igual ao aparelho'); // o seed e as outras specs esperam o padrão
-  await nutri?.context().close();
-  if (finAxe) await escolherTema(finAxe, 'Igual ao aparelho');
-  await finAxe?.context().close();
+  // o seed e as outras specs esperam o padrão; cada página fecha mesmo se a volta do tema falhar
+  try {
+    if (nutri) await escolherTema(nutri, 'Igual ao aparelho');
+  } finally {
+    await nutri?.context().close();
+    try {
+      if (finAxe) await escolherTema(finAxe, 'Igual ao aparelho');
+    } finally {
+      await finAxe?.context().close();
+    }
+  }
 });
 
 /**
@@ -314,7 +321,7 @@ test('D17: o botão de tema alterna, persiste depois de recarregar e em outro ap
   await fa.goto('/conta/seguranca'); // fora do /painel, o mesmo tema da conta (D17)
   await expect(fa.locator('[data-tema="escuro"]')).toBeAttached();
   const outro = await entrarComo(browser, FIN_AXE.email, FIN_AXE.senha, '10.9.13.85');
-  await expect(outro.locator('[data-tema="escuro"]')).toBeAttached();
+  await expect(outro.locator('[data-tema="escuro"]')).toBeAttached({ timeout: ESPERA_DO_SERVIDOR }); // logo depois do login
   await outro.context().close();
 });
 

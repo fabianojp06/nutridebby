@@ -24,8 +24,11 @@ test.beforeAll(async ({ browser }) => {
   rotas = rotasDoPainel(await prepararTelasComId(browser, nutri, '10.9.13.88', '10.9.29.52', 0));
 });
 test.afterAll(async () => {
-  await escolherTema(nutri, 'Igual ao aparelho'); // o seed e as outras specs esperam o padrão
-  await nutri?.context().close();
+  try {
+    if (nutri) await escolherTema(nutri, 'Igual ao aparelho'); // o seed e as outras specs esperam o padrão
+  } finally {
+    await nutri?.context().close();
+  }
 });
 
 for (const [modo, tema, aparelho] of [
@@ -46,13 +49,15 @@ for (const [modo, tema, aparelho] of [
 test('estados abertos também passam: menu da conta, aviso de erro de formulário', async () => {
   await escolherTema(nutri, 'Escuro');
   await nutri.goto('/painel');
-  await nutri.getByLabel(/^Conta de /).click();
+  const abrirMenu = () => nutri.getByLabel(/^Conta de /).click();
+  await abrirMenu();
   // só o menu aberto: o resto da tela fica sob ele, e o axe não calcula contraste de texto coberto ("incomplete" por
   // sobreposição parcial). A linha "Conectado como …" (text-suave sobre bg-cartao, os mesmos tokens que o axe confere
   // em todas as telas acima) cai nesse caso: é a única tolerância.
-  const doMenu = (await violacoes(nutri, '[data-guia="conta"]')).filter((v) => v !== 'incompleto color-contrast: .py-2');
+  const doMenu = (await violacoes(nutri, '[data-guia="conta"]', { refazer: abrirMenu })).filter((v) => v !== 'incompleto color-contrast: .py-2');
   expect(doMenu).toEqual([]);
   await nutri.goto('/painel/pacientes/novo');
-  await nutri.getByRole('button', { name: 'Cadastrar paciente' }).click(); // vazio: erros por campo (role="alert")
-  expect(await violacoes(nutri)).toEqual([]);
+  const comErros = () => nutri.getByRole('button', { name: 'Cadastrar paciente' }).click(); // vazio: erros por campo (role="alert")
+  await comErros();
+  expect(await violacoes(nutri, undefined, { refazer: comErros })).toEqual([]);
 });

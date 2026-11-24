@@ -15,7 +15,8 @@ export async function pacienteNoPortal(
   aoAbrir?: (page: Page) => void,
   opcoes: BrowserContextOptions = {}, // ex.: { hasTouch: true } para o toque do Chrome no celular (revisão da T11 do Plano 16)
 ): Promise<{ page: Page; nome: string; email: string; senha: string; prontuario: string }> {
-  const sufixo = `${Date.now().toString(36)}${++seq}`;
+  // SUS-125: com o índice do worker — o `seq` recomeça em cada worker, e dois no mesmo ms dariam o mesmo e-mail
+  const sufixo = `${Date.now().toString(36)}w${process.env.TEST_WORKER_INDEX ?? 0}s${++seq}`;
   const nome = `Paula Portal ${sufixo}`;
   const email = `paula-${sufixo}@nutridebby.test`;
   const senha = `Paula${sufixo}2026`;
@@ -30,7 +31,7 @@ export async function pacienteNoPortal(
   await page.getByLabel('Repita a senha').fill(senha);
   await page.getByLabel(/^Li e aceito o Termo de Uso e Privacidade \(versão /).check();
   await page.getByRole('button', { name: 'Continuar' }).click();
-  await expect(page).toHaveURL(/\/p\/inicio$/);
+  await expect(page).toHaveURL(/\/p\/inicio$/, { timeout: ESPERA_DO_SERVIDOR });
   return { page, nome, email, senha, prontuario };
 }
 

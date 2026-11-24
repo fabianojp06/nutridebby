@@ -47,12 +47,13 @@ test.beforeAll(async ({ browser }) => {
     await nutri.getByLabel('Hora').fill(`${String(Math.floor(minutos / 60)).padStart(2, '0')}:${String(minutos % 60).padStart(2, '0')}`);
     await nutri.getByLabel('Duração').selectOption('15');
     await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
-    marcada = await nutri
-      .getByRole('status')
-      .filter({ hasText: 'Consulta marcada.' })
-      .waitFor({ timeout: ESPERA_DO_SERVIDOR }) // SUS-125: lenta não é recusa (um novo sorteio marcaria outra consulta)
-      .then(() => true)
-      .catch(() => false);
+    // SUS-125: lenta não é recusa (um novo sorteio marcaria outra consulta): o prazo longo só na espera do sucesso OU da
+    // recusa por conflito, o que vier primeiro — o conflito sai na hora, sem gastar o prazo
+    const sucesso = nutri.getByRole('status').filter({ hasText: 'Consulta marcada.' });
+    const conflito = nutri.getByRole('alert').filter({ hasText: 'Conflito com a consulta de' });
+    marcada = await expect(sucesso.or(conflito).first())
+      .toBeVisible({ timeout: ESPERA_DO_SERVIDOR })
+      .then(() => sucesso.isVisible(), () => false);
   }
   expect(marcada, 'a consulta de ontem foi marcada').toBe(true);
   await nutri.getByRole('button', { name: 'Realizada' }).click();

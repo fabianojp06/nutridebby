@@ -13,10 +13,9 @@ let nutri: Page;
 // SUS-125: o arquivo roda uma vez por `pnpm e2e:seed` (a semente esvazia a agenda do consultório do E2E). Com
 // `--repeat-each`, a segunda repetição marcava de novo nos mesmos dias (as datas saem de hoje) e esbarrava nas consultas
 // da primeira — na medição do SUS-97, "Fora do seu horário de atendimento" virou "Conflito com a consulta de Dora … às
-// 19:00" só na repetição 1, em qualquer hora do dia. A repetição é pulada com o motivo, em vez de falhar enganando.
-test.beforeEach(() => {
-  test.skip(test.info().repeatEachIndex > 0, 'agenda.spec roda uma vez por pnpm e2e:seed: a repetição colidiria com as consultas da primeira');
-});
+// 19:00" só na repetição 1, em qualquer hora do dia. A repetição é pulada com o motivo, em vez de falhar enganando — no
+// começo do beforeAll, antes do login: o login aceita 5 tentativas por IP a cada 15 min, e cada repetição entraria de novo.
+const REPETICAO = 'agenda.spec roda uma vez por pnpm e2e:seed: a repetição colidiria com as consultas da primeira';
 
 /** 'AAAA-MM-DD' da segunda-feira a partir de hoje + `dias` (o teste só compara texto). */
 function segundaDepoisDe(dias: number): string {
@@ -30,6 +29,7 @@ const br = (iso: string) => iso.split('-').reverse().join('/');
 const SEMANA_BLOQUEADA = segundaDepoisDe(30);
 
 test.beforeAll(async ({ browser }) => {
+  test.skip(test.info().repeatEachIndex > 0, REPETICAO);
   // O limite de login é por IP: cada spec usa o seu bloco (sair.spec = 10.9.7.x, agenda.spec = 10.9.8.x)
   nutri = await entrarComo(browser, NUTRI.email, NUTRI.senha, '10.9.8.1');
   await expect(nutri).toHaveURL(/\/painel$/);
@@ -98,7 +98,7 @@ test('agenda da nutricionista: marcar, conflito, avisos, semana e alterar (US-03
   // qualquer hora em que o E2E rode: SEGUNDA_LIVRE é uma segunda-feira daqui a 37 a 43 dias e o aviso compara só o
   // horário da consulta com a grade (`avisosDoHorario`, src/modules/agenda/consultas.ts), nunca com a hora atual. O
   // conflito é conferido antes: só uma consulta já marcada às 19:00 desse dia (de uma execução anterior sem nova
-  // semente) trocaria o aviso pelo "Conflito com a consulta de …" (SUS-125; ver o beforeEach).
+  // semente) trocaria o aviso pelo "Conflito com a consulta de …" (SUS-125; ver o começo do beforeAll).
   await nutri.getByLabel('Hora').fill('19:00');
   await nutri.getByRole('button', { name: 'Marcar consulta' }).click();
   await expect(nutri.getByText('Fora do seu horário de atendimento')).toBeVisible({ timeout: ESPERA_DO_SERVIDOR });
