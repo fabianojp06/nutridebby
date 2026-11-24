@@ -553,7 +553,7 @@ export const FUNCOES_COM_PAPEL: Record<string, { decisao: DecisaoDaRecepcao; mot
   app_paciente_colunas_patients: { decisao: 'não se aplica', motivo: 'só a sessão de paciente; a recepção tem gatilho próprio (patients_da_recepcao, RN-508)' },
   app_patients_ia_quem: { decisao: 'recusa', motivo: 'qualquer sessão com papel é recusada ao mudar a ciência/recusa de IA (RN-128)' },
   app_patients_lembretes_do_paciente: { decisao: 'recusa', motivo: 'Plano 17: a pausa dos lembretes só pelo paciente (a recepção cai no RAISE; patients_da_recepcao já a fixa)' },
-  app_patient_cadastro_titular_ativo: { decisao: 'sem mudança', motivo: 'o EXISTS dá falso para o titular escondido, mas recepcao_cond_paciente_visivel de patient_cadastro recusa antes (spec §4.4)' },
+  app_patient_cadastro_titular_ativo: { decisao: 'sem mudança', motivo: 'o EXISTS dá falso para o titular escondido e o gatilho deixa passar; quem recusa é a política recepcao_cond_paciente_visivel de patient_cadastro, depois, no WITH CHECK (spec §4.4)' },
   app_patient_cadastro_sem_apagar: { decisao: 'recusa', motivo: 'DELETE só do worker com o titular anonimizado; a recepção nem tem DELETE (recepcao_sem_delete)' },
   app_fin_lancamentos_regras: { decisao: 'como nutri', motivo: 'RN-506: as regras da nutricionista, com falha fechada (paciente não achado → 42501)' },
   app_appointments_regras_pedido: { decisao: 'como nutri', motivo: 'RE-D59: refeita na rls_recepcao com a recepção no aceite e na recusa do pedido' },
@@ -562,12 +562,12 @@ export const FUNCOES_COM_PAPEL: Record<string, { decisao: DecisaoDaRecepcao; mot
   app_equipe_membros_regras: { decisao: 'recusa', motivo: 'RN-503: a recepção só lê a própria linha; qualquer escrita dela → 42501' },
   // tenants (sem RLS; RN-512): tenants_so_nutri recusa todo UPDATE da recepção — os gatilhos abaixo deixariam passar o papel novo
   app_tenants_agenda_da_equipe: { decisao: 'recusa', motivo: 'Plano 23 (RN-420): só nutri muda a chave dos pedidos; e tenants_so_nutri' },
-  app_tenants_ia_nutri_da_equipe: { decisao: 'recusa', motivo: 'o ramo da equipe deixaria passar; tenants_so_nutri recusa antes de valer' },
+  app_tenants_ia_nutri_da_equipe: { decisao: 'recusa', motivo: 'o ramo da equipe deixa a recepção passar; tenants_so_nutri, que dispara depois (ordem alfabética), recusa o UPDATE' },
   app_tenants_interruptores_da_admin: { decisao: 'recusa', motivo: 'só fora de contexto (admin)' },
   app_tenants_por_sessao: { decisao: 'recusa', motivo: 'INSERT/DELETE recusados a toda sessão; o UPDATE da recepção, por tenants_so_nutri' },
   // T5b (bloco 4 e 5 da rls_recepcao)
   app_patients_da_recepcao: { decisao: 'só recepcao', motivo: 'RN-508, RE-D41: lista branca das colunas de patients' },
-  app_patient_cadastro_da_recepcao: { decisao: 'só recepcao', motivo: 'RN-508, RE-D38: sem observação nem identidade de gênero' },
+  app_patient_cadastro_da_recepcao: { decisao: 'só recepcao', motivo: 'RN-508, RE-D38, RE-D41: lista branca das colunas do cadastro (sem observação nem identidade de gênero)' },
   app_appointments_da_recepcao: { decisao: 'só recepcao', motivo: 'RN-509, RE-D41, RE-D59, RE-D62: lista branca de colunas e de passagens de situação' },
   app_tenants_so_nutri: { decisao: 'só recepcao', motivo: 'RN-512: a recepção não muda o consultório' },
   app_retorno_das_consultas: { decisao: 'como nutri', motivo: 'RN-510: SECURITY DEFINER (molde 0083), nutri e recepcao; só o selo de retorno de consulta visível' },
@@ -580,28 +580,36 @@ export const FUNCOES_COM_PAPEL: Record<string, { decisao: DecisaoDaRecepcao; mot
 const CITA_PAPEL = String.raw`'nutri'|app_current_role|current_setting\('app\.role'`;
 
 /**
- * RN-511: função do schema public que olha o papel, ou gatilho de tabela de RECEPCAO_LIBERADO que lê `patients`, sem decisão
- * em `lista` → violação; nome em `lista` que não existe em pg_proc → violação. `table` traz o nome da função.
+ * RN-511: função do schema public que olha o papel, ou gatilho de tabela de RECEPCAO_LIBERADO que lê `patients` ou uma tabela
+ * negada à recepção (com tenant_id, fora de RECEPCAO_LIBERADO e de RLS_EXCEPTIONS — a classe da RE-D62, como `consultations`:
+ * pela RLS dela a leitura volta vazia e a guarda passaria calada), sem decisão em `lista` → violação; nome em `lista` que não
+ * existe em pg_proc → violação. O corpo é `prosrc` e, nas funções `BEGIN ATOMIC`, o `prosqlbody` (pg_get_function_sqlbody).
+ * `table` traz o nome da função.
  */
 export async function findPapelEmFuncoesViolations(
   db: Pool | PoolClient,
   lista: Record<string, { decisao: DecisaoDaRecepcao; motivo: string }> = FUNCOES_COM_PAPEL,
 ): Promise<RlsViolation[]> {
+  const negadas = (await listTenantTables(db)).filter((t) => !RECEPCAO_LIBERADO[t] && !RLS_EXCEPTIONS[t]);
+  const leTabela = String.raw`\m(${['patients', ...negadas].join('|')})\M`;
   const { rows } = await db.query<{ f: string; cita: boolean; gatilho: boolean }>(
-    `select p.proname as f, bool_or(p.prosrc ~ $1) as cita,
-            bool_or(p.prosrc ~ '\\mpatients\\M' and exists (
+    `with fn as (
+       select p.oid, p.proname, p.prosrc || ' ' || coalesce(pg_get_function_sqlbody(p.oid), '') as corpo
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public')
+     select fn.proname as f, bool_or(fn.corpo ~ $1) as cita,
+            bool_or(fn.corpo ~ $3 and exists (
               select 1 from pg_trigger t join pg_class c on c.oid = t.tgrelid
                 join pg_namespace cn on cn.oid = c.relnamespace and cn.nspname = 'public'
-               where t.tgfoid = p.oid and not t.tgisinternal and c.relname = any($2))) as gatilho
-       from pg_proc p join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public'
-      group by p.proname`,
-    [CITA_PAPEL, Object.keys(RECEPCAO_LIBERADO)],
+               where t.tgfoid = fn.oid and not t.tgisinternal and c.relname = any($2))) as gatilho
+       from fn
+      group by fn.proname`,
+    [CITA_PAPEL, Object.keys(RECEPCAO_LIBERADO), leTabela],
   );
   const out: RlsViolation[] = [];
   for (const r of rows) {
     if (lista[r.f]) continue;
     if (r.cita) out.push({ table: r.f, problem: 'função que olha o papel sem decisão em FUNCOES_COM_PAPEL' });
-    else if (r.gatilho) out.push({ table: r.f, problem: 'gatilho de tabela liberada à recepção que lê patients sem decisão em FUNCOES_COM_PAPEL' });
+    else if (r.gatilho) out.push({ table: r.f, problem: 'gatilho de tabela liberada à recepção que lê patients ou tabela negada a ela sem decisão em FUNCOES_COM_PAPEL' });
   }
   const existentes = new Set(rows.map((r) => r.f));
   for (const f of Object.keys(lista)) if (!existentes.has(f)) out.push({ table: f, problem: 'FUNCOES_COM_PAPEL cita função inexistente' });

@@ -402,7 +402,8 @@ SELECT app_allow_recepcao('locais_atendimento', 'select');
 -- status 'ativo', origem 'nutri' e todo o resto nulo — user_id (ligaria uma conta de paciente existente ao cadastro novo),
 -- bloqueio, anonimização, IA, peso oculto, lembretes e WhatsApp. No UPDATE só mudam nome, nascimento, sexo, telefone e
 -- updated_at: o e-mail é fixo (chave do portal, dos links de documento e da autorização de IA). O UPDATE que reenvia uma
--- coluna com o mesmo valor (WhatsApp lido do banco) passa: compara-se o valor, não a presença no SET.
+-- coluna com o mesmo valor (WhatsApp lido do banco) passa: compara-se o valor, não a presença no SET. No INSERT, created_at é
+-- o do banco (now(), o início da transação): o relatório de Pacientes conta os novos por ele.
 CREATE OR REPLACE FUNCTION app_patients_da_recepcao() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp AS $$
@@ -415,6 +416,7 @@ BEGIN
        IS DISTINCT FROM '{"status": "ativo", "origem": "nutri"}'::jsonb THEN
       RAISE EXCEPTION 'a recepção cadastra só nome, nascimento, sexo, e-mail e telefone do paciente' USING ERRCODE = '42501';
     END IF;
+    NEW.created_at := now(); -- os novos do relatório de Pacientes contam por created_at: a recepção não recua a data
     RETURN NEW;
   END IF;
   IF (to_jsonb(NEW) - ARRAY['nome', 'data_nascimento', 'sexo', 'telefone_e164', 'updated_at'])
@@ -426,21 +428,28 @@ END $$;
 --> statement-breakpoint
 CREATE TRIGGER patients_da_recepcao BEFORE INSERT OR UPDATE ON patients FOR EACH ROW EXECUTE FUNCTION app_patients_da_recepcao();
 --> statement-breakpoint
--- RN-508 / RE-D38: a observação e a identidade de gênero ficam fora da recepção — nulas no INSERT, fixas no UPDATE (nem
--- apagar). id, tenant_id e patient_id já são fixos para todos (patient_cadastro_colunas_fixas, que dispara antes).
+-- RN-508 / RE-D38 / RE-D41: lista branca, como as outras duas. A recepção grava só as colunas do cadastro que a tela dela tem:
+-- CPF, nome social, estado civil, escolaridade, ocupação, nacionalidade, naturalidade, telefone fixo e endereço (mais as de
+-- sistema). Fora da lista — a observação e a identidade de gênero (RE-D38) e toda coluna nova de outro plano —: nulas no INSERT
+-- e fixas no UPDATE (nem apagar). id, tenant_id e patient_id também são fixos para todos (patient_cadastro_colunas_fixas, que
+-- dispara antes).
 CREATE OR REPLACE FUNCTION app_patient_cadastro_da_recepcao() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp AS $$
+DECLARE
+  livres text[] := ARRAY['id', 'tenant_id', 'patient_id', 'cpf', 'nome_social', 'estado_civil', 'escolaridade', 'ocupacao',
+                         'nacionalidade', 'naturalidade', 'telefone_fixo_e164', 'cep', 'logradouro', 'numero', 'complemento',
+                         'bairro', 'cidade', 'uf', 'created_at', 'updated_at'];
 BEGIN
   IF coalesce(public.app_current_role(), '') <> 'recepcao' OR NEW.tenant_id IS DISTINCT FROM public.app_current_tenant() THEN
     RETURN NEW;
   END IF;
   IF TG_OP = 'INSERT' THEN
-    IF NEW.observacao IS NOT NULL OR NEW.identidade_genero IS NOT NULL THEN
-      RAISE EXCEPTION 'a recepção não grava a observação nem a identidade de gênero' USING ERRCODE = '42501';
+    IF jsonb_strip_nulls(to_jsonb(NEW) - livres) IS DISTINCT FROM '{}'::jsonb THEN
+      RAISE EXCEPTION 'a recepção não grava essa parte do cadastro (observação, identidade de gênero)' USING ERRCODE = '42501';
     END IF;
-  ELSIF (NEW.observacao, NEW.identidade_genero) IS DISTINCT FROM (OLD.observacao, OLD.identidade_genero) THEN
-    RAISE EXCEPTION 'a recepção não grava a observação nem a identidade de gênero' USING ERRCODE = '42501';
+  ELSIF (to_jsonb(NEW) - livres) IS DISTINCT FROM (to_jsonb(OLD) - livres) THEN
+    RAISE EXCEPTION 'a recepção não grava essa parte do cadastro (observação, identidade de gênero)' USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
 END $$;
@@ -456,7 +465,10 @@ CREATE TRIGGER patient_cadastro_da_recepcao BEFORE INSERT OR UPDATE ON patient_c
 -- pelo consultório ('nutri'); agendada|confirmada → faltou depois do início e sem atendimento ligado; solicitada → agendada
 -- (aceite) ou → cancelada por 'pedido_recusado' (recusa) — os pedidos do Plano 23, cujo gatilho também confere o papel. Nunca
 -- → realizada nem saindo de realizada, cancelada ou faltou. O cancelamento (quem e quando) só muda ao cancelar; a presença,
--- só ao registrar a falta. "Tem atendimento" por app_consulta_tem_atendimento (bloco 5): consultations é negada à recepção, e
+-- só ao registrar a falta, e o quando vem do relógio do banco (clock_timestamp()); a confirmação (confirmada_via, prova de que o
+-- paciente confirmou) só fica como está ou vai a nulo. Consulta encerrada (cancelada, realizada, faltou) não muda em nada: o
+-- horário, o local e a modalidade dela contam nos Relatórios, no local da receita (US-416) e no selo de Retorno. No INSERT,
+-- created_at é o do banco (now()). "Tem atendimento" por app_consulta_tem_atendimento (bloco 5): consultations é negada à recepção, e
 -- a busca pela RLS dela voltaria vazia (vazio calado não é recusa, RE-D62); nulo (consulta não achada) também recusa.
 CREATE OR REPLACE FUNCTION app_appointments_da_recepcao() RETURNS trigger
 LANGUAGE plpgsql
@@ -473,20 +485,27 @@ BEGIN
        IS DISTINCT FROM '{"status": "agendada", "origem": "nutri"}'::jsonb THEN
       RAISE EXCEPTION 'a recepção só marca consulta agendada pelo consultório' USING ERRCODE = '42501';
     END IF;
+    NEW.created_at := now();
     RETURN NEW;
   END IF;
   IF (to_jsonb(NEW) - livres) IS DISTINCT FROM (to_jsonb(OLD) - livres) THEN
     RAISE EXCEPTION 'a recepção não muda o paciente, a origem, a remarcação nem o motivo do cancelamento da consulta' USING ERRCODE = '42501';
   END IF;
+  IF OLD.status IN ('cancelada', 'realizada', 'faltou') AND (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at') THEN
+    RAISE EXCEPTION 'a recepção não muda consulta encerrada' USING ERRCODE = '42501';
+  END IF;
+  IF NEW.confirmada_via IS NOT NULL AND NEW.confirmada_via IS DISTINCT FROM OLD.confirmada_via THEN
+    RAISE EXCEPTION 'a confirmação do paciente não é gravada pela recepção' USING ERRCODE = '42501';
+  END IF;
   IF NEW.status IS DISTINCT FROM OLD.status THEN
     IF OLD.status IN ('agendada', 'confirmada') AND NEW.status IN ('agendada', 'confirmada') THEN
       NULL;
     ELSIF OLD.status IN ('agendada', 'confirmada') AND NEW.status = 'cancelada' AND NEW.cancelado_por IS NOT DISTINCT FROM 'nutri' THEN
-      NULL;
+      NEW.cancelada_em := clock_timestamp();
     ELSIF OLD.status = 'solicitada' AND NEW.status = 'agendada' THEN
       NULL;
     ELSIF OLD.status = 'solicitada' AND NEW.status = 'cancelada' AND NEW.cancelado_por IS NOT DISTINCT FROM 'pedido_recusado' THEN
-      NULL;
+      NEW.cancelada_em := clock_timestamp();
     ELSIF OLD.status IN ('agendada', 'confirmada') AND NEW.status = 'faltou' THEN
       IF OLD.inicio > clock_timestamp() OR NEW.inicio IS DISTINCT FROM OLD.inicio THEN
         RAISE EXCEPTION 'a falta só depois do início da consulta' USING ERRCODE = '42501';
@@ -494,6 +513,7 @@ BEGIN
       IF public.app_consulta_tem_atendimento(OLD.id) IS NOT FALSE THEN
         RAISE EXCEPTION 'consulta com atendimento registrado não vira falta' USING ERRCODE = '42501';
       END IF;
+      NEW.presenca_em := clock_timestamp();
     ELSE
       RAISE EXCEPTION 'a recepção não faz essa mudança na situação da consulta' USING ERRCODE = '42501';
     END IF;

@@ -598,6 +598,15 @@ describe('gatilhos de colunas da recepção (bloco 4)', () => {
     await em(T.ctx, sql`update tenants set agenda_confirmar_pedidos = true where id = ${T.tenantId}`);
   });
 
+  /** O instante gravado está no último minuto (relógio do banco), não no valor mandado. */
+  const doRelogio = async (tabela: string, coluna: string, id: string) =>
+    (
+      await owner.pool.query<{ ok: boolean }>(
+        `select ${coluna} between clock_timestamp() - interval '1 minute' and clock_timestamp() as ok from ${tabela} where id = $1`,
+        [id],
+      )
+    ).rows[0].ok;
+
   describe('patients_da_recepcao (RN-508, RE-D41)', () => {
     const inserir = (colunas: Record<string, unknown> = {}) => {
       const id = randomUUID();
@@ -625,6 +634,11 @@ describe('gatilhos de colunas da recepção (bloco 4)', () => {
       for (const [coluna, extra] of proibidos) await expect(em(rec(), inserir(extra)), coluna).rejects.toSatisfy(recusaDoGatilho);
       // a nutricionista continua gravando como hoje
       expect(await em(T.ctx, inserir({ whatsapp_optin_em: '2026-01-01T00:00:00Z', whatsapp_optin_origem: 'nutri' }))).toHaveLength(1);
+    });
+
+    it('INSERT: created_at é o do banco — a recepção não recua a data que o relatório de Pacientes conta (revisão da T5b)', async () => {
+      const [p] = await em(rec(), inserir({ created_at: '2020-01-01T00:00:00Z' }));
+      expect(await doRelogio('patients', 'created_at', p.id as string)).toBe(true);
     });
 
     it('UPDATE: nome, nascimento, sexo e telefone mudam; e-mail (RE-D37), user_id, status e as outras colunas → 42501; WhatsApp mantido como está passa', async () => {
@@ -672,6 +686,44 @@ describe('gatilhos de colunas da recepção (bloco 4)', () => {
       expect(rows).toEqual([{ observacao: 'Reservada', identidade_genero: 'mulher', logradouro: 'Rua B' }]);
       // a nutricionista muda a observação como hoje
       expect(await em(T.ctx, sql`update patient_cadastro set observacao = 'Nova' where patient_id = ${outro} returning id`)).toHaveLength(1);
+    });
+  });
+
+  describe('patient_cadastro_da_recepcao é lista branca (revisão da T5b, RE-D41)', () => {
+    it('coluna nova fora da lista nasce fixa para a recepção: INSERT com ela → 42501, UPDATE dela → 42501; as da lista passam', async () => {
+      // DDL no banco próprio (SUS-100), numa transação desfeita. O dono passa pela RLS; o que se prova aqui é o gatilho.
+      const c = await ddl.pool.connect();
+      const tentar = async (q: string, params: unknown[] = []) => {
+        await c.query('savepoint s');
+        try {
+          const r = await c.query(q, params);
+          await c.query('release savepoint s');
+          return r.rows;
+        } catch (e) {
+          await c.query('rollback to savepoint s');
+          throw e;
+        }
+      };
+      try {
+        await c.query('begin');
+        await c.query('alter table patient_cadastro add column tmp_coluna_nova text');
+        const { rows: [t] } = await c.query(`insert into tenants (slug, nome_exibicao) values ($1, 'Rec') returning id`, [`rec-${randomUUID().slice(0, 8)}`]);
+        const paciente = async () =>
+          (await c.query(`insert into patients (tenant_id, nome, data_nascimento, sexo, email) values ($1, 'Ana', '1990-01-01', 'F', $2) returning id`, [t.id, `a-${randomUUID().slice(0, 8)}@ex.com`])).rows[0].id as string;
+        const [p1, p2] = [await paciente(), await paciente()];
+        await c.query(`insert into patient_cadastro (tenant_id, patient_id, tmp_coluna_nova) values ($1, $2, 'da nutricionista')`, [t.id, p2]);
+        await c.query(`select set_config('app.tenant_id', $1, true), set_config('app.role', 'recepcao', true), set_config('app.user_id', $2, true)`, [t.id, randomUUID()]);
+        await expect(tentar(`insert into patient_cadastro (tenant_id, patient_id, tmp_coluna_nova) values ($1, $2, 'x')`, [t.id, p1])).rejects.toSatisfy(doGatilho);
+        expect(await tentar(`insert into patient_cadastro (tenant_id, patient_id, cpf, nome_social, logradouro, uf) values ($1, $2, '52998224725', 'Bia', 'Rua A', 'SP') returning id`, [t.id, p1])).toHaveLength(1);
+        await expect(tentar(`update patient_cadastro set tmp_coluna_nova = 'outra' where patient_id = $1`, [p2])).rejects.toSatisfy(doGatilho);
+        await expect(tentar(`update patient_cadastro set tmp_coluna_nova = null where patient_id = $1`, [p2])).rejects.toSatisfy(doGatilho);
+        expect(await tentar(`update patient_cadastro set estado_civil = 'casado', cidade = 'Campinas', updated_at = now() where patient_id = $1 returning tmp_coluna_nova`, [p2])).toEqual([
+          { tmp_coluna_nova: 'da nutricionista' },
+        ]);
+      } finally {
+        await c.query('rollback');
+        c.release();
+      }
     });
   });
 
@@ -763,6 +815,46 @@ describe('gatilhos de colunas da recepção (bloco 4)', () => {
       );
       const { rows } = await owner.pool.query(`select status from appointments where id = $1`, [outra]);
       expect(rows).toEqual([{ status: 'agendada' }]);
+    });
+
+    it('consulta encerrada (realizada, faltou, cancelada) não muda em nada na sessão da recepção (revisão da T5b)', async () => {
+      const realizada = await marcar(T.ctx, P, { passado: true });
+      await em(T.ctx, sql`update appointments set status = 'realizada', presenca_em = now() where id = ${realizada}`);
+      const faltou = await marcar(T.ctx, P, { passado: true });
+      await em(T.ctx, sql`update appointments set status = 'faltou', presenca_em = now() where id = ${faltou}`);
+      const cancelada = await marcar(T.ctx, P);
+      await em(T.ctx, sql`update appointments set status = 'cancelada', cancelado_por = 'nutri', cancelada_em = now() where id = ${cancelada}`);
+      const mudancas: [string, SQL][] = [
+        ['horário', sql`inicio = inicio + interval '15 minutes', fim = fim + interval '15 minutes'`],
+        ['modalidade', sql`modalidade = 'online', link_online = 'https://sala.example.test/x'`],
+        ['pedido de remarcação', sql`pedido_remarcacao_em = now()`],
+      ];
+      for (const id of [realizada, faltou, cancelada]) {
+        for (const [caso, set] of mudancas) await expect(em(rec(), sql`update appointments set ${set} where id = ${id}`), caso).rejects.toSatisfy(recusaDoGatilho);
+        // o UPDATE sem mudança (só updated_at) passa
+        expect(await em(rec(), sql`update appointments set updated_at = now() where id = ${id} returning id`)).toHaveLength(1);
+      }
+      // a nutricionista continua alterando, como hoje
+      expect(await em(T.ctx, sql`update appointments set inicio = inicio + interval '15 minutes', fim = fim + interval '15 minutes' where id = ${realizada} returning id`)).toHaveLength(1);
+    });
+
+    it('relógio do banco e confirmação: created_at no INSERT, cancelada_em e presenca_em vêm de clock_timestamp(); confirmada_via só fica ou vai a nulo (revisão da T5b)', async () => {
+      const [c] = await em(rec(), sql`insert into appointments (tenant_id, patient_id, inicio, fim, modalidade, origem, created_at)
+        values (${T.tenantId}, ${P}, '2031-09-09T12:00:00Z', '2031-09-09T13:00:00Z', 'presencial', 'nutri', '2020-01-01T00:00:00Z') returning id`);
+      expect(await doRelogio('appointments', 'created_at', c.id as string)).toBe(true);
+      // a confirmação do paciente (whatsapp, link) não é gravada pela recepção, nem trocada
+      await expect(em(rec(), sql`update appointments set status = 'confirmada', confirmada_via = 'whatsapp' where id = ${c.id}`)).rejects.toSatisfy(recusaDoGatilho);
+      await em(T.ctx, sql`update appointments set status = 'confirmada', confirmada_via = 'link' where id = ${c.id}`);
+      await expect(em(rec(), sql`update appointments set confirmada_via = 'whatsapp' where id = ${c.id}`)).rejects.toSatisfy(recusaDoGatilho);
+      expect(await em(rec(), sql`update appointments set confirmada_via = confirmada_via where id = ${c.id} returning id`)).toHaveLength(1);
+      expect(await em(rec(), sql`update appointments set status = 'agendada', confirmada_via = null where id = ${c.id} returning id`)).toHaveLength(1);
+      // cancelar com uma data mandada: vale o relógio do banco
+      await em(rec(), sql`update appointments set status = 'cancelada', cancelado_por = 'nutri', cancelada_em = '2020-01-01T00:00:00Z' where id = ${c.id}`);
+      expect(await doRelogio('appointments', 'cancelada_em', c.id as string)).toBe(true);
+      // falta com uma data mandada: idem
+      const passada = await marcar(T.ctx, P, { passado: true });
+      await em(rec(), sql`update appointments set status = 'faltou', presenca_em = '2020-01-01T00:00:00Z' where id = ${passada}`);
+      expect(await doRelogio('appointments', 'presenca_em', passada)).toBe(true);
     });
 
     it('a nutricionista, o worker e o paciente passam intactos pelo gatilho (só a recepção)', async () => {

@@ -477,13 +477,23 @@ describe('funções que olham o papel (RN-511, Plano 26)', () => {
       await client.query(`create function tmp_le_paciente_negada() returns trigger language plpgsql as $$
         begin perform 1 from public.patients p where p.id = new.patient_id; return new; end $$`);
       await client.query('create trigger tmp_le_paciente_negada before insert on anthropometry for each row execute function tmp_le_paciente_negada()');
+      // revisão da T5b (classe da RE-D62): gatilho de tabela liberada que lê uma tabela negada à recepção (consultations), sem
+      // citar o papel nem patients — pela RLS dela a leitura volta vazia e a guarda passaria calada
+      await client.query(`create function tmp_le_negada() returns trigger language plpgsql as $$
+        begin perform 1 from public.consultations c where c.appointment_id = new.id; return new; end $$`);
+      await client.query('create trigger tmp_le_negada before update on appointments for each row execute function tmp_le_negada()');
+      // corpo BEGIN ATOMIC: prosrc vazio, o texto está em prosqlbody
+      await client.query(`create function tmp_atomica() returns text language sql begin atomic select app_current_role(); end`);
       const v = await findPapelEmFuncoesViolations(client, { ...FUNCOES_COM_PAPEL, tmp_nao_existe: { decisao: 'recusa', motivo: 'rascunho' } });
       expect(v).toContainEqual({ table: 'tmp_olha_papel', problem: 'função que olha o papel sem decisão em FUNCOES_COM_PAPEL' });
       expect(v).toContainEqual({ table: 'tmp_olha_nutri', problem: 'função que olha o papel sem decisão em FUNCOES_COM_PAPEL' });
-      expect(v).toContainEqual({ table: 'tmp_le_paciente', problem: 'gatilho de tabela liberada à recepção que lê patients sem decisão em FUNCOES_COM_PAPEL' });
+      const semDecisao = 'gatilho de tabela liberada à recepção que lê patients ou tabela negada a ela sem decisão em FUNCOES_COM_PAPEL';
+      expect(v).toContainEqual({ table: 'tmp_le_paciente', problem: semDecisao });
+      expect(v).toContainEqual({ table: 'tmp_le_negada', problem: semDecisao });
+      expect(v).toContainEqual({ table: 'tmp_atomica', problem: 'função que olha o papel sem decisão em FUNCOES_COM_PAPEL' });
       expect(v).toContainEqual({ table: 'tmp_nao_existe', problem: 'FUNCOES_COM_PAPEL cita função inexistente' });
       expect(v.map((x) => x.table)).not.toContain('tmp_le_paciente_negada');
-      expect(v).toHaveLength(4);
+      expect(v).toHaveLength(6);
     } finally {
       await client.query('rollback');
       client.release();

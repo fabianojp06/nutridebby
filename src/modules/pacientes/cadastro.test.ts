@@ -594,6 +594,7 @@ describe('CPF repetido na sessão da recepção (RE-D71)', () => {
     errosDoBanco.length = 0;
     const r = await gravarComoRecepcao(rec, novo.id, CPF);
     expect(r.erro).toBeInstanceOf(CpfRepetidoError);
+    // TODO(T9): decidir o outroId na sessão da recepção (o link "Abrir o cadastro existente" dela vai a /painel/cadastro/[id])
     expect((r.erro as CpfRepetidoError).outroId).toBe(ana1.id);
     expect(r.viva).toBe(true);
     // o próprio CPF de novo não é repetição; outro consultório com o mesmo CPF passa
