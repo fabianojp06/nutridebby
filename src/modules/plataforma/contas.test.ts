@@ -13,7 +13,7 @@ import { createAuth } from '@/lib/auth';
 import { openSecret, sha256 } from '@/lib/crypto';
 import { hashPassword } from '@/lib/password.server';
 import { AUTORIZACAO_IA_VERSAO, IA_ADITIVO_VERSAO } from '@/modules/ia/textos-legais';
-import { ContaError, contaPorId, CONTAS_POR_PAGINA, criarContaNutri, definirDocumentosLiberados, definirIaLiberada, IaProvisoriaError, listarContas, reenviarConvite, resumoDasContas } from './contas';
+import { ContaError, contaPorId, CONTAS_POR_PAGINA, criarContaNutri, crnSchema, definirDocumentosLiberados, definirIaLiberada, IaProvisoriaError, listarContas, normalizarCrn, reenviarConvite, resumoDasContas } from './contas';
 import { ContaNaoEncontradaError } from './tenant-status';
 import { inspecionarConvite } from './convites';
 
@@ -45,6 +45,62 @@ async function convitesPara(email: string): Promise<string[]> {
 }
 const tokenDe = (link: string) => link.split('/convite/')[1];
 
+const MSG_CRN = 'Informe o CRN no formato CRN-3 12345 (região de 1 a 11; inscrição provisória ou secundária: CRN-3 12345-P ou -S).';
+
+describe('normalizarCrn (SUS-118)', () => {
+  it.each([
+    ['crn-3 12345', 'CRN-3 12345'],
+    ['CRN 3 12345', 'CRN-3 12345'],
+    ['CRN-3/12345', 'CRN-3 12345'],
+    ['CRN-3 nº 12345', 'CRN-3 12345'],
+    ['CRN-3 nº12345', 'CRN-3 12345'],
+    ['CRN-3 Nº 12345', 'CRN-3 12345'],
+    ['CRN-3 n° 12345', 'CRN-3 12345'],
+    ['  CRN-4 12345  ', 'CRN-4 12345'],
+    ['CRN-11 1', 'CRN-11 1'],
+    ['CRN-10 1234567', 'CRN-10 1234567'],
+    ['CRN-3 12345P', 'CRN-3 12345-P'],
+    ['CRN-3 12345-p', 'CRN-3 12345-P'],
+    ['CRN-3 12345 S', 'CRN-3 12345-S'],
+    ['CRN-3 12345/S', 'CRN-3 12345-S'],
+  ])('aceita %j e grava %j', (entrada, canonico) => {
+    expect(normalizarCrn(entrada)).toBe(canonico);
+  });
+
+  it.each([
+    'CRN312345', // sem separador: região e número ambíguos
+    'CRN-312345',
+    'CRN-0 123',
+    'CRN-3 0',
+    'CRN-3 0000',
+    'CRN-12 123',
+    'CRN-3 12345678',
+    'CRN-3 12345-X',
+    '',
+    'CRN-3',
+    '12345',
+    'CRN-03 12345',
+  ])('recusa %j', (entrada) => {
+    expect(normalizarCrn(entrada)).toBeNull();
+  });
+
+  it('code review do SUS-118: entrada longa com espaços recusa logo (sem ReDoS) e zero à esquerda vira o mesmo canônico', () => {
+    const inicio = performance.now();
+    expect(normalizarCrn('CRN-3 1' + ' '.repeat(50_000) + 'x')).toBeNull();
+    expect(normalizarCrn('CRN-3 1' + ' '.repeat(1_000_000) + 'x')).toBeNull();
+    expect(performance.now() - inicio).toBeLessThan(200);
+    expect(normalizarCrn('CRN-3 012345')).toBe('CRN-3 12345');
+    expect(normalizarCrn('CRN-3 0012345-p')).toBe('CRN-3 12345-P');
+  });
+
+  it('o schema grava o canônico e recusa com a mensagem exata', () => {
+    expect(crnSchema.parse('crn-4 nº 12345 p')).toBe('CRN-4 12345-P');
+    const r = crnSchema.safeParse('CRN-312345');
+    expect(r.success).toBe(false);
+    expect(r.error?.issues.map((i) => i.message)).toEqual([MSG_CRN]);
+  });
+});
+
 describe('criarContaNutri (US-001)', () => {
   it('cria tenant ativa com cota 500, nutri sem senha, convite de 72 h só em hash e e-mail na fila', async () => {
     const x = s();
@@ -72,7 +128,7 @@ describe('criarContaNutri (US-001)', () => {
     expect((e as ContaError).erros).toEqual({
       nomeExibicao: 'Informe o nome (3 a 80 caracteres)',
       email: 'Informe um e-mail válido',
-      crn: 'CRN inválido. Ex.: CRN-3 12345',
+      crn: MSG_CRN,
       slug: 'Use de 3 a 40 letras minúsculas, números ou hífen',
     });
   });

@@ -15,7 +15,7 @@ export function PerfilForm({ tenant }: { tenant: TenantRow }) {
   return (
     <form action={action} className="space-y-4">
       <Campo id="nomeExibicao" rotulo="Nome de exibição" required defaultValue={v ? v.nomeExibicao : tenant.nomeExibicao} erro={e.nomeExibicao} />
-      <Campo id="crn" rotulo="CRN" required defaultValue={v ? v.crn : (tenant.crn ?? '')} erro={e.crn} dica="Ex.: CRN-3 12345" />
+      <Campo id="crn" rotulo="CRN" required defaultValue={v ? v.crn : (tenant.crn ?? '')} erro={e.crn} dica="Ex.: CRN-3 12345 (provisória ou secundária: CRN-3 12345-P ou -S)" />
       <Campo id="corPrimaria" rotulo="Cor principal" required defaultValue={v ? v.corPrimaria : (tenant.corPrimaria ?? COR_PADRAO)} erro={e.corPrimaria}
         dica="Formato #RRGGBB. O texto sobre a cor é branco, então ela precisa de contraste de pelo menos 4,5:1." />
       <Campo id="enderecoConsultorio" rotulo="Endereço do consultório" defaultValue={v ? v.enderecoConsultorio : (tenant.enderecoConsultorio ?? '')} erro={e.enderecoConsultorio} />

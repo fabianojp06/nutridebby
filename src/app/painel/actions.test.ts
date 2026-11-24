@@ -61,7 +61,7 @@ describe('salvarPerfilAction (T10-R2, PF-N9)', () => {
     await nutriLogado();
     const fd = form({ ...CAMPOS_VALIDOS, crn: 'ruim', enderecoConsultorio: '', linkOnlinePadrao: '' }); // crn inválido força o erro
     const state = await salvarPerfilAction({}, fd);
-    expect(state.erros?.crn).toBe('CRN inválido. Ex.: CRN-3 12345');
+    expect(state.erros?.crn).toBe('Informe o CRN no formato CRN-3 12345 (região de 1 a 11; inscrição provisória ou secundária: CRN-3 12345-P ou -S).');
     expect(state.valores?.enderecoConsultorio).toBe('');
     expect(state.valores?.linkOnlinePadrao).toBe('');
   });
@@ -94,6 +94,29 @@ describe('salvarPerfilAction (T10-R2, PF-N9)', () => {
     fd.set('agendamentoPublicoAtivo', 'on');
     expect(await salvarPerfilAction({}, fd)).toEqual({ ok: true });
     expect((await db.select({ ativo: tenants.agendamentoPublicoAtivo }).from(tenants).where(eq(tenants.id, t.id)))[0].ativo).toBe(true);
+  });
+});
+
+describe('salvarPerfilAction — CRN (SUS-118)', () => {
+  const crnSalvo = async (id: string) => (await db.select({ crn: tenants.crn }).from(tenants).where(eq(tenants.id, id)))[0].crn;
+
+  it('grava o CRN digitado no formato canônico, com o sufixo da inscrição provisória', async () => {
+    const t = await nutriLogado();
+    const fd = form({ ...CAMPOS_VALIDOS, crn: 'crn 4/12345p', enderecoConsultorio: '', linkOnlinePadrao: '' });
+    expect(await salvarPerfilAction({}, fd)).toEqual({ ok: true });
+    expect(await crnSalvo(t.id)).toBe('CRN-4 12345-P');
+  });
+
+  it('o CRN já salvo não é revalidado: salvar o perfil sem mexer no campo mantém o valor como está', async () => {
+    const t = await nutriLogado();
+    await db.update(tenants).set({ crn: 'CRN-312345' }).where(eq(tenants.id, t.id)); // gravado pela regra antiga
+    const fd = form({ ...CAMPOS_VALIDOS, nomeExibicao: 'Debby Nova', crn: 'CRN-312345', enderecoConsultorio: '', linkOnlinePadrao: '' });
+    expect(await salvarPerfilAction({}, fd)).toEqual({ ok: true });
+    expect((await db.select({ crn: tenants.crn, nome: tenants.nomeExibicao }).from(tenants).where(eq(tenants.id, t.id)))[0]).toEqual({ crn: 'CRN-312345', nome: 'Debby Nova' });
+    // mudou o campo: vale a regra nova
+    const outro = await salvarPerfilAction({}, form({ ...CAMPOS_VALIDOS, crn: 'CRN-3123456', enderecoConsultorio: '', linkOnlinePadrao: '' }));
+    expect(outro.erros?.crn).toBe('Informe o CRN no formato CRN-3 12345 (região de 1 a 11; inscrição provisória ou secundária: CRN-3 12345-P ou -S).');
+    expect(await crnSalvo(t.id)).toBe('CRN-312345');
   });
 });
 

@@ -13,13 +13,32 @@ import { primeiroErroPorCampo } from '@/lib/validacao';
 import { criarConvite, linkDoConvite } from './convites';
 import { ContaNaoEncontradaError, getTenantStatus } from './tenant-status';
 
-export const CRN_REGEX = /^CRN-?\d{1,2}\s?\d{3,6}$/i;
+/**
+ * SUS-118 (Res. CFN 786/2024, arts. 23 e 24; 11 regionais, CRN-1 a CRN-11): "CRN" ou "CRN-" (ou "CRN "), a região de 1 a
+ * 11, um separador obrigatório (espaço, "/" ou "nº"/"n°"), o número de 1 a 7 dígitos e o sufixo opcional da inscrição
+ * provisória (P) ou secundária (S). Sem separador ("CRN312345", "CRN-312345") é ambíguo e fica recusado.
+ */
+const CRN_ENTRADA = /^CRN[-\s]?(1[01]|[1-9])(?:\s?(?:\/|n[º°])\s?|\s{1,3})(\d{1,7})(?:\s?[-/]?\s?([PS]))?$/i;
+/** Code review do SUS-118: o maior CRN válido tem uns 20 caracteres; entrada maior nem chega à regex (sem ReDoS). */
+const CRN_MAX_ENTRADA = 40;
+
+/** SUS-118: o CRN no formato canônico ("CRN-3 12345", "CRN-3 12345-P"), ou `null` se não segue a regra. Única validação do CRN. */
+export function normalizarCrn(valor: string): string | null {
+  const texto = valor.trim();
+  if (texto.length > CRN_MAX_ENTRADA) return null;
+  const m = CRN_ENTRADA.exec(texto);
+  if (!m) return null;
+  const [, regiao, digitos, sufixo] = m;
+  const numero = digitos.replace(/^0+/, ''); // zero à esquerda não muda a inscrição: um canônico só
+  if (!numero) return null; // inscrição só com zeros não existe
+  return `CRN-${regiao} ${numero}${sufixo ? `-${sufixo.toUpperCase()}` : ''}`;
+}
 
 export const MSG = {
   nome: 'Informe o nome (3 a 80 caracteres)',
   emailInvalido: 'Informe um e-mail válido',
   emailDuplicado: 'E-mail já cadastrado',
-  crn: 'CRN inválido. Ex.: CRN-3 12345',
+  crn: 'Informe o CRN no formato CRN-3 12345 (região de 1 a 11; inscrição provisória ou secundária: CRN-3 12345-P ou -S).',
   slugFormato: 'Use de 3 a 40 letras minúsculas, números ou hífen',
   slugDuplicado: 'Endereço já em uso',
   jaTemSenha: 'A nutricionista já definiu a senha. Se ela esqueceu, use "Esqueci minha senha".',
@@ -28,7 +47,14 @@ export const MSG = {
 } as const;
 
 export const nomeExibicaoSchema = z.string().trim().min(3, MSG.nome).max(80, MSG.nome);
-export const crnSchema = z.string().trim().regex(CRN_REGEX, MSG.crn).transform((v) => v.toUpperCase());
+export const crnSchema = z.string().transform((v, ctx) => {
+  const crn = normalizarCrn(v);
+  if (crn === null) {
+    ctx.addIssue({ code: 'custom', message: MSG.crn });
+    return z.NEVER;
+  }
+  return crn;
+});
 
 export const novaContaSchema = z.object({
   nomeExibicao: nomeExibicaoSchema,

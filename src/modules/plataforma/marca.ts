@@ -62,7 +62,10 @@ export class PerfilError extends Error {
 
 /** US-005. `tenants` não tem RLS: o tenantId vem sempre da sessão (requireNutri), nunca do formulário. */
 export async function atualizarPerfil(tenantId: string, input: Record<string, unknown>, db: Db = getDb()): Promise<void> {
-  const p = perfilSchema.safeParse(input);
+  // SUS-118: o formulário manda sempre o CRN; o já salvo (talvez da regra antiga) não é revalidado se o campo não mudou
+  const [atual] = await db.select({ crn: tenants.crn }).from(tenants).where(eq(tenants.id, tenantId));
+  const crnSemMudanca = atual?.crn != null && typeof input.crn === 'string' && input.crn.trim() === atual.crn;
+  const p = (crnSemMudanca ? perfilSchema.omit({ crn: true }) : perfilSchema).safeParse(input);
   if (!p.success) throw new PerfilError(primeiroErroPorCampo(p.error));
   await db.update(tenants).set({ ...p.data, updatedAt: new Date() }).where(eq(tenants.id, tenantId));
 }

@@ -13,7 +13,7 @@ export function NovaContaForm({ linkPublicoBase }: { linkPublicoBase: string }) 
     <form action={action} className="space-y-4" noValidate>
       <Campo id="nomeExibicao" rotulo="Nome de exibição" required defaultValue={v.nomeExibicao} erro={e.nomeExibicao} />
       <Campo id="email" rotulo="E-mail" type="email" autoComplete="off" required defaultValue={v.email} erro={e.email} />
-      <Campo id="crn" rotulo="CRN" required defaultValue={v.crn} erro={e.crn} dica="Ex.: CRN-3 12345" />
+      <Campo id="crn" rotulo="CRN" required defaultValue={v.crn} erro={e.crn} dica="Ex.: CRN-3 12345 (provisória ou secundária: CRN-3 12345-P ou -S)" />
       <Campo id="slug" rotulo="Endereço da página" required defaultValue={v.slug} erro={e.slug}
         dica={`Vai compor o link da página pública de agendamento, quando ela estiver disponível: ${linkPublicoBase}seu-endereco. Não é o endereço do consultório.`} />
       {e.geral && <p role="alert" className="text-red-700">{e.geral}</p>}

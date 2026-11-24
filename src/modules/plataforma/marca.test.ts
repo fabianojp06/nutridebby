@@ -10,6 +10,7 @@ vi.mock('server-only', () => ({})); // M16: marca.ts é só do servidor
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
 
+const MSG_CRN = 'Informe o CRN no formato CRN-3 12345 (região de 1 a 11; inscrição provisória ou secundária: CRN-3 12345-P ou -S).';
 const valido = {
   nomeExibicao: 'Debby Silva', crn: 'CRN-3 12345', corPrimaria: '#2E7D32', enderecoConsultorio: 'Rua A, 10',
   linkOnlinePadrao: 'https://meet.exemplo.com/debby', antecedenciaMinH: '12', cancelamentoMinH: '24',
@@ -68,7 +69,22 @@ describe('atualizarPerfil (US-005)', () => {
     // revisão final: só os fusos do Brasil da tela (sem horário de verão; rótulos e cota partem disso) — IANA válido de fora, não
     for (const f of ['America/New_York', 'Europe/Lisbon', 'UTC']) expect(await erros(t.id, { fuso: f })).toEqual({ fuso: 'Fuso horário inválido' });
     for (const f of FUSOS_BRASIL) expect(await erros(t.id, { fuso: f })).toBeUndefined();
-    expect(await erros(t.id, { crn: 'X' })).toEqual({ crn: 'CRN inválido. Ex.: CRN-3 12345' });
+    expect(await erros(t.id, { crn: 'X' })).toEqual({ crn: MSG_CRN });
+  });
+
+  it('SUS-118: CRN novo no formato canônico; o já salvo passa como está se o campo não mudou; mudado, vale a regra nova', async () => {
+    const t = await novoTenant();
+    await atualizarPerfil(t.id, { ...valido, crn: 'crn-4 nº 12345 p' }, app.db);
+    expect((await app.db.select({ crn: tenants.crn }).from(tenants).where(eq(tenants.id, t.id)))[0].crn).toBe('CRN-4 12345-P');
+    // valor gravado pela regra antiga (/^CRN-?\d{1,2}\s?\d{3,6}$/i), que a nova recusa por não ter separador
+    await app.db.update(tenants).set({ crn: 'CRN-312345' }).where(eq(tenants.id, t.id));
+    expect(await erros(t.id, { crn: 'CRN-312345', nomeExibicao: 'Outro nome' })).toBeUndefined();
+    expect(await erros(t.id, { crn: ' CRN-312345 ' })).toBeUndefined();
+    expect((await app.db.select({ crn: tenants.crn, nome: tenants.nomeExibicao }).from(tenants).where(eq(tenants.id, t.id)))[0]).toEqual({ crn: 'CRN-312345', nome: 'Debby Silva' });
+    expect(await erros(t.id, { crn: 'CRN-3123456' })).toEqual({ crn: MSG_CRN });
+    // sem CRN salvo, o vazio continua recusado
+    const semCrn = await novoTenant();
+    expect(await erros(semCrn.id, { crn: '' })).toEqual({ crn: MSG_CRN });
   });
 });
 

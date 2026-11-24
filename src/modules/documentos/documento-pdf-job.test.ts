@@ -235,3 +235,11 @@ describe('PDF do parecer (US-141, RN-148, D5)', () => {
     expect(textoDoPdf(await readFile(path.join(dataDir, d.base_pdf_path)))).toContain('Parecer nutricional');
   });
 });
+
+describe('CRN no carimbo (SUS-118)', () => {
+  it('o CRN com o sufixo da inscrição provisória sai como foi gravado, sem cortar nem reformatar', async () => {
+    const copia = { ...conteudo.copia, profissional: { ...conteudo.copia.profissional, crn: 'CRN-4 12345-P' } };
+    const pdf = await renderizarDocumento({ conteudo: { ...conteudo, copia } as never, codigo: 'ABCDEFGHJKMN', urlVerificacao: 'https://x/v/ABCDEFGHJKMN', data: '01/10/2026', cor: '#0f766e', logo: null, nomeConsultorio: 'Consultório Debby' });
+    expect(textoDoPdf(pdf)).toContain('CRN-4 12345-P');
+  });
+});
