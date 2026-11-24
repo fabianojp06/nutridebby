@@ -194,6 +194,8 @@ async function resolverPedidoPublico(tx: Tx, r: PedidoPublico, resolucao: 'recus
   const [t] = await tx.select({ slug: tenants.slug, ativa: tenants.agendamentoPublicoAtivo }).from(tenants).where(eq(tenants.id, r.tenantId));
   const link = t ? linkDeOutroHorario({ daPagina: true, tenant: { id: r.tenantId, slug: t.slug, agendamentoPublicoAtivo: t.ativa } }, appUrl) : null;
   const sai = quandoAvisar(agora, fuso);
+  // AG-D81 com AG-D75: adiado para as 08:00, o e-mail sairia depois do horário pedido — só o estado
+  if (r.inicio.getTime() <= sai.getTime()) return;
   await enqueueEmail(
     { tipo: 'pedido_nao_confirmado_publico', para: r.email, quando: quandoComFuso(r.inicio, fuso), link },
     { tenantId: r.tenantId, tx, ...(sai.getTime() === agora.getTime() ? {} : { startAfter: sai }) },
