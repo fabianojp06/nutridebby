@@ -100,6 +100,8 @@ function EditorDaReceita({
     const f = new FormData();
     f.set('conteudo', JSON.stringify({ itens, orientacoes }));
     f.set('justificativa', justificativa);
+    // numa retificação, o motivo digitado vai junto (grava pelo mesmo caminho do "Salvar rascunho"); fora dela, o campo não vai
+    if (motivo !== null) f.set('motivoRetificacao', motivoRet);
     f.set('modeloId', modeloId);
     f.set('modo', modo);
     return carregarModeloAction(patientId, docId, f);

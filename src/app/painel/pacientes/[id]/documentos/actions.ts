@@ -314,7 +314,7 @@ export async function carregarModeloAction(patientId: string, docId: string, f: 
   const modo = String(f.get('modo') ?? '') as 'acrescentar' | 'substituir';
   let conteudo: ConteudoReceita;
   try {
-    conteudo = await carregarModeloNaReceita(ctx, tenant, patientId, docId, { conteudo: editor.conteudo, justificativa: editor.justificativa, modeloId: String(f.get('modeloId') ?? ''), modo });
+    conteudo = await carregarModeloNaReceita(ctx, tenant, patientId, docId, { conteudo: editor.conteudo, justificativa: editor.justificativa, motivoRetificacao: editor.motivoRetificacao, modeloId: String(f.get('modeloId') ?? ''), modo });
   } catch (e) {
     return comoEstado(e);
   }

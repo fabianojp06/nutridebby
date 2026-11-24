@@ -312,6 +312,26 @@ describe('itens salvos e modelos na receita pelas ações (US-379)', () => {
     expect((await carregarModeloAction(p.id, id, carregar(modeloId, 'substituir', [vitD('50', 'digitado')], 'Exposição solar baixa'))).conteudo?.itens).toHaveLength(2);
   });
 
+  it('"Carregar modelo" numa retificação: o motivo digitado vai junto e é gravado; sem o campo (fora da retificação), o motivo gravado não muda', async () => {
+    const { N, p } = await consultorio();
+    const v1 = await documentoNoBanco(db, N.ctx, p.id, { status: 'assinado' });
+    const v2 = String(await retificarAction(p.id, v1.id, {}).catch((e: Error) => e.message)).split('/').at(-1)!;
+    const [t] = await db.select().from(tenants).where(eq(tenants.id, N.tenantId));
+    const modeloId = await salvarModeloPrescricao(N.ctx, t, null, { nome: 'Rotina', itens: [vitD('2000', '1 ao dia')], orientacoes: '' }, { db });
+    const comMotivo = carregar(modeloId, 'acrescentar', [vitD('50', 'digitado')], 'Exposição solar baixa');
+    comMotivo.set('motivoRetificacao', 'Dose corrigida');
+    expect((await carregarModeloAction(p.id, v2, comMotivo)).erros).toBeUndefined();
+    expect(await lerDocumento(N.ctx, p.id, v2, db)).toMatchObject({ versao: 2, motivoRetificacao: 'Dose corrigida', justificativa: 'Exposição solar baixa' });
+    // o formulário fora da retificação não manda o campo: o motivo gravado fica como estava
+    expect((await carregarModeloAction(p.id, v2, carregar(modeloId, 'substituir', [], 'Exposição solar baixa'))).erros).toBeUndefined();
+    expect((await lerDocumento(N.ctx, p.id, v2, db))?.motivoRetificacao).toBe('Dose corrigida');
+    // o motivo inválido volta ao campo e nada muda
+    const longo = carregar(modeloId, 'acrescentar', [], 'Exposição solar baixa');
+    longo.set('motivoRetificacao', 'x'.repeat(501));
+    expect(await carregarModeloAction(p.id, v2, longo)).toEqual({ erros: { motivoRetificacao: 'Escreva o motivo da retificação (até 500 caracteres).' } });
+    expect((await lerDocumento(N.ctx, p.id, v2, db))?.motivoRetificacao).toBe('Dose corrigida');
+  });
+
   it('sem documentos_liberados (RN-398): "Salvar item", "Salvar como modelo" e "Carregar modelo" respondem 404 e nada é gravado', async () => {
     const { N, p } = await consultorio();
     const id = await criarReceita(N.ctx, p.id, { db });

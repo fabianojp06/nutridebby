@@ -1,4 +1,5 @@
 import { asc, eq, inArray, sql } from 'drizzle-orm';
+import { semInvalidosNoBanco } from '@/lib/texto-seguro';
 import { getDb, type Db, type Tx } from '@/db/client';
 import { uniqueViolation } from '@/db/errors';
 import { prescricaoItensSalvos, prescricaoModelos, type ItemSalvoRow, type ModeloPrescricaoRow, type TenantRow } from '@/db/schema';
@@ -33,7 +34,8 @@ function exigirNutri(ctx: TenantContext): void {
 const travar = (tx: Tx, biblioteca: 'prescricao_itens_salvos' | 'prescricao_modelos', tenantId: string) =>
   tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${biblioteca}:${tenantId}`}, 0))`);
 
-const umaLinha = (s: string) => s.replace(/\u0000/g, '').trim().replace(/\s+/g, ' ');
+/** Sem NUL nem surrogate solto (`semInvalidosNoBanco`, regra 3, SUS-109), uma linha. */
+const umaLinha = (s: string) => semInvalidosNoBanco(s).trim().replace(/\s+/g, ' ');
 function lerNome(input: unknown, erros: Record<string, string>): string {
   const nome = typeof input === 'string' ? umaLinha(input) : '';
   if (!nome || nome.length > NOME_DO_ITEM_MAX) erros.nome = E.nome;
@@ -222,14 +224,15 @@ export async function excluirModeloPrescricao(ctx: TenantContext, id: string, de
  * `acrescentar` (os da tela e depois os do modelo; mais de 20 → `passaDe20` e nada muda) ou `substituir` — e as orientações
  * do modelo só se as da tela estiverem vazias; grava pelo **mesmo caminho** do "Salvar" da receita (`salvarRascunhoReceita`:
  * o Zod, os 20 itens, a habilitação **atual** do consultório — R-377 —, o paciente e o documento travados; tudo ou nada),
- * com a justificativa digitada (o modelo não a traz), e devolve o conteúdo gravado (o cliente remonta o formulário por `key`).
+ * com a justificativa digitada (o modelo não a traz) e, numa retificação, o motivo digitado, e devolve o conteúdo gravado
+ * (o cliente remonta o formulário por `key`).
  */
 export async function carregarModeloNaReceita(
   ctx: TenantContext,
   tenant: TenantRow,
   patientId: string,
   docId: string,
-  input: { conteudo: unknown; justificativa: unknown; modeloId: string; modo: 'acrescentar' | 'substituir' },
+  input: { conteudo: unknown; justificativa: unknown; motivoRetificacao?: unknown; modeloId: string; modo: 'acrescentar' | 'substituir' },
   deps: { db?: Db } = {},
 ): Promise<ConteudoReceita> {
   exigirNutri(ctx);
@@ -250,5 +253,6 @@ export async function carregarModeloNaReceita(
     itens: input.modo === 'substituir' ? modelo.itens : [...daTela, ...modelo.itens],
     orientacoes: orientacoesDaTela.trim() ? orientacoesDaTela : modelo.orientacoes,
   };
-  return salvarRascunhoReceita(ctx, tenant, patientId, docId, { conteudo, justificativa: input.justificativa }, { db });
+  // a justificativa e, numa retificação, o motivo digitados vão junto (ausente = undefined: o motivo gravado não muda)
+  return salvarRascunhoReceita(ctx, tenant, patientId, docId, { conteudo, justificativa: input.justificativa, motivoRetificacao: input.motivoRetificacao }, { db });
 }

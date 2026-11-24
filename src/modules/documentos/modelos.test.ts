@@ -1,4 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
+import type { PoolClient } from 'pg';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { makeDb } from '../../../test/db';
 import { novoConsultorio } from '../../../test/documentos';
@@ -30,6 +31,23 @@ import { MSG_PRESCRICAO, type ConteudoReceita } from './prescricao';
  */
 const app = makeDb(inject('appDatabaseUrl'));
 afterAll(() => app.pool.end());
+/** O SQLSTATE de todo erro que o banco devolve (como em cadastro.test.ts): o texto com surrogate solto nunca chega ao banco como 22P02. */
+const errosDoBanco: string[] = [];
+app.pool.on('connect', (client: PoolClient) => {
+  const original = client.query.bind(client) as (...a: unknown[]) => unknown;
+  (client as unknown as { query: (...a: unknown[]) => unknown }).query = (...a: unknown[]) => {
+    const cb = a.at(-1);
+    if (typeof cb === 'function') {
+      a[a.length - 1] = (e: { code?: string } | null, ...resto: unknown[]) => {
+        if (e) errosDoBanco.push(e.code ?? '?');
+        return (cb as (...x: unknown[]) => unknown)(e, ...resto);
+      };
+    }
+    const r = original(...a);
+    if (r && typeof (r as Promise<unknown>).then === 'function') (r as Promise<unknown>).catch((e: { code?: string }) => void errosDoBanco.push(e?.code ?? '?'));
+    return r;
+  };
+});
 const deps = { db: app.db };
 const E = MSG_MODELOS.erros;
 
@@ -233,6 +251,31 @@ describe('itens salvos (US-379, RN-393, EP-D29)', () => {
     const lido = (await conteudoDe(c, p.id, doc)).conteudo;
     expect(posologias(lido)).toEqual(['cd', 'ab']);
     expect(JSON.stringify(lido)).not.toContain('\u0000');
+  });
+
+  it('surrogate UTF-16 sem par num campo de texto (POST à mão) sai antes de gravar — item salvo, modelo e rascunho da receita (sem 22P02, que levaria o texto ao log)', async () => {
+    const c = await consultorio(false);
+    errosDoBanco.length = 0;
+    const solto = { ...VITD, composicao: [{ nome: 'Vitamina\ud800 D3', quantidade: '2000', unidade: 'UI' }], forma: 'Cáp\udc00sula', posologia: 'a\ud800b' };
+    const id = await salvarItemSalvo(c.T.ctx, c.tenant, null, { nome: 'Com\ud800 surrogate', item: solto }, deps);
+    const salvo = await abrirItemSalvo(c.T.ctx, id, deps);
+    expect(salvo).toMatchObject({ nome: 'Com surrogate', item: { posologia: 'ab', forma: 'Cápsula', composicao: [{ nome: 'Vitamina D3' }] } });
+
+    const modelo = await salvarModeloPrescricao(c.T.ctx, c.tenant, null, { nome: 'Modelo\udfff solto', itens: [solto], orientacoes: 'Com\ud800 água.' }, deps);
+    const m = await abrirModeloPrescricao(c.T.ctx, modelo, deps);
+    expect(m).toMatchObject({ nome: 'Modelo solto', orientacoes: 'Com água.', itens: [{ posologia: 'ab', forma: 'Cápsula' }] });
+
+    const p = await novoPaciente(app.db, c.T.ctx);
+    const doc = await criarReceita(c.T.ctx, p.id, deps);
+    await salvarRascunhoReceita(c.T.ctx, c.tenant, p.id, doc, { conteudo: { itens: [solto], orientacoes: 'Linha\ud800 1' }, justificativa: '' }, deps);
+    const lido = (await conteudoDe(c, p.id, doc)).conteudo;
+    expect(lido).toMatchObject({ orientacoes: 'Linha 1', itens: [{ posologia: 'ab' }] });
+    // o par válido (emoji) fica
+    await salvarRascunhoReceita(c.T.ctx, c.tenant, p.id, doc, { conteudo: { itens: [{ ...VITD, posologia: '1 ao dia \u{1F600}' }] }, justificativa: '' }, deps);
+    expect(posologias((await conteudoDe(c, p.id, doc)).conteudo)).toEqual(['1 ao dia \u{1F600}']);
+    const semPar = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    for (const v of [salvo, m, lido]) expect(semPar.test(JSON.stringify(v))).toBe(false);
+    expect(errosDoBanco).toEqual([]);
   });
 
   it('o 301º item: recusa com o limite (editar um que já existe continua valendo); duas gravações concorrentes no teto (299 + 2) — a trava serializa, uma passa', async () => {
