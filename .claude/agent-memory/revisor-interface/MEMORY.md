@@ -34,3 +34,4 @@
 - [Rebase desfaz guia de outro plano](feedback_rebase-desfaz-guia-de-outro-plano.md) — PR 4 do 23: T12 apagou guia relatorios e v5 do boas-vindas; testes velhos/typo
 - [PR 3 do Plano 23, revisão final](feedback_pr3-plano23-revisao-final.md) — 0C/3I: correções que ficaram no PR 4 (sr-only relative, EXCECOES SUS-108); consentimento do portal sem status
 - [Dialogo: erro some e foco no destrutivo](feedback_dialogo-erro-desmonta-e-foco-no-destrutivo.md) — T8 P23: revalidatePath desmonta o Dialogo com o erro; data-foco-inicial no confirmar; nome publico sem break-words
+- [Select novo: largura, rótulo duplicado, aviso](feedback_select-novo-largura-e-rotulo-duplicado.md) — T11 P23: select sem w-full estoura 360 px; 'Local' duas vezes em Relatórios; guia lista filtros

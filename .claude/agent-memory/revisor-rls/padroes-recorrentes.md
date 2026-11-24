@@ -608,3 +608,10 @@ exportado, trava do paciente nos três canais, ON CONFLICT idêntico ao índice,
   coluna da expressão do índice, não só o agendamento das 9h. Correção barata: gravar o instante das 9h locais (já vencido).
 - Frase do CLAUDE.md "semConta só para gravar X" enquanto o módulo também LÊ no semConta (GET da página do link): pedir o
   ajuste do texto no fechamento.
+Plano 23, T11 (filtro de local em Pacientes e Financeiro, 24/11/2026): sem Critical na lente banco (exists com tenant
+correlacionado, withTenant, uma transação nas telas, só id e nome dos locais, sem auditRead novo, exportar intacto).
+- Opções de filtro copiadas da agenda ("ativos + o escolhido") em tela de HISTÓRICO (Financeiro, relatórios): o local
+  arquivado com lançamentos some do select e a partição "locais + Sem local = total" quebra na tela, embora o teste de
+  propriedade (só locais ativos) passe. Conferir se a fixture da propriedade arquiva algum item da partição.
+- Filtro inválido "ignorado como os outros" num EXPORT (CSV): exporta tudo com o mesmo nome de arquivo. Conferir se o
+  arquivo/registro diz o recorte e se valor inválido num ato deliberado não deveria recusar como o período.
