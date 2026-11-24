@@ -247,6 +247,6 @@ Sessão $SESSAO pronta: worktree $DESTINO, branch $BRANCH, banco $BANCO.
 Subir o app:     cd $DESTINO && pnpm exec next dev -p $PORTA
 Subir o worker:  cd $DESTINO && pnpm worker
 Abrir:           http://localhost:$PORTA
-E2E (pare antes o worker da sessão; um E2E por vez entre as sessões; o projeto webkit só roda no CI, SUS-117):
-                 cd $DESTINO && pnpm e2e:seed && pnpm build && APP_URL=http://localhost:$PORTA pnpm test:e2e --project=chromium --project=celular --project=painel
+E2E (pare antes o worker da sessão; um E2E por vez entre as sessões):
+                 cd $DESTINO && pnpm e2e:seed && pnpm build && APP_URL=http://localhost:$PORTA pnpm test:e2e
 FIM

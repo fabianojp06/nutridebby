@@ -56,7 +56,9 @@ export default defineConfig({
     // SUS-117 (RNF-09): o portal do paciente no WebKit do Playwright, como o Safari do iPhone (o mais novo da 1.63). O que
     // o Playwright não faz no WebKit (CDP, app instalado) sai por `test.skip(browserName === 'webkit', …)` só no teste.
     // O aparelho de verdade continua no runbook para instalar, push, VoiceOver e foto HEIC (docs/operacao/go-live.md).
-    { name: 'webkit', use: { ...devices['iPhone 17'] }, testMatch: SPECS_DO_PORTAL },
+    // Só no CI ou com E2E_WEBKIT=1: o host da VPS não tem as dependências de sistema do WebKit (a imagem do Playwright do CI
+    // tem), e um `pnpm test:e2e e2e/portal.spec.ts` local das sessões pegaria este projeto e falharia ao abrir o navegador.
+    ...(process.env.CI || process.env.E2E_WEBKIT ? [{ name: 'webkit', use: { ...devices['iPhone 17'] }, testMatch: SPECS_DO_PORTAL }] : []),
   ],
   webServer: [
     {

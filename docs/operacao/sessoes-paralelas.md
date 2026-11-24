@@ -71,8 +71,7 @@ no limite, mas também não rodam suíte pesada ao mesmo tempo que as outras.
   `pnpm worker` e no `pnpm e2e:seed`. O resto (inclusive o `NODE_ENV=development`) não é copiado: o `next start` segue
   com o carregador do Next e roda como produção, como no CI. Variável exportada no shell continua vencendo. Antes do SUS-101 o `pnpm test:e2e` não lia o `.env.local`:
   sem `APP_URL` caía na 3100 e o `e2e/whatsapp.ts` caía no banco `nutri` do principal. No CI, só as variáveis do job.
-  Ordem na sessão: `pnpm e2e:seed`, `pnpm build`, `pnpm test:e2e --project=chromium --project=celular --project=painel`
-  (sem `--project` entra o `webkit`, que o host não abre; ele só roda no CI, job `e2e-webkit`, SUS-117). Cuidados:
+  Ordem na sessão: `pnpm e2e:seed`, `pnpm build`, `pnpm test:e2e`. Cuidados:
   - o Playwright sempre sobe o próprio worker (`reuseExistingServer: false`): pare o `pnpm worker` da sessão antes,
     para não haver dois workers na mesma fila;
   - fora do CI ele **reaproveita** um servidor que já esteja na porta (`reuseExistingServer: !process.env.CI`): com o
