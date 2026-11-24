@@ -294,6 +294,20 @@ O cartão "Próxima consulta" não mostra peso (P08 D22): exigiria `auditRead` a
 então é auditada (entidade `diario`) **no máximo uma vez por paciente por dia, por ator**, no fuso do tenant
 (`auditarDiarioUmaVezNoDia`, trava `pg_advisory_xact_lock('inicio-diario', paciente)`; decisão do dono de 04/10/2026).
 
+**Plano 26 (T8, RN-514, RE-D63): o Início da recepção.** `/painel` na sessão `recepcao` desenha `InicioDaRecepcao`
+(`src/app/painel/inicio-recepcao.tsx`), que lê `inicioDaRecepcao` (`src/modules/agenda/inicio-recepcao.ts`; só a sessão
+`recepcao`, uma transação): "Agenda de hoje (n)" (`listarAgendaNaTransacao` do dia no fuso, sem canceladas nem
+`solicitada`), "Presença a registrar (n)" (`contarPendenciasDePresencaNaTransacao` e as `PRESENCA_NO_INICIO` = 5 mais
+antigas, `pendenciasDePresencaNaTransacao`; para ela, só "Faltou", com o texto `MSG_RECEPCAO.presenca`), "Solicitações (n)"
+(consultas `solicitada` do Plano 23 com `inicio − antecedência > agora`: pedidos de paciente cadastrado; os de pessoa nova
+moram em `public_booking_requests`, negada a ela, e ficam com a nutricionista — RE-D59, `MSG_RECEPCAO.pedidosPessoaNova`) e
+"O que os pacientes fizeram na agenda" (`novidadesDaAgendaNaTransacao`). Nada do `lerInicio`: sem "Próxima consulta" (lê
+diário e acesso ao app, com `auditRead`), indicadores do mês (ficam em Relatórios › Agenda), armazenamento, WhatsApp, IA,
+exames, dúvidas, documentos ou pedidos do titular; nenhuma leitura auditada (D10). A RLS dela esconde o paciente bloqueado e
+o anonimizado (RE-D40). Os links levam às telas da agenda, que no PR 2 ainda dão "Sem permissão" (T10, PR 3; a Equipe nasce
+desligada, RE-D52). Testes: `inicio-recepcao.test.ts` (chaves, contagens e RLS no banco) e `src/app/painel/page.test.ts`
+(com o espião de leituras negadas, [§7.4.3](07-testes-qualidade-e-processo.md)).
+
 ---
 
 ## 5.2 Página pública `/n/<slug>` (RN-16, P05 D11–D13)

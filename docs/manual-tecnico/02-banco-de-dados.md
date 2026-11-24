@@ -8,6 +8,8 @@ tabelas novas, a coluna `exams.mostrar_no_app_em`, a política `paciente_exame_l
 da anonimização ([§2.5.13](#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)); `drizzle/meta/_journal.json` com 128 entradas. Os números não são reservados e mudam
 no rebase (spec do Plano 22, §9; `docs/operacao/sessoes-paralelas.md`, §5).
 
+Plano 26, PR 2 (recepção): a gerada `0132_recepcao` e a custom `0133_rls_recepcao`, geradas sobre a `main` do momento (a última era a `0131`; 134 arquivos em `drizzle/`, `0000`–`0133`). A tabela nova está na [§2.5.13](#2513-equipe-do-consultório-equipets-plano-26) e a RLS da sessão `recepcao` na [§2.6.9](#269-sessão-da-recepção-plano-26-pr-2).
+
 Convenção de citação: `arquivo:linha` aponta para o código; "Plano NN, Dx" aponta para a tabela de decisões do plano em `docs/superpowers/plans/`; "spec §n" aponta para `docs/superpowers/specs/2026-09-27-nutridebby-mvp-design.md`.
 
 ---
@@ -20,8 +22,8 @@ Convenção de citação: `arquivo:linha` aponta para o código; "Plano NN, Dx" 
 | Extensões | `citext`, `pg_trgm`, `unaccent`, `btree_gist` | `drizzle/0000_base_roles_e_rls.sql:1-7` |
 | ORM | Drizzle (`drizzle-orm` 0.45.3) com `node-postgres` | `package.json`, `src/db/client.ts:1-2` |
 | Schema TS | `src/db/schema/*.ts` (reexportado por `index.ts`) | `drizzle.config.ts:5`, `src/db/schema/index.ts` |
-| Migrations | SQL em `drizzle/`, aplicadas pelo migrador do Drizzle | `src/db/migrate.ts:8-18` |
-| Fila | pg-boss no schema `pgboss`, dono = role da aplicação | `src/db/migrate.ts:80-81` |
+| Migrations | SQL em `drizzle/`, aplicadas pelo migrador do Drizzle | `src/db/migrate.ts:20-30` |
+| Fila | pg-boss no schema `pgboss`, dono = role da aplicação | `src/db/migrate.ts:92-93` |
 | Chave primária | `uuid` v4 (`gen_random_uuid()`) | Plano 01, "Desvios conscientes da spec" |
 | Datas | sempre `timestamptz` (teste quebra com `timestamp` sem fuso) | `src/db/migrate.test.ts:36` |
 | Isolamento | RLS **habilitada e forçada** em toda tabela com `tenant_id` | RNF-07; `drizzle/0000_base_roles_e_rls.sql:30-39` |
@@ -57,7 +59,7 @@ flowchart LR
 |---|---|---|---|---|
 | Migrator (em produção `nutri_owner`) | `LOGIN NOSUPERUSER CREATEROLE NOCREATEDB NOBYPASSRLS`, dono do banco `nutri` | O dono do servidor, uma vez, como `postgres` | Rodar as migrations; dono de todas as tabelas e funções | Plano 01, Tarefa 13, Step 1b (Ruling R49) |
 | `nutri_app_role` | `NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE` | Migration `0000` | Grupo que recebe os privilégios de tabela | `drizzle/0000_base_roles_e_rls.sql:9-19` |
-| Role da aplicação (o usuário de `DATABASE_URL`; `nutri_app` em dev e nos testes) | `LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE` | `ensureAppLogin` em toda execução de migrations | Conexão do app e do worker | `src/db/migrate.ts:21-85` |
+| Role da aplicação (o usuário de `DATABASE_URL`; `nutri_app` em dev e nos testes) | `LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE` | `ensureAppLogin` em toda execução de migrations | Conexão do app e do worker | `src/db/migrate.ts:33-97` |
 | `postgres` | Superusuário local do container | Imagem do Postgres | Só o script de backup no host (`pg_dump` dentro do container) e a criação do migrator | spec RNF-05; CLAUDE.md regra 10 |
 
 Por que o migrator não é superusuário: o dono das tabelas também obedece à RLS forçada (`FORCE ROW LEVEL SECURITY`). Funções `SECURITY DEFINER` de um dono superusuário passariam por cima da RLS. O teste mensal de restauração recusa o backup se existir função `SECURITY DEFINER` de superusuário (`scripts/backup/nutri-restauracao-teste.sh:67`, `:86`).
@@ -90,11 +92,11 @@ Exceções (revogações explícitas):
 | `audit_log` | `UPDATE`, `DELETE` | Append-only | `drizzle/0002_rls_plataforma.sql:3` |
 | `consents` | `UPDATE`, `DELETE` | Prova de aceite append-only; única escrita posterior é `app_anonimizar_aceites` | `drizzle/0009_consents.sql:13` |
 | `backup_runs` | `INSERT`, `UPDATE`, `DELETE` | Só o script do host grava; o app só lê | `drizzle/0014_backup_runs_somente_leitura.sql:2` |
-| Banco (`TEMPORARY`) | revogado de `PUBLIC` | Tabela temporária fica fora da RLS e já foi vetor de desvio de `search_path` (T4-R2a, M5) | `src/db/migrate.ts:59-75` |
+| Banco (`TEMPORARY`) | revogado de `PUBLIC` | Tabela temporária fica fora da RLS e já foi vetor de desvio de `search_path` (T4-R2a, M5) | `src/db/migrate.ts:71-87` |
 
 ### 2.2.4 O que `ensureAppLogin` faz em cada deploy
 
-`runMigrations` aplica o SQL e depois chama `ensureAppLogin` (`src/db/migrate.ts:8-18`):
+`runMigrations` aplica o SQL e depois chama `ensureAppLogin` (`src/db/migrate.ts:20-30`):
 
 1. Valida o nome do role de `DATABASE_URL` (`^[a-z_][a-z0-9_]{2,62}$`) e exige senha (`:25-26`).
 2. Cria o role com `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`, ou só sincroniza login e senha quando o migrator não é superusuário (`:33-47`).
@@ -118,7 +120,9 @@ Consequência operacional: a senha do role da aplicação volta sozinha a cada s
 | CI (E2E) | `pnpm db:migrate` antes do `e2e:seed` | — | `.github/workflows/ci.yml:168` |
 | Produção | automático: `docker-entrypoint.sh` roda `scripts/migrate.ts` antes do `next start` | `nutri_owner` | `docker-entrypoint.sh:8-10` |
 
-`pnpm db:migrate` = `tsx --env-file-if-exists=.env.local scripts/migrate.ts`. O script lê `getMigratorEnv()` e chama `runMigrations({ migratorUrl, appUrl })` com um pool de 1 conexão (`scripts/migrate.ts:1-5`, `src/db/migrate.ts:8-18`). Rodar de novo é seguro (`src/db/migrate.test.ts:67`).
+`pnpm db:migrate` = `tsx --env-file-if-exists=.env.local scripts/migrate.ts`. O script lê `getMigratorEnv()` e chama `runMigrations({ migratorUrl, appUrl })` com um pool de 1 conexão (`scripts/migrate.ts:1-5`, `src/db/migrate.ts:20-30`). Rodar de novo é seguro (`src/db/migrate.test.ts:67`).
+
+**`lock_timeout` de 10 s (Plano 26, RE-D64).** O pool vem de `poolDoMigrador` (`src/db/migrate.ts:16-18`), aberto com `options: '-c lock_timeout=10s'`. O migrador do Drizzle aplica todas as migrations pendentes numa transação só, e o limite vale para **cada espera de trava**, em qualquer comando da execução (não é teto da execução inteira: as esperas somam, e a trava de `user` tomada pela `0132` fica presa até o fim). Estourou (`55P03`, ou o migrador como vítima de um `40P01`): a transação volta inteira, `scripts/migrate.ts` sai com erro, o `docker-entrypoint.sh` (`set -eu`) não chega ao `next start` e o Swarm reinicia o container, que tenta de novo. Por isso a custom não tem `SET LOCAL lock_timeout`. Testes: `src/db/migrate.test.ts:96` (`show lock_timeout` na conexão do migrador = `10s`) e o caso RE-D64 de `src/db/recepcao-banco.test.ts:147` (a custom sem `SET LOCAL`). Roteiro de operação: `docs/operacao/recepcao.md`.
 
 Regras de operação:
 
@@ -164,13 +168,10 @@ Regras de operação:
 
 ## 2.5 Catálogo de tabelas
 
-São 69 tabelas em `public`: 53 com `tenant_id` sob RLS, 4 com `tenant_id` fora da RLS (`RLS_EXCEPTIONS`) e 12 sem `tenant_id` (Plano 10A: mais 4 sob RLS e `document_verifications` fora dela; Plano 09: `admin_actions`; Plano 11: `ia_tarefas` e `ia_uso` sob RLS e `ia_gasto_plataforma` sem `tenant_id`; Plano 12: `exam_submissions` e `exam_submission_files` sob RLS, com a proteção no [§11.3](11-exames-enviados.md#113-banco); Plano 14A: `ia_autorizacoes` sob RLS; Plano 14B-1: `ia_geracoes_modelos` sob RLS; Plano 15: `ia_nutri_participacoes`, `ia_nutri_mensagens` e `ia_nutri_consentimentos` sob RLS e `ia_nutri_pausa` sem `tenant_id`; Plano 17: `lembretes_rotina` e `lembretes_rotina_envios` sob RLS; Plano 18 (PR 2): `patient_cadastro` sob RLS, §2.5.4; Plano 20: `fin_configuracoes`, `fin_categorias` e `fin_lancamentos` sob RLS, as três `staff_only`). Contagem conferida nos `pgTable(` de `src/db/schema/*.ts` (17/11/2026, depois do PR 2 do Plano 18 e do Plano 20).
-Plano 22 (PR 1): mais `exames_catalogo`, `exames_modelos_solicitacao`, `exam_interpretacoes` e `exam_versoes`, as quatro
-sob RLS ([§2.5.13](#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)): **73** tabelas, 57 com `tenant_id` sob RLS (`pgTable(` de `src/db/schema/*.ts`, conferido em
-23/11/2026 no branch `plano-22-exames-prescricao`).
+São 76 tabelas em `public`: 60 com `tenant_id` sob RLS, 4 com `tenant_id` fora da RLS (`RLS_EXCEPTIONS`) e 12 sem `tenant_id` (Plano 10A: mais 4 sob RLS e `document_verifications` fora dela; Plano 09: `admin_actions`; Plano 11: `ia_tarefas` e `ia_uso` sob RLS e `ia_gasto_plataforma` sem `tenant_id`; Plano 12: `exam_submissions` e `exam_submission_files` sob RLS, com a proteção no [§11.3](11-exames-enviados.md#113-banco); Plano 14A: `ia_autorizacoes` sob RLS; Plano 14B-1: `ia_geracoes_modelos` sob RLS; Plano 15: `ia_nutri_participacoes`, `ia_nutri_mensagens` e `ia_nutri_consentimentos` sob RLS e `ia_nutri_pausa` sem `tenant_id`; Plano 17: `lembretes_rotina` e `lembretes_rotina_envios` sob RLS; Plano 18 (PR 2): `patient_cadastro` sob RLS, §2.5.4; Plano 20: `fin_configuracoes`, `fin_categorias` e `fin_lancamentos` sob RLS, as três `staff_only`; Planos 22 e 23, PR 1 de cada: `exames_catalogo`, `exames_modelos_solicitacao`, `exam_interpretacoes` e `exam_versoes` (0128, [§2.5.13](#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)) e `locais_atendimento` e `aniversario_autorizacoes` (0131) sob RLS; Plano 26, PR 2: `equipe_membros` sob RLS, `staff_only`, §2.5.13). Contagem conferida nos `pgTable(` de `src/db/schema/*.ts` (17/11/2026, depois do PR 2 do Plano 18 e do Plano 20; de novo em 24/11/2026 no branch do Plano 26, PR 2: 76 `pgTable(` e 60 tabelas com `app_enable_tenant_rls` nas migrations).
 
 Legenda da coluna "Proteção":
-**T** `tenant_isolation` · **P** `patient_isolation` · **S** `staff_only` · **Pub** comandos liberados ao contexto `publico` · **PE** comandos que a sessão de paciente grava · **A** gatilho de auditoria (entidade) · **X** política própria (ver §2.6.5).
+**T** `tenant_isolation` · **P** `patient_isolation` · **S** `staff_only` · **Pub** comandos liberados ao contexto `publico` · **PE** comandos que a sessão de paciente grava · **A** gatilho de auditoria (entidade) · **X** política própria (ver §2.6.5) · **Rec** comandos liberados à sessão `recepcao` (Plano 26, §2.6.9).
 
 ### 2.5.1 Matriz de proteção (tabelas com `tenant_id` sob RLS)
 
@@ -237,6 +238,12 @@ Toda tabela da matriz tem também `publico_negado` (ou `publico_sem_<cmd>` nos c
 Plano 22 (0128): `exams` ganha a política RESTRICTIVE `paciente_exame_liberado` (`FOR SELECT`): na sessão de paciente, só o
 exame com `mostrar_no_app_em` preenchido ([§2.5.13](#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22)).
 
+Desde o Plano 26 (PR 2, `0133`), toda tabela da matriz tem também `recepcao_negada` ou, nas de `RECEPCAO_LIBERADO`, as `recepcao_sem_<cmd>` dos comandos não liberados, com as condições `recepcao_cond_*` e os gatilhos de colunas da recepção ([§2.6.9](#269-sessão-da-recepção-plano-26-pr-2)). A tabela nova do plano:
+
+| Tabela | Proteção | Migration da RLS |
+|---|---|---|
+| `equipe_membros` (Plano 26) | T, S, Rec `select` com `recepcao_cond_propria_linha` (sem `patient_id`, fora da auditoria por gatilho: o módulo grava `recordAudit` da entidade `equipe`); `REVOKE DELETE, TRUNCATE`; gatilho `equipe_membros_regras` | 0133 (tabela na 0132) |
+
 ### 2.5.2 Convenção das chaves: FK composta pelo tenant
 
 Toda tabela filha liga-se à mãe por FK **composta** que inclui `tenant_id` (Plano 03, decisão "Vínculo das tabelas filhas"). A mãe expõe um `UNIQUE (tenant_id, id)` (ex.: `patients_tenant_id_unique`, `drizzle/0016_pacientes.sql:21`). Efeito: o banco recusa uma linha do tenant A apontando para paciente do tenant B, e a FK vale mesmo sem passar pela RLS. Quando a filha também guarda `patient_id`, a FK para a mãe intermediária usa a tripla `(tenant_id, patient_id, id)`, para que uma nota nunca aponte para o atendimento de outro paciente (`consultation_notes_atendimento_fk`, `drizzle/0027_atendimentos.sql:27`).
@@ -273,10 +280,10 @@ erDiagram
 | `stored_files` | `tenant_id`, `patient_id` (nulo = arquivo do consultório), `tipo`, `caminho`, `bytes`, `mime`, `criado_por` | `caminho` UNIQUE; `bytes > 0`; `tipo` em (`logo`,`capa`,`exame`,`plano_pdf`,`diario_foto`,`diario_foto_original`,`orientacao_pdf`,`exportacao`,`documento_base`,`documento_assinado`,`documento_digitalizado`; os três últimos desde a 0089; `exame_original` e `exame_pagina` do Plano 12; `ia_autorizacao_termo` desde a 0107, o termo em papel da autorização de IA); CHECK `stored_files_dono` (`logo`/`capa`/`orientacao_pdf` ⇔ `patient_id` nulo); FK (`tenant_id`,`patient_id`) → `patients` | 0010, 0071, 0072 |
 | `backup_runs` | `tipo` (`banco`/`arquivos`), `ok`, `bytes`, `detalhe`, `iniciado_em`, `concluido_em` | índice (`tipo`,`concluido_em`) | 0013 |
 | `admin_actions` (Plano 09) | `admin_user_id` (nulo na CLI), `acao` (`reiniciar_2fa`, `codigo_2fa_recusado`; Plano 11: `liberar_ia`, `bloquear_ia`, `ajustar_cota_ia`), `alvo_user_id`, `alvo_papel`, `alvo_tenant_id` (Plano 11), `origem` (`admin`/`cli`), `criado_em` | Só inclusão para a aplicação (`REVOKE UPDATE, DELETE, TRUNCATE`, 0096); CHECK `admin_actions_alvo_coerente` (0098): o 2FA exige usuário-alvo, as ações de IA exigem `alvo_tenant_id` e usuário e papel nulos, `codigo_2fa_recusado` fica sem alvo. Escrita por `plataforma/reiniciar-2fa.ts`, `contas.ts` (`definirIaLiberada`) e `metricas.ts` (`ajustarCotaIa`); o valor da cota vai só para o log | 0095–0098 |
-| `user` | `name`, `email` (citext), `email_verified`, `two_factor_enabled`, `app_role` (`admin`/`nutri`/`paciente`), `tenant_id` (nutri), `tema` (`sistema`/`claro`/`escuro`), `guia` (jsonb) | `email` UNIQUE; FK `tenant_id` → `tenants` | 0003, 0004, 0088 |
+| `user` | `name`, `email` (citext), `email_verified`, `two_factor_enabled`, `app_role` (`admin`/`nutri`/`paciente`/`recepcao`), `tenant_id` (nutri e recepção), `tema` (`sistema`/`claro`/`escuro`), `guia` (jsonb), `ultimo_acesso_em` (Plano 26: gravado no login da conta `recepcao`, o "Último acesso" da Equipe; RN-516, RE-D43) | `email` UNIQUE; FK `tenant_id` → `tenants`; Plano 26: CHECK `user_recepcao_com_tenant` (`app_role <> 'recepcao' or tenant_id is not null`) | 0003, 0004, 0088, 0132 |
 | `session`, `account`, `verification`, `two_factor`, `rate_limit` | Tabelas do Better Auth | FKs `user_id` → `user` `ON DELETE CASCADE` | 0003, 0004 |
-| `invites` | `user_id` (nutri), `tenant_id` e `patient_id` (paciente), `tipo` (`nutri`/`paciente`), `token_hash`, `expira_em`, `usado_em` | `token_hash` UNIQUE; CHECK `invites_alvo`; um pendente por usuário e por paciente (índices únicos parciais); FK (`tenant_id`,`patient_id`) → `patients` `CASCADE` | 0008, 0018 |
-| `consents` | `user_id` (nulo no aceite da página pública), `tenant_id`, `patient_id`, `termo_versao` (desde o Plano 11 também `ia-aditivo-<versão>`, o aditivo de IA da nutricionista, com o `tenant_id` do consultório), `aceito_em`, `ip` | CHECK `consents_titular` (conta ou paciente); `UNIQUE NULLS NOT DISTINCT (user_id, termo_versao, tenant_id, patient_id)`; FK (`tenant_id`,`patient_id`) → `patients` | 0009, 0018, 0055 |
+| `invites` | `user_id` (nutri e recepção), `tenant_id` e `patient_id` (paciente; o `tenant_id` também no convite da recepção), `tipo` (`nutri`/`paciente`/`recepcao`, Plano 26), `token_hash`, `expira_em`, `usado_em` | `token_hash` UNIQUE; CHECK `invites_alvo` (desde a 0132, o convite `recepcao` exige `user_id` e `tenant_id`, sem paciente); um pendente por usuário e por paciente (índices únicos parciais); FK (`tenant_id`,`patient_id`) → `patients` `CASCADE` | 0008, 0018, 0132 |
+| `consents` | `user_id` (nulo no aceite da página pública), `tenant_id`, `patient_id`, `termo_versao` (desde o Plano 11 também `ia-aditivo-<versão>`, o aditivo de IA da nutricionista, com o `tenant_id` do consultório; desde o Plano 26, `sigilo-equipe-<versão>`, o termo de confidencialidade da recepção, com a conta dela e o `tenant_id`), `aceito_em`, `ip` | CHECK `consents_titular` (conta ou paciente); `UNIQUE NULLS NOT DISTINCT (user_id, termo_versao, tenant_id, patient_id)`; FK (`tenant_id`,`patient_id`) → `patients` | 0009, 0018, 0055 |
 
 Decisões: tabelas do Better Auth no lugar de `users` (Plano 01, "Desvios conscientes"); `tema`/`guia` como colunas de `user` (Plano 08, D17); aceite por vínculo em `consents` (Plano 03, "Prova do aceite por vínculo"; Plano 05, D13).
 
@@ -490,6 +497,37 @@ sessão de paciente), `SO_INSERE` (`:203`), `COM_MAE` (`:392-393`; a recusa dos 
 `src/modules/exames/banco.test.ts` (CHECKs, gatilhos por papel, só de inclusão, cascata, política e `audit_log`). As funções
 de cada tabela estão em [§4.2.12](04-modulos-clinicos.md#4212-exames-do-consultório-catálogo-edição-com-versão-nota-e-comparativo-plano-22-pr-2).
 
+### 2.5.13 Equipe do consultório (`equipe.ts`, Plano 26)
+
+| Tabela | Colunas principais | Chaves e restrições | Fonte |
+|---|---|---|---|
+| `equipe_membros` | `tenant_id`, `user_id` (a conta `recepcao`), `papel` (só `recepcao`: `PAPEIS_DA_EQUIPE`, lista pronta para papéis futuros), `financeiro` (permissão do Financeiro, padrão `false`, RN-502), `convidada_por`, `desativada_em`, `desativada_por`, `created_at`, `updated_at` | `user_id` UNIQUE, FK `NO ACTION` para `user`; FK `tenant_id` → `tenants`; CHECK `equipe_membros_papel_valido` e `equipe_membros_desativacao` (`desativada_em` e `desativada_por` juntos ou nulos); índice parcial `equipe_membros_ativas_idx` (`tenant_id` onde `desativada_em` é nulo: a contagem do limite de 3) | 0132; `src/db/schema/equipe.ts:17-43` |
+
+Proteção (`drizzle/0133_rls_recepcao.sql:76-151`): `app_enable_tenant_rls` e `app_enable_staff_only` (entrada em
+`STAFF_ONLY`); a recepção só lê, e só a própria linha (`app_allow_recepcao('equipe_membros', 'select')` e a RESTRICTIVE
+`recepcao_cond_propria_linha` `FOR SELECT`, `user_id = app_current_user()`); `REVOKE DELETE, TRUNCATE` (desativa-se, nunca
+se apaga, RE-D28). Sem `patient_id`: sem gatilho de auditoria e sem entrada em `AUDIT_EXCEPTIONS`; o módulo grava
+`recordAudit` da entidade `equipe` ([§4.1.1](04-modulos-clinicos.md#equipe-do-consultório-plano-26-rn-499-a-rn-503)).
+O gatilho `equipe_membros_regras` (BEFORE INSERT OR UPDATE, `app_equipe_membros_regras`, `:103-151`) decide, nesta ordem:
+
+1. contexto vazio e `worker` → 42501 (a equipe só muda pela sessão da nutricionista);
+2. `recepcao` → 42501 (ela só lê; o UPDATE e o DELETE dela nem alcançam a linha: `recepcao_sem_update` e o DELETE revogado);
+3. no UPDATE, `id`, `tenant_id`, `user_id`, `papel`, `convidada_por` e `created_at` fixos para todo papel (42501 antes da
+   RLS: `IMUTAVEIS` no teste de isolamento);
+4. paciente, público e conta → `RETURN NEW` sem ler nada (a RLS da própria tabela recusa, para o `violaRlsDe` do teste de
+   isolamento ver a recusa da política);
+5. sessão `nutri`: no INSERT, linha de outro consultório → `RETURN NEW` sem ler a conta (a RLS recusa sem dizer de quem é o
+   `user_id`); no próprio, `convidada_por := app_current_user()`, desativação nula e a conta tem de ser `recepcao` do mesmo
+   consultório (senão 42501); no UPDATE, desativar grava `desativada_em` (`clock_timestamp()`) e `desativada_por` (a usuária
+   da sessão), reativar limpa, e a desativação já registrada não muda (o módulo nunca reenvia `desativada_em` lida do banco).
+
+O limite de 3 pessoas ativas não é do banco: é do módulo, sob a trava do consultório (RN-499, RN-503). A `0132` também
+mexe em tabelas existentes, só por expansão (RNF-486: a imagem anterior roda sobre o banco novo, `docs/operacao/recepcao.md`):
+`user.ultimo_acesso_em`, os CHECKs `user_app_role_valido` (com `recepcao`) e `user_recepcao_com_tenant`, e `invites_tipo_valido`
+e `invites_alvo` com o convite `recepcao` (§2.5.3). Testes: `src/db/recepcao-banco.test.ts` (`describe` "CHECKs de user e
+invites" e "equipe_membros", `:153`, `:188`) e `test/isolamento.test.ts` (fábrica que cria o `user` de recepção no mesmo
+comando, num CTE; `SEM_DELETE`, `DELETE_REVOGADO` e `IMUTAVEIS`).
+
 ---
 
 ## 2.6 RLS em detalhe
@@ -501,7 +539,7 @@ A RLS lê variáveis de sessão (`current_setting(..., true)`) pelas funções d
 | GUC | Função SQL | Quem define | Fonte |
 |---|---|---|---|
 | `app.tenant_id` | `app_current_tenant()` → `uuid` | `withTenant`; `withConta` grava `''` | `drizzle/0000_base_roles_e_rls.sql:21-22` |
-| `app.role` | `app_current_role()` → `text` | `withTenant` (`nutri`/`paciente`/`worker`/`publico`); `withConta` (`conta`) | `drizzle/0000_base_roles_e_rls.sql:27-28` |
+| `app.role` | `app_current_role()` → `text` | `withTenant` (`nutri`/`paciente`/`worker`/`publico`/`recepcao`); `withConta` (`conta`) | `drizzle/0000_base_roles_e_rls.sql:27-28` |
 | `app.patient_id` | `app_current_patient()` → `uuid` | `withTenant`, só para `paciente` | `drizzle/0000_base_roles_e_rls.sql:24-25` |
 | `app.user_id` | `app_current_user()` → `uuid` | `withTenant` (`actorUserId`), `withConta` (a conta) | `drizzle/0007_auditoria_funcoes.sql:1-2` |
 | `app.ip` | `app_current_ip()` → `text` | `withTenant` (`ip`) | `drizzle/0007_auditoria_funcoes.sql:4-5` |
@@ -511,20 +549,20 @@ Tudo é gravado com `set_config(..., true)`, local à transação. Depois do com
 
 ### 2.6.2 `withTenant` e `withConta`
 
-`withTenant(ctx, fn, db?)` (`src/db/tenant.ts:86-106`):
+`withTenant(ctx, fn, db?)` (`src/db/tenant.ts:93-113`):
 
-1. `assertContext(ctx)` valida antes de tocar no banco (`src/db/tenant.ts:53-74`): `tenantId` uuid; papel na lista `ROLES` (o `admin` não existe ali, de propósito); `patientId` obrigatório e exclusivo do `paciente`; `actorUserId` obrigatório para `nutri` e para `paciente` com login; `semConta: true` só para `paciente` sem ator; IP válido.
+1. `assertContext(ctx)` valida antes de tocar no banco (`src/db/tenant.ts:58-81`): `tenantId` uuid; papel na lista `ROLES` (o `admin` não existe ali, de propósito); `patientId` obrigatório e exclusivo do `paciente`; `actorUserId` obrigatório para `nutri`, para `paciente` com login e, desde o Plano 26, para `recepcao` (`:78`; `patientId` e `semConta` continuam exclusivos do `paciente`, então a recepção os tem recusados); `semConta: true` só para `paciente` sem ator; IP válido.
 2. Abre uma transação e executa um único `select set_config(...)` com os cinco GUCs.
 3. Roda `fn(tx)`.
-4. Qualquer erro passa por `sanitizarErroDeBanco`: o erro do Drizzle leva SQL e parâmetros na mensagem, que não podem chegar a log nem Sentry (RNF-11; `src/db/tenant.ts:102-105`). A mesma sanitização vale para toda consulta, pelo *patch* em `PgPreparedQuery.queryWithCache` (`src/db/client.ts:8-27`).
+4. Qualquer erro passa por `sanitizarErroDeBanco`: o erro do Drizzle leva SQL e parâmetros na mensagem, que não podem chegar a log nem Sentry (RNF-11; `src/db/tenant.ts:109-112`). A mesma sanitização vale para toda consulta, pelo *patch* em `PgPreparedQuery.queryWithCache` (`src/db/client.ts:8-27`).
 
-`semConta` (N7, Plano 08) marca o paciente agindo sem sessão de login (link assinado da consulta, resposta pelo WhatsApp, convite). Só sete arquivos podem usar (desde o Plano 15, também `src/modules/ia/nutri-paciente/contexto.ts`: o contexto da IA Nutri lido pelo worker na sessão do paciente, sem login; desde o Plano 18, `src/modules/ficha/no-app.ts`): `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:39-47`; `src/modules/documentos/link-documento.ts` é o link do documento do Plano 10A e `src/modules/ia/autorizacao-link.ts`, o link da autorização de IA do Plano 14A), conferido por `src/db/sem-conta-guarda.test.ts`. Plano 18 (D16, RN-281): o
+`semConta` (N7, Plano 08) marca o paciente agindo sem sessão de login (link assinado da consulta, resposta pelo WhatsApp, convite). Só sete arquivos podem usar (desde o Plano 15, também `src/modules/ia/nutri-paciente/contexto.ts`: o contexto da IA Nutri lido pelo worker na sessão do paciente, sem login; desde o Plano 18, `src/modules/ficha/no-app.ts`): `SEM_CONTA_PERMITIDOS` (`src/db/tenant.ts:44-52`; `src/modules/documentos/link-documento.ts` é o link do documento do Plano 10A e `src/modules/ia/autorizacao-link.ts`, o link da autorização de IA do Plano 14A), conferido por `src/db/sem-conta-guarda.test.ts`. Plano 18 (D16, RN-281): o
 `no-app.ts` abre o contexto do paciente sem login **pela
 nutricionista**, só para contar o que o app mostra ("No app do paciente", [§4.2.11](04-modulos-clinicos.md#4211-cadastro-complementar-lista-e-no-app-do-paciente-plano-18-pr-2));
 a guarda procura a palavra em qualquer `.ts`/`.tsx` fora de teste, inclusive em comentário. Nenhum desses contextos lê
 `patient_cadastro` (política `patient_cadastro_paciente_com_conta`, §2.5.1).
 
-`withConta(userId, fn, db?)` (`src/db/tenant.ts:114-129`; Plano 06, D2): grava `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id = ''`. Serve para a conta de paciente (sem tenant) achar os próprios vínculos. Só `src/modules/portal/vinculos.ts` usa (CLAUDE.md regra 1).
+`withConta(userId, fn, db?)` (`src/db/tenant.ts:121-136`; Plano 06, D2): grava `app.role = 'conta'`, `app.user_id = userId` e `app.tenant_id = ''`. Serve para a conta de paciente (sem tenant) achar os próprios vínculos. Só `src/modules/portal/vinculos.ts` usa (CLAUDE.md regra 1).
 
 ```mermaid
 sequenceDiagram
@@ -545,13 +583,14 @@ sequenceDiagram
 
 | Contexto | Como entra | O que vê e grava | Fonte |
 |---|---|---|---|
-| `nutri` (equipe) | `requireNutri` / `requireApiNutri` | Tudo do próprio tenant. As políticas RESTRICTIVE só restringem `paciente` e `publico` | `src/lib/tenant-session.ts:22-28`, `:47` |
+| `nutri` (equipe) | `requireNutri` / `requireApiNutri` | Tudo do próprio tenant. As políticas RESTRICTIVE só restringem `paciente`, `publico` e, desde o Plano 26, `recepcao` | `src/lib/tenant-session.ts:28-34`, `:53` |
 | `worker` | Jobs do worker, com `tenant_id` no payload; sem ator | Igual à equipe no tenant do job; varreduras entre tenants partem de `tenants` | spec §4.1 "Worker"; ex. `src/modules/notificacoes/agendar.ts:212` |
+| `recepcao` (Plano 26) | `requireEquipe` / `requireApiEquipe` (só as rotas de `ROTAS_DA_RECEPCAO`), com ator e IP; `lerMembroDaEquipe` (`src/modules/plataforma/membro-da-equipe.ts:22`) também a usa, para a própria linha de `equipe_membros` | Negada por padrão: só as tabelas e os comandos de `RECEPCAO_LIBERADO`, com as condições `recepcao_cond_*` e os gatilhos de colunas; nunca o paciente bloqueado ou anonimizado ([§2.6.9](#269-sessão-da-recepção-plano-26-pr-2)) | `src/lib/tenant-session.ts:104-114`, `:125-141`; RN-498, RN-505 |
 | `paciente` | `requirePaciente` / `requireApiPaciente`; tenant e paciente vêm dos vínculos da conta | Só linhas próprias (`patient_isolation`), nada de `staff_only`, nada de rascunho, conteúdo só pela audiência, escrita só em `PACIENTE_ESCREVE` e com colunas conferidas | `src/lib/paciente-session.ts` (`requirePaciente`, que monta o `ctx` no fim, e `requireApiPaciente`); Plano 06, D1 |
-| `paciente` + `semConta` | Seis fluxos sem login (`SEM_CONTA_PERMITIDOS`; o link do documento desde o Plano 10A, o da autorização de IA desde o Plano 14A e o contexto da IA Nutri no worker desde o Plano 15) e, desde o Plano 18, a contagem do "No app do paciente" pela nutricionista (`no-app.ts`, D16: só contagens e ids) | Mesma RLS do paciente; `audit_log` sem ator; `patient_cadastro` negada (0 linhas) | `src/db/tenant.ts:21-47` |
+| `paciente` + `semConta` | Seis fluxos sem login (`SEM_CONTA_PERMITIDOS`; o link do documento desde o Plano 10A, o da autorização de IA desde o Plano 14A e o contexto da IA Nutri no worker desde o Plano 15) e, desde o Plano 18, a contagem do "No app do paciente" pela nutricionista (`no-app.ts`, D16: só contagens e ids) | Mesma RLS do paciente; `audit_log` sem ator; `patient_cadastro` negada (0 linhas) | `src/db/tenant.ts:26-52` |
 | `publico` | Página pública `/n/<slug>`, link da consulta, horários livres; sem ator | Só `PUBLICO_LIBERADO`, só nos comandos listados; o resto nega | Plano 05, D11; `src/db/tenant.ts:8-13`; ex. `src/modules/agenda/agendamento-publico.ts:74` |
 | `conta` | `withConta` | Só `patients` da própria conta (`paciente_por_conta`, `SELECT`) e a TACO; nada é gravado | Plano 06, D2; `drizzle/0073_conta_vinculos.sql` |
-| admin | Não tem contexto: `withTenant` recusa | Lê tabelas fora da RLS (`tenants`, `user`…) e as contagens das funções `SECURITY DEFINER` de métricas | `src/db/tenant.ts:56`; `src/modules/plataforma/metricas.ts:25`, `:46`; spec §3 |
+| admin | Não tem contexto: `withTenant` recusa | Lê tabelas fora da RLS (`tenants`, `user`…) e as contagens das funções `SECURITY DEFINER` de métricas | `src/db/tenant.ts:61`; `src/modules/plataforma/metricas.ts:25`, `:46`; spec §3 |
 
 A RLS não restringe **colunas**. Por isso o `publico` só roda dentro de funções fechadas de `src/modules/agenda` que devolvem o mínimo (`src/db/tenant.ts:8-13`), e a sessão de paciente tem gatilhos que conferem colunas (§2.6.6).
 
@@ -563,7 +602,7 @@ O Postgres libera uma linha quando **ao menos uma** política PERMISSIVE passa *
 flowchart TD
   Q["Linha candidata"] --> P{"Alguma PERMISSIVE passa?<br/>tenant_isolation: tenant_id = app_current_tenant()<br/>taco_leitura (foods, SELECT): tenant_id IS NULL<br/>paciente_por_conta (patients, SELECT, papel conta)"}
   P -- não --> N["Invisível / escrita recusada (42501)"]
-  P -- sim --> R{"Todas as RESTRICTIVE passam?<br/>patient_isolation · staff_only · publico_* · paciente_sem_*<br/>paciente_sem_rascunho · paciente_conteudo_* · paciente_arquivos …"}
+  P -- sim --> R{"Todas as RESTRICTIVE passam?<br/>patient_isolation · staff_only · publico_* · paciente_sem_* · recepcao_*<br/>paciente_sem_rascunho · paciente_conteudo_* · paciente_arquivos …"}
   R -- não --> N
   R -- sim --> OK["Linha visível / escrita aceita"]
 ```
@@ -572,16 +611,18 @@ flowchart TD
 
 | Função | Migration (versão atual) | O que cria | Observações |
 |---|---|---|---|
-| `app_enable_tenant_rls(tbl)` | 0000 → 0051 → **0070** | `ENABLE` e `FORCE ROW LEVEL SECURITY`; `tenant_isolation` (PERMISSIVE, ALL); chama `app_deny_publico` e `app_deny_paciente_escrita` | Tabela nova nasce fechada para `publico` e para a escrita do paciente (`drizzle/0070_paciente_sem_escrita.sql:39-50`) |
+| `app_enable_tenant_rls(tbl)` | 0000 → 0051 → 0070 → **0133** | `ENABLE` e `FORCE ROW LEVEL SECURITY`; `tenant_isolation` (PERMISSIVE, ALL); chama `app_deny_publico`, `app_deny_paciente_escrita` e, desde a 0133, `app_deny_recepcao` | Tabela nova nasce fechada para `publico`, para a escrita do paciente e para a recepção (`drizzle/0070_paciente_sem_escrita.sql:39-50`; corpo atual, o da 0070 mais a negação da recepção, em `drizzle/0133_rls_recepcao.sql:52-64`) |
 | `app_enable_patient_rls(tbl, col = 'patient_id')` | 0000 | `patient_isolation` (RESTRICTIVE, ALL): para `paciente`, `col = app_current_patient()` | Em `patients` a coluna é `id` (`drizzle/0017_rls_pacientes.sql:4`) |
 | `app_enable_staff_only(tbl)` | 0020 | `staff_only` (RESTRICTIVE, ALL): nega o papel `paciente`, inclusive as próprias linhas | US-016, US-019 |
 | `app_deny_publico(tbl)` | 0051 | `publico_negado` (RESTRICTIVE, ALL) | Remove `publico_sem_*` antes |
 | `app_allow_publico(tbl, VARIADIC comandos)` | 0051 | Troca `publico_negado` por uma `publico_sem_<cmd>` por comando **não** liberado | Comando fora de `select/insert/update/delete` dá erro. `SELECT … FOR UPDATE/SHARE` exige `update`; `INSERT … RETURNING/ON CONFLICT` exige `select` (`drizzle/0051_rls_consultas.sql:17-18`) |
 | `app_deny_paciente_escrita(tbl)` | 0070 | `paciente_sem_insert` (WITH CHECK), `paciente_sem_update` e `paciente_sem_delete` (USING) | Sem a política de `UPDATE`, `SELECT … FOR UPDATE/SHARE` do paciente não enxerga a linha (`drizzle/0070_paciente_sem_escrita.sql:15-16`) |
 | `app_allow_paciente_escrita(tbl, VARIADIC comandos)` | 0070 | Recria as três negações e remove só as dos comandos liberados | Idempotente; aceita só `insert/update/delete` |
+| `app_deny_recepcao(tbl)` (Plano 26) | 0133 | `recepcao_negada` (RESTRICTIVE, ALL, `USING` e `WITH CHECK` `app_current_role() IS DISTINCT FROM 'recepcao'`) | Remove `recepcao_sem_*` antes (`drizzle/0133_rls_recepcao.sql:13-25`) |
+| `app_allow_recepcao(tbl, VARIADIC comandos)` (Plano 26) | 0133 | Troca `recepcao_negada` por uma `recepcao_sem_<cmd>` por comando **não** liberado (molde de `app_allow_publico`) | Não toca as condições `recepcao_cond_*`; comando fora de `select/insert/update/delete` dá erro (`:30-49`) |
 | `app_enable_audit(tbl, entidade, col = 'patient_id')` | 0007 | Gatilho `audit_row_change` `AFTER INSERT OR UPDATE OR DELETE` | Recusa coluna do titular inexistente (T4-R2b) |
 
-As migrations `0051` e `0070` aplicaram as negações também às tabelas que já existiam, percorrendo `pg_policies` onde há `tenant_isolation` (`drizzle/0051_rls_consultas.sql:53-60`, `drizzle/0070_paciente_sem_escrita.sql:52-59`).
+As migrations `0051`, `0070` e `0133` aplicaram as negações também às tabelas que já existiam, percorrendo `pg_policies` onde há `tenant_isolation` (`drizzle/0051_rls_consultas.sql:53-60`, `drizzle/0070_paciente_sem_escrita.sql:52-59`; na `0133`, `:66-73`, só no schema `public`).
 
 Políticas criadas à mão (fora dos helpers):
 
@@ -622,6 +663,8 @@ Os lembretes do Plano 17 também (`0119`, `0120`, `0129`): `app_lembretes_rotina
 muda `desligado_pelo_paciente_em`, a sem conta nada; a `nutri` nunca a muda e só cria em nome próprio),
 `app_lembretes_rotina_envios_do_worker`, `app_lembretes_rotina_envios_sem_apagar` e `app_lembretes_rotina_sem_apagar` ([§5.3.9](05-agenda-portal-conteudo.md#539-lembretes-de-rotina-por-push-plano-17)).
 
+A sessão da recepção (Plano 26) tem os gatilhos de colunas dela, por lista branca, em `patients`, `patient_cadastro` e `appointments`, e o `tenants_so_nutri` (§2.6.9).
+
 ### 2.6.7 Conteúdo pela audiência e a exceção do plano
 
 A sessão de paciente só vê conteúdo `publicado` **e** da audiência: `todos`; `pacientes` com linha própria em `content_audience`; `etiquetas` pela função `app_conteudo_por_etiqueta` (Plano 07, D2; RN-12). A receita sugerida numa refeição do plano **publicado** do próprio paciente aparece só com `app.receitas_do_plano = 'on'` na transação. Esse GUC é ligado por `liberarReceitasDoPlano(tx)` (`src/modules/conteudo/audiencia.ts:45`) apenas por `planoDoPaciente` (`src/modules/portal/plano.ts:60`) e por `conteudoDoPaciente(…, { doPlano: true })`. O teste `src/modules/portal/conteudos.test.ts:160-172` quebra se outro arquivo ligar a exceção (CLAUDE.md regra 2). O portal nunca filtra a audiência à mão.
@@ -652,6 +695,10 @@ Todas seguem o mesmo molde:
 | `app_anonimizar_consentimentos_ia_nutri(uuid)` | 0117 | `anonimizarVencidos` (`src/modules/pacientes/lgpd.ts`) | Só `worker` de um tenant; paciente `bloqueado` ainda não anonimizado, travado (senão `42501`) | Tira IP, user-agent e conta; mantém evento, versão, destino, canal e data (Plano 15) |
 | `admin_metricas_ia_nutri()` | 0117 | `metricasDeIaPorEscopo` (`src/modules/plataforma/metricas.ts`) | Recusa com `55000` dentro de `withTenant` | Por tenant: perguntas do mês e os dois escopos de `ia_uso` (`conversa_paciente` × o resto) no mesmo `SELECT` (DP-11) |
 | `app_anonimizar_exames_textos(uuid, uuid)` | 0128 | `anonimizarVencidos` (`src/modules/pacientes/lgpd.ts:594`), depois do `UPDATE` que grava `anonimizado_em` | Só `worker` do próprio tenant (`p_tenant` igual ao do contexto) e paciente **já** anonimizado, travado `FOR UPDATE` (senão `42501`) | Anula `exam_versoes.justificativa` e `exam_interpretacoes.texto` do titular; as linhas, as versões e os valores ficam (prontuário). Idempotente. Plano 22, [§2.5.13](#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22); testes em `src/modules/pacientes/lgpd.test.ts:1091` e `src/db/migrate-owner.test.ts:543` |
+| `app_retorno_das_consultas(date, date)` (Plano 26) | 0133 | Pelos Relatórios e pela agenda na sessão da recepção (PR 3; no PR 2 só o banco) | Só `nutri` e `recepcao` com tenant (outro papel → vazio); período de no máximo 13 meses (senão `22023`) | Troca o papel para `worker` sem paciente (molde 0083) e volta antes do fim; devolve só `(appointment_id, retorno)` das consultas de paciente visível no período (RN-510, RN-416) |
+| `app_previsoes_de_retorno(date, date)` (Plano 26) | 0133 | Idem | Mesma | Só `(patient_id, previsto_em)`: a previsão do último atendimento com previsão de cada paciente visível, quando cai no período (RN-510, RN-430) |
+| `app_consulta_tem_atendimento(uuid)` (Plano 26) | 0133 | Gatilho `appointments_da_recepcao` (o "Faltou") e, no PR 3, `registrarPresenca` na sessão da recepção | Só `nutri` e `recepcao` com tenant; nulo para consulta não achada (outro tenant, paciente escondido) ou outro papel | Só o booleano: há linha de `consultations` com aquele `appointment_id`? `consultations` é negada à recepção, e a busca pela RLS dela voltaria vazia (RE-D62) |
+| `app_cpf_em_uso(text, uuid)` (Plano 26) | 0133 | `conferirCpf` (`src/modules/pacientes/cadastro.ts`) na sessão da recepção, sob a trava consultiva por consultório e CPF | Só `nutri` e `recepcao` com tenant e CPF; senão nulo (quem chama trata como recusa) | Só sim/não: o CPF está em **outro** cadastro do consultório, de qualquer paciente (também o bloqueado, que a recepção não vê)? Sem ela, o INSERT da recepção cairia no índice único e o `23505` levaria o CPF ao log do Postgres (RE-D71) |
 
 `app_anonimizar_documentos(uuid)` (0091, Plano 10A) segue o molde (`search_path` fixo, `REVOKE`/`GRANT`) mas é
 **`SECURITY INVOKER`**: o gatilho `app_documento_imutavel` já exige o contexto `worker`, e rodar com o papel de quem chama
@@ -695,7 +742,106 @@ recusados antes de tudo, os papéis que não são `nutri` caem na RLS sem ler `p
 do banco e o titular bloqueado ou anonimizado é recusado; a ordem e o porquê em [§2.5.13](#2513-exames-do-consultório-e-filhas-do-exame-exames-catalogots-exames-filhasts-plano-22));
 testes em `src/modules/exames/banco.test.ts`.
 
+Plano 26 (0133): as quatro peças `SECURITY DEFINER` da recepção estão na tabela acima (testes no `describe` "Plano 26: peças SECURITY DEFINER da recepção com dono NOBYPASSRLS", `src/db/migrate-owner.test.ts:1233`); a `app_recepcao_tem_financeiro()` é `SECURITY INVOKER` (§2.6.9). Os gatilhos de defesa do plano — `app_equipe_membros_regras`, `app_patients_da_recepcao`, `app_patient_cadastro_da_recepcao`, `app_appointments_da_recepcao`, `app_tenants_so_nutri` — e as funções refeitas `app_fin_lancamentos_regras` e `app_appointments_regras_pedido` estão na [§2.6.9](#269-sessão-da-recepção-plano-26-pr-2); testes em `src/db/recepcao-banco.test.ts`.
+
 Funções sem `SECURITY DEFINER` de apoio: `app_unaccent` (wrapper `IMMUTABLE` para índice, Plano 04, D6; `0040`), `app_versao_atende(text, text)` (o `versaoAtende` de `textos-legais.ts` em SQL, usado pelas funções da IA Nutri; Plano 15, `0117`), `app_etiquetas_validas` (CHECK de etiquetas; `0082`), `app_audit_row_change` (gatilho; §2.8) e as `app_paciente_colunas_*` (§2.6.6).
+
+### 2.6.9 Sessão da recepção (Plano 26, PR 2)
+
+Negação por padrão em duas camadas (RE-D15, RE-D16): no banco, toda tabela com `tenant_id` nasce negada à sessão
+`recepcao` e só as de `RECEPCAO_LIBERADO` ganham comandos; no app, só as rotas de `ROTAS_DA_RECEPCAO` aceitam a recepção
+(`requireEquipe`, [§3.7](03-autenticacao-e-acesso.md#37-guardas-por-papel)). Tudo na custom `drizzle/0133_rls_recepcao.sql`, escrita em três tarefas (RE-D54): blocos 1
+e 2 na T4, o 3 na T5a, o 4 e o 5 na T5b. As políticas novas só pegam o papel `recepcao`: para `nutri`, `paciente`,
+`worker`, `publico` e `conta` nada muda.
+
+**Bloco 1, negação (RN-505).** `app_deny_recepcao` e `app_allow_recepcao` (§2.6.5); `app_enable_tenant_rls` refeita com o
+corpo da 0070 e `PERFORM app_deny_recepcao(tbl)` no fim (`:52-64`); um laço sobre `pg_policies` (`schemaname = 'public'`,
+`policyname = 'tenant_isolation'`) põe `recepcao_negada` em toda tabela que já existia (`:66-73`). Sem `SET LOCAL
+lock_timeout`: o limite vem da conexão do migrador (§2.3, RE-D64).
+
+**Bloco 3, liberações e condições (RN-506 a RN-508; `:153-394`).**
+
+| Tabela | Comandos (`app_allow_recepcao`) | Condições (RESTRICTIVE) e gatilhos |
+|---|---|---|
+| `patients` | select, insert, update | `recepcao_cond_paciente_visivel` (`status <> 'bloqueado' AND anonimizado_em IS NULL`, no `USING` e no `WITH CHECK`: ela também não leva ninguém a bloqueado); gatilho `patients_da_recepcao` |
+| `patient_cadastro` | select, insert, update | `recepcao_cond_paciente_visivel` (por `EXISTS` no paciente, com os filtros escritos, sem depender da RLS de `patients` dentro da subconsulta); gatilho `patient_cadastro_da_recepcao` |
+| `appointments` | select, insert, update | `recepcao_cond_paciente_visivel` (`EXISTS`); gatilho `appointments_da_recepcao` |
+| `notifications` | select, insert, update | `recepcao_cond_paciente_visivel` (`EXISTS`) e `recepcao_cond_notificacoes_da_agenda` (`tipo` em `TIPOS_DA_AGENDA`: `lembrete_24h`, `lembrete_2h`, `consulta_marcada`, `consulta_cancelada`, `resposta_confirmacao`, `resposta_remarcar` e `pedido_nao_confirmado`; sem `convite_paciente`, RE-D37, nem `aniversario`) |
+| `availability_rules`, `availability_blocks` | select | — (o motivo do bloqueio não sai do módulo) |
+| `audit_log` | insert | — (o gatilho de auditoria e o `auditRead` gravam com o papel de quem age; a recepção não lê a trilha) |
+| `fin_configuracoes`, `fin_categorias` | select | `recepcao_cond_financeiro` |
+| `fin_lancamentos` | select, insert, update | `recepcao_cond_financeiro` e `recepcao_cond_paciente_visivel` (`patient_id IS NULL OR EXISTS`); `fin_lancamentos_regras` refeita |
+| `locais_atendimento` (Plano 23) | select | — (continua `staff_only`; o link da sala não sai do módulo) |
+| `equipe_membros` | select | `recepcao_cond_propria_linha` (§2.5.13) |
+
+`public_booking_requests` (pedidos de pessoa nova, Plano 23) continua negada (RE-D59): os pedidos de paciente cadastrado
+são consultas `solicitada` em `appointments`. Toda condição começa por `app_current_role() IS DISTINCT FROM 'recepcao' OR
+…`: para os outros papéis o `OR` para no primeiro termo. `recepcao_cond_financeiro` chama `(SELECT
+app_recepcao_tem_financeiro())` — `SECURITY INVOKER`, `STABLE`, `search_path` fixo, lê pela RLS da recepção a própria
+linha ativa de `equipe_membros` com `financeiro` (`:237-244`); dentro do `SELECT` vira um `InitPlan`, avaliado uma vez por
+consulta (caso "a permissão é avaliada uma vez por consulta" de `src/db/recepcao-banco.test.ts:544`). Desativada ou sem
+a linha: falso. Paciente escondido (bloqueado ou anonimizado) é falha fechada (RE-D40): o SELECT e o UPDATE não alcançam a
+linha, e o INSERT com o id dele é recusado pela política.
+
+`fin_lancamentos_regras` refeita (`:274-390`, corpo da 0123): os ramos "papel diferente de `nutri` → a RLS recusa" passam a
+"papel fora de (`nutri`, `recepcao`)"; na recepção, linha de outro consultório → `RETURN NEW` sem ler o paciente (a RLS
+recusa), e o paciente lido `FOR KEY SHARE` e **não achado** → 42501 "paciente não encontrado" (`:306`, `:375`), no INSERT
+e no UPDATE — sem isso, `v_status` nulo passaria. A nutricionista segue como na 0123 (RN-315); `criado_por`,
+`cancelado_por` e `cancelado_em` vêm da sessão e do relógio para as duas.
+
+**Bloco 4, gatilhos de colunas por lista branca (RN-508, RN-509, RN-512; RE-D41).** Só agem na sessão `recepcao` e no
+consultório da sessão (linha de outro consultório → `RETURN NEW`, e a RLS recusa com a mensagem que o teste de isolamento
+espera). Comparam `to_jsonb(NEW)` sem as colunas livres com o padrão: coluna nova de outro plano nasce fixa para a recepção
+até alguém decidir liberá-la. Todos com `SET search_path = public, pg_temp`.
+
+| Gatilho (BEFORE) | INSERT | UPDATE |
+|---|---|---|
+| `patients_da_recepcao` (`:407-429`) | Só `nome`, `data_nascimento`, `sexo`, `email`, `telefone_e164` (e `id`, `tenant_id`, `created_at`, `updated_at`), com `status = 'ativo'`, `origem = 'nutri'` e o resto nulo (`user_id`, bloqueio, anonimização, IA, peso oculto, lembretes, WhatsApp); `created_at := now()` (os novos do relatório de Pacientes) | Só mudam `nome`, `data_nascimento`, `sexo`, `telefone_e164` e `updated_at`; o **e-mail é fixo** (RE-D37); reenviar o mesmo valor passa (compara o valor, não a presença no `SET`) |
+| `patient_cadastro_da_recepcao` (`:436-457`) | Só CPF, nome social, estado civil, escolaridade, ocupação, nacionalidade, naturalidade, telefone fixo e endereço (e as colunas de sistema); o resto nulo — a `observacao` e a `identidade_genero` (RE-D38) | O que está fora da lista não muda, nem para apagar |
+| `appointments_da_recepcao` (`:473-531`; dispara antes de `appointments_link_da_sala` e `appointments_regras_pedido`, ordem alfabética) | Só a consulta `agendada` de `origem = 'nutri'`, sem presença, confirmação, cancelamento, motivo, pedido de remarcação nem `remarcada_de`; paciente, horário, modalidade, link e local livres; `created_at := now()` | Mudam só horário, modalidade, link, local, situação, confirmação, cancelamento, pedido de remarcação, presença e `updated_at` (paciente, origem, `remarcada_de` e o motivo do cancelamento fixos, RE-D44). Situação: agendada ⇄ confirmada; agendada/confirmada → cancelada por `'nutri'`; agendada/confirmada → faltou depois do início, sem mudar o início e com `app_consulta_tem_atendimento` falso (nulo também recusa, RE-D62); solicitada → agendada (aceite) ou → cancelada por `'pedido_recusado'` (recusa). Nunca → realizada; consulta encerrada (cancelada, realizada, faltou) não muda em nada. `cancelada_em` e `presenca_em` do `clock_timestamp()`; `confirmada_via` só fica como está ou vai a nulo |
+| `tenants_so_nutri` (`:536-546`) | — (INSERT e DELETE já recusados a toda sessão por `tenants_por_sessao`) | Todo UPDATE de `tenants` na sessão dela → 42501, mesmo sem mudança (RN-512); os outros papéis passam |
+
+O bloco 4 também refaz `app_appointments_regras_pedido` (`:552-658`) com o corpo da 0131 (Plano 23) e a recepção só nos
+dois pontos do papel: o aceite (`solicitada → agendada`, `:602`) e a recusa (`('recepcao', 'pedido_recusado')`, `:608`),
+como a nutricionista (RE-D59); os ramos do paciente, do público, do `worker` e do `'sistema'` não mudam. Mudou a função
+depois (outro plano): manter o papel `recepcao` nos dois pontos (caso "a custom refaz `app_appointments_regras_pedido`
+com o corpo da 0131" de `recepcao-banco.test.ts:920`).
+
+**Bloco 5, peças `SECURITY DEFINER` (RN-510, RE-D62, RE-D71; `:660-827`).** `app_retorno_das_consultas`,
+`app_previsoes_de_retorno`, `app_consulta_tem_atendimento` e `app_cpf_em_uso`, no molde da 0083: só `nutri` e `recepcao`
+com tenant; guardam `app.role` e `app.patient_id`, trocam para `worker` sem paciente, filtram à mão pelo tenant e pelo
+paciente visível (a `app_cpf_em_uso`, por qualquer paciente, sem devolver qual) e devolvem o contexto do chamador antes de
+retornar; `search_path` fixo, nomes com `public.`, `REVOKE ALL … FROM PUBLIC` e `GRANT EXECUTE … TO nutri_app_role`
+(tabela da §2.6.8). Devolvem só ids, o selo, a previsão ou o booleano. Guarda de módulo liberado à recepção que leia
+tabela negada a ela (como `consultations`) volta vazia pela RLS e passaria calada: vira função booleana assim, ou recusa.
+
+**As quatro listas** (fonte da verdade; cada uma tem a sua guarda):
+
+| Lista | Onde | O que declara | Guarda |
+|---|---|---|---|
+| `RECEPCAO_LIBERADO` | `src/db/rls-guard.ts:310` | Tabela → comandos liberados e o motivo (a matriz acima) | `findRecepcaoViolations` (`:410`) |
+| `RECEPCAO_CONDICOES` | `src/db/rls-guard.ts:369` | Tabela → política `recepcao_cond_<assunto>` → comando e a **expressão inteira** do `USING` e do `WITH CHECK`, escrita como o Postgres a guarda (com os `::text`) e comparada por igualdade depois de normalizar | idem |
+| `FUNCOES_COM_PAPEL` | `src/db/rls-guard.ts:494` | Função → decisão para a recepção (`recusa`, `como nutri`, `não se aplica`, `sem mudança`, `só recepcao`; `DecisaoDaRecepcao`, `:491`) e o motivo | `findPapelEmFuncoesViolations` (`:585`) |
+| `ROTAS_DA_RECEPCAO` e `FORA_DO_PAINEL` (app) | `src/app/painel/rotas-da-recepcao.ts:15`, `:29` | As páginas, rotas da API e actions do painel que chamam `requireEquipe`; fora do painel, as rotas que aceitam a recepção pela lista de papéis | Testes de fonte `rotas-da-recepcao.test.ts` e `papeis-fora-do-painel.test.ts` ([§7.4.3](07-testes-qualidade-e-processo.md#743-guardas-de-código-leitura-do-fonte)) |
+
+`findRecepcaoViolations`: toda política `recepcao*` do schema `public` tem um dos três nomes (`recepcao_negada`,
+`recepcao_sem_<cmd>`, `recepcao_cond_<assunto>`, `NOME_DA_RECEPCAO`, `:403`); toda condição é RESTRICTIVE, está em
+`RECEPCAO_CONDICOES`, começa pela negação da recepção seguida de `OR` e bate em comando e expressão, e toda condição
+declarada existe no banco; toda tabela com `tenant_id` fora de `RLS_EXCEPTIONS` tem só a `recepcao_negada` (ALL,
+RESTRICTIVE, a negação nos dois lados) ou, se está em `RECEPCAO_LIBERADO`, exatamente as `recepcao_sem_<cmd>` dos comandos
+não liberados, com comando, RESTRICTIVE e a expressão (como a B-5). Conferir a expressão inteira, e não um trecho, fecha
+`… OR NOT (…)` e `… OR true` (revisão da T4). `findPapelEmFuncoesViolations`: toda função do `public` cujo corpo
+(`prosrc` e, nas `BEGIN ATOMIC`, `pg_get_function_sqlbody`) cita `'nutri'`, `app_current_role` ou
+`current_setting('app.role'` (`CITA_PAPEL`, `:576`), e todo gatilho de tabela de `RECEPCAO_LIBERADO` que lê `patients` ou uma
+tabela negada à recepção (a classe da RE-D62), precisa de decisão; nome na lista que não existe em `pg_proc` também quebra.
+`findStaleExceptions` cobre `RECEPCAO_LIBERADO` e `RECEPCAO_CONDICOES`. Testes: `src/db/rls-guard.test.ts:310-502`, com
+controles positivos em tabelas e funções de rascunho.
+
+Plano que entrar depois do PR 2 com tabela nova: nada a fazer para negar (o `app_enable_tenant_rls` já nega); para liberar
+à recepção, `app_allow_recepcao` + `RECEPCAO_LIBERADO` (e a condição em `RECEPCAO_CONDICOES`); função nova que olha o papel,
+ou gatilho de tabela liberada que lê `patients`, ganha a decisão em `FUNCOES_COM_PAPEL`; tipo novo de `notifications`
+entra em `TIPOS_DA_AGENDA` (e na política) ou em `TIPOS_FORA_DA_RECEPCAO` (`src/modules/notificacoes/tipos.ts:94`, `:109`;
+teste "tipos da agenda × política × CHECK" em `tipos.test.ts:32`).
 
 ---
 
@@ -707,12 +853,15 @@ As listas de `src/db/rls-guard.ts` e `src/db/audit-guard.ts` são a fonte da ver
 |---|---|---|---|
 | `RLS_EXCEPTIONS` (`rls-guard.ts:9`) | `user`, `consents`, `invites`, `document_verifications` (Plano 10A) | `findRlsViolations` (`:57`): toda tabela com `tenant_id` fora da lista tem RLS habilitada, forçada e `tenant_isolation`; com `patient_id` (ou `patients`), também `patient_isolation` | `src/db/rls-guard.test.ts:52-83` |
 | `PATIENT_POLICY_EXCEPTIONS` (`:20`) | `stored_files` (política própria `paciente_arquivos`) | idem | idem |
-| `STAFF_ONLY` (`:105`) | `patient_tags`, `patient_tag_links`, `consultation_notes`, `availability_rules`, `availability_blocks`, `public_booking_requests`, `whatsapp_conexoes`, `signed_document_notes` (Plano 10A), `ia_tarefas`, `ia_uso` (Plano 11), `ia_geracoes_modelos` (Plano 14B-1), `lembretes_rotina_envios` (Plano 17), `fin_configuracoes`, `fin_categorias` e `fin_lancamentos` (Plano 20, F-D1: o titular recebe o que é dele pela exportação, por inclusão explícita) | `findStaffOnlyViolations` (`:123`): cada tabela da lista tem `staff_only` RESTRICTIVE | `rls-guard.test.ts:85-101` |
+| `STAFF_ONLY` (`:105`) | `patient_tags`, `patient_tag_links`, `consultation_notes`, `availability_rules`, `availability_blocks`, `public_booking_requests`, `whatsapp_conexoes`, `signed_document_notes` (Plano 10A), `ia_tarefas`, `ia_uso` (Plano 11), `ia_geracoes_modelos` (Plano 14B-1), `lembretes_rotina_envios` (Plano 17), `fin_configuracoes`, `fin_categorias` e `fin_lancamentos` (Plano 20, F-D1: o titular recebe o que é dele pela exportação, por inclusão explícita), `equipe_membros` (Plano 26, `:126`) | `findStaffOnlyViolations` (`:129`): cada tabela da lista tem `staff_only` RESTRICTIVE | `rls-guard.test.ts:85-101` |
 | `PUBLICO_LIBERADO` (`:141`) | `availability_rules` e `availability_blocks` (`select`); `appointments`, `patients`, `notifications` (`select`, `insert`); `audit_log` (`insert`); `public_booking_requests` (`select`, `insert`, `update`) | `findPublicoViolations` (`:152`): fora da lista, exatamente `publico_negado`; na lista, exatamente as `publico_sem_<cmd>` dos comandos negados, com comando e RESTRICTIVE certos | `rls-guard.test.ts:103-143` |
 | `PACIENTE_ESCREVE` (`:188`) | `patients` (`update`); `appointments`, `notifications`, `data_exports` (`insert`, `update`); `audit_log`, `stored_files`, `access_events`, `diary_entries`, `privacy_requests`, `content_views`, `signed_document_receipts` (`insert`); `push_subscriptions`, `content_favorites` (`insert`, `delete`); `document_access_codes` (`insert`, `update`; Plano 10A); `exam_submissions` (`insert`, `update`) e `exam_submission_files` (`insert`) (Plano 12); `ia_autorizacoes` (`insert`; Plano 14A, `:205`); `ia_nutri_mensagens` (`update`) e `ia_nutri_consentimentos` (`insert`) (Plano 15, `:206-207`); `lembretes_rotina` (`update`; Plano 17, `:208`); o motivo de `patients` cita a pausa dos lembretes desde o Plano 17 | `findPacienteEscritaViolations` (`:216`): cada comando não liberado tem `paciente_sem_<cmd>` com nome, comando, RESTRICTIVE **e a expressão** certa (B-5); comando liberado não pode ter a negação | `rls-guard.test.ts:145-214` |
 | `CONTEUDO_POR_AUDIENCIA` (`:245`) | `contents`, `recipes`, `recipe_ingredients` | `findConteudoAudienciaViolations` (`:273`): `paciente_conteudo_visivel` RESTRICTIVE `FOR SELECT` com trechos obrigatórios da expressão (R11) | `rls-guard.test.ts:216+` |
 | `ESCRITA_POR_AUDIENCIA` (`:267`) | `content_views` → `paciente_conteudo_visto`; `content_favorites` → `paciente_conteudo_favorito` | idem, `FOR INSERT` | idem |
 | `AUDIT_EXCEPTIONS` (`audit-guard.ts:4`) | `audit_log`, `invites`, `consents`, `notifications`, `push_subscriptions`, `access_events`, `stored_files`, `content_views`, `content_favorites`, `document_access_codes` (Plano 10A), `ia_autorizacoes` (Plano 14A: consentimento, não dado de saúde; a linha é a prova, como `consents`), `ia_nutri_consentimentos` (Plano 15, pelo mesmo motivo), `lembretes_rotina_envios` (Plano 17: registro técnico do último horário enviado, sem dado clínico; a configuração, em `lembretes_rotina`, é auditada) | `findAuditViolations` (`:23`): toda tabela com `patient_id` (ou `patients`) tem o gatilho `audit_row_change` | `src/db/audit-guard.test.ts:10-50` |
+| `RECEPCAO_LIBERADO` (Plano 26, `:310`) | `equipe_membros` (`select`); `patients`, `patient_cadastro`, `appointments`, `notifications`, `fin_lancamentos` (`select`, `insert`, `update`); `availability_rules`, `availability_blocks`, `fin_configuracoes`, `fin_categorias`, `locais_atendimento` (`select`); `audit_log` (`insert`) | `findRecepcaoViolations` (`:410`): fora da lista, exatamente `recepcao_negada`; na lista, exatamente as `recepcao_sem_<cmd>` dos comandos negados, com nome, comando, RESTRICTIVE e a expressão (B-5); nome `recepcao_*` fora dos três padrões quebra ([§2.6.9](#269-sessão-da-recepção-plano-26-pr-2)) | `rls-guard.test.ts:310-448` |
+| `RECEPCAO_CONDICOES` (Plano 26, `:369`) | `recepcao_cond_propria_linha` (`equipe_membros`), `recepcao_cond_paciente_visivel` (`patients`, `patient_cadastro`, `appointments`, `notifications`, `fin_lancamentos`), `recepcao_cond_notificacoes_da_agenda` (`notifications`), `recepcao_cond_financeiro` (as três `fin_*`) | idem: toda `recepcao_cond_*` RESTRICTIVE, declarada, começando pela negação da recepção e com o comando e a expressão inteira iguais; toda declarada existe | idem |
+| `FUNCOES_COM_PAPEL` (Plano 26, `:494`) | Cada função do `public` que olha o papel e cada gatilho de tabela liberada à recepção que lê `patients` ou tabela negada a ela, com a decisão (`recusa`, `como nutri`, `não se aplica`, `sem mudança`, `só recepcao`) | `findPapelEmFuncoesViolations` (`:585`): função ou gatilho sem decisão, ou nome que não existe em `pg_proc` | `rls-guard.test.ts:450-502` |
 
 A guarda de `STAFF_ONLY` confere só o sentido lista → banco. Uma `staff_only` criada sem entrada na lista não quebra o CI; a regra 2 do CLAUDE.md manda fazer as duas coisas. Pior: **nenhuma guarda detecta a tabela que deveria ser `staff_only` quando se esquecem o SQL e a lista**. `findStaffOnlyViolations` (`rls-guard.ts:123`) e a matriz de `test/isolamento.test.ts` só percorrem as tabelas já listadas em `STAFF_ONLY`; a tabela esquecida fica só com `patient_isolation`, e o paciente continua lendo as próprias linhas. Quem decide que a tabela é interna da equipe é a revisão, não o CI.
 
@@ -832,18 +981,18 @@ Estas tabelas não têm RLS. A proteção é o código: acesso só pelos arquivo
 | Tabela | Por que fora | Quem acessa | Fonte |
 |---|---|---|---|
 | `tenants` | Sem `tenant_id`; o admin precisa listar | Services do M1, admin, varreduras do worker, funções de métricas | spec §4.1 |
-| `user` (tem `tenant_id`) | Identidade global; o login acontece antes do contexto | `src/lib/auth.ts`, `admin-bootstrap.ts`, `audit.ts`, `contas.ts`, `convites.ts`, `dpa.ts`, `suspensao.ts`, `monitoramento.ts`, `preferencias.ts` (plataforma); `convite-paciente.ts`, `exportacao-job.ts`, `conta-titular.ts` (pacientes); `aviso-nutri.ts` (agenda); `src/modules/ia/nutri-paciente/contexto.ts` (só `user.name` das contas `nutri` do tenant, para a máscara; Plano 15); `scripts/e2e-seed.ts`; `test/sessao.ts`, `test/pacientes.ts`, `test/portal.ts`, `test/carga/seed.ts` | `RLS_EXCEPTIONS.user`; CLAUDE.md regra 1 |
+| `user` (tem `tenant_id`) | Identidade global; o login acontece antes do contexto | `src/lib/auth.ts`, `admin-bootstrap.ts`, `audit.ts`, `contas.ts`, `convites.ts`, `dpa.ts`, `suspensao.ts`, `monitoramento.ts`, `preferencias.ts`, `equipe.ts` (plataforma; o `equipe.ts` desde o Plano 26, só na sessão `nutri` e pelo consultório da sessão); `convite-paciente.ts`, `exportacao-job.ts`, `conta-titular.ts` (pacientes); `aviso-nutri.ts` (agenda); `src/modules/ia/nutri-paciente/contexto.ts` (só `user.name` das contas `nutri` do tenant, para a máscara; Plano 15); `scripts/e2e-seed.ts`; `test/sessao.ts`, `test/pacientes.ts`, `test/portal.ts`, `test/carga/seed.ts` | `RLS_EXCEPTIONS.user`; CLAUDE.md regra 1 |
 | `session`, `account`, `verification`, `two_factor`, `rate_limit` | Internas do Better Auth | `src/lib/auth.ts` | spec §7 |
-| `consents` (tem `tenant_id`) | Aceite gravado antes da sessão; append-only | `dpa.ts`, `convite-paciente.ts`, `agendamento-publico.ts`, `exportacao-job.ts`, `portal/termo.ts`, `test/portal.ts`, `scripts/e2e-seed.ts`, `test/carga/seed.ts`; anonimização só por `app_anonimizar_aceites` | `src/db/rls-guard.ts:11-12` |
+| `consents` (tem `tenant_id`) | Aceite gravado antes da sessão; append-only | `dpa.ts`, `convite-paciente.ts`, `agendamento-publico.ts`, `exportacao-job.ts`, `portal/termo.ts`, `test/portal.ts`, `scripts/e2e-seed.ts`, `test/carga/seed.ts`; desde o Plano 26, `convites.ts` (grava o `sigilo-equipe-<versão>` no aceite do convite da recepção), `membro-da-equipe.ts` (lê esse aceite na sessão da recepção) e `test/equipe.ts`; anonimização só por `app_anonimizar_aceites` | `src/db/rls-guard.ts:11-12` |
 | `document_verifications` (tem `tenant_id`) | Lida pelo código antes de existir contexto de tenant (verificação pública); sem dado de saúde nem do paciente | Só `src/modules/documentos/verificacao.ts` (guarda em `verificacao.test.ts`); `UPDATE` só de `situacao`/`situacao_em`, `DELETE` revogado; a situação só avança (gatilho) | `src/db/rls-guard.ts:15`; 0090, 0092 |
-| `invites` (tem `tenant_id`) | Lido pelo token antes de existir conta | `plataforma/convites.ts`, `pacientes/convite-paciente.ts`, `plataforma/contas.ts`, sempre por tipo ou `user_id` (e tenant no de paciente) | `src/db/rls-guard.ts:13-14` |
+| `invites` (tem `tenant_id`) | Lido pelo token antes de existir conta | `plataforma/convites.ts`, `pacientes/convite-paciente.ts`, `plataforma/contas.ts` e, desde o Plano 26, `plataforma/equipe.ts` (convite `recepcao`: lista e desativação), sempre por tipo ou `user_id` (e tenant no de paciente e no da recepção) | `src/db/rls-guard.ts:13-14` |
 | `ia_nutri_pausa` (Plano 15) | Sem `tenant_id`: a linha única da pausa de emergência da IA Nutri, sem dado de tenant nem de saúde; nasce não pausada | Escrita só por `src/modules/plataforma/ia-nutri-pausa.ts` (admin, fora do contexto de tenant; gatilho `ia_nutri_pausa_da_admin`, `REVOKE INSERT, DELETE, TRUNCATE`); lida por qualquer contexto (`lerPausa`) | `drizzle/0116_rls_ia_nutri.sql` |
 | `ia_gasto_plataforma` (Plano 11) | Sem `tenant_id`: contador do teto global de IA, sem dado de tenant nem de saúde | Só `src/modules/ia/cota.ts`; `REVOKE DELETE, TRUNCATE` | `drizzle/0099_rls_ia.sql:23` |
 | `admin_actions` (Plano 09) | Sem `tenant_id`; trilha da admin, só inclusão | `plataforma/reiniciar-2fa.ts`, `contas.ts`, `metricas.ts` e, desde o Plano 15, `ia-nutri-pausa.ts` (`pausar_ia_nutri`, `retomar_ia_nutri`; `ajustar_cota_ia_nutri` em `metricas.ts`) | `drizzle/0095_admin_actions.sql`, `0096` |
 | `backup_runs` | Escrita do script do host; app só lê | Script de backup; `monitoramento.ts` | `drizzle/0014_backup_runs_somente_leitura.sql`; CLAUDE.md regra 10 |
 | `public_rate_limits` | Contadores com HMAC do IP/e-mail e marca anti-repetição do webhook; desde o Plano 10A também a verificação pública, o link do documento e o código do 2FA ao assinar | Só `src/modules/agenda/limite-ip.ts` (o webhook do WhatsApp usa `consumirLimite` dele) | `src/modules/agenda/limite-ip.ts:28`; `src/modules/notificacoes/whatsapp/webhook.ts:133-139` |
 | `system_heartbeat` | Batimento do worker; marcas dos alertas | `src/worker/heartbeat.ts`, `src/app/api/health/route.ts`, `monitoramento.ts`, `src/modules/ia/alertas.ts` (`avisarComMarca`: marcas `alerta_ia_credencial` e `alerta_ia_teto`, Plano 11; roda no worker e também no app, pelo teto em `pedirLeituraExame`, `tarefas.ts:199`, e, desde o Plano 14B-2, em `falhaDoPedidoDoAssistente`, `tarefas.ts:123`) | `drizzle/0001_plataforma.sql:13-16` |
-| Schema `pgboss` | Fila; dono = role da aplicação | pg-boss | `src/db/migrate.ts:80-81` |
+| Schema `pgboss` | Fila; dono = role da aplicação | pg-boss | `src/db/migrate.ts:92-93` |
 
 Plano 22 (EP-D53): `src/modules/plataforma/audit.ts` também lê `user` em `nomesDosAtores` (`audit.ts:228`: só `name` e
 `app_role` pelos ids, o mesmo `select` de `listAccessHistory`), chamada **fora** de `withTenant` por
@@ -883,7 +1032,7 @@ Segue as regras 1, 2, 7, 8 e 9 do CLAUDE.md. Exemplo: tabela `minha_tabela` com 
 3. **Migration custom de RLS**: `pnpm drizzle-kit generate --custom --name rls_minha_tabela`, com:
 
    ```sql
-   SELECT app_enable_tenant_rls('minha_tabela');            -- RLS forçada, tenant_isolation, publico_negado, paciente_sem_*
+   SELECT app_enable_tenant_rls('minha_tabela');            -- RLS forçada, tenant_isolation, publico_negado, paciente_sem_*, recepcao_negada
    --> statement-breakpoint
    SELECT app_enable_patient_rls('minha_tabela');           -- se tiver patient_id
    --> statement-breakpoint
@@ -902,6 +1051,7 @@ Segue as regras 1, 2, 7, 8 e 9 do CLAUDE.md. Exemplo: tabela `minha_tabela` com 
    | Escrita do paciente só em conteúdo que ele vê pela audiência | Política RESTRICTIVE de `INSERT` (como `paciente_conteudo_visto`, `paciente_conteudo_favorito`) | Entrada em `PACIENTE_ESCREVE` **e** em `ESCRITA_POR_AUDIENCIA` (`rls-guard.ts:267`) |
    | `patient_id` sem a política `patient_isolation` padrão (política própria) | Política própria no lugar de `app_enable_patient_rls` (caso de `stored_files`: `paciente_arquivos`) | Entrada justificada em `PATIENT_POLICY_EXCEPTIONS` (`rls-guard.ts:20`) |
    | Titular na coluna `id` (como `patients`) | `app_enable_patient_rls('t', 'id')` e `app_enable_audit('t', 'e', 'id')` | — |
+   | A recepção lê ou grava (Plano 26) | `SELECT app_allow_recepcao('minha_tabela', 'select', …);` e, se precisar, uma condição `recepcao_cond_<assunto>` `AS RESTRICTIVE` com o comando declarado | Entrada em `RECEPCAO_LIBERADO` (e em `RECEPCAO_CONDICOES`, com a expressão inteira); com `patient_id`, a condição do paciente visível; gatilho que olha o papel ou lê `patients` entra em `FUNCOES_COM_PAPEL` (§2.6.9) |
 
 4. **Rodar com o migrator**: `pnpm db:migrate` (usa `DATABASE_URL_MIGRATOR`). Outro role deixaria a tabela sem permissão para `nutri_app_role` (regra 7).
 5. **Acesso no código**: toda consulta por `withTenant(ctx, fn)` (regra 1). Ao **devolver** dado de saúde, `auditRead(tx, …)` na mesma transação. Acrescente a entidade em `ENTIDADE_ROTULO` (`src/modules/plataforma/audit.ts:49`).
@@ -934,7 +1084,7 @@ flowchart TD
 | 3 | §7, linha de `invites`: `tipo` (`nutri`), sem tenant | `tipo` em (`nutri`,`paciente`), colunas `tenant_id` e `patient_id`, CHECK `invites_alvo`, índice de pendente por paciente | `drizzle/0018_convite_paciente.sql` |
 | 4 | §4.1, item "Tabelas sem `tenant_id`": lista `users`, `consents` e `invites` | As três têm `tenant_id` e estão em `RLS_EXCEPTIONS` (o item "Escrita do paciente negada por padrão" da mesma seção já diz isso) | `drizzle/0003_auth.sql:57`, `drizzle/0018_convite_paciente.sql:4-5`; `src/db/rls-guard.ts:9-15` |
 | 5 | §7 não lista `system_heartbeat`; §4.1 não a cita entre as tabelas fora da RLS | A tabela existe (`name`, `beat_at`) e é usada pelo worker e pelo `/api/health` | `drizzle/0001_plataforma.sql:13-16`; `src/worker/heartbeat.ts` |
-| 6 | §4.1: `withTenant` faz `SET LOCAL` de `app.tenant_id`, `app.role` e `app.patient_id` | `set_config(…, true)` de cinco GUCs: também `app.user_id` e `app.ip` (usados pela auditoria e por `paciente_por_conta`) | `src/db/tenant.ts:94-99` |
+| 6 | §4.1: `withTenant` faz `SET LOCAL` de `app.tenant_id`, `app.role` e `app.patient_id` | `set_config(…, true)` de cinco GUCs: também `app.user_id` e `app.ip` (usados pela auditoria e por `paciente_por_conta`) | `src/db/tenant.ts:101-106` |
 | 7 | CLAUDE.md regra 2: tabela `staff_only` exige a entrada em `STAFF_ONLY`, e "a guarda quebra o CI se esquecer" (para as outras listas) | A guarda de `STAFF_ONLY` só confere lista → banco; `staff_only` instalada sem entrada na lista não quebra o CI | `src/db/rls-guard.ts:123-132` |
 | 8 | `CLAUDE.md`, regra 1: lista das tabelas fora da RLS (`tenants`, `backup_runs`, `public_rate_limits`, `ia_gasto_plataforma`) | `admin_actions` (Plano 09, sem `tenant_id`, só inclusão) também fica fora da RLS e não aparece nessa lista; a regra a cita só no trecho de `reiniciar-2fa.ts`. As escritas de IA nela (`contas.ts`, `metricas.ts`) seguem a mesma proteção (fora de `withTenant`, só a admin) | `drizzle/0095_admin_actions.sql`; `src/modules/plataforma/contas.ts` (`definirIaLiberada`), `metricas.ts` (`ajustarCotaIa`) |
 | 9 | `CLAUDE.md`, regras 2 e 8: cada plano com tabela nova anota ali as listas, os gatilhos e a auditoria (Planos 11 a 15) | **Resolvida (revisão final do Plano 17, 17/11/2026):** a anotação entrou no fim das regras 2 e 8 (`lembretes_rotina` (`PACIENTE_ESCREVE` `update`, entidade `lembretes`, gatilhos `lembretes_rotina_regras` e `lembretes_rotina_sem_apagar`), `lembretes_rotina_envios` (`STAFF_ONLY`, `AUDIT_EXCEPTIONS`, gatilho do worker, `PAPEL_DA_FABRICA`/`COM_MAE`/`IMUTAVEIS` no isolamento) e a exceção da sessão `nutri` em `patients_lembretes_do_paciente` (a limpeza na ida a `bloqueado`); detalhe na §2.5.11) | `drizzle/0119_rls_lembretes_rotina.sql`, `0120`; `src/db/rls-guard.ts:208`; `src/db/audit-guard.ts:19` |
@@ -943,3 +1093,8 @@ flowchart TD
 | 12 | Spec do Financeiro (`docs/superpowers/specs/2026-11-16-nutridebby-20-financeiro-design.md`) RN-316 e plano, Tarefa 9: `anonimizarVencidos` chama `app_anonimizar_financeiro` para o paciente vencido | Só quando ele tem lançamento: a função confere o prazo pelo relógio do banco, e o `now` do job pode ser outro (decisão da execução; [§12.13](12-financeiro.md#1213-divergências-conhecidas), #1) | `src/modules/pacientes/lgpd.ts:565` (a conferência em `temLancamentos`, `src/modules/financeiro/titular.ts`) |
 | 13 | Spec do Plano 22 (`docs/superpowers/specs/2026-11-17-nutridebby-22-exames-prescricao-design.md`) §9.5a e RN-399: `exams`, `exam_versoes` e `exam_interpretacoes` "ficam como prontuário" na anonimização; §9.9 não cita função nova | Ficam, mas sem o texto livre: `app_anonimizar_exames_textos` (`SECURITY DEFINER`, só `worker` com o titular já anonimizado) anula a `justificativa` das versões e o `texto` das notas (`/code-review` do PR 1). Versão, valores e autoria continuam | `drizzle/0128_rls_exames_catalogo.sql:119-143`; `src/modules/pacientes/lgpd.ts:594` |
 | 14 | Spec do Plano 22 §9.8: `ENTIDADE_ROTULO` ganha `exame_no_app_liberado` e `exame_no_app_retirado` | **Pendência do PR 3** (T6, "Mostrar no app"): hoje só `exames_versoes` e `exames_nota` (`src/modules/plataforma/audit.ts:85-86`); a coluna `exams.mostrar_no_app_em` e a política já existem, mas nenhuma tela as usa | `src/modules/plataforma/audit.ts:82-86` |
+| 13 | Spec do Plano 26 (`docs/superpowers/specs/2026-11-17-nutridebby-26-relatorios-recepcionista-design.md`) §4.3, linha de `patient_cadastro`: a condição do paciente visível usa o `EXISTS` porque "a RLS de `patients` vale dentro da subconsulta da política" | O `EXISTS` repete os filtros (`status <> 'bloqueado' AND anonimizado_em IS NULL`) e não depende da RLS de `patients` dentro da subconsulta; o mesmo nas outras filhas | `drizzle/0133_rls_recepcao.sql:185-224` |
+| 14 | Spec do Plano 26, RN-505: `RECEPCAO_CONDICOES` guarda "os trechos exigidos na expressão (molde de `AUDIENCIA_EXIGE`)" | Guarda a **expressão inteira** do `USING` e do `WITH CHECK`, comparada por igualdade depois de normalizar: conferir por trecho deixaria passar `… OR NOT (…)` ou `… OR true` (revisão da T4) | `src/db/rls-guard.ts:330-345` |
+| 15 | Spec do Plano 26, §4.4 e RN-511: três decisões ("recusa", "como nutri", "não se aplica"); a guarda olha o gatilho de tabela liberada "que lê `patients`" | Cinco decisões (também "sem mudança" e "só recepcao"); a guarda também exige decisão para o gatilho de tabela liberada que lê **tabela negada** à recepção (a classe da RE-D62, como `consultations`) | `src/db/rls-guard.ts:491`, `:578-590` |
+| 16 | Spec do Plano 26, §9.3 e RN-510: três peças `SECURITY DEFINER` (`app_retorno_das_consultas`, `app_consulta_tem_atendimento`, `app_previsoes_de_retorno`) | Quatro: também `app_cpf_em_uso` (RE-D71, decisão do portão do PR 2: o CPF de paciente bloqueado sem o `23505` no log), chamada por `conferirCpf` na sessão da recepção. As decisões RE-D70 e RE-D71 ainda não estão na spec (§14); entram no fechamento do plano (T12) | `drizzle/0133_rls_recepcao.sql:797-827`; `src/modules/pacientes/cadastro.ts:277-297` |
+| 17 | Spec do Plano 26, RN-509: no INSERT da recepção, `status = 'agendada'` "(ou o estado de pedido que o gatilho do 23 decidir)"; o UPDATE só fixa paciente, origem, `remarcada_de` e motivo | O INSERT só aceita `agendada` (pedido nunca nasce pela recepção); o UPDATE também não muda consulta encerrada, tira `created_at`, `cancelada_em` e `presenca_em` do relógio do banco e só deixa `confirmada_via` ficar ou ir a nulo (revisão da T5b) | `drizzle/0133_rls_recepcao.sql:459-531` |

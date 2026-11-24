@@ -298,7 +298,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | Tenant | A conta de uma nutricionista (consultório). Isola todos os dados dela. Linha em `tenants` | Spec, Apêndice B; [§2.5](02-banco-de-dados.md#25-catálogo-de-tabelas) |
 | Debby | A primeira cliente (piloto) do produto | Spec §1 |
 | Dono | Dono do servidor e do produto. Aprova merge, reinício, mudança no Easypanel e no banco de produção | `CLAUDE.md`, regra 6; [§6.10](06-worker-seguranca-operacao.md#610-o-que-só-o-dono-faz) |
-| Admin | Usuário da plataforma que cria e suspende contas. Não tem contexto de tenant e nunca lê tabela 🔒 | Spec §3; `src/db/tenant.ts:56` |
+| Admin | Usuário da plataforma que cria e suspende contas. Não tem contexto de tenant e nunca lê tabela 🔒 | Spec §3; `src/db/tenant.ts:61` |
 | Paciente / titular | A pessoa atendida. "Titular" é o termo da LGPD para o dono dos dados (pedidos de exportação e exclusão) | Spec, US-018 e US-046 |
 | Vínculo | Relação (consultório, prontuário) de uma conta de paciente. Uma conta pode ter vínculos em vários consultórios; o escolhido fica no cookie `nd_vinculo` | Spec, Apêndice B; `src/lib/paciente-session.ts` (`COOKIE_VINCULO`) |
 | DPA | Contrato de tratamento de dados entre a nutricionista (controladora) e a plataforma (operadora); aceite em `consents` | Spec, Apêndice B; [§3.12](03-autenticacao-e-acesso.md#312-aceites-dpa-e-termo-do-paciente-consents) |
@@ -376,12 +376,12 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 |---|---|---|
 | RLS | Row-Level Security: o Postgres filtra as linhas pelo contexto da transação. Habilitada **e forçada** em toda tabela com `tenant_id` | `drizzle/0000_base_roles_e_rls.sql:30`; [§2.6](02-banco-de-dados.md#26-rls-em-detalhe) |
 | 🔒 | Na spec §7 e no manual: tabela com `tenant_id` sob RLS | Spec §7 |
-| GUC (`app.*`) | Variáveis de sessão do Postgres que a RLS lê: `app.tenant_id`, `app.role`, `app.patient_id`, `app.user_id`, `app.ip` | `src/db/tenant.ts:94-99`; [§2.6.1](02-banco-de-dados.md#261-os-gucs-do-contexto) |
-| `withTenant(ctx, fn)` | Abre a transação com o contexto aplicado (`set_config(…, true)`). Toda consulta a tabela com `tenant_id` passa por ele (regra 1) | `src/db/tenant.ts:86` |
-| `withConta(userId, fn)` | Contexto `conta`: a conta de paciente, sem tenant, procurando os próprios vínculos. Só `src/modules/portal/vinculos.ts` usa | `src/db/tenant.ts:114`; Plano 06, D2 |
-| Contexto (papel) | Valor de `app.role`: `nutri`, `paciente`, `worker` ou `publico` (`TenantRole`), mais `conta` via `withConta`. O admin não tem contexto | `src/db/tenant.ts:14`; [§2.6.3](02-banco-de-dados.md#263-contextos) |
+| GUC (`app.*`) | Variáveis de sessão do Postgres que a RLS lê: `app.tenant_id`, `app.role`, `app.patient_id`, `app.user_id`, `app.ip` | `src/db/tenant.ts:101-106`; [§2.6.1](02-banco-de-dados.md#261-os-gucs-do-contexto) |
+| `withTenant(ctx, fn)` | Abre a transação com o contexto aplicado (`set_config(…, true)`). Toda consulta a tabela com `tenant_id` passa por ele (regra 1) | `src/db/tenant.ts:93` |
+| `withConta(userId, fn)` | Contexto `conta`: a conta de paciente, sem tenant, procurando os próprios vínculos. Só `src/modules/portal/vinculos.ts` usa | `src/db/tenant.ts:121`; Plano 06, D2 |
+| Contexto (papel) | Valor de `app.role`: `nutri`, `paciente`, `worker`, `publico` ou, desde o Plano 26, `recepcao` (`TenantRole`), mais `conta` via `withConta`. O admin não tem contexto | `src/db/tenant.ts:19`; [§2.6.3](02-banco-de-dados.md#263-contextos) |
 | Contexto `publico` | Páginas sem login (página pública, link da consulta, horários livres). Negado em toda tabela por `publico_negado`, salvo o que `PUBLICO_LIBERADO` lista | `src/db/tenant.ts:8-13`; Plano 05, D11 |
-| `semConta` | Paciente agindo sem sessão de login (link da consulta, WhatsApp, convite, link do documento, link da autorização de IA; desde o Plano 15, o contexto da IA Nutri lido pelo worker; desde o Plano 18, a contagem do "No app do paciente" pela nutricionista, em `no-app.ts`). Lista fechada em `SEM_CONTA_PERMITIDOS`; não lê `patient_cadastro` | `src/db/tenant.ts:39` |
+| `semConta` | Paciente agindo sem sessão de login (link da consulta, WhatsApp, convite, link do documento, link da autorização de IA; desde o Plano 15, o contexto da IA Nutri lido pelo worker; desde o Plano 18, a contagem do "No app do paciente" pela nutricionista, em `no-app.ts`). Lista fechada em `SEM_CONTA_PERMITIDOS`; não lê `patient_cadastro` | `src/db/tenant.ts:44` |
 | `tenant_isolation` / `patient_isolation` | Políticas base: linha do tenant do contexto; na sessão de paciente, só as linhas do próprio `patient_id` | `drizzle/0000_base_roles_e_rls.sql:30-50` |
 | `STAFF_ONLY` | Lista de tabelas que o paciente nunca vê, nem as próprias linhas (notas privadas, etiquetas, regras da agenda…). Política RESTRICTIVE `staff_only` por `app_enable_staff_only` | `src/db/rls-guard.ts:105`; `drizzle/0020_rls_etiquetas.sql:3` |
 | `PUBLICO_LIBERADO` | Tabelas e comandos que o contexto `publico` pode usar, cada um com o motivo. `app_allow_publico` no SQL | `src/db/rls-guard.ts:141`; `drizzle/0051_rls_consultas.sql:19` |
@@ -389,6 +389,7 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 | `CONTEUDO_POR_AUDIENCIA` | Tabelas de conteúdo sem `patient_id` que o paciente lê pela audiência (política `paciente_conteudo_visivel`) | `src/db/rls-guard.ts:245`; `drizzle/0083_audiencia_conteudos.sql:42` |
 | `RLS_EXCEPTIONS` | Tabelas com `tenant_id` fora da RLS: `user`, `consents`, `invites`, `document_verifications`, cada uma com quem pode acessá-la | `src/db/rls-guard.ts:9`; [§2.9](02-banco-de-dados.md#29-tabelas-fora-da-rls-e-quem-as-acessa) |
 | `AUDIT_EXCEPTIONS` | Tabelas com `patient_id` sem gatilho de auditoria, com justificativa | `src/db/audit-guard.ts:4` |
+| `RECEPCAO_LIBERADO` / `RECEPCAO_CONDICOES` / `FUNCOES_COM_PAPEL` (Plano 26) | O que a sessão `recepcao` pode tocar (tabela → comandos; o resto tem `recepcao_negada`), as condições `recepcao_cond_*` com a expressão inteira, e a decisão para a recepção de cada função que olha o papel | `src/db/rls-guard.ts:310`, `:369`, `:494`; [§2.6.9](02-banco-de-dados.md#269-sessão-da-recepção-plano-26-pr-2) |
 | `liberarReceitasDoPlano` | Exceção da RN-12: libera, na transação, as receitas sugeridas no plano publicado do próprio paciente | `src/modules/conteudo/audiencia.ts:45` |
 | Guarda | Teste que confere uma regra do projeto (não uma função) e quebra o CI se alguém a esquecer | [§7.4](07-testes-qualidade-e-processo.md#74-guardas-do-ci) |
 | `FABRICAS` / `ULTIMAS` | Fábricas de linha por tabela na matriz de isolamento; `ULTIMAS` = tabelas-mãe apagadas por último | `test/isolamento.test.ts:24`, `:113` |
@@ -402,7 +403,8 @@ de produção para escrever o manual (regra 5 do `CLAUDE.md`).
 
 | Termo | Significado | Fonte |
 |---|---|---|
-| `requireNutri` / `requirePaciente` | Guardas de página que devolvem o contexto para o `withTenant`; `requireApi*` nas rotas de API | `src/lib/tenant-session.ts:22`; `src/lib/paciente-session.ts` (`requirePaciente`); [§3.7](03-autenticacao-e-acesso.md#37-guardas-por-papel) |
+| `requireNutri` / `requirePaciente` | Guardas de página que devolvem o contexto para o `withTenant`; `requireApi*` nas rotas de API | `src/lib/tenant-session.ts:28`; `src/lib/paciente-session.ts` (`requirePaciente`); [§3.7](03-autenticacao-e-acesso.md#37-guardas-por-papel) |
+| `requireEquipe` / `ROTAS_DA_RECEPCAO` (Plano 26) | Guarda das telas que a nutricionista **e** a recepção abrem; só as rotas da lista fechada `ROTAS_DA_RECEPCAO` a chamam (o resto chama `requireNutri`, que não mudou) | `src/lib/tenant-session.ts:104`; `src/app/painel/rotas-da-recepcao.ts:15`; [§3.7](03-autenticacao-e-acesso.md#37-guardas-por-papel) |
 | Proxy | `src/proxy.ts`, o interceptador do Next 16 (antes `middleware.ts`). Não cobre `/api/*` | [§3.13](03-autenticacao-e-acesso.md#313-proxy-e-redirecionamento-seguro) |
 | `salvarArquivo` / `apagarArquivo` / `signFileUrl` | Únicas portas de gravação, remoção e entrega de arquivo (regra 9) | `src/modules/plataforma/armazenamento.ts:64`, `:160`; `src/lib/signed-url.ts:16` |
 | Worker | Processo pg-boss (mesma imagem, `APP_ROLE=worker`) que executa e-mail, lembretes, PDF, ZIP, fotos e varreduras | [§6.2](06-worker-seguranca-operacao.md#62-worker-pg-boss) |
@@ -773,6 +775,29 @@ Os números abaixo foram renumerados no rebase sobre o Plano 20 (que ocupou 142�
 | 158 | EP-D61 (registro pedido pelo plano) | "Apagar nota" grava um `excluir` de `exames_nota` | Também fica o `criar` do gatilho da linha de texto nulo: duas linhas no Histórico para uma ação | Doc | 4 #23, 2 |
 | 159 | Spec do Plano 22, §4.1 | "Título (h1)" do detalhe, da edição, das versões e do comparativo | h2: o h1 do prontuário é o nome do paciente | Doc | 4 #24 |
 | 160 | RN-384 | Empate pela criação | Também pelo id; mais de 30 ids na URL nem vão ao banco | Doc | 4 #25 |
+
+### Recepção — fundação (Plano 26, PR 2)
+
+Conferido no branch `plano-26-relatorios-recepcionista` em 24/11/2026 (T4 a T7 e as correções das revisões, `02c82ea7..e8da1ef7`;
+a T8 em execução), contra a spec `docs/superpowers/specs/2026-11-17-nutridebby-26-relatorios-recepcionista-design.md` (v0.3)
+e o plano do Plano 26; detalhe nas divergências 13–17 do [cap. 2](02-banco-de-dados.md#divergências-encontradas), 8–12 do
+[cap. 3](03-autenticacao-e-acesso.md#divergências-encontradas) e 20–22 do [cap. 4](04-modulos-clinicos.md#divergências-encontradas).
+Planos em paralelo numeram a partir do mesmo número: quem rebaseia renumera.
+
+| # | Fonte | Diz | Código | Tipo | Cap. |
+|---|---|---|---|---|---|
+| 154 | Spec §4.3 (`patient_cadastro`) | O `EXISTS` do paciente visível conta com a RLS de `patients` dentro da subconsulta | O `EXISTS` repete os filtros e não depende dela (em todas as filhas) | Doc | 2 #13 |
+| 155 | RN-505 | `RECEPCAO_CONDICOES` com os trechos exigidos (molde `AUDIENCIA_EXIGE`) | A expressão inteira, comparada por igualdade (revisão da T4: trecho deixaria passar `… OR true`) | Doc | 2 #14 |
+| 156 | §4.4, RN-511 | Três decisões; gatilho de tabela liberada "que lê `patients`" | Cinco decisões; também o gatilho que lê tabela negada à recepção (RE-D62) | Doc | 2 #15 |
+| 157 | §9.3, RN-510 | Três peças `SECURITY DEFINER` | Quatro, com `app_cpf_em_uso` (RE-D71); RE-D70 e RE-D71 ainda fora da spec §14 (entram na T12) | Doc | 2 #16 |
+| 158 | RN-509 | INSERT da recepção "agendada (ou o estado de pedido que o 23 decidir)" | Só `agendada`; consulta encerrada imutável, relógio do banco e `confirmada_via` só a nulo (revisão da T5b) | Doc | 2 #17 |
+| 159 | RN-500, RN-503 | A recepção desativada recebe `forbidden` | Decisão própria `desativada`; também a conta ativa sem o termo aceito, com texto RASCUNHO | Doc | 3 #8 |
+| 160 | §4.2 | `membroAtivo(tx, userId)` em `equipe.ts` | `lerMembroDaEquipe` em `membro-da-equipe.ts`, com `termoAceito` | Doc | 3 #9, 4 #20 |
+| 161 | RN-500 | — ("Esqueci minha senha" não citado) | A recepção sem senha não recebe o link de redefinição (o termo só pelo convite) | Doc | 3 #10 |
+| 162 | RE-D70 | Fora da spec §14 | "Continuar na sessão" para toda a equipe; o comentário do `POST /api/sessao/ativa` ainda diz "Continuar conectada" | Doc | 3 #11 |
+| 163 | RN-500 | Aceite do `sigilo-equipe-1.0` no primeiro acesso | A sessão exige a versão em vigor, mas não há tela de novo aceite e o reenvio recusa quem tem senha: subir a versão trancaria a recepção | Pend. | 3 #12 |
+| 164 | RN-499 | Busca do e-mail sob a trava do consultório | Também a trava global do e-mail (sem `23505` com o e-mail no log) | Doc | 4 #21 |
+| 165 | Spec §6.2 | Lista fechada dos textos | Dois textos RASCUNHO: o do termo pendente e o do convite vencido da recepção | Pend. | 4 #22 |
 
 ### CI no runner próprio (12/10/2026)
 

@@ -492,6 +492,17 @@ test('Plano 26: Início da recepção, "Sem permissão" e "Contrato pendente" co
   test.setTimeout(240_000);
   const rec = await entrarComoRecepcao(browser, RECEPCAO_AXE, '10.9.36.15', /\/painel$/);
   const contrato = await entrarComoRecepcao(browser, RECEPCAO_CONTRATO_AXE, '10.9.36.16', /\/painel\/contrato-pendente$/);
+  // teclado (RN-514): o Tab percorre o menu dela, na ordem da tela, sem os itens da nutricionista (sem a permissão do Financeiro)
+  const menu = rec.getByRole('navigation', { name: 'Menu do painel' });
+  await expect(menu.getByRole('link', { name: 'Início', exact: true })).toHaveAttribute('aria-current', 'page');
+  await menu.getByRole('link', { name: 'Início', exact: true }).focus();
+  const rotulos: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    rotulos.push((await rec.evaluate(() => document.activeElement?.textContent ?? '')).trim());
+    await rec.keyboard.press('Tab');
+  }
+  expect(rotulos).toEqual(['Início', 'Pacientes', 'Agenda', 'Relatórios']);
+  expect(await rec.evaluate(() => !!document.activeElement?.closest('nav[aria-label="Menu do painel"]')), 'o 5º Tab já sai do menu').toBe(false);
   const h1 = (nome: string | RegExp) => (p: Page) => expect(p.getByRole('heading', { level: 1, name: nome })).toBeVisible();
   const estados: { page: Page; url: string; pronta: (p: Page) => Promise<void> }[] = [
     { page: rec, url: '/painel', pronta: h1(/^Seu dia, /) },
