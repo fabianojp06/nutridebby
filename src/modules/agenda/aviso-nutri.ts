@@ -4,6 +4,7 @@ import { user } from '@/db/schema';
 import { enqueueEmail } from '@/email/queue';
 import type { EmailMessage } from '@/email/types';
 import { urlDoApp } from '@/lib/url-do-app';
+import { primeiroNome } from '@/modules/notificacoes/mensagens';
 import { quandoComFuso } from './fuso';
 
 export type EventoAgenda = Extract<EmailMessage, { tipo: 'aviso_agenda' }>['evento'];
@@ -22,7 +23,11 @@ export async function avisarNutri(tx: Tx, tenantId: string, montar: (para: strin
   for (const para of await emailsDaNutri(tx, tenantId)) await enqueueEmail(montar(para), { tenantId, tx });
 }
 
-/** D18: aviso de um evento da agenda feito pelo paciente (nome, quando no fuso do tenant e o link da consulta no painel). */
+/**
+ * D18: aviso de um evento da agenda feito pelo paciente (nome, quando no fuso do tenant e o link da consulta no painel).
+ * Plano 23 (§6.2): o novo pedido (`pedido`) leva à fila Solicitações, não à consulta; a retirada (`pedido_desistido`) leva só
+ * o primeiro nome ("{primeiro nome} retirou o pedido de …").
+ */
 export async function avisarNutriDaConsulta(
   tx: Tx,
   tenant: { id: string; fuso: string },
@@ -31,6 +36,7 @@ export async function avisarNutriDaConsulta(
   appUrl: string,
 ): Promise<void> {
   const quando = quandoComFuso(c.inicio, tenant.fuso);
-  const link = urlDoApp(appUrl, `/painel/agenda/consultas/${c.id}`);
-  await avisarNutri(tx, tenant.id, (para) => ({ tipo: 'aviso_agenda', para, evento, paciente: c.paciente, quando, link }));
+  const link = urlDoApp(appUrl, evento === 'pedido' ? '/painel/agenda/solicitacoes' : `/painel/agenda/consultas/${c.id}`);
+  const paciente = evento === 'pedido_desistido' ? primeiroNome(c.paciente) : c.paciente;
+  await avisarNutri(tx, tenant.id, (para) => ({ tipo: 'aviso_agenda', para, evento, paciente, quando, link }));
 }

@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { and, count, eq, sql } from 'drizzle-orm';
-import { consultaDireta } from '../../../test/agenda';
+import { consultaDireta, pedidoDireto } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { auditLog, tenants } from '@/db/schema';
@@ -80,5 +80,14 @@ describe('jornadaDoPaciente / miniJornadaDoPaciente (Plano 16, US-194, RN-202, R
     expect(j).toMatchObject({ vazia: true, titulo: 'Sua jornada' });
     await expect(jornadaDoPaciente(T.ctx, await tenantDe(T.tenantId), new Date(), app.db)).rejects.toThrow(/sessão de paciente/);
     expect(ctx.role).toBe('paciente');
+  });
+});
+
+describe('Plano 23 (T6a, §4.3): o pedido não aparece na jornada', () => {
+  it('a próxima consulta da mini-jornada ignora o pedido `solicitada`', async () => {
+    const { T, p, ctx } = await comHistorico();
+    await pedidoDireto(app.db, T, p.id, new Date('2026-10-12T12:00:00Z'));
+    const mini = await miniJornadaDoPaciente(ctx, await tenantDe(T.tenantId), new Date('2026-10-08T14:05:00Z'), app.db);
+    expect(mini.linha2.semFuso).toBe('Nenhuma consulta marcada.');
   });
 });

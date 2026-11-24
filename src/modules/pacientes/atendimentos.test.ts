@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { consultaDireta } from '../../../test/agenda';
+import { consultaDireta, pedidoDireto, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { auditLog, consultationNotes, consultations } from '@/db/schema';
@@ -11,6 +11,7 @@ import { buscarConsulta } from '@/modules/agenda/consultas';
 import { AtendimentoError, atualizarAtendimento, buscarAtendimento, listarAtendimentos, MSG_ATENDIMENTO, orientacoesDoPaciente, registrarAtendimento } from './atendimentos';
 import { PacienteNaoEncontradoError } from './base';
 import { salvarConfiguracoes } from '@/modules/financeiro/configuracoes';
+import { jornadaDoPaciente } from '@/modules/portal/jornada';
 
 const app = makeDb(inject('appDatabaseUrl'));
 const now = new Date('2026-10-01T15:00:00Z');
@@ -207,5 +208,106 @@ describe('Plano 20 (US-303, F-D13): o atendimento ligado a uma consulta que não
     await expect(registrarAtendimento(T.ctx, T.tenant, p.id, entrada(c), deps)).rejects.toMatchObject({ erros: { geral: MSG_ATENDIMENTO.consultaJaAtendida } });
     expect((await buscarConsulta(T.ctx, c, app.db))?.status).toBe('agendada');
     expect(await linhas(T.tenantId)).toEqual([]);
+  });
+});
+
+describe('Plano 23 (T6a, §4.3): o atendimento não nasce de um pedido', () => {
+  it('registrar atendimento ligado a um pedido → "Aceite o pedido antes de registrar o atendimento."; nada é gravado', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const pedido = await pedidoDireto(app.db, T, p.id, new Date('2026-10-01T12:00:00Z'));
+    const e = await registrarAtendimento(T.ctx, T.tenant, p.id, { data: '2026-10-01', notasPrivadas: '', orientacoes: '', appointmentId: pedido }, deps).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(AtendimentoError);
+    expect((e as AtendimentoError).erros).toEqual({ geral: 'Aceite o pedido antes de registrar o atendimento.' });
+    expect(MSG_ATENDIMENTO.pedido).toBe('Aceite o pedido antes de registrar o atendimento.');
+    expect((await buscarConsulta(T.ctx, pedido, app.db))?.status).toBe('solicitada');
+    expect(await listarAtendimentos(T.ctx, p.id, app.db)).toEqual([]);
+  });
+});
+
+describe('Plano 23 (US-410, RN-430): previsão de retorno no atendimento', () => {
+  const FORA_DA_FAIXA = 'A previsão de retorno deve ficar entre a data do atendimento e 2 anos depois.';
+  const base = { data: '2026-10-01', notasPrivadas: '', orientacoes: '' };
+  const previsao = async (T: Awaited<ReturnType<typeof novoTenant>>, patientId: string, id: string) =>
+    (await withTenant(T.ctx, (tx) => tx.select({ r: consultations.retornoPrevistoEm }).from(consultations).where(and(eq(consultations.id, id), eq(consultations.patientId, patientId))), app.db))[0]?.r;
+
+  it('"em 6 semanas" a partir da data do atendimento no fuso: servidor em UTC às 01:30 do dia seguinte (22:30 em São Paulo)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const madrugadaUtc = new Date('2026-10-02T01:30:00Z'); // ainda 01/10 em São Paulo: "hoje" é 01/10 e 02/10 seria futuro
+    const r = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...base, retornoPrevistoEm: '', retornoSemanas: '6' }, { db: app.db, now: madrugadaUtc });
+    expect(Object.keys(r).sort()).toEqual(['cobranca', 'id']); // o retorno do Plano 20 PR 2 não muda
+    expect(await previsao(T, p.id, r.id)).toBe('2026-11-12');
+    expect((await buscarAtendimento(T.ctx, p.id, r.id, app.db))?.retornoPrevistoEm).toBe('2026-11-12');
+  });
+
+  it('a data informada; "Em {n} semanas" preenchido vence a data; nada informado = sem previsão', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { id: comData } = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...base, retornoPrevistoEm: '2026-12-10', retornoSemanas: '' }, deps);
+    expect(await previsao(T, p.id, comData)).toBe('2026-12-10');
+    const { id: semanas } = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...base, data: '2026-09-30', retornoPrevistoEm: '2026-12-10', retornoSemanas: ' 2 ' }, deps);
+    expect(await previsao(T, p.id, semanas)).toBe('2026-10-14');
+    const { id: sem } = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...base, data: '2026-09-29' }, deps);
+    expect(await previsao(T, p.id, sem)).toBeNull();
+  });
+
+  it('limite: a própria data e +730 dias passam; um dia antes, +731 dias, 105 semanas ou texto → a mensagem da RN-430, sem gravar', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { id: mesmoDia } = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...base, retornoPrevistoEm: '2026-10-01' }, deps);
+    expect(await previsao(T, p.id, mesmoDia)).toBe('2026-10-01');
+    const { id: doisAnos } = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...base, data: '2026-09-30', retornoPrevistoEm: '2028-09-29' }, deps); // +730
+    expect(await previsao(T, p.id, doisAnos)).toBe('2028-09-29');
+    const { id: semanas104 } = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...base, data: '2026-09-29', retornoSemanas: '104' }, deps);
+    expect(await previsao(T, p.id, semanas104)).toBe('2028-09-26');
+    const outro = await novoPaciente(app.db, T.ctx);
+    for (const entrada of [{ retornoPrevistoEm: '2026-09-30' }, { retornoPrevistoEm: '2028-10-01' }, { retornoSemanas: '105' }, { retornoSemanas: '0' }, { retornoSemanas: '-1' }, { retornoSemanas: '2,5' }, { retornoSemanas: 'seis' }, { retornoPrevistoEm: '2026-02-30' }]) {
+      const e = await registrarAtendimento(T.ctx, T.tenant, outro.id, { ...base, ...entrada }, deps).catch((x: unknown) => x);
+      expect(e, JSON.stringify(entrada)).toBeInstanceOf(AtendimentoError);
+      expect((e as AtendimentoError).erros, JSON.stringify(entrada)).toEqual({ retornoPrevistoEm: FORA_DA_FAIXA });
+    }
+    expect(MSG_ATENDIMENTO.retornoPrevisto).toBe(FORA_DA_FAIXA);
+    expect(await listarAtendimentos(T.ctx, outro.id, app.db)).toEqual([]);
+  });
+
+  it('editar a data com a previsão fora da faixa → a mensagem da RN-430 (nunca o 23514 do banco), também sem os campos da previsão na entrada', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const { id } = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...base, data: '2026-09-01', retornoPrevistoEm: '2026-09-20' }, deps);
+    // a data vai para depois da previsão: o formulário manda a previsão de antes
+    const e1 = await atualizarAtendimento(T.ctx, T.tenant, p.id, id, { ...base, retornoPrevistoEm: '2026-09-20', retornoSemanas: '' }, deps).catch((x: unknown) => x);
+    expect(e1).toBeInstanceOf(AtendimentoError);
+    expect((e1 as AtendimentoError).erros).toEqual({ retornoPrevistoEm: FORA_DA_FAIXA });
+    // quem chama sem os campos da previsão mantém a gravada — e ela é conferida contra a data nova
+    const e2 = await atualizarAtendimento(T.ctx, T.tenant, p.id, id, base, deps).catch((x: unknown) => x);
+    expect(e2).toBeInstanceOf(AtendimentoError);
+    expect((e2 as AtendimentoError).erros).toEqual({ retornoPrevistoEm: FORA_DA_FAIXA });
+    expect(await buscarAtendimento(T.ctx, p.id, id, app.db)).toMatchObject({ data: '2026-09-01', retornoPrevistoEm: '2026-09-20' });
+    // sem os campos e com a data dentro da faixa: a previsão fica; com os campos vazios: some
+    await atualizarAtendimento(T.ctx, T.tenant, p.id, id, { ...base, data: '2026-09-10' }, deps);
+    expect(await buscarAtendimento(T.ctx, p.id, id, app.db)).toMatchObject({ data: '2026-09-10', retornoPrevistoEm: '2026-09-20' });
+    await atualizarAtendimento(T.ctx, T.tenant, p.id, id, { ...base, data: '2026-09-10', retornoPrevistoEm: '', retornoSemanas: '' }, deps);
+    expect(await buscarAtendimento(T.ctx, p.id, id, app.db)).toMatchObject({ retornoPrevistoEm: null });
+  });
+
+  it('data do atendimento inválida: só o erro da data, não o da previsão', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    for (const entrada of [{ retornoSemanas: '6' }, { retornoPrevistoEm: '2026-12-01' }, { retornoSemanas: 'seis' }]) {
+      const e = await registrarAtendimento(T.ctx, T.tenant, p.id, { ...base, data: '', ...entrada }, deps).catch((x: unknown) => x);
+      expect((e as AtendimentoError).erros, JSON.stringify(entrada)).toEqual({ data: MSG_ATENDIMENTO.data });
+    }
+  });
+
+  it('a previsão não vai ao portal: a Jornada projeta só id, data e orientação', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await registrarAtendimento(T.ctx, T.tenant, p.id, { ...base, orientacoes: ORIENTACAO, retornoPrevistoEm: '2026-12-17' }, deps);
+    const j = await jornadaDoPaciente(ctxPaciente(T.tenantId, p.id), { ...tenantAgenda(T), mostrarPercGorduraPaciente: false }, now, app.db);
+    const json = JSON.stringify(j);
+    expect(json).toContain(ORIENTACAO.split(' ')[0]); // controle: a orientação saiu
+    expect(json).not.toMatch(/2026-12-17|17\/12\/2026|retornoPrevisto/);
+    expect(JSON.stringify(await orientacoesDoPaciente(ctxPaciente(T.tenantId, p.id), app.db))).not.toMatch(/2026-12-17|retornoPrevisto/);
   });
 });

@@ -13,4 +13,7 @@ describe('guarda do semConta', () => {
       .sort();
     expect(usam).toEqual([...SEM_CONTA_PERMITIDOS].sort());
   });
+  it('Plano 23 (RN-434): a retirada da autorização de aniversário pelo link do e-mail está na lista', () => {
+    expect(SEM_CONTA_PERMITIDOS).toContain('src/modules/agenda/aniversarios.ts');
+  });
 });

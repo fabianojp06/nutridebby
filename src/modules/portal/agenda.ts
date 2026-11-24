@@ -9,6 +9,7 @@ import { buscarConsulta, listarConsultas, STATUS_ATIVOS, type Consulta, type Sta
 import { inicioDoDia, partesNoFuso, somarDias } from '@/modules/agenda/fuso';
 import { horariosVisiveis, type HorarioVisivel, type LocalVisivel } from '@/modules/agenda/horarios';
 import { localDaConsulta, type LocalDaConsulta } from '@/modules/agenda/locais';
+import { ehPedido, pedidoVencido, situacaoNoPortal, STATUS_OCUPA } from '@/modules/agenda/status';
 import { pacienteDaSessao } from './sessao';
 
 export type ConsultaDoPaciente = {
@@ -18,6 +19,15 @@ export type ConsultaDoPaciente = {
   modalidade: 'presencial' | 'online';
   linkOnline: string | null;
   status: StatusConsulta;
+  /**
+   * Plano 23 (AG-D43, AG-D44): a situação em texto para o paciente ("Aguardando confirmação da nutricionista", "Não
+   * confirmado", "Pedido cancelado"…), com o pedido vencido e ainda não processado já como "Não confirmado" (RN-427).
+   */
+  situacao: string;
+  /** O pedido (`solicitada`) ou o que ele virou (recusado, vencido, retirado): a tela mostra a situação, sem as ações da consulta. */
+  pedido: boolean;
+  /** Plano 23 (US-408, T8): o pedido ainda aguardando, no prazo de resposta — a tela oferece "Desistir do pedido". */
+  podeDesistir: boolean;
   pedidoRemarcacao: boolean;
   podeAlterar: boolean;
   /** Plano 23: o local da consulta (nulo na antiga) e, só em "Sua consulta", o nome e o endereço dele pela projeção. */
@@ -32,19 +42,26 @@ const paraPaciente = (c: Consulta, tenant: TenantAgenda, agora: Date, local: Loc
   modalidade: c.modalidade,
   linkOnline: c.linkOnline,
   status: c.status,
+  situacao: situacaoNoPortal(c, tenant, agora),
+  pedido: ehPedido(c),
+  podeDesistir: c.status === 'solicitada' && !pedidoVencido(c, tenant, agora),
   pedidoRemarcacao: c.pedidoRemarcacaoEm !== null,
   podeAlterar: (STATUS_ATIVOS as readonly string[]).includes(c.status) && podeAlterarPeloPaciente(c.inicio, tenant.cancelamentoMinH, agora),
   localId: c.localId,
   local: local ? { nome: local.nome, endereco: local.tipo === 'presencial' ? local.endereco : null } : null,
 });
 
-/** P06-09: "Minhas consultas" — a RLS por paciente entrega só as do paciente da sessão. Leitura da agenda sem auditRead (D10 do Plano 05). */
+/**
+ * P06-09: "Minhas consultas" — a RLS por paciente entrega só as do paciente da sessão. Leitura da agenda sem auditRead (D10 do Plano 05).
+ * Plano 23 (§4.3, AG-D44): o pedido (`solicitada`) entra em "Próximas" e no teto (`STATUS_OCUPA`); recusado, vencido e
+ * retirado vão para "Anteriores" com a situação do pedido.
+ */
 export async function consultasDoPaciente(ctx: TenantContext, tenant: TenantAgenda, agora: Date, db: Db = getDb()) {
   pacienteDaSessao(ctx, 'consultasDoPaciente');
-  const ativas = inArray(appointments.status, [...STATUS_ATIVOS]);
-  const proximas = await listarConsultas(ctx, and(ativas, gt(appointments.fim, agora)), { ordem: 'asc', limite: 20 }, db);
-  const anteriores = await listarConsultas(ctx, or(lte(appointments.fim, agora), notInArray(appointments.status, [...STATUS_ATIVOS])), { ordem: 'desc', limite: 10 }, db);
-  // T-1: o mesmo teto do servidor (RN-16, `agendarComoPaciente`): ativas que ainda vão começar; em andamento não conta
+  const ocupam = inArray(appointments.status, [...STATUS_OCUPA]);
+  const proximas = await listarConsultas(ctx, and(ocupam, gt(appointments.fim, agora)), { ordem: 'asc', limite: 20 }, db);
+  const anteriores = await listarConsultas(ctx, or(lte(appointments.fim, agora), notInArray(appointments.status, [...STATUS_OCUPA])), { ordem: 'desc', limite: 10 }, db);
+  // T-1: o mesmo teto do servidor (RN-16, `agendarComoPaciente`): as que ocupam e ainda vão começar; em andamento não conta
   const podeAgendar = proximas.filter((c) => c.inicio > agora).length < MAX_CONSULTAS_FUTURAS_PUBLICO;
   return { podeAgendar, proximas: proximas.map((c) => paraPaciente(c, tenant, agora)), anteriores: anteriores.map((c) => paraPaciente(c, tenant, agora)) };
 }

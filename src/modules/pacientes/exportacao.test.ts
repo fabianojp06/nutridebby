@@ -7,7 +7,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { consultaDireta, novoLocal } from '../../../test/agenda';
+import { consultaDireta, novoLocal, pedidoDireto } from '../../../test/agenda';
 import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
 import { cobrancasDoPaciente } from '../../../test/financeiro';
 import { tarefaNoBanco } from '../../../test/ia';
@@ -22,7 +22,7 @@ import { varreduraSo } from '../../../test/varredura';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
 import * as schema from '@/db/schema';
-import { auditLog, consents, dataExports, diaryEntries, exams, iaNutriConsentimentos, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
+import { appointments, auditLog, consents, dataExports, diaryEntries, exams, iaNutriConsentimentos, notifications, patients, pushSubscriptions, storedFiles, tenants, user } from '@/db/schema';
 import { idTaco } from '@/modules/alimentos/taco';
 import { financeiroParaExportacao } from '@/modules/financeiro/titular';
 import { DESTINO_ROTULO } from '@/modules/ia/constantes';
@@ -129,7 +129,8 @@ async function prontuarioCompleto() {
     T.ctx,
     T.tenant,
     p.id,
-    { data: '2026-09-01', notasPrivadas: NOTA, orientacoes: 'beber 2 L de água/dia' },
+    // Plano 23 (RN-438): a previsão de retorno vai ao dados.json (`atendimentos[].retornoPrevistoEm`)
+    { data: '2026-09-01', notasPrivadas: NOTA, orientacoes: 'beber 2 L de água/dia', retornoPrevistoEm: '2026-10-13' },
     deps,
   );
   await salvarEtiquetasDoPaciente(T.ctx, p.id, { etiquetas: [], nova: 'etiqueta-secreta' }, app.db);
@@ -222,7 +223,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
     expect(dados.paciente).toMatchObject({ nome: 'Ana Souza', dataNascimento: '1991-03-10' });
     expect(dados.anamneses[0].respostas).toEqual([{ pergunta: 'Alergias', resposta: 'Lactose' }]);
     expect(dados.atendimentos).toEqual([
-      { data: '2026-09-01', orientacoes: 'beber 2 L de água/dia' },
+      { data: '2026-09-01', orientacoes: 'beber 2 L de água/dia', retornoPrevistoEm: '2026-10-13' },
     ]);
     expect(dados.exames[0].valores[0]).toMatchObject({ nome: 'Glicemia de jejum', valor: 95 });
     expect(dados.planos).toEqual([
@@ -660,6 +661,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         examesEnviados: [],
         iaNutri: { consentimentos: [], mensagens: [] },
         laudosForaDoZip: false,
+        aniversario: [],
         financeiro: [],
       },
       'Debby Silva',
@@ -1114,6 +1116,7 @@ describe('exportar dados do paciente (US-018 "Exportar")', () => {
         examesEnviados: [],
         iaNutri: { consentimentos: [], mensagens: [] },
         laudosForaDoZip: false,
+        aniversario: [],
         financeiro: [],
       },
       'Debby Silva',
@@ -1524,5 +1527,62 @@ describe('Plano 22 (T6, RN-385, RN-399; Review Focus 6) — "Mostrar no app" no 
       expect(de('Nunca liberado').mostradoNoAppEm, escopo).toBeNull();
       expect(de('Retirado').mostradoNoAppEm, escopo).toBeNull();
     }
+  });
+});
+
+describe('Plano 23 (T6, AG-D23): o motivo da recusa do pedido de consulta não chega ao titular', () => {
+  it('pedido_recusado com motivo sai com motivoCancelamento: null nos dois escopos', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const MOTIVO = 'Recusado: suspeita de transtorno alimentar';
+    const id = await pedidoDireto(app.db, T, p.id, new Date('2026-09-22T12:00:00Z'));
+    await withTenant(T.ctx, (tx) => tx.update(appointments).set({ status: 'cancelada', canceladoPor: 'pedido_recusado', canceladaEm: now, motivoCancelamento: MOTIVO }).where(eq(appointments.id, id)), app.db);
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(dados.consultas, escopo).toEqual([expect.objectContaining({ status: 'cancelada', canceladoPor: 'pedido_recusado', motivoCancelamento: null })]);
+      expect(JSON.stringify(dados), escopo).not.toContain('transtorno');
+    }
+  });
+});
+
+describe('Plano 23 (T10, RN-438): a autorização de aniversário e as mensagens na exportação', () => {
+  it('dados.json traz a seção `aniversario` (evento, origem, forma, data; nunca quem registrou) e as notificações `aniversario` e `pedido_nao_confirmado` em `lembretes`, nos dois escopos', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: p, userId } = await pacienteComConta(app.db, T, { dataNascimento: '1990-11-20' });
+    const outro = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const ins = (ctx: Parameters<typeof withTenant>[0], v: Omit<typeof schema.aniversarioAutorizacoes.$inferInsert, 'tenantId'>) =>
+      withTenant(ctx, (tx) => tx.insert(schema.aniversarioAutorizacoes).values({ tenantId: T.tenantId, ...v }), app.db);
+    await ins(T.ctx, { patientId: p.id, evento: 'autorizou', origem: 'nutri', forma: 'verbal', registradoPor: T.nutriId });
+    await ins(ctxPaciente(T.tenantId, p.id, userId), { patientId: p.id, evento: 'retirou', origem: 'app', registradoPor: userId });
+    await ins({ tenantId: T.tenantId, role: 'paciente', patientId: p.id, semConta: true }, { patientId: p.id, evento: 'retirou', origem: 'link' });
+    await ins(T.ctx, { patientId: outro.id, evento: 'autorizou', origem: 'nutri', forma: 'escrito', registradoPor: T.nutriId });
+    const linhas = await withTenant(T.ctx, (tx) => tx.select().from(schema.aniversarioAutorizacoes).where(eq(schema.aniversarioAutorizacoes.patientId, p.id)).orderBy(schema.aniversarioAutorizacoes.registradoEm), app.db);
+    await withTenant(
+      T.ctx,
+      (tx) =>
+        tx.insert(notifications).values([
+          { tenantId: T.tenantId, patientId: p.id, canal: 'email', tipo: 'aniversario', status: 'ignorada', motivoIgnorada: 'sem_autorizacao', agendadaPara: new Date('2026-11-20T12:00:00Z') },
+          { tenantId: T.tenantId, patientId: p.id, canal: 'email', tipo: 'pedido_nao_confirmado', status: 'enviada', agendadaPara: new Date('2026-09-14T12:00:00Z'), enviadaEm: new Date('2026-09-14T12:00:01Z') },
+        ]),
+      app.db,
+    );
+    for (const escopo of ['equipe', 'titular'] as const) {
+      const { dados } = await withTenant(T.ctx, (tx) => montarDados(tx, p.id, now, 'America/Sao_Paulo', escopo), app.db);
+      expect(dados.aniversario, escopo).toEqual([
+        { evento: 'autorizou', origem: 'nutri', forma: 'verbal', data: linhas[0].registradoEm.toISOString() },
+        { evento: 'retirou', origem: 'app', forma: null, data: linhas[1].registradoEm.toISOString() },
+        { evento: 'retirou', origem: 'link', forma: null, data: linhas[2].registradoEm.toISOString() },
+      ]);
+      expect(JSON.stringify(dados.aniversario)).not.toContain(T.nutriId);
+      expect(JSON.stringify(dados.aniversario)).not.toContain(userId);
+      expect(dados.lembretes.map((l) => [l.tipo, l.canal, l.status, l.motivoNaoEnviado])).toEqual([
+        ['pedido_nao_confirmado', 'email', 'enviada', null],
+        ['aniversario', 'email', 'ignorada', 'sem_autorizacao'],
+      ]);
+    }
+    // sem autorização: seção vazia
+    const sem = await novoPaciente(app.db, T.ctx);
+    const { dados: d2 } = await withTenant(T.ctx, (tx) => montarDados(tx, sem.id, now, 'America/Sao_Paulo', 'titular'), app.db);
+    expect(d2.aniversario).toEqual([]);
   });
 });

@@ -1,12 +1,14 @@
 import Link from 'next/link';
 import { ConfirmarBotao } from '@/components/confirmar-botao';
 import { requireNutri } from '@/lib/tenant-session';
-import { DIAS_SEMANA, MSG_LOCAIS, ROTULO_MODALIDADE_REGRA, ROTULO_TIPO_LOCAL } from '@/modules/agenda/constantes';
+import { DIAS_SEMANA, MSG_LOCAIS, MSG_SOLICITACOES, ROTULO_MODALIDADE_REGRA, ROTULO_TIPO_LOCAL } from '@/modules/agenda/constantes';
 import { listarBloqueios, listarHorarios, type RegraSalva } from '@/modules/agenda/disponibilidade';
 import { formatarQuando } from '@/modules/agenda/fuso';
+import { abaDeSolicitacoes } from '@/modules/agenda/solicitacoes';
 import { AbasDaAgenda } from '../abas';
 import { excluirBloqueioAction, excluirRegraAction } from './actions';
 import { BloqueioForm } from './bloqueio-form';
+import { ChaveDosPedidosForm } from './chave-form';
 import { RegraForm } from './regra-form';
 
 export const dynamic = 'force-dynamic';
@@ -34,14 +36,18 @@ function ListaDeRegras({ regras, local }: { regras: RegraSalva[]; local?: string
 export default async function HorariosPage() {
   const { ctx, tenant } = await requireNutri('/painel/agenda/horarios');
   const agora = new Date();
-  const [{ regras, locais }, bloqueios] = await Promise.all([listarHorarios(ctx), listarBloqueios(ctx, agora, new Date(agora.getTime() + 10 * 366 * 86_400_000))]);
+  const [{ regras, locais }, bloqueios, solicitacoes] = await Promise.all([
+    listarHorarios(ctx),
+    listarBloqueios(ctx, agora, new Date(agora.getTime() + 10 * 366 * 86_400_000)),
+    abaDeSolicitacoes(ctx, tenant, { agora }),
+  ]);
   const ativos = new Set(locais.map((l) => l.id));
   const semLocal = regras.filter((r) => !r.localId || !ativos.has(r.localId));
   return (
     <>
       <main className="mx-auto w-full max-w-[1360px] space-y-8 p-4 md:p-6">
         <h1 className="font-titulo text-2xl font-semibold">Horários de atendimento</h1>
-        <AbasDaAgenda atual="horarios" />
+        <AbasDaAgenda atual="horarios" solicitacoes={solicitacoes} />
         <section data-guia="regras-horario" aria-labelledby="regras" className="space-y-3">
           <h2 id="regras" className="text-lg font-semibold">Horários da semana</h2>
           {locais.length === 0 ? (
@@ -72,6 +78,11 @@ export default async function HorariosPage() {
               <RegraForm locais={locais.map(({ id, nome, tipo, principal }) => ({ id, nome, tipo, principal }))} />
             </>
           )}
+        </section>
+        {/* Plano 23 (US-407, RN-420): a chave dos pedidos; desligar não mexe nos pendentes (continuam em Solicitações) */}
+        <section aria-labelledby="pedidos-de-consulta" className="space-y-3">
+          <h2 id="pedidos-de-consulta" className="text-lg font-semibold">{MSG_SOLICITACOES.chave.titulo}</h2>
+          <ChaveDosPedidosForm ligada={tenant.agendaConfirmarPedidos} />
         </section>
         <section data-guia="bloqueios-horario" aria-labelledby="bloqueios" className="space-y-3">
           <h2 id="bloqueios" className="text-lg font-semibold">Bloqueios</h2>

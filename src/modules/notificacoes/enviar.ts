@@ -1,10 +1,14 @@
-import { and, asc, count, eq, gt, inArray, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { Db, Tx } from '@/db/client';
-import { appointments, locaisAtendimento, notifications, patients, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow, type TipoDeLocal } from '@/db/schema';
+import { aniversarioAutorizacoes, appointments, locaisAtendimento, notifications, patientCadastro, patients, publicBookingRequests, type AppointmentRow, type NotificationRow, type PatientRow, type TenantRow, type TipoDeLocal } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { renderEmail } from '@/email/templates';
 import type { EmailTransport } from '@/email/transport';
-import { logger, nomeDoErro } from '@/lib/logger';
+import { logger, nomeDoErro, sqlstateDoErro } from '@/lib/logger';
+import { vencerSolicitacoes } from '@/modules/agenda/solicitacoes';
+import { elegivel } from '@/modules/agenda/aniversarios';
+import { diaDoAniversario } from '@/modules/agenda/calendario';
+import { partesNoFuso } from '@/modules/agenda/fuso';
 import { buscarTenant, getTenantStatus, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
 import { adiarLembrete, ANTECEDENCIA_MS, emHorarioSilencioso, fallbackPorEmail, ignorarPendentesDoTenant, lembreteFazSentido } from './agendar';
 import { emailDaNotificacao, pushDaNotificacao, textoWhatsapp } from './mensagens';
@@ -17,8 +21,25 @@ import { digitosDoE164, type ProvedorWhatsapp, type ResultadoEnvio } from './wha
 
 /** Plano 23 (US-402): o local da consulta, lido pelo worker junto com ela (nunca a sala: o link da consulta já é a cópia). */
 export type LocalDoEnvio = { nome: string; tipo: TipoDeLocal; endereco: string | null };
-/** `local`: opcional (os testes que montam o contexto à mão continuam valendo); nulo na consulta sem local. */
-export type ContextoEnvio = { n: NotificationRow; paciente: PatientRow; consulta: AppointmentRow | null; tenant: TenantRow; agora: Date; local?: LocalDoEnvio | null };
+/**
+ * `local`: opcional (os testes que montam o contexto à mão continuam valendo); nulo na consulta sem local.
+ * `pedidoDaPagina` (Plano 23, RN-428): só no `pedido_nao_confirmado` — o pedido veio da página pública (há um pedido em
+ * `public_booking_requests` que aponta para a consulta), não do portal: decide o link "Escolha outro horário".
+ */
+export type ContextoEnvio = {
+  n: NotificationRow;
+  paciente: PatientRow;
+  consulta: AppointmentRow | null;
+  tenant: TenantRow;
+  agora: Date;
+  local?: LocalDoEnvio | null;
+  pedidoDaPagina?: boolean;
+  /**
+   * Plano 23 (RN-431, AG-D35): só na mensagem de aniversário — o último evento da autorização (reconferida no envio) e o
+   * nome social (a saudação usa o primeiro nome dele, quando houver).
+   */
+  aniversario?: { autorizacao: { evento: string; registradoEm: Date } | null; nomeSocial: string | null };
+};
 export type Resultado =
   | { status: 'enviada'; providerMsgId?: string; providerJid?: string }
   | { status: 'ignorada'; motivo: MotivoIgnorada }
@@ -52,14 +73,43 @@ export function motivoParaIgnorar(c: ContextoEnvio): Resultado | null {
   if (!c.paciente || c.paciente.status !== 'ativo' || c.paciente.anonimizadoEm) return ignorar('paciente_inativo'); // RN-08, US-018
   // US-010 (rodada 1 da T14): o convite por WhatsApp que ainda estava na fila quando o paciente aceitou pelo e-mail não sai
   if (c.n.tipo === 'convite_paciente' && c.paciente.userId) return ignorar('convite_aceito');
+  // Plano 23 (§4.3, RN-428): o "pedido não confirmado" só sai com a consulta cancelada (recusa ou vencimento)
+  if (c.n.tipo === 'pedido_nao_confirmado') return c.consulta?.status === 'cancelada' ? null : ignorar('consulta_nao_aceita');
+  // Plano 23 (RN-431): o aniversário é reconferido na hora do envio (a autorização retirada depois do agendamento não sai)
+  if (c.n.tipo === 'aniversario') return motivoDoAniversario(c);
   // lembretes, "Consulta marcada" e a resposta a "1"/"2" (T12) falam de uma consulta num horário: conferidos aqui
   if (!c.consulta || !(ehLembrete(c.n.tipo) || c.n.tipo === 'consulta_marcada' || c.n.tipo === 'resposta_confirmacao' || c.n.tipo === 'resposta_remarcar')) return null;
+  // Plano 23 (§4.3): de uma consulta que ainda é pedido (`solicitada`) nada sai — só depois do aceite
+  if (c.consulta.status === 'solicitada') return ignorar('consulta_nao_aceita');
   if (c.consulta.status === 'cancelada') return ignorar('consulta_cancelada');
   if (c.consulta.status === 'realizada' || c.consulta.status === 'faltou') return ignorar('consulta_encerrada');
   // D6/D17: linha planejada para outro horário (reservada antes de a nutricionista mudar a hora) não sai
   if (c.n.inicioConsulta && c.n.inicioConsulta.getTime() !== c.consulta.inicio.getTime()) return ignorar('consulta_remarcada');
   if (c.consulta.inicio.getTime() <= c.agora.getTime()) return ignorar('prazo_passado');
   return null;
+}
+
+/**
+ * Plano 23 (RN-431, RN-432): a mensagem de aniversário na hora do envio — sem data de nascimento → `paciente_inativo`;
+ * menor de 18 no dia ou sem a autorização que conta (retirada depois do agendamento, ou registrada antes dos 18) →
+ * `sem_autorizacao`; o dia já passou (o worker parou) → `prazo_passado`; a partir das 21h no fuso → `horario_silencioso`.
+ */
+function motivoDoAniversario(c: ContextoEnvio): Resultado | null {
+  const nascimento = c.paciente.dataNascimento;
+  if (!nascimento) return ignorar('paciente_inativo');
+  const fuso = c.tenant.fuso;
+  const agora = partesNoFuso(c.agora, fuso);
+  const dia = diaDoAniversario(nascimento, Number(partesNoFuso(c.n.agendadaPara, fuso).data.slice(0, 4)));
+  switch (elegivel(c.paciente, c.aniversario?.autorizacao ?? null, dia, agora.data, { hora: Math.floor(agora.minutos / 60), fuso })) {
+    case 'pode_receber':
+      return null;
+    case 'ja_passou':
+      return ignorar('prazo_passado');
+    case 'passou_do_horario':
+      return ignorar('horario_silencioso');
+    default:
+      return ignorar('sem_autorizacao');
+  }
 }
 
 async function enviarEmail(c: ContextoEnvio, deps: DepsEnvio): Promise<Resultado> {
@@ -69,7 +119,7 @@ async function enviarEmail(c: ContextoEnvio, deps: DepsEnvio): Promise<Resultado
   try {
     // D6: a mesma linha para o mesmo início de consulta tem a mesma chave → o Resend não duplica numa repetição
     const chave = `notificacao:${c.n.id}:${c.consulta?.inicio.toISOString() ?? 'sem-consulta'}`;
-    await deps.email.transport.send({ from: deps.email.from, to: msg.para, subject: r.subject, html: r.html, text: r.text, idempotencyKey: chave });
+    await deps.email.transport.send({ from: deps.email.from, to: msg.para, subject: r.subject, html: r.html, text: r.text, idempotencyKey: chave, ...(r.headers ? { headers: r.headers } : {}) });
     return { status: 'enviada' };
   } catch (err) {
     // RNF-11: só o nome do erro — a mensagem do provedor pode trazer o destinatário
@@ -279,7 +329,28 @@ async function carregarContexto(ctx: TenantContext, tenant: TenantRow, n: Notifi
             .from(locaisAtendimento)
             .where(eq(locaisAtendimento.id, consulta.localId))
         : [];
-      return { n, paciente, consulta: consulta ?? null, tenant, agora: deps.agora(), local: local ? { nome: local.nome, tipo: local.tipo as TipoDeLocal, endereco: local.endereco } : null };
+      // Plano 23 (RN-428): de onde veio o pedido não confirmado (página pública ou portal), para o link do e-mail
+      const [daPagina] =
+        n.tipo === 'pedido_nao_confirmado' && consulta
+          ? await tx.select({ id: publicBookingRequests.id }).from(publicBookingRequests).where(eq(publicBookingRequests.appointmentId, consulta.id)).limit(1)
+          : [];
+      // Plano 23 (RN-431, AG-D35): na mensagem de aniversário, o último evento da autorização e o nome social (só a projeção)
+      const aniversario =
+        n.tipo === 'aniversario'
+          ? {
+              autorizacao:
+                (
+                  await tx
+                    .select({ evento: aniversarioAutorizacoes.evento, registradoEm: aniversarioAutorizacoes.registradoEm })
+                    .from(aniversarioAutorizacoes)
+                    .where(eq(aniversarioAutorizacoes.patientId, n.patientId))
+                    .orderBy(desc(aniversarioAutorizacoes.registradoEm), desc(aniversarioAutorizacoes.id))
+                    .limit(1)
+                )[0] ?? null,
+              nomeSocial: (await tx.select({ nomeSocial: patientCadastro.nomeSocial }).from(patientCadastro).where(eq(patientCadastro.patientId, n.patientId)))[0]?.nomeSocial ?? null,
+            }
+          : undefined;
+      return { n, paciente, consulta: consulta ?? null, tenant, agora: deps.agora(), local: local ? { nome: local.nome, tipo: local.tipo as TipoDeLocal, endereco: local.endereco } : null, pedidoDaPagina: !!daPagina, aniversario };
     },
     deps.db,
   );
@@ -298,6 +369,20 @@ async function aposEnvio(tx: Tx, tenant: TenantRow, n: NotificationRow, agora: D
   } catch (err) {
     logger.warn({ tenantId: tenant.id, notificacaoId: n.id, err: nomeDoErro(err) }, 'falha no aviso de 80% da cota de WhatsApp');
   }
+}
+
+/**
+ * Plano 23 (P23-10, decisão da orquestradora): a nova tentativa da mensagem de aniversário nunca leva a linha para outro ano
+ * UTC — o ano do índice `notifications_aniversario_unique` (uma por paciente por ano); mudar de balde bloquearia a mensagem
+ * do ano seguinte. Se `desejada` cai em outro ano UTC que o da `agendada_para` atual, fica no último segundo do ano atual
+ * (`min(desejada, fim do ano − 1 s)`); se esse instante já passou, `null` (a linha vira `falhou`). Os outros tipos não mudam.
+ */
+export function novaTentativa(n: Pick<NotificationRow, 'tipo' | 'agendadaPara'>, desejada: Date, agora: Date): Date | null {
+  if (n.tipo !== 'aniversario') return desejada;
+  const ano = n.agendadaPara.getUTCFullYear();
+  if (desejada.getUTCFullYear() === ano) return desejada;
+  const limite = new Date(Date.UTC(ano + 1, 0, 1) - 1000);
+  return limite.getTime() >= agora.getTime() ? limite : null;
 }
 
 async function registrarResultado(ctx: TenantContext, tenant: TenantRow, n: NotificationRow, r: Resultado, deps: DepsEnvio): Promise<void> {
@@ -320,11 +405,16 @@ async function registrarResultado(ctx: TenantContext, tenant: TenantRow, n: Noti
         return;
       }
       const esperas = ESPERAS_S[n.canal as Canal];
+      let erro = 'erro' in r ? r.erro : null;
       if (r.status === 'repetir' && n.tentativas <= esperas.length) {
-        await tx.update(notifications).set({ status: 'pendente', agendadaPara: new Date(agora.getTime() + esperas[n.tentativas - 1] * 1000), erro: r.erro, updatedAt: agora }).where(onde);
-        return;
+        const para = novaTentativa(n, new Date(agora.getTime() + esperas[n.tentativas - 1] * 1000), agora);
+        if (para) {
+          await tx.update(notifications).set({ status: 'pendente', agendadaPara: para, erro: r.erro, updatedAt: agora }).where(onde);
+          return;
+        }
+        erro = 'virada_do_ano'; // Plano 23 (P23-10): o aniversário não muda de ano UTC; motivo técnico, sem dado pessoal
       }
-      const [f] = await tx.update(notifications).set({ status: 'falhou', erro: r.erro, conteudoSelado: null, updatedAt: agora }).where(onde).returning();
+      const [f] = await tx.update(notifications).set({ status: 'falhou', erro, conteudoSelado: null, updatedAt: agora }).where(onde).returning();
       if (f) await fallbackPorEmail(tx, f, agora);
     },
     deps.db,
@@ -396,14 +486,31 @@ async function processarComSeguranca(tenantId: string, deps: DepsEnvio, limite: 
 }
 
 /**
+ * Plano 23 (RN-427, AG-D19, AG-D67): vence os pedidos de consulta de cada tenant da volta antes da varredura (o aviso
+ * "não confirmado" sai nesta mesma volta). Um `try/catch` por tenant, como `processarComSeguranca`: o vencimento nunca
+ * derruba os envios (o `vencerSolicitacoes` já isola cada pedido). Só o código no log (regra 3).
+ */
+async function vencerComSeguranca(alvos: readonly string[], deps: DepsEnvio): Promise<void> {
+  for (const tenantId of alvos) {
+    try {
+      await vencerSolicitacoes(deps.db, deps.agora(), { tenantId });
+    } catch (err) {
+      logger.error({ tenantId, err: nomeDoErro(err), sqlstate: sqlstateDoErro(err) }, 'falha ao vencer os pedidos de consulta do tenant');
+    }
+  }
+}
+
+/**
  * RN-05: varre os tenants (cron de 1 min) ou só um (envio imediato); no máximo LOTE_POR_EXECUCAO por execução.
  * Rodada 1 (D6): cada tenant tem uma parte do lote (`max(5, 40 ÷ tenants)`) numa volta que começa num tenant diferente
  * a cada minuto; o que sobrar vai, numa segunda passada, para quem encheu a parte.
+ * Plano 23 (AG-D19): antes da varredura, os pedidos vencidos dos mesmos tenants (`vencerComSeguranca`); sem fila nova.
  */
 export async function processarNotificacoes(deps: DepsEnvio, opts: { tenantId?: string } = {}): Promise<{ processadas: number }> {
   // R14: o envio imediato de um tenant não lista os outros. Na volta do cron, ordem estável (por id) antes do rodízio:
   // a ordem física de `tenants` muda com qualquer UPDATE (status, cota)
   const alvos = opts.tenantId ? [opts.tenantId] : ordemDaRodada((await listarTenantsParaVarredura(deps.db)).map((t) => t.id).sort(), deps.agora());
+  await vencerComSeguranca(alvos, deps);
   const parte = Math.max(LOTE_MIN_POR_TENANT, Math.ceil(LOTE_POR_EXECUCAO / Math.max(1, alvos.length)));
   let processadas = 0;
   const cheios: string[] = [];

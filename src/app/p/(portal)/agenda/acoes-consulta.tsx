@@ -1,6 +1,9 @@
 'use client';
-import { useActionState } from 'react';
-import { avisarAction, cancelarAction, confirmarAction, type AgendaState } from './actions';
+import { useActionState, useEffect, useId, useState } from 'react';
+import { Dialogo } from '@/components/dialogo';
+import { Botao } from '@/components/ui/botao';
+import { MSG_SOLICITACOES } from '@/modules/agenda/constantes';
+import { avisarAction, cancelarAction, confirmarAction, desistirAction, type AgendaState } from './actions';
 
 const Retorno = ({ s }: { s: AgendaState }) => (s.erro ? <p role="alert" className="text-erro">{s.erro}</p> : s.ok ? <p role="status" className="rounded bg-ok-fundo p-3">{s.ok}</p> : null);
 
@@ -33,6 +36,45 @@ export function AcoesConsulta({ id, confirmada, podeAlterar, pedidoRemarcacao }:
       )}
       <Retorno s={canc} />
       <Retorno s={avis} />
+    </div>
+  );
+}
+
+const P = MSG_SOLICITACOES.portal;
+
+/**
+ * O formulário dentro da confirmação: "Voltar" e "Desistir do pedido" (o `<form>` dentro do diálogo, nunca o contrário). A
+ * desistência não tem volta: o foco começa em "Voltar" (contrato do `Dialogo`, revisão da T8, I-2).
+ */
+export function FormularioDaDesistencia({ id, aoVoltar, aoMudarPendente }: { id: string; aoVoltar: () => void; aoMudarPendente: (p: boolean) => void }) {
+  const [s, desistir, pendente] = useActionState<AgendaState>(desistirAction.bind(null, id), {});
+  useEffect(() => aoMudarPendente(pendente), [pendente, aoMudarPendente]);
+  return (
+    <form action={desistir} className="space-y-3">
+      <Retorno s={s} />
+      <div className="flex flex-wrap justify-end gap-3">
+        <Botao type="button" variante="secundario" onClick={() => !pendente && aoVoltar()} aria-disabled={pendente || undefined} className="aria-disabled:opacity-60" data-foco-inicial="">Voltar</Botao>
+        <Botao type="submit" variante="escuro" aria-disabled={pendente || undefined} className="aria-disabled:opacity-60" onClick={(e) => pendente && e.preventDefault()}>{P.desistir}</Botao>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Plano 23 (US-408, AG-D42): o pedido ainda aguardando — "Desistir do pedido" abre a confirmação "Desistir deste pedido?" no
+ * `Dialogo` compartilhado (Plano 22). Confirmado, a action volta a "Minhas consultas" com "Pedido cancelado." (região fixa,
+ * com o foco). Alvo de 44 px (portal).
+ */
+export function DesistirDoPedido({ id }: { id: string }) {
+  const [aberto, setAberto] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
+  const idBotao = useId();
+  return (
+    <div>
+      <Botao id={idBotao} type="button" variante="secundario" aria-haspopup="dialog" onClick={() => setAberto(true)}>{P.desistir}</Botao>
+      <Dialogo aberto={aberto} titulo={P.desistirConfirma} aoFechar={() => setAberto(false)} ocupado={ocupado} rodape={null} focoAoFechar={() => document.getElementById(idBotao)}>
+        <FormularioDaDesistencia id={id} aoVoltar={() => setAberto(false)} aoMudarPendente={setOcupado} />
+      </Dialogo>
     </div>
   );
 }

@@ -79,3 +79,28 @@ describe('/n/[slug]: Plano 23 (US-403, I-13)', () => {
     expect(html).not.toContain('Nutricionista ·');
   });
 });
+
+describe('/n/[slug]: Plano 23 (RN-429, AG-D21): ponto de coleta', () => {
+  const FRASE =
+    'Até a resposta, guardamos seu nome, e-mail, telefone e o número de rede (IP) do seu aparelho só para este pedido. Se ele não for aceito ou o horário passar, apagamos esses dados depois de 24 horas, na limpeza diária.';
+  it('com a chave dos pedidos ligada, a frase aparece antes de enviar; desligada, não', async () => {
+    carregar.mockResolvedValue({ ...ATIVA, confirmarPedidos: true, horarios: [horario('08:00', CONSULTORIO)] });
+    const html = await render();
+    expect(html).toContain(FRASE);
+    expect(html.indexOf(FRASE)).toBeLessThan(html.indexOf('Enviar código'));
+    carregar.mockResolvedValue({ ...ATIVA, confirmarPedidos: false, horarios: [horario('08:00', CONSULTORIO)] });
+    expect(await render()).not.toContain(FRASE);
+  });
+});
+
+describe('/n/[slug]: Plano 23 (revisão da T7, RN-429): ponto de coleta também na etapa do código', () => {
+  const FRASE = 'Até a resposta, guardamos seu nome, e-mail, telefone e o número de rede (IP) do seu aparelho só para este pedido.';
+  it('a chave que `solicitarCodigo` devolveu ligada → a frase antes de "Confirmar agendamento"; desligada → sem a frase', async () => {
+    const { EtapaDoCodigo } = await import('./agendar-form');
+    const ligada = renderToStaticMarkup(EtapaDoCodigo({ email: 'ana@ex.com', pontoDeColeta: true, enviando: false }));
+    expect(ligada).toContain(FRASE);
+    expect(ligada.indexOf(FRASE)).toBeLessThan(ligada.indexOf('Confirmar agendamento'));
+    expect(ligada).toContain('Enviamos um código de 6 dígitos para ana@ex.com');
+    expect(renderToStaticMarkup(EtapaDoCodigo({ email: 'ana@ex.com', pontoDeColeta: false, enviando: false }))).not.toContain(FRASE);
+  });
+});

@@ -1,7 +1,7 @@
 import { inspect } from 'node:util';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { consultaDireta, em, localPrincipal, novoLocal, perdeCorridaNoBanco, perdeDeadlockNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, localPrincipal, novoLocal, pedidoDireto, perdeCorridaNoBanco, perdeDeadlockNoBanco, semanaToda, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { ctxPaciente, novoPaciente, novoTenant } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
@@ -275,6 +275,10 @@ describe('alterar data e hora (US-031, D17)', () => {
     const entrada = { data: '2026-10-16', hora: '09:00', duracaoMin: '60', localId: consultorio };
     expect(await erros(moverConsulta(T.ctx, tenantAgenda(T), id, entrada, deps))).toEqual({ geral: MSG_AGENDA.naoAlteravel });
     expect(await erros(moverConsulta(T.ctx, tenantAgenda(T), realizada, entrada, deps))).toEqual({ geral: MSG_AGENDA.naoAlteravel });
+    // Plano 23 (§4.3): o pedido não se altera — aceitar ou recusar antes
+    const pedido = await pedidoDireto(app.db, T, ana.id, em('2026-10-17', '09:00'));
+    expect(await erros(moverConsulta(T.ctx, tenantAgenda(T), pedido, entrada, deps))).toEqual({ geral: MSG_AGENDA.naoAlteravel });
+    expect(await buscarConsulta(T.ctx, pedido, app.db)).toMatchObject({ status: 'solicitada', inicio: em('2026-10-17', '09:00') });
     const outro = await novoTenant(app.db);
     await expect(moverConsulta(outro.ctx, tenantAgenda(outro), id, entrada, deps)).rejects.toThrow(MSG_AGENDA.naoEncontrada);
     await expect(moverConsulta(T.ctx, tenantAgenda(T), 'nao-e-uuid', entrada, deps)).rejects.toThrow(MSG_AGENDA.naoEncontrada);

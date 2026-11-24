@@ -9,6 +9,8 @@ export type OutgoingEmail = {
   text: string;
   /** Id do job: repetição do mesmo job não duplica o e-mail no Resend. */
   idempotencyKey: string;
+  /** Plano 23 (RN-434): cabeçalhos extras (List-Unsubscribe e List-Unsubscribe-Post do aniversário); sem eles, nada muda. */
+  headers?: Record<string, string>;
 };
 
 export interface EmailTransport {
@@ -28,7 +30,7 @@ export function resendTransport(apiKey: string, client: Pick<Resend, 'emails'> =
   return {
     async send(e) {
       const { error } = await client.emails.send(
-        { from: e.from, to: e.to, subject: e.subject, html: e.html, text: e.text },
+        { from: e.from, to: e.to, subject: e.subject, html: e.html, text: e.text, ...(e.headers ? { headers: e.headers } : {}) },
         { idempotencyKey: e.idempotencyKey },
       );
       if (error) throw new EmailSendError(`Resend recusou o envio: ${error.name} (${error.statusCode ?? 'sem status'})`);
@@ -49,6 +51,7 @@ export function mailpitTransport(baseUrl: string, fetchImpl: typeof fetch = fetc
           Subject: e.subject,
           HTML: e.html,
           Text: e.text,
+          ...(e.headers ? { Headers: e.headers } : {}),
         }),
       });
       if (!res.ok) throw new EmailSendError(`Mailpit recusou o envio: HTTP ${res.status}`);

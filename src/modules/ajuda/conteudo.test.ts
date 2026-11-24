@@ -64,6 +64,7 @@ describe('conteúdo do manual (P08-10)', () => {
     expect(guiaDaRota(`/painel/pacientes/${UUID}/plano-alimentar/${UUID}`)?.id).toBe('plano-alimentar');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/exames`)?.id).toBe('prontuario');
     expect(guiaDaRota('/painel/agenda/horarios')?.id).toBe('horarios');
+    expect(guiaDaRota('/painel/agenda/aniversariantes')?.id).toBe('agenda'); // Plano 23 (T10, PL-06)
     expect(guiaDaRota(`/painel/pacientes/${UUID}/documentos`)?.id).toBe('documentos');
     expect(guiaDaRota(`/painel/pacientes/${UUID}/documentos/${UUID}`)?.id).toBe('documentos');
   });

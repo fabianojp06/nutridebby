@@ -7,11 +7,12 @@ import { normalizarTexto } from '@/lib/text';
 import { avisarPaciente, cancelarLembretes, dispararEnvio } from '@/modules/notificacoes/agendar';
 import { primeiroNome } from '@/modules/notificacoes/mensagens';
 import { carregarPacienteParaEscrita, idValido } from '@/modules/pacientes/base';
-import { escolherHorario, gravarConsultaDoPaciente, localRecusado } from './agendamento-paciente';
+import { conferirAguardando, escolherHorario, gravarConsultaDoPaciente, localRecusado, travarPedidosDoTenant } from './agendamento-paciente';
 import { avisarNutri, avisarNutriDaConsulta } from './aviso-nutri';
 import { MSG_AGENDA } from './constantes';
 import { ConsultaError, ConsultaNaoEncontradaError, ehSobreposicao, lerConsultaParaEscrita, repetirSeDeadlock, STATUS_ATIVOS, type StatusConsulta, type TenantAgenda } from './consultas';
 import { noInicioDoLink, normalizarEmailDoLink } from './link-consulta';
+import { STATUS_OCUPA } from './status';
 
 /**
  * `inicioDoLink` (D20, revisão da T5): o início que o link assinado carrega — ou o do lembrete do WhatsApp respondido
@@ -119,12 +120,15 @@ export async function cancelarConsulta(ctx: TenantContext, tenant: TenantAgenda,
  * (cancelarLembretes, R11) e a nutricionista recebe UM aviso (D18; só o primeiro nome e quantas, sem dado de saúde).
  * Quem chama já segura o paciente (`carregarPacienteParaEscrita`): travas paciente → consultas (por id) → notificações.
  * As escritas em `appointments` são auditadas pelo gatilho (entidade "agenda"), com o ator do pedido. Devolve quantas.
+ * Plano 23 (RN-422, §4.3, critério do /code-review do #59): o pedido (`solicitada`) futuro também é cancelado, com o mesmo
+ * `sistema` — o gatilho appointments_regras_pedido só aceita esse par na sessão `nutri` com o titular já `bloqueado`
+ * (`atenderPedidoExclusao` bloqueia antes) — e libera o horário.
  */
 export async function cancelarFuturasPelaExclusao(tx: Tx, o: { tenantId: string; patientId: string; nome: string }, agora: Date): Promise<number> {
   const futuras = await tx
     .select({ id: appointments.id })
     .from(appointments)
-    .where(and(eq(appointments.patientId, o.patientId), inArray(appointments.status, [...STATUS_ATIVOS]), gt(appointments.inicio, agora)))
+    .where(and(eq(appointments.patientId, o.patientId), inArray(appointments.status, [...STATUS_OCUPA]), gt(appointments.inicio, agora)))
     .orderBy(asc(appointments.id))
     .for('update');
   if (!futuras.length) return 0;
@@ -144,7 +148,8 @@ export async function cancelarFuturasPelaExclusao(tx: Tx, o: { tenantId: string;
  * Review Focus 6 (rodada 1): `escolherHorario` abre a própria transação (contexto publico) — por isso roda ANTES desta,
  * nunca dentro (seria uma segunda conexão com a trava do paciente e da consulta presa; pool max: 10). Dentro, o
  * EXCLUDE revalida o horário (outro paciente pode ter marcado no meio: "Esse horário acabou de ser ocupado").
- * Plano 23 (US-403): o horário novo vem com o local (`localId`); trocar de local na remarcação vale.
+ * Plano 23 (US-403): o horário novo vem com o local (`localId`); trocar de local na remarcação vale. O pedido (`solicitada`)
+ * não remarca (desiste e pede outro, AG-D24). Trava do tenant no começo, antes da do paciente (AG-D65).
  */
 export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAgenda, id: string, novo: { inicio: unknown; localId: unknown }, deps: Deps = {}): Promise<{ id: string; inicio: Date }> {
   if (ctx.role !== 'paciente' || !ctx.patientId) throw new Error('remarcarComoPaciente exige sessão de paciente');
@@ -158,6 +163,7 @@ export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAge
       return withTenant(
         ctx,
         async (tx) => {
+          await travarPedidosDoTenant(tx, tenant.id); // Plano 23 (AG-D65): tenant → paciente → consulta
           const p = await carregarPacienteParaEscrita(tx, ctx.patientId!); // bloqueado/anonimizado → PacienteBloqueadoError
           conferirEmailDoLink(p.email, deps);
           if (p.status !== 'ativo') throw new ConsultaError({ geral: MSG_AGENDA.naoAgendavel }); // RN-08
@@ -170,8 +176,10 @@ export async function remarcarComoPaciente(ctx: TenantContext, tenant: TenantAge
             .set({ status: 'cancelada', canceladoPor: 'paciente', canceladaEm: agora, motivoCancelamento: 'Remarcada pelo paciente', pedidoRemarcacaoEm: null, updatedAt: agora })
             .where(eq(appointments.id, id));
           await cancelarLembretes(tx, id, agora);
-          const novoId = await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'remarcada', remarcadaDe: id });
-          return { id: novoId, inicio: h.inicio };
+          await conferirAguardando(tx, h); // Plano 23 (RN-425): pedido de pessoa nova aguardando no horário novo
+          // Plano 23 (AG-D24): o cancelamento acima liga o marcador da remarcação; a nova nasce agendada mesmo com a chave ligada
+          const nova = await gravarConsultaDoPaciente(tx, tenant, p, h, { agora, appUrl: deps.appUrl ?? getEnv().APP_URL, evento: 'remarcada', remarcadaDe: id });
+          return { id: nova.id, inicio: h.inicio };
         },
         db,
       );

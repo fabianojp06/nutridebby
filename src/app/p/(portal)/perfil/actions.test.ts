@@ -29,11 +29,14 @@ vi.mock('@/modules/ia/autorizacao', async (orig) => ({
   retirarNoApp: s.retirar,
 }));
 vi.mock('@/modules/ia/nutri-paciente/consentimento', () => ({ desativarNoApp: s.desativarNutri }));
+// Plano 23 (T10, US-414): o bloco do aniversário — só a costura; as regras (trava, menor, CS-404) em aniversarios.test.ts
+const aniv = vi.hoisted(() => ({ autorizar: vi.fn(), retirar: vi.fn() }));
+vi.mock('@/modules/agenda/aniversarios', () => ({ autorizarPeloApp: aniv.autorizar, retirarAutorizacao: aniv.retirar }));
 const { AutorizacaoError } = await import('@/modules/ia/autorizacao');
 const { MSG_AUTORIZACAO } = await import('@/modules/ia/constantes');
 const { textoExibido } = await import('@/modules/ia/textos-legais');
 const LIDO = textoExibido('teste');
-const { autorizarIaAction, desativarIaNutriAction, retirarIaAction } = await import('./actions');
+const { autorizarAniversarioAction, autorizarIaAction, desativarIaNutriAction, retirarAniversarioAction, retirarIaAction } = await import('./actions');
 
 beforeEach(() => {
   s.autorizar.mockReset();
@@ -101,5 +104,29 @@ describe('"Desativar a IA Nutri e apagar as conversas" em Eu › Privacidade (US
     } finally {
       s.semProvedor = false;
     }
+  });
+});
+
+describe('Plano 23 (T10, US-414): mensagem de aniversário em Eu', () => {
+  beforeEach(() => {
+    aniv.autorizar.mockReset();
+    aniv.retirar.mockReset();
+  });
+  it('"Autorizar": grava pela sessão do paciente e recarrega Eu; "Retirar autorização": o próprio paciente (o id vem da sessão, nunca do formulário)', async () => {
+    aniv.autorizar.mockResolvedValue(undefined);
+    expect(await autorizarAniversarioAction()).toEqual({});
+    expect(aniv.autorizar).toHaveBeenCalledWith(s.ctx);
+    aniv.retirar.mockResolvedValue(undefined);
+    // nenhum id do formulário chega à ação: o paciente vem da sessão
+    expect(await retirarAniversarioAction()).toEqual({});
+    expect(aniv.retirar).toHaveBeenCalledWith(s.ctx, 'p1');
+    expect(s.revalidados).toEqual(['/p/perfil', '/p/perfil']);
+  });
+  it('menor de idade (o botão vem desabilitado; o envio forjado é recusado pelo módulo) ou qualquer falha → "Não foi possível salvar. Tente de novo.", sem recarregar', async () => {
+    aniv.autorizar.mockRejectedValue(Object.assign(new Error('Menor de idade'), { name: 'AniversarioError' }));
+    expect(await autorizarAniversarioAction()).toEqual({ erro: 'Não foi possível salvar. Tente de novo.' });
+    aniv.retirar.mockRejectedValue(new Error('conexão caiu'));
+    expect(await retirarAniversarioAction()).toEqual({ erro: 'Não foi possível salvar. Tente de novo.' });
+    expect(s.revalidados).toEqual([]);
   });
 });

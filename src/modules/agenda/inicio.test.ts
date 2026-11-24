@@ -1,11 +1,11 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it } from 'vitest';
-import { consultaDireta } from '../../../test/agenda';
+import { consultaDireta, pedidoDireto } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { documentoNoBanco } from '../../../test/documentos';
 import { novoPaciente, novoTenant } from '../../../test/pacientes';
 import type { Db } from '@/db/client';
-import { accessEvents, auditLog, diaryEntries, locaisAtendimento, privacyRequests, tenants } from '@/db/schema';
+import { accessEvents, auditLog, diaryEntries, locaisAtendimento, patients, privacyRequests, tenants } from '@/db/schema';
 import { withTenant, type TenantContext } from '@/db/tenant';
 import { situacaoDoWhatsapp } from '@/modules/notificacoes/whatsapp/conexao';
 import { situacaoDaCota } from '@/modules/notificacoes/whatsapp/cota';
@@ -13,6 +13,7 @@ import { pedidosDoTitularAbertos } from '@/modules/pacientes/lgpd';
 import { metricasDeSucesso } from '@/modules/plataforma/metricas-sucesso';
 import { contarDiariosNaoVistos } from '@/modules/portal/diario-nutri';
 import { lerInicio, MSG_INICIO, resumoDoDia, resumoDoDiaNaTransacao, textoSemProxima } from './inicio';
+import { MSG_ANIVERSARIO } from './constantes';
 import { contarPendenciasDePresenca, indicadoresDaAgenda, novidadesDaAgenda } from './presenca';
 
 const app = makeDb(inject('appDatabaseUrl'));
@@ -75,6 +76,17 @@ describe('Início em bento (D22)', () => {
     expect(r.agenda.map((c) => c.inicio.toISOString())).toEqual([as(11), as(14)].map((d) => d.toISOString()));
     expect(r.hoje).toEqual({ total: 2, confirmadas: 0, pedidosRemarcacao: 0 });
     expect(r.proxima).toMatchObject({ consulta: { patientId: ana.id }, numero: 2, diario7d: 0, portal7d: 0 });
+  });
+  it('Plano 23 (T6a, §4.3): o pedido de hoje aparece na agenda com o selo, mas não conta no número nem é a próxima', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    await pedidoDireto(app.db, T, bia.id, as(13));
+    await consultaDireta(app.db, T.ctx, ana.id, as(15), 60, { status: 'confirmada' });
+    const r = await resumoDoDia(T.ctx, fuso, agora, app.db);
+    expect(r.agenda.map((c) => [c.inicio.toISOString(), c.status])).toEqual([[as(13).toISOString(), 'solicitada'], [as(15).toISOString(), 'confirmada']]);
+    expect(r.hoje).toEqual({ total: 1, confirmadas: 1, pedidosRemarcacao: 0 });
+    expect(r.proxima).toMatchObject({ consulta: { patientId: ana.id }, numero: 1 });
   });
   it('achado 6 do /code-review do PR #12: o nº da consulta não conta faltas (só agendada, confirmada e realizada)', async () => {
     const T = await novoTenant(app.db);
@@ -168,6 +180,8 @@ describe('Início em bento (D22)', () => {
       naoVistos: await contarDiariosNaoVistos(T.ctx, app.db),
       metricas: await metricasDeSucesso(T.ctx, tenant, agora, app.db),
       documentosAguardando: null, // D20: sem a liberação, nem conta
+      solicitacoes: 0, // Plano 23 (US-409): nenhum pedido
+      aniversariantesHoje: 0, // Plano 23 (US-412): nenhum aniversariante hoje
     });
     expect(r.pendentes).toBe(1);
     expect(r.pedidos).toHaveLength(1);
@@ -180,6 +194,18 @@ describe('Início em bento (D22)', () => {
     const c2 = contandoTransacoes(app.db);
     expect((await lerInicio(T.ctx, liberado, agora, { whatsappLigado: false }, c2.db)).documentosAguardando).toBe(1);
     expect(c2.n()).toBe(1);
+  });
+  it('Plano 23 (US-409, T8): "Solicitações (3)" com 3 pedidos no prazo (o vencido e o respondido fora), na mesma transação; sem pendente, 0', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const [antes] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+    expect((await lerInicio(T.ctx, antes, agora, { whatsappLigado: false }, app.db)).solicitacoes).toBe(0);
+    for (const dia of [22, 23, 24]) await pedidoDireto(app.db, T, ana.id, new Date(Date.UTC(2026, 9, dia, 12, 0)));
+    await pedidoDireto(app.db, T, ana.id, new Date(Date.UTC(2026, 9, 20, 23, 0))); // 20:00 de hoje: vence às 08:00 (antecedência 12 h)
+    const [tenant] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+    const c = contandoTransacoes(app.db);
+    expect((await lerInicio(T.ctx, tenant, agora, { whatsappLigado: false }, c.db)).solicitacoes).toBe(3);
+    expect(c.n()).toBe(1);
   });
   it('Plano 23 (AG-D45): consultório sem local — abrir o Início cria o "Consultório" principal uma vez', async () => {
     const T = await novoTenant(app.db);
@@ -200,5 +226,21 @@ describe('Início em bento (D22)', () => {
   it('sem consulta hoje: proxima null e totais zerados', async () => {
     const T = await novoTenant(app.db);
     expect(await resumoDoDia(T.ctx, fuso, agora, app.db)).toEqual({ proxima: null, hoje: { total: 0, confirmadas: 0, pedidosRemarcacao: 0 }, agenda: [] });
+  });
+
+  it('Plano 23 (US-412, T10): "Aniversariantes de hoje (2)" — ativos com aniversário hoje no fuso, na mesma transação; sem nenhum, 0', async () => {
+    const T = await novoTenant(app.db);
+    const [antes] = await app.db.select().from(tenants).where(eq(tenants.id, T.tenantId));
+    expect((await lerInicio(T.ctx, antes, agora, { whatsappLigado: false }, app.db)).aniversariantesHoje).toBe(0);
+    await novoPaciente(app.db, T.ctx, { nome: 'Ana Hoje', dataNascimento: '1990-10-20' });
+    await novoPaciente(app.db, T.ctx, { nome: 'Bia Hoje', dataNascimento: '2012-10-20' }); // menor também conta (o Início só avisa)
+    await novoPaciente(app.db, T.ctx, { nome: 'Caio Amanhã', dataNascimento: '1990-10-21' });
+    const duda = await novoPaciente(app.db, T.ctx, { nome: 'Duda Arquivada', dataNascimento: '1990-10-20' });
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, duda.id)), app.db);
+    const c = contandoTransacoes(app.db);
+    const r = await lerInicio(T.ctx, antes, agora, { whatsappLigado: false }, c.db);
+    expect(r.aniversariantesHoje).toBe(2);
+    expect(c.n()).toBe(1);
+    expect(MSG_ANIVERSARIO.inicio(r.aniversariantesHoje)).toBe('Aniversariantes de hoje (2)');
   });
 });

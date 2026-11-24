@@ -1,20 +1,24 @@
 import { and, eq } from 'drizzle-orm';
 import { afterAll, describe, expect, inject, it, vi } from 'vitest';
-import { consultaDireta, em, localPrincipal, novoLocal, SP, tenantAgenda } from '../../../test/agenda';
+import { consultaDireta, em, localPrincipal, novoLocal, pedidoDireto, SP, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { transporteFalso, type TransporteFalso } from '../../../test/email';
 import { depsDeEnvio } from '../../../test/notificacoes';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../test/pacientes';
 import { closeDb } from '@/db/client';
-import { appointments, locaisAtendimento, notifications, patients, pushSubscriptions, tenants } from '@/db/schema';
+import { aniversarioAutorizacoes, appointments, locaisAtendimento, notifications, patientCadastro, patients, pushSubscriptions, tenants } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { stopBoss } from '@/jobs/boss';
 import { encryptionKey } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
+import { enviarMensagensDeAniversario } from '@/modules/agenda/aniversarios';
 import { agendarPelaNutri, moverConsulta } from '@/modules/agenda/consultas';
+import { lerLinkDeSaida } from '@/modules/agenda/aniversario-link';
 import { chaveDosLinks, lerLinkConsulta } from '@/modules/agenda/link-consulta';
 import { buscarTenant, listarTenantsParaVarredura } from '@/modules/plataforma/tenant-status';
-import { LOTE_POR_EXECUCAO, ordemDaRodada, processarNotificacoes, TRAVADA_MS } from './enviar';
+import { partesNoFuso } from '@/modules/agenda/fuso';
+import { LOTE_POR_EXECUCAO, novaTentativa, ordemDaRodada, processarNotificacoes, TRAVADA_MS } from './enviar';
+import { textoWhatsapp } from './mensagens';
 import type { ProvedorPush } from './push';
 
 // R14 e a corrida da suspensão: conta as listagens de tenants e devolve uma leitura antiga (implementação real por baixo)
@@ -30,6 +34,7 @@ afterAll(async () => {
   await app.pool.end();
 });
 const chaveLinks = chaveDosLinks(encryptionKey());
+const partesNoFusoSP = (d: Date) => partesNoFuso(d, 'America/Sao_Paulo').data;
 const marcadaEm = new Date('2026-10-01T12:00:00Z');
 const deps = (agora: Date, transport?: TransporteFalso) => depsDeEnvio(agora, { db: app.db, transport });
 
@@ -349,3 +354,187 @@ describe('push sem consulta (Plano 06: push de teste, comentário, plano novo)',
     expect(await situacao(T, ids.sem)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'sem_inscricao' });
   });
 });
+
+describe('Plano 23 (T6b): o pedido no envio e o vencimento na varredura (§4.3, RN-427, RN-428, AG-D67)', () => {
+  const linhaDoPedido = async (T: TenantDeTeste, appointmentId: string, patientId: string, tipo: string, inicio: Date) =>
+    (
+      await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId, appointmentId, inicioConsulta: inicio, canal: 'email', tipo, agendadaPara: marcadaEm }).returning(), app.db)
+    )[0].id;
+  const situacao = async (T: TenantDeTeste, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.id, id)), app.db))[0];
+
+  it('"consulta marcada" e lembrete de um pedido `solicitada` → ignorada (consulta_nao_aceita); "não confirmado" só sai com a consulta cancelada', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx);
+    const inicio = em('2026-10-20', '09:00');
+    const pedido = await pedidoDireto(app.db, T, ana.id, inicio);
+    const ids = {
+      marcada: await linhaDoPedido(T, pedido, ana.id, 'consulta_marcada', inicio),
+      lembrete: await linhaDoPedido(T, pedido, ana.id, 'lembrete_24h', inicio),
+      naoConfirmado: await linhaDoPedido(T, pedido, ana.id, 'pedido_nao_confirmado', inicio),
+    };
+    const d = deps(marcadaEm);
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    for (const id of Object.values(ids)) expect(await situacao(T, id), id).toMatchObject({ status: 'ignorada', motivoIgnorada: 'consulta_nao_aceita' });
+    expect(d.transport.enviados).toEqual([]);
+  });
+
+  it('processarNotificacoes({ tenantId }) vence só os pedidos daquele consultório, e o "não confirmado" sai na mesma volta (fora do horário silencioso)', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, A.ctx);
+    const a = await pedidoDireto(app.db, A, ana.id, em('2026-10-16', '20:00'));
+    const b = await pedidoDireto(app.db, B, (await novoPaciente(app.db, B.ctx)).id, em('2026-10-16', '20:00'));
+    const d = deps(em('2026-10-16', '08:30'));
+    await processarNotificacoes(d, { tenantId: A.tenantId });
+    const status = async (T: TenantDeTeste, id: string) => (await withTenant(T.ctx, (tx) => tx.select({ s: appointments.status, por: appointments.canceladoPor }).from(appointments).where(eq(appointments.id, id)), app.db))[0];
+    expect(await status(A, a)).toEqual({ s: 'cancelada', por: 'pedido_vencido' });
+    expect(await status(B, b)).toEqual({ s: 'solicitada', por: null });
+    expect(d.transport.enviados.map((e) => [e.to, e.subject])).toEqual([[ana.email, 'Seu pedido de consulta não foi confirmado']]);
+  });
+
+  it('AG-D75: vencido às 04:00 (horário silencioso), o "não confirmado" não sai na volta da madrugada; sai na volta das 08:00', async () => {
+    const A = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, A.ctx);
+    const a = await pedidoDireto(app.db, A, ana.id, em('2026-10-16', '16:00'));
+    const madrugada = deps(em('2026-10-16', '04:00'));
+    await processarNotificacoes(madrugada, { tenantId: A.tenantId });
+    expect((await withTenant(A.ctx, (tx) => tx.select({ s: appointments.status }).from(appointments).where(eq(appointments.id, a)), app.db))[0].s).toBe('cancelada');
+    expect(madrugada.transport.enviados).toEqual([]);
+    const oito = deps(em('2026-10-16', '08:00'));
+    await processarNotificacoes(oito, { tenantId: A.tenantId });
+    expect(oito.transport.enviados.map((e) => [e.to, e.subject])).toEqual([[ana.email, 'Seu pedido de consulta não foi confirmado']]);
+  });
+
+  it('com um vencimento que falha, o lembrete pendente de outro consultório continua saindo (AG-D67)', async () => {
+    const A = await novoTenant(app.db);
+    const B = await novoTenant(app.db);
+    // A: no prazo pelo relógio do banco, vencido pelo `agora` da volta → o gatilho recusa o vencimento (42501)
+    const futuro = new Date(Date.now() + 3 * 86_400_000);
+    const pedido = await pedidoDireto(app.db, A, (await novoPaciente(app.db, A.ctx)).id, new Date(futuro.getTime() + 6 * 3_600_000));
+    // B: "Consulta marcada" pendente
+    const ana = await novoPaciente(app.db, B.ctx, { nome: 'Ana Souza' });
+    const dia = partesNoFusoSP(new Date(futuro.getTime() + 2 * 86_400_000));
+    await agendarPelaNutri(B.ctx, tenantAgenda(B), { patientId: ana.id, data: dia, hora: '14:00', duracaoMin: '60', localId: await localPrincipal(app.db, B.ctx) }, { db: app.db, now: new Date(futuro.getTime() - 60_000) });
+    vi.mocked(listarTenantsParaVarredura).mockResolvedValueOnce([{ id: A.tenantId, fuso: SP }, { id: B.tenantId, fuso: SP }]);
+    const d = deps(futuro);
+    await processarNotificacoes(d);
+    expect(d.transport.enviados.map((e) => e.to)).toEqual([ana.email]);
+    expect((await withTenant(A.ctx, (tx) => tx.select({ s: appointments.status }).from(appointments).where(eq(appointments.id, pedido)), app.db))[0].s).toBe('solicitada');
+  });
+});
+
+describe('Plano 23 (T10): a mensagem de aniversário no envio (RN-431, RN-432, RN-434, AG-D35, C-405)', () => {
+  const aniversario = async (T: TenantDeTeste, patientId: string, agendadaPara: Date) =>
+    (await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId, tipo: 'aniversario', canal: 'email', agendadaPara }).returning(), app.db))[0];
+  const autorizou = (T: TenantDeTeste, patientId: string) =>
+    withTenant(T.ctx, (tx) => tx.insert(aniversarioAutorizacoes).values({ tenantId: T.tenantId, patientId, evento: 'autorizou', origem: 'nutri', forma: 'escrito', registradoPor: T.nutriId }), app.db);
+  const linha = async (T: TenantDeTeste, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.id, id)), app.db))[0];
+  // o relógio do banco grava a autorização "agora"; o envio do teste é no próximo aniversário (no futuro), já com 18 anos
+  const ano = new Date().getUTCFullYear() + 1;
+
+  it('às 9h sai o e-mail com a saudação pelo primeiro nome social, o nome profissional da nutricionista, o link de saída e os cabeçalhos do RFC 8058', async () => {
+    const T = await novoTenant(app.db, 'Consultório Debby');
+    await app.db.update(tenants).set({ nomeProfissional: 'Débora Silva' }).where(eq(tenants.id, T.tenantId));
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Maria Souza', dataNascimento: '1990-03-15' });
+    await withTenant(T.ctx, (tx) => tx.insert(patientCadastro).values({ tenantId: T.tenantId, patientId: ana.id, nomeSocial: 'Bia Souza' }), app.db);
+    await autorizou(T, ana.id);
+    const n = await aniversario(T, ana.id, em(`${ano}-03-15`, '09:00'));
+    const d = deps(em(`${ano}-03-15`, '09:00'));
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    expect(await linha(T, n.id)).toMatchObject({ status: 'enviada' });
+    const [e] = d.transport.enviados;
+    expect(e).toMatchObject({ to: ana.email, subject: 'Uma mensagem da sua nutricionista', idempotencyKey: `notificacao:${n.id}:sem-consulta` });
+    expect(e.text.split('\n\n').slice(0, 2)).toEqual(['Feliz aniversário, Bia! Débora Silva deseja a você um novo ano com muita saúde.', 'Mensagem enviada pelo NutriDebby a pedido de Débora Silva.']);
+    const token = /\/aniversario\/sair\/([A-Za-z0-9_-]{66})$/.exec(e.text)![1];
+    expect(lerLinkDeSaida(token)).toEqual({ tenantId: T.tenantId, patientId: ana.id });
+    expect(e.headers).toEqual({ 'List-Unsubscribe': `<http://localhost:3000/api/aniversario/sair/${token}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' });
+    expect(e.text).not.toContain('Ana');
+  });
+
+  it('sem nome profissional e sem nome social: o nome de exibição e o primeiro nome de registro', async () => {
+    const T = await novoTenant(app.db, 'Consultório Debby');
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Maria Souza', dataNascimento: '1990-03-15' });
+    await autorizou(T, ana.id);
+    await aniversario(T, ana.id, em(`${ano}-03-15`, '09:00'));
+    const d = deps(em(`${ano}-03-15`, '09:00'));
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    expect(d.transport.enviados[0].text.split('\n\n')[0]).toBe('Feliz aniversário, Ana! Consultório Debby deseja a você um novo ano com muita saúde.');
+  });
+
+  it('reconferência no envio (RN-431): arquivado → paciente_inativo; sem autorização → sem_autorizacao; o dia já passou → prazo_passado; nada sai', async () => {
+    const T = await novoTenant(app.db);
+    const arquivada = await novoPaciente(app.db, T.ctx, { dataNascimento: '1990-03-15' });
+    const semAut = await novoPaciente(app.db, T.ctx, { dataNascimento: '1990-03-15' });
+    const atrasada = await novoPaciente(app.db, T.ctx, { dataNascimento: '1990-03-14' });
+    for (const p of [arquivada, atrasada]) await autorizou(T, p.id);
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'arquivado' }).where(eq(patients.id, arquivada.id)), app.db);
+    const ids = {
+      arquivada: (await aniversario(T, arquivada.id, em(`${ano}-03-15`, '09:00'))).id,
+      semAut: (await aniversario(T, semAut.id, em(`${ano}-03-15`, '09:00'))).id,
+      atrasada: (await aniversario(T, atrasada.id, em(`${ano}-03-14`, '09:00'))).id, // o worker parou: só roda no dia seguinte
+    };
+    const d = deps(em(`${ano}-03-15`, '09:00'));
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    expect(await linha(T, ids.arquivada)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'paciente_inativo' });
+    expect(await linha(T, ids.semAut)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'sem_autorizacao' });
+    expect(await linha(T, ids.atrasada)).toMatchObject({ status: 'ignorada', motivoIgnorada: 'prazo_passado' });
+    expect(d.transport.enviados).toEqual([]);
+  });
+
+  it('C-405: nada por WhatsApp — textoWhatsapp devolve null para o aniversário', async () => {
+    const T = await novoTenant(app.db);
+    const ana = await novoPaciente(app.db, T.ctx, { dataNascimento: '1990-03-15' });
+    const n = await aniversario(T, ana.id, em(`${ano}-03-15`, '09:00'));
+    const tenant = (await buscarTenant(app.db, T.tenantId))!;
+    expect(textoWhatsapp({ n, paciente: ana, consulta: null, tenant, agora: em(`${ano}-03-15`, '09:00') })).toBeNull();
+  });
+});
+
+describe('Plano 23 (P23-10): a nova tentativa do aniversário não cruza o ano UTC do índice', () => {
+  const RB = 'America/Rio_Branco';
+  /** Consultório em Rio Branco, paciente autorizada, a mensagem de 31/12 às 9h locais (14h UTC, balde de 2026). */
+  async function emRioBranco() {
+    const T = await novoTenant(app.db);
+    await app.db.update(tenants).set({ fuso: RB }).where(eq(tenants.id, T.tenantId));
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Rio Branco', dataNascimento: '1990-12-31' });
+    await withTenant(T.ctx, (tx) => tx.insert(aniversarioAutorizacoes).values({ tenantId: T.tenantId, patientId: ana.id, evento: 'autorizou', origem: 'nutri', forma: 'escrito', registradoPor: T.nutriId }), app.db);
+    const [n] = await withTenant(T.ctx, (tx) => tx.insert(notifications).values({ tenantId: T.tenantId, patientId: ana.id, tipo: 'aniversario', canal: 'email', agendadaPara: em('2026-12-31', '09:00', RB) }).returning(), app.db);
+    return { T, ana, n };
+  }
+  const linha = async (T: TenantDeTeste, id: string) => (await withTenant(T.ctx, (tx) => tx.select().from(notifications).where(eq(notifications.id, id)), app.db))[0];
+
+  it('falha passageira às 18h59min30s locais (23h59min30s UTC): a espera de 1 min cruzaria o ano → a nova tentativa fica em 31/12 23:59:59 UTC (mesmo ano) e sai na volta seguinte', async () => {
+    const { T, n } = await emRioBranco();
+    const agora = new Date('2026-12-31T23:59:30Z');
+    const d = deps(agora, transporteFalso({ falhar: 1 }));
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    const l = await linha(T, n.id);
+    expect(l).toMatchObject({ status: 'pendente', tentativas: 1, erro: 'email' });
+    expect(l.agendadaPara.toISOString()).toBe('2026-12-31T23:59:59.000Z');
+    const depois = deps(new Date('2027-01-01T00:00:30Z'));
+    await processarNotificacoes(depois, { tenantId: T.tenantId });
+    expect(await linha(T, n.id)).toMatchObject({ status: 'enviada' });
+    expect(depois.transport.enviados.map((e) => e.subject)).toEqual(['Uma mensagem da sua nutricionista']);
+  });
+
+  it('falha passageira às 20h58 locais de 31/12 (01h58 UTC de 01/01): o fim do ano UTC já passou → `falhou` (virada_do_ano), sem dado pessoal; o 31/12 do ano seguinte é agendado normalmente', async () => {
+    const { T, ana, n } = await emRioBranco();
+    const d = deps(em('2026-12-31', '20:58', RB), transporteFalso({ falhar: 1 }));
+    await processarNotificacoes(d, { tenantId: T.tenantId });
+    const l = await linha(T, n.id);
+    expect(l).toMatchObject({ status: 'falhou', erro: 'virada_do_ano', tentativas: 1 });
+    expect(l.agendadaPara.toISOString()).toBe(em('2026-12-31', '09:00', RB).toISOString());
+    const rb = tenantAgenda(T, { fuso: RB });
+    expect(await enviarMensagensDeAniversario(T.ctx, rb, [ana.id], { db: app.db, agora: em('2027-12-31', '10:00', RB) })).toEqual({ agendadas: 1, agora: 1 });
+  });
+
+  it('novaTentativa: só o aniversário é limitado; os outros tipos seguem a espera de sempre', () => {
+    const desejada = new Date('2027-01-01T00:02:00Z');
+    const agora = new Date('2026-12-31T23:58:00Z');
+    expect(novaTentativa({ tipo: 'lembrete_24h', agendadaPara: new Date('2026-12-31T12:00:00Z') }, desejada, agora)).toBe(desejada);
+    expect(novaTentativa({ tipo: 'aniversario', agendadaPara: new Date('2026-12-31T12:00:00Z') }, desejada, agora)?.toISOString()).toBe('2026-12-31T23:59:59.000Z');
+    expect(novaTentativa({ tipo: 'aniversario', agendadaPara: new Date('2026-12-31T12:00:00Z') }, new Date('2026-12-31T23:59:00Z'), agora)?.toISOString()).toBe('2026-12-31T23:59:00.000Z');
+    expect(novaTentativa({ tipo: 'aniversario', agendadaPara: new Date('2026-12-31T12:00:00Z') }, new Date('2027-01-01T02:00:00Z'), new Date('2027-01-01T01:58:00Z'))).toBeNull();
+  });
+});
+

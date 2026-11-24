@@ -5,9 +5,10 @@ import { requirePaciente } from '@/lib/paciente-session';
 import { agendarComoPaciente } from '@/modules/agenda/agendamento-paciente';
 import { retornoDaConfirmacao } from '@/modules/agenda/acoes-link';
 import { cancelarConsulta, confirmarPresenca, pedirRemarcacao, remarcarComoPaciente } from '@/modules/agenda/cancelamento';
-import { MSG_AGENDA } from '@/modules/agenda/constantes';
+import { MSG_AGENDA, MSG_SOLICITACOES } from '@/modules/agenda/constantes';
 import { ConsultaError, ConsultaNaoEncontradaError } from '@/modules/agenda/consultas';
 import { quandoComFuso } from '@/modules/agenda/fuso';
+import { desistirDoPedido, PedidoMudouError } from '@/modules/agenda/solicitacoes';
 import { PacienteBloqueadoError } from '@/modules/pacientes/base';
 
 export type AgendaState = { ok?: string; erro?: string };
@@ -21,12 +22,15 @@ function tratar(e: unknown): AgendaState {
 
 export async function agendarAction(_: AgendaState, formData: FormData): Promise<AgendaState> {
   const { ctx, tenant } = await requirePaciente('/p/agenda/nova');
+  let marcada: Awaited<ReturnType<typeof agendarComoPaciente>>;
   try {
-    await agendarComoPaciente(ctx, tenant, { inicio: formData.get('inicio'), localId: formData.get('localId') });
+    marcada = await agendarComoPaciente(ctx, tenant, { inicio: formData.get('inicio'), localId: formData.get('localId') });
   } catch (e) {
     return tratar(e);
   }
   revalidatePath('/p/agenda');
+  // Plano 23 (US-408, AG-D53): quem decide é o gatilho; o status devolvido diz se virou pedido (a chave ligada)
+  if (marcada.status === 'solicitada') return { ok: MSG_SOLICITACOES.portal.pedidoEnviado };
   return { ok: `Consulta marcada para ${quandoComFuso(new Date(String(formData.get('inicio'))), tenant.fuso)}.` };
 }
 
@@ -89,4 +93,25 @@ export async function avisarAction(id: string): Promise<AgendaState> {
   }
   revalidatePath(`/p/agenda/${id}`);
   return avisou || jaPedido ? { ok: MSG_AGENDA.avisoDeRemarcacao } : { erro: MSG_AGENDA.foraDoPrazo };
+}
+
+/**
+ * Plano 23 (US-408, AG-D42, AG-D70): "Desistir do pedido" — o próprio pedido ainda no prazo vira "Pedido cancelado" e a
+ * nutricionista é avisada. Volta a "Minhas consultas" com `?ok=pedido-cancelado` ("Pedido cancelado." na região fixa). O
+ * pedido que já mudou (respondido ou vencido) também volta a "Minhas consultas", com `?ok=pedido-mudou` ("Este pedido já
+ * foi respondido ou venceu.") — revisão da T8 (I-1): na própria tela, o botão (e o diálogo aberto) sumiria junto com o erro.
+ */
+export async function desistirAction(id: string): Promise<AgendaState> {
+  const { ctx, tenant } = await requirePaciente(`/p/agenda/${id}`);
+  try {
+    await desistirDoPedido(ctx, tenant, id);
+  } catch (e) {
+    if (!(e instanceof PedidoMudouError)) return tratar(e);
+    revalidatePath('/p/agenda');
+    revalidatePath(`/p/agenda/${id}`);
+    redirect('/p/agenda?ok=pedido-mudou');
+  }
+  revalidatePath('/p/agenda');
+  revalidatePath(`/p/agenda/${id}`);
+  redirect('/p/agenda?ok=pedido-cancelado');
 }

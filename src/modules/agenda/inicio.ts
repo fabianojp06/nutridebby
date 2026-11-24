@@ -10,10 +10,12 @@ import { pedidosDoTitularAbertosNaTransacao, type PedidoDoTitularAberto } from '
 import { auditRead } from '@/modules/plataforma/audit';
 import { metricasDeSucessoNaTransacao, type MetricasSucesso } from '@/modules/plataforma/metricas-sucesso';
 import { contarDiariosNaoVistosNaTransacao } from '@/modules/portal/diario-nutri';
+import { contarAniversariantesDeHojeNaTransacao } from './aniversarios';
 import { listarAgendaNaTransacao, STATUS_ATIVOS, type Consulta } from './consultas';
 import { inicioDoDia } from './fuso';
 import { garantirLocaisIniciais } from './locais';
 import { contarPendenciasDePresencaNaTransacao, indicadoresDaAgendaNaTransacao, novidadesDaAgendaNaTransacao, type Indicadores, type Novidades } from './presenca';
+import { contarSolicitacoesNaTransacao } from './solicitacoes';
 
 export type ResumoDoDia = {
   proxima: { consulta: Consulta; numero: number; diario7d: number; portal7d: number } | null;
@@ -46,8 +48,9 @@ export async function resumoDoDia(ctx: TenantContext, fuso: string, agora: Date,
 export async function resumoDoDiaNaTransacao(tx: Tx, fuso: string, agora: Date): Promise<ResumoDoDia> {
   const hoje = hojeNoFuso(fuso, agora);
   const agenda = (await listarAgendaNaTransacao(tx, inicioDoDia(hoje, fuso), inicioDoDia(somarDias(hoje, 1), fuso))).filter((c) => c.status !== 'cancelada');
+  // Plano 23 (§4.3): o pedido (`solicitada`) aparece na agenda de hoje com o selo, mas não é consulta: não conta no número
   const resumo = {
-    total: agenda.length,
+    total: agenda.filter((c) => c.status !== 'solicitada').length,
     confirmadas: agenda.filter((c) => c.status === 'confirmada').length,
     pedidosRemarcacao: agenda.filter((c) => c.pedidoRemarcacaoEm !== null).length,
   };
@@ -93,6 +96,10 @@ export type Inicio = {
   metricas: MetricasSucesso;
   /** P-B8 (Plano 10A): documentos aguardando assinatura; null sem a liberação dos documentos (D20). */
   documentosAguardando: number | null;
+  /** Plano 23 (US-409, §4.1): pedidos no prazo de resposta — o cartão "Solicitações ({n})" só aparece com algum. */
+  solicitacoes: number;
+  /** Plano 23 (US-412): pacientes ativos com aniversário hoje — o cartão "Aniversariantes de hoje ({n})" só aparece com algum. */
+  aniversariantesHoje: number;
 };
 
 /**
@@ -102,7 +109,7 @@ export type Inicio = {
  */
 export async function lerInicio(
   ctx: TenantContext,
-  tenant: Pick<TenantRow, 'id' | 'enderecoConsultorio' | 'fuso' | 'goLiveEm' | 'taxaFaltasBase' | 'waCotaMensal' | 'documentosLiberados'>,
+  tenant: Pick<TenantRow, 'id' | 'enderecoConsultorio' | 'fuso' | 'goLiveEm' | 'taxaFaltasBase' | 'waCotaMensal' | 'documentosLiberados' | 'antecedenciaMinH'>,
   agora: Date,
   o: { whatsappLigado: boolean },
   db: Db = getDb(),
@@ -124,6 +131,8 @@ export async function lerInicio(
         naoVistos: await contarDiariosNaoVistosNaTransacao(tx),
         metricas: await metricasDeSucessoNaTransacao(tx, tenant, agora), // P08-07 / D15
         documentosAguardando: tenant.documentosLiberados ? await contarAguardandoAssinatura(tx) : null, // P-B8 / D20
+        solicitacoes: await contarSolicitacoesNaTransacao(tx, tenant, agora), // Plano 23 (US-409): cartão "Solicitações ({n})"
+        aniversariantesHoje: await contarAniversariantesDeHojeNaTransacao(tx, tenant.fuso, agora), // Plano 23 (US-412)
       };
     },
     db,

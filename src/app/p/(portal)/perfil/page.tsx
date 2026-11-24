@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Faixa } from '@/components/portal/faixa';
 import { MSG_G } from '@/components/portal/textos';
 import { getEnv } from '@/env';
+import { aniversarioNoApp } from '@/modules/agenda/aniversarios';
 import { requirePaciente } from '@/lib/paciente-session';
 import { AVISO_PORTAL } from '@/modules/ajuda/portal';
 import { blocoIaDoApp, type SituacaoAutorizacao } from '@/modules/ia/autorizacao';
@@ -10,6 +11,7 @@ import { configIA } from '@/modules/ia/modo';
 import { blocoIaNutriDoApp } from '@/modules/ia/nutri-paciente/estado';
 import { temLembretesNaTela } from '@/modules/lembretes/paciente';
 import { formatarDataNoFuso } from '@/modules/pacientes/datas';
+import { Aniversario } from './aniversario';
 import { situacaoDoWhatsapp } from '@/modules/portal/perfil';
 import { molduraDaSecao } from '../../moldura';
 import { AtivarNotificacoes } from '../../notificacoes';
@@ -66,6 +68,8 @@ export default async function Eu({ searchParams }: PageProps<'/p/perfil'>) {
     temLembretesNaTela(ctx),
   ]);
   const blocoIa = bloco ? blocoNaTela(bloco, tenant.fuso, typeof busca.ia === 'string' ? busca.ia : undefined) : null;
+  // Plano 23 (US-414): o bloco do aniversário (nulo sem data de nascimento); a data no fuso do consultório
+  const aniversario = await aniversarioNoApp(ctx, tenant);
   return (
     <>
       <Faixa {...moldura} atual="/p/perfil" titulo={MSG_G.titulos.eu} />
@@ -116,6 +120,7 @@ export default async function Eu({ searchParams }: PageProps<'/p/perfil'>) {
           <h2 id="privacidade" className={H2}>Privacidade</h2>
           <Privacidade ia={blocoIa} iaNutri={iaNutri} />
         </section>
+        {aniversario && <Aniversario estado={{ situacao: aniversario.situacao, autorizadoEm: aniversario.autorizadoEm ? formatarDataNoFuso(aniversario.autorizadoEm, tenant.fuso) : null }} />}
         {/* Plano 16 (US-199, RN-212): o manual do portal, que também reabre o tour */}
         <p>
           <Link href="/p/ajuda" className={LINK}>

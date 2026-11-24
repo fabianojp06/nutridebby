@@ -44,7 +44,7 @@ export default async function AtendimentoPage({ params, searchParams }: PageProp
           <h2 id="atendimento-titulo" className="text-lg font-semibold">{`Atendimento de ${formatarData(a.data)}`}</h2>
           <AtendimentoForm
             acao={atualizarAtendimentoAction.bind(null, paciente.id, a.id)}
-            inicial={{ data: a.data, notasPrivadas: a.notasPrivadas ?? '', orientacoes: a.orientacoesPaciente ?? '' }}
+            inicial={{ data: a.data, notasPrivadas: a.notasPrivadas ?? '', orientacoes: a.orientacoesPaciente ?? '', retornoPrevistoEm: a.retornoPrevistoEm ?? '' }}
             hoje={hojeNoFuso(tenant.fuso)}
             botao="Salvar atendimento"
             somenteLeitura={paciente.status === 'bloqueado'}

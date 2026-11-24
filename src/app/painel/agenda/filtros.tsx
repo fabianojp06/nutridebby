@@ -29,6 +29,8 @@ function Marca({ nome, valor, rotulo, marcada }: { nome: string; valor: string; 
 export function FiltrosDaAgendaForm({ f, opcoes, hoje }: { f: FiltrosDaAgenda; opcoes: AgendaDoPeriodo['opcoes']; hoje: string }) {
   // "Aniversários" não vale na Lista (sem marcadores); "Mostrar 24 horas", só na grade de horas (Dia e Semana)
   const comAniversario = f.visao !== 'lista';
+  // "Previsões de retorno" (AG-D73, ligado na T9): marcador, como o aniversário — fora da Lista
+  const comRetorno = MARCADOR_RETORNO_LIGADO && f.visao !== 'lista';
   const com24Horas = f.visao === 'dia' || f.visao === 'semana';
   // os campos não são controlados: a chave com os filtros ativos remonta os dois formulários quando a URL muda (o "Limpar
   // filtros" é um Link, e a navegação do cliente manteria o que estava escolhido na tela)
@@ -42,6 +44,7 @@ export function FiltrosDaAgendaForm({ f, opcoes, hoje }: { f: FiltrosDaAgenda; o
             ['data', f.data],
             // M3 (revisão da T5): as marcas que não valem nesta visão saem da tela, mas o valor segue (volta ao trocar de visão)
             ['aniversario', !comAniversario && f.aniversario ? '1' : undefined],
+            ['retorno', MARCADOR_RETORNO_LIGADO && !comRetorno && f.retorno ? '1' : undefined],
             ['horas', !com24Horas && f.horas24 ? '24' : undefined],
           ]}
         />
@@ -59,7 +62,7 @@ export function FiltrosDaAgendaForm({ f, opcoes, hoje }: { f: FiltrosDaAgenda; o
             {opcoes.pacientes.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
           </select>
         </div>
-        {MARCADOR_RETORNO_LIGADO && <Marca nome="retorno" valor="1" rotulo={M.previsoesDeRetorno} marcada={f.retorno} />}
+        {comRetorno && <Marca nome="retorno" valor="1" rotulo={M.previsoesDeRetorno} marcada={f.retorno} />}
         {comAniversario && <Marca nome="aniversario" valor="1" rotulo={M.aniversarios} marcada={f.aniversario} />}
         {com24Horas && <Marca nome="horas" valor="24" rotulo={M.mostrar24Horas} marcada={f.horas24} />}
         <button className={BOTAO}>{M.filtrar}</button>

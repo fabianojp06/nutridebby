@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
-import { consultaDireta } from '../../../test/agenda';
+import { consultaDireta, pedidoDireto } from '../../../test/agenda';
 import { documentoNoBanco, pdfDeTeste } from '../../../test/documentos';
 import { cobrancasDoPaciente } from '../../../test/financeiro';
 import { novoConteudo } from '../../../test/conteudos';
@@ -16,7 +16,7 @@ import { ctxPaciente, emailsNaFila, novoPaciente, novoTenant, type TenantDeTeste
 import { pacienteComConta } from '../../../test/portal';
 import { closeDb } from '@/db/client';
 import { logger } from '@/lib/logger';
-import { accessEvents, account, appointments, auditLog, patientCadastro, consents, diaryEntries, examInterpretacoes, exams, examVersoes, finLancamentos, iaAutorizacoes, iaNutriConsentimentos, iaTarefas, iaUso, invites, lembretesRotina, lembretesRotinaEnvios, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
+import { accessEvents, account, aniversarioAutorizacoes, appointments, auditLog, patientCadastro, consents, diaryEntries, examInterpretacoes, exams, examVersoes, finLancamentos, iaAutorizacoes, iaNutriConsentimentos, iaTarefas, iaUso, invites, lembretesRotina, lembretesRotinaEnvios, notifications, patients, privacyRequests, pushSubscriptions, session, storedFiles, user } from '@/db/schema';
 import { withTenant } from '@/db/tenant';
 import { sealSecret } from '@/lib/crypto';
 import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
@@ -1170,5 +1170,61 @@ describe('Plano 22 — versões e notas do exame na LGPD (§13.3, /code-review d
     await chamar(worker(T));
     await chamar(worker(T)); // idempotente
     expect(await textosDe(T, p.id)).toEqual({ versoes: [{ j: null, titulo: 'Hemograma' }], notas: [{ t: null }] });
+  });
+});
+
+describe('Plano 23 (T6a) — o pedido de consulta na exclusão (RN-422, critério do #59)', () => {
+  it('exclusão atendida com um pedido `solicitada` pendente: cancelado pelo "sistema" depois do bloqueio, sai da agenda e libera o horário; conta no aviso', async () => {
+    const T = await novoTenant(app.db);
+    const nutriEmail = (await app.db.select({ email: user.email }).from(user).where(eq(user.id, T.nutriId)))[0].email;
+    const ana = await novoPaciente(app.db, T.ctx, { nome: 'Ana Souza' });
+    const bia = await novoPaciente(app.db, T.ctx, { nome: 'Bia Lima' });
+    const inicio = new Date('2026-10-20T14:00:00-03:00');
+    const pedido = await pedidoDireto(app.db, T, ana.id, inicio);
+    const passado = await pedidoDireto(app.db, T, ana.id, new Date('2026-09-20T14:00:00-03:00')); // já passou: fica como está
+    await atenderPedidoExclusao(T.ctx, T.tenant, ana.id, 'Ana Souza', deps);
+    const [c] = await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.id, pedido)), app.db);
+    expect(c).toMatchObject({ status: 'cancelada', canceladoPor: 'sistema', canceladaEm: now, motivoCancelamento: null });
+    const [p] = await withTenant(T.ctx, (tx) => tx.select().from(appointments).where(eq(appointments.id, passado)), app.db);
+    expect(p.status).toBe('solicitada');
+    expect(await emailsNaFila('exclusao_consultas_canceladas', nutriEmail)).toEqual([{ tipo: 'exclusao_consultas_canceladas', para: nutriEmail, paciente: 'Ana', quantidade: 1 }]);
+    // o horário voltou a ficar livre (o EXCLUDE recusaria a consulta da Bia se o pedido ainda ocupasse)
+    await expect(consultaDireta(app.db, T.ctx, bia.id, inicio)).resolves.toEqual(expect.any(String));
+  });
+});
+
+describe('Plano 23 (T10, RN-438) — a autorização de aniversário na anonimização (critério do #59)', () => {
+  it('anonimizarVencidos chama app_anonimizar_autorizacoes_aniversario: o registrado_por de origem app fica nulo, o da nutricionista fica (autoria) e nenhuma linha some', async () => {
+    const T = await novoTenant(app.db);
+    const { paciente: p, userId } = await pacienteComConta(app.db, T, { dataNascimento: '1990-11-20' });
+    const outra = await pacienteComConta(app.db, T, { dataNascimento: '1991-11-20' });
+    const ins = (ctx: Parameters<typeof withTenant>[0], v: Omit<typeof aniversarioAutorizacoes.$inferInsert, 'tenantId'>) =>
+      withTenant(ctx, (tx) => tx.insert(aniversarioAutorizacoes).values({ tenantId: T.tenantId, ...v }), app.db);
+    await ins(T.ctx, { patientId: p.id, evento: 'autorizou', origem: 'nutri', forma: 'escrito', registradoPor: T.nutriId });
+    await ins(ctxPaciente(T.tenantId, p.id, userId), { patientId: p.id, evento: 'retirou', origem: 'app', registradoPor: userId });
+    await ins(ctxPaciente(T.tenantId, p.id, userId), { patientId: p.id, evento: 'autorizou', origem: 'app', registradoPor: userId });
+    await ins({ tenantId: T.tenantId, role: 'paciente', patientId: p.id, semConta: true }, { patientId: p.id, evento: 'retirou', origem: 'link' });
+    await ins(ctxPaciente(T.tenantId, outra.paciente.id, outra.userId), { patientId: outra.paciente.id, evento: 'autorizou', origem: 'app', registradoPor: outra.userId });
+    const linhas = (patientId: string) =>
+      withTenant(T.ctx, (tx) => tx.select().from(aniversarioAutorizacoes).where(eq(aniversarioAutorizacoes.patientId, patientId)).orderBy(asc(aniversarioAutorizacoes.registradoEm)), app.db);
+    const autores = async (patientId: string) => (await linhas(patientId)).map((l) => [l.evento, l.origem, l.registradoPor]);
+    // controle positivo: antes da anonimização, o registrado_por do app está preenchido
+    expect(await autores(p.id)).toEqual([
+      ['autorizou', 'nutri', T.nutriId],
+      ['retirou', 'app', userId],
+      ['autorizou', 'app', userId],
+      ['retirou', 'link', null],
+    ]);
+    await withTenant(T.ctx, (tx) => tx.update(patients).set({ status: 'bloqueado', anonimizarApos: '2026-09-30' }).where(eq(patients.id, p.id)), app.db);
+    expect((await anonimizarSo(T)).anonimizados).toBeGreaterThanOrEqual(1);
+    expect((await ler(T.ctx, p.id)).anonimizadoEm).not.toBeNull();
+    expect(await autores(p.id)).toEqual([
+      ['autorizou', 'nutri', T.nutriId],
+      ['retirou', 'app', null],
+      ['autorizou', 'app', null],
+      ['retirou', 'link', null],
+    ]);
+    // a outra paciente (não anonimizada) fica como estava
+    expect(await autores(outra.paciente.id)).toEqual([['autorizou', 'app', outra.userId]]);
   });
 });

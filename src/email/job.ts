@@ -24,7 +24,7 @@ export async function processEmailJob(
   }
   // Erro aqui sobe para o pg-boss, que tenta de novo (retryLimit da fila)
   const r = renderEmail(msg);
-  await deps.transport.send({ from: deps.from, to: msg.para, subject: r.subject, html: r.html, text: r.text, idempotencyKey: jobId });
+  await deps.transport.send({ from: deps.from, to: msg.para, subject: r.subject, html: r.html, text: r.text, idempotencyKey: jobId, ...(r.headers ? { headers: r.headers } : {}) });
   logger.info({ jobId, tipo: msg.tipo, tenantId: data.tenantId }, 'e-mail enviado'); // sem destinatário nem link
   return 'enviado';
 }

@@ -713,3 +713,87 @@ test('Plano 23: escolha do local no agendamento do portal e na página pública,
   }
   expect(falhas).toEqual([]);
 });
+
+// Plano 23 (T8, US-408, RNF-401): "Minhas consultas" com o pedido aguardando, a tela do pedido com a confirmação "Desistir
+// deste pedido?" aberta e a página do link da pessoa nova (`/n/<slug>/pedido/[token]`: abrir não grava) — claro e escuro, a
+// 360 px, sem rolagem lateral. Consultório próprio da semente (`e2e-pedidos-axe`, a chave ligada; só leitura: a confirmação
+// é fechada com Esc). IPs: 10.9.23.21 (a paciente), 10.9.23.22 (o link, sem login) — bloco do Plano 23 (AG-D56).
+test('Plano 23: portal com pedido, a desistência aberta e o link da pessoa nova, claro e escuro, a 360 px', async ({ browser }) => {
+  test.setTimeout(120_000);
+  // copiados da semente (importar scripts/e2e-seed.ts roda o seed)
+  const PIA = { email: 'pedidos-axe-paciente-e2e@nutridebby.test', senha: 'Paciente2026segura' };
+  const LINK = '/n/e2e-pedidos-axe/pedido/e2ePedidoAxeTokenFixoDoLinkDeDesistencia012';
+  const pia = await entrarComo(browser, PIA.email, PIA.senha, '10.9.23.21');
+  await expect(pia).toHaveURL(/\/p\/inicio$/);
+  const anonimo = await (await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.23.22' } })).newPage();
+  const falhas: string[] = [];
+  const medir = async (page: Page, rotulo: string) => {
+    for (const v of await violacoes(page)) falhas.push(`${rotulo} — ${v}`);
+    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${rotulo} — rola na horizontal`);
+  };
+  try {
+    for (const page of [pia, anonimo]) await page.setViewportSize({ width: 360, height: 780 });
+    for (const modo of ['light', 'dark'] as const) {
+      for (const page of [pia, anonimo]) await page.emulateMedia({ colorScheme: modo });
+      await pia.goto('/p/agenda');
+      await pia.waitForLoadState('networkidle');
+      const pedido = pia.getByRole('region', { name: 'Próximas' }).getByRole('link', { name: /Aguardando confirmação da nutricionista/ });
+      await expect(pedido).toHaveCount(1);
+      await medir(pia, `${modo} /p/agenda`);
+      await pedido.click();
+      await expect(pia.getByRole('button', { name: 'Desistir do pedido' })).toBeVisible();
+      expect((await pia.getByRole('button', { name: 'Desistir do pedido' }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      await medir(pia, `${modo} pedido`);
+      await pia.getByRole('button', { name: 'Desistir do pedido' }).click();
+      const dialogo = pia.getByRole('dialog', { name: 'Desistir deste pedido?' });
+      await expect(dialogo).toBeVisible();
+      await medir(pia, `${modo} pedido com a confirmação aberta`);
+      await pia.keyboard.press('Escape');
+      await expect(dialogo).toBeHidden();
+      await anonimo.goto(LINK);
+      await anonimo.waitForLoadState('load');
+      await expect(anonimo.getByRole('heading', { level: 1, name: 'Seu pedido de consulta' })).toBeVisible();
+      await expect(anonimo.getByRole('button', { name: 'Desistir do pedido' })).toBeVisible(); // a abertura não grava
+      await medir(anonimo, `${modo} ${LINK.replace(/[^/]+$/, '[token]')}`);
+    }
+  } finally {
+    await pia.context().close();
+    await anonimo.context().close();
+  }
+  expect(falhas).toEqual([]);
+});
+
+// Plano 23 (T10, RN-434, RNF-401): a página de saída das mensagens de aniversário (`/aniversario/sair/[token]`, sem login;
+// abrir não grava), com o link do e-mail que o worker mandou à "Lara Saída Semente" (a semente agenda a mensagem do ano dela
+// para agora, no consultório `e2e-aniversario-axe`), e a do link inválido — claro e escuro, a 360 px, sem rolagem lateral.
+// Depois das 21h (São Paulo) o worker não manda (horário silencioso): a parte do link válido fica para a próxima execução.
+// IP: 10.9.23.34 (bloco do Plano 23, AG-D56).
+test('Plano 23: página de saída das mensagens de aniversário (link do e-mail e link inválido), claro e escuro, a 360 px', async ({ browser }) => {
+  test.setTimeout(240_000);
+  const LARA = 'aniversario-saida-axe-e2e@nutridebby.test'; // copiado da semente
+  const h = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
+  const link = h < 21 ? primeiroLink((await esperarEmail(LARA, { assunto: 'Uma mensagem da sua nutricionista', timeoutMs: 150_000 })).texto, '/aniversario/sair/') : null;
+  const anonimo = await (await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': '10.9.23.34' } })).newPage();
+  const falhas: string[] = [];
+  try {
+    await anonimo.setViewportSize({ width: 360, height: 780 });
+    for (const modo of ['light', 'dark'] as const) {
+      await anonimo.emulateMedia({ colorScheme: modo });
+      for (const [url, esperado] of [
+        ...(link ? [[new URL(link).pathname, 'Confirmar'] as const] : []),
+        [`/aniversario/sair/${'x'.repeat(66)}`, null] as const,
+      ]) {
+        await anonimo.goto(url);
+        await anonimo.waitForLoadState('load');
+        await expect(anonimo.getByRole('heading', { level: 1, name: 'Mensagens de aniversário' })).toBeVisible();
+        if (esperado) await expect(anonimo.getByRole('button', { name: esperado })).toBeVisible(); // a abertura não grava
+        else await expect(anonimo.getByRole('alert').filter({ hasText: 'Este link não é válido.' })).toBeVisible();
+        for (const v of await violacoes(anonimo)) falhas.push(`${modo} ${url.replace(/[^/]+$/, '[token]')} — ${v}`);
+        if (!(await anonimo.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))) falhas.push(`${modo} ${url} — rola na horizontal`);
+      }
+    }
+  } finally {
+    await anonimo.context().close();
+  }
+  expect(falhas).toEqual([]);
+});

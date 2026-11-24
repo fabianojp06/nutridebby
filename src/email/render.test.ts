@@ -320,3 +320,78 @@ describe('Plano 14A — e-mails da autorização de IA', () => {
     expect(so.text).toContain('só para ler os laudos dos seus exames e sugerir os valores para o seu prontuário.');
   });
 });
+
+describe('Plano 23 (T6b, §6.2): pedidos de consulta', () => {
+  it('à nutricionista: "Novo pedido de consulta" (Responda em Solicitações) e "Pedido de consulta retirado"; o nome só no corpo', () => {
+    const quando = 'sex., 16/10/2026 às 09:00 (horário de Brasília)';
+    const novo = renderEmail({ tipo: 'aviso_agenda', para: 'd@x', evento: 'pedido', paciente: 'Ana Souza', quando, link: 'https://x.dev/painel/agenda/solicitacoes' });
+    expect(novo.subject).toBe('Novo pedido de consulta');
+    expect(novo.text).toBe(`Ana Souza pediu ${quando}.\n\nResponda em Solicitações: https://x.dev/painel/agenda/solicitacoes`);
+    const retirado = renderEmail({ tipo: 'aviso_agenda', para: 'd@x', evento: 'pedido_desistido', paciente: 'Ana', quando, link: 'https://x.dev/painel/agenda/consultas/1' });
+    expect(retirado.subject).toBe('Pedido de consulta retirado');
+    expect(retirado.text.split('\n\n')[0]).toBe(`Ana retirou o pedido de ${quando}.`);
+    for (const r of [novo, retirado]) expect(r.subject).not.toContain('Ana');
+  });
+  it('ao paciente: "Seu pedido de consulta não foi confirmado", com "Escolha outro horário" e o link; sem link, só a primeira frase', () => {
+    const quando = 'sex., 16/10/2026 às 09:00 (horário de Brasília)';
+    const com = renderEmail({ tipo: 'pedido_nao_confirmado', para: 'a@x', quando, link: 'https://x.dev/p/agenda/nova?v=1' });
+    expect(com.subject).toBe('Seu pedido de consulta não foi confirmado');
+    expect(com.text).toBe(`O horário de ${quando} não foi confirmado.\n\nEscolha outro horário: https://x.dev/p/agenda/nova?v=1`);
+    expect(com.html).toContain('href="https://x.dev/p/agenda/nova?v=1"');
+    const sem = renderEmail({ tipo: 'pedido_nao_confirmado', para: 'a@x', quando, link: null });
+    expect(sem.text).toBe(`O horário de ${quando} não foi confirmado.`);
+    expect(sem.html).not.toContain('href=');
+  });
+});
+
+describe('Plano 23 (T7, §6.2): pedido da página pública', () => {
+  const quando = 'sex., 16/10/2026 às 09:00 (horário de Brasília)';
+  it('"Recebemos seu pedido de consulta": a mesma frase para paciente e pessoa nova; só a pessoa nova leva "Desistir do pedido"', () => {
+    const nova = renderEmail({ tipo: 'pedido_recebido', para: 'a@x', quando, linkDesistir: 'https://x.dev/n/debby/pedido/tok' });
+    expect(nova.subject).toBe('Recebemos seu pedido de consulta');
+    expect(nova.text).toBe(`Seu pedido para ${quando} foi enviado. Você recebe outro e-mail quando a nutricionista responder.\n\nDesistir do pedido: https://x.dev/n/debby/pedido/tok`);
+    expect(nova.html).toContain('href="https://x.dev/n/debby/pedido/tok"');
+    const paciente = renderEmail({ tipo: 'pedido_recebido', para: 'a@x', quando, linkDesistir: null });
+    expect(paciente.subject).toBe(nova.subject);
+    expect(paciente.text).toBe(`Seu pedido para ${quando} foi enviado. Você recebe outro e-mail quando a nutricionista responder.`);
+    expect(paciente.html).not.toContain('href=');
+  });
+  it('"Seu pedido de consulta não foi confirmado" da pessoa nova: com o link da página ou só a primeira frase; nunca um motivo', () => {
+    const com = renderEmail({ tipo: 'pedido_nao_confirmado_publico', para: 'a@x', quando, link: 'https://x.dev/n/debby' });
+    expect(com.subject).toBe('Seu pedido de consulta não foi confirmado');
+    expect(com.text).toBe(`O horário de ${quando} não foi confirmado.\n\nEscolha outro horário: https://x.dev/n/debby`);
+    const sem = renderEmail({ tipo: 'pedido_nao_confirmado_publico', para: 'a@x', quando, link: null });
+    expect(sem.text).toBe(`O horário de ${quando} não foi confirmado.`);
+    expect(sem.html).not.toContain('href=');
+    for (const r of [com, sem]) expect(`${r.subject} ${r.text}`).not.toMatch(/motivo/i);
+  });
+});
+
+describe('Plano 23 (T10, RN-432, RN-434, §6.2): mensagem de aniversário', () => {
+  const msg = {
+    tipo: 'aniversario' as const,
+    para: 'ana@x',
+    nome: 'Ana',
+    nutricionista: 'Débora Silva',
+    link: 'https://x.dev/aniversario/sair/tok',
+    umClique: 'https://x.dev/api/aniversario/sair/tok',
+  };
+  it('assunto sem o nome; corpo, rodapé e o link de saída com o texto fixo; sem oferta nem dado de saúde', () => {
+    const r = renderEmail(msg);
+    expect(r.subject).toBe('Uma mensagem da sua nutricionista');
+    expect(r.text).toBe(
+      'Feliz aniversário, Ana! Débora Silva deseja a você um novo ano com muita saúde.\n\nMensagem enviada pelo NutriDebby a pedido de Débora Silva.\n\nNão quero mais receber mensagens de aniversário: https://x.dev/aniversario/sair/tok',
+    );
+    expect(r.html).toContain('Feliz aniversário, Ana! Débora Silva deseja a você um novo ano com muita saúde.');
+    expect(r.html).toContain('Mensagem enviada pelo NutriDebby a pedido de Débora Silva.');
+    expect(r.html).toMatch(/<a href="https:\/\/x\.dev\/aniversario\/sair\/tok"[^>]*>Não quero mais receber mensagens de aniversário<\/a>/);
+    expect(`${r.subject} ${r.text}`).not.toMatch(/desconto|promo|preço|sorteio|peso|consulta/i);
+  });
+  it('cabeçalhos RFC 8058: List-Unsubscribe com a URL da rota de um clique e List-Unsubscribe-Post; os outros e-mails sem cabeçalho', () => {
+    expect(renderEmail(msg).headers).toEqual({ 'List-Unsubscribe': '<https://x.dev/api/aniversario/sair/tok>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' });
+    expect(renderEmail({ tipo: 'redefinir_senha', para: 'a@b.dev', link: 'https://x.dev/r/1' }).headers).toBeUndefined();
+  });
+  it('escapa o nome vindo do cadastro', () => {
+    expect(renderEmail({ ...msg, nome: 'Ana <b>x</b>' }).html).not.toContain('<b>x</b>');
+  });
+});

@@ -943,3 +943,136 @@ flowchart TD
 | 12 | Spec do Financeiro (`docs/superpowers/specs/2026-11-16-nutridebby-20-financeiro-design.md`) RN-316 e plano, Tarefa 9: `anonimizarVencidos` chama `app_anonimizar_financeiro` para o paciente vencido | Só quando ele tem lançamento: a função confere o prazo pelo relógio do banco, e o `now` do job pode ser outro (decisão da execução; [§12.13](12-financeiro.md#1213-divergências-conhecidas), #1) | `src/modules/pacientes/lgpd.ts:565` (a conferência em `temLancamentos`, `src/modules/financeiro/titular.ts`) |
 | 13 | Spec do Plano 22 (`docs/superpowers/specs/2026-11-17-nutridebby-22-exames-prescricao-design.md`) §9.5a e RN-399: `exams`, `exam_versoes` e `exam_interpretacoes` "ficam como prontuário" na anonimização; §9.9 não cita função nova | Ficam, mas sem o texto livre: `app_anonimizar_exames_textos` (`SECURITY DEFINER`, só `worker` com o titular já anonimizado) anula a `justificativa` das versões e o `texto` das notas (`/code-review` do PR 1). Versão, valores e autoria continuam | `drizzle/0128_rls_exames_catalogo.sql:119-143`; `src/modules/pacientes/lgpd.ts:594` |
 | 14 | Spec do Plano 22 §9.8: `ENTIDADE_ROTULO` ganha `exame_no_app_liberado` e `exame_no_app_retirado` | **Pendência do PR 3** (T6, "Mostrar no app"): hoje só `exames_versoes` e `exames_nota` (`src/modules/plataforma/audit.ts:85-86`); a coluna `exams.mostrar_no_app_em` e a política já existem, mas nenhuma tela as usa | `src/modules/plataforma/audit.ts:82-86` |
+
+---
+
+## 2.12 Agenda 2 (Plano 23, migrations 0130 e 0131)
+
+Spec `docs/superpowers/specs/2026-11-17-nutridebby-23-agenda-2-design.md` (§9; regras RN-4xx, decisões AG-Dn); plano
+`docs/superpowers/plans/2026-11-17-nutridebby-23-agenda-2.md`, Tarefa 1 (P23-01a a P23-01c). As duas migrations são do PR 1
+(fundação no banco), **regeneradas** pelo §5 de `docs/operacao/sessoes-paralelas.md` sobre a `0129` (commit `55533ce`; antes
+eram `0126`/`0127`): `0130_agenda_2` (gerada pelo Drizzle) e `0131_rls_agenda_2` (custom, colada de novo a cada
+regeneração). Mescladas no PR #59 (`16f944a`), em produção desde 23/11/2026. O journal tem 132 entradas (`0000`–`0131`);
+`src/db/schema/*.ts` tem 75 `pgTable(` neste branch (as 69 do Plano 20, as 4 do PR 1 do Plano 22 — documentadas na `main`
+— e as 2 desta seção). Conferido em `f0122aa` (24/11/2026), no fechamento do PR 3 (T6–T10), que não tem migration: o
+código dos pedidos, do retorno e do aniversário usa o que está aqui ([§5.12](05-agenda-portal-conteudo.md#512-agenda-2-solicitações-previsão-de-retorno-e-aniversariantes-plano-23-pr-3)).
+
+### 2.12.1 Tabelas novas
+
+| Tabela | Colunas principais | Chaves e restrições | Fonte |
+|---|---|---|---|
+| `locais_atendimento` | `nome`, `tipo` (`presencial`/`online`), `endereco`, `cidade`, `mostrar_endereco`, `link_sala`, `agendamento_online`, `principal`, `arquivado_em` | UNIQUE (`tenant_id`, `id`, `tipo`), alvo das FKs compostas; CHECK de nome (2 a 60), tipo, endereço (só presencial, até 300), cidade (até 80), `link_sala` (só online, `^https://\S+$`, até 500), `locais_atendimento_agendamento` (agendamento só em local ativo e presencial ou com sala) e `locais_atendimento_principal_ativo`; índices únicos parciais `locais_atendimento_principal_unique` (um principal ativo por tenant) e `locais_atendimento_nome_unique` (`lower(nome)` entre os ativos) | `drizzle/0130_agenda_2.sql:17-39`, `:57-58`; `src/db/schema/agenda.ts:352` |
+| `aniversario_autorizacoes` | `patient_id`, `evento` (`autorizou`/`retirou`), `origem` (`nutri`/`app`/`link`), `registrado_em`, `registrado_por` (sem FK, como `criado_por` do Plano 20), `forma` (`escrito`/`mensagem`/`verbal`) | FK (`tenant_id`, `patient_id`) → `patients`; CHECK `aniversario_autorizacoes_forma` (a forma só na origem `nutri` e obrigatória no `autorizou` dela; a retirada não pede, AG-D61) e `aniversario_autorizacoes_link` (origem `link` só `retirou` e sem autor); índice `(tenant_id, patient_id, registrado_em desc)` para o "último evento" | `0130:1-15`, `:54`, `:56`; `src/db/schema/agenda.ts:410` |
+
+### 2.12.2 Colunas, CHECKs e índices novos em tabelas existentes
+
+| Tabela | O que mudou | Fonte |
+|---|---|---|
+| `appointments` | `local_id` com FK composta `(tenant_id, local_id, modalidade)` → `locais_atendimento (tenant_id, id, tipo)` `NO ACTION` (a modalidade é sempre o tipo do local); status `solicitada` (o pedido do paciente, RN-421) no CHECK `appointments_status_valido`; `cancelado_por` ganha `pedido_desistido`, `pedido_recusado` e `pedido_vencido`; CHECK `appointments_solicitada_do_paciente` (o pedido só com `origem = 'paciente'`); índice `appointments_local_idx` (`tenant_id`, `local_id`, `inicio`). O `EXCLUDE` contra sobreposição não mudou: só a `cancelada` sai, e o pedido segura o horário (AG-D17) | `0130:44`, `:59`, `:62`, `:66-68` |
+| `availability_rules` | `local_id` com a mesma FK composta; CHECK `availability_rules_local_sem_ambas` (regra com local nunca é `ambas`) | `0130:45`, `:60`, `:69` |
+| `public_booking_requests` | `fim`, `local_id` (FK composta), `aguardando_desde`, `resolvido_em`, `resolucao` (`aceito`/`recusado`/`vencido`/`desistido`); CHECKs `public_booking_requests_aguardando_completo` (aguardando só com código verificado, `fim` e local), `_resolvido_so_aguardando` e `_resolucao` (resolvido ⇔ resolução); índices parciais do aguardando não resolvido: `public_booking_requests_aguardando_idx` (`tenant_id`, `inicio`) e o **único** `public_booking_requests_aguardando_email_unique` (`tenant_id`, `lower(email)`: um pedido aguardando por e-mail, rede do `app_pedido_aguardar`) | `0130:46-50`, `:61`, `:64-65`, `:71-74` |
+| `notifications` | Tipos `aniversario` e `pedido_nao_confirmado` no CHECK `notifications_tipo_valido`; índice único parcial `notifications_aniversario_unique` (`tenant_id`, `patient_id`, `date_part('year', timezone('UTC', agendada_para))`) `WHERE tipo = 'aniversario'`: uma mensagem por paciente por ano **UTC** (a expressão vem de `ANIVERSARIO_UM_POR_ANO`, `src/db/schema/agenda.ts:147`, usada também no `ON CONFLICT` do envio) | `0130:63`, `:70` |
+| `tenants` | `agenda_confirmar_pedidos` (`boolean`, padrão `false`): a chave "Confirmar os pedidos antes de marcar" (US-407) | `0130:51`; `src/db/schema/platform.ts:62` |
+| `consultations` | `retorno_previsto_em` (`date`) e CHECK `consultations_retorno_previsto_faixa` (entre a data do atendimento e + 730 dias, RN-430) | `0130:52`, `:75`; `src/db/schema/pacientes.ts:144`, `:152` |
+
+### 2.12.3 RLS, políticas e listas das guardas
+
+| Tabela | Proteção | Listas |
+|---|---|---|
+| `locais_atendimento` | T, S (AG-D4: o `link_sala` nunca chega ao paciente nem ao público); sem `patient_id`, fora da auditoria; sem `app_allow_publico` (`publico_negado`) | `STAFF_ONLY` (`src/db/rls-guard.ts:125`); `FABRICAS` (`test/isolamento.test.ts:200`) e `ULTIMAS` logo depois de `appointments` (`:288`: `appointments`, `availability_rules` e `public_booking_requests` apontam para ela com `NO ACTION`) |
+| `aniversario_autorizacoes` | T, P, PE `insert`, X `paciente_aniversario_proprio` (RESTRICTIVE `FOR INSERT`: na sessão de paciente, origem `app` com `registrado_por = app_current_user()`, ou origem `link` só `retirou`, sem autor e sem conta); `REVOKE UPDATE, DELETE, TRUNCATE` de `nutri_app_role` (prova só de inclusão); sem gatilho de auditoria; gatilho `aniversario_autorizacoes_regras` | `PACIENTE_ESCREVE` (`rls-guard.ts:214`); `AUDIT_EXCEPTIONS` (`src/db/audit-guard.ts:20`); `FABRICAS` (`isolamento.test.ts:203`, origem `nutri`), `SO_INSERE` (`:210`) e o filtro de `SO_APAGA.patients` (`:276`) |
+| `public_booking_requests` | Ganha a política RESTRICTIVE `aguardando_fora_do_publico` (`FOR ALL`): o `USING` esconde do `publico` a linha com `aguardando_desde`; o `WITH CHECK` recusa todo INSERT ou UPDATE do `publico` que deixe a linha aguardando ou resolvida, com ou sem `WHERE`/`RETURNING` (uma política só de `SELECT` não pegava o INSERT sem `RETURNING` nem o UPDATE sem `WHERE`; correção da T1a). O nome não começa com `publico` (AG-D64): `findPublicoViolations` lê toda política `publico%` e, numa tabela de `PUBLICO_LIBERADO`, só aceita as `publico_sem_<comando>` | `PUBLICO_LIBERADO` sem mudança |
+
+Fonte: `drizzle/0131_rls_agenda_2.sql:8-37`. A matriz da §2.5.1 e as listas da §2.7 ainda não têm estas linhas (o texto delas
+é compartilhado com a `main`; entram quando o branch for rebaseado).
+
+### 2.12.4 Gatilhos
+
+| Gatilho (função) | Quando | Regra | Fonte |
+|---|---|---|---|
+| `appointments_regras_pedido` (`app_appointments_regras_pedido`) | BEFORE INSERT OR UPDATE em `appointments` | **INSERT:** nas sessões `paciente` e `publico` o status é do banco — `solicitada` com `tenants.agenda_confirmar_pedidos` ligada, `agendada` com ela desligada ou na remarcação (o marcador local `app.agenda_remarcavel` aponta para a consulta de origem, do mesmo paciente e consultório; limpo no uso, AG-D24); `nutri` e `worker` nunca criam `solicitada`; nenhum INSERT nasce com motivo de pedido. **UPDATE:** nada leva a `solicitada`; de `solicitada`, horário, local, modalidade e paciente fixos, e só o aceite (`agendada`, só `nutri`) ou o cancelamento com o par papel × motivo da RN-422 — `paciente`/`pedido_desistido`, `nutri`/`pedido_recusado`, `worker`/`pedido_vencido` (só com `inicio − antecedencia_min_h ≤ now()`, o relógio do **banco**) e `nutri`/`sistema` (só com o titular `bloqueado`: exclusão LGPD). Na sessão `paciente` (que tem UPDATE de todas as colunas da própria consulta, 0070): horário, local, modalidade, link, origem, `remarcada_de`, presença e `created_at` fixos; encerrada não muda; só agendada → confirmada, agendada/confirmada → cancelada (`paciente`) e solicitada → cancelada (`pedido_desistido`); o marcador da remarcação é ligado só no cancelamento pelo próprio paciente de consulta que ainda não começou. Contexto vazio (migration, semente): só as regras de dado do UPDATE. Recusa com 42501 | `0131:306-413` |
+| `appointments_link_da_sala` (`app_appointments_link_da_sala`, `SECURITY DEFINER`) | BEFORE INSERT e BEFORE UPDATE OF `local_id` | Consulta com local de origem `paciente` num local online **com sala**: `link_online := link_sala`, em qualquer papel (o aceite da pessoa nova roda na sessão `nutri`); sem sala, fica o link do código e decide o CHECK `appointments_link_online`. Nas sessões `paciente` e `publico`, local arquivado ou sem agendamento → 42501 "o local não aceita agendamento pelo paciente" (`localRecusado`, [§5.11.3](05-agenda-portal-conteudo.md#5113-local-fora-do-painel-us-402-us-403-rn-405-rn-406)). Consulta sem local passa intacta. Dispara antes de `appointments_regras_pedido` (ordem alfabética) | `0131:426-466` |
+| `tenants_agenda_da_equipe` (`app_tenants_agenda_da_equipe`) | BEFORE UPDATE em `tenants` | `agenda_confirmar_pedidos` só muda com `app.role` vazio ou `nutri`: paciente, público, conta e `worker` (o processo web também usa o papel `worker`) recebem 42501 (RN-420) | `0131:471-482` |
+| `aniversario_autorizacoes_regras` (`app_aniversario_autorizacoes_regras`) | BEFORE INSERT em `aniversario_autorizacoes` | Grava `registrado_em = clock_timestamp()`; o `worker` não registra; a sessão `nutri` só pela origem `nutri` e em nome da própria usuária; `autorizou` só de titular visível `ativo` e não anonimizado (o titular invisível passa e a RLS recusa, com a mensagem de RLS que o teste de isolamento espera). Recusa com 42501 (RN-433, AG-D61) | `0131:490-518` |
+
+### 2.12.5 Funções `SECURITY DEFINER`
+
+Todas no molde da `0083` (§2.6.8): guardam `app.role` e `app.patient_id`, fora do papel esperado ou sem tenant devolvem
+vazio (ou `invalido`), trocam para `worker` sem paciente com `set_config(…, true)`, filtram à mão pelo tenant da sessão (e
+pelo paciente guardado, quando é o caso) e devolvem o contexto do chamador antes de retornar; `search_path` fixo, nomes com
+`public.`, `REVOKE ALL … FROM PUBLIC` e `GRANT EXECUTE` só a `nutri_app_role`. A troca de papel é provada com o dono
+`NOBYPASSRLS`, como em produção (`src/db/migrate-owner.test.ts:658`, "Plano 23: peças SECURITY DEFINER com dono
+NOBYPASSRLS": com o dono superusuário dos outros testes, uma troca esquecida passaria).
+
+| Função | Fonte | Chamada por | Papéis | Faz |
+|---|---|---|---|---|
+| `app_locais_para_agendamento()` | `0131:50` | `locaisParaAgendamento` (`src/modules/agenda/locais.ts:353`) | `publico`, `paciente` | Todos os locais ativos do tenant, sem a sala; `nome`/`cidade` só dos que aceitam agendamento, `endereco` só com `mostrar_endereco`; ordem principal → `created_at` → `id` (AG-D62) |
+| `app_local_da_consulta(uuid)` | `0131:87` | `localDaConsulta` (`locais.ts`) | `paciente` (com ou sem conta) | Nome, tipo, cidade e endereço do local de uma consulta **dele**; nunca a sala |
+| `app_pedidos_aguardando(timestamptz, timestamptz)` | `0131:119` | `horariosLivres` (`src/modules/agenda/consultas.ts:375`) e `conferirAguardando` (`src/modules/agenda/agendamento-paciente.ts:44`) | `publico`, `paciente` | Só os `tstzrange` dos pedidos da pessoa nova aguardando que cruzam o período, sem dado pessoal (RN-409, AG-D58) |
+| `app_pedido_aguardar(uuid, uuid, timestamptz, timestamptz)` | `0131:157-225` | `aguardar` em `gravarPedido` (`src/modules/agenda/agendamento-publico.ts:342`) | `publico` | Toma a trava `agenda-pedidos-tenant` e, como `worker`: pedido do tenant com código verificado há até 30 min (inclusive; a mesma conta de `verificadoValido`), não concluído nem aguardando, e local ativo com agendamento → senão `invalido`; depois `teto_tenant` (20 aguardando), `email` (1 por e-mail) e `ocupado` (consulta não cancelada, bloqueio ou outro aguardando no intervalo); grava local, modalidade = tipo do local, início, fim e `aguardando_desde = now()` e devolve `ok` (RN-424, RN-425) |
+| `app_pedido_publico_desistir(text, boolean)` | `0131:237-288` | `desistirDoPedidoPublico` (`agendamento-publico.ts:572`) | `publico` | Sob a trava do tenant, acha o pedido pelo hash do token: `aguardando` (GET, nada gravado), `cancelado` (gravou agora — `resolvido_em`, `resolucao = 'desistido'`, `gravou` e o primeiro nome para o aviso à nutricionista — ou já tinha desistido) ou `invalido` (inexistente, aceito, recusado, vencido, inclusive o vencido ainda não processado). F5 e leitores de link não repetem o aviso (AG-D42, AG-D48, AG-D63) |
+| `app_anonimizar_autorizacoes_aniversario(uuid)` | `0131:524-545` | `anonimizarVencidos` (`src/modules/pacientes/lgpd.ts:571`), depois de `app_anonimizar_consentimentos_ia_nutri` | `worker` de um tenant; titular `bloqueado` não anonimizado, travado `FOR UPDATE` (senão 42501) | Anula só o `registrado_por` de origem `app` (a conta do paciente); o da nutricionista é autoria e o do link já é nulo (RN-438). Única escrita depois do INSERT (UPDATE revogado do app) |
+
+`admin_tenant_metrics()` e `admin_metricas_sucesso()` foram refeitas por `CREATE OR REPLACE` (corpo da última definição da
+`main`, `0059` e `0087`) só para trocar `<> 'cancelada'` por `NOT IN ('cancelada', 'solicitada')`: o pedido não conta nas
+métricas do admin (R-410, RN-423; `0131:620-700`).
+
+### 2.12.6 Locais iniciais e regras com local (bloco P23-BACKFILL)
+
+`0131:549-619`, no molde da `0042` (`NO FORCE ROW LEVEL SECURITY` → dados → `FORCE`, sem auditoria: locais e regras não têm
+`patient_id`). Idempotente (só tenant sem local e só regra com `local_id` nulo), para o teste rodar o bloco de novo. Por
+tenant sem local: o "Consultório" (presencial, endereço do Perfil) quando há endereço, regra presencial ou `ambas`, ou
+nenhuma regra online; a "Videoconferência" (online, sala = link padrão no formato do CHECK) quando há regra online ou
+`ambas`, ou link padrão; o principal é o Consultório, se existir; `agendamento_online` = presencial ou com sala, sem olhar
+`agendamento_publico_ativo` (AG-D40). Cada regra vai ao local ativo do tipo (o principal primeiro, depois o mais antigo); a
+`ambas` vira presencial e ganha a cópia online (AG-D47). O consultório criado depois da migration recebe o mesmo pelo
+código, `garantirLocaisIniciais` ([§5.11.1](05-agenda-portal-conteudo.md#5111-locais-de-atendimento-us-400-rn-400-a-rn-405)).
+
+### 2.12.7 O status `solicitada` no código
+
+`STATUS_ATIVOS` continua `agendada`/`confirmada` (`src/modules/agenda/consultas.ts:72`: o que o paciente e a nutricionista
+podem alterar); `STATUS_OCUPA` (`src/modules/agenda/status.ts:16`) acrescenta `solicitada` onde o pedido ocupa ou conta
+como futura (spec §4.3, tabela fechada). Onde cada um vale:
+
+| Ponto | Regra | Fonte |
+|---|---|---|
+| Teto de 3 futuras (portal e página pública) | `STATUS_OCUPA`: o pedido conta | `agendamento-paciente.ts` (`agendarComoPaciente`), `agendamento-publico.ts` (`gravarPedido`) |
+| "Próximas" do portal, seção "Consultas" da ficha, marcador de retorno | `STATUS_OCUPA` com `fim > agora` | `src/modules/portal/agenda.ts`, `src/modules/ficha/secoes/consultas.ts`, `src/modules/agenda/retorno.ts` |
+| Exclusão LGPD | `cancelarFuturasPelaExclusao` cancela também o pedido (`STATUS_OCUPA`, `nutri`/`sistema` com o titular já bloqueado) | `src/modules/agenda/cancelamento.ts:131` |
+| Presença | Recusada no pedido (`naoAlteravel`); `motivoParaNaoIniciarAtendimento` → `'pedido'` ("Aceite o pedido antes de registrar o atendimento.") | `src/modules/agenda/presenca.ts:48`, `:151-153`; `src/modules/pacientes/atendimentos.ts:24` |
+| Indicadores e Início | Os três contadores com `status not in ('cancelada', 'solicitada')`; na agenda de hoje o pedido aparece com o selo e sai do número | `presenca.ts:97`; `src/modules/agenda/inicio.ts:53` |
+| Notificações | Nada sai de consulta que ainda é pedido (`consulta_nao_aceita`); `pedido_nao_confirmado` só com a cancelada | `src/modules/notificacoes/enviar.ts:72-90` |
+| Alterar, cancelar, remarcar, confirmar, mural e jornada | `STATUS_ATIVOS`: o pedido fica de fora | `consultas.ts`, `cancelamento.ts`, `acoes-link.ts`, `portal/mural.ts`, `portal/jornada.ts` |
+
+**Guarda** `src/modules/agenda/status-guarda.test.ts` (R-400, I-03): conta, em `src/modules` e `src/app` (fora dos testes),
+as comparações e filtros de status **de consulta** (`status === '<status>'`, `eq/ne/inArray/notInArray(appointments.status`
+também por namespace e alias, SQL cru com `<> | != | = | not in | in` literal ou parametrizado, `.includes(…status)`) e exige
+a contagem exata de cada arquivo em `EXCECOES` (`:43-73`, com o motivo; por arquivo, não por linha); arquivo novo com
+comparação, ou comparação nova num listado, quebra o CI até alguém decidir pela §4.3. Mapa por status é sempre
+`Record<StatusConsulta, …>` (padrão sem exceção). Os falsos positivos (status HTTP, de documento, de mensagem) entram com
+o motivo.
+
+### 2.12.8 Testes
+
+- `src/modules/agenda/banco.test.ts:104` (T1a: RLS, CHECKs, FKs) e `:457` (T1b: gatilhos, com os ramos que liberam e os que
+  recusam por papel).
+- `src/db/migrate-owner.test.ts:658`: as funções `SECURITY DEFINER` e o gatilho da sala com dono `NOBYPASSRLS`, o contexto
+  devolvido, os negativos entre tenants; o bloco P23-BACKFILL rodado duas vezes.
+- `test/isolamento.test.ts`: as fábricas das duas tabelas (`:200`, `:203`) e as listas citadas na §2.12.3.
+- `src/modules/agenda/aniversarios.test.ts`: o alvo e o predicado do `ON CONFLICT` (`ALVO_UM_POR_ANO`, `ONDE_UM_POR_ANO`,
+  `src/modules/agenda/aniversarios.ts:71-72`) comparados com o `indexdef` de `notifications_aniversario_unique` em
+  `pg_indexes`, com controle negativo (com outro alvo, o Postgres não acha o índice e recusa com 42P10).
+
+### 2.12.9 Divergências do Plano 23
+
+Os números 13 e 14 deste capítulo são do Plano 22 (na `main`); estes continuam a partir do 15.
+
+| # | Spec diz | Código faz | Onde |
+|---|---|---|---|
+| 15 | RN-425: no aceite da pessoa nova, "trava do tenant → linha do pedido" | Também o paciente do e-mail (`FOR NO KEY UPDATE`) logo depois, antes do cadastro (AG-D65) | `aceitarPedidoPublico`, `src/modules/agenda/agendamento-publico.ts:494-505` |
+| 16 | RN-427: o pedido vence em `inicio − antecedencia_min_h ≤ agora` | O módulo usa o `agora` do job; o gatilho confere o `pedido_vencido` pelo `now()` do banco. Com o relógio do app adiantado, o UPDATE recebe 42501, o erro vai ao log só com o código e o pedido vence na volta seguinte (nota da T6) | `0131:363-367`; `vencerSolicitacoes` |
+| 17 | RN-432 e §9.8: "uma por paciente por ano" | O ano do índice é o de **UTC** (Minor #9 do `/code-review` do #59). Em Manaus e Rio Branco, a noite de 31/12 já é 01/01 em UTC; o código contorna gravando `agendada_para` sempre às 09:00 locais e limitando a nova tentativa ao último segundo do ano UTC ([§5.12.9](05-agenda-portal-conteudo.md#5129-envio-uma-por-ano-e-nova-tentativa-rn-431-rn-432)) | `0130:63`; `enviarMensagensDeAniversario`, `novaTentativa` |
+| 18 | RN-432: aniversário só por e-mail; RN-428: "nada por WhatsApp" | O CHECK de `notifications` não liga tipo a canal: o banco aceita `aniversario` e `pedido_nao_confirmado` no canal `whatsapp`; só o código impede (`textoWhatsapp` devolve `null`, nenhum dos dois em `CONTA_COTA`). Minor da revisão final do PR 1, no backlog | `0130:70` |
+| 19 | RN-425: `app_pedido_aguardar` "confere" o pedido | Não confere a chave, a página pública ligada nem o início no futuro: quem confere é `gravarPedido` (a chave relida sob a trava) e a escolha do horário. Minor da revisão final do PR 1 | `0131:157-225` |
+| 20 | RN-422: na sessão do paciente, só as transições listadas | O ramo `paciente` do gatilho fixa o motivo fora do cancelamento, mas não `cancelado_por` nem `cancelada_em` sem mudança de status (Minor da revisão final do PR 1; o módulo nunca grava isso) | `0131:380-403` |
+| 21 | — | O motivo da exceção de `metricas-sucesso.ts` em `status-guarda.test.ts:62` ainda cita "as funções SQL da 0127" (hoje `0131`) | comentário |

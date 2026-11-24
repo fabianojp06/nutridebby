@@ -32,6 +32,14 @@ const nextConfig: NextConfig = {
     { source: '/api/painel/relatorios/csv', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
     // Plano 23 (AG-D71, RN-419): a impressão da agenda tem nome de pacientes e grava um "exportar" a cada render — nada em cache
     { source: '/painel/agenda/imprimir', headers: [{ key: 'Cache-Control', value: 'no-store' }] },
+    // Plano 23 (AG-D71, AG-D42): o token do pedido da pessoa nova está na URL do link "Desistir do pedido" (nada em cache,
+    // nunca como Referer)
+    { source: '/n/:slug/pedido/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'Cache-Control', value: 'no-store' }] },
+    { source: '/api/n/:slug/pedido/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'Cache-Control', value: 'no-store' }] },
+    // Plano 23 (AG-D71, RN-434): o token do link de saída das mensagens de aniversário está na URL (a página e a rota de um
+    // clique do List-Unsubscribe): nada em cache, nunca como Referer
+    { source: '/aniversario/sair/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'Cache-Control', value: 'no-store' }] },
+    { source: '/api/aniversario/sair/:token*', headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'Cache-Control', value: 'no-store' }] },
   ],
 };
 

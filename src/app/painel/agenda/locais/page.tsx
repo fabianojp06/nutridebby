@@ -6,6 +6,7 @@ import type { TipoDeLocal } from '@/db/schema';
 import { requireNutri } from '@/lib/tenant-session';
 import { MSG_LOCAIS, ROTULO_TIPO_LOCAL } from '@/modules/agenda/constantes';
 import { listarLocais, type LocalNaTela } from '@/modules/agenda/locais';
+import { abaDeSolicitacoes } from '@/modules/agenda/solicitacoes';
 import { AbasDaAgenda } from '../abas';
 import { arquivarLocalAction, definirPrincipalAction, excluirLocalAction, reativarLocalAction, salvarLocalAction } from './actions';
 import { FocoNoTitulo, StatusDosLocais } from './foco';
@@ -19,10 +20,11 @@ const BOTAO = 'inline-flex min-h-11 items-center px-2 text-link underline';
 
 /** US-400 (RN-401 a RN-405): "Locais de atendimento". Lista em cartões (também a 360 px); o formulário abre por `?novo=1` ou `?editar=<id>`. */
 export default async function LocaisPage({ searchParams }: PageProps<'/painel/agenda/locais'>) {
-  const { ctx } = await requireNutri(CAMINHO);
+  const { ctx, tenant } = await requireNutri(CAMINHO);
   const sp = await searchParams;
   const arquivados = sp.arquivados === '1';
   const { locais, avisoLinkDivergente } = await listarLocais(ctx, { arquivados });
+  const solicitacoes = await abaDeSolicitacoes(ctx, tenant);
   const ok = lerRetorno(OK_LOCAIS, sp.ok);
   const erro = lerRetorno(ERRO_LOCAIS, sp.erro);
   // o marcador da ação (`r`, gerado pela action): a região anuncia de novo e o foco volta ao h1 a cada volta (RNF-401)
@@ -33,7 +35,7 @@ export default async function LocaisPage({ searchParams }: PageProps<'/painel/ag
     <main className="mx-auto w-full max-w-[1360px] space-y-6 p-4 md:p-6">
       <h1 id={ID_DO_TITULO_LOCAIS} tabIndex={-1} className="font-titulo text-2xl font-semibold">Locais de atendimento</h1>
       {(ok || erro) && <FocoNoTitulo key={`${ok ?? erro}-${marcador}`} />}
-      <AbasDaAgenda atual="locais" />
+      <AbasDaAgenda atual="locais" solicitacoes={solicitacoes} />
       {/* região fixa, fora da lista: a volta das ações (lista fechada; outro valor não mostra nada) */}
       <StatusDosLocais texto={ok ? OK_LOCAIS[ok] : ''} marcador={marcador} />
       {erro && <p key={marcador} role="alert" className="text-erro">{ERRO_LOCAIS[erro]}</p>}

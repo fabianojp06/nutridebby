@@ -4,6 +4,9 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getEnv } from '@/env';
 import { clientIp } from '@/lib/ip';
+import { logger, nomeDoErro } from '@/lib/logger';
+import { autorizarPeloApp, retirarAutorizacao } from '@/modules/agenda/aniversarios';
+import { MSG_ANIVERSARIO } from '@/modules/agenda/constantes';
 import { requirePaciente } from '@/lib/paciente-session';
 import { AutorizacaoError, autorizarNoApp, retirarNoApp } from '@/modules/ia/autorizacao';
 import { MSG_AUTORIZACAO } from '@/modules/ia/constantes';
@@ -95,4 +98,33 @@ export async function desativarIaNutriAction(): Promise<PerfilState> {
   const r = await desativarNoApp(ctx, { ia: configIA(env), appUrl: env.APP_URL, ...(await origemDaRequisicao()) });
   revalidatePath('/p/perfil');
   return r === 'desativada' ? { ok: MSG_IA_NUTRI.desativada } : {};
+}
+
+/**
+ * Plano 23 (US-414, RN-433): "Autorizar" e "Retirar autorização" das mensagens de aniversário, pelo próprio paciente (a conta
+ * e o paciente vêm da sessão, nunca do formulário). Qualquer falha — inclusive o "Autorizar" forjado de quem é menor de 18 —
+ * volta como "Não foi possível salvar. Tente de novo."; o log leva só o nome do erro (regra 3).
+ */
+export async function autorizarAniversarioAction(): Promise<PerfilState> {
+  const { ctx } = await requirePaciente('/p/perfil');
+  try {
+    await autorizarPeloApp(ctx);
+  } catch (e) {
+    logger.warn({ tenantId: ctx.tenantId, err: nomeDoErro(e) }, 'falha ao autorizar a mensagem de aniversário');
+    return { erro: MSG_ANIVERSARIO.portal.erro };
+  }
+  revalidatePath('/p/perfil');
+  return {};
+}
+
+export async function retirarAniversarioAction(): Promise<PerfilState> {
+  const { ctx } = await requirePaciente('/p/perfil');
+  try {
+    await retirarAutorizacao(ctx, ctx.patientId!);
+  } catch (e) {
+    logger.warn({ tenantId: ctx.tenantId, err: nomeDoErro(e) }, 'falha ao retirar a autorização da mensagem de aniversário');
+    return { erro: MSG_ANIVERSARIO.portal.erro };
+  }
+  revalidatePath('/p/perfil');
+  return {};
 }

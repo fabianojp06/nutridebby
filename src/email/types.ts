@@ -43,7 +43,8 @@ export type EmailMessage =
   | {
       tipo: 'aviso_agenda';
       para: string;
-      evento: 'marcada' | 'remarcada' | 'cancelada' | 'pedido_remarcacao' | 'novo_paciente_publico';
+      /** Plano 23 (§6.2): `pedido` (novo pedido de consulta, link da fila Solicitações) e `pedido_desistido` (o paciente o retirou). */
+      evento: 'marcada' | 'remarcada' | 'cancelada' | 'pedido_remarcacao' | 'novo_paciente_publico' | 'pedido' | 'pedido_desistido';
       paciente: string;
       /** "sex., 16/10/2026 às 09:00 (horário de Brasília)" */
       quando: string;
@@ -85,9 +86,36 @@ export type EmailMessage =
    * Plano 15 (D10 = a, DP-6, RNF-166): pergunta com sinal de risco na fila "Dúvidas dos pacientes", às nutricionistas do
    * tenant (no máximo 1 a cada 15 min); `link` = /painel/duvidas. Genérico: sem nome de paciente, texto nem categoria (C-05).
    */
-  | { tipo: 'risco_ia_nutri'; para: string; link: string };
+  | { tipo: 'risco_ia_nutri'; para: string; link: string }
+  /**
+   * Plano 23 (RN-428, AG-D23): o pedido de consulta do paciente foi recusado ou venceu. `quando` com o fuso; `link` = "Escolha
+   * outro horário" (o portal ou a página pública ligada) ou nulo. Nunca o motivo da recusa (só a nutricionista vê).
+   */
+  | { tipo: 'pedido_nao_confirmado'; para: string; quando: string; link: string | null }
+  /**
+   * Plano 23 (RN-426, AG-D42): "Recebemos seu pedido de consulta", o mesmo para paciente e pessoa nova, depois do código;
+   * `linkDesistir` = /n/<slug>/pedido/<token> só na pessoa nova (o token do próprio pedido), nulo no paciente.
+   */
+  | { tipo: 'pedido_recebido'; para: string; quando: string; linkDesistir: string | null }
+  /**
+   * Plano 23 (RN-428, AG-D23): o pedido da pessoa nova foi recusado ou venceu. `link` = a página pública (/n/<slug>) só
+   * ligada; senão nulo. Nunca motivo (a recusa da pessoa nova nem tem campo de motivo).
+   */
+  | { tipo: 'pedido_nao_confirmado_publico'; para: string; quando: string; link: string | null }
+  /**
+   * Plano 23 (RN-432, RN-434, AG-D35): a mensagem de aniversário — `nome` = primeiro nome (o social, quando houver);
+   * `nutricionista` = o nome profissional, ou o de exibição; `link` = a página de saída (/aniversario/sair/<token>) e
+   * `umClique` = a rota do List-Unsubscribe (RFC 8058). Texto fixo, sem dado de saúde.
+   */
+  | { tipo: 'aniversario'; para: string; nome: string; nutricionista: string; link: string; umClique: string };
 
 /** Payload do job `email` no pg-boss: nada legível além do tenant (RN-15). */
 export type EmailJobData = { tenantId: string | null; selado: string };
 
-export type RenderedEmail = { subject: string; html: string; text: string };
+export type RenderedEmail = {
+  subject: string;
+  html: string;
+  text: string;
+  /** Plano 23 (RN-434): cabeçalhos do e-mail (List-Unsubscribe e List-Unsubscribe-Post), só no aniversário. */
+  headers?: Record<string, string>;
+};

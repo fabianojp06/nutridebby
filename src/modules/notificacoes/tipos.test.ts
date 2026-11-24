@@ -18,7 +18,15 @@ describe('situação do lembrete em texto', () => {
 
 describe('ROTULO_TIPO (W-1)', () => {
   it('tem rótulo para todo tipo do CHECK de notifications', () => {
-    for (const t of ['lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada', 'convite_paciente', 'resposta_confirmacao', 'resposta_remarcar', 'push_teste', 'comentario_diario', 'plano_novo', 'conteudo_novo', 'documento_novo', 'documento_atualizado', 'exame_revisado', 'exame_expirado', 'duvida_vista'])
+    for (const t of ['lembrete_24h', 'lembrete_2h', 'consulta_marcada', 'consulta_cancelada', 'convite_paciente', 'resposta_confirmacao', 'resposta_remarcar', 'push_teste', 'comentario_diario', 'plano_novo', 'conteudo_novo', 'documento_novo', 'documento_atualizado', 'exame_revisado', 'exame_expirado', 'duvida_vista', 'aniversario', 'pedido_nao_confirmado'])
       expect(ROTULO_TIPO[t as keyof typeof ROTULO_TIPO], t).toBeTruthy();
+  });
+});
+
+describe('Plano 23 (T6b, §6.2): rótulos dos tipos e motivos novos', () => {
+  it('"Mensagem de aniversário" e "Pedido de consulta não confirmado"; os motivos sem_autorizacao e consulta_nao_aceita', () => {
+    expect([ROTULO_TIPO.aniversario, ROTULO_TIPO.pedido_nao_confirmado]).toEqual(['Mensagem de aniversário', 'Pedido de consulta não confirmado']);
+    expect(situacaoDaNotificacao({ ...base, status: 'ignorada', motivoIgnorada: 'consulta_nao_aceita' }, SP)).toBe('Não enviado: pedido de consulta ainda não aceito');
+    expect(situacaoDaNotificacao({ ...base, status: 'ignorada', motivoIgnorada: 'sem_autorizacao' }, SP)).toBe('Não enviado: sem autorização de mensagem de aniversário');
   });
 });

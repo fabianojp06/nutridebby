@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, inject, it } from 'vitest';
 import { count, eq } from 'drizzle-orm';
+import { consultaDireta, em, pedidoDireto, tenantAgenda } from '../../../test/agenda';
 import { makeDb } from '../../../test/db';
 import { documentoNoBanco } from '../../../test/documentos';
 import { envioNoBanco } from '../../../test/exames-enviados';
@@ -8,6 +9,9 @@ import { ctxPaciente, novoPaciente, novoTenant, type TenantDeTeste } from '../..
 import { DO_PLANO_18, ehDoPlano18 } from '../../../test/ficha';
 import { anamneses, anamnesisTemplates, anthropometry, auditLog, consultations, energyCalcs, exams, mealPlans, patients } from '@/db/schema';
 import { TenantContextError, withTenant } from '@/db/tenant';
+import { STATUS_OCUPA } from '@/modules/agenda/status';
+import { agendaDoPeriodo } from '@/modules/agenda/visoes';
+import { hojeNoFuso, somarDias } from '@/modules/pacientes/datas';
 import { secoesDoInicio, type SecaoNoInicio } from './inicio';
 import { secaoExamesEnviados } from './secoes/exames-enviados';
 import type { PacienteDaSecao, SecaoDaFicha, TenantDaSecao } from './tipos';
@@ -297,5 +301,93 @@ describe('secoesDoInicio (RN-277, RN-278)', () => {
     await expect(secoesDoInicio(ctxPaciente(T.tenantId, p.id), TUDO_LIGADO, comoPaciente(p), { db: app.db })).rejects.toThrow(SO_DA_NUTRI);
     await expect(secoesDoInicio({ tenantId: T.tenantId, role: 'worker' }, TUDO_LIGADO, comoPaciente(p), { db: app.db })).rejects.toThrow(TenantContextError);
     await expect(secoesDoInicio({ tenantId: T.tenantId, role: 'worker' }, TUDO_LIGADO, comoPaciente(p), { db: app.db })).rejects.toThrow(SO_DA_NUTRI);
+  });
+});
+
+describe('Plano 23 (US-411, §4.4): a seção "Consultas" do Início', () => {
+  // a seção lê o relógio do banco: as datas saem de "hoje" no fuso
+  const hoje = hojeNoFuso(FUSO);
+  const dia = (n: number) => somarDias(hoje, n);
+  const consultasDe = async (T: TenantDeTeste, p: { id: string; status: string; anonimizadoEm: Date | null }) =>
+    secao(await secoesDoInicio(T.ctx, TUDO_LIGADO, comoPaciente(p), { db: app.db }), 'consultas')!;
+
+  it('até 3 próximas em ordem crescente, com "Primeira consulta" ou "Retorno" e a situação; o total bate com as futuras da Lista filtrada pelo paciente (RN-411); sem trilha', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const agendada = await consultaDireta(app.db, T.ctx, p.id, em(dia(3), '10:00'), 60);
+    const confirmada = await consultaDireta(app.db, T.ctx, p.id, em(dia(5), '10:00'), 60, { status: 'confirmada', confirmadaVia: 'link' });
+    const pedido = await pedidoDireto(app.db, T, p.id, em(dia(2), '10:00'));
+    await consultaDireta(app.db, T.ctx, p.id, em(dia(20), '10:00'), 60);
+    await consultaDireta(app.db, T.ctx, p.id, em(dia(1), '10:00'), 60, { status: 'cancelada', canceladoPor: 'nutri', canceladaEm: new Date() });
+    await consultaDireta(app.db, T.ctx, p.id, em(dia(-3), '10:00'), 60); // passou sem presença: não é futura
+    await consultaDireta(app.db, T.ctx, p.id, em(dia(400), '10:00'), 60); // fora da Lista do paciente (12 meses)
+    const antes = await linhasDeAuditoria(T);
+    const s = await consultasDe(T, p);
+    expect(await linhasDeAuditoria(T)).toBe(antes);
+    expect(s).toMatchObject({ titulo: 'Consultas', aba: '', verTodos: `/painel/agenda?visao=lista&paciente=${p.id}`, podeAdicionar: true });
+    expect(s.resumo.total).toBe(4);
+    expect(s.resumo.ultimos).toEqual([
+      { id: pedido, rotulo: 'Primeira consulta', data: dia(2), situacao: 'Pedido a responder', noApp: false, href: `/painel/agenda/consultas/${pedido}` },
+      { id: agendada, rotulo: 'Primeira consulta', data: dia(3), situacao: 'Agendada', noApp: false, href: `/painel/agenda/consultas/${agendada}` },
+      { id: confirmada, rotulo: 'Primeira consulta', data: dia(5), situacao: 'Confirmada', noApp: false, href: `/painel/agenda/consultas/${confirmada}` },
+    ]);
+    // RN-411: a Lista filtrada pelo paciente (o "Ver todos") tem as mesmas futuras que a seção conta
+    const agora = new Date();
+    const lista = await agendaDoPeriodo(T.ctx, tenantAgenda(T), { visao: 'lista', data: hoje, paciente: p.id, horas24: false, retorno: false, aniversario: false }, { db: app.db, agora });
+    const futuras = lista.itens.filter((i) => (STATUS_OCUPA as readonly string[]).includes(i.status) && i.fim.getTime() > agora.getTime());
+    expect(futuras.length).toBe(s.resumo.total);
+  });
+
+  it('sem consulta futura e com previsão, abre com o item "Retorno previsto" (a do atendimento mais novo, AG-D76); com consulta futura, a previsão some e a consulta é "Retorno"', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    const [velho, ultimo] = await withTenant(
+      T.ctx,
+      (tx) =>
+        tx
+          .insert(consultations)
+          .values([
+            { tenantId: T.tenantId, patientId: p.id, data: dia(-60), retornoPrevistoEm: dia(-10) },
+            { tenantId: T.tenantId, patientId: p.id, data: dia(-30), retornoPrevistoEm: dia(10) },
+          ])
+          .returning({ id: consultations.id }),
+      app.db,
+    );
+    expect(velho).toBeDefined();
+    const s = await consultasDe(T, p);
+    expect(s.resumo).toEqual({ total: 1, ultimos: [{ id: ultimo.id, rotulo: 'Retorno previsto', data: dia(10), noApp: false, href: `/painel/agenda/nova?paciente=${p.id}` }] });
+    const futura = await consultaDireta(app.db, T.ctx, p.id, em(dia(15), '09:00'), 60);
+    expect((await consultasDe(T, p)).resumo).toEqual({
+      total: 1,
+      ultimos: [{ id: futura, rotulo: 'Retorno', data: dia(15), situacao: 'Agendada', noApp: false, href: `/painel/agenda/consultas/${futura}` }],
+    });
+  });
+
+  it('AG-D76: previsão para 10/12 e um atendimento mais novo (05/12) sem previsão → sem o item "Retorno previsto"', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await withTenant(T.ctx, (tx) => tx.insert(consultations).values({ tenantId: T.tenantId, patientId: p.id, data: '2026-11-01', retornoPrevistoEm: '2026-12-10' }), app.db);
+    expect((await consultasDe(T, p)).resumo.ultimos.map((i) => [i.rotulo, i.data])).toEqual([['Retorno previsto', '2026-12-10']]);
+    await withTenant(T.ctx, (tx) => tx.insert(consultations).values({ tenantId: T.tenantId, patientId: p.id, data: '2026-12-05' }), app.db);
+    expect((await consultasDe(T, p)).resumo).toEqual({ total: 0, ultimos: [] });
+  });
+
+  it('consulta futura depois do corte da Lista (13 meses): não entra no total, mas tira o item "Retorno previsto" (como o marcador da agenda)', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    await withTenant(T.ctx, (tx) => tx.insert(consultations).values({ tenantId: T.tenantId, patientId: p.id, data: dia(-30), retornoPrevistoEm: dia(10) }), app.db);
+    expect((await consultasDe(T, p)).resumo.total).toBe(1);
+    await consultaDireta(app.db, T.ctx, p.id, em(dia(395), '10:00'), 60);
+    expect((await consultasDe(T, p)).resumo).toEqual({ total: 0, ultimos: [] });
+  });
+
+  it('nada: total 0 e sem itens; outro consultório não vê', async () => {
+    const T = await novoTenant(app.db);
+    const p = await novoPaciente(app.db, T.ctx);
+    expect((await consultasDe(T, p)).resumo).toEqual({ total: 0, ultimos: [] });
+    const B = await novoTenant(app.db);
+    const pb = await novoPaciente(app.db, B.ctx);
+    await consultaDireta(app.db, B.ctx, pb.id, em(dia(3), '10:00'), 60);
+    expect((await consultasDe(T, pb)).resumo).toEqual({ total: 0, ultimos: [] });
   });
 });

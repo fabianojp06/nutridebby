@@ -18,6 +18,8 @@ export const metadata: Metadata = { title: 'Agendar consulta' };
  * US-032 / RN-16: página pública de agendamento (sem login). Só o nome da nutricionista e os horários livres da semana
  * (D11); `?semana` fica presa à janela do paciente (12 h a 60 dias). Conta suspensa ou página desligada não mostram horário.
  * Plano 23 (US-403, I-13): o cabeçalho com o CRN e a escolha do local (só com mais de um); `?local=` é só o valor inicial.
+ * Com a chave "Confirmar os pedidos" ligada (RN-429), a frase do ponto de coleta antes de enviar e, depois do código,
+ * "Pedido enviado. {nome} vai confirmar o horário…" (RN-426).
  * Nada de ocupação, bloqueio, sala, preço ou local arquivado.
  */
 export default async function PaginaPublica({ params, searchParams }: PageProps<'/n/[slug]'>) {
@@ -62,6 +64,8 @@ export default async function PaginaPublica({ params, searchParams }: PageProps<
           proxima: p.semana < p.ultima ? somarDias(p.semana, 7) : null,
         }}
         horarios={p.horarios}
+        confirmarPedidos={p.confirmarPedidos}
+        nutri={p.nome}
         termo={{ titulo: TERMO_PACIENTE_TITULO, paragrafos: [...TERMO_PACIENTE_PARAGRAFOS], rotulo: TERMO_PACIENTE_ROTULO, versao: TERMO_PACIENTE_VERSAO }}
       />
     </main>

@@ -567,6 +567,8 @@ export async function anonimizarVencidos(
             await tx.execute(sql`select app_anonimizar_autorizacoes_ia(${id})`);
             // Plano 15: os consentimentos da IA Nutri ficam (prova), sem IP, user-agent e conta
             await tx.execute(sql`select app_anonimizar_consentimentos_ia_nutri(${id})`);
+            // Plano 23 (RN-438, critério do #59): as autorizações de aniversário ficam (prova), sem a conta no canal app
+            await tx.execute(sql`select app_anonimizar_autorizacoes_aniversario(${id})`);
             const r = await tx
               .update(patients)
               .set({

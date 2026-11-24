@@ -3,6 +3,9 @@ import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import { consultaDireta, em, localPrincipal, novoLocal, tenantAgenda } from '../../../../test/agenda';
 import { makeDb } from '../../../../test/db';
 import { novoPaciente, novoTenant, type TenantDeTeste } from '../../../../test/pacientes';
+import { consultations } from '@/db/schema';
+import { withTenant } from '@/db/tenant';
+import { somarDias } from '@/modules/pacientes/datas';
 
 /**
  * Plano 23 (US-404, US-405, spec §7): a tela da agenda com o banco de verdade — grade de horas (Dia/Semana), Mês, filtros
@@ -85,7 +88,7 @@ describe('/painel/agenda (US-404, US-405)', () => {
     expect(grade).toContain(`href="/painel/agenda?visao=dia&amp;data=${quarta}"`);
   });
 
-  it('filtros: formulário GET com os outros parâmetros em hidden; "Ir para data" com label; legenda em texto; sem marcador de retorno no PR 2', async () => {
+  it('filtros: formulário GET com os outros parâmetros em hidden; "Ir para data" com label; legenda em texto, com o filtro e o item da previsão de retorno (AG-D73)', async () => {
     const h = await html({ visao: 'semana', data: hoje, local: clinica, paciente: ana, horas: '24', aniversario: '1' });
     const forms = [...h.matchAll(/<form[^>]*method="get"[\s\S]*?<\/form>/g)].map((m) => m[0]);
     expect(forms).toHaveLength(2);
@@ -111,14 +114,16 @@ describe('/painel/agenda (US-404, US-405)', () => {
     expect(h).toMatch(/<th scope="row"[^>]*>23h<\/th>/);
     const legenda = texto(/<section[^>]*aria-labelledby="titulo-legenda"[\s\S]*?<\/section>/.exec(h)?.[0] ?? '');
     for (const r of ['Legenda', 'Primeira consulta', 'Retorno', 'Presença a registrar', 'Bloqueio', 'Aniversário']) expect(legenda).toContain(r);
-    expect(legenda).not.toContain('Pedido a responder'); // AG-D72: só com o status `solicitada` (T6/T8, PEDIDOS_NA_AGENDA)
+    expect(legenda).toContain('Pedido a responder'); // AG-D72: ligado na T8 (PEDIDOS_NA_AGENDA), com a tela das Solicitações
     // M4: os dois formulários com nome; M5: "Anterior"/"Próximo" dizem a visão ao leitor de tela, depois do texto visível
     expect(filtrar).toContain('aria-label="Filtros da agenda"');
     expect(irPara).toContain('aria-label="Navegação por data"'); // E2E do PR 2: o nome do form não repete o rótulo do campo
     expect(h).toMatch(/>Anterior<span class="sr-only"> \(semana anterior\)<\/span><\/a>/);
     expect(h).toMatch(/>Próximo<span class="sr-only"> \(próxima semana\)<\/span><\/a>/);
-    expect(texto(h)).not.toContain('Previsões de retorno');
-    expect(texto(h)).not.toContain('Retorno previsto');
+    // AG-D73: a T9 ligou o filtro "Previsões de retorno" e o item "Retorno previsto" da legenda
+    expect(texto(filtrar)).toContain('Previsões de retorno');
+    expect(filtrar).toMatch(/<input type="checkbox"[^>]*name="retorno"[^>]*value="1"/);
+    expect(legenda).toContain('Retorno previsto');
     // só Ana, na Clínica (Carla continua como opção do filtro "Paciente")
     const grade = /<table[^>]*data-testid="agenda-grade"[\s\S]*?<\/table>/.exec(h)?.[0] ?? '';
     expect(texto(grade)).toContain('Ana Souza');
@@ -149,6 +154,30 @@ describe('/painel/agenda (US-404, US-405)', () => {
     const semana = await html({ visao: 'semana', data: hoje });
     expect(texto(semana)).toContain('Mostrar 24 horas');
     expect(texto(semana)).toContain('Aniversários');
+  });
+
+  it('US-410: com "Previsões de retorno", "Retorno previsto: {nome}" no dia da previsão (Semana e Mês), e o toque abre "Nova consulta" com o paciente', async () => {
+    const iris = (await novoPaciente(app.db, T.ctx, { nome: 'Íris Prado' })).id;
+    await withTenant(T.ctx, (tx) => tx.insert(consultations).values({ tenantId: T.tenantId, patientId: iris, data: somarDias(hoje, -20), retornoPrevistoEm: quarta }), app.db);
+    const nova = `href="/painel/agenda/nova?paciente=${iris}"`;
+    const semMarca = await html({ visao: 'semana', data: hoje });
+    expect(texto(semMarca)).not.toContain('Retorno previsto: Íris Prado');
+    const semana = await html({ visao: 'semana', data: hoje, retorno: '1' });
+    const grade = /<table[^>]*data-testid="agenda-grade"[\s\S]*?<\/table>/.exec(semana)?.[0] ?? '';
+    expect(texto(grade)).toContain('Retorno previsto: Íris Prado');
+    expect(grade).toContain(nova);
+    const lista = /<div[^>]*data-testid="agenda-lista-dias"[\s\S]*$/.exec(semana)?.[0] ?? '';
+    expect(lista).toContain(nova);
+    expect(/<input type="checkbox"[^>]*name="retorno"[^>]*>/.exec(semana)?.[0]).toContain('checked=""');
+    const mes = await html({ visao: 'mes', data: quarta, retorno: '1' });
+    const gradeMes = /<table[^>]*data-testid="agenda-mes"[\s\S]*?<\/table>/.exec(mes)?.[0] ?? '';
+    expect(texto(gradeMes)).toContain('Retorno previsto: Íris Prado');
+    expect(gradeMes).toContain(nova);
+    // M3: na Lista o filtro sai da tela, mas o valor segue (campo oculto)
+    const naLista = await html({ visao: 'lista', data: hoje, retorno: '1' });
+    expect(texto(naLista)).not.toContain('Previsões de retorno');
+    expect(texto(naLista)).not.toContain('Retorno previsto: Íris Prado');
+    expect(naLista).toContain('<input type="hidden" name="retorno" value="1"/>');
   });
 
   it('Lista: o ItemConsulta de sempre, com o local e o tipo; data inválida volta para hoje', async () => {

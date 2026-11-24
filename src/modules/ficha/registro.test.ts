@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DO_PLANO_18, SECOES_DO_PLANO_18 as SECOES_18 } from '../../../test/ficha';
+import { TITULO_SECAO_CONSULTAS } from '@/modules/agenda/status';
 import { SECOES_DA_FICHA } from './secoes';
 import { MSG_FICHA } from './textos';
 import type { ChaveDeAcao, GrupoDoAdicionar } from './tipos';
@@ -38,6 +39,8 @@ const IMPORTS_PERMITIDOS = [
   'drizzle-orm/pg-core',
   // só o `idValido` (NOMES_PERMITIDOS, abaixo)
   '@/modules/pacientes/base',
+  // status.ts é puro: rótulos e STATUS_OCUPA, sem banco nem auditRead (Plano 23, §4.4)
+  '@/modules/agenda/status',
 ];
 /**
  * Módulos da lista em que só alguns nomes podem vir (o resto do módulo fica fora): de `pacientes/base`, só o `idValido`
@@ -161,6 +164,23 @@ describe('registro de seções (RN-277, RN-278)', () => {
 
   it('nenhuma das 8 seções do Plano 18 declara leitura (o Início não grava auditRead delas)', () => {
     expect(SECOES_18.filter((s) => s.leitura)).toEqual([]);
+  });
+
+  it('Plano 23 (§4.4, AG-D74): "Consultas" no fim, título de status.ts (fora de MSG_FICHA.titulos), Início, "Ver todos" na Lista do paciente, sem Adicionar nem leitura', () => {
+    const s = SECOES_DA_FICHA.find((x) => x.id === 'consultas')!;
+    expect(SECOES_DA_FICHA.at(-1)?.id).toBe('consultas');
+    expect(s.titulo).toBe(TITULO_SECAO_CONSULTAS);
+    expect(TITULO_SECAO_CONSULTAS).toBe('Consultas');
+    expect(Object.values(MSG_FICHA.titulos)).not.toContain('Consultas');
+    expect(s.aba).toBe('');
+    expect(s.verTodos?.(UUID)).toBe(`/painel/agenda?visao=lista&paciente=${UUID}`);
+    expect(s.adicionar).toBeUndefined();
+    expect(s.leitura).toBeUndefined();
+    const p = { id: UUID, status: 'arquivado', anonimizadoEm: null };
+    expect(s.disponivel({ fuso: 'America/Sao_Paulo', documentosLiberados: false, examesPacienteAtivadoEm: null }, p, 0)).toBe(true);
+    // da agenda, só o módulo puro: nem consultas.ts (banco), nem visoes.ts, nem retorno.ts
+    const fonte = FONTES.find((x) => x.f === 'consultas.ts')!.src;
+    expect(importsDe(fonte).filter((de) => de.startsWith('@/modules/agenda'))).toEqual(['@/modules/agenda/status']);
   });
 
   it('documentos só com documentosLiberados; envios com o recebimento ligado ou algum envio (RN-192)', () => {

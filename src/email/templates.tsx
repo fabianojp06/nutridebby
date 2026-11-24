@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MSG_FINANCEIRO } from '@/modules/financeiro/constantes';
+import { MSG_ANIVERSARIO } from '@/modules/agenda/constantes';
 import { DESTINO_ROTULO, MSG_AUTORIZACAO, type UsoIA } from '@/modules/ia/constantes';
 import { NOME_IA_NUTRI, RETENCAO_DIAS, RISCO_REVOGADO_MAX_DIAS } from '@/modules/ia/nutri-paciente/constantes';
 import { DESCRICAO_DO_USO } from '@/modules/ia/textos-legais';
@@ -353,8 +354,11 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
           subject: 'Novo paciente via agendamento online',
           linha: `${msg.paciente} marcou uma consulta pela sua página de agendamento para ${msg.quando}. Complete o cadastro (data de nascimento e sexo) antes do atendimento.`,
         },
+        // Plano 23 (§6.2): o pedido leva à fila Solicitações; a retirada só com o primeiro nome
+        pedido: { subject: 'Novo pedido de consulta', linha: `${msg.paciente} pediu ${msg.quando}.` },
+        pedido_desistido: { subject: 'Pedido de consulta retirado', linha: `${msg.paciente} retirou o pedido de ${msg.quando}.` },
       }[msg.evento];
-      return simples(subject, [linha], { href: msg.link, rotulo: 'Ver na agenda' });
+      return simples(subject, [linha], { href: msg.link, rotulo: msg.evento === 'pedido' ? 'Responda em Solicitações' : 'Ver na agenda' });
     }
     case 'codigo_agendamento':
       return simples(`Seu código para agendar com ${msg.nutri}: ${msg.codigo}`, [
@@ -465,6 +469,41 @@ export function renderEmail(msg: EmailMessage): RenderedEmail {
         [MSG_REVISAO.avisoEmail, ...(msg.pendentesAntigos ? [MSG_REVISAO.lembrete30] : [])],
         { href: msg.link, rotulo: 'Ver exames recebidos' },
       );
+    case 'pedido_nao_confirmado':
+      // Plano 23 (RN-428, AG-D23): texto fixo, sem o motivo da recusa; sem link (página pública desligada), só a primeira frase
+      return simples('Seu pedido de consulta não foi confirmado', [`O horário de ${msg.quando} não foi confirmado.`], msg.link ? { href: msg.link, rotulo: 'Escolha outro horário' } : undefined);
+    case 'pedido_recebido':
+      // Plano 23 (RN-426): o mesmo texto para paciente e pessoa nova; só a pessoa nova leva o link de desistência (AG-D42)
+      return simples(
+        'Recebemos seu pedido de consulta',
+        [`Seu pedido para ${msg.quando} foi enviado. Você recebe outro e-mail quando a nutricionista responder.`],
+        msg.linkDesistir ? { href: msg.linkDesistir, rotulo: 'Desistir do pedido' } : undefined,
+      );
+    case 'pedido_nao_confirmado_publico':
+      // Plano 23 (RN-428, AG-D23): o mesmo texto do paciente; o link só com a página pública ligada
+      return simples('Seu pedido de consulta não foi confirmado', [`O horário de ${msg.quando} não foi confirmado.`], msg.link ? { href: msg.link, rotulo: 'Escolha outro horário' } : undefined);
+    case 'aniversario': {
+      // Plano 23 (RN-432, RN-434, §6.2): texto fixo, sem oferta, preço nem dado de saúde; o nome do paciente só no corpo; o
+      // rodapé diz que o envio é automático, a pedido da nutricionista; o link de saída na página e, no cabeçalho, a rota
+      // de um clique (RFC 8058)
+      const subject = MSG_ANIVERSARIO.assunto;
+      const corpo = MSG_ANIVERSARIO.mensagem(msg.nome, msg.nutricionista);
+      const rodape = MSG_ANIVERSARIO.rodape(msg.nutricionista);
+      return {
+        subject,
+        html: html(
+          <Layout titulo={subject}>
+            <P>{corpo}</P>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#52525b' }}>{rodape}</p>
+            <p style={{ margin: 0, fontSize: 13 }}>
+              <a href={msg.link} style={{ color: COR }}>{MSG_ANIVERSARIO.naoQueroMais}</a>
+            </p>
+          </Layout>,
+        ),
+        text: [corpo, rodape, `${MSG_ANIVERSARIO.naoQueroMais}: ${msg.link}`].join('\n\n'),
+        headers: { 'List-Unsubscribe': `<${msg.umClique}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+      };
+    }
     default: {
       const nunca: never = msg;
       throw new Error(`Tipo de e-mail desconhecido: ${String((nunca as { tipo?: string }).tipo)}`);

@@ -94,6 +94,21 @@ export const MSG_PUBLICO = {
   ondeAtender: 'Onde você quer ser atendido?',
   /** Plano 23 (§6.2, US-403): o cabeçalho da página pública — o CRN como gravado; sem CRN, sem a última parte. */
   cabecalho: (nome: string, crn: string | null) => (crn ? `${nome} · Nutricionista · ${crn}` : `${nome} · Nutricionista`),
+  /** Plano 23 (§6.2, RN-426): a tela depois do código com a chave dos pedidos ligada — a mesma para paciente e pessoa nova. */
+  pedidoEnviado: (nome: string) => `Pedido enviado. ${nome} vai confirmar o horário e você recebe um e-mail.`,
+  /** Plano 23 (§6.2, RN-425, RN-426): só depois do código (a dona do e-mail já provou que é ela). */
+  pedidoAguardando: 'Você já tem um pedido aguardando resposta. Espere a resposta antes de pedir outro horário.',
+  /** Plano 23 (§6.2, RN-429, AG-D21): o ponto de coleta, antes de enviar, com a chave ligada (igual ao Termo 1.0). */
+  pontoDeColeta:
+    'Até a resposta, guardamos seu nome, e-mail, telefone e o número de rede (IP) do seu aparelho só para este pedido. Se ele não for aceito ou o horário passar, apagamos esses dados depois de 24 horas, na limpeza diária.',
+  /** Plano 23 (§6.2, AG-D42): a página do link de desistência da pessoa nova. */
+  pedido: {
+    titulo: 'Seu pedido de consulta',
+    pergunta: (quando: string) => `Desistir do pedido de ${quando}?`,
+    desistir: 'Desistir do pedido',
+    cancelado: 'Pedido cancelado.',
+    invalido: 'Este link não é válido.',
+  },
 } as const;
 
 /** Plano 23 (US-400, spec §6.2): rótulos do campo "Tipo" do local. */
@@ -195,4 +210,167 @@ export const MSG_VISOES = {
     /** Fora da §6.2: cabeçalhos da tabela da impressão (os campos da RN-418). */
     colunas: { hora: 'Hora', paciente: 'Paciente', tipoConsulta: 'Tipo', local: 'Local', modalidade: 'Modalidade', situacao: 'Situação' },
   },
+} as const;
+
+/**
+ * Plano 23 (AG-D41): com a chave dos pedidos ligada, o portal e a página pública só oferecem horários que começam pelo
+ * menos `antecedencia_min_h` + 12 h depois de agora — todo pedido dá ao menos 12 h para a resposta. O vencimento continua
+ * em `inicio − antecedencia_min_h` (RN-427).
+ */
+export const JANELA_RESPOSTA_PEDIDO_H = 12;
+
+/**
+ * Plano 23 (US-407 a US-409, spec §6.2 "Solicitações", "Agenda: selos e legenda", "Portal e página pública" e
+ * "Atendimento"): textos dos pedidos de consulta. Vocabulário (AG-D43): no painel, "Pedido a responder"; no portal,
+ * "Aguardando confirmação da nutricionista".
+ */
+export const MSG_SOLICITACOES = {
+  titulo: 'Solicitações',
+  novaPessoa: (nome: string) => `Nova pessoa: ${nome}`,
+  origem: { app: 'App', pagina: 'Página de agendamento' },
+  pedidoEm: (data: string) => `Pedido em ${data}`,
+  respondaAte: (data: string, hora: string) => `Responda até ${data} às ${hora}`,
+  aceitar: 'Aceitar',
+  recusar: 'Recusar',
+  confirmarRecusa: (nome: string) => `Recusar o pedido de ${nome}? A pessoa recebe um e-mail avisando.`,
+  /** T8: as duas partes de `confirmarRecusa` no diálogo (o título e a descrição; juntas, o texto exato da §6.2). */
+  recusaTitulo: (nome: string) => `Recusar o pedido de ${nome}?`,
+  recusaAviso: 'A pessoa recebe um e-mail avisando.',
+  /** §7: os botões repetidos da fila levam o nome no `aria-label`. */
+  aceitarDe: (nome: string) => `Aceitar o pedido de ${nome}`,
+  recusarDe: (nome: string) => `Recusar o pedido de ${nome}`,
+  /** Abas da agenda e cartão do Início (§6.2 "Abas", US-409 "Início do painel"). */
+  aba: (n: number) => `Solicitações (${n})`,
+  /** US-407 (§6.2 "Horários"): a chave em Agenda › Horários. */
+  chave: {
+    titulo: 'Pedidos de consulta',
+    rotulo: 'Confirmar os pedidos antes de marcar',
+    ajuda: 'Os pedidos feitos pelo app e pela página de agendamento esperam a sua resposta em Solicitações.',
+    salva: 'Configuração salva.',
+    /** Fora da §6.2: o botão do formulário da chave (revisão da T8: diz o que salva). */
+    salvar: 'Salvar configuração',
+  },
+  motivo: 'Motivo (só você vê)',
+  confirmarRecusaBotao: 'Confirmar recusa',
+  vazio: 'Nenhum pedido aguardando resposta.',
+  aceito: 'Pedido aceito. Consulta marcada.',
+  recusado: 'Pedido recusado.',
+  horarioOcupado: 'Esse horário já está ocupado. Recuse o pedido ou combine outro horário com a pessoa.',
+  /**
+   * /code-review do PR 3 (I-2): o local do pedido da pessoa nova não serve mais (arquivado, de outro tipo ou online sem sala).
+   * Fora da §6.2: a frase da §9.1 ("Esse horário não está mais disponível") com a orientação de `horarioOcupado`.
+   */
+  localIndisponivel: 'Esse horário não está mais disponível. Recuse o pedido ou combine outro horário com a pessoa.',
+  emailInativo: 'Este e-mail é de um paciente arquivado ou bloqueado. Recuse o pedido ou fale com a pessoa.',
+  mudou: 'Este pedido já foi respondido ou venceu.',
+  pedidoAResponder: 'Pedido a responder',
+  primeiraOnline: 'Primeira consulta online: confira o TCLE de telenutrição antes de atender.',
+  selos: { retirado: 'Pedido retirado pelo paciente', naoAceito: 'Pedido não aceito', vencido: 'Pedido vencido' },
+  portal: {
+    aguardando: 'Aguardando confirmação da nutricionista',
+    naoConfirmado: 'Não confirmado',
+    /** AG-D44: a situação do pedido que o próprio paciente retirou (o aviso da tela é "Pedido cancelado."). */
+    pedidoCancelado: 'Pedido cancelado',
+    pedidoEnviado: 'Pedido enviado. Sua nutricionista vai confirmar o horário e você recebe um e-mail.',
+    desistir: 'Desistir do pedido',
+    desistirConfirma: 'Desistir deste pedido?',
+    cancelado: 'Pedido cancelado.',
+  },
+  atendimento: 'Aceite o pedido antes de registrar o atendimento.',
+} as const;
+
+/** Plano 23 (RN-431): a situação de um aniversariante na lista (US-412). */
+export type SituacaoAniversario = 'pode_receber' | 'sem_autorizacao' | 'menor' | 'ja_enviada' | 'ja_passou' | 'passou_do_horario';
+
+/**
+ * Plano 23 (RN-432, RN-434, RN-435): `{nutricionista}` do e-mail, da página de saída e do WhatsApp — o nome profissional
+ * (Perfil), ou o de exibição quando ele não estiver preenchido; nunca da tabela `user` (regra 1).
+ */
+export const nomeDaNutricionista = (t: { nomeExibicao: string; nomeProfissional: string | null }): string => t.nomeProfissional?.trim() || t.nomeExibicao;
+
+const pluralPacientes = (n: number) => (n === 1 ? '1 paciente' : `${n} pacientes`);
+
+/**
+ * Plano 23 (US-412 a US-414, spec §6.2 "Aniversariantes", "E-mail de aniversário", "Portal: Perfil" e "Saída do
+ * aniversário"): textos do aniversário. Os marcados como "fora da §6.2" vão à tabela na T12. "{n} pacientes" e "{n}
+ * marcados" no singular quando n = 1 (variação de número do texto da §6.2).
+ */
+export const MSG_ANIVERSARIO = {
+  titulo: (mes: string) => `Aniversariantes de ${mes}`,
+  aba: 'Aniversariantes',
+  mesAnterior: 'Mês anterior',
+  proximoMes: 'Próximo mês',
+  colunas: { paciente: 'Paciente', dia: 'Dia', faz: 'Faz', situacao: 'Situação' },
+  situacao: {
+    pode_receber: 'Pode receber',
+    sem_autorizacao: 'Sem autorização',
+    menor: 'Menor de idade',
+    ja_enviada: 'Já enviada este ano',
+    ja_passou: 'Aniversário já passou',
+    passou_do_horario: 'Passou do horário de hoje',
+  } satisfies Record<SituacaoAniversario, string>,
+  envioAbre: (mes: string) => `O envio abre no dia 1º de ${mes}.`,
+  semNascimento: 'Pacientes sem data de nascimento não aparecem nesta lista.',
+  selecionarTodos: 'Selecionar todos',
+  limparSelecao: 'Limpar seleção',
+  marcados: (n: number) => (n === 1 ? '1 marcado' : `${n} marcados`),
+  enviar: 'Enviar mensagem',
+  abrirWhatsapp: 'Abrir no WhatsApp',
+  registrar: 'Registrar autorização',
+  retirar: 'Retirar autorização',
+  comoAutorizou: 'Como o paciente autorizou?',
+  formas: { escrito: 'Por escrito', mensagem: 'Por mensagem', verbal: 'Verbalmente' },
+  confirmacao: 'O paciente autorizou receber mensagens de aniversário. Guarde o comprovante.',
+  textoPadrao: 'Texto padrão do NutriDebby, enviado em seu nome',
+  vaiPara: (n: number) => `Vai para ${pluralPacientes(n)} por e-mail, às 9h do dia do aniversário.`,
+  saemAgora: (n: number) => `${n} de hoje saem agora.`,
+  agendadas: (n: number) => `Mensagens agendadas: ${n}.`,
+  vazio: 'Nenhum aniversariante neste mês.',
+  menor: 'Menor de idade',
+  /** Início do painel (US-412). */
+  inicio: (n: number) => `Aniversariantes de hoje (${n})`,
+  /** Fora da §6.2: o link do cartão do Início (como "Abrir Diários"). */
+  abrir: 'Abrir Aniversariantes',
+  /** E-mail (RN-432): o nome do paciente só no corpo. */
+  assunto: 'Uma mensagem da sua nutricionista',
+  /** O texto fixo do e-mail e do WhatsApp (RN-432, RN-435). */
+  mensagem: (primeiroNome: string, nutri: string) => `Feliz aniversário, ${primeiroNome}! ${nutri} deseja a você um novo ano com muita saúde.`,
+  rodape: (nutri: string) => `Mensagem enviada pelo NutriDebby a pedido de ${nutri}.`,
+  naoQueroMais: 'Não quero mais receber mensagens de aniversário',
+  portal: {
+    titulo: 'Receber mensagem de aniversário da sua nutricionista',
+    // texto provisório (AG-D78): a Debby revisa
+    ajuda: 'Uma mensagem por ano, por e-mail (e, se a sua nutricionista quiser, pelo WhatsApp dela), no dia do seu aniversário. Usamos seu nome, sua data de nascimento, seu e-mail e seu telefone. Você pode desligar quando quiser, aqui ou pelo link no próprio e-mail.',
+    autorizar: 'Autorizar',
+    retirar: 'Retirar autorização',
+    autorizadoEm: (data: string) => `Autorizado em ${data}`,
+    naoAutorizado: 'Não autorizado',
+    menor: 'Menor de idade',
+    erro: 'Não foi possível salvar. Tente de novo.',
+  },
+  saida: {
+    titulo: 'Mensagens de aniversário',
+    pergunta: (nutri: string) => `Você não quer mais receber mensagens de aniversário de ${nutri}?`,
+    confirmar: 'Confirmar',
+    pronto: 'Pronto. Você não vai mais receber mensagens de aniversário.',
+    invalido: 'Este link não é válido.',
+  },
+  /** Fora da §6.2: erros do registro da autorização (o diálogo mostra junto dos campos). */
+  formaObrigatoria: 'Escolha como o paciente autorizou.',
+  confirmeAutorizacao: 'Confirme que o paciente autorizou.',
+  naoPodeAutorizar: 'Só paciente ativo pode autorizar mensagens de aniversário.',
+  /** Fora da §6.2: a volta das ações da linha (região de status da tela). */
+  autorizacaoRegistrada: 'Autorização registrada.',
+  autorizacaoRetirada: 'Autorização retirada.',
+  /** Fora da §6.2: nomes acessíveis (botões repetidos com o nome; colunas sem título visível; navegação e prévia). */
+  selecionar: (nome: string) => `Selecionar ${nome}`,
+  registrarDe: (nome: string) => `Registrar autorização de ${nome}`,
+  retirarDe: (nome: string) => `Retirar autorização de ${nome}`,
+  whatsappDe: (nome: string) => `Abrir no WhatsApp: ${nome}`,
+  colunaSelecao: 'Selecionar',
+  colunaAcoes: 'Ações',
+  navegacaoDoMes: 'Meses',
+  previa: 'Prévia da mensagem',
+  /** Fora da §6.2: na prévia, o lugar do primeiro nome de cada paciente. */
+  primeiroNomeNaPrevia: '{primeiro nome}',
 } as const;

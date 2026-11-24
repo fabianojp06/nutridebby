@@ -10,6 +10,7 @@ import { lerBloqueios, lerRegras, type BloqueioSalvo, type RegraSalva } from './
 import { dataDaAgendaOuHoje, inicioDoDia, partesNoFuso, somarDias } from './fuso';
 import { sobrepoe } from './horarios';
 import { garantirLocaisIniciais } from './locais';
+import { previsoesDeRetorno } from './retorno';
 import { SELO_PRESENCA_A_REGISTRAR, selosDaConsulta, sqlEhRetorno } from './status';
 
 /**
@@ -19,11 +20,14 @@ import { SELO_PRESENCA_A_REGISTRAR, selosDaConsulta, sqlEhRetorno } from './stat
  * D10). Só a sessão da nutricionista (RN-400).
  */
 
-/** AG-D73: no PR 2 não há onde preencher a previsão de retorno; a T9 liga o marcador e o filtro "Previsões de retorno". */
-export const MARCADOR_RETORNO_LIGADO = false;
+/**
+ * AG-D73: o filtro "Previsões de retorno" e o item "Retorno previsto" da legenda. No PR 2 não havia onde preencher a
+ * previsão; a T9 (campo no atendimento, `retorno.ts`) ligou.
+ */
+export const MARCADOR_RETORNO_LIGADO = true;
 
-/** AG-D72: o pedido `solicitada` só existe a partir da T6/T8, que liga esta marca (e o rótulo "Pedido a responder" da legenda). */
-export const PEDIDOS_NA_AGENDA = false;
+/** AG-D72: o pedido `solicitada` existe a partir da T6/T8; a T8 ligou esta marca (o rótulo "Pedido a responder" da legenda). */
+export const PEDIDOS_NA_AGENDA = true;
 
 /** Teto de consultas de uma tela (a Lista do paciente cobre 12 meses; o Mês de um consultório cheio, ~200). */
 const LIMITE_DE_CONSULTAS = 5000;
@@ -195,12 +199,14 @@ export async function agendaDoPeriodoNaTransacao(tx: Tx, tenant: Pick<TenantAgen
     return { ...c, tipoConsulta: retorno ? 'retorno' : 'primeira', selos };
   });
   const aniversarios = f.aniversario && f.visao !== 'lista' ? await aniversariosDoPeriodo(tx, periodo.dias, f.paciente) : [];
-  return { itens, bloqueios, retornos: [], aniversarios, regras, periodo, opcoes: await opcoesDosFiltros(tx, f) };
+  // RN-430: o marcador vale nos dias da visão (fora da Lista), para qualquer local — a previsão não tem local
+  const retornos = MARCADOR_RETORNO_LIGADO && f.retorno && f.visao !== 'lista' ? await previsoesDeRetorno(tx, periodo.de, periodo.ate, { patientId: f.paciente }, agora) : [];
+  return { itens, bloqueios, retornos, aniversarios, regras, periodo, opcoes: await opcoesDosFiltros(tx, f) };
 }
 
 /**
- * A agenda de uma visão (US-404, US-405). Marcadores só quando ligados: "Aniversário" (fora da Lista) e "Retorno previsto"
- * (só com `MARCADOR_RETORNO_LIGADO`; no PR 2, sempre `[]`). Sem `auditRead` (AG-D30), inclusive com o filtro de paciente.
+ * A agenda de uma visão (US-404, US-405). Marcadores só quando ligados, fora da Lista: "Aniversário" e "Retorno previsto"
+ * (`previsoesDeRetorno`, RN-430). Sem `auditRead` (AG-D30), inclusive com o filtro de paciente.
  */
 export async function agendaDoPeriodo(ctx: TenantContext, tenant: Pick<TenantAgenda, 'id' | 'fuso' | 'enderecoConsultorio'>, f: FiltrosDaAgenda, deps: { db?: Db; agora?: Date } = {}): Promise<AgendaDoPeriodo> {
   if (ctx.role !== 'nutri') throw new Error('agenda: só a sessão nutri'); // RN-400, antes de abrir a transação

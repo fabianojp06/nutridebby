@@ -6,7 +6,7 @@ import type { AtendimentoState } from './actions';
 
 type Props = {
   acao: (prev: AtendimentoState, formData: FormData) => Promise<AtendimentoState>;
-  inicial: { data: string; notasPrivadas: string; orientacoes: string };
+  inicial: { data: string; notasPrivadas: string; orientacoes: string; retornoPrevistoEm: string; retornoSemanas?: string };
   hoje: string;
   botao: string;
   somenteLeitura: boolean;
@@ -43,6 +43,26 @@ export function AtendimentoForm({ acao, inicial, hoje, botao, somenteLeitura, co
             aria-invalid={e.orientacoes ? true : undefined} aria-describedby={e.orientacoes ? 'orientacoes-dica orientacoes-erro' : 'orientacoes-dica'} />
           {erro('orientacoes')}
         </div>
+        {/* Plano 23 (US-410, RN-430, §6.2): a data ou "Em {n} semanas" (contadas da data do atendimento; preenchidas, valem) */}
+        <fieldset className="space-y-2">
+          <legend className="font-medium">Retorno previsto (opcional)</legend>
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+            <div className="space-y-1">
+              <label htmlFor="retornoPrevistoEm" className="block">Data</label>
+              <input id="retornoPrevistoEm" name="retornoPrevistoEm" type="date" defaultValue={v.retornoPrevistoEm ?? ''} className="rounded-xl border border-campo bg-cartao p-2 text-texto" {...aria('retornoPrevistoEm')} />
+            </div>
+            <span className="pb-2 text-suave">ou</span>
+            {/* nome acessível completo mesmo com o campo vazio (o rótulo visível envolve o campo: "Em [n] semanas") */}
+            <label htmlFor="retornoSemanas" className="inline-flex min-h-11 items-center gap-2">
+              Em
+              <input id="retornoSemanas" name="retornoSemanas" type="number" inputMode="numeric" min={1} max={104} step={1} defaultValue={v.retornoSemanas ?? ''} className="w-20 rounded-xl border border-campo bg-cartao p-2 text-texto"
+                aria-label="Em quantas semanas" aria-invalid={e.retornoPrevistoEm ? true : undefined} aria-describedby={e.retornoPrevistoEm ? 'retornoSemanas-dica retornoPrevistoEm-erro' : 'retornoSemanas-dica'} />
+              semanas
+            </label>
+          </div>
+          <p id="retornoSemanas-dica" className="text-sm text-suave">Se preencher as semanas, elas valem no lugar da data.</p>
+          {erro('retornoPrevistoEm')}
+        </fieldset>
       </fieldset>
       {e.geral && <p role="alert" className="text-erro">{e.geral}</p>}
       {state.ok && <p role="status">Atendimento salvo.</p>}

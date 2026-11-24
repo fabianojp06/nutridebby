@@ -8,7 +8,14 @@ import { PacienteBloqueadoError, PacienteNaoEncontradoError } from '@/modules/pa
 
 export type AtendimentoState = { erros?: Record<string, string>; valores?: Record<string, string>; ok?: boolean };
 
-const valoresDo = (f: FormData) => ({ data: String(f.get('data') ?? ''), notasPrivadas: String(f.get('notasPrivadas') ?? ''), orientacoes: String(f.get('orientacoes') ?? '') });
+const valoresDo = (f: FormData) => ({
+  data: String(f.get('data') ?? ''),
+  notasPrivadas: String(f.get('notasPrivadas') ?? ''),
+  orientacoes: String(f.get('orientacoes') ?? ''),
+  // Plano 23 (US-410): "Retorno previsto (opcional)" — a data ou "Em {n} semanas"
+  retornoPrevistoEm: String(f.get('retornoPrevistoEm') ?? ''),
+  retornoSemanas: String(f.get('retornoSemanas') ?? ''),
+});
 
 function tratar(e: unknown, valores: Record<string, string>): AtendimentoState {
   if (e instanceof AtendimentoError) return { erros: e.erros, valores };

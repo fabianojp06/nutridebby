@@ -106,8 +106,8 @@ describe('filtros na URL (RN-411, I-05)', () => {
     expect(lerFiltros(volta, '2026-11-17')).toEqual({ ...f, data: '2026-11-23', retorno: false });
     expect(hrefDaAgenda({ visao: 'lista' })).toBe('/painel/agenda?visao=lista');
   });
-  it('o marcador de previsão de retorno nasce desligado (a T9 liga, AG-D73)', () => {
-    expect(MARCADOR_RETORNO_LIGADO).toBe(false);
+  it('o marcador de previsão de retorno está ligado (a T9 ligou, AG-D73)', () => {
+    expect(MARCADOR_RETORNO_LIGADO).toBe(true);
   });
 });
 
@@ -126,6 +126,31 @@ describe('agendaDoPeriodo (US-404, US-405)', () => {
     expect(por.get(C.c.ana)?.selos).toEqual(['Agendada']);
     expect(r.retornos).toEqual([]);
     expect(r.aniversarios).toEqual([]); // marcador desligado
+  });
+
+  it('US-410: "Previsões de retorno" liga o marcador (previsoesDeRetorno, RN-430) nos dias da visão; fora da Lista; sem trilha', async () => {
+    const T = await novoTenant(app.db);
+    const eva = (await novoPaciente(app.db, T.ctx, { nome: 'Eva Melo' })).id;
+    const fabio = (await novoPaciente(app.db, T.ctx, { nome: 'Fábio Nunes' })).id;
+    await withTenant(T.ctx, (tx) => tx.insert(consultations).values([
+      { tenantId: T.tenantId, patientId: eva, data: '2026-10-01', retornoPrevistoEm: '2026-11-19' },
+      { tenantId: T.tenantId, patientId: fabio, data: '2026-10-01', retornoPrevistoEm: '2026-11-20' },
+    ]), app.db);
+    await consultaDireta(app.db, T.ctx, fabio, em('2026-12-01', '10:00'), 60); // com consulta futura: sem marcador
+    // AG-D76: previsão para 19/11 e um atendimento mais novo sem previsão → sem marcador
+    const gil = (await novoPaciente(app.db, T.ctx, { nome: 'Gil Prado' })).id;
+    await withTenant(T.ctx, (tx) => tx.insert(consultations).values([
+      { tenantId: T.tenantId, patientId: gil, data: '2026-10-01', retornoPrevistoEm: '2026-11-19' },
+      { tenantId: T.tenantId, patientId: gil, data: '2026-11-05' },
+    ]), app.db);
+    const antes = await linhasDeAuditoria(T);
+    expect((await agendaDoPeriodo(T.ctx, tenantAgenda(T), filtros(), deps)).retornos).toEqual([]);
+    expect((await agendaDoPeriodo(T.ctx, tenantAgenda(T), filtros({ retorno: true }), deps)).retornos).toEqual([{ patientId: eva, nome: 'Eva Melo', data: '2026-11-19' }]);
+    expect((await agendaDoPeriodo(T.ctx, tenantAgenda(T), filtros({ retorno: true, visao: 'mes' }), deps)).retornos).toEqual([{ patientId: eva, nome: 'Eva Melo', data: '2026-11-19' }]);
+    expect((await agendaDoPeriodo(T.ctx, tenantAgenda(T), filtros({ retorno: true, visao: 'dia', data: '2026-11-18' }), deps)).retornos).toEqual([]);
+    expect((await agendaDoPeriodo(T.ctx, tenantAgenda(T), filtros({ retorno: true, visao: 'lista' }), deps)).retornos).toEqual([]);
+    expect((await agendaDoPeriodo(T.ctx, tenantAgenda(T), filtros({ retorno: true, paciente: fabio }), deps)).retornos).toEqual([]);
+    expect(await linhasDeAuditoria(T)).toBe(antes);
   });
 
   it('o mesmo critério de tiposDasConsultas (sqlEhRetorno), numa consulta só', async () => {

@@ -576,3 +576,35 @@ Plano 23, re-revisão escopada das correções do /code-review do PR 2 (24/11/20
 - Defesa no servidor mais larga que o gatilho que ela espelha (gatilho só age na troca de local; o código grava a sala
   sempre): sobrescreve, sem a nutricionista ver, um link antigo ≠ sala atual. Cruzar o "quando" do gatilho com o do código.
 - Fallback "resolver pelo único candidato" (local do pedido sem local): conferir que o teste cobre o caso ambíguo (>1).
+Plano 23, T6 (solicitada, vencimento, 23/11/2026): sem Critical/Important na lente banco (travas paciente → consulta, tenant
+consultivo no começo do portal, RETURNING decide, vencimento por pedido com try/catch, gatilho conversa com o módulo).
+- Teste de "ordem de travas sem 40P01" num fluxo embrulhado em `repetirSeDeadlock`: a ordem errada vira 40P01 → nova
+  tentativa → o teste ainda pode passar (só pela mensagem/tempo). Pedir prova direta: numa 3ª conexão, `FOR UPDATE NOWAIT`
+  no paciente enquanto o fluxo espera a trava do tenant (tem de conseguir).
+- Guarda de texto de status (status-guarda) cobre `<>|not in|in` no SQL, mas não `!=` nem `=` cru, alias de tabela,
+  `${'x'}` parametrizado nem `.includes(x.status)`: no SQL o typecheck não ajuda — pedir os bypass no controle positivo.
+- Trava consultiva do tenant tomada "só pela ordem" (remarcação) sem a reconferência que justifica a trava
+  (`app_pedidos_aguardando` sob ela): conferir se todo caminho que toma a trava faz a checagem que ela serializa.
+Plano 23, T7 (pessoa nova pela página pública, 23/11/2026): sem Critical/Important; travas e-mail → tenant → pedido ok,
+corrida provada com NOWAIT no paciente e o aceite sem máscara de 40P01.
+- Interruptor lido no TS (decide o caminho) e relido pelo gatilho na MESMA transação, sem trava comum com quem o muda: no
+  meio, os dois leem valores diferentes (aqui: cadastro novo com consulta `solicitada`). Pedir que a escrita do interruptor
+  tome a mesma trava consultiva que o leitor segura (ou FOR SHARE na linha lida).
+- Limpeza LGPD que só apaga depois de OUTRO job marcar o estado final (vencer → resolvido_em): a linha que nunca resolve
+  (falha repetida) fica para sempre, contra a frase do ponto de coleta. Pedir a rede pela data do próprio dado.
+- GET "só mostra" que chama função SECURITY DEFINER com trava consultiva do tenant + FOR UPDATE, sem limite por IP.
+Plano 23, T9 (previsão de retorno e seção Consultas, 24/11/2026): sem Critical/Important na lente banco.
+- Duas leituras do mesmo "sem consulta futura" com janelas diferentes (seção da ficha limitada à Lista de 12 meses ×
+  marcador sem teto): com consulta só depois de 12 meses, a ficha diz "Retorno previsto" e a agenda não. Cruzar o predicado.
+- Guarda de texto "a IA não cita a coluna X" não pega `select()` sem colunas (resumo-dados.ts lê a linha inteira de
+  `consultations`): a coluna entra na memória do módulo da IA sem o nome no fonte. Pedir prova pelo payload montado.
+- CHECK entre duas colunas editáveis (previsão × data) protegido só no módulo novo: na volta atrás, a imagem antiga edita
+  a data sem conhecer a previsão → 23514 com a linha (orientações) no log do Postgres. Pedir registro no §6.8.1.
+Plano 23, T10 (aniversariantes, 24/11/2026): sem Critical/Important na lente banco (semConta só no link, helper não
+exportado, trava do paciente nos três canais, ON CONFLICT idêntico ao índice, anonimização com controle positivo).
+- Índice "um por ano" com o ano em UTC (`timezone('UTC', agendada_para)`) × ano do consultório: a linha "sai agora" com
+  `agendada_para = agora` à noite de 31/12 num fuso a oeste de -3 (Manaus, Rio Branco) cai no balde do ano seguinte e
+  bloqueia a mensagem do ano que vem; a nova tentativa (agora + espera) também pode cruzar. Conferir todo valor gravado na
+  coluna da expressão do índice, não só o agendamento das 9h. Correção barata: gravar o instante das 9h locais (já vencido).
+- Frase do CLAUDE.md "semConta só para gravar X" enquanto o módulo também LÊ no semConta (GET da página do link): pedir o
+  ajuste do texto no fechamento.

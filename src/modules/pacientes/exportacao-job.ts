@@ -6,6 +6,7 @@ import { fromDrizzle, type PgBoss } from 'pg-boss';
 import type { Db, Tx } from '@/db/client';
 import {
   anamneses,
+  aniversarioAutorizacoes,
   anthropometry,
   appointments,
   consents,
@@ -267,7 +268,8 @@ export type DadosExportacao = {
     mostradoNoAppEm: string | null;
   }[];
   /** Só as orientações: notas privadas (staff_only) nunca saem (US-016). */
-  atendimentos: { data: string; orientacoes: string | null }[];
+  /** Plano 23 (RN-438): a previsão de retorno do atendimento (a exportação lista as colunas de `consultations` à mão). */
+  atendimentos: { data: string; orientacoes: string | null; retornoPrevistoEm: string | null }[];
   /** Planos alimentares: todas as versões; o rascunho só no escopo da equipe. Publicado/arquivado com os valores congelados (D10). */
   planos: {
     versao: number;
@@ -387,6 +389,12 @@ export type DadosExportacao = {
    * cancelamento inclusive; nunca quem lançou nem quem cancelou (dado da equipe). fin_lancamentos é staff_only: inclusão explícita.
    */
   financeiro: FinanceiroExportado[];
+  /**
+   * Plano 23 (RN-438): a autorização de mensagens de aniversário — cada evento (autorizou, retirou), a origem (nutri, app,
+   * link), a forma (só na da nutricionista) e a data; nunca quem registrou. Nos dois escopos. No JSON, logo antes de
+   * `financeiro` (a última seção, Plano 20).
+   */
+  aniversario: { evento: string; origem: string; forma: string | null; data: string }[];
 };
 
 /**
@@ -520,7 +528,7 @@ export async function montarDados(
     notasPorExame.set(n.examId, lista);
   }
   const at = await tx
-    .select({ data: consultations.data, orientacoes: consultations.orientacoesPaciente })
+    .select({ data: consultations.data, orientacoes: consultations.orientacoesPaciente, retornoPrevistoEm: consultations.retornoPrevistoEm })
     .from(consultations)
     .where(eq(consultations.patientId, patientId))
     .orderBy(asc(consultations.data));
@@ -588,6 +596,12 @@ export async function montarDados(
   const iaNutri = await iaNutriParaExportacao(tx, patientId, escopo);
   // Plano 20 (US-307): a situação no dia da exportação, no fuso do consultório (RN-305)
   const financeiro = await financeiroParaExportacao(tx, patientId, hojeNoFuso(fuso, now));
+  // Plano 23 (RN-438): os eventos da autorização de aniversário, do mais antigo ao mais novo (sem `registrado_por`)
+  const aniv = await tx
+    .select({ evento: aniversarioAutorizacoes.evento, origem: aniversarioAutorizacoes.origem, forma: aniversarioAutorizacoes.forma, em: aniversarioAutorizacoes.registradoEm })
+    .from(aniversarioAutorizacoes)
+    .where(eq(aniversarioAutorizacoes.patientId, patientId))
+    .orderBy(asc(aniversarioAutorizacoes.registradoEm), asc(aniversarioAutorizacoes.id));
   // O termo em papel no ZIP: a data do ato (no fuso do consultório, como a escolhida no registro) e a ordem entre os
   // termos — sem texto do usuário (regra 9)
   let nTermo = 0;
@@ -772,6 +786,7 @@ export async function montarDados(
     }),
     iaNutri,
     laudosForaDoZip: false,
+    aniversario: aniv.map((a) => ({ evento: a.evento, origem: a.origem, forma: a.forma, data: a.em.toISOString() })),
     financeiro,
   };
   // Plano 10A: o PDF assinado (nunca o preparado) em documentos/, no mesmo teto dos laudos
