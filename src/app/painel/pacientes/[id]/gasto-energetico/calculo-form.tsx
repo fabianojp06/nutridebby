@@ -65,7 +65,8 @@ export function CalculoForm({ acao, sexo, idade, pesoKg, alturaCm }: Props) {
               return (
                 <tr key={fo.id} className="border-t border-linha">
                   <td>
-                    <input id={`formula-${fo.id}`} name="formula" type="radio" value={fo.id} checked={formula === fo.id} onChange={() => setFormula(fo.id)} />
+                    {/* SUS-108: `defaultChecked` do estado — o reset automático depois de um erro voltava a "Mifflin-St Jeor" */}
+                    <input id={`formula-${fo.id}`} name="formula" type="radio" value={fo.id} defaultChecked={formula === fo.id} onChange={() => setFormula(fo.id)} />
                   </td>
                   <td><label htmlFor={`formula-${fo.id}`}>{fo.nome}</label></td>
                   <td>{t === undefined ? '—' : String(kcal(t))}</td>

@@ -6,6 +6,8 @@ import type { AgendaState } from './actions';
 
 export function AgendarForm({ acao, horarios, temOnline, rotulo }: { acao: (s: AgendaState, f: FormData) => Promise<AgendaState>; horarios: HorarioVisivel[]; temOnline: boolean; rotulo: string }) {
   const [s, enviar, enviando] = useActionState<AgendaState, FormData>(acao, {});
+  // SUS-108: `defaultChecked` do estado (o React o atualiza a cada renderização): o reset automático depois da action mantém
+  // a modalidade escolhida, a mesma que filtra os horários; `checked` controlado voltava a "Presencial".
   const [mod, setMod] = useState<Modalidade>('presencial');
   return (
     <form action={enviar} className="space-y-3">
@@ -14,7 +16,7 @@ export function AgendarForm({ acao, horarios, temOnline, rotulo }: { acao: (s: A
           <legend className="font-medium">Escolha a modalidade</legend>
           {(['presencial', 'online'] as const).map((m) => (
             <label key={m} className="mr-4 inline-flex min-h-11 items-center gap-2">
-              <input type="radio" name="modalidade" value={m} checked={mod === m} onChange={() => setMod(m)} /> {m === 'presencial' ? 'Presencial' : 'Online'}
+              <input type="radio" name="modalidade" value={m} defaultChecked={mod === m} onChange={() => setMod(m)} /> {m === 'presencial' ? 'Presencial' : 'Online'}
             </label>
           ))}
         </fieldset>

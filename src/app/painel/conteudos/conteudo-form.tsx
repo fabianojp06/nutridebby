@@ -64,7 +64,8 @@ export function ConteudoForm({ tipo, inicial, opcoes, acao, botao }: Props) {
         <legend className="font-medium">Quem vê</legend>
         {VISIBILIDADES.map((x) => (
           <label key={x} className="flex items-center gap-2">
-            <input type="radio" name="visibilidade" value={x} checked={visibilidade === x} onChange={() => setVisibilidade(x)} />
+            {/* SUS-108: `defaultChecked` do estado — o reset automático depois de um erro mantém o "Quem vê" que abre a lista */}
+            <input type="radio" name="visibilidade" value={x} defaultChecked={visibilidade === x} onChange={() => setVisibilidade(x)} />
             {ROTULO_VISIBILIDADE[x]}
           </label>
         ))}

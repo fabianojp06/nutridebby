@@ -2,6 +2,7 @@
 
 import { startTransition, useActionState, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Botao } from '@/components/ui/botao';
+import { semResetAutomatico } from '@/lib/form-sem-reset';
 import type { ConfigAgua, ConfigHorarios, ConfigRefeicoes, DiaDaSemana, LembreteNovo } from '@/modules/lembretes/config';
 import { INTERVALOS_AGUA, MAX_HORARIOS, rotuloDoIntervalo, TEXTO_MAX } from '@/modules/lembretes/constantes';
 import { salvarLembreteAction, type FormLembreteState } from './actions';
@@ -171,9 +172,11 @@ function Texto({ id, tipo, valor, erro, aoMudar }: { id: string; tipo: 'suplemen
 export type LembreteDoFormulario = LembreteNovo & { id?: string };
 
 /**
- * Plano 17 (Tarefa 5): o formulário de um lembrete (novo ou edição). Tudo controlado (o React 19 reseta campos não
- * controlados depois de cada action: um erro nunca apaga o que foi digitado); `noValidate`, para valerem as mensagens
- * pt-BR do servidor. `nome`: o fim do nome acessível do "Salvar" ("lembrete de água", "suplemento Vitamina D").
+ * Plano 17 (Tarefa 5): o formulário de um lembrete (novo ou edição). Tudo controlado, com o reset automático do React 19
+ * cancelado (`semResetAutomatico`, SUS-108): o erro não muda a `envio` (o formulário não se remonta, para o foco ficar no
+ * Salvar), e o `form.reset()` depois da action levava cada <select> à opção do HTML do servidor (ou à primeira) e os
+ * dias aos da montagem — o próximo envio mandava o que a tela mostrava, não o que foi escolhido. `noValidate`, para valerem
+ * as mensagens pt-BR do servidor. `nome`: o fim do nome acessível do "Salvar" ("lembrete de água", "suplemento Vitamina D").
  */
 export function FormLembrete({
   patientId,
@@ -250,7 +253,7 @@ export function FormLembrete({
   }
 
   return (
-    <form key={state.envio} action={enviar} noValidate className="space-y-4">
+    <form key={state.envio} ref={semResetAutomatico} action={enviar} noValidate className="space-y-4">
       <input type="hidden" name="tipo" value={tipo} />
       <input type="hidden" name="id" value={inicial.id ?? ''} />
       <div ref={primeiro} className="space-y-4">{campos}</div>

@@ -3,6 +3,7 @@
 import { useActionState, useId, useState } from 'react';
 import { Dialogo } from '@/components/dialogo';
 import { Botao } from '@/components/ui/botao';
+import { semResetAutomatico } from '@/lib/form-sem-reset';
 import type { NomeParaComecar } from '@/modules/exames/catalogo';
 import { MSG_EXAMES } from '@/modules/exames/constantes';
 import { adicionarNomesParaComecarAction, type NomesParaComecarState } from './actions';
@@ -14,7 +15,9 @@ const C = MSG_EXAMES.catalogo;
  * lista fora do catálogo) e o `Dialogo` com a lista — nada marcado, "Selecionar todos" e "Adicionar ao catálogo". O
  * `<form>` fica dentro do diálogo. Depois de adicionar, a action volta à lista com um marcador novo (`marcador`): o
  * diálogo fecha sozinho (o aberto vale só para o marcador em que foi aberto) e o corpo dele é montado de novo (`key`),
- * sem as marcas; o foco volta ao botão — ou, se a lista acabou e o botão saiu, ao título da tela (`idTitulo`).
+ * sem as marcas; o foco volta ao botão — ou, se a lista acabou e o botão saiu, ao título da tela (`idTitulo`). As caixas
+ * são controladas e o reset automático do React 19 fica cancelado (`semResetAutomatico`, SUS-108): no erro (mesmo
+ * marcador, sem remontagem) o `form.reset()` desmarcava as caixas com o estado ainda marcado.
  */
 export function NomesParaComecar({ faltando, marcador, idTitulo }: { faltando: Pick<NomeParaComecar, 'nome' | 'componentes'>[]; marcador: string; idTitulo: string }) {
   const [abertoEm, setAbertoEm] = useState<string | null>(null);
@@ -62,6 +65,7 @@ function ListaDeNomes({ aberto, aoFechar, faltando, idTitulo }: { aberto: boolea
     >
       <form
         id={idForm}
+        ref={semResetAutomatico}
         action={action}
         onSubmit={(e) => {
           if (pendente) e.preventDefault();

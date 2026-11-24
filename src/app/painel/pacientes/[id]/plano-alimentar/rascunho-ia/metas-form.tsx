@@ -144,7 +144,8 @@ export function MetasForm({ acao, inicial }: { acao: Acao; inicial: { metaKcal: 
         {erro('restricoes') && <p id="restricoes-erro" role="alert" className="text-sm text-erro">{erro('restricoes')}</p>}
       </div>
       <div className="flex min-h-11 items-center gap-2">
-        <input type="checkbox" id="considerarAnamnese" name="considerarAnamnese" checked={anamnese} onChange={(e) => setAnamnese(e.target.checked)} className="size-5" />
+        {/* SUS-108: `defaultChecked` do estado — o reset automático depois de um erro voltava a marcar a caixa desmarcada */}
+        <input type="checkbox" id="considerarAnamnese" name="considerarAnamnese" defaultChecked={anamnese} onChange={(e) => setAnamnese(e.target.checked)} className="size-5" />
         <label htmlFor="considerarAnamnese" className="inline-flex min-h-11 items-center">{MSG_RASCUNHO_IA.considerarAnamnese}</label>
       </div>
       <Botao disabled={enviando} aria-describedby={[comErroDeCampo && 'rascunho-campos', s.erro && 'rascunho-erro'].filter(Boolean).join(' ') || undefined}>{MSG_RASCUNHO_IA.gerar}</Botao>
