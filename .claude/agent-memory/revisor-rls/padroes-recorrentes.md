@@ -552,3 +552,9 @@ Plano 23, T4 (local fora do painel, 23/11/2026): sem Critical; módulos limpos (
   import, `schema.appointments`, alias de `locaisAtendimento`, `.returning()` sem colunas no INSERT do publico (devolve a sala
   copiada pelo gatilho), `sql` cru e ctx publico numa const. Controle positivo só com os casos que a guarda já pega não prova
   nada sobre o resto: pedir no controle os casos de bypass, não só os acertos.
+Plano 23, revisão final do PR 2 (locais e visões, 24/11/2026): sem Critical; projeções e sala limpas. Repetiram:
+- Página GET que grava `exportar` no render (impressão) sem a guarda de origem que a main já usa (`navegacaoDaPropriaOrigem`,
+  relatórios/imprimir e CSVs): spec escrita antes do molde. Em toda rota/página nova que grava no GET, procurar o molde na main.
+- Impressão com filtro por paciente gravando `exportar` sem `patient_id` enquanto a main (RN-493, Ranking) grava um por titular.
+- Runbook da volta atrás que lista só os efeitos de ESCRITA da imagem antiga: esquecer o que ela OFERECE e MOSTRA sobre o dado
+  novo (horários de local sem agendamento/arquivado, endereço do Perfil nas mensagens, teto antigo de regras).

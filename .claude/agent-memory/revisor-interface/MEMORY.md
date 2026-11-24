@@ -30,3 +30,4 @@
 - [Comportamento prometido ao E2E](feedback_comportamento-prometido-ao-e2e.md) — unitário delega ao E2E que não cobre; autoFocus em dialog só vale no HTML do servidor
 - [Locais T2 (Plano 23)](feedback_locais-t2-plano23.md) — lista com redirect sem foco no h1 (precedente FocoNoTitulo existe); texto de link padrao velho entre tarefas
 - [Rodapé fixo corta linha na impressão](feedback_impressao-rodape-fixo-corta-linha.md) — print:fixed cobre a última linha por página (verificado em PDF); tfoot resolve
+- [PR 2 do Plano 23, revisão final](feedback_pr2-plano23-revisao-final.md) — 0C/0I; Minors: useState fora do key, GET form + Limpar, aria-label x rótulo, guia velho
